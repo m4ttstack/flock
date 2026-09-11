@@ -44,6 +44,9 @@ final class FakeHerdrServer: @unchecked Sendable {
     // One-shot: consumed by the next request for that method, then cleared,
     // falling through to `respondBehaviors` afterward.
     private var pendingFailures: [String: (code: String, message: String)] = [:]
+    // One-shot per method, like pendingFailures: consumed by the next request
+    // for that method, so a held connection can't wedge every later request.
+    private var holds: [String: DispatchSemaphore] = [:]
     private var storedReceivedRequests: [(method: String, paramsJSON: String)] = []
     private var storedAcceptedConnectionCount = 0
     private var subscriberFDs: Set<Int32> = []
@@ -84,6 +87,15 @@ final class FakeHerdrServer: @unchecked Sendable {
         lock.withLock { pendingFailures[method] = (code: code, message: message) }
     }
 
+    /// Blocks the connection thread for the next request matching `method`
+    /// until the returned closure runs, so a test can pin an exact
+    /// interleaving against an already-open subscription stream.
+    func holdNext(method: String) -> () -> Void {
+        let sem = DispatchSemaphore(value: 0)
+        lock.withLock { holds[method] = sem }
+        return { sem.signal() }
+    }
+
     func pushEventLine(_ json: String) {
         let fds = lock.withLock { subscriberFDs }
         for fd in fds where !writeLine(json, to: fd) {
@@ -92,6 +104,17 @@ final class FakeHerdrServer: @unchecked Sendable {
     }
 
     func start() throws {
+        try bindAndListen()
+    }
+
+    /// Rebinds to the same `socketPath` after `stop()`, simulating the
+    /// daemon bouncing without the client's target address changing.
+    func restart() throws {
+        try FileManager.default.createDirectory(atPath: socketDir, withIntermediateDirectories: true)
+        try bindAndListen()
+    }
+
+    private func bindAndListen() throws {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 
@@ -168,6 +191,10 @@ final class FakeHerdrServer: @unchecked Sendable {
             return
         }
         lock.withLock { storedReceivedRequests.append((method: request.method, paramsJSON: request.paramsJSON)) }
+
+        if let hold = lock.withLock({ holds.removeValue(forKey: request.method) }) {
+            hold.wait()
+        }
 
         if request.method == "events.subscribe" {
             let ack = #"{"id":"\#(request.id)","result":{"type":"subscription_started"}}"#
