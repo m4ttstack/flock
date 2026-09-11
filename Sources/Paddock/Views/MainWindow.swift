@@ -1,0 +1,111 @@
+import PaddockCore
+import SwiftUI
+
+/// The whole window: titlebar, workspace rail, tab strip, pane canvas.
+/// Every color comes from the active theme via the environment; nothing here
+/// hardcodes a chrome hex.
+struct MainWindow: View {
+    @Environment(ThemeStore.self) private var themeStore
+    let viewModel: SessionViewModel
+    let sessionLabel: String
+
+    private var theme: Theme { themeStore.active }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TitleBar(theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState)
+            if let banner = viewModel.unsupportedBanner {
+                UnsupportedBanner(theme: theme, mismatch: banner)
+            }
+            HStack(spacing: 0) {
+                WorkspaceRail(
+                    theme: theme,
+                    model: viewModel.model,
+                    selectedWorkspaceID: viewModel.selectedWorkspaceID,
+                    onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
+                )
+                VStack(spacing: 0) {
+                    TabStrip(
+                        theme: theme,
+                        tabs: selectedWorkspaceTabs,
+                        selectedTabID: viewModel.selectedTabID,
+                        protocolVersion: HerdrClient.minimumProtocol,
+                        onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
+                    )
+                    PaneCanvas(theme: theme, viewModel: viewModel, layout: selectedLayout)
+                }
+            }
+        }
+        .background(theme.panelBg)
+        .frame(minWidth: 900, minHeight: 560)
+    }
+
+    private var selectedWorkspaceTabs: [TabRecord] {
+        guard let workspaceID = viewModel.selectedWorkspaceID else { return [] }
+        return viewModel.model?.tabs[workspaceID] ?? []
+    }
+
+    private var selectedLayout: LayoutSnapshot? {
+        guard let tabID = viewModel.selectedTabID else { return nil }
+        return viewModel.model?.layouts[tabID]
+    }
+}
+
+private struct TitleBar: View {
+    let theme: Theme
+    let sessionLabel: String
+    let connectionState: ConnectionState
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // Reserves the space macOS draws the traffic lights into.
+            Spacer().frame(width: 78)
+            Text("paddock")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(theme.text)
+                .frame(maxWidth: .infinity)
+            HStack(spacing: 6) {
+                Circle().fill(connectionColor).frame(width: 7, height: 7)
+                Text("herdr · \(sessionLabel)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.subtext0)
+            }
+            .padding(.trailing, 16)
+        }
+        .frame(height: 44)
+        .background(theme.titlebarBg)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.separator).frame(height: 1)
+        }
+    }
+
+    private var connectionColor: Color {
+        switch connectionState {
+        case .live: theme.green
+        case .connecting, .reconnecting: theme.yellow
+        case .unsupported: theme.red
+        }
+    }
+}
+
+private struct UnsupportedBanner: View {
+    let theme: Theme
+    let mismatch: ProtocolMismatch
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(theme.red)
+            Text(
+                "herdr is too old for paddock (found protocol \(mismatch.found), "
+                    + "need \(mismatch.required)). Run `herdr update`."
+            )
+            .font(.system(size: 12))
+            .foregroundStyle(theme.text)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(theme.red.opacity(0.12))
+    }
+}
