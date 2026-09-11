@@ -1,0 +1,45 @@
+name: Paddock
+options:
+  bundleIdPrefix: dev.mattstack
+  deploymentTarget: { macOS: "15.0" }
+settings:
+  SWIFT_VERSION: "6.0"
+  SWIFT_STRICT_CONCURRENCY: complete
+packages:
+  SwiftTerm: { url: https://github.com/migueldeicaza/SwiftTerm, exactVersion: 1.20.0 }
+targets:
+  PaddockCore:
+    type: framework
+    platform: macOS
+    sources: [Sources/PaddockCore]
+    dependencies: [{ package: SwiftTerm }]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  Paddock:
+    type: application
+    platform: macOS
+    sources: [Sources/Paddock]
+    dependencies: [{ target: PaddockCore }]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  PaddockCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/PaddockCoreTests
+      - path: Tests/Fixtures
+        buildPhase: resources
+    dependencies: [{ target: PaddockCore }]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  PaddockUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [Tests/PaddockUITests]
+    dependencies: [{ target: Paddock }]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

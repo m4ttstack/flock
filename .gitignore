@@ -1,0 +1,5 @@
+Paddock.xcodeproj/
+DerivedData/
+build/
+.DS_Store
+*.xcuserstate
