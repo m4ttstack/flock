@@ -5,7 +5,7 @@ import SwiftUI
 /// swaps between status-card mode (glyph/cwd/hint, for a pane not yet
 /// attached) and live mode (a real terminal view) once `SessionViewModel`
 /// hands back a feed. Every pane the canvas renders is a visible pane of the
-/// selected tab, so it attaches live per the Task 18 attach policy; card
+/// selected tab, so it attaches live per the standing attach policy; card
 /// mode is what shows while that attach is still in flight.
 struct PaneCellView: View {
     let theme: Theme
@@ -20,6 +20,11 @@ struct PaneCellView: View {
     let rows: Int
 
     @State private var feed: PaneLiveFeed?
+    /// Grabs system keyboard focus only while `isFocused`, so `onKeyPress`
+    /// below only ever fires for the resolved-focused pane's own cell --
+    /// "focused-pane only" is enforced by WHICH cell listens, not by a check
+    /// inside `InputRouter` itself.
+    @FocusState private var keyCaptureFocused: Bool
 
     /// The terminal's own ground, held constant across every theme per the
     /// task brief.
@@ -57,6 +62,51 @@ struct PaneCellView: View {
             let paneID = pane.paneID
             Task { await viewModel.endLiveAttach(pane: paneID) }
         }
+        .focusable(isFocused)
+        .focusEffectDisabled()
+        .focused($keyCaptureFocused)
+        .onChange(of: isFocused, initial: true) { _, newValue in keyCaptureFocused = newValue }
+        .onKeyPress(phases: .down) { press in
+            guard isFocused else { return .ignored }
+            return routeKeyPress(press)
+        }
+        .contextMenu {
+            Button("Split Right") {
+                Task { await viewModel.splitRight(from: pane.paneID) }
+            }
+        }
+    }
+
+    /// Translates one SwiftUI `KeyPress` into an `InputRouter` call. Command
+    /// combos (copy, quit, ...) are left alone (`.ignored`) so the system
+    /// keeps handling them normally; everything else -- plain characters,
+    /// the named specials, and Control combos -- routes to `send_input`,
+    /// never through SwiftTerm's own input path.
+    private func routeKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        guard !press.modifiers.contains(.command) else { return .ignored }
+        let router = viewModel.inputRouter(for: pane.paneID)
+
+        if press.modifiers.contains(.control), press.key.character.isLetter {
+            router.sendControlCombo(press.key.character)
+            viewModel.recordLauncherKeystroke(pane.paneID)
+            return .handled
+        }
+
+        switch press.key {
+        case .return: router.sendKey(.enter)
+        case .escape: router.sendKey(.esc)
+        case .upArrow: router.sendKey(.up)
+        case .downArrow: router.sendKey(.down)
+        case .leftArrow: router.sendKey(.left)
+        case .rightArrow: router.sendKey(.right)
+        case .delete: router.sendKey(.backspace)
+        case .tab: router.sendKey(.tab)
+        default:
+            guard !press.characters.isEmpty else { return .ignored }
+            router.typeCharacter(press.characters)
+        }
+        viewModel.recordLauncherKeystroke(pane.paneID)
+        return .handled
     }
 
     private var header: some View {
@@ -98,10 +148,21 @@ struct PaneCellView: View {
     @ViewBuilder
     private var content: some View {
         if let feed {
-            PaneTerminalView(
-                cols: cols, rows: rows, feed: feed, terminalGround: Self.terminalGround,
-                onPlainClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } }
-            )
+            ZStack(alignment: .top) {
+                PaneTerminalView(
+                    cols: cols, rows: rows, feed: feed, terminalGround: Self.terminalGround,
+                    onPlainClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
+                    paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
+                    onScreenActivity: { nonEmptyRowCount in
+                        viewModel.recordLauncherScreenActivity(pane.paneID, nonEmptyRowCount: nonEmptyRowCount)
+                    }
+                )
+                if viewModel.isPristineLauncherPane(pane.paneID) {
+                    PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
+                        Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }
+                    }
+                }
+            }
         } else {
             cardContent
         }

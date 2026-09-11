@@ -340,16 +340,26 @@ public final class SessionViewModel {
 
     // MARK: - new-pane harness launcher
 
+    /// `PaneLauncherRegistry` is a plain (non-`@Observable`) class, so a
+    /// mutation to it alone would never invalidate a SwiftUI view reading
+    /// `isPristineLauncherPane`. This counter is the observation seam: every
+    /// mutating call below bumps it, and `isPristineLauncherPane` reads it
+    /// (result discarded) purely to register that dependency.
+    public private(set) var launcherRegistryVersion = 0
+
     public func isPristineLauncherPane(_ pane: PaneID) -> Bool {
-        paneLauncherRegistry.isPristine(pane)
+        _ = launcherRegistryVersion
+        return paneLauncherRegistry.isPristine(pane)
     }
 
     public func recordLauncherKeystroke(_ pane: PaneID) {
         paneLauncherRegistry.recordKeystroke(pane)
+        launcherRegistryVersion += 1
     }
 
     public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
         paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
+        launcherRegistryVersion += 1
     }
 
     /// Sends `<binary>\n` to `pane` in one `send_input` call (the overlay's
@@ -359,7 +369,7 @@ public final class SessionViewModel {
         _ = try? await client.requestRaw(
             "pane.send_input", ["pane_id": .string(pane.rawValue), "text": .string(binary + "\n")]
         )
-        paneLauncherRegistry.recordKeystroke(pane)
+        recordLauncherKeystroke(pane)
     }
 
     /// Splits `pane` rightward via `pane.split` and focuses the new pane,
@@ -375,6 +385,7 @@ public final class SessionViewModel {
         ) else { return }
         guard let newPaneID = Self.extractSplitPaneID(data) else { return }
         paneLauncherRegistry.registerPaddockCreated(newPaneID)
+        launcherRegistryVersion += 1
     }
 
     /// `pane.split`'s response nests the new pane's id under a `"pane"` key

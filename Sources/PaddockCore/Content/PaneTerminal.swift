@@ -290,7 +290,7 @@ public final class HistoryCapabilityGate: @unchecked Sendable {
     }
 
     func removeListener(_ token: UUID) {
-        lock.withLockHeld { listeners.removeValue(forKey: token) }
+        lock.withLockHeld { _ = listeners.removeValue(forKey: token) }
     }
 }
 
