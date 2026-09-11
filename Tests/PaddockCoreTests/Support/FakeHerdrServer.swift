@@ -1,0 +1,246 @@
+import Foundation
+import XCTest
+#if canImport(Glibc)
+import Glibc
+#else
+import Darwin
+#endif
+
+/// XCTest has no async-throws assertion; this fills the gap used across the
+/// transport tests.
+func XCTAssertThrowsErrorAsync<T>(
+    _ body: @autoclosure () async throws -> T,
+    _ check: (Error) -> Void
+) async {
+    do {
+        _ = try await body()
+        XCTFail("expected throw")
+    } catch {
+        check(error)
+    }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
+    }
+}
+
+/// Emulates herdr's real api socket contract (validated against a live
+/// server): one request per connection, then the server closes it.
+/// `events.subscribe` is the one exception, an ack line followed by a stream
+/// of pushed events on the same connection; any further inbound byte on that
+/// connection is treated as a peer disconnect, exactly like the real server.
+final class FakeHerdrServer: @unchecked Sendable {
+    private enum Behavior {
+        case success(String)
+        case failure(code: String, message: String)
+    }
+
+    private let lock = NSLock()
+    private var behaviors: [String: Behavior] = [:]
+    private var storedReceivedRequests: [(method: String, paramsJSON: String)] = []
+    private var storedAcceptedConnectionCount = 0
+    private var subscriberFDs: Set<Int32> = []
+    private var running = false
+    private var listenFD: Int32 = -1
+    private let socketDir: String
+
+    let socketPath: String
+
+    private(set) var receivedRequests: [(method: String, paramsJSON: String)] {
+        get { lock.withLock { storedReceivedRequests } }
+        set { lock.withLock { storedReceivedRequests = newValue } }
+    }
+
+    private(set) var acceptedConnectionCount: Int {
+        get { lock.withLock { storedAcceptedConnectionCount } }
+        set { lock.withLock { storedAcceptedConnectionCount = newValue } }
+    }
+
+    init() {
+        // A short, fixed-root path: NSTemporaryDirectory() can be long enough
+        // on macOS to blow the 104-byte sun_path budget once a subdirectory
+        // and filename are appended.
+        var template = Array("/tmp/pdhsXXXXXX".utf8CString)
+        let dir: String = template.withUnsafeMutableBufferPointer { buf in
+            guard mkdtemp(buf.baseAddress) != nil else { return "/tmp" }
+            return String(cString: buf.baseAddress!)
+        }
+        self.socketDir = dir
+        self.socketPath = dir + "/h.sock"
+    }
+
+    func respond(to method: String, withResultJSON json: String) {
+        lock.withLock { behaviors[method] = .success(json) }
+    }
+
+    func failNext(method: String, code: String, message: String) {
+        lock.withLock { behaviors[method] = .failure(code: code, message: message) }
+    }
+
+    func pushEventLine(_ json: String) {
+        let fds = lock.withLock { subscriberFDs }
+        for fd in fds where !writeLine(json, to: fd) {
+            dropSubscriber(fd)
+        }
+    }
+
+    func start() throws {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(socketPath.utf8CString)
+        guard pathBytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else {
+            Foundation.close(fd)
+            throw POSIXError(.ENAMETOOLONG)
+        }
+        pathBytes.withUnsafeBytes { pathRaw in
+            withUnsafeMutableBytes(of: &addr.sun_path) { raw in raw.copyBytes(from: pathRaw) }
+        }
+        let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let bindResult = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Foundation.bind(fd, $0, size) }
+        }
+        guard bindResult == 0 else {
+            let e = errno
+            Foundation.close(fd)
+            throw POSIXError(POSIXErrorCode(rawValue: e) ?? .EIO)
+        }
+        guard listen(fd, 128) == 0 else {
+            let e = errno
+            Foundation.close(fd)
+            throw POSIXError(POSIXErrorCode(rawValue: e) ?? .EIO)
+        }
+
+        listenFD = fd
+        running = true
+        let thread = Thread { [weak self] in self?.acceptLoop() }
+        thread.name = "FakeHerdrServer.accept"
+        thread.start()
+    }
+
+    func stop() {
+        let subs = lock.withLock { () -> Set<Int32> in
+            running = false
+            let s = subscriberFDs
+            subscriberFDs.removeAll()
+            return s
+        }
+        if listenFD >= 0 {
+            Foundation.close(listenFD)
+            listenFD = -1
+        }
+        for fd in subs { Foundation.close(fd) }
+        try? FileManager.default.removeItem(atPath: socketDir)
+    }
+
+    private func acceptLoop() {
+        while true {
+            let clientFD = accept(listenFD, nil, nil)
+            guard clientFD >= 0 else { return }
+            let stillRunning = lock.withLock { () -> Bool in
+                guard running else { return false }
+                storedAcceptedConnectionCount += 1
+                return true
+            }
+            guard stillRunning else {
+                Foundation.close(clientFD)
+                return
+            }
+            DispatchQueue.global().async { [weak self] in self?.handleConnection(clientFD) }
+        }
+    }
+
+    private func handleConnection(_ fd: Int32) {
+        var noSigPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+
+        guard let request = readOneRequestLine(fd) else {
+            Foundation.close(fd)
+            return
+        }
+        lock.withLock { storedReceivedRequests.append((method: request.method, paramsJSON: request.paramsJSON)) }
+
+        if request.method == "events.subscribe" {
+            let ack = #"{"id":"\#(request.id)","result":{"type":"subscription_started"}}"#
+            guard writeLine(ack, to: fd) else {
+                Foundation.close(fd)
+                return
+            }
+            lock.withLock { subscriberFDs.insert(fd) }
+            watchForDisconnect(fd)
+            return
+        }
+
+        let behavior = lock.withLock { behaviors[request.method] }
+        let responseLine: String
+        switch behavior {
+        case .success(let json)?:
+            responseLine = #"{"id":"\#(request.id)","result":\#(json)}"#
+        case .failure(let code, let message)?:
+            responseLine = #"{"id":"\#(request.id)","error":{"code":"\#(code)","message":"\#(message)"}}"#
+        case nil:
+            responseLine = #"{"id":"\#(request.id)","error":{"code":"unhandled_method","message":"no behavior configured for \#(request.method)"}}"#
+        }
+        writeLine(responseLine, to: fd)
+        Foundation.close(fd)
+    }
+
+    /// The real server tears a subscription connection down the instant it
+    /// sees any inbound byte; this mirrors that so client code that
+    /// accidentally writes on such a connection is caught by tests.
+    private func watchForDisconnect(_ fd: Int32) {
+        DispatchQueue.global().async { [weak self] in
+            var byte: UInt8 = 0
+            _ = read(fd, &byte, 1)
+            self?.dropSubscriber(fd)
+        }
+    }
+
+    private func dropSubscriber(_ fd: Int32) {
+        let removed = lock.withLock { subscriberFDs.remove(fd) != nil }
+        if removed { Foundation.close(fd) }
+    }
+
+    private func readOneRequestLine(_ fd: Int32) -> (method: String, paramsJSON: String, id: String)? {
+        var data = Data()
+        var buf = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let n = buf.withUnsafeMutableBytes { ptr in read(fd, ptr.baseAddress, ptr.count) }
+            guard n > 0 else { return nil }
+            data.append(contentsOf: buf[0..<n])
+            guard let newline = data.firstIndex(of: 0x0A) else { continue }
+            let line = Data(data[data.startIndex..<newline])
+            guard
+                let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                let id = obj["id"] as? String,
+                let method = obj["method"] as? String
+            else { return nil }
+            let paramsObj = obj["params"] ?? [String: Any]()
+            let paramsData = (try? JSONSerialization.data(withJSONObject: paramsObj)) ?? Data("{}".utf8)
+            let paramsJSON = String(data: paramsData, encoding: .utf8) ?? "{}"
+            return (method: method, paramsJSON: paramsJSON, id: id)
+        }
+    }
+
+    @discardableResult
+    private func writeLine(_ s: String, to fd: Int32) -> Bool {
+        var data = Data(s.utf8)
+        data.append(0x0A)
+        return data.withUnsafeBytes { raw -> Bool in
+            guard let base = raw.baseAddress else { return raw.count == 0 }
+            var offset = 0
+            while offset < raw.count {
+                let n = write(fd, base + offset, raw.count - offset)
+                guard n > 0 else { return false }
+                offset += n
+            }
+            return true
+        }
+    }
+}
