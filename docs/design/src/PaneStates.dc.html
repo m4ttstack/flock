@@ -129,7 +129,7 @@
       <div style="display: flex; align-items: center; gap: 6px;">
         <div style="display: flex; align-items: center; gap: 7px; padding: 6px 10px 6px 12px; border-radius: 7px; background: #23242E; border: 1px solid #3A3D4A;">
           <div style="font-size: 12px; color: #C9CBD4;">scratch</div>
-          <div style="width: 7px; height: 7px; border-radius: 4px; background: #9ECE6A;"></div>
+          <div style="width: 7px; height: 7px; border-radius: 4px; box-sizing: border-box; background: transparent; border: 1.5px solid #9ECE6A;"></div>
           <div style="width: 16px; height: 16px; border-radius: 4px; background: #3A3D4A; display: flex; align-items: center; justify-content: center; color: #E6E7EB; font-size: 10px; line-height: 1;">×</div>
         </div>
       </div>
@@ -139,13 +139,13 @@
     <div style="display: flex; flex-direction: column; gap: 10px;">
       <div class="label">AGENT STATUS VOCABULARY</div>
       <div style="display: flex; gap: 14px; align-items: center;">
-        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #9ECE6A;"></div><div style="font-size: 10px; color: #9B9DA9;">idle</div></div>
+        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; box-sizing: border-box; background: transparent; border: 1.5px solid #9ECE6A;"></div><div style="font-size: 10px; color: #9B9DA9;">idle</div></div>
         <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #E0AF68;"></div><div style="font-size: 10px; color: #9B9DA9;">working</div></div>
         <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #F7768E;"></div><div style="font-size: 10px; color: #9B9DA9;">blocked</div></div>
         <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #7DCFFF;"></div><div style="font-size: 10px; color: #9B9DA9;">done</div></div>
-        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #565F89;"></div><div style="font-size: 10px; color: #9B9DA9;">unknown</div></div>
+        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: radial-gradient(circle, #565F89 0 1.5px, transparent 2px);"></div><div style="font-size: 10px; color: #9B9DA9;">unknown</div></div>
       </div>
-      <div class="sub" style="max-width: 300px;">One dot, four surfaces: pane header, tab pill, workspace row, All Workspaces grid. A workspace/tab dot shows its most urgent child (blocked beats working beats done).</div>
+      <div class="sub" style="max-width: 300px;">One dot, four surfaces: pane header, tab pill, workspace row, All Workspaces grid. herdr dots style: filled for working/blocked/done, hollow ring for idle, centered dot for unknown. A workspace/tab dot shows its most urgent child (blocked beats working beats done).</div>
     </div>
   </div>
 </div>

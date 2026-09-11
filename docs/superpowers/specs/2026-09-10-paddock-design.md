@@ -176,8 +176,10 @@ transform/opacity only, interruptible springs.
   done = teal, idle = green, unknown = dim overlay. v1 pins the Tokyo Night
   values (`#E0AF68` / `#F7768E` / `#7DCFFF` / `#9ECE6A` / `#565F89`; light
   chrome uses the Tokyo Night Day values), matching what theme = "terminal"
-  resolves to on this machine. The zoom badge is mauve (`#BB9AF7`), never a
-  status color.
+  resolves to on this machine. Dot FILL mirrors herdr's dots style
+  (`status_icon`): working/blocked/done are filled, idle is a hollow ring,
+  unknown is a small centered dot. The zoom badge is mauve (`#BB9AF7`),
+  never a status color.
 - **Copy on selection (herdr parity, v1):** mouse-up ends a selection in a
   live pane and the text is already on the clipboard (herdr ships
   `copy_on_select = true`); a quiet "Copied N lines" whisper confirms.
