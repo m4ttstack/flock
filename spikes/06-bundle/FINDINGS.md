@@ -25,7 +25,7 @@ see the table below and "Recommendation."
 | Path | Prompt | Silent launch | Distinct TCC identity | Dock/menu bar | Notes |
 | --- | --- | --- | --- | --- | --- |
 | (a) `NSWorkspace.openApplication` | No (clean or quarantined) | Yes | Yes (own `CFBundleIdentifier`, confirmed via `lsappinfo`) | Own Dock icon (LSUIElement=false in helper's Info.plist; not altered by launch path) | **Quarantined only:** helper is App-Translocated -- `Bundle.main.bundlePath` reported the helper running from `/private/var/folders/.../AppTranslocation/<uuid>/d/SpikeHost.app/Contents/Helpers/SpikeHelper.app`, not its real path. Any code that assumes its own bundle path is stable (relative resource lookups, `Contents/Helpers/` re-derivation) would break under this path when quarantined. |
-| (b) `SMAppService.loginItem(identifier:)` | No (clean or quarantined) | Yes | Yes (own `CFBundleIdentifier`) | Own Dock icon (same Info.plist) | **Hard packaging constraint:** the helper must live at `Contents/Library/LoginItems/<Helper>.app` in the host bundle -- `Contents/Helpers/` is invisible to it. Confirmed empirically: registering against a copy of the host with only `Contents/Helpers/SpikeHelper.app` present fails with `SMAppServiceErrorDomain Code=22 "Invalid argument"`; the identical bundle under `Contents/Library/LoginItems/` registers and launches cleanly. `register()` on an already-logged-in user launches the item immediately, not just at next login (confirmed: marker file appears within ~2s of `register()` returning). No prompt observed registering a Developer-ID-signed, unnotarized login item on this machine, clean or quarantined. |
+| (b) `SMAppService.loginItem(identifier:)` | No (clean or quarantined) | Yes | Yes (own `CFBundleIdentifier`) | Own Dock icon (same Info.plist) | **Hard packaging constraint:** the helper must live at `Contents/Library/LoginItems/<Helper>.app` in the host bundle -- `Contents/Helpers/` is invisible to it. Scripted, not manual: `run-comparison.sh`'s `run_helpers_only_smappservice_check` builds a scratch copy of the signed host with the `Library/LoginItems` helper removed (re-signed, outer bundle only) and registers against it; every run reproduces `SMAppServiceErrorDomain Code=22 "Invalid argument"` (`build/comparison.log`, "SMAppService register against a Contents/Helpers-ONLY variant"). The identical bundle under `Contents/Library/LoginItems/` registers and launches cleanly in the same log's `run_state` sections. `register()` on an already-logged-in user launches the item immediately, not just at next login (marker file appears within ~2s of `register()` returning, every run). No prompt observed registering a Developer-ID-signed, unnotarized login item on this machine, clean or quarantined. |
 | (c) `Process` exec of the inner binary | No (clean or quarantined) | Yes | Yes (own `CFBundleIdentifier`, LaunchServices still registers it as a distinct running app even though it wasn't launched through LaunchServices) | Own Dock icon (same Info.plist) | Never translocated, quarantined or not -- raw `execve` never goes through the quarantine/LaunchServices machinery translocation depends on, so `Bundle.main.bundlePath` stays the real path in every state. This is the most predictable of the three for anything that cares about its own bundle path. |
 
 All three register the launched process under its own `CFBundleIdentifier`
@@ -42,7 +42,13 @@ prompt anywhere, even for a plain `open` of the quarantined host" was not the
 expected result -- a fresh, unnotarized Developer-ID app downloaded and
 double-clicked for the first time is generally expected to hit the hard
 "Apple could not verify this app is free of malware" block post-Catalina.
-Two explanations, not distinguished by this spike:
+This specific claim is scripted, not a one-off manual check:
+`run-comparison.sh`'s `run_open_quarantined_host_check` runs `open
+"$HOST_APP" --args noop` against the quarantined host (after the recursive
+`xattr` pass) and polls for `result-noop.json` rather than assuming a fixed
+delay; every run produces the marker within a couple of seconds
+(`build/comparison.log`, "plain `open` of the quarantined host"). Two
+explanations for the result, not distinguished by this spike:
 
 1. **Per-machine, per-signing-identity trust memory.** This machine has
    already had other apps built with this same Developer ID identity
@@ -99,24 +105,41 @@ $ codesign -vvv --deep --strict build/SpikeHost.app
 build/SpikeHost.app: valid on disk
 build/SpikeHost.app: satisfies its Designated Requirement
 
-$ spctl -a -vv build/SpikeHost.app
+$ spctl -a -vv build/SpikeHost.app          # clean state (run_spctl_check "clean")
 build/SpikeHost.app: rejected
 source=Unnotarized Developer ID
+origin=Developer ID Application: Matthew Goodwin (5BF66B3X4V)
 
-$ spctl -a -vv build/SpikeHost.app/Contents/Helpers/SpikeHelper.app
+$ spctl -a -vv build/SpikeHost.app/Contents/Helpers/SpikeHelper.app   # clean state
 build/SpikeHost.app/Contents/Helpers/SpikeHelper.app: rejected
 source=Unnotarized Developer ID
+origin=Developer ID Application: Matthew Goodwin (5BF66B3X4V)
+
+$ spctl -a -vv build/SpikeHost.app          # quarantined state (run_spctl_check "quarantined")
+build/SpikeHost.app: rejected
+source=Unnotarized Developer ID
+origin=Developer ID Application: Matthew Goodwin (5BF66B3X4V)
+
+$ spctl -a -vv build/SpikeHost.app/Contents/Helpers/SpikeHelper.app   # quarantined state
+build/SpikeHost.app/Contents/Helpers/SpikeHelper.app: rejected
+source=Unnotarized Developer ID
+origin=Developer ID Application: Matthew Goodwin (5BF66B3X4V)
 ```
 
-`spctl -a -vv` rejects both bundles in every state tested (clean and
-quarantined) -- expected and correct for an unnotarized Developer ID build,
-and unrelated to the "no prompt observed at actual launch time" result above.
+`spctl -a -vv` rejects both bundles in every state tested -- expected and
+correct for an unnotarized Developer ID build, and unrelated to the "no
+prompt observed at actual launch time" result above. This is now scripted as
+two separate `run_spctl_check` calls (one right after the clean-state
+`run_state`, one after the quarantined-state `run_state`), not a single
+check run only once after the quarantined pass -- an earlier version of this
+spike only ran `spctl` once and the FINDINGS claim about the clean state was
+inferred rather than measured; both states are captured independently now.
 **`spctl`'s static assessment and the live launch behavior disagreed** in
-this spike: `spctl` says "rejected," but every one of the six actual launch
-attempts (3 paths x clean/quarantined) succeeded with no block and no
-prompt. That gap is exactly the thing a notarized build (or a clean machine)
-would resolve -- see below. Full transcripts: `build/comparison.log` is
-regenerated by `run-comparison.sh` (not committed; rerun the script to
+this spike: `spctl` says "rejected" in both states, but every one of the six
+actual launch attempts (3 paths x clean/quarantined) succeeded with no block
+and no prompt. That gap is exactly the thing a notarized build (or a clean
+machine) would resolve -- see below. Full transcripts: `build/comparison.log`
+is regenerated by `run-comparison.sh` (not committed; rerun the script to
 reproduce).
 
 ## What requires notarization (or a clean machine) to confirm
@@ -209,9 +232,15 @@ caveat to design around.**
   signs inside-out with hardened runtime. Fully reproducible; `rm -rf build/`
   and rerun to get an identical result.
 - `run-comparison.sh` -- drives all three launch paths in clean and
-  quarantined states, dumps marker/result files, applies/removes the
-  quarantine xattr, kills helpers and unregisters the login item between
-  runs. Writes `build/comparison.log` (gitignored).
+  quarantined states, dumps marker/result files, applies the quarantine
+  xattr, kills helpers and unregisters the login item between runs. Also
+  scripts the three checks above that an earlier pass of this spike only ran
+  by hand: `run_helpers_only_smappservice_check` (Contents/Helpers-only
+  SMAppService failure), `run_spctl_check` (called once per state, clean and
+  quarantined), and `run_open_quarantined_host_check` (plain `open` on the
+  quarantined host, marker-file proof). `trap cleanup EXIT INT` ensures
+  helpers are killed and the login item unregistered even if the script is
+  interrupted partway through. Writes `build/comparison.log` (gitignored).
 - `Sources/HostApp/main.swift` -- CLI-argument-driven host (menu-bar stub
   stand-in; a real menu wasn't built since the comparison is about the
   launch mechanism, not the menu UI).
