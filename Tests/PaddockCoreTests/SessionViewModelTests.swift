@@ -52,6 +52,24 @@ private actor StubReadCommandClient: HerdrCommandClient {
     }
 }
 
+/// Records requests like `RecordingCommandClient` but answers `pane.split`
+/// with a canned new-pane id, matching herdr's real `result.pane.pane_id`
+/// response shape (pinned by `spikes/lib/seed-layout.sh`'s own read of it).
+private actor StubSplitCommandClient: HerdrCommandClient {
+    private(set) var calls: [(method: String, params: [String: JSONValue])] = []
+    private let newPaneID: String
+
+    init(newPaneID: String = "w1:p2") {
+        self.newPaneID = newPaneID
+    }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        calls.append((method, params))
+        guard method == "pane.split" else { return Data("{}".utf8) }
+        return Data(#"{"result":{"pane":{"pane_id":"\#(newPaneID)"}}}"#.utf8)
+    }
+}
+
 /// A test double for `ObserveSupervisor` that records calls and hands back
 /// a controllable `AsyncStream` per pane, without spawning real processes.
 private actor RecordingObserveAttacher: PaneObserveAttaching {
@@ -574,6 +592,44 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNotNil(settledSession, "the reappear's fresh session must survive the stale queued detach")
         XCTAssertEqual(settledSession?.cols, 80)
         XCTAssertEqual(settledSession?.rows, 24)
+    }
+
+    // MARK: - new-pane harness launcher provenance
+
+    @MainActor
+    func testSplitRightSendsExpectedParamsAndRegistersTheNewPaneAsPristine() async {
+        let client = StubSplitCommandClient(newPaneID: "w1:p2")
+        let viewModel = SessionViewModel(client: client)
+
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+
+        let calls = await client.calls
+        let splitCall = try? XCTUnwrap(calls.first { $0.method == "pane.split" })
+        XCTAssertEqual(stringParam(splitCall?.params ?? [:], "target_pane_id"), "w1:p1")
+        XCTAssertEqual(stringParam(splitCall?.params ?? [:], "direction"), "right")
+        XCTAssertNil(splitCall?.params["cwd"] ?? nil, "cwd is omitted so herdr follows the source pane's own cwd")
+
+        XCTAssertTrue(viewModel.isPristineLauncherPane(PaneID(rawValue: "w1:p2")))
+        XCTAssertFalse(
+            viewModel.isPristineLauncherPane(PaneID(rawValue: "w1:p1")),
+            "the SOURCE pane was never paddock-created; only the new one is registered"
+        )
+    }
+
+    @MainActor
+    func testLaunchHarnessSendsBinaryAndNewlineAsOneTextCallAndHidesTheLauncher() async {
+        let client = StubSplitCommandClient(newPaneID: "w1:p2")
+        let viewModel = SessionViewModel(client: client)
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let newPane = PaneID(rawValue: "w1:p2")
+        XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
+
+        await viewModel.launchHarness("claude", in: newPane)
+
+        let calls = await client.calls
+        let sendCall = try? XCTUnwrap(calls.last { $0.method == "pane.send_input" })
+        XCTAssertEqual(stringParam(sendCall?.params ?? [:], "text"), "claude\n")
+        XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "launching hides the overlay like a real keystroke would")
     }
 }
 
