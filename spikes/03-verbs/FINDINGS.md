@@ -970,6 +970,7 @@ Raw tab.close (temp tab w7:t3) response:
   }
 }
 ```
+The temp tab auto-closed when its last pane (the bounced pane) moved back out in the prior step, which is why the explicit tab.close above gets tab_not_found rather than an ok -- Task 20's bounce composition should treat that tab.close as optional cleanup, not something to depend on succeeding.
 no-op: changed=false reason=same_tab. bounce pane id unchanged: w7:p1 (want w7:p1). Final rects: p1 y=13 x=26, p2 y=1 x=26 (want p1.y > p2.y, i.e. p1 below p2).
 
 ## Case 6: zoom guard
