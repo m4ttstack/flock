@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    x-dc { display: block; } html, body { overflow: hidden; }
+    body { margin: 0; font-family: -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+    .label { font-size: 11px; font-weight: 600; color: #9B9DA9; letter-spacing: 0.04em; }
+    .sub { font-size: 10px; color: #6B6E7B; line-height: 1.5; }
+  </style>
+</helmet>
+<div style="box-sizing: border-box; width: 1300px; height: 720px; background: #14151B; padding: 28px 32px; display: flex; flex-direction: column; gap: 22px; border-radius: 12px;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 700; color: #E6E7EB;">Notifications, selection, right-click</div>
+    <div class="sub" style="margin-top: 2px;">Attention toasts that jump to their pane; herdr-parity copy on selection; first-class right-click routing.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px;">
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">ATTENTION TOASTS (top-right stack)</div>
+      <div style="height: 250px; border-radius: 9px; background: #1E1F28; border: 1px solid #2A2C37; padding: 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+        <div style="width: 280px; display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 9px; background: #23242E; border: 1px solid rgba(247,118,142,0.45); box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
+          <div style="width: 8px; height: 8px; flex: none; border-radius: 4px; background: #F7768E; box-shadow: 0 0 6px rgba(247,118,142,0.7);"></div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 11px; font-weight: 600; color: #E6E7EB;">claude · migration needs input</div>
+            <div style="font-size: 10px; color: #9B9DA9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">paddock › migration · "Drop the legacy column?"</div>
+          </div>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6h7M6 2.5L9.5 6 6 9.5" stroke="#9B9DA9" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div style="width: 280px; display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 9px; background: #23242E; border: 1px solid #2A2C37; box-shadow: 0 8px 24px rgba(0,0,0,0.35); opacity: 0.85;">
+          <div style="width: 8px; height: 8px; flex: none; border-radius: 4px; background: #7DCFFF;"></div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 11px; font-weight: 600; color: #C9CBD4;">claude · fix runner tests finished</div>
+            <div style="font-size: 10px; color: #9B9DA9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">repo-tools › agents · 3 tests passing</div>
+          </div>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6h7M6 2.5L9.5 6 6 9.5" stroke="#6B6E7B" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div style="flex: 1;"></div>
+        <div class="mono" style="align-self: flex-start; font-size: 9px; color: #6B6E7B;">hover pauses auto-dismiss (6s) · x on hover · ⌘K clears all</div>
+      </div>
+      <div class="sub">Click anywhere on a toast = jump: workspace.focus + tab.focus + pane.focus with explicit ids, window comes to front. Blocked toasts outlive done toasts (they stay until handled or dismissed). Breadcrumb shows workspace › tab.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">COPY ON SELECTION (herdr parity)</div>
+      <div style="height: 250px; border-radius: 9px; background: #191A22; border: 1px solid #2A2C37; overflow: hidden; display: flex; flex-direction: column; position: relative;">
+        <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #20212B; border-bottom: 1px solid #2A2C37;">
+          <div style="width: 8px; height: 8px; border-radius: 4px; background: #9ECE6A;"></div>
+          <div style="font-size: 11px; font-weight: 600; color: #C9CBD4;">git</div>
+        </div>
+        <div class="mono" style="flex: 1; padding: 10px 12px; font-size: 11px; line-height: 1.7; color: #C9CBD4;">
+          <div><span style="color: #6B6E7B;">$</span> git log --oneline -2</div>
+          <div><span style="background: rgba(122,162,247,0.35); color: #E6E7EB;">82fd0b4 core: dedup buffered creates</span></div>
+          <div><span style="background: rgba(122,162,247,0.35); color: #E6E7EB;">18338a5 core: store bootstrap</span></div>
+          <div><span style="color: #6B6E7B;">$</span> <span style="color: #6B6E7B;">▌</span></div>
+        </div>
+        <div style="position: absolute; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; background: #23242E; border: 1px solid #3A3D4A; box-shadow: 0 6px 18px rgba(0,0,0,0.4);">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="3.5" y="3.5" width="6" height="6" rx="1" stroke="#9ECE6A"/><path d="M7.5 3.5v-2h-6v6h2" stroke="#9ECE6A" stroke-linecap="round"/></svg>
+          <div style="font-size: 10px; color: #E6E7EB;">Copied 2 lines</div>
+        </div>
+      </div>
+      <div class="sub">Mouse-up ends the selection and the text is already on the clipboard, exactly like herdr (copy_on_select defaults on). A quiet whisper confirms; no menu, no extra keystroke. Selection is paddock-local: it never moves herdr's cursor or viewport.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">RIGHT-CLICK ROUTING (herdr 0.9)</div>
+      <div style="height: 250px; border-radius: 9px; background: #1E1F28; border: 1px solid #2A2C37; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="border-radius: 8px; background: #23242E; border: 1px solid #3A3D4A; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="font-size: 11px; font-weight: 600; color: #E6E7EB;">Right-click goes to</div>
+            <div style="flex: 1;"></div>
+            <div style="display: flex; border-radius: 6px; overflow: hidden; border: 1px solid #3A3D4A;">
+              <div style="padding: 3px 10px; font-size: 10px; color: #9B9DA9; background: #1E1F28;">herdr menu</div>
+              <div style="padding: 3px 10px; font-size: 10px; font-weight: 600; color: #14151B; background: #7AA2F7;">pane app</div>
+            </div>
+          </div>
+          <div class="mono" style="font-size: 9px; color: #6B6E7B;">pane.input.set { right_click: "pane" } · per pane, live</div>
+        </div>
+        <div style="border-radius: 8px; background: #23242E; border: 1px solid #3A3D4A; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="mono" style="font-size: 10px; color: #E6E7EB; background: #1E1F28; border: 1px solid #3A3D4A; border-radius: 4px; padding: 2px 7px;">⌥ click</div>
+            <svg width="14" height="10" viewBox="0 0 14 10" fill="none"><path d="M1 5h10M8 1.5L11.5 5 8 8.5" stroke="#9B9DA9" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div style="font-size: 11px; color: #C9CBD4;">right-click in the pane app</div>
+          </div>
+          <div class="sub">One-off passthrough without flipping the toggle, mirroring herdr's passthrough modifier. Ships with the input channel (v1.5); the toggle above is v1.</div>
+        </div>
+        <div style="flex: 1;"></div>
+        <div class="mono" style="font-size: 9px; color: #6B6E7B;">plain right-click in paddock = paddock's own context menu (Move to..., rename, zoom, close)</div>
+      </div>
+      <div class="sub">herdr 0.9 routes right-clicks per pane (pane menu, herdr pane input, pane.input.set). Paddock surfaces the toggle in its pane context menu and header, and reflects the current routing state live.</div>
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid #2A2C37; padding-top: 16px; display: flex; gap: 24px;">
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+      <div class="label">WHERE TOASTS COME FROM</div>
+      <div class="sub">v1 derives them from the event stream paddock already has: pane.agent_status_changed (blocked = needs input, working to idle/done = finished) and pane.agent_detected. herdr's own notification.show traffic is not observable on the api socket today (no notification event kind exists), so third-party toasts sent to herdr stay in herdr; a herdr-side "notification.shown" event is the upstream ask that would let paddock mirror them 1:1.</div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+      <div class="label">QUIET RULES</div>
+      <div class="sub">No toast for the focused pane (you are already looking at it). Status flaps within 2s coalesce. Toasts never stack more than 3 deep; older ones collapse into a "+2 more" pill. All of it lives on the same bottom-toast surface vocabulary as drag rejections, positioned top-right for attention vs bottom for transient notices.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

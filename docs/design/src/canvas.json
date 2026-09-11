@@ -4,10 +4,12 @@
     { "file": "MainLight.dc.html", "x": 1400, "y": 0, "w": 1280, "h": 800, "title": "Main window · light" },
     { "file": "PaneStates.dc.html", "x": 0, "y": 940, "w": 1300, "h": 760, "title": "Pane cell states" },
     { "file": "DragStates.dc.html", "x": 1400, "y": 940, "w": 1300, "h": 860, "title": "Drag states" },
-    { "file": "AllWorkspaces.dc.html", "x": 0, "y": 1940, "w": 1280, "h": 800, "title": "All Workspaces grid" }
+    { "file": "AllWorkspaces.dc.html", "x": 0, "y": 1940, "w": 1280, "h": 800, "title": "All Workspaces grid" },
+    { "file": "Interactions.dc.html", "x": 1400, "y": 1940, "w": 1300, "h": 720, "title": "Notifications & pointer" }
   ],
   "annotations": [
-    { "id": "gate-note", "x": 0, "y": -170, "w": 560, "text": "Task 14 gate: sign off before any UI code (Tasks 15-28).\nDirection: native macOS 15 chrome (SF Pro, source-list sidebar, system accent) around true terminal grounds (#191A22). Terminal cells stay dark in the light pass.\nAgent status: idle gray / working blue / blocked orange / done green / unknown dim, one dot vocabulary at every level.\nTerminal text and pane titles are illustrative; layout, chrome, spacing, states and colors are the real proposal." }
+    { "id": "gate-note", "x": 0, "y": -170, "w": 560, "text": "Task 14 gate: sign off before any UI code (Tasks 15-28).\nDirection: native macOS 15 chrome (SF Pro, source-list sidebar, system accent) around true terminal grounds (#191A22). Terminal cells stay dark in the light pass.\nAgent status mirrors YOUR herdr header (Tokyo Night via theme=terminal): working amber #E0AF68, blocked red #F7768E, done teal #7DCFFF, idle green #9ECE6A, unknown #565F89. Zoom badge is mauve so it never reads as a status.\nTerminal text and pane titles are illustrative; layout, chrome, spacing, states and colors are the real proposal." },
+    { "id": "additions-note", "x": 620, "y": -170, "w": 480, "text": "Added at review: attention toasts (click jumps to the pane), copy-on-selection parity, right-click routing (herdr 0.9 pane.input.set) with the Option+click gesture reserved for the v1.5 input channel. See the Notifications & pointer sheet." }
   ],
   "launch": { "view": "canvas" }
 }

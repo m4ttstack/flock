@@ -8,7 +8,7 @@
 <x-dc>
 <helmet>
   <style>
-    x-dc { display: block; }
+    x-dc { display: block; } html, body { overflow: hidden; }
     body { margin: 0; font-family: -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
     .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
     .label { font-size: 11px; font-weight: 600; color: #9B9DA9; letter-spacing: 0.04em; }
@@ -28,16 +28,16 @@
       <div class="label">LIVE · FOCUSED</div>
       <div style="height: 240px; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 2px solid #0A84FF; box-shadow: 0 0 0 3px rgba(10,132,255,0.18); background: #191A22;">
         <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #20212B; border-bottom: 1px solid #2A2C37;">
-          <div style="width: 8px; height: 8px; border-radius: 4px; background: #0A84FF;"></div>
+          <div style="width: 8px; height: 8px; border-radius: 4px; background: #E0AF68;"></div>
           <div style="font-size: 11px; font-weight: 600; color: #E6E7EB;">claude · refactor</div>
           <div style="flex: 1;"></div>
-          <div class="mono" style="font-size: 9px; color: #0A84FF; background: rgba(10,132,255,0.12); border-radius: 4px; padding: 1px 6px;">working</div>
+          <div class="mono" style="font-size: 9px; color: #E0AF68; background: rgba(224,175,104,0.14); border-radius: 4px; padding: 1px 6px;">working</div>
         </div>
         <div class="mono" style="flex: 1; padding: 9px 11px; font-size: 10.5px; line-height: 1.6; color: #C9CBD4;">
           <div><span style="color: #6B6E7B;">$</span> bun run build</div>
           <div style="color: #9B9DA9;">Bundled 214 modules in 187ms</div>
-          <div><span style="color: #32D74B;">✓</span> dist/cli.js 1.2 MB</div>
-          <div><span style="color: #0A84FF;">●</span> Running smoke test...</div>
+          <div><span style="color: #9ECE6A;">✓</span> dist/cli.js 1.2 MB</div>
+          <div><span style="color: #E0AF68;">●</span> Running smoke test...</div>
           <div><span style="color: #6B6E7B;">▌</span></div>
         </div>
       </div>
@@ -48,7 +48,7 @@
       <div class="label">STATUS CARD · DETACHED</div>
       <div style="height: 240px; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 1px solid #2A2C37; background: #1B1C24;">
         <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #20212B; border-bottom: 1px solid #2A2C37;">
-          <div style="width: 8px; height: 8px; border-radius: 4px; background: #32D74B;"></div>
+          <div style="width: 8px; height: 8px; border-radius: 4px; background: #7DCFFF;"></div>
           <div style="font-size: 11px; font-weight: 600; color: #C9CBD4;">vitest · watch</div>
           <div style="flex: 1;"></div>
         </div>
@@ -66,44 +66,44 @@
       <div class="label">ZOOMED TAB</div>
       <div style="height: 240px; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 1px solid #2A2C37; background: #191A22; position: relative;">
         <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #20212B; border-bottom: 1px solid #2A2C37;">
-          <div style="width: 8px; height: 8px; border-radius: 4px; background: #0A84FF;"></div>
+          <div style="width: 8px; height: 8px; border-radius: 4px; background: #E0AF68;"></div>
           <div style="font-size: 11px; font-weight: 600; color: #E6E7EB;">claude · big diff</div>
           <div style="flex: 1;"></div>
-          <div style="display: flex; align-items: center; gap: 4px; background: rgba(255,159,10,0.14); border: 1px solid rgba(255,159,10,0.4); border-radius: 4px; padding: 1px 6px;">
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 3V1h2M7 5v2H5" stroke="#FF9F0A" stroke-width="1.2" stroke-linecap="round"/></svg>
-            <div class="mono" style="font-size: 9px; color: #FF9F0A;">zoomed</div>
+          <div style="display: flex; align-items: center; gap: 4px; background: rgba(187,154,247,0.14); border: 1px solid rgba(187,154,247,0.4); border-radius: 4px; padding: 1px 6px;">
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 3V1h2M7 5v2H5" stroke="#BB9AF7" stroke-width="1.2" stroke-linecap="round"/></svg>
+            <div class="mono" style="font-size: 9px; color: #BB9AF7;">zoomed</div>
           </div>
         </div>
         <div class="mono" style="flex: 1; padding: 9px 11px; font-size: 10.5px; line-height: 1.6; color: #C9CBD4;">
-          <div><span style="color: #32D74B;">+</span><span style="color: #32D74B;"> func upsertTab(_ tab: TabRecord)</span></div>
-          <div><span style="color: #FF5F57;">-</span><span style="color: #FF5F57;"> model.tabs.append(tab)</span></div>
+          <div><span style="color: #9ECE6A;">+</span><span style="color: #9ECE6A;"> func upsertTab(_ tab: TabRecord)</span></div>
+          <div><span style="color: #F7768E;">-</span><span style="color: #F7768E;"> model.tabs.append(tab)</span></div>
           <div>&nbsp;&nbsp;if let i = tabs.firstIndex...</div>
           <div><span style="color: #6B6E7B;">▌</span></div>
         </div>
-        <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; background: rgba(255,159,10,0.08); border-top: 1px solid rgba(255,159,10,0.25); font-size: 9px; color: #FF9F0A;">Pane fills the tab. Drops into this tab auto-unzoom first (toast notice), then land.</div>
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; background: rgba(187,154,247,0.08); border-top: 1px solid rgba(187,154,247,0.25); font-size: 9px; color: #BB9AF7;">Pane fills the tab. Drops into this tab auto-unzoom first (toast notice), then land.</div>
       </div>
       <div class="sub">herdr refuses pane.move on zoomed tabs. The zoom badge doubles as the affordance; double-click toggles zoom via layout.zoom.</div>
     </div>
 
     <div style="display: flex; flex-direction: column; gap: 10px;">
       <div class="label">BLOCKED · NEEDS ATTENTION</div>
-      <div style="height: 240px; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 2px solid #FF9F0A; box-shadow: 0 0 0 3px rgba(255,159,10,0.16), 0 0 24px rgba(255,159,10,0.12); background: #191A22;">
-        <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #2A2416; border-bottom: 1px solid rgba(255,159,10,0.25);">
-          <div style="width: 8px; height: 8px; border-radius: 4px; background: #FF9F0A; box-shadow: 0 0 6px rgba(255,159,10,0.8);"></div>
+      <div style="height: 240px; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 2px solid #F7768E; box-shadow: 0 0 0 3px rgba(247,118,142,0.16), 0 0 24px rgba(247,118,142,0.12); background: #191A22;">
+        <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #2A1A20; border-bottom: 1px solid rgba(247,118,142,0.25);">
+          <div style="width: 8px; height: 8px; border-radius: 4px; background: #F7768E; box-shadow: 0 0 6px rgba(247,118,142,0.8);"></div>
           <div style="font-size: 11px; font-weight: 600; color: #E6E7EB;">claude · migration</div>
           <div style="flex: 1;"></div>
-          <div class="mono" style="font-size: 9px; color: #FF9F0A; background: rgba(255,159,10,0.14); border-radius: 4px; padding: 1px 6px;">blocked</div>
+          <div class="mono" style="font-size: 9px; color: #F7768E; background: rgba(247,118,142,0.14); border-radius: 4px; padding: 1px 6px;">blocked</div>
         </div>
         <div class="mono" style="flex: 1; padding: 9px 11px; font-size: 10.5px; line-height: 1.6; color: #C9CBD4;">
           <div style="color: #E6E7EB;">Drop the legacy column now, or</div>
           <div style="color: #E6E7EB;">keep the compat shim?</div>
           <div>&nbsp;</div>
-          <div><span style="color: #FF9F0A;">❯</span> 1. Drop it</div>
+          <div><span style="color: #F7768E;">❯</span> 1. Drop it</div>
           <div>&nbsp;&nbsp;2. Keep the shim</div>
           <div><span style="color: #6B6E7B;">▌</span></div>
         </div>
       </div>
-      <div class="sub">agent_status == blocked: orange ring + soft glow, tinted header. The rail and strip carry the same orange dot so attention propagates to every level.</div>
+      <div class="sub">agent_status == blocked: red ring + soft glow, tinted header. The rail and strip carry the same red dot so attention propagates to every level.</div>
     </div>
   </div>
 
@@ -118,7 +118,7 @@
         </div>
         <div style="display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 7px;">
           <div style="font-size: 12px; color: #9B9DA9;">server</div>
-          <div style="width: 7px; height: 7px; border-radius: 4px; background: #32D74B;"></div>
+          <div style="width: 7px; height: 7px; border-radius: 4px; background: #7DCFFF;"></div>
         </div>
       </div>
       <div class="sub" style="max-width: 300px;">Inline editor: text selected, caret live. Enter commits (tab.rename), Esc cancels. Drag-arming is disabled while editing.</div>
@@ -129,7 +129,7 @@
       <div style="display: flex; align-items: center; gap: 6px;">
         <div style="display: flex; align-items: center; gap: 7px; padding: 6px 10px 6px 12px; border-radius: 7px; background: #23242E; border: 1px solid #3A3D4A;">
           <div style="font-size: 12px; color: #C9CBD4;">scratch</div>
-          <div style="width: 7px; height: 7px; border-radius: 4px; background: #8E8E93;"></div>
+          <div style="width: 7px; height: 7px; border-radius: 4px; background: #9ECE6A;"></div>
           <div style="width: 16px; height: 16px; border-radius: 4px; background: #3A3D4A; display: flex; align-items: center; justify-content: center; color: #E6E7EB; font-size: 10px; line-height: 1;">×</div>
         </div>
       </div>
@@ -139,11 +139,11 @@
     <div style="display: flex; flex-direction: column; gap: 10px;">
       <div class="label">AGENT STATUS VOCABULARY</div>
       <div style="display: flex; gap: 14px; align-items: center;">
-        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #8E8E93;"></div><div style="font-size: 10px; color: #9B9DA9;">idle</div></div>
-        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #0A84FF;"></div><div style="font-size: 10px; color: #9B9DA9;">working</div></div>
-        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #FF9F0A;"></div><div style="font-size: 10px; color: #9B9DA9;">blocked</div></div>
-        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #32D74B;"></div><div style="font-size: 10px; color: #9B9DA9;">done</div></div>
-        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #5A5C66;"></div><div style="font-size: 10px; color: #9B9DA9;">unknown</div></div>
+        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #9ECE6A;"></div><div style="font-size: 10px; color: #9B9DA9;">idle</div></div>
+        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #E0AF68;"></div><div style="font-size: 10px; color: #9B9DA9;">working</div></div>
+        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #F7768E;"></div><div style="font-size: 10px; color: #9B9DA9;">blocked</div></div>
+        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #7DCFFF;"></div><div style="font-size: 10px; color: #9B9DA9;">done</div></div>
+        <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: #565F89;"></div><div style="font-size: 10px; color: #9B9DA9;">unknown</div></div>
       </div>
       <div class="sub" style="max-width: 300px;">One dot, four surfaces: pane header, tab pill, workspace row, All Workspaces grid. A workspace/tab dot shows its most urgent child (blocked beats working beats done).</div>
     </div>
