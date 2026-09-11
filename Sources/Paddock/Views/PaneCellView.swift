@@ -75,9 +75,16 @@ struct PaneCellView: View {
         }
     }
 
+    /// Vertical anatomy per the reference (glyph, cwd, chip when present,
+    /// hint), centered -- both explicitly, so a reader doesn't have to know
+    /// that `.frame(maxWidth: .infinity)`'s default alignment happens to
+    /// agree with what's wanted here.
     private var content: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .center, spacing: 8) {
             Spacer(minLength: 0)
+            Image(systemName: "terminal")
+                .font(.system(size: 22))
+                .foregroundStyle(theme.overlay0)
             Text(cwdTail)
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(theme.subtext0)
@@ -89,13 +96,24 @@ struct PaneCellView: View {
                     .truncationMode(.tail)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(theme.surface0))
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(Self.terminalGround)
+                            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(theme.separator, lineWidth: 1))
+                    )
             }
+            Text(hintText)
+                .font(.system(size: 9))
+                .foregroundStyle(theme.overlay0)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(14)
     }
+
+    /// Task 16's click jumps herdr focus; Task 17-18 attaches a live PTY
+    /// stream on click instead, and the hint changes to match.
+    private var hintText: String { "click to focus in herdr" }
 
     private var cwdTail: String {
         guard let last = pane.cwd.split(separator: "/").last else { return pane.cwd }

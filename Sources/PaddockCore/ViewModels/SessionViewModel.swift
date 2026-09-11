@@ -56,6 +56,25 @@ public final class SessionViewModel {
         }
     }
 
+    /// The selected workspace's tabs, or `[]` when nothing is selected yet
+    /// or the workspace has none.
+    public var tabsForSelectedWorkspace: [TabRecord] {
+        guard let workspaceID = selectedWorkspaceID else { return [] }
+        return model?.tabs[workspaceID] ?? []
+    }
+
+    /// The layout snapshot for the selected tab, or `nil` when no tab is
+    /// selected or the model has no layout for it yet.
+    public var selectedLayout: LayoutSnapshot? {
+        guard let tabID = selectedTabID else { return nil }
+        return model?.layouts[tabID]
+    }
+
+    /// Count of panes belonging to `workspaceID`, `0` when it has none.
+    public func paneCount(for workspaceID: WorkspaceID) -> Int {
+        model?.panes.values.filter { $0.workspaceID == workspaceID }.count ?? 0
+    }
+
     public func select(workspace id: WorkspaceID) {
         selectedWorkspaceID = id
         selectedTabID = model?.workspaces.first { $0.workspaceID == id }?.activeTabID

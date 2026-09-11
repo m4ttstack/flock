@@ -21,19 +21,18 @@ struct MainWindow: View {
             HStack(spacing: 0) {
                 WorkspaceRail(
                     theme: theme,
-                    model: viewModel.model,
-                    selectedWorkspaceID: viewModel.selectedWorkspaceID,
+                    viewModel: viewModel,
                     onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
                 )
                 VStack(spacing: 0) {
                     TabStrip(
                         theme: theme,
-                        tabs: selectedWorkspaceTabs,
+                        tabs: viewModel.tabsForSelectedWorkspace,
                         selectedTabID: viewModel.selectedTabID,
                         protocolVersion: HerdrClient.minimumProtocol,
                         onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
                     )
-                    PaneCanvas(theme: theme, viewModel: viewModel, layout: selectedLayout)
+                    PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
                 }
             }
         }
@@ -41,16 +40,6 @@ struct MainWindow: View {
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.windowBg))
-    }
-
-    private var selectedWorkspaceTabs: [TabRecord] {
-        guard let workspaceID = viewModel.selectedWorkspaceID else { return [] }
-        return viewModel.model?.tabs[workspaceID] ?? []
-    }
-
-    private var selectedLayout: LayoutSnapshot? {
-        guard let tabID = viewModel.selectedTabID else { return nil }
-        return viewModel.model?.layouts[tabID]
     }
 }
 

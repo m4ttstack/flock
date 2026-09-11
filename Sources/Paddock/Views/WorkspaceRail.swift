@@ -5,11 +5,10 @@ import SwiftUI
 /// stays untested until the e2e suite per the task brief.
 struct WorkspaceRail: View {
     let theme: Theme
-    let model: SessionModel?
-    let selectedWorkspaceID: WorkspaceID?
+    let viewModel: SessionViewModel
     let onSelect: (WorkspaceID) -> Void
 
-    private var workspaces: [WorkspaceRecord] { model?.workspaces ?? [] }
+    private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -25,8 +24,8 @@ struct WorkspaceRail: View {
                 WorkspaceRow(
                     theme: theme,
                     workspace: workspace,
-                    paneCount: paneCount(for: workspace.workspaceID),
-                    isSelected: workspace.workspaceID == selectedWorkspaceID
+                    paneCount: viewModel.paneCount(for: workspace.workspaceID),
+                    isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID
                 )
                 .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
                 .onTapGesture { onSelect(workspace.workspaceID) }
@@ -41,10 +40,6 @@ struct WorkspaceRail: View {
         .overlay(alignment: .trailing) {
             Rectangle().fill(theme.separator).frame(width: 1)
         }
-    }
-
-    private func paneCount(for workspaceID: WorkspaceID) -> Int {
-        model?.panes.values.filter { $0.workspaceID == workspaceID }.count ?? 0
     }
 }
 
