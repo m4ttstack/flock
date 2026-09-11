@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    x-dc { display: block; }
+    body { margin: 0; font-family: -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  </style>
+</helmet>
+<div style="width: 1280px; height: 800px; background: #1E1F28; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid #2A2C37;">
+
+  <div style="height: 44px; flex: none; display: flex; align-items: center; background: #23242E; border-bottom: 1px solid #2A2C37;">
+    <div style="display: flex; gap: 8px; padding: 0 16px;">
+      <div style="width: 12px; height: 12px; border-radius: 6px; background: #FF5F57;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 6px; background: #FEBC2E;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 6px; background: #28C840;"></div>
+    </div>
+    <div style="flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: #E6E7EB;">paddock</div>
+    <div style="display: flex; align-items: center; gap: 6px; padding: 0 16px;">
+      <div style="width: 7px; height: 7px; border-radius: 4px; background: #32D74B;"></div>
+      <div style="font-size: 11px; color: #9B9DA9;">herdr · default</div>
+    </div>
+  </div>
+
+  <div style="flex: 1; display: flex; min-height: 0;">
+
+    <div style="width: 216px; flex: none; background: #16171E; border-right: 1px solid #2A2C37; display: flex; flex-direction: column; padding: 10px 8px; gap: 2px;">
+      <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #6B6E7B; padding: 4px 10px 8px;">WORKSPACES</div>
+
+      <div style="display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; background: rgba(10,132,255,0.16); border: 1px solid rgba(10,132,255,0.35);">
+        <svg width="18" height="14" viewBox="0 0 18 14" fill="none"><rect x="0.5" y="0.5" width="10" height="13" rx="1.5" stroke="#0A84FF"/><rect x="12.5" y="0.5" width="5" height="6" rx="1.5" stroke="#0A84FF"/><rect x="12.5" y="8.5" width="5" height="5" rx="1.5" stroke="#0A84FF"/></svg>
+        <div style="flex: 1; font-size: 13px; font-weight: 600; color: #E6E7EB;">repo-tools</div>
+        <div style="font-size: 10px; color: #9B9DA9;">5</div>
+        <div style="width: 8px; height: 8px; border-radius: 4px; background: #0A84FF;"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px;">
+        <svg width="18" height="14" viewBox="0 0 18 14" fill="none"><rect x="0.5" y="0.5" width="17" height="13" rx="1.5" stroke="#6B6E7B"/></svg>
+        <div style="flex: 1; font-size: 13px; color: #C9CBD4;">paddock</div>
+        <div style="font-size: 10px; color: #6B6E7B;">2</div>
+        <div style="width: 8px; height: 8px; border-radius: 4px; background: #FF9F0A;"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px;">
+        <svg width="18" height="14" viewBox="0 0 18 14" fill="none"><rect x="0.5" y="0.5" width="8" height="13" rx="1.5" stroke="#6B6E7B"/><rect x="10.5" y="0.5" width="7" height="13" rx="1.5" stroke="#6B6E7B"/></svg>
+        <div style="flex: 1; font-size: 13px; color: #C9CBD4;">console</div>
+        <div style="font-size: 10px; color: #6B6E7B;">3</div>
+        <div style="width: 8px; height: 8px; border-radius: 4px; background: #32D74B;"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px;">
+        <svg width="18" height="14" viewBox="0 0 18 14" fill="none"><rect x="0.5" y="0.5" width="17" height="6" rx="1.5" stroke="#6B6E7B"/><rect x="0.5" y="8.5" width="17" height="5" rx="1.5" stroke="#6B6E7B"/></svg>
+        <div style="flex: 1; font-size: 13px; color: #C9CBD4;">glance</div>
+        <div style="font-size: 10px; color: #6B6E7B;">2</div>
+        <div style="width: 8px; height: 8px; border-radius: 4px; background: #8E8E93;"></div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; border: 1px dashed #3A3D4A; margin-top: 6px;">
+        <div style="width: 18px; text-align: center; color: #6B6E7B; font-size: 14px; line-height: 1;">+</div>
+        <div style="font-size: 12px; color: #6B6E7B;">New Workspace</div>
+      </div>
+
+      <div style="flex: 1;"></div>
+
+      <div style="display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; border-top: 1px solid #2A2C37;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="0.5" y="0.5" width="6" height="6" rx="1" stroke="#9B9DA9"/><rect x="9.5" y="0.5" width="6" height="6" rx="1" stroke="#9B9DA9"/><rect x="0.5" y="9.5" width="6" height="6" rx="1" stroke="#9B9DA9"/><rect x="9.5" y="9.5" width="6" height="6" rx="1" stroke="#9B9DA9"/></svg>
+        <div style="font-size: 12px; color: #9B9DA9;">All Workspaces</div>
+        <div style="flex: 1;"></div>
+        <div class="mono" style="font-size: 10px; color: #6B6E7B; background: #23242E; border: 1px solid #2A2C37; border-radius: 4px; padding: 1px 5px;">⌘G</div>
+      </div>
+    </div>
+
+    <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+
+      <div style="height: 42px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px; background: #1B1C24; border-bottom: 1px solid #2A2C37;">
+        <div style="display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 7px; background: #2A2C37; border: 1px solid #3A3D4A;">
+          <div style="font-size: 12px; font-weight: 600; color: #E6E7EB;">agents</div>
+          <div style="font-size: 10px; color: #9B9DA9; background: #1E1F28; border-radius: 4px; padding: 1px 5px;">3</div>
+          <div style="width: 7px; height: 7px; border-radius: 4px; background: #0A84FF;"></div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 7px;">
+          <div style="font-size: 12px; color: #9B9DA9;">server</div>
+          <div style="font-size: 10px; color: #6B6E7B;">1</div>
+          <div style="width: 7px; height: 7px; border-radius: 4px; background: #32D74B;"></div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 7px;">
+          <div style="font-size: 12px; color: #9B9DA9;">scratch</div>
+          <div style="width: 7px; height: 7px; border-radius: 4px; background: #8E8E93;"></div>
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M1.5 3.5h6M4.5 1v2.5" stroke="#FF9F0A" stroke-width="1.2"/><rect x="1.5" y="3.5" width="6" height="4" rx="1" stroke="#FF9F0A"/></svg>
+        </div>
+        <div style="width: 26px; height: 26px; border-radius: 7px; border: 1px dashed #3A3D4A; display: flex; align-items: center; justify-content: center; color: #6B6E7B; font-size: 14px;">+</div>
+        <div style="flex: 1;"></div>
+        <div class="mono" style="font-size: 10px; color: #6B6E7B;">protocol 22</div>
+      </div>
+
+      <div style="flex: 1; display: flex; gap: 6px; padding: 10px; min-height: 0; background: #1E1F28;">
+
+        <div style="flex: 1.4; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 2px solid #0A84FF; box-shadow: 0 0 0 3px rgba(10,132,255,0.18); background: #191A22;">
+          <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: #20212B; border-bottom: 1px solid #2A2C37;">
+            <div style="width: 8px; height: 8px; border-radius: 4px; background: #0A84FF;"></div>
+            <div style="font-size: 11px; font-weight: 600; color: #E6E7EB;">claude · fix runner tests</div>
+            <div class="mono" style="font-size: 10px; color: #6B6E7B;">~/rt</div>
+            <div style="flex: 1;"></div>
+            <div class="mono" style="font-size: 9px; color: #0A84FF; background: rgba(10,132,255,0.12); border-radius: 4px; padding: 1px 6px;">working</div>
+          </div>
+          <div class="mono" style="flex: 1; padding: 10px 12px; font-size: 11px; line-height: 1.6; color: #C9CBD4; overflow: hidden;">
+            <div><span style="color: #6B6E7B;">$</span> bun test lib/runner</div>
+            <div style="color: #9B9DA9;">bun test v1.2.4 (fcb1e447)</div>
+            <div>&nbsp;</div>
+            <div><span style="color: #32D74B;">✓</span> runner &gt; lane header shows repo name <span style="color: #6B6E7B;">[2.1ms]</span></div>
+            <div><span style="color: #32D74B;">✓</span> runner &gt; enter activates entry <span style="color: #6B6E7B;">[0.8ms]</span></div>
+            <div><span style="color: #FF5F57;">✗</span> runner &gt; f attends via daemon <span style="color: #6B6E7B;">[4.2ms]</span></div>
+            <div style="color: #FF5F57;">&nbsp;&nbsp;Expected: "pane:focus"</div>
+            <div style="color: #FF5F57;">&nbsp;&nbsp;Received: undefined</div>
+            <div>&nbsp;</div>
+            <div style="color: #9B9DA9;">2 pass, 1 fail, 3 tests</div>
+            <div>&nbsp;</div>
+            <div><span style="color: #0A84FF;">●</span> <span style="color: #E6E7EB;">Reading lib/runner/runner.ts to trace the focus path...</span></div>
+            <div><span style="color: #6B6E7B;">▌</span></div>
+          </div>
+        </div>
+
+        <div style="width: 6px; flex: none; display: flex; align-items: center; justify-content: center;">
+          <div style="width: 2px; height: 40px; border-radius: 1px; background: #3A3D4A;"></div>
+        </div>
+
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+
+          <div style="flex: 1; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 1px solid #2A2C37; background: #191A22;">
+            <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: #20212B; border-bottom: 1px solid #2A2C37;">
+              <div style="width: 8px; height: 8px; border-radius: 4px; background: #32D74B;"></div>
+              <div style="font-size: 11px; font-weight: 600; color: #C9CBD4;">tests · green</div>
+              <div class="mono" style="font-size: 10px; color: #6B6E7B;">~/paddock</div>
+              <div style="flex: 1;"></div>
+              <div style="width: 18px; height: 18px; border-radius: 5px; background: #2A2C37; display: flex; align-items: center; justify-content: center; color: #9B9DA9; font-size: 11px; line-height: 1;">×</div>
+            </div>
+            <div class="mono" style="flex: 1; padding: 10px 12px; font-size: 11px; line-height: 1.6; color: #C9CBD4; overflow: hidden;">
+              <div>Test Suite PaddockCoreTests <span style="color: #32D74B;">passed</span></div>
+              <div style="color: #9B9DA9;">&nbsp;&nbsp;Executed 19 tests, 0 failures</div>
+              <div><span style="color: #6B6E7B;">$</span> <span style="color: #6B6E7B;">▌</span></div>
+            </div>
+          </div>
+
+          <div style="flex: 1; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 1px solid #2A2C37; background: #191A22;">
+            <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: #20212B; border-bottom: 1px solid #2A2C37;">
+              <div style="width: 8px; height: 8px; border-radius: 4px; background: #8E8E93;"></div>
+              <div style="font-size: 11px; font-weight: 600; color: #C9CBD4;">git</div>
+              <div class="mono" style="font-size: 10px; color: #6B6E7B;">~/paddock</div>
+              <div style="flex: 1;"></div>
+            </div>
+            <div class="mono" style="flex: 1; padding: 10px 12px; font-size: 11px; line-height: 1.6; color: #C9CBD4; overflow: hidden;">
+              <div><span style="color: #6B6E7B;">$</span> git log --oneline -3</div>
+              <div><span style="color: #FF9F0A;">82fd0b4</span> core: dedup buffered creates</div>
+              <div><span style="color: #FF9F0A;">18338a5</span> core: store bootstrap</div>
+              <div><span style="color: #FF9F0A;">bea68fc</span> core: session reducers</div>
+              <div><span style="color: #6B6E7B;">$</span> <span style="color: #6B6E7B;">▌</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

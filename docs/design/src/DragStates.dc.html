@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    x-dc { display: block; }
+    body { margin: 0; font-family: -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+    .label { font-size: 11px; font-weight: 600; color: #9B9DA9; letter-spacing: 0.04em; }
+    .sub { font-size: 10px; color: #6B6E7B; line-height: 1.5; }
+    .minipane { border-radius: 7px; background: #191A22; border: 1px solid #2A2C37; }
+  </style>
+</helmet>
+<div style="box-sizing: border-box; width: 1300px; height: 860px; background: #14151B; padding: 28px 32px; display: flex; flex-direction: column; gap: 22px; border-radius: 12px;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 700; color: #E6E7EB;">Drag states</div>
+    <div class="sub" style="margin-top: 2px;">Custom in-window drag layer: ghost proxy, edge-band dropzones, insertion bars, creation zones, spring-loading. All animation on transform/opacity; interruptible springs.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px;">
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">GHOST + ORIGIN</div>
+      <div style="height: 210px; position: relative; border-radius: 9px; background: #1E1F28; border: 1px solid #2A2C37; overflow: hidden;">
+        <div class="minipane" style="position: absolute; left: 14px; top: 14px; width: 130px; height: 100px; opacity: 0.4;">
+          <div style="height: 20px; display: flex; align-items: center; gap: 5px; padding: 0 8px; background: #20212B; border-bottom: 1px solid #2A2C37; border-radius: 7px 7px 0 0;">
+            <div style="width: 6px; height: 6px; border-radius: 3px; background: #0A84FF;"></div>
+            <div style="font-size: 9px; font-weight: 600; color: #C9CBD4;">claude</div>
+          </div>
+          <div class="mono" style="padding: 6px 8px; font-size: 8px; line-height: 1.6; color: #6B6E7B;">
+            <div>$ bun test</div>
+            <div>19 pass</div>
+          </div>
+        </div>
+        <div class="minipane" style="position: absolute; left: 150px; top: 78px; width: 130px; height: 100px; box-shadow: 0 12px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(10,132,255,0.5); transform: scale(1.02);">
+          <div style="height: 20px; display: flex; align-items: center; gap: 5px; padding: 0 8px; background: #20212B; border-bottom: 1px solid #2A2C37; border-radius: 7px 7px 0 0;">
+            <div style="width: 6px; height: 6px; border-radius: 3px; background: #0A84FF;"></div>
+            <div style="font-size: 9px; font-weight: 600; color: #E6E7EB;">claude</div>
+          </div>
+          <div class="mono" style="padding: 6px 8px; font-size: 8px; line-height: 1.6; color: #9B9DA9;">
+            <div>$ bun test</div>
+            <div>19 pass</div>
+          </div>
+        </div>
+        <svg style="position: absolute; left: 136px; top: 66px;" width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 2l10 7-4.5 1L7 15z" fill="#E6E7EB" stroke="#14151B" stroke-width="1.2"/></svg>
+        <div style="position: absolute; right: 10px; bottom: 8px;" class="sub">origin 40% · proxy at cursor +16,8</div>
+      </div>
+      <div class="sub">Origin pane stays at 40% opacity. The proxy follows the cursor with a fixed 16x8 offset, slight scale, deep shadow. No tilt: panes are content surfaces.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">EDGE BANDS + INTERIOR (drop target)</div>
+      <div style="height: 210px; position: relative; border-radius: 9px; background: #1E1F28; border: 1px solid #2A2C37; overflow: hidden; padding: 14px;">
+        <div style="position: relative; width: 100%; height: 100%; border-radius: 7px; background: #191A22; border: 1px solid #2A2C37; overflow: hidden;">
+          <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 20%; background: rgba(10,132,255,0.07); border-right: 1px dashed rgba(10,132,255,0.3);"></div>
+          <div style="position: absolute; right: 0; top: 0; bottom: 0; width: 20%; background: rgba(10,132,255,0.28); border-left: 2px solid #0A84FF;"></div>
+          <div style="position: absolute; left: 20%; right: 20%; top: 0; height: 20%; background: rgba(10,132,255,0.07); border-bottom: 1px dashed rgba(10,132,255,0.3);"></div>
+          <div style="position: absolute; left: 20%; right: 20%; bottom: 0; height: 20%; background: rgba(10,132,255,0.07); border-top: 1px dashed rgba(10,132,255,0.3);"></div>
+          <div style="position: absolute; left: 20%; top: 20%; right: 20%; bottom: 20%; display: flex; align-items: center; justify-content: center;">
+            <div style="font-size: 10px; color: #6B6E7B;">interior = swap / move onto</div>
+          </div>
+          <div style="position: absolute; right: 4%; top: 45%; font-size: 9px; color: #0A84FF; font-weight: 700;">SPLIT →</div>
+        </div>
+      </div>
+      <div class="sub">Outer 20% per side = directional split (corners resolve to the nearer side). Active band fills solid and previews the post-drop rects live. Interior = swap (same tab) or move-onto (cross tab).</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">SPLIT PREVIEW (live overlay)</div>
+      <div style="height: 210px; position: relative; border-radius: 9px; background: #1E1F28; border: 1px solid #2A2C37; overflow: hidden; padding: 14px; display: flex; gap: 5px;">
+        <div class="minipane" style="flex: 1; display: flex; align-items: center; justify-content: center;">
+          <div style="font-size: 10px; color: #6B6E7B;">existing pane<br><span style="font-size: 9px;">(shrinks to 50%)</span></div>
+        </div>
+        <div style="flex: 1; border-radius: 7px; border: 2px dashed #0A84FF; background: rgba(10,132,255,0.12); display: flex; align-items: center; justify-content: center;">
+          <div style="font-size: 10px; color: #0A84FF; font-weight: 600; text-align: center;">dragged pane<br>lands here</div>
+        </div>
+      </div>
+      <div class="sub">While hovering a band, CanvasGeometry recomputes for the hypothetical layout and cross-fades: the neighbors visibly make room before the drop commits.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">INSERTION BARS (reorder)</div>
+      <div style="height: 190px; border-radius: 9px; background: #1E1F28; border: 1px solid #2A2C37; padding: 16px; display: flex; flex-direction: column; gap: 18px;">
+        <div>
+          <div class="sub" style="margin-bottom: 8px;">tab strip</div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="padding: 6px 12px; border-radius: 7px; background: #23242E; border: 1px solid #3A3D4A; font-size: 11px; color: #C9CBD4;">agents</div>
+            <div style="position: relative; width: 2px; height: 30px; background: #0A84FF; border-radius: 1px;">
+              <div style="position: absolute; top: -5px; left: -3px; width: 8px; height: 8px; border-radius: 4px; background: #0A84FF;"></div>
+            </div>
+            <div style="padding: 6px 12px; border-radius: 7px; background: #23242E; border: 1px solid #3A3D4A; font-size: 11px; color: #C9CBD4; opacity: 0.4;">server</div>
+            <div style="padding: 6px 12px; border-radius: 7px; background: #23242E; border: 1px solid #3A3D4A; font-size: 11px; color: #C9CBD4;">scratch</div>
+          </div>
+        </div>
+        <div>
+          <div class="sub" style="margin-bottom: 8px;">workspace rail</div>
+          <div style="display: flex; flex-direction: column; gap: 5px; width: 170px;">
+            <div style="padding: 6px 10px; border-radius: 7px; background: #23242E; font-size: 11px; color: #C9CBD4;">repo-tools</div>
+            <div style="position: relative; height: 2px; background: #0A84FF; border-radius: 1px; margin: 0 2px;">
+              <div style="position: absolute; left: -5px; top: -3px; width: 8px; height: 8px; border-radius: 4px; background: #0A84FF;"></div>
+            </div>
+            <div style="padding: 6px 10px; border-radius: 7px; background: #23242E; font-size: 11px; color: #C9CBD4;">console</div>
+          </div>
+        </div>
+      </div>
+      <div class="sub">2px accent line + 8px terminal dot in the gap. Neighbors reshuffle in ~100ms when the dragged item's center crosses a boundary.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">CREATION ZONES</div>
+      <div style="height: 190px; border-radius: 9px; background: #1E1F28; border: 1px solid #2A2C37; padding: 16px; display: flex; flex-direction: column; gap: 18px;">
+        <div>
+          <div class="sub" style="margin-bottom: 8px;">new tab (strip, mid-drag)</div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="padding: 6px 12px; border-radius: 7px; background: #23242E; border: 1px solid #3A3D4A; font-size: 11px; color: #C9CBD4;">agents</div>
+            <div style="display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 7px; border: 2px dashed #0A84FF; background: rgba(10,132,255,0.12);">
+              <div style="font-size: 12px; color: #0A84FF; line-height: 1;">+</div>
+              <div style="font-size: 11px; color: #0A84FF; font-weight: 600;">New Tab</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="sub" style="margin-bottom: 8px;">new workspace (rail, mid-drag)</div>
+          <div style="width: 170px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; border: 2px dashed #0A84FF; background: rgba(10,132,255,0.12);">
+            <div style="font-size: 13px; color: #0A84FF; line-height: 1;">+</div>
+            <div style="font-size: 11px; color: #0A84FF; font-weight: 600;">New Workspace</div>
+          </div>
+        </div>
+      </div>
+      <div class="sub">The + zones inflate and go accent-dashed only while a compatible drag is live. Dropping a pane here moves it into a fresh tab/workspace (id re-keys on cross-workspace moves).</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">SPRING-LOADING (dwell to open)</div>
+      <div style="height: 190px; border-radius: 9px; background: #1E1F28; border: 1px solid #2A2C37; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="width: 190px; position: relative; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; background: rgba(10,132,255,0.1); border: 1px solid rgba(10,132,255,0.45);">
+          <svg width="20" height="20" viewBox="0 0 20 20">
+            <circle cx="10" cy="10" r="8" fill="none" stroke="#3A3D4A" stroke-width="2.5"/>
+            <circle cx="10" cy="10" r="8" fill="none" stroke="#0A84FF" stroke-width="2.5" stroke-dasharray="36 50" stroke-linecap="round" transform="rotate(-90 10 10)"/>
+          </svg>
+          <div style="flex: 1; font-size: 12px; font-weight: 600; color: #E6E7EB;">console</div>
+          <div style="width: 8px; height: 8px; border-radius: 4px; background: #32D74B;"></div>
+        </div>
+        <div class="sub" style="max-width: 260px;">Hover 500ms over a workspace/tab while dragging: the dwell ring fills, then the target opens in place and the drag continues inside it. Space opens instantly. Leaving reverses.</div>
+        <div style="display: flex; gap: 10px; margin-top: 4px;">
+          <div class="mono" style="font-size: 9px; color: #9B9DA9; background: #23242E; border: 1px solid #2A2C37; border-radius: 4px; padding: 2px 7px;">Esc cancels + spring-back</div>
+          <div class="mono" style="font-size: 9px; color: #9B9DA9; background: #23242E; border: 1px solid #2A2C37; border-radius: 4px; padding: 2px 7px;">landing flash 700ms</div>
+        </div>
+      </div>
+      <div class="sub">Invalid drops bounce home along the same spring curve. Every drag outcome also exists as a context-menu "Move to..." action for keyboard/accessibility parity.</div>
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid #2A2C37; padding-top: 16px; display: flex; gap: 24px;">
+    <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
+      <div class="label">REJECTION TOAST (bottom edge, auto-dismiss 3s)</div>
+      <div style="align-self: flex-start; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; background: #23242E; border: 1px solid #3A3D4A; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+        <div style="width: 7px; height: 7px; border-radius: 4px; background: #FF9F0A;"></div>
+        <div style="font-size: 11px; color: #E6E7EB;">Unzoomed "big diff" to complete the drop</div>
+      </div>
+      <div class="sub">One toast surface for auto-unzoom notices, rejected drops (with herdr's typed reason), and undo's stale-entry notice.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
+      <div class="label">SPRING PARAMETERS</div>
+      <div class="mono" style="font-size: 10px; color: #9B9DA9; line-height: 1.8;">
+        drop-settle / cancel: .spring(duration: 0.35, bounce: 0.15), interruptible<br>
+        reshuffle slide: 100ms · dwell: 500ms · landing flash: 700ms<br>
+        auto-scroll: within 24pt of strip/rail edge, proximity-ramped velocity
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

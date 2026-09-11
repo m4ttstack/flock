@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    x-dc { display: block; }
+    body { margin: 0; font-family: -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+    .thumb { border-radius: 5px; background: #191A22; border: 1px solid #2A2C37; position: relative; overflow: hidden; }
+    .tsplit { position: absolute; background: #2A2C37; }
+  </style>
+</helmet>
+<div style="width: 1280px; height: 800px; background: #1E1F28; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid #2A2C37;">
+
+  <div style="height: 44px; flex: none; display: flex; align-items: center; background: #23242E; border-bottom: 1px solid #2A2C37;">
+    <div style="display: flex; gap: 8px; padding: 0 16px;">
+      <div style="width: 12px; height: 12px; border-radius: 6px; background: #FF5F57;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 6px; background: #FEBC2E;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 6px; background: #28C840;"></div>
+    </div>
+    <div style="flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: #E6E7EB;">paddock · All Workspaces</div>
+    <div style="display: flex; align-items: center; gap: 6px; padding: 0 16px;">
+      <div class="mono" style="font-size: 10px; color: #6B6E7B; background: #1E1F28; border: 1px solid #2A2C37; border-radius: 4px; padding: 1px 6px;">Esc to return</div>
+    </div>
+  </div>
+
+  <div style="flex: 1; padding: 24px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; overflow: hidden;">
+
+    <div style="border-radius: 11px; background: #16171E; border: 1px solid rgba(10,132,255,0.5); box-shadow: 0 0 0 2px rgba(10,132,255,0.15); padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="font-size: 13px; font-weight: 700; color: #E6E7EB;">repo-tools</div>
+        <div style="font-size: 10px; color: #6B6E7B;">5 panes · 3 tabs</div>
+        <div style="flex: 1;"></div>
+        <div style="width: 8px; height: 8px; border-radius: 4px; background: #0A84FF;"></div>
+        <div class="mono" style="font-size: 9px; color: #9B9DA9;">focused</div>
+      </div>
+      <div style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1;">
+            <div class="tsplit" style="left: 58%; top: 0; bottom: 0; width: 2px;"></div>
+            <div class="tsplit" style="left: 58%; right: 0; top: 50%; height: 2px;"></div>
+            <div style="position: absolute; left: 6px; top: 5px; width: 6px; height: 6px; border-radius: 3px; background: #0A84FF;"></div>
+          </div>
+          <div style="font-size: 10px; color: #C9CBD4; text-align: center;">agents</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1;">
+            <div style="position: absolute; left: 6px; top: 5px; width: 6px; height: 6px; border-radius: 3px; background: #32D74B;"></div>
+          </div>
+          <div style="font-size: 10px; color: #9B9DA9; text-align: center;">server</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1;">
+            <div class="tsplit" style="left: 50%; top: 0; bottom: 0; width: 2px;"></div>
+            <div style="position: absolute; left: 6px; top: 5px; width: 6px; height: 6px; border-radius: 3px; background: #8E8E93;"></div>
+          </div>
+          <div style="font-size: 10px; color: #9B9DA9; text-align: center;">scratch</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="border-radius: 11px; background: #16171E; border: 1px solid #2A2C37; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="font-size: 13px; font-weight: 700; color: #C9CBD4;">paddock</div>
+        <div style="font-size: 10px; color: #6B6E7B;">2 panes · 2 tabs</div>
+        <div style="flex: 1;"></div>
+        <div style="width: 8px; height: 8px; border-radius: 4px; background: #FF9F0A; box-shadow: 0 0 6px rgba(255,159,10,0.7);"></div>
+        <div class="mono" style="font-size: 9px; color: #FF9F0A;">blocked</div>
+      </div>
+      <div style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1; border-color: rgba(255,159,10,0.5);">
+            <div style="position: absolute; left: 6px; top: 5px; width: 6px; height: 6px; border-radius: 3px; background: #FF9F0A;"></div>
+          </div>
+          <div style="font-size: 10px; color: #C9CBD4; text-align: center;">migration</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1;">
+            <div style="position: absolute; left: 6px; top: 5px; width: 6px; height: 6px; border-radius: 3px; background: #32D74B;"></div>
+          </div>
+          <div style="font-size: 10px; color: #9B9DA9; text-align: center;">tests</div>
+        </div>
+        <div></div>
+      </div>
+    </div>
+
+    <div style="border-radius: 11px; background: #16171E; border: 2px dashed #0A84FF; padding: 14px; display: flex; flex-direction: column; gap: 10px; position: relative;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="font-size: 13px; font-weight: 700; color: #C9CBD4;">console</div>
+        <div style="font-size: 10px; color: #6B6E7B;">3 panes · 2 tabs</div>
+        <div style="flex: 1;"></div>
+        <div style="width: 8px; height: 8px; border-radius: 4px; background: #32D74B;"></div>
+      </div>
+      <div style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1;">
+            <div class="tsplit" style="left: 0; right: 0; top: 55%; height: 2px;"></div>
+            <div style="position: absolute; left: 6px; top: 5px; width: 6px; height: 6px; border-radius: 3px; background: #32D74B;"></div>
+          </div>
+          <div style="font-size: 10px; color: #9B9DA9; text-align: center;">dev</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1; border: 2px dashed rgba(10,132,255,0.8); background: rgba(10,132,255,0.1);">
+            <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #0A84FF; font-weight: 700;">DROP</div>
+          </div>
+          <div style="font-size: 10px; color: #0A84FF; text-align: center; font-weight: 600;">storybook</div>
+        </div>
+        <div></div>
+      </div>
+      <div style="position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 6px;">
+        <div class="minipane mono" style="width: 96px; height: 64px; border-radius: 6px; background: #191A22; border: 1px solid rgba(10,132,255,0.5); box-shadow: 0 10px 26px rgba(0,0,0,0.55); padding: 5px 7px; font-size: 7px; color: #9B9DA9; transform: rotate(0.5deg);">
+          <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 3px;"><div style="width: 5px; height: 5px; border-radius: 3px; background: #0A84FF;"></div><div style="font-size: 8px; color: #E6E7EB; font-weight: 600;">claude</div></div>
+          <div>$ bun test</div>
+          <div>19 pass</div>
+        </div>
+        <svg width="16" height="16" viewBox="0 0 18 18" fill="none"><path d="M4 2l10 7-4.5 1L7 15z" fill="#E6E7EB" stroke="#14151B" stroke-width="1.2"/></svg>
+      </div>
+    </div>
+
+    <div style="border-radius: 11px; background: #16171E; border: 1px solid #2A2C37; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="font-size: 13px; font-weight: 700; color: #C9CBD4;">glance</div>
+        <div style="font-size: 10px; color: #6B6E7B;">2 panes · 2 tabs</div>
+        <div style="flex: 1;"></div>
+        <div style="width: 8px; height: 8px; border-radius: 4px; background: #8E8E93;"></div>
+      </div>
+      <div style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1;">
+            <div style="position: absolute; left: 6px; top: 5px; width: 6px; height: 6px; border-radius: 3px; background: #8E8E93;"></div>
+          </div>
+          <div style="font-size: 10px; color: #9B9DA9; text-align: center;">shell</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <div class="thumb" style="flex: 1;">
+            <div style="position: absolute; left: 6px; top: 5px; width: 6px; height: 6px; border-radius: 3px; background: #8E8E93;"></div>
+          </div>
+          <div style="font-size: 10px; color: #9B9DA9; text-align: center;">logs</div>
+        </div>
+        <div></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: none; padding: 10px 24px 16px; display: flex; align-items: center; gap: 10px;">
+    <div style="font-size: 10px; color: #6B6E7B;">Zoomed-out grid: every workspace's tabs as live layout thumbnails. Always available as a drop surface mid-drag (a pane dragged here lands in the hovered tab, or a fresh workspace via the rail zone). Click any thumbnail to jump. Dwell 500ms spring-loads into the workspace.</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1280, "h": 800, "title": "Main window · dark" },
+    { "file": "MainLight.dc.html", "x": 1400, "y": 0, "w": 1280, "h": 800, "title": "Main window · light" },
+    { "file": "PaneStates.dc.html", "x": 0, "y": 940, "w": 1300, "h": 760, "title": "Pane cell states" },
+    { "file": "DragStates.dc.html", "x": 1400, "y": 940, "w": 1300, "h": 860, "title": "Drag states" },
+    { "file": "AllWorkspaces.dc.html", "x": 0, "y": 1940, "w": 1280, "h": 800, "title": "All Workspaces grid" }
+  ],
+  "annotations": [
+    { "id": "gate-note", "x": 0, "y": -170, "w": 560, "text": "Task 14 gate: sign off before any UI code (Tasks 15-28).\nDirection: native macOS 15 chrome (SF Pro, source-list sidebar, system accent) around true terminal grounds (#191A22). Terminal cells stay dark in the light pass.\nAgent status: idle gray / working blue / blocked orange / done green / unknown dim, one dot vocabulary at every level.\nTerminal text and pane titles are illustrative; layout, chrome, spacing, states and colors are the real proposal." }
+  ],
+  "launch": { "view": "canvas" }
+}
