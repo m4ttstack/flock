@@ -15,7 +15,7 @@
     .sub { font-size: 10px; color: #6B6E7B; line-height: 1.5; }
   </style>
 </helmet>
-<div style="box-sizing: border-box; width: 1300px; height: 760px; background: #14151B; padding: 28px 32px; display: flex; flex-direction: column; gap: 20px; border-radius: 12px;">
+<div style="box-sizing: border-box; width: 1300px; height: 890px; background: #14151B; padding: 28px 32px; display: flex; flex-direction: column; gap: 20px; border-radius: 12px;">
 
   <div>
     <div style="font-size: 16px; font-weight: 700; color: #E6E7EB;">Pane cell states</div>
@@ -146,6 +146,37 @@
         <div style="display: flex; align-items: center; gap: 5px;"><div style="width: 8px; height: 8px; border-radius: 4px; background: radial-gradient(circle, #565F89 0 1.5px, transparent 2px);"></div><div style="font-size: 10px; color: #9B9DA9;">unknown</div></div>
       </div>
       <div class="sub" style="max-width: 300px;">One dot, four surfaces: pane header, tab pill, workspace row, All Workspaces grid. herdr dots style: filled for working/blocked/done, hollow ring for idle, centered dot for unknown. A workspace/tab dot shows its most urgent child (blocked beats working beats done).</div>
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid #2A2C37; padding-top: 18px; display: flex; gap: 28px; align-items: flex-start;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="label">NEW PANE · BARE PROMPT + HARNESS LAUNCHER</div>
+      <div style="width: 560px; height: 190px; display: flex; flex-direction: column; border-radius: 9px; overflow: hidden; border: 2px solid #0A84FF; box-shadow: 0 0 0 3px rgba(10,132,255,0.18); background: #191A22;">
+        <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 10px; background: #20212B; border-bottom: 1px solid #2A2C37;">
+          <div style="width: 8px; height: 8px; border-radius: 4px; box-sizing: border-box; background: transparent; border: 1.5px solid #9ECE6A;"></div>
+          <div style="font-size: 11px; font-weight: 600; color: #C9CBD4;">zsh</div>
+          <div class="mono" style="font-size: 10px; color: #6B6E7B;">~/paddock</div>
+        </div>
+        <div style="flex: 1; position: relative; padding: 9px 11px;">
+          <div class="mono" style="font-size: 11px; line-height: 1.6; color: #C9CBD4;"><span style="color: #6B6E7B;">~/paddock $</span> <span style="color: #E6E7EB;">▌</span></div>
+          <div style="position: absolute; left: 0; right: 0; top: 48px; display: flex; align-items: center; justify-content: center; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 9px; background: #23242E; border: 1px solid #3A3D4A;">
+              <div style="width: 20px; height: 20px; border-radius: 6px; background: rgba(224,175,104,0.16); border: 1px solid rgba(224,175,104,0.4); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #E0AF68;">C</div>
+              <div style="font-size: 12px; font-weight: 600; color: #E6E7EB;">claude</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 9px; background: #23242E; border: 1px solid #3A3D4A;">
+              <div style="width: 20px; height: 20px; border-radius: 6px; background: rgba(125,207,255,0.14); border: 1px solid rgba(125,207,255,0.4); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #7DCFFF;">X</div>
+              <div style="font-size: 12px; font-weight: 600; color: #C9CBD4;">codex</div>
+            </div>
+          </div>
+          <div style="position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; font-size: 9px; color: #6B6E7B;">detected on PATH · click launches in this pane · typing hides these</div>
+        </div>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px; flex: 1;">
+      <div class="label">RULES</div>
+      <div class="sub">A pane created from paddock (Split Right/Down, New Tab, New Workspace) is a real herdr shell: the prompt is live and typable immediately (send_input typing-lite). While the pane is pristine, the empty space below the prompt offers one button per CLI agent harness found on PATH; clicking sends that binary + Enter. The first keystroke, or any output beyond the prompt, hides the buttons for good, so plain shell use never fights them. Panes created from inside herdr never show the launcher.</div>
     </div>
   </div>
 </div>

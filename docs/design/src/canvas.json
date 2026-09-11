@@ -2,7 +2,7 @@
   "artboards": [
     { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1280, "h": 800, "title": "Main window · dark" },
     { "file": "MainLight.dc.html", "x": 1400, "y": 0, "w": 1280, "h": 800, "title": "Main window · light" },
-    { "file": "PaneStates.dc.html", "x": 0, "y": 940, "w": 1300, "h": 760, "title": "Pane cell states" },
+    { "file": "PaneStates.dc.html", "x": 0, "y": 940, "w": 1300, "h": 890, "title": "Pane cell states" },
     { "file": "DragStates.dc.html", "x": 1400, "y": 940, "w": 1300, "h": 940, "title": "Drag states" },
     { "file": "AllWorkspaces.dc.html", "x": 0, "y": 1940, "w": 1280, "h": 800, "title": "All Workspaces grid" },
     { "file": "Interactions.dc.html", "x": 1400, "y": 1940, "w": 1300, "h": 720, "title": "Notifications & pointer" }

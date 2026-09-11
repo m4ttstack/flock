@@ -24,7 +24,7 @@ it is the seed of a full Mac-native alternate herdr controller.
 | Home | New repo `paddock`, built as `Contents/Helpers/Paddock.app` inside mattstack.app, launched from the tray |
 | Pane fidelity | Full 1:1 terminal content, scrollable, live. Deep history (scrollback beyond the streamed/backfilled buffer, via `pane.selection.read`) is IN v1; it is the feature the protocol floor exists for |
 | v1 scope | Full drag inventory (below) + rename/close/zoom/focus at all levels |
-| v1 input | None. Typing into panes is reserved for v1.5 (`terminal session control --takeover`, `pane.send_input`) |
+| v1 input | Typing-lite via `pane.send_input` (text + named keys: enter, esc, arrows, backspace, tab, ctrl combos): enough to run commands and drive agent TUI menus, with echo arriving over the observe stream (24-111ms). Full-fidelity raw input (mouse forwarding, kitty protocol, exclusive ownership) stays v1.5 (`terminal session control --takeover`) |
 | herdr version | Assume upgraded herdr: target the protocol >= 22 surface (`pane.scroll`, `pane.selection.read` era). Startup does `ping`; below the floor, paddock shows "run `herdr update`" and exits gracefully |
 | Process | Spike-first: nothing lands in the implementation plan unvalidated. Fully automated interactive e2e tests are the completion bar |
 | UI process | Design canvas + reference PNGs signed off before any UI code |
@@ -202,6 +202,17 @@ transform/opacity only, interruptible springs.
   mirroring third-party herdr toasts 1:1 needs an upstream herdr
   `notification.shown` event (documented ask, out of scope).
 
+- **New panes are real shells, born useful (v1):** paddock creates panes,
+  tabs and workspaces for real (`pane.split`, `tab.create`,
+  `workspace.create`, with cwd control); herdr spawns a genuine shell. A
+  pane created from paddock shows its bare prompt (typable immediately via
+  send_input) and fills the empty space below the prompt with launcher
+  buttons for the CLI agent harnesses installed on the machine (PATH probe
+  of a known roster: claude, codex, ...; extensible). Clicking one sends
+  `<binary>\n` to the pane. The buttons exist only while the pane is
+  pristine: the first keystroke or the first output beyond the prompt hides
+  them, so a user who just wants to run a command never fights them.
+
 ## Hands-on checkpoints
 
 The build pauses at natural try-it points so feedback lands while it is
@@ -266,9 +277,11 @@ session.
 
 ## Non-goals (v1)
 
-- No typing into panes, no mouse forwarding (v1.5: `terminal session control
-  --takeover` + `pane.send_input`; the pane component is already a terminal
-  emulator, so this is UX + ownership semantics, not rendering work).
+- No full-fidelity input: v1 typing is send_input-based (see Decisions), so
+  no mouse forwarding into panes, no kitty/raw protocol passthrough, no
+  exclusive input ownership (v1.5: `terminal session control --takeover`;
+  the pane component is already a terminal emulator, so the rest is UX +
+  ownership semantics, not rendering work).
 - No `herdr-client.sock` / client-shell endpoint usage (revisit only with
   upstream buy-in; it is the internal surface that streams cell grids).
 - No layout templates/snapshot library (`layout.apply` fresh-tab templating is
