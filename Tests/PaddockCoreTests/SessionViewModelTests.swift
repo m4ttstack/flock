@@ -33,6 +33,63 @@ private actor FailingCommandClient: HerdrCommandClient {
     }
 }
 
+/// Records requests like `RecordingCommandClient` but answers `pane.read`
+/// with a canned `text` payload, so backfill tests can assert the fed bytes
+/// as well as the request params.
+private actor StubReadCommandClient: HerdrCommandClient {
+    private(set) var calls: [(method: String, params: [String: JSONValue])] = []
+    private let readText: String
+
+    init(readText: String = "seeded\n") {
+        self.readText = readText
+    }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        calls.append((method, params))
+        guard method == "pane.read" else { return Data("{}".utf8) }
+        let escaped = readText.replacingOccurrences(of: "\n", with: "\\n")
+        return Data(#"{"result":{"text":"\#(escaped)"}}"#.utf8)
+    }
+}
+
+/// A test double for `ObserveSupervisor` that records calls and hands back
+/// a controllable `AsyncStream` per pane, without spawning real processes.
+private actor RecordingObserveAttacher: PaneObserveAttaching {
+    private(set) var attachCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
+    private(set) var reattachCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
+    private(set) var detachCalls: [PaneID] = []
+    private var continuations: [PaneID: AsyncStream<TerminalFrame>.Continuation] = [:]
+
+    func attach(_ pane: PaneID, cols: Int, rows: Int) async -> AsyncStream<TerminalFrame> {
+        attachCalls.append((pane, cols, rows))
+        let (stream, continuation) = AsyncStream<TerminalFrame>.makeStream()
+        continuations[pane] = continuation
+        return stream
+    }
+
+    func reattach(_ pane: PaneID, cols: Int, rows: Int) async {
+        reattachCalls.append((pane, cols, rows))
+    }
+
+    func detach(_ pane: PaneID) async {
+        detachCalls.append(pane)
+        continuations.removeValue(forKey: pane)?.finish()
+    }
+}
+
+private func makePaneRecord(
+    paneID: String = "w1:p1",
+    agentStatus: AgentStatus = .unknown,
+    viewportRows: Int? = nil
+) -> PaneRecord {
+    PaneRecord(
+        paneID: PaneID(rawValue: paneID), workspaceID: WorkspaceID(rawValue: "w1"),
+        tabID: TabID(rawValue: "w1:t1"), focused: false, agentStatus: agentStatus,
+        revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp",
+        scroll: viewportRows.map { ScrollInfo(offsetFromBottom: 0, maxOffsetFromBottom: 0, viewportRows: $0) }
+    )
+}
+
 private func stringParam(_ params: [String: JSONValue], _ key: String) -> String? {
     guard case .string(let value)? = params[key] else { return nil }
     return value
@@ -287,4 +344,114 @@ final class SessionViewModelTests: XCTestCase {
         await secondTask.value
         XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
     }
+
+    // MARK: - live attach
+
+    @MainActor
+    func testBeginLiveAttachCallsAttacherWithLayoutCellDims() async {
+        let attacher = RecordingObserveAttacher()
+        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher)
+
+        let feed = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
+
+        XCTAssertNotNil(feed)
+        let calls = await attacher.attachCalls
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.pane, PaneID(rawValue: "w1:p1"))
+        XCTAssertEqual(calls.first?.cols, 80)
+        XCTAssertEqual(calls.first?.rows, 24)
+    }
+
+    @MainActor
+    func testBeginLiveAttachTwiceWithSameDimsIsANoOp() async {
+        let attacher = RecordingObserveAttacher()
+        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher)
+
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
+        let second = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
+
+        XCTAssertNil(second, "a repeat call with unchanged dims must not re-attach")
+        let attachCalls = await attacher.attachCalls
+        XCTAssertEqual(attachCalls.count, 1)
+    }
+
+    @MainActor
+    func testBeginLiveAttachWithChangedDimsReattachesWithoutANewFeed() async {
+        let attacher = RecordingObserveAttacher()
+        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher)
+
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
+        let resized = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 100, rows: 30)
+
+        XCTAssertNil(resized, "a dims change reattaches in place; the original stream keeps delivering")
+        let reattachCalls = await attacher.reattachCalls
+        XCTAssertEqual(reattachCalls.count, 1)
+        XCTAssertEqual(reattachCalls.first?.cols, 100)
+        XCTAssertEqual(reattachCalls.first?.rows, 30)
+        let attachCalls = await attacher.attachCalls
+        XCTAssertEqual(attachCalls.count, 1, "reattach must not spawn a second attach")
+    }
+
+    @MainActor
+    func testEndLiveAttachDetachesAndAllowsReattach() async {
+        let attacher = RecordingObserveAttacher()
+        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher)
+
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
+        await viewModel.endLiveAttach(pane: PaneID(rawValue: "w1:p1"))
+
+        let detachCalls = await attacher.detachCalls
+        XCTAssertEqual(detachCalls, [PaneID(rawValue: "w1:p1")])
+
+        // Having left the visible set and detached, a later re-entry attaches
+        // fresh (a real new feed), not the same-dims no-op path above.
+        let feed = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
+        XCTAssertNotNil(feed)
+        let attachCalls = await attacher.attachCalls
+        XCTAssertEqual(attachCalls.count, 2)
+    }
+
+    @MainActor
+    func testBackfillRequestsFullThousandLinesForNonAgentPane() async {
+        let attacher = RecordingObserveAttacher()
+        let client = StubReadCommandClient()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
+        let pane = makePaneRecord(agentStatus: .unknown, viewportRows: 24)
+
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
+
+        let calls = await client.calls
+        let readCall = calls.first { $0.method == "pane.read" }
+        XCTAssertEqual(readCall.flatMap { intParam($0.params, "lines") }, 1000)
+    }
+
+    @MainActor
+    func testBackfillCapsLinesToViewportRowsForRecognizedAgentPane() async {
+        let attacher = RecordingObserveAttacher()
+        let client = StubReadCommandClient()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
+        let pane = makePaneRecord(agentStatus: .working, viewportRows: 40)
+
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 120, rows: 40)
+
+        let calls = await client.calls
+        let readCall = calls.first { $0.method == "pane.read" }
+        XCTAssertEqual(readCall.flatMap { intParam($0.params, "lines") }, 40)
+    }
+
+    @MainActor
+    func testBackfillANSISeedsFromPaneReadText() async {
+        let attacher = RecordingObserveAttacher()
+        let client = StubReadCommandClient(readText: "backfilled\n")
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
+
+        let feed = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
+
+        XCTAssertEqual(feed?.backfillANSI.map { String(data: $0, encoding: .utf8) ?? "" }, "backfilled\n")
+    }
+}
+
+private func intParam(_ params: [String: JSONValue], _ key: String) -> Int? {
+    guard case .int(let value)? = params[key] else { return nil }
+    return value
 }

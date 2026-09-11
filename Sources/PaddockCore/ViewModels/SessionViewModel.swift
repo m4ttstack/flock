@@ -15,6 +15,28 @@ public struct ProtocolMismatch: Equatable, Sendable {
     public let required: Int
 }
 
+/// The subset of `ObserveSupervisor` the view-model needs to drive live
+/// attach; a test double substitutes for it in `SessionViewModelTests`
+/// without spawning real `herdr` child processes.
+public protocol PaneObserveAttaching: Sendable {
+    func attach(_ pane: PaneID, cols: Int, rows: Int) async -> AsyncStream<TerminalFrame>
+    func reattach(_ pane: PaneID, cols: Int, rows: Int) async
+    func detach(_ pane: PaneID) async
+}
+
+extension ObserveSupervisor: PaneObserveAttaching {}
+
+/// A one-shot handoff for a newly attached pane: backfill ANSI (nil when the
+/// pane.read failed or returned nothing) to feed first, then the live frame
+/// stream. Returned only from the FIRST attach of a pane; a later dims
+/// change reattaches in place and returns nil, since `ObserveSupervisor`
+/// hands the SAME continuation to the new session -- the stream a caller is
+/// already iterating keeps delivering, just at the new size.
+public struct PaneLiveFeed: Sendable {
+    public let backfillANSI: Data?
+    public let frames: AsyncStream<TerminalFrame>
+}
+
 /// Selection and focus-jump logic for the shell UI. Views render from this
 /// (rail/strip/canvas) and stay untested until the e2e suite; every decision
 /// about what is selected, and what herdr command a click issues, lives here.
@@ -29,10 +51,13 @@ public final class SessionViewModel {
     public private(set) var lastLines: [PaneID: String] = [:]
 
     private var lastLineRevisions: [PaneID: Int] = [:]
+    private var attachedDims: [PaneID: (cols: Int, rows: Int)] = [:]
     private let client: any HerdrCommandClient
+    private let observeAttacher: (any PaneObserveAttaching)?
 
-    public init(client: any HerdrCommandClient) {
+    public init(client: any HerdrCommandClient, observeAttacher: (any PaneObserveAttaching)? = nil) {
         self.client = client
+        self.observeAttacher = observeAttacher
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -165,5 +190,63 @@ public final class SessionViewModel {
 
     private func send(_ method: String, _ params: [String: JSONValue]) async {
         _ = try? await client.requestRaw(method, params)
+    }
+
+    // MARK: - live attach
+
+    /// Attaches `pane` live at `cols`x`rows`, or reattaches in place if it is
+    /// already attached at different dims. `cols`/`rows` must be the pane's
+    /// real cell size -- callers pass the layout's own `CellRect.width`/
+    /// `.height` (already in terminal cells), never a pixel frame, matching
+    /// `ObserveSupervisor`'s documented contract.
+    public func beginOrUpdateLiveAttach(pane: PaneRecord, cols: Int, rows: Int) async -> PaneLiveFeed? {
+        guard let observeAttacher, cols > 0, rows > 0 else { return nil }
+        if let existing = attachedDims[pane.paneID] {
+            guard existing != (cols, rows) else { return nil }
+            attachedDims[pane.paneID] = (cols, rows)
+            await observeAttacher.reattach(pane.paneID, cols: cols, rows: rows)
+            return nil
+        }
+        attachedDims[pane.paneID] = (cols, rows)
+        let backfillANSI = await fetchBackfillANSI(for: pane, cols: cols, rows: rows)
+        let frames = await observeAttacher.attach(pane.paneID, cols: cols, rows: rows)
+        return PaneLiveFeed(backfillANSI: backfillANSI, frames: frames)
+    }
+
+    /// Detaches a pane that left the visible set (tab switch, split closed,
+    /// window resize dropping it off-screen).
+    public func endLiveAttach(pane: PaneID) async {
+        guard attachedDims.removeValue(forKey: pane) != nil, let observeAttacher else { return }
+        await observeAttacher.detach(pane)
+    }
+
+    /// `pane.read {source:"recent", format:"ansi", lines:N}` per spike 4's
+    /// backfill recipe. Alt-screen heuristic: `PaneRecord` carries no direct
+    /// alt-screen flag, so a recognized agent (`agentStatus != .unknown`) is
+    /// treated as the risky alt-screen case the spike could not fully verify
+    /// (large `lines` unproven safe against a recognized agent's synthetic
+    /// scroll), and capped to `scroll.viewportRows`; every other pane
+    /// (including an unrecognized alt-screen program like a scratch `vim`)
+    /// safely takes the full 1000-line request, per the spike's measurement.
+    private func fetchBackfillANSI(for pane: PaneRecord, cols: Int, rows: Int) async -> Data? {
+        let viewportRows = pane.scroll?.viewportRows ?? rows
+        let isRecognizedAgent = pane.agentStatus != .unknown
+        let lines = isRecognizedAgent ? min(1000, viewportRows) : 1000
+        let params: [String: JSONValue] = [
+            "pane_id": .string(pane.paneID.rawValue),
+            "source": .string("recent"),
+            "format": .string("ansi"),
+            "lines": .int(lines),
+        ]
+        guard let data = try? await client.requestRaw("pane.read", params),
+              let text = Self.extractReadText(data)
+        else { return nil }
+        return Data(text.utf8)
+    }
+
+    private static func extractReadText(_ data: Data) -> String? {
+        struct Result: Decodable { let text: String }
+        struct Envelope: Decodable { let result: Result }
+        return try? JSONDecoder().decode(Envelope.self, from: data).result.text
     }
 }
