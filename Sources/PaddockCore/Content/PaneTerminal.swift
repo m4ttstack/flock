@@ -261,44 +261,112 @@ public final class PaneTerminal: @unchecked Sendable {
         }
     }
 
-    /// Anchors `oldestFetchedRow` at `totalRows - backfillLineCount` -- the
-    /// absolute row directly above what the live view already shows -- never
-    /// at `totalRows` itself, which would silently skip every row already
-    /// covered by backfill and leave an unshown gap before the first older
-    /// chunk.
-    /// Anchors on whichever of two independent "already shown" boundaries is
-    /// SMALLER (further back), since either alone can be wrong depending on
-    /// the pane's shape:
-    ///
-    /// - `maxOffsetFromBottom` is `pane.get`'s own boundary between genuine
-    ///   scrollback and the current live viewport (always shown by the live
-    ///   frame, regardless of backfill). For a pane with little or no real
-    ///   scrollback (a fresh, near-empty pane), this is `0` or small.
-    /// - `totalRows - backfillLineCount` assumes backfill's snapshot covers
-    ///   exactly the LAST `backfillLineCount` rows of the pane's total. That
-    ///   holds when the cursor sits at the true bottom (an actively-used
-    ///   pane with real scrollback), but herdr's own recent-read range
-    ///   (`ghostty_recent_read_range`) anchors on the cursor/last-content
-    ///   row, which for a fresh pane can sit near the TOP of an otherwise
-    ///   blank viewport -- making this boundary land well past where
-    ///   backfill's content actually is.
-    ///
-    /// Trusting either alone reproduces a live, reviewer-caught bug: on a
-    /// long-scrollback pane the first (viewport) boundary alone would
-    /// request rows backfill already covers; on a fresh, near-empty pane the
-    /// second (backfill-count) boundary alone requested rows that don't
-    /// exist as real scrollback at all, and herdr answered with the SAME
-    /// current-viewport content backfill already showed -- a duplicated
-    /// prompt, reproduced on every near-empty pane, not just one.
+    /// Anchors `oldestFetchedRow` at the absolute row directly above what
+    /// this terminal ACTUALLY RETAINS locally -- probed from the buffer
+    /// itself, never from fed-line bookkeeping. Backfill can feed more
+    /// lines than the scrollback limit keeps (the buffer silently trims its
+    /// oldest rows), so `backfillLineCount`-based arithmetic drifts by
+    /// exactly the trimmed amount and leaves an unshown gap between the
+    /// first history chunk and the oldest visible row. The probe measures
+    /// retention truth, which also collapses the fresh-pane case: a pane
+    /// whose retained rows already cover herdr's total has no older history
+    /// (anchor 0, first load answers false).
     private func ensureInitialized(client: any HerdrCommandClient, paneID: PaneID) async throws {
         guard lock.withLockHeld({ oldestFetchedRow == nil }) else { return }
-        let (totalRows, maxOffsetFromBottom) = try await fetchScrollBounds(client: client, paneID: paneID)
+        let (totalRows, _) = try await fetchScrollBounds(client: client, paneID: paneID)
+        let held = localRetentionProvider?() ?? locallyHeldRowCount()
         lock.withLockHeld {
             guard oldestFetchedRow == nil else { return }
-            let backfillBoundary = max(0, totalRows - backfillLineCount)
-            oldestFetchedRow = min(maxOffsetFromBottom, backfillBoundary)
+            oldestFetchedRow = max(0, totalRows - held)
         }
     }
+
+    /// When set, overrides the headless probe as the source of locally-held
+    /// truth. The RENDERED terminal is a second SwiftTerm instance whose
+    /// retention can diverge from the headless mirror (full-frame resets
+    /// land at different effective points in each stream), and adjacency is
+    /// owed to what the USER SEES -- so the view layer hands its own
+    /// terminal's probed count in here.
+    public var localRetentionProvider: (() -> Int)?
+
+    /// The rendered terminal's full retained text (scrollback + screen,
+    /// trimmed), same divergence rationale as `localRetentionProvider`:
+    /// the history browser shows the live buffer AS THE USER'S VIEW HOLDS
+    /// IT, so fetched history and buffer text meet with no gap by
+    /// construction.
+    public var localRetainedTextProvider: (() -> String)?
+
+    /// All rows a terminal's buffer currently holds, joined by newlines
+    /// (probe window per `heldRowCount(of:)`).
+    public static func retainedText(of term: Terminal) -> String {
+        var lines: [String] = []
+        var row = 0
+        if term.getScrollInvariantLine(row: 0) == nil {
+            var probe = 1
+            while term.getScrollInvariantLine(row: probe) == nil {
+                probe *= 2
+                if probe > 10_000_000 { return "" }
+            }
+            var lowInvalid = probe / 2
+            var lowValid = probe
+            while lowValid - lowInvalid > 1 {
+                let mid = (lowInvalid + lowValid) / 2
+                if term.getScrollInvariantLine(row: mid) == nil { lowInvalid = mid } else { lowValid = mid }
+            }
+            row = lowValid
+        }
+        while let line = term.getScrollInvariantLine(row: row) {
+            lines.append(line.translateToString(trimRight: true))
+            row += 1
+        }
+        while let last = lines.last, last.isEmpty { lines.removeLast() }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The number of rows (scrollback plus screen) a terminal's buffer
+    /// holds right now, measured through the public scroll-invariant row
+    /// accessor: valid rows form one contiguous window whose lower edge
+    /// rises as the circular buffer trims, so an exponential probe finds a
+    /// valid row and two binary searches find the window's edges. Exact
+    /// where any fed-line counter drifts by whatever trimming discarded.
+    func locallyHeldRowCount() -> Int {
+        lock.withLockHeld { Self.heldRowCount(of: term) }
+    }
+
+    /// Same probe, callable against ANY SwiftTerm `Terminal` (the view
+    /// layer uses it on its rendered instance for `localRetentionProvider`).
+    public static func heldRowCount(of term: Terminal) -> Int {
+        if term.getScrollInvariantLine(row: 0) == nil {
+                var probe = 1
+                while term.getScrollInvariantLine(row: probe) == nil {
+                    probe *= 2
+                    if probe > 10_000_000 { return 0 }
+                }
+                var lowInvalid = probe / 2
+                var lowValid = probe
+                while lowValid - lowInvalid > 1 {
+                    let mid = (lowInvalid + lowValid) / 2
+                    if term.getScrollInvariantLine(row: mid) == nil { lowInvalid = mid } else { lowValid = mid }
+                }
+                var hiValid = lowValid
+                var hiInvalid = lowValid + 1
+                while term.getScrollInvariantLine(row: hiInvalid) != nil { hiInvalid *= 2 }
+                while hiInvalid - hiValid > 1 {
+                    let mid = (hiValid + hiInvalid) / 2
+                    if term.getScrollInvariantLine(row: mid) != nil { hiValid = mid } else { hiInvalid = mid }
+                }
+                return hiValid - lowValid + 1
+            }
+        var hiValid = 0
+        var hiInvalid = 1
+        while term.getScrollInvariantLine(row: hiInvalid) != nil { hiInvalid *= 2 }
+        while hiInvalid - hiValid > 1 {
+            let mid = (hiValid + hiInvalid) / 2
+            if term.getScrollInvariantLine(row: mid) != nil { hiValid = mid } else { hiInvalid = mid }
+        }
+        return hiValid + 1
+    }
+
 
     /// `pane.get`'s wire shape nests fields under a `"pane"` key alongside a
     /// `"type"` tag (verified against herdr's response schema); only

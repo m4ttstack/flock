@@ -686,7 +686,9 @@ final class SessionViewModelTests: XCTestCase {
         let pane = makePaneRecord()
 
         _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
-        _ = try await viewModel.paneTerminal(for: pane, cols: 80, rows: 24).loadOlderHistory(chunkRows: 200)
+        let terminal = viewModel.paneTerminal(for: pane, cols: 80, rows: 24)
+        let oldestHeldAbsoluteRow = 1500 - terminal.locallyHeldRowCount()
+        _ = try await terminal.loadOlderHistory(chunkRows: 200)
 
         let calls = await client.calls
         let request = try XCTUnwrap(calls.last { $0.method == "pane.selection.read" })
@@ -694,8 +696,8 @@ final class SessionViewModelTests: XCTestCase {
             return XCTFail("expected a cursor param")
         }
         XCTAssertEqual(
-            intParam(cursor, "row"), 499,
-            "must end exactly where the seeded backfill's own top begins (1500 - 1000 - 1), never inside it"
+            intParam(cursor, "row"), oldestHeldAbsoluteRow - 1,
+            "must end exactly where the locally retained buffer begins, never inside it"
         )
     }
 }

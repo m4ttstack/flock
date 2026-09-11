@@ -76,16 +76,22 @@ final class DeepHistoryTests: XCTestCase {
         server.respond(to: "pane.get", withResultJSON: Self.paneGet1000Rows)
         server.respond(to: "pane.selection.read", withResultJSON: selectionResult("OLDER"))
         let term = makeTerminal(server: server)
-        // Backfill covers the last 800 of the pane's 1000 total rows (rows
-        // 200-999); the live buffer's own top sits at absolute row 200.
+        // Backfill FEEDS 800 lines, but the terminal's scrollback limit
+        // retains fewer -- the anchor must sit above what the buffer
+        // actually HOLDS (the on-screen truth), not above the fed count.
         term.seedBackfill(ansi: Data(String(repeating: "x\n", count: 800).utf8), lineCount: 800)
+        let held = term.locallyHeldRowCount()
+        XCTAssertLessThan(held, 800, "premise: the buffer trims below the fed count")
+        let oldestHeldAbsoluteRow = 1000 - held
 
         _ = try await term.loadOlderHistory(chunkRows: 200)
 
         let request = try XCTUnwrap(server.receivedRequests.last { $0.method == "pane.selection.read" })
         let params = try selectionReadParams(request.paramsJSON)
-        XCTAssertEqual((params["cursor"] as? [String: Any])?["row"] as? Int, 199, "must end exactly where the live buffer's top begins, not overlap it")
-        XCTAssertEqual((params["anchor"] as? [String: Any])?["row"] as? Int, 0)
+        XCTAssertEqual(
+            (params["cursor"] as? [String: Any])?["row"] as? Int, oldestHeldAbsoluteRow - 1,
+            "must end exactly where the locally retained buffer begins, not overlap it")
+        XCTAssertEqual((params["anchor"] as? [String: Any])?["row"] as? Int, max(0, oldestHeldAbsoluteRow - 200))
     }
 
     /// Content-level, not request-params-level: seeds backfill with REAL
@@ -115,14 +121,18 @@ final class DeepHistoryTests: XCTestCase {
         let term = PaneTerminal(cols: 80, rows: 24, paneID: PaneID(rawValue: "w1:p1"), client: client)
         let backfillText = (backfillFirstRow..<totalRows).map { "line \($0)" }.joined(separator: "\n")
         term.seedBackfill(ansi: Data(backfillText.utf8))
+        // The buffer may retain fewer rows than were seeded; adjacency is
+        // owed to the oldest row it actually HOLDS (what the user can see),
+        // which the anchor derives by probing retention.
+        let oldestHeldAbsoluteRow = totalRows - term.locallyHeldRowCount()
 
         _ = try await term.loadOlderHistory(chunkRows: 200)
 
         let lastHistoryLine = term.historyText.split(separator: "\n").last.map(String.init) ?? ""
         let lastHistoryRow = try XCTUnwrap(Int(lastHistoryLine.dropFirst("line ".count)))
         XCTAssertEqual(
-            lastHistoryRow + 1, backfillFirstRow,
-            "the last loaded history row must be numerically adjacent to backfill's real first row -- no gap, no overlap"
+            lastHistoryRow + 1, oldestHeldAbsoluteRow,
+            "the last loaded history row must be numerically adjacent to the oldest locally retained row -- no gap, no overlap"
         )
     }
 
@@ -134,19 +144,17 @@ final class DeepHistoryTests: XCTestCase {
         server.respond(to: "pane.selection.read", withResultJSON: selectionResult("CHUNK-600-799"))
         let term = makeTerminal(server: server, cols: 80)
 
+        // No backfill seeded here (pure chunk mechanics): the terminal
+        // holds only its blank screen rows, so the anchor sits directly
+        // above those -- derived, like production, from probed retention.
+        let firstTop = 1000 - term.locallyHeldRowCount()
         let more1 = try await term.loadOlderHistory(chunkRows: 200)
         XCTAssertTrue(more1)
 
         let firstRequest = try XCTUnwrap(server.receivedRequests.last { $0.method == "pane.selection.read" })
         let firstParams = try selectionReadParams(firstRequest.paramsJSON)
-        // No backfill seeded here (this test exercises pure chunk mechanics
-        // in isolation): the anchor is `max_offset_from_bottom` (800) from
-        // `paneGet1000Rows`, not the pane's raw total (1000) -- rows
-        // 800-999 are the CURRENT live viewport per that fixture, already
-        // shown by the live frame regardless of backfill, so the first
-        // OLDER chunk starts below it, not at the pane's bare total.
-        XCTAssertEqual((firstParams["anchor"] as? [String: Any])?["row"] as? Int, 600)
-        XCTAssertEqual((firstParams["cursor"] as? [String: Any])?["row"] as? Int, 799)
+        XCTAssertEqual((firstParams["anchor"] as? [String: Any])?["row"] as? Int, firstTop - 200)
+        XCTAssertEqual((firstParams["cursor"] as? [String: Any])?["row"] as? Int, firstTop - 1)
         XCTAssertEqual((firstParams["cursor"] as? [String: Any])?["col"] as? Int, 79)
         // `content_revision` is deliberately never sent: `pane.get`'s
         // `revision` is a different counter from herdr's content sequence
@@ -161,8 +169,8 @@ final class DeepHistoryTests: XCTestCase {
 
         let secondRequest = try XCTUnwrap(server.receivedRequests.last { $0.method == "pane.selection.read" })
         let secondParams = try selectionReadParams(secondRequest.paramsJSON)
-        XCTAssertEqual((secondParams["anchor"] as? [String: Any])?["row"] as? Int, 400)
-        XCTAssertEqual((secondParams["cursor"] as? [String: Any])?["row"] as? Int, 599)
+        XCTAssertEqual((secondParams["anchor"] as? [String: Any])?["row"] as? Int, firstTop - 400)
+        XCTAssertEqual((secondParams["cursor"] as? [String: Any])?["row"] as? Int, firstTop - 201)
 
         // Oldest-first: the second (older) chunk sits before the first.
         XCTAssertEqual(term.historyText, "CHUNK-400-599CHUNK-600-799")
@@ -187,14 +195,17 @@ final class DeepHistoryTests: XCTestCase {
         )
         server.respond(to: "pane.selection.read", withResultJSON: selectionResult("CHUNK-0-99"))
         let term = makeTerminal(server: server)
+        // total rows = 100 + 150; a chunk bigger than the whole span must
+        // clamp its start to absolute row 0 and answer false (no older).
+        let top = 250 - term.locallyHeldRowCount()
 
-        let more = try await term.loadOlderHistory(chunkRows: 200)
+        let more = try await term.loadOlderHistory(chunkRows: 300)
         XCTAssertFalse(more)
 
         let request = try XCTUnwrap(server.receivedRequests.last { $0.method == "pane.selection.read" })
         let params = try selectionReadParams(request.paramsJSON)
         XCTAssertEqual((params["anchor"] as? [String: Any])?["row"] as? Int, 0)
-        XCTAssertEqual((params["cursor"] as? [String: Any])?["row"] as? Int, 99)
+        XCTAssertEqual((params["cursor"] as? [String: Any])?["row"] as? Int, top - 1)
     }
 
     /// Reported live: a nearly-empty pane (a fresh shell, no real scrollback
@@ -213,8 +224,11 @@ final class DeepHistoryTests: XCTestCase {
         let server = FakeHerdrServer(); try server.start(); defer { server.stop() }
         server.respond(
             to: "pane.get",
-            withResultJSON: #"{"type":"pane_info","pane":{"revision":1,"scroll":{"max_offset_from_bottom":0,"viewport_rows":40}}}"#
+            withResultJSON: #"{"type":"pane_info","pane":{"revision":1,"scroll":{"max_offset_from_bottom":0,"viewport_rows":24}}}"#
         )
+        // viewport_rows matches the local terminal's rows, as production
+        // dims always do: the blank screen alone then covers the pane's
+        // whole (scrollback-free) total, so nothing older can exist.
         let term = makeTerminal(server: server)
 
         let more = try await term.loadOlderHistory(chunkRows: 200)

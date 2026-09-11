@@ -156,7 +156,7 @@ struct PaneCellView: View {
                     onScreenActivity: { nonEmptyRowCount in
                         viewModel.recordLauncherScreenActivity(pane.paneID, nonEmptyRowCount: nonEmptyRowCount)
                     },
-                    seamColor: theme.separator
+                    historyDim: theme.overlay0
                 )
                 if viewModel.isPristineLauncherPane(pane.paneID) {
                     PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in

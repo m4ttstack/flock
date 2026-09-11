@@ -18,10 +18,6 @@ struct PaneTerminalView: View {
     // SwiftTerm also exports a top-level `Color` (`Colors.swift`), so this
     // must stay qualified in any file that imports both it and SwiftUI.
     let terminalGround: SwiftUI.Color
-    /// The 1px divider between the dimmed history region and the live
-    /// buffer -- `theme.separator`, threaded in as a plain `Color` like
-    /// `terminalGround` rather than the whole `Theme`.
-    let seamColor: SwiftUI.Color
     /// A click that ended with no selection: this view's stand-in for the
     /// canvas's normal click-to-focus, since a click landing on the AppKit
     /// terminal body never reaches SwiftUI's own tap gesture.
@@ -37,14 +33,24 @@ struct PaneTerminalView: View {
     /// sees real content rather than staying purely keystroke-driven.
     var onScreenActivity: ((Int) -> Void)?
 
+    /// Legible-dim ink for history lines: quieter than live text but
+    /// readable at a glance (the theme's overlay0), never system
+    /// `.secondary`, which disappears against the terminal ground.
+    let historyDim: SwiftUI.Color
+
     @State private var copiedLineCount: Int?
     @State private var historyCapable: Bool
     @State private var historyCapabilityToken: UUID?
+    /// History is revealed by intent, not resident: scrolling up past the
+    /// top of the live scrollback opens it; scrolling back down to the
+    /// live bottom closes it. It is never a standing box.
+    @State private var historyRevealed = false
 
     init(
         cols: Int, rows: Int, feed: PaneLiveFeed, terminalGround: SwiftUI.Color,
         onPlainClick: @escaping () -> Void, paneTerminal: PaneTerminal? = nil,
-        onScreenActivity: ((Int) -> Void)? = nil, seamColor: SwiftUI.Color = .white.opacity(0.08)
+        onScreenActivity: ((Int) -> Void)? = nil,
+        historyDim: SwiftUI.Color = SwiftUI.Color(red: 0.34, green: 0.37, blue: 0.54)
     ) {
         self.cols = cols
         self.rows = rows
@@ -53,28 +59,42 @@ struct PaneTerminalView: View {
         self.onPlainClick = onPlainClick
         self.paneTerminal = paneTerminal
         self.onScreenActivity = onScreenActivity
-        self.seamColor = seamColor
+        self.historyDim = historyDim
         _historyCapable = State(initialValue: paneTerminal?.historyCapable ?? false)
     }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            VStack(spacing: 0) {
-                if let paneTerminal, historyCapable {
-                    PaneHistoryRegion(paneTerminal: paneTerminal, ground: terminalGround, seam: seamColor)
-                }
-                TerminalRepresentable(
-                    cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick,
-                    paneTerminal: paneTerminal, onScreenActivity: onScreenActivity, ground: terminalGround
-                )
-            }
-            // The pane body is ONE ground color top to bottom (history
-            // region + terminal + any inset): the pane's own background
-            // catches any seam a child view's layout doesn't cover, on top
-            // of `TerminalRepresentable` setting SwiftTerm's own
+            TerminalRepresentable(
+                cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick,
+                paneTerminal: paneTerminal, onScreenActivity: onScreenActivity, ground: terminalGround,
+                onScrollPastTop: { withAnimation(.easeOut(duration: 0.2)) { historyRevealed = true } },
+                onScrollBackToLive: {}
+            )
+            // Content inset per the reference boards (9pt vertical, 11pt
+            // horizontal inside the pane body); the shared pane ground
+            // fills the inset so no band appears.
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
+            // ONE ground color for the whole body, on top of
+            // `TerminalRepresentable` setting SwiftTerm's own
             // `nativeBackgroundColor` (its NSView otherwise paints pure
             // black regardless of anything drawn behind it).
             .background(terminalGround)
+
+            // History browsing is a full-body overlay, never a stacked
+            // box: the terminal keeps its size and feed beneath (no
+            // resize, no viewport jump), and the browser is ONE scroll
+            // surface where fetched history (dim) flows straight into the
+            // buffer's own text, adjacency exact by construction because
+            // that text is read from the rendered terminal itself.
+            if let paneTerminal, historyCapable, historyRevealed {
+                HistoryBrowseView(
+                    paneTerminal: paneTerminal, ground: terminalGround, ink: historyDim,
+                    onExit: { withAnimation(.easeIn(duration: 0.15)) { historyRevealed = false } }
+                )
+                .transition(.opacity)
+            }
 
             if let copiedLineCount {
                 CopyChip(lineCount: copiedLineCount)
@@ -120,31 +140,35 @@ private struct CopyChip: View {
     }
 }
 
-/// Plain, dimmed scrollback rendered above the styled live buffer, fetched on
-/// demand via `PaneTerminal.loadOlderHistory`. Never touches `pane.scroll`:
-/// herdr's own viewport is untouched by scrolling this region.
+/// Full-body history browser: one scroll surface where deep history fetched
+/// via `PaneTerminal.loadOlderHistory` (dim ink) flows directly into the live
+/// buffer's own retained text (regular ink), snapshotted from the RENDERED
+/// terminal at reveal time. Never touches `pane.scroll`: herdr's viewport is
+/// untouched by anything here.
 ///
-/// A `Color.clear` sentinel sits above the accumulated text inside a
-/// `LazyVStack`; a plain `VStack` would realize (and fire `onAppear` for)
-/// every child immediately regardless of scroll position, but a lazy one
-/// only attaches a child once it nears the visible viewport -- so the
-/// sentinel's `onAppear` fires exactly when the user scrolls this region to
-/// its current top. It carries `.id(loadGeneration)`: each successful load
-/// prepends a new chunk ABOVE the sentinel's position but does not move the
-/// sentinel view itself, so without a fresh identity per load SwiftUI treats
-/// it as the same child that already "appeared" once and never fires again
-/// -- `loadGeneration` forces a new node each time so scrolling back up to
-/// the (new) top re-triggers it.
-private struct PaneHistoryRegion: View {
+/// A `Color.clear` sentinel above the text inside a `LazyVStack` drives
+/// loading: lazy realization means its `onAppear` fires only when the user
+/// scrolls to the current top; `.id(loadGeneration)` gives it a fresh
+/// identity per completed load so it can fire again (a prepend does not move
+/// the sentinel, so SwiftUI would otherwise treat it as already appeared).
+/// Exit is by intent, mirroring reveal: a down-scroll while the bottom
+/// sentinel is visible (the browser sits at its live end) hands control back
+/// to the live terminal underneath, which kept its feed and size the whole
+/// time.
+private struct HistoryBrowseView: View {
     let paneTerminal: PaneTerminal
     let ground: SwiftUI.Color
-    let seam: SwiftUI.Color
+    let ink: SwiftUI.Color
+    let onExit: () -> Void
 
     @State private var text = ""
+    @State private var bufferText = ""
     @State private var isLoading = false
     @State private var reachedStart = false
     @State private var showsChangedNotice = false
     @State private var loadGeneration = 0
+    @State private var bottomVisible = true
+    @State private var wheelMonitor: Any?
 
     private static let bottomAnchor = "paddock.history.bottom"
 
@@ -159,49 +183,52 @@ private struct PaneHistoryRegion: View {
                         Text("History changed while loading; older lines may be out of order.")
                             .font(.system(size: 10))
                             .foregroundStyle(.orange)
-                            .padding(.horizontal, 6)
+                            .padding(.horizontal, 11)
                             .padding(.vertical, 2)
                     }
-                    Text(text.isEmpty ? " " : text)
+                    if !text.isEmpty {
+                        Text(text)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(ink)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 11)
+                    }
+                    Text(bufferText.isEmpty ? " " : bufferText)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SwiftUI.Color(red: 0xC9 / 255, green: 0xCB / 255, blue: 0xD4 / 255))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 6)
-                        .padding(.top, 4)
+                        .padding(.horizontal, 11)
                     Color.clear.frame(height: 1).id(Self.bottomAnchor)
+                        .onAppear { bottomVisible = true }
+                        .onDisappear { bottomVisible = false }
                 }
+                .padding(.vertical, 9)
             }
-            // Starts (and snaps back to) the edge adjacent to the live
-            // buffer rather than this region's own top: the sentinel that
-            // triggers more loading sits at the top, so leaving the view
-            // there by default re-fired it immediately on every load
-            // (the "greedy" loop that also left a partial top row visibly
-            // clipped by the fixed-height frame). Anchoring to the bottom
-            // means the sentinel is off-screen until the user actually
-            // scrolls up to it.
-            .onChange(of: text) { _, _ in
-                // A single synchronous `scrollTo` right after `text` grows
-                // can target the ScrollView's PRE-update layout (the newly
-                // inserted content hasn't been measured yet), landing short
-                // of the true new bottom -- visually indistinguishable from
-                // a real content gap even though the underlying text is
-                // fully contiguous. The follow-up call on the next run loop
-                // tick corrects for that once layout has caught up.
+            .scrollIndicators(.hidden)
+            .onAppear {
+                bufferText = paneTerminal.localRetainedTextProvider?() ?? ""
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 DispatchQueue.main.async {
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
             }
         }
-        .frame(maxHeight: 160)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ground)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(seam).frame(height: 1)
+        .onAppear {
+            wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                if event.scrollingDeltaY < 0, bottomVisible { onExit() }
+                return event
+            }
+        }
+        .onDisappear {
+            if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+            wheelMonitor = nil
         }
     }
 
     private func loadMore() {
-        guard !isLoading else { return }
+        guard !isLoading, !reachedStart else { return }
         isLoading = true
         Task {
             defer {
@@ -216,10 +243,9 @@ private struct PaneHistoryRegion: View {
                 showsChangedNotice = true
                 text = paneTerminal.historyText
             } catch {
-                // `.unsupported` and any transport failure: stop asking: the
-                // affordance itself hides on the next render once
-                // `paneTerminal.historyCapable` (checked by the parent view)
-                // has flipped, or the pane is simply unreachable right now.
+                // `.unsupported` and any transport failure: stop asking; the
+                // affordance hides once `historyCapable` flips, or the pane
+                // is simply unreachable right now.
                 reachedStart = true
             }
         }
@@ -242,6 +268,8 @@ private struct TerminalRepresentable: NSViewRepresentable {
     var paneTerminal: PaneTerminal?
     var onScreenActivity: ((Int) -> Void)?
     var ground: SwiftUI.Color
+    var onScrollPastTop: (() -> Void)?
+    var onScrollBackToLive: (() -> Void)?
 
     final class Coordinator {
         var feedTask: Task<Void, Never>?
@@ -262,6 +290,16 @@ private struct TerminalRepresentable: NSViewRepresentable {
         // this representable is invisible wherever the terminal itself has
         // painted, which is everywhere its buffer cells are empty.
         view.nativeBackgroundColor = NSColor(ground)
+        view.onScrollPastTop = onScrollPastTop
+        view.onScrollBackToLive = onScrollBackToLive
+        // Deep-history adjacency is owed to what THIS view retains, not to
+        // the headless mirror: the two SwiftTerm instances can diverge (a
+        // full-frame reset lands at a different effective point in each
+        // stream), so the anchor probes the rendered terminal directly.
+        paneTerminal?.localRetentionProvider = { [weak view] in
+            guard let view else { return 0 }
+            return PaneTerminal.heldRowCount(of: view.terminal)
+        }
         let paneTerminal = self.paneTerminal
         let onScreenActivity = self.onScreenActivity
         // `paneTerminal` is seeded by `SessionViewModel.performAttach`
@@ -293,6 +331,8 @@ private struct TerminalRepresentable: NSViewRepresentable {
         nsView.onCopy = onCopy
         nsView.onPlainClick = onPlainClick
         nsView.nativeBackgroundColor = NSColor(ground)
+        nsView.onScrollPastTop = onScrollPastTop
+        nsView.onScrollBackToLive = onScrollBackToLive
         // `TerminalView` recomputes cols/rows from its own pixel frame on
         // every `setFrameSize` (per SwiftTerm's own doc comment: "cols and
         // rows... are otherwise recomputed from the frame size"), which
@@ -318,6 +358,52 @@ private struct TerminalRepresentable: NSViewRepresentable {
 final class CopyOnSelectTerminalView: TerminalView {
     var onCopy: ((Int) -> Void)?
     var onPlainClick: (() -> Void)?
+    var onScrollPastTop: (() -> Void)?
+    var onScrollBackToLive: (() -> Void)?
+    private var lastEdgeSignal = Date.distantPast
+
+    private var scrollMonitor: Any?
+
+    /// Deep history reveals by intent: an up-scroll while the terminal is
+    /// already at the very top of its local scrollback signals past-the-top;
+    /// a down-scroll while sitting at the live bottom signals back-to-live.
+    /// SwiftTerm declares `scrollWheel` public (not open), so a cross-module
+    /// subclass cannot override it; a local event monitor observes the same
+    /// events without touching SwiftTerm's own scrolling (the event is
+    /// returned unmodified). Debounced because one trackpad flick delivers
+    /// dozens of wheel events.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+            scrollMonitor = nil
+        } else if scrollMonitor == nil {
+            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                self?.handleScrollEdge(event)
+                return event
+            }
+        }
+    }
+
+    private func handleScrollEdge(_ event: NSEvent) {
+        guard event.window === window else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return }
+        let deltaY = event.scrollingDeltaY
+        guard deltaY != 0, Date().timeIntervalSince(lastEdgeSignal) > 0.25 else { return }
+        // Same sign convention as SwiftTerm's own scrollWheel: positive
+        // delta scrolls up (toward older content), no inversion handling.
+        let scrollingUp = deltaY > 0
+        let atTop = !canScroll || scrollPosition <= 0
+        let atLiveBottom = !canScroll || scrollPosition >= 1
+        if scrollingUp, atTop {
+            lastEdgeSignal = Date()
+            onScrollPastTop?()
+        } else if !scrollingUp, atLiveBottom {
+            lastEdgeSignal = Date()
+            onScrollBackToLive?()
+        }
+    }
 
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
