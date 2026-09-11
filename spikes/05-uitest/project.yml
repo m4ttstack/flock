@@ -1,0 +1,53 @@
+name: SpikeUITest
+options:
+  bundleIdPrefix: com.paddock.spike
+  deploymentTarget:
+    macOS: "14.0"
+targets:
+  SpikeApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/SpikeApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.paddock.spike.app
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        INFOPLIST_KEY_LSUIElement: NO
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: YES
+        ENABLE_HARDENED_RUNTIME: NO
+        SWIFT_VERSION: "6.0"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+  SpikeUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: SpikeUITests
+    dependencies:
+      - target: SpikeApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.paddock.spike.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: SpikeApp
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_ENTITLEMENTS: SpikeUITests/SpikeUITests.entitlements
+        SWIFT_VERSION: "6.0"
+schemes:
+  SpikeApp:
+    build:
+      targets:
+        SpikeApp: [run, test, archive]
+        SpikeUITests: [test]
+    test:
+      targets:
+        - SpikeUITests
+      commandLineArguments: {}
+    run:
+      config: Debug

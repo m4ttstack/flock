@@ -1,0 +1,429 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2EC86DFA8CB5B897DA968246 /* ScratchHerdrSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E99CF21F4AFFF34E81618BBE /* ScratchHerdrSession.swift */; };
+		43F105EC6437415044457174 /* DragLoopUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 158E6923FB48C8C43A4F4793 /* DragLoopUITests.swift */; };
+		992573F039EEAE609DFA7199 /* HerdrBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C23D2684E45AD849C97017 /* HerdrBridge.swift */; };
+		DBBB73CAAD919BB9F9CDBC5D /* ClosedLoopUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCC65901D9BDBD22B63FC2B9 /* ClosedLoopUITests.swift */; };
+		F48A1D1EADB20F740C866D7B /* SpikeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9551A21ED6B0DC1B2AFA6FA4 /* SpikeApp.swift */; };
+		F51CD96207B4172D29F9FC67 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B1488D18BE93B3EE740319 /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		295EF9CFD32F847CE60E902E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F158295069F6AB59BD59593C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 181B877A9F6CA20D893B8EFF;
+			remoteInfo = SpikeApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0B5384B9111A0B0A317A2328 /* SpikeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpikeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		158E6923FB48C8C43A4F4793 /* DragLoopUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragLoopUITests.swift; sourceTree = "<group>"; };
+		33C23D2684E45AD849C97017 /* HerdrBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdrBridge.swift; sourceTree = "<group>"; };
+		9551A21ED6B0DC1B2AFA6FA4 /* SpikeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpikeApp.swift; sourceTree = "<group>"; };
+		A60FF1775C07EFEADBCBD2EA /* SpikeApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpikeApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B6B1488D18BE93B3EE740319 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		CCC0D963632F31DBFF6D46A0 /* SpikeUITests.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SpikeUITests.entitlements; sourceTree = "<group>"; };
+		E99CF21F4AFFF34E81618BBE /* ScratchHerdrSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScratchHerdrSession.swift; sourceTree = "<group>"; };
+		FCC65901D9BDBD22B63FC2B9 /* ClosedLoopUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedLoopUITests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		7904E1B46D90093BF8BDE959 /* SpikeUITests */ = {
+			isa = PBXGroup;
+			children = (
+				FCC65901D9BDBD22B63FC2B9 /* ClosedLoopUITests.swift */,
+				158E6923FB48C8C43A4F4793 /* DragLoopUITests.swift */,
+				E99CF21F4AFFF34E81618BBE /* ScratchHerdrSession.swift */,
+				CCC0D963632F31DBFF6D46A0 /* SpikeUITests.entitlements */,
+			);
+			path = SpikeUITests;
+			sourceTree = "<group>";
+		};
+		822B8914580F7A6DC7F23EB9 /* SpikeApp */ = {
+			isa = PBXGroup;
+			children = (
+				B6B1488D18BE93B3EE740319 /* ContentView.swift */,
+				33C23D2684E45AD849C97017 /* HerdrBridge.swift */,
+				9551A21ED6B0DC1B2AFA6FA4 /* SpikeApp.swift */,
+			);
+			name = SpikeApp;
+			path = Sources/SpikeApp;
+			sourceTree = "<group>";
+		};
+		B1E50F773D86EC5C0877F728 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A60FF1775C07EFEADBCBD2EA /* SpikeApp.app */,
+				0B5384B9111A0B0A317A2328 /* SpikeUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C903AB23805E724F569F7645 = {
+			isa = PBXGroup;
+			children = (
+				822B8914580F7A6DC7F23EB9 /* SpikeApp */,
+				7904E1B46D90093BF8BDE959 /* SpikeUITests */,
+				B1E50F773D86EC5C0877F728 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		181B877A9F6CA20D893B8EFF /* SpikeApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9452BC7239E387915D6E55FE /* Build configuration list for PBXNativeTarget "SpikeApp" */;
+			buildPhases = (
+				661AA07B860DBB44B1802805 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SpikeApp;
+			packageProductDependencies = (
+			);
+			productName = SpikeApp;
+			productReference = A60FF1775C07EFEADBCBD2EA /* SpikeApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C11D5D702B94C7BB0EB7E33E /* SpikeUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 40A7C19C4BDBB9A64F0941BF /* Build configuration list for PBXNativeTarget "SpikeUITests" */;
+			buildPhases = (
+				F7A401531016288C93371176 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				258912886475C2FD2278517E /* PBXTargetDependency */,
+			);
+			name = SpikeUITests;
+			packageProductDependencies = (
+			);
+			productName = SpikeUITests;
+			productReference = 0B5384B9111A0B0A317A2328 /* SpikeUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F158295069F6AB59BD59593C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					C11D5D702B94C7BB0EB7E33E = {
+						TestTargetID = 181B877A9F6CA20D893B8EFF;
+					};
+				};
+			};
+			buildConfigurationList = 171A879CF6C281C4AC0ADD12 /* Build configuration list for PBXProject "SpikeUITest" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = C903AB23805E724F569F7645;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B1E50F773D86EC5C0877F728 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				181B877A9F6CA20D893B8EFF /* SpikeApp */,
+				C11D5D702B94C7BB0EB7E33E /* SpikeUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		661AA07B860DBB44B1802805 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F51CD96207B4172D29F9FC67 /* ContentView.swift in Sources */,
+				992573F039EEAE609DFA7199 /* HerdrBridge.swift in Sources */,
+				F48A1D1EADB20F740C866D7B /* SpikeApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7A401531016288C93371176 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DBBB73CAAD919BB9F9CDBC5D /* ClosedLoopUITests.swift in Sources */,
+				43F105EC6437415044457174 /* DragLoopUITests.swift in Sources */,
+				2EC86DFA8CB5B897DA968246 /* ScratchHerdrSession.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		258912886475C2FD2278517E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 181B877A9F6CA20D893B8EFF /* SpikeApp */;
+			targetProxy = 295EF9CFD32F847CE60E902E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0776AAA47E5E512E7E0F2899 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = NO;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paddock.spike.app;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		155E87377CF8D3C2286EB241 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_ENTITLEMENTS = SpikeUITests/SpikeUITests.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.paddock.spike.uitests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = SpikeApp;
+			};
+			name = Release;
+		};
+		5E2715B3F85385BAC526E6DF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9A0244CD9D670FA086524AC0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		ACBC6AEBB7385790A6D5C037 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_ENTITLEMENTS = SpikeUITests/SpikeUITests.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.paddock.spike.uitests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = SpikeApp;
+			};
+			name = Debug;
+		};
+		C2CA1BA2813C616BD72B5167 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = NO;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paddock.spike.app;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		171A879CF6C281C4AC0ADD12 /* Build configuration list for PBXProject "SpikeUITest" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A0244CD9D670FA086524AC0 /* Debug */,
+				5E2715B3F85385BAC526E6DF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		40A7C19C4BDBB9A64F0941BF /* Build configuration list for PBXNativeTarget "SpikeUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ACBC6AEBB7385790A6D5C037 /* Debug */,
+				155E87377CF8D3C2286EB241 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9452BC7239E387915D6E55FE /* Build configuration list for PBXNativeTarget "SpikeApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0776AAA47E5E512E7E0F2899 /* Debug */,
+				C2CA1BA2813C616BD72B5167 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F158295069F6AB59BD59593C /* Project object */;
+}
