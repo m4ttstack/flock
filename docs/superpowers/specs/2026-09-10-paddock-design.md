@@ -171,6 +171,52 @@ transform/opacity only, interruptible springs.
   arrow-key move/swap for the focused pane; accessibility identifiers on all
   interactive elements (also required by the e2e suite).
 - **Auto-scroll** near strip/rail edges with proximity-ramped velocity.
+- **Agent status colors mirror herdr's header semantics** (source:
+  `src/client/shell.rs` `status_color`): working = yellow, blocked = red,
+  done = teal, idle = green, unknown = dim overlay. v1 pins the Tokyo Night
+  values (`#E0AF68` / `#F7768E` / `#7DCFFF` / `#9ECE6A` / `#565F89`; light
+  chrome uses the Tokyo Night Day values), matching what theme = "terminal"
+  resolves to on this machine. The zoom badge is mauve (`#BB9AF7`), never a
+  status color.
+- **Copy on selection (herdr parity, v1):** mouse-up ends a selection in a
+  live pane and the text is already on the clipboard (herdr ships
+  `copy_on_select = true`); a quiet "Copied N lines" whisper confirms.
+  Selection is paddock-local: it never moves herdr's cursor or viewport.
+- **Right-click routing (herdr 0.9, v1):** paddock surfaces the per-pane
+  `pane.input.set { right_click: "pane" | "herdr" }` toggle in its pane
+  context menu and pane header, reflecting the live routing state. The
+  Option+click gesture (one-off right-click delivered INTO the pane app,
+  mirroring herdr's `ui.right_click_passthrough_modifier`) is first-class in
+  the design but ships with the v1.5 input channel; no API delivers a mouse
+  event from outside today (`pane.send_input` takes text/keys only).
+- **Attention toasts (v1):** top-right stack derived from
+  `pane.agent_status_changed` / `pane.agent_detected` (blocked = needs
+  input, working-to-idle/done = finished). Click = jump: `workspace.focus` +
+  `tab.focus` + `pane.focus` with explicit ids, window to front. Quiet
+  rules: no toast for the focused pane, 2s coalescing on status flaps, max
+  3 deep with a "+N more" pill; blocked toasts persist until handled,
+  done toasts auto-dismiss 6s (hover pauses). herdr's `notification.show`
+  traffic is NOT observable on the api socket (no notification event kind);
+  mirroring third-party herdr toasts 1:1 needs an upstream herdr
+  `notification.shown` event (documented ask, out of scope).
+
+## Hands-on checkpoints
+
+The build pauses at natural try-it points so feedback lands while it is
+cheap. At each checkpoint paddock is built and launched for real use
+against the live session (a checkpoint stop, not a review artifact):
+
+1. After the shell UI lands (rail/strip/canvas + focus jumps): the first
+   runnable read-only mirror.
+2. After live 1:1 content + deep history: the full read-only product.
+3. After the mutation engine + undo (pre-drag): every rearrange works via
+   context menus and "Move to...".
+4. After the core drag layer: hands-on drag/drop.
+5. After the full drag inventory + notifications/pointer features: the
+   complete v1 surface, pre-e2e.
+
+Each checkpoint is a STOP: Matt tries it and gives feedback; feedback folds
+into the plan before the next phase proceeds.
 
 ## Validation pipeline
 
