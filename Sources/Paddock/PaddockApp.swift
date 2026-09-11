@@ -13,7 +13,14 @@ struct PaddockApp: App {
     init() {
         let socketPath = Self.resolveSocketPath()
         _herdrStore = State(initialValue: HerdrStore(socketPath: socketPath))
-        _viewModel = State(initialValue: SessionViewModel(client: HerdrClient(socketPath: socketPath)))
+        // Absent only when no herdr binary resolves at all (no HERDR_BIN,
+        // none on PATH): panes then stay in status-card mode with no live
+        // attach, rather than the app failing to launch.
+        let observeAttacher = try? ObserveSupervisor(socketPath: socketPath)
+        _viewModel = State(initialValue: SessionViewModel(
+            client: HerdrClient(socketPath: socketPath),
+            observeAttacher: observeAttacher
+        ))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
     }
 

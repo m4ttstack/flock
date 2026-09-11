@@ -21,6 +21,7 @@ struct PaneCanvas: View {
                            let frame = geometry.paneFrames[paneRect.paneID] {
                             PaneCellView(
                                 theme: theme,
+                                viewModel: viewModel,
                                 pane: pane,
                                 // The view-model's resolved focus, not
                                 // `layout.focusedPaneID` (a `pane.focus` jump
@@ -31,7 +32,14 @@ struct PaneCanvas: View {
                                 // after the click -- `resolvedFocusedPaneID`
                                 // paints the optimistic prediction instead).
                                 isFocused: pane.paneID == viewModel.resolvedFocusedPaneID,
-                                lastLine: viewModel.lastLine(for: pane)
+                                lastLine: viewModel.lastLine(for: pane),
+                                // The pane's real terminal cell size: the
+                                // layout's own `CellRect`, never `frame`
+                                // (that's a scaled pixel rect for on-screen
+                                // placement, not the observe/TerminalView
+                                // dims contract).
+                                cols: paneRect.rect.width,
+                                rows: paneRect.rect.height
                             )
                             .frame(
                                 width: max(0, frame.width - Self.dividerThickness),

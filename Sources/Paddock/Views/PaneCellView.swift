@@ -1,17 +1,28 @@
 import PaddockCore
 import SwiftUI
 
-/// A single pane cell in status-card mode: title/label, cwd tail, agent dot,
-/// and a lazily fetched last line. Live terminal rendering is Task 17-18;
-/// this task never attaches a PTY stream.
+/// A single pane cell: header (title/dot/chip) stays constant, the body
+/// swaps between status-card mode (glyph/cwd/hint, for a pane not yet
+/// attached) and live mode (a real terminal view) once `SessionViewModel`
+/// hands back a feed. Every pane the canvas renders is a visible pane of the
+/// selected tab, so it attaches live per the Task 18 attach policy; card
+/// mode is what shows while that attach is still in flight.
 struct PaneCellView: View {
     let theme: Theme
+    let viewModel: SessionViewModel
     let pane: PaneRecord
     let isFocused: Bool
     let lastLine: String?
+    /// The pane's real terminal cell size, straight from the layout
+    /// snapshot's `CellRect` -- never a pixel frame. Resizing this reattaches
+    /// the live stream and resizes the terminal view in place.
+    let cols: Int
+    let rows: Int
+
+    @State private var feed: PaneLiveFeed?
 
     /// The terminal's own ground, held constant across every theme per the
-    /// task brief, until live content (Task 17-18) replaces this placeholder.
+    /// task brief.
     private static let terminalGround = Color(red: 0x19 / 255, green: 0x1A / 255, blue: 0x22 / 255)
 
     var body: some View {
@@ -36,6 +47,15 @@ struct PaneCellView: View {
                     .fill(theme.accent.opacity(0.18), style: FillStyle(eoFill: true))
                     .padding(-3)
             }
+        }
+        .task(id: AttachDims(paneID: pane.paneID, cols: cols, rows: rows)) {
+            if let newFeed = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: cols, rows: rows) {
+                feed = newFeed
+            }
+        }
+        .onDisappear {
+            let paneID = pane.paneID
+            Task { await viewModel.endLiveAttach(pane: paneID) }
         }
     }
 
@@ -75,11 +95,24 @@ struct PaneCellView: View {
         }
     }
 
+    @ViewBuilder
+    private var content: some View {
+        if let feed {
+            PaneTerminalView(
+                cols: cols, rows: rows, feed: feed, terminalGround: Self.terminalGround,
+                onPlainClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } }
+            )
+        } else {
+            cardContent
+        }
+    }
+
     /// Vertical anatomy per the reference (glyph, cwd, chip when present,
     /// hint), centered -- both explicitly, so a reader doesn't have to know
     /// that `.frame(maxWidth: .infinity)`'s default alignment happens to
-    /// agree with what's wanted here.
-    private var content: some View {
+    /// agree with what's wanted here. Shown only until the live attach
+    /// resolves (see `content`).
+    private var cardContent: some View {
         VStack(alignment: .center, spacing: 8) {
             Spacer(minLength: 0)
             Image(systemName: "terminal")
@@ -111,14 +144,18 @@ struct PaneCellView: View {
         .padding(14)
     }
 
-    /// Task 16's click jumps herdr focus; Task 17-18 attaches a live PTY
-    /// stream on click instead, and the hint changes to match.
     private var hintText: String { "click to focus in herdr" }
 
     private var cwdTail: String {
         guard let last = pane.cwd.split(separator: "/").last else { return pane.cwd }
         return "~/\(last)"
     }
+}
+
+private struct AttachDims: Equatable {
+    let paneID: PaneID
+    let cols: Int
+    let rows: Int
 }
 
 /// A ring shape (outer rounded rect minus an inset inner one, even-odd

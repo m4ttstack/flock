@@ -20,7 +20,7 @@ targets:
     type: application
     platform: macOS
     sources: [Sources/Paddock]
-    dependencies: [{ target: PaddockCore }]
+    dependencies: [{ target: PaddockCore }, { package: SwiftTerm }]
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
