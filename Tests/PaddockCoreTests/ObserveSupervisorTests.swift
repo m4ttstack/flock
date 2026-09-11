@@ -8,6 +8,30 @@ import Darwin
 
 private struct TimeoutError: Error {}
 
+private func waitUntilAsync(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while await !condition() {
+        if ContinuousClock.now >= deadline { throw TimeoutError() }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+}
+
+/// Lets the choreography task in `testReattachDropsStaleOldDimensionFrames`
+/// poll how many frames of each width have arrived so far, instead of
+/// guessing a fixed delay long enough for the (cold-start-sensitive) old
+/// process to actually be producing output.
+private actor FrameCollector {
+    private(set) var frames: [TerminalFrame] = []
+
+    func append(_ frame: TerminalFrame) {
+        frames.append(frame)
+    }
+
+    func count(width: Int) -> Int {
+        frames.filter { $0.width == width }.count
+    }
+}
+
 final class ObserveSupervisorTests: XCTestCase {
     private var pidFilePath: String?
 
@@ -17,6 +41,7 @@ final class ObserveSupervisorTests: XCTestCase {
         unsetenv("FAKE_OBSERVE_PID_FILE")
         unsetenv("FAKE_OBSERVE_HANG")
         unsetenv("FAKE_OBSERVE_FIXTURE")
+        unsetenv("FAKE_OBSERVE_CONTINUOUS")
         super.tearDown()
     }
 
@@ -102,24 +127,23 @@ final class ObserveSupervisorTests: XCTestCase {
         let paneB = PaneID(rawValue: "w1:pB")
         let paneC = PaneID(rawValue: "w1:pC")
 
-        // Each stream must stay referenced: AsyncStream tears its session
-        // down as soon as its own storage is deallocated (the same
-        // mechanism that reclaims a genuinely orphaned consumer), so a
-        // discarded `_ = attach(...)` here would self-evict before this
-        // test ever gets to exercise LRU eviction.
         let streamA = await supervisor.attach(paneA, cols: 80, rows: 24)
-        let streamB = await supervisor.attach(paneB, cols: 80, rows: 24)
+        _ = await supervisor.attach(paneB, cols: 80, rows: 24)
         var attached = await supervisor.attachedPanes
         XCTAssertEqual(attached, [paneA, paneB])
 
-        let streamC = await supervisor.attach(paneC, cols: 80, rows: 24)
+        _ = await supervisor.attach(paneC, cols: 80, rows: 24)
 
         attached = await supervisor.attachedPanes
         XCTAssertEqual(attached, [paneB, paneC])
         // Eviction finishes the evicted pane's stream even though its
         // fake process never emits terminal.closed on its own (HANG mode).
         _ = try await collectFrames(from: streamA)
-        withExtendedLifetime((streamB, streamC)) {}
+
+        // HANG-mode children never exit on their own; detach explicitly
+        // rather than leaving cleanup to actor deinit timing.
+        await supervisor.detach(paneB)
+        await supervisor.detach(paneC)
     }
 
     func testDetachKillsTheChildProcess() async throws {
@@ -131,7 +155,7 @@ final class ObserveSupervisorTests: XCTestCase {
 
         let supervisor = try makeSupervisor()
         let pane = PaneID(rawValue: "w1:pKill")
-        let stream = await supervisor.attach(pane, cols: 80, rows: 24)
+        _ = await supervisor.attach(pane, cols: 80, rows: 24)
 
         try await waitUntil {
             (try? String(contentsOfFile: pidFile, encoding: .utf8))
@@ -145,7 +169,81 @@ final class ObserveSupervisorTests: XCTestCase {
         try await waitUntil { kill(pid, 0) != 0 }
         let attached = await supervisor.attachedPanes
         XCTAssertTrue(attached.isEmpty)
-        withExtendedLifetime(stream) {}
+    }
+
+    func testDroppingStreamWithoutIteratingLeavesSessionAttached() async throws {
+        setenv("FAKE_OBSERVE_HANG", "1", 1)
+        let supervisor = try makeSupervisor()
+        let pane = PaneID(rawValue: "w1:pOrphan")
+
+        // Deliberately discarded, never iterated: onTermination cannot tell
+        // this apart from a mid-iteration cancellation, so it must NOT be a
+        // teardown trigger (relaxed contract per fix round 1).
+        _ = await supervisor.attach(pane, cols: 80, rows: 24)
+
+        // Give AsyncStream's storage every chance to deinit and fire
+        // onTermination, if it were (incorrectly) wired to react to it.
+        try await Task.sleep(for: .milliseconds(200))
+        var attached = await supervisor.attachedPanes
+        XCTAssertEqual(attached, [pane], "a dropped-but-never-iterated stream must not kill the session")
+
+        await supervisor.detach(pane)
+        attached = await supervisor.attachedPanes
+        XCTAssertTrue(attached.isEmpty, "explicit detach must still kill the session")
+    }
+
+    func testReattachDropsStaleOldDimensionFrames() async throws {
+        let supervisor = try makeSupervisor()
+        // A throwaway attach first: this process's very first spawned child
+        // pays a one-time cold-start cost getting its Pipe's readability
+        // source live, which otherwise eats into the timing below and makes
+        // the real assertions flaky in isolation.
+        let warmupPane = PaneID(rawValue: "w1:pWarmup")
+        _ = try await collectFrames(from: supervisor.attach(warmupPane, cols: 80, rows: 24))
+
+        setenv("FAKE_OBSERVE_CONTINUOUS", "1", 1)
+        let pane = PaneID(rawValue: "w1:pResize")
+        let stream = await supervisor.attach(pane, cols: 80, rows: 24)
+        let collector = FrameCollector()
+
+        let frames = try await withThrowingTaskGroup(of: [TerminalFrame].self) { group in
+            group.addTask {
+                for await frame in stream { await collector.append(frame) }
+                return await collector.frames
+            }
+            group.addTask {
+                // Wait for real evidence the old (80x24) process is
+                // producing output (never a fixed guessed delay), some of
+                // it plausibly still in flight on its pipe-queue thread,
+                // then reattach at new dims mid-stream and wait for real
+                // evidence of the new process's own output before stopping
+                // everything.
+                try await waitUntilAsync { await collector.count(width: 80) >= 3 }
+                await supervisor.reattach(pane, cols: 100, rows: 30)
+                try await waitUntilAsync { await collector.count(width: 100) >= 3 }
+                await supervisor.detach(pane)
+                // Fallback only: reached if detach() somehow failed to
+                // finish the stream promptly.
+                try await Task.sleep(for: .seconds(5))
+                throw TimeoutError()
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+
+        guard let firstOld = frames.firstIndex(where: { $0.width == 80 }) else {
+            return XCTFail("expected at least one old-dims frame before reattach")
+        }
+        guard let firstNew = frames.firstIndex(where: { $0.width == 100 }) else {
+            return XCTFail("expected at least one new-dims frame after reattach")
+        }
+        XCTAssertLessThan(firstOld, firstNew)
+        let afterNew = frames[frames.index(after: firstNew)...]
+        XCTAssertTrue(
+            afterNew.allSatisfy { $0.width == 100 },
+            "stale old-dims frame(s) arrived after reattach: widths=\(afterNew.map(\.width))"
+        )
     }
 
     func testInitThrowsWhenNoHerdrBinaryResolves() {

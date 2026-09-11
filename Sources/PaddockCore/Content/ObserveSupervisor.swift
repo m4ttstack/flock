@@ -15,6 +15,16 @@ public enum ObserveSupervisorError: Error, Sendable {
 /// snapshot rect) or the child silently top-crops the tail away from the
 /// live cursor; this type does not resize or validate that, callers own it
 /// and call `reattach` on every `layout.updated` for the pane.
+///
+/// A session ends only via explicit `detach`, `reattach` (kills the old
+/// process), LRU eviction, actor `deinit`, a parsed `terminal.closed` line,
+/// or the child process exiting. Dropping the `AsyncStream` returned by
+/// `attach`/`reattach` without ever iterating it is deliberately NOT a
+/// teardown trigger: `AsyncStream.Continuation.onTermination` cannot tell
+/// "consumer cancelled mid-iteration" apart from "caller never even started
+/// iterating," and treating the second case as a kill signal tears the
+/// session down before the child has had a scheduler tick to run. Callers
+/// that give up on a pane must call `detach` themselves.
 public actor ObserveSupervisor {
     private let executablePath: String
     private let prefixArguments: [String]
@@ -26,6 +36,11 @@ public actor ObserveSupervisor {
     // frame arrival does not, per the brief's own "least-recently-attached"
     // phrasing for the eviction test.
     private var attachOrder: [PaneID] = []
+    // One cell per pane, surviving across reattaches: bumped on every spawn
+    // so a stale in-flight read from the OLD process's pipe-queue thread can
+    // tell, without touching actor state, that a newer spawn has already
+    // taken over the (reused) continuation.
+    private var generationCells: [PaneID: GenerationCell] = [:]
 
     public init(herdrBinary: String? = nil, socketPath: String, maxAttached: Int = 30) throws {
         if let herdrBinary, !herdrBinary.isEmpty {
@@ -72,10 +87,10 @@ public actor ObserveSupervisor {
         attachOrder.removeAll { $0 == pane }
         old.markFinished()
         terminateWithEscalation(old.process)
+        // spawn() finishes `old.continuation` itself if the respawn fails
+        // (same Continuation object, reused for the new session below).
         if spawn(pane: pane, cols: cols, rows: rows, continuation: old.continuation) {
             touchAttachOrder(pane)
-        } else {
-            old.continuation.finish()
         }
     }
 
@@ -104,6 +119,16 @@ public actor ObserveSupervisor {
         let session = Session(process: process, continuation: continuation)
         let buffer = ObserveLineBuffer()
 
+        let cell = generationCells[pane] ?? GenerationCell()
+        generationCells[pane] = cell
+        let myGeneration = cell.bump()
+
+        // `session` retains `process` retains `stdout`, and this closure
+        // (installed on stdout's own fileHandle) retains `session`: a real
+        // retain cycle. Broken only by `terminateWithEscalation` nil-ing
+        // `readabilityHandler` on every teardown path below -- never rely on
+        // ARC alone to tear this down.
+        //
         // EOF is the sole "the child is done producing frames" trigger, not
         // Process.terminationHandler: this Pipe's write end is held only by
         // this one child, so EOF always follows its exit, and unlike
@@ -121,16 +146,22 @@ public actor ObserveSupervisor {
             while let line = buffer.popLine() {
                 switch ObserveWireLine.parse(line) {
                 case .frame(let frame):
-                    continuation.yield(frame)
+                    // Gated on the generation cell, not `session.isFinished`:
+                    // a `reattach` can already have handed this same
+                    // continuation to a NEW session by the time an in-flight
+                    // read from THIS (old) process's queue finishes parsing,
+                    // and that stale frame carries the OLD dims -- exactly
+                    // the top-crop corruption the dims contract exists to
+                    // prevent.
+                    if cell.isCurrent(myGeneration) {
+                        continuation.yield(frame)
+                    }
                 case .closed:
                     Task { [weak self, session] in await self?.handleSessionEnded(pane: pane, session: session) }
                 case .ignored:
                     break
                 }
             }
-        }
-        continuation.onTermination = { [weak self, session] _ in
-            Task { [weak self, session] in await self?.handleSessionEnded(pane: pane, session: session) }
         }
 
         do {
@@ -145,15 +176,16 @@ public actor ObserveSupervisor {
         }
     }
 
-    /// Single funnel for every way a session can end: a `terminal.closed`
-    /// line, the child exiting on its own, or the consumer dropping/
-    /// cancelling the stream. The identity check discards late events from a
-    /// session `reattach` has already replaced.
+    /// Single funnel for the two ways a session ends on its own: a parsed
+    /// `terminal.closed` line, or the child process exiting (observed as
+    /// stdout EOF). The identity check discards late events from a session
+    /// `reattach` has already replaced.
     private func handleSessionEnded(pane: PaneID, session: Session) {
         guard sessions[pane] === session, !session.isFinished else { return }
         session.markFinished()
         sessions.removeValue(forKey: pane)
         attachOrder.removeAll { $0 == pane }
+        generationCells.removeValue(forKey: pane)
         terminateWithEscalation(session.process)
         session.continuation.finish()
     }
@@ -161,6 +193,7 @@ public actor ObserveSupervisor {
     private func removeAndFinish(_ pane: PaneID) {
         guard let session = sessions.removeValue(forKey: pane) else { return }
         attachOrder.removeAll { $0 == pane }
+        generationCells.removeValue(forKey: pane)
         session.markFinished()
         terminateWithEscalation(session.process)
         session.continuation.finish()
@@ -201,6 +234,26 @@ private final class Session: @unchecked Sendable {
     func markFinished() { isFinished = true }
 }
 
+/// One per pane, surviving across reattaches. Unlike `Session.isFinished`
+/// (confined to actor-isolated readers/writers), this is genuinely read from
+/// an arbitrary pipe-reading queue and written from the actor, so it needs
+/// the lock.
+private final class GenerationCell: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func bump() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        value += 1
+        return value
+    }
+
+    func isCurrent(_ generation: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return value == generation
+    }
+}
+
 /// Confined entirely to one process's stdout-reading queue.
 private final class ObserveLineBuffer: @unchecked Sendable {
     private var buffer = Data()
@@ -225,7 +278,11 @@ private func terminateWithEscalation(_ process: Process) {
     if let pipe = process.standardOutput as? Pipe {
         pipe.fileHandleForReading.readabilityHandler = nil
     }
-    guard process.isRunning else { return }
+    // Always attempt this (terminate() on an already-exited process is a
+    // documented no-op) rather than gating on `process.isRunning`: that
+    // property is Foundation's own bookkeeping and isn't guaranteed to have
+    // caught up with the kernel's view immediately after a rapid spawn. The
+    // escalation check below asks the kernel directly instead.
     process.terminate()
     let pid = process.processIdentifier
     Task.detached {
