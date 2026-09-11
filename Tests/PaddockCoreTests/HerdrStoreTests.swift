@@ -24,6 +24,8 @@ private func snapshotResultJSON(tabLabel: String = "orig") -> String {
 
 private let tabRenamedEventLine = #"{"data":{"type":"tab_renamed","tab_id":"w1:t1","label":"renamed-during-boot"}}"#
 
+private let duplicateTabCreatedEventLine = #"{"data":{"type":"tab_created","tab":{"tab_id":"w1:t1","workspace_id":"w1","label":"orig","number":1,"pane_count":1,"agent_status":"unknown"}}}"#
+
 final class HerdrStoreTests: XCTestCase {
     @MainActor
     func testBootstrapBuffersEventsDuringSnapshot() async throws {
@@ -42,6 +44,29 @@ final class HerdrStoreTests: XCTestCase {
 
         try await waitUntil { store.connection == .live }
         XCTAssertEqual(store.model?.tabs[WorkspaceID(rawValue: "w1")]?.first?.label, "renamed-during-boot")
+    }
+
+    @MainActor
+    func testBufferedCreateDedupesAgainstConcurrentSnapshot() async throws {
+        // The held snapshot already contains tab w1:t1 (see snapshotResultJSON());
+        // a tab_created for that same id, buffered while the snapshot is held,
+        // must not produce a second copy once the buffer replays.
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: snapshotResultJSON())
+        let release = fake.holdNext(method: "session.snapshot")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "events.subscribe" } }
+        fake.pushEventLine(duplicateTabCreatedEventLine)
+        release()
+
+        try await waitUntil { store.connection == .live }
+        let tabs = store.model?.tabs[WorkspaceID(rawValue: "w1")] ?? []
+        XCTAssertEqual(tabs.filter { $0.tabID == TabID(rawValue: "w1:t1") }.count, 1)
     }
 
     @MainActor

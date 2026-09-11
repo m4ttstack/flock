@@ -21,10 +21,10 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         model.panes.removeValue(forKey: payload.previousPaneID)
         model.panes[payload.pane.paneID] = payload.pane
         if let createdTab = payload.createdTab {
-            model.tabs[createdTab.workspaceID, default: []].append(createdTab)
+            upsertTab(createdTab, into: &model)
         }
         if let createdWorkspace = payload.createdWorkspace {
-            model.workspaces.append(createdWorkspace)
+            upsertWorkspace(createdWorkspace, into: &model)
         }
         if let closedTabID = payload.closedTabID {
             removeTab(closedTabID, from: &model)
@@ -37,7 +37,7 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         break
 
     case .tabCreated(let tab):
-        model.tabs[tab.workspaceID, default: []].append(tab)
+        upsertTab(tab, into: &model)
 
     case .tabClosed(let tabID):
         removeTab(tabID, from: &model)
@@ -58,7 +58,7 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         model.focusedTabID = tabID
 
     case .workspaceCreated(let workspace):
-        model.workspaces.append(workspace)
+        upsertWorkspace(workspace, into: &model)
 
     case .workspaceClosed(let workspaceID):
         removeWorkspace(workspaceID, from: &model)
@@ -75,6 +75,25 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
 
     case .unknown:
         break
+    }
+}
+
+/// Create events are idempotent on the wire's id: a snapshot answered
+/// concurrently with a buffered create for the same entity must not
+/// duplicate it once the buffer replays.
+private func upsertTab(_ tab: TabRecord, into model: inout SessionModel) {
+    if let index = model.tabs[tab.workspaceID]?.firstIndex(where: { $0.tabID == tab.tabID }) {
+        model.tabs[tab.workspaceID]?[index] = tab
+    } else {
+        model.tabs[tab.workspaceID, default: []].append(tab)
+    }
+}
+
+private func upsertWorkspace(_ workspace: WorkspaceRecord, into model: inout SessionModel) {
+    if let index = model.workspaces.firstIndex(where: { $0.workspaceID == workspace.workspaceID }) {
+        model.workspaces[index] = workspace
+    } else {
+        model.workspaces.append(workspace)
     }
 }
 
