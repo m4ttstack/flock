@@ -171,15 +171,26 @@ transform/opacity only, interruptible springs.
   arrow-key move/swap for the focused pane; accessibility identifiers on all
   interactive elements (also required by the e2e suite).
 - **Auto-scroll** near strip/rail edges with proximity-ramped velocity.
+- **Themes, not light/dark modes (herdr parity):** paddock has named
+  themes exactly like herdr. `Theme` mirrors herdr's `Palette` shape
+  (accent, panel_bg, sidebar_bg, active_row_bg, selection_bg, surface0/1,
+  surface_dim, overlay0/1, text, subtext0, mauve, green, yellow, red, blue,
+  teal, peach), and paddock bundles herdr's 17 concrete built-ins
+  transcribed VERBATIM from herdr `src/app/state.rs` (tokyo-night default;
+  tokyo-night-day, catppuccin, catppuccin-latte, dracula, nord, gruvbox,
+  gruvbox-light, one-dark, one-light, solarized, solarized-light, kanagawa,
+  kanagawa-lotus, rose-pine, rose-pine-dawn, vesper). Theme picked in the
+  View menu, persisted; macOS system appearance is ignored (herdr's
+  "terminal" theme follows the host terminal and has no paddock
+  equivalent). All chrome derives from the active theme's tokens; the
+  canvas references render Tokyo Night and Tokyo Night Day.
 - **Agent status colors mirror herdr's header semantics** (source:
-  `src/client/shell.rs` `status_color`): working = yellow, blocked = red,
-  done = teal, idle = green, unknown = dim overlay. v1 pins the Tokyo Night
-  values (`#E0AF68` / `#F7768E` / `#7DCFFF` / `#9ECE6A` / `#565F89`; light
-  chrome uses the Tokyo Night Day values), matching what theme = "terminal"
-  resolves to on this machine. Dot FILL mirrors herdr's dots style
-  (`status_icon`): working/blocked/done are filled, idle is a hollow ring,
-  unknown is a small centered dot. The zoom badge is mauve (`#BB9AF7`),
-  never a status color.
+  `src/client/shell.rs` `status_color`), drawn from the ACTIVE theme:
+  working = theme.yellow, blocked = theme.red, done = theme.teal,
+  idle = theme.green, unknown = theme.overlay0. Dot FILL mirrors herdr's
+  dots style (`status_icon`): working/blocked/done are filled, idle is a
+  hollow ring, unknown is a small centered dot. The zoom badge is
+  theme.mauve, never a status color.
 - **Copy on selection (herdr parity, v1):** mouse-up ends a selection in a
   live pane and the text is already on the clipboard (herdr ships
   `copy_on_select = true`); a quiet "Copied N lines" whisper confirms.
