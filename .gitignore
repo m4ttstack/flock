@@ -3,3 +3,4 @@ DerivedData/
 build/
 .DS_Store
 *.xcuserstate
+docs/design/src/paddock-design.html
