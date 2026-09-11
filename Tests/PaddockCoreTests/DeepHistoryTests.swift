@@ -62,6 +62,30 @@ final class DeepHistoryTests: XCTestCase {
         try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(paramsJSON.utf8)) as? [String: Any])
     }
 
+    // MARK: - retention probe ground truth
+
+    /// Pins `locallyHeldRowCount` against values computed BY HAND from
+    /// SwiftTerm's buffer model: a fresh terminal holds exactly its screen
+    /// rows; the first `rows - 1` newlines only walk the cursor down that
+    /// blank screen, and every newline past the bottom pushes one row into
+    /// scrollback (held = rows + max(0, fed - (rows - 1))) until the
+    /// scrollback limit caps it -- independent ground truth, so the anchor
+    /// tests elsewhere may derive expectations from the probe without the
+    /// whole chain becoming self-referential.
+    func testLocallyHeldRowCountMatchesHandComputedRetention() {
+        let server = FakeHerdrServer(); try? server.start(); defer { server.stop() }
+        let term = makeTerminal(server: server)
+        XCTAssertEqual(term.locallyHeldRowCount(), 24, "a fresh terminal holds exactly its screen rows")
+
+        term.seedBackfill(ansi: Data(String(repeating: "x\n", count: 40).utf8), lineCount: 40)
+        XCTAssertEqual(term.locallyHeldRowCount(), 41, "24 screen rows + (40 - 23) rows pushed into scrollback")
+
+        term.seedBackfill(ansi: Data(String(repeating: "y\n", count: 2000).utf8), lineCount: 2000)
+        XCTAssertEqual(
+            term.locallyHeldRowCount(), 524,
+            "beyond the limit the buffer caps at scrollback (500) plus screen rows (24)")
+    }
+
     // MARK: - contiguous anchor (no gap against the already-shown backfill)
 
     /// Reported live: a dimmed band of loaded history followed by an abrupt,

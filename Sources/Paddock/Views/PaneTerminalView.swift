@@ -42,9 +42,14 @@ struct PaneTerminalView: View {
     @State private var historyCapable: Bool
     @State private var historyCapabilityToken: UUID?
     /// History is revealed by intent, not resident: scrolling up past the
-    /// top of the live scrollback opens it; scrolling back down to the
-    /// live bottom closes it. It is never a standing box.
+    /// top of the live scrollback opens it; scrolling back down while the
+    /// browser sits at its live end closes it. It is never a standing box.
     @State private var historyRevealed = false
+    /// Shared with both the browser (writes) and the terminal view's
+    /// guarded event monitor (reads), so the exit gesture inherits the
+    /// same window + bounds scoping as the reveal gesture instead of
+    /// needing an unguarded monitor of its own.
+    @State private var browserState = BrowserScrollState()
 
     init(
         cols: Int, rows: Int, feed: PaneLiveFeed, terminalGround: SwiftUI.Color,
@@ -69,7 +74,8 @@ struct PaneTerminalView: View {
                 cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick,
                 paneTerminal: paneTerminal, onScreenActivity: onScreenActivity, ground: terminalGround,
                 onScrollPastTop: { withAnimation(.easeOut(duration: 0.2)) { historyRevealed = true } },
-                onScrollBackToLive: {}
+                onScrollBackToLive: { withAnimation(.easeIn(duration: 0.15)) { historyRevealed = false } },
+                browserState: browserState
             )
             // Content inset per the reference boards (9pt vertical, 11pt
             // horizontal inside the pane body); the shared pane ground
@@ -89,11 +95,8 @@ struct PaneTerminalView: View {
             // buffer's own text, adjacency exact by construction because
             // that text is read from the rendered terminal itself.
             if let paneTerminal, historyCapable, historyRevealed {
-                HistoryBrowseView(
-                    paneTerminal: paneTerminal, ground: terminalGround, ink: historyDim,
-                    onExit: { withAnimation(.easeIn(duration: 0.15)) { historyRevealed = false } }
-                )
-                .transition(.opacity)
+                HistoryBrowseView(paneTerminal: paneTerminal, ground: terminalGround, ink: historyDim, state: browserState)
+                    .transition(.opacity)
             }
 
             if let copiedLineCount {
@@ -159,7 +162,7 @@ private struct HistoryBrowseView: View {
     let paneTerminal: PaneTerminal
     let ground: SwiftUI.Color
     let ink: SwiftUI.Color
-    let onExit: () -> Void
+    let state: BrowserScrollState
 
     @State private var text = ""
     @State private var bufferText = ""
@@ -167,8 +170,6 @@ private struct HistoryBrowseView: View {
     @State private var reachedStart = false
     @State private var showsChangedNotice = false
     @State private var loadGeneration = 0
-    @State private var bottomVisible = true
-    @State private var wheelMonitor: Any?
 
     private static let bottomAnchor = "paddock.history.bottom"
 
@@ -199,8 +200,8 @@ private struct HistoryBrowseView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 11)
                     Color.clear.frame(height: 1).id(Self.bottomAnchor)
-                        .onAppear { bottomVisible = true }
-                        .onDisappear { bottomVisible = false }
+                        .onAppear { state.atLiveEnd = true }
+                        .onDisappear { state.atLiveEnd = false }
                 }
                 .padding(.vertical, 9)
             }
@@ -216,15 +217,10 @@ private struct HistoryBrowseView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ground)
         .onAppear {
-            wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                if event.scrollingDeltaY < 0, bottomVisible { onExit() }
-                return event
-            }
+            state.browsing = true
+            state.atLiveEnd = true
         }
-        .onDisappear {
-            if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
-            wheelMonitor = nil
-        }
+        .onDisappear { state.browsing = false }
     }
 
     private func loadMore() {
@@ -252,6 +248,16 @@ private struct HistoryBrowseView: View {
     }
 }
 
+/// Scroll coupling between the history browser overlay and the terminal
+/// view's guarded event monitor: the browser records whether it is open and
+/// sitting at its live end; the monitor turns a down-scroll in that state
+/// into the exit signal, with the same window + bounds scoping the reveal
+/// gesture gets.
+final class BrowserScrollState {
+    var browsing = false
+    var atLiveEnd = true
+}
+
 /// Bridges one `PaneLiveFeed` into a `CopyOnSelectTerminalView`. `makeNSView`
 /// runs once per view identity (SwiftUI reuses the NSView across re-renders
 /// via `updateNSView`), so the feed-consuming task starts exactly once here.
@@ -270,6 +276,7 @@ private struct TerminalRepresentable: NSViewRepresentable {
     var ground: SwiftUI.Color
     var onScrollPastTop: (() -> Void)?
     var onScrollBackToLive: (() -> Void)?
+    var browserState: BrowserScrollState?
 
     final class Coordinator {
         var feedTask: Task<Void, Never>?
@@ -292,6 +299,7 @@ private struct TerminalRepresentable: NSViewRepresentable {
         view.nativeBackgroundColor = NSColor(ground)
         view.onScrollPastTop = onScrollPastTop
         view.onScrollBackToLive = onScrollBackToLive
+        view.browserState = browserState
         // Deep-history adjacency is owed to what THIS view retains, not to
         // the headless mirror: the two SwiftTerm instances can diverge (a
         // full-frame reset lands at a different effective point in each
@@ -299,6 +307,10 @@ private struct TerminalRepresentable: NSViewRepresentable {
         paneTerminal?.localRetentionProvider = { [weak view] in
             guard let view else { return 0 }
             return PaneTerminal.heldRowCount(of: view.terminal)
+        }
+        paneTerminal?.localRetainedTextProvider = { [weak view] in
+            guard let view else { return "" }
+            return PaneTerminal.retainedText(of: view.terminal)
         }
         let paneTerminal = self.paneTerminal
         let onScreenActivity = self.onScreenActivity
@@ -333,6 +345,7 @@ private struct TerminalRepresentable: NSViewRepresentable {
         nsView.nativeBackgroundColor = NSColor(ground)
         nsView.onScrollPastTop = onScrollPastTop
         nsView.onScrollBackToLive = onScrollBackToLive
+        nsView.browserState = browserState
         // `TerminalView` recomputes cols/rows from its own pixel frame on
         // every `setFrameSize` (per SwiftTerm's own doc comment: "cols and
         // rows... are otherwise recomputed from the frame size"), which
@@ -360,6 +373,7 @@ final class CopyOnSelectTerminalView: TerminalView {
     var onPlainClick: (() -> Void)?
     var onScrollPastTop: (() -> Void)?
     var onScrollBackToLive: (() -> Void)?
+    var browserState: BrowserScrollState?
     private var lastEdgeSignal = Date.distantPast
 
     private var scrollMonitor: Any?
@@ -394,14 +408,19 @@ final class CopyOnSelectTerminalView: TerminalView {
         // Same sign convention as SwiftTerm's own scrollWheel: positive
         // delta scrolls up (toward older content), no inversion handling.
         let scrollingUp = deltaY > 0
+        if let browserState, browserState.browsing {
+            // While the history browser overlays this pane, the only edge
+            // gesture is exit: down-scroll with the browser at its live end.
+            if !scrollingUp, browserState.atLiveEnd {
+                lastEdgeSignal = Date()
+                onScrollBackToLive?()
+            }
+            return
+        }
         let atTop = !canScroll || scrollPosition <= 0
-        let atLiveBottom = !canScroll || scrollPosition >= 1
         if scrollingUp, atTop {
             lastEdgeSignal = Date()
             onScrollPastTop?()
-        } else if !scrollingUp, atLiveBottom {
-            lastEdgeSignal = Date()
-            onScrollBackToLive?()
         }
     }
 

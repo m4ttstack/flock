@@ -274,7 +274,14 @@ public final class PaneTerminal: @unchecked Sendable {
     private func ensureInitialized(client: any HerdrCommandClient, paneID: PaneID) async throws {
         guard lock.withLockHeld({ oldestFetchedRow == nil }) else { return }
         let (totalRows, _) = try await fetchScrollBounds(client: client, paneID: paneID)
-        let held = localRetentionProvider?() ?? locallyHeldRowCount()
+        // The rendered terminal mutates on the main actor (its feed task);
+        // probing it must hop there, or the probe races a mid-feed buffer.
+        let held: Int
+        if let localRetentionProvider {
+            held = await MainActor.run { localRetentionProvider() }
+        } else {
+            held = locallyHeldRowCount()
+        }
         lock.withLockHeld {
             guard oldestFetchedRow == nil else { return }
             oldestFetchedRow = max(0, totalRows - held)
@@ -287,34 +294,39 @@ public final class PaneTerminal: @unchecked Sendable {
     /// land at different effective points in each stream), and adjacency is
     /// owed to what the USER SEES -- so the view layer hands its own
     /// terminal's probed count in here.
-    public var localRetentionProvider: (() -> Int)?
+    public var localRetentionProvider: (@MainActor () -> Int)?
 
     /// The rendered terminal's full retained text (scrollback + screen,
     /// trimmed), same divergence rationale as `localRetentionProvider`:
     /// the history browser shows the live buffer AS THE USER'S VIEW HOLDS
     /// IT, so fetched history and buffer text meet with no gap by
     /// construction.
-    public var localRetainedTextProvider: (() -> String)?
+    public var localRetainedTextProvider: (@MainActor () -> String)?
 
     /// All rows a terminal's buffer currently holds, joined by newlines
     /// (probe window per `heldRowCount(of:)`).
     public static func retainedText(of term: Terminal) -> String {
-        var lines: [String] = []
-        var row = 0
-        if term.getScrollInvariantLine(row: 0) == nil {
-            var probe = 1
-            while term.getScrollInvariantLine(row: probe) == nil {
-                probe *= 2
-                if probe > 10_000_000 { return "" }
-            }
-            var lowInvalid = probe / 2
-            var lowValid = probe
+        let stride = max(1, term.rows)
+        var inside = -1
+        var probe = 0
+        while probe <= 50_000_000 {
+            if term.getScrollInvariantLine(row: probe) != nil { inside = probe; break }
+            probe += stride
+        }
+        if inside < 0 { return "" }
+        var row = inside
+        if term.getScrollInvariantLine(row: 0) != nil {
+            row = 0
+        } else {
+            var lowInvalid = max(0, inside - stride)
+            var lowValid = inside
             while lowValid - lowInvalid > 1 {
                 let mid = (lowInvalid + lowValid) / 2
                 if term.getScrollInvariantLine(row: mid) == nil { lowInvalid = mid } else { lowValid = mid }
             }
             row = lowValid
         }
+        var lines: [String] = []
         while let line = term.getScrollInvariantLine(row: row) {
             lines.append(line.translateToString(trimRight: true))
             row += 1
@@ -335,37 +347,44 @@ public final class PaneTerminal: @unchecked Sendable {
 
     /// Same probe, callable against ANY SwiftTerm `Terminal` (the view
     /// layer uses it on its rendered instance for `localRetentionProvider`).
+    ///
+    /// Valid rows form one contiguous window `[linesTop, linesTop + count)`
+    /// whose edges are not public. The window always spans at least the
+    /// screen's `rows`, so striding by `rows` from zero cannot step over it
+    /// (a pure doubling probe can, and did: 1024 -> 2048 clears a window
+    /// ending at 2040 entirely); once any valid row is found, each edge is
+    /// binary-searched on its own monotonic side.
     public static func heldRowCount(of term: Terminal) -> Int {
-        if term.getScrollInvariantLine(row: 0) == nil {
-                var probe = 1
-                while term.getScrollInvariantLine(row: probe) == nil {
-                    probe *= 2
-                    if probe > 10_000_000 { return 0 }
-                }
-                var lowInvalid = probe / 2
-                var lowValid = probe
-                while lowValid - lowInvalid > 1 {
-                    let mid = (lowInvalid + lowValid) / 2
-                    if term.getScrollInvariantLine(row: mid) == nil { lowInvalid = mid } else { lowValid = mid }
-                }
-                var hiValid = lowValid
-                var hiInvalid = lowValid + 1
-                while term.getScrollInvariantLine(row: hiInvalid) != nil { hiInvalid *= 2 }
-                while hiInvalid - hiValid > 1 {
-                    let mid = (hiValid + hiInvalid) / 2
-                    if term.getScrollInvariantLine(row: mid) != nil { hiValid = mid } else { hiInvalid = mid }
-                }
-                return hiValid - lowValid + 1
+        let stride = max(1, term.rows)
+        var inside = -1
+        var probe = 0
+        while probe <= 50_000_000 {
+            if term.getScrollInvariantLine(row: probe) != nil { inside = probe; break }
+            probe += stride
+        }
+        if inside < 0 { return 0 }
+
+        var lowValid = inside
+        if term.getScrollInvariantLine(row: 0) != nil {
+            lowValid = 0
+        } else {
+            var lowInvalid = max(0, inside - stride)
+            while lowValid - lowInvalid > 1 {
+                let mid = (lowInvalid + lowValid) / 2
+                if term.getScrollInvariantLine(row: mid) == nil { lowInvalid = mid } else { lowValid = mid }
             }
-        var hiValid = 0
-        var hiInvalid = 1
+        }
+
+        var hiValid = inside
+        var hiInvalid = inside + 1
         while term.getScrollInvariantLine(row: hiInvalid) != nil { hiInvalid *= 2 }
         while hiInvalid - hiValid > 1 {
             let mid = (hiValid + hiInvalid) / 2
             if term.getScrollInvariantLine(row: mid) != nil { hiValid = mid } else { hiInvalid = mid }
         }
-        return hiValid + 1
+        return hiValid - lowValid + 1
     }
+
 
 
     /// `pane.get`'s wire shape nests fields under a `"pane"` key alongside a
