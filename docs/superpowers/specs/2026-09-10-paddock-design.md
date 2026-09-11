@@ -22,7 +22,7 @@ it is the seed of a full Mac-native alternate herdr controller.
 | Decision | Choice |
 | --- | --- |
 | Home | New repo `paddock`, built as `Contents/Helpers/Paddock.app` inside mattstack.app, launched from the tray |
-| Pane fidelity | Full 1:1 terminal content, scrollable, live |
+| Pane fidelity | Full 1:1 terminal content, scrollable, live. Deep history (scrollback beyond the streamed/backfilled buffer, via `pane.selection.read`) is IN v1; it is the feature the protocol floor exists for |
 | v1 scope | Full drag inventory (below) + rename/close/zoom/focus at all levels |
 | v1 input | None. Typing into panes is reserved for v1.5 (`terminal session control --takeover`, `pane.send_input`) |
 | herdr version | Assume upgraded herdr: target the protocol >= 22 surface (`pane.scroll`, `pane.selection.read` era). Startup does `ping`; below the floor, paddock shows "run `herdr update`" and exits gracefully |
