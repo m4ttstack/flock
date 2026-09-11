@@ -283,6 +283,17 @@ public final class SessionViewModel {
         }
         attachedDims[pane.paneID] = (cols, rows)
         let backfill = await fetchBackfillANSI(for: pane, cols: cols, rows: rows)
+        // Seeded here, synchronously before this feed ever reaches a view,
+        // rather than from `TerminalRepresentable.makeNSView`: the deep
+        // history region is a VStack SIBLING of the terminal representable,
+        // declared ABOVE it, so its own `onAppear` can fire (and call
+        // `loadOlderHistory`) before an NSViewRepresentable's `makeNSView`
+        // ever runs -- reading `backfillLineCount` as still its `0` default
+        // and anchoring the first chunk at the pane's total row count,
+        // duplicating whatever backfill goes on to show once seeded.
+        if let backfill {
+            paneTerminal(for: pane, cols: cols, rows: rows).seedBackfill(ansi: backfill.data, lineCount: backfill.lines)
+        }
         let frames = await observeAttacher.attach(pane.paneID, cols: cols, rows: rows)
         return PaneLiveFeed(backfillANSI: backfill?.data, backfillLineCount: backfill?.lines, frames: frames)
     }

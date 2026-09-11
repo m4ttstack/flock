@@ -254,9 +254,11 @@ private struct TerminalRepresentable: NSViewRepresentable {
         view.nativeBackgroundColor = NSColor(ground)
         let paneTerminal = self.paneTerminal
         let onScreenActivity = self.onScreenActivity
-        if let backfill = feed.backfillANSI {
-            paneTerminal?.seedBackfill(ansi: backfill, lineCount: feed.backfillLineCount)
-        }
+        // `paneTerminal` is seeded by `SessionViewModel.performAttach`
+        // itself, synchronously before this feed ever reaches a view --
+        // never redundantly here too, which would double-feed the same
+        // backfill text into it. Only the SwiftTerm `view` below needs its
+        // own separate feed (a different `Terminal` instance entirely).
         context.coordinator.feedTask = Task { @MainActor [weak view] in
             if let backfill = feed.backfillANSI {
                 view?.feed(byteArray: [UInt8](backfill)[...])

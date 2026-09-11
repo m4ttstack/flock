@@ -52,6 +52,41 @@ private actor StubReadCommandClient: HerdrCommandClient {
     }
 }
 
+/// Answers `pane.read` (backfill), `pane.get` (total row count), and
+/// `pane.selection.read` (a deep-history chunk) -- an end-to-end integration
+/// double proving `SessionViewModel.performAttach` seeds `PaneTerminal`'s
+/// backfill BEFORE any `loadOlderHistory` call can run, so the first chunk
+/// never overlaps what backfill already covers.
+private actor StubHistoryIntegrationClient: HerdrCommandClient {
+    private(set) var calls: [(method: String, params: [String: JSONValue])] = []
+    private let backfillLineCount: Int
+    private let totalRows: Int
+
+    init(backfillLineCount: Int, totalRows: Int) {
+        self.backfillLineCount = backfillLineCount
+        self.totalRows = totalRows
+    }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        calls.append((method, params))
+        switch method {
+        case "pane.read":
+            let text = (0..<backfillLineCount).map { "backfill-\($0)" }.joined(separator: "\\n")
+            return Data(#"{"result":{"text":"\#(text)"}}"#.utf8)
+        case "pane.get":
+            let maxOffset = totalRows - 24
+            return Data(
+                #"{"result":{"pane":{"revision":0,"scroll":{"max_offset_from_bottom":\#(maxOffset),"viewport_rows":24}}}}"#
+                    .utf8
+            )
+        case "pane.selection.read":
+            return Data(#"{"result":{"text":"OLDER"}}"#.utf8)
+        default:
+            return Data("{}".utf8)
+        }
+    }
+}
+
 /// Records requests like `RecordingCommandClient` but answers `pane.split`
 /// with a canned new-pane id, matching herdr's real `result.pane.pane_id`
 /// response shape (pinned by `spikes/lib/seed-layout.sh`'s own read of it).
@@ -630,6 +665,38 @@ final class SessionViewModelTests: XCTestCase {
         let sendCall = try? XCTUnwrap(calls.last { $0.method == "pane.send_input" })
         XCTAssertEqual(stringParam(sendCall?.params ?? [:], "text"), "claude\n")
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "launching hides the overlay like a real keystroke would")
+    }
+
+    // MARK: - deep-history/backfill seeding order (found during Task 18c live triage)
+
+    /// Reported live: the dimmed history region duplicated exactly what the
+    /// live buffer already showed. Root cause: the history region is a
+    /// VStack sibling declared ABOVE the terminal representable, so its own
+    /// `onAppear` (triggering `loadOlderHistory`) could fire before
+    /// `TerminalRepresentable.makeNSView` ever ran -- the one place that
+    /// used to seed `PaneTerminal`'s backfill -- reading `backfillLineCount`
+    /// as its `0` default and anchoring the first chunk at the pane's total
+    /// row count, squarely inside what backfill was about to cover.
+    /// `performAttach` now seeds backfill itself, before any view can race
+    /// it; this proves the first chunk it requests never overlaps.
+    @MainActor
+    func testFirstHistoryChunkAfterAttachNeverOverlapsSeededBackfill() async throws {
+        let client = StubHistoryIntegrationClient(backfillLineCount: 1000, totalRows: 1500)
+        let viewModel = SessionViewModel(client: client, observeAttacher: RecordingObserveAttacher())
+        let pane = makePaneRecord()
+
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
+        _ = try await viewModel.paneTerminal(for: pane, cols: 80, rows: 24).loadOlderHistory(chunkRows: 200)
+
+        let calls = await client.calls
+        let request = try XCTUnwrap(calls.last { $0.method == "pane.selection.read" })
+        guard case .object(let cursor)? = request.params["cursor"] else {
+            return XCTFail("expected a cursor param")
+        }
+        XCTAssertEqual(
+            intParam(cursor, "row"), 499,
+            "must end exactly where the seeded backfill's own top begins (1500 - 1000 - 1), never inside it"
+        )
     }
 }
 
