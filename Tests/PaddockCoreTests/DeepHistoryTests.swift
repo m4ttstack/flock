@@ -1,7 +1,7 @@
 import XCTest
 @testable import PaddockCore
 
-/// Task 18b: deep history via `pane.selection.read`. Wire shapes here are
+/// Deep history via `pane.selection.read`. Wire shapes here are
 /// verified against herdr's real schema (`src/api/schema/panes.rs`,
 /// `src/api/schema/response.rs`) and pinned by `HerdrClientTests`'
 /// `pane.get` fixture (`{"type":"pane_info","pane":{...}}`); `pane.selection`
@@ -180,7 +180,7 @@ final class DeepHistoryTests: XCTestCase {
         XCTAssertEqual(server.receivedRequests.count, requestCountBefore, "no retry: the gate short-circuits before any request")
     }
 
-    // MARK: - concurrent calls coalesce (found during Task 18c live-corruption triage)
+    // MARK: - concurrent calls coalesce
 
     /// `pane.selection.read` requests each open their own socket connection
     /// and can complete out of request order (confirmed by `HerdrClient`'s

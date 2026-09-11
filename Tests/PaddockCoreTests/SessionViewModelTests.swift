@@ -667,7 +667,7 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "launching hides the overlay like a real keystroke would")
     }
 
-    // MARK: - deep-history/backfill seeding order (found during Task 18c live triage)
+    // MARK: - deep-history/backfill seeding order
 
     /// Reported live: the dimmed history region duplicated exactly what the
     /// live buffer already showed. Root cause: the history region is a

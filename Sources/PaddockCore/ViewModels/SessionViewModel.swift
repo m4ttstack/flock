@@ -76,9 +76,9 @@ public final class SessionViewModel {
     private let client: any HerdrCommandClient
     private let observeAttacher: (any PaneObserveAttaching)?
 
-    // One gate for the whole session (per the controller's preference): the
-    // first unsupported `pane.selection.read` reply hides deep history for
-    // every pane, not just the one that discovered it.
+    // One gate for the whole session: the first unsupported
+    // `pane.selection.read` reply hides deep history for every pane, not
+    // just the one that discovered it.
     private let historyCapabilityGate = HistoryCapabilityGate()
     private var paneTerminals: [PaneID: PaneTerminal] = [:]
     private var inputRouters: [PaneID: InputRouter] = [:]

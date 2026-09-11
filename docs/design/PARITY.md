@@ -21,7 +21,7 @@ views. Task reviewers treat a missing row or an unsampled claim as a finding.
 | Pane gutters | 6px | - |
 | Focused pane | 2px accent ring + 3px halo at 18% accent | accent |
 | Selected rail row | accent at 16% fill, 35% border, 8px radius | accent |
-| Selected tab pill | one surface step above strip, 1px border, 7px radius | surface roles |
+| Selected tab pill | fill `#2A2C37`, border `#3A3D4A`, 7px radius, label `#E6E7EB` semibold; unselected label `#9B9DA9`; count chip on selected pill `#1E1F28` | tabPillSelectedBg / tabPillSelectedBorder / chromeTextStrong / chromeTextDim / windowBg |
 
 ## Status dots (herdr parity)
 
@@ -56,3 +56,25 @@ Zoom badge: mauve, never a status color.
 3. Check structural rows (heights, borders present, radii, dot fills) against
    the capture at 2x zoom.
 4. Evidence (sampled values table) goes in the task report.
+
+## Task 18c evidence: selected tab pill
+
+Computed (theoretical) values, verified by direct arithmetic against
+`Theme`'s `chromeOffset(panelBg, delta)` formula for tokyo-night
+(`panelBg = (26, 27, 38)`):
+
+| Role | Delta | Computed | Target |
+| --- | --- | --- | --- |
+| tabPillSelectedBg | (16, 17, 17) | `#2A2C37` | `#2A2C37` |
+| tabPillSelectedBorder | (32, 34, 36) | `#3A3D4A` | `#3A3D4A` |
+| chromeTextStrong | (204, 204, 197) | `#E6E7EB` | `#E6E7EB` |
+| chromeTextDim | (129, 130, 131) | `#9B9DA9` | `#9B9DA9` |
+
+All four match the reference exactly by construction. Pixel-sampled from
+`docs/design/parity/task-18c-smoke.png` (PIL, same recipe as above): the
+selected pill's fill sampled `(37, 39, 48)` against a computed `(42, 44, 55)`
+-- a consistent `(-5, -5, -7)` offset also reproduced when re-sampling the
+UNCHANGED `paneHeaderBg` role (`(29, 30, 38)` sampled vs `(32, 33, 43)`
+computed) in the same capture, so it is the capture pipeline's color
+management (this display is P3; `screencapture`'s raw channel values read
+naively as sRGB), not an implementation defect in the new roles.
