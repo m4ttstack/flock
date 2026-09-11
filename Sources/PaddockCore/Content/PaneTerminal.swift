@@ -28,6 +28,9 @@ public final class PaneTerminal: @unchecked Sendable {
     private var oldestFetchedRow: Int?
     private var historyChunks: [String] = []
     private var storedHistoryChangedNotice = false
+    // Coalescing guard for `loadOlderHistory`: see its own doc comment.
+    private var isLoadingHistory = false
+    private var historyLoadWaiters: [CheckedContinuation<Bool, Error>] = []
 
     public init(
         cols: Int,
@@ -139,11 +142,43 @@ public final class PaneTerminal: @unchecked Sendable {
     /// throws `PaneHistoryError.unsupported` -- not retried. A `stale_content`
     /// reply is retried once, identically; a second failure sets
     /// `historyChangedNotice` and throws `PaneHistoryError.contentChanged`.
+    /// A concurrent second call while one is already in flight coalesces
+    /// onto the SAME fetch instead of issuing its own `pane.selection.read`:
+    /// each request opens its own socket connection (`HerdrClient`'s
+    /// connect-per-request contract) and responses can land out of request
+    /// order, so two overlapping calls would otherwise both read the same
+    /// `oldestFetchedRow`, both request the identical range, and
+    /// `commitChunk`'s unconditional `insert(at: 0)` would let whichever
+    /// response arrived last silently duplicate or misorder `historyText`.
     public func loadOlderHistory(chunkRows: Int) async throws -> Bool {
         guard chunkRows > 0 else { return false }
         guard let client, let paneID else { throw PaneHistoryError.unsupported }
         guard historyCapability.isCapable else { throw PaneHistoryError.unsupported }
 
+        let shouldRunFetch = lock.withLockHeld { () -> Bool in
+            guard !isLoadingHistory else { return false }
+            isLoadingHistory = true
+            return true
+        }
+        guard shouldRunFetch else {
+            return try await withCheckedThrowingContinuation { continuation in
+                lock.withLockHeld { historyLoadWaiters.append(continuation) }
+            }
+        }
+
+        do {
+            let result = try await performLoadOlderHistory(client: client, paneID: paneID, chunkRows: chunkRows)
+            resumeWaiters(.success(result))
+            return result
+        } catch {
+            resumeWaiters(.failure(error))
+            throw error
+        }
+    }
+
+    private func performLoadOlderHistory(
+        client: any HerdrCommandClient, paneID: PaneID, chunkRows: Int
+    ) async throws -> Bool {
         try await ensureInitialized(client: client, paneID: paneID)
 
         let (startRow, endRow) = lock.withLockHeld { () -> (Int, Int) in
@@ -161,6 +196,20 @@ public final class PaneTerminal: @unchecked Sendable {
             throw PaneHistoryError.unsupported
         } catch HerdrClientError.server("stale_content", _) {
             return try await retryAfterStaleContent(client: client, paneID: paneID, startRow: startRow, endRow: endRow)
+        }
+    }
+
+    private func resumeWaiters(_ result: Result<Bool, Error>) {
+        let waiters: [CheckedContinuation<Bool, Error>] = lock.withLockHeld {
+            isLoadingHistory = false
+            defer { historyLoadWaiters.removeAll() }
+            return historyLoadWaiters
+        }
+        for waiter in waiters {
+            switch result {
+            case .success(let value): waiter.resume(returning: value)
+            case .failure(let error): waiter.resume(throwing: error)
+            }
         }
     }
 

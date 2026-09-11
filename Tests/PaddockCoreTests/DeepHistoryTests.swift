@@ -153,4 +153,42 @@ final class DeepHistoryTests: XCTestCase {
         }
         XCTAssertEqual(server.receivedRequests.count, requestCountBefore, "no retry: the gate short-circuits before any request")
     }
+
+    // MARK: - concurrent calls coalesce (found during Task 18c live-corruption triage)
+
+    /// `pane.selection.read` requests each open their own socket connection
+    /// and can complete out of request order (confirmed by `HerdrClient`'s
+    /// own connect-per-request contract). Before this test's fix, two
+    /// overlapping `loadOlderHistory` calls both read the same
+    /// `oldestFetchedRow`, both issued a REQUEST for the identical range,
+    /// and `commitChunk`'s unconditional `insert(at: 0)` meant whichever
+    /// response landed last decided the top of `historyText` -- silently
+    /// duplicating or misordering scrollback depending on completion order.
+    /// A concurrent caller now coalesces onto the one in-flight fetch
+    /// instead of issuing a second request at all.
+    func testConcurrentLoadOlderHistoryCallsCoalesceIntoOneRequest() async throws {
+        let server = FakeHerdrServer(); try server.start(); defer { server.stop() }
+        server.respond(to: "pane.get", withResultJSON: Self.paneGet1000Rows)
+        server.respond(to: "pane.selection.read", withResultJSON: selectionResult("CHUNK-800-999"))
+        let term = makeTerminal(server: server)
+
+        let release = server.holdNext(method: "pane.selection.read")
+        async let first = term.loadOlderHistory(chunkRows: 200)
+        // Give the first call time to reach (and block on) the held request
+        // before the second one starts, so both are genuinely in flight
+        // together rather than trivially sequential.
+        try await Task.sleep(nanoseconds: 50_000_000)
+        async let second = term.loadOlderHistory(chunkRows: 200)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        release()
+
+        let (firstMore, secondMore) = try await (first, second)
+        XCTAssertTrue(firstMore)
+        XCTAssertTrue(secondMore)
+        XCTAssertEqual(term.historyText, "CHUNK-800-999", "coalesced calls must not duplicate the chunk")
+        XCTAssertEqual(
+            server.receivedRequests.filter { $0.method == "pane.selection.read" }.count, 1,
+            "the second call must coalesce onto the first in-flight fetch, never issuing its own request"
+        )
+    }
 }

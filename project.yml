@@ -31,7 +31,7 @@ targets:
       - Tests/PaddockCoreTests
       - path: Tests/Fixtures
         buildPhase: resources
-    dependencies: [{ target: PaddockCore }]
+    dependencies: [{ target: PaddockCore }, { package: SwiftTerm }]
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
