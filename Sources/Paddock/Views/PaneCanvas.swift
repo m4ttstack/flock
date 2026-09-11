@@ -22,13 +22,15 @@ struct PaneCanvas: View {
                             PaneCellView(
                                 theme: theme,
                                 pane: pane,
-                                // Session-level focus, not the layout snapshot's
-                                // own `focusedPaneID`: a `pane.focus` jump emits
-                                // `pane_focused` (updates `model.focusedPaneID`)
-                                // but never `layout_updated`, so the layout's own
-                                // field goes stale the moment focus moves without
-                                // a resize/split alongside it.
-                                isFocused: pane.paneID == viewModel.model?.focusedPaneID,
+                                // The view-model's resolved focus, not
+                                // `layout.focusedPaneID` (a `pane.focus` jump
+                                // never touches the layout snapshot, only
+                                // `model.focusedPaneID`) and not
+                                // `model.focusedPaneID` directly (that only
+                                // updates once herdr's echo lands, tens of ms
+                                // after the click -- `resolvedFocusedPaneID`
+                                // paints the optimistic prediction instead).
+                                isFocused: pane.paneID == viewModel.resolvedFocusedPaneID,
                                 lastLine: viewModel.lastLine(for: pane)
                             )
                             .frame(

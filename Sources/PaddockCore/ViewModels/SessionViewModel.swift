@@ -25,6 +25,7 @@ public final class SessionViewModel {
     public private(set) var connectionState: ConnectionState = .connecting
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
+    public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
 
     private var lastLineRevisions: [PaneID: Int] = [:]
@@ -54,6 +55,21 @@ public final class SessionViewModel {
         if selectedTabID == nil {
             selectedTabID = model?.focusedTabID
         }
+        // The echo caught up: the model now agrees with what the click
+        // predicted, so the prediction can stand down and let the model's
+        // own field drive `resolvedFocusedPaneID` again.
+        if optimisticFocusedPaneID != nil, model?.focusedPaneID == optimisticFocusedPaneID {
+            optimisticFocusedPaneID = nil
+        }
+    }
+
+    /// What views should treat as "the focused pane": the optimistic click
+    /// target while a `pane.focus` round trip is in flight (or has not yet
+    /// echoed back), else the model's own field. Painting from this instead
+    /// of `model?.focusedPaneID` directly is what makes the accent ring move
+    /// on the same frame as the click rather than 24-100+ms later.
+    public var resolvedFocusedPaneID: PaneID? {
+        optimisticFocusedPaneID ?? model?.focusedPaneID
     }
 
     /// The selected workspace's tabs, or `[]` when nothing is selected yet
@@ -94,8 +110,21 @@ public final class SessionViewModel {
         await send("tab.focus", ["tab_id": .string(id.rawValue)])
     }
 
+    /// Sets the optimistic prediction synchronously, before the request even
+    /// goes out, so the ring paints on the same frame as the click. A second
+    /// click before this one's echo lands simply overwrites the prediction
+    /// (last click wins); if THIS request throws, the prediction reverts to
+    /// the model's truth -- but only if a later click hasn't already
+    /// superseded it (the `== id` guard).
     public func jumpToHerdr(pane id: PaneID) async {
-        await send("pane.focus", ["pane_id": .string(id.rawValue)])
+        optimisticFocusedPaneID = id
+        do {
+            _ = try await client.requestRaw("pane.focus", ["pane_id": .string(id.rawValue)])
+        } catch {
+            if optimisticFocusedPaneID == id {
+                optimisticFocusedPaneID = nil
+            }
+        }
     }
 
     /// Returns the cached last line for a status-card pane, kicking off a

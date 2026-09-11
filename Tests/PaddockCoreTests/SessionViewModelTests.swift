@@ -3,10 +3,33 @@ import XCTest
 
 private actor RecordingCommandClient: HerdrCommandClient {
     private(set) var calls: [(method: String, params: [String: JSONValue])] = []
+    private var holdEnabled = false
+    private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
+
+    /// Every subsequent `requestRaw` call suspends until `releaseNext()`
+    /// resumes it, one call at a time (FIFO) -- lets a test observe state
+    /// mid-flight, before a request completes.
+    func hold() { holdEnabled = true }
+
+    func releaseNext() {
+        guard !pendingContinuations.isEmpty else { return }
+        pendingContinuations.removeFirst().resume()
+    }
 
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         calls.append((method, params))
+        if holdEnabled {
+            await withCheckedContinuation { pendingContinuations.append($0) }
+        }
         return Data("{}".utf8)
+    }
+}
+
+private struct RequestFailure: Error {}
+
+private actor FailingCommandClient: HerdrCommandClient {
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        throw RequestFailure()
     }
 }
 
@@ -188,5 +211,80 @@ final class SessionViewModelTests: XCTestCase {
         // No update() call at all: model stays nil.
         let viewModel = SessionViewModel(client: RecordingCommandClient())
         XCTAssertEqual(viewModel.paneCount(for: WorkspaceID(rawValue: "w1")), 0)
+    }
+
+    @MainActor
+    func testJumpToHerdrPaneSetsOptimisticFocusImmediately() async {
+        let client = RecordingCommandClient()
+        await client.hold()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: makeModel(), connection: .live)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
+
+        let task = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2")) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        // The ring target moved with no model mutation at all: the request
+        // is still parked inside `requestRaw`, held by the test double.
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"))
+        XCTAssertEqual(viewModel.model?.focusedPaneID, PaneID(rawValue: "w1:p1"))
+
+        await client.releaseNext()
+        await task.value
+    }
+
+    @MainActor
+    func testModelEchoClearsOptimisticFocus() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+
+        Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2")) }
+
+        // Echo: the model catches up to the optimistic prediction.
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p2"), connection: .live)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"))
+
+        // Prove the optimistic value was actually cleared, not just
+        // coincidentally equal to the model: a later, unrelated model change
+        // moving focus elsewhere must now be reflected immediately, which
+        // only happens if nothing is still overriding the model's field.
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p3"), connection: .live)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
+    }
+
+    @MainActor
+    func testJumpToHerdrPaneRevertsOptimisticOnFailure() async {
+        let viewModel = SessionViewModel(client: FailingCommandClient())
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+
+        await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2"))
+
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
+    }
+
+    @MainActor
+    func testSecondClickMidFlightSupersedesFirst() async {
+        let client = RecordingCommandClient()
+        await client.hold()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+
+        let firstTask = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2")) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"))
+
+        let secondTask = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p3")) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
+
+        // Let the (stale) first request finish -- its success must not
+        // touch the optimistic value at all, let alone clear it back to p1.
+        await client.releaseNext()
+        await firstTask.value
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
+
+        await client.releaseNext()
+        await secondTask.value
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
     }
 }
