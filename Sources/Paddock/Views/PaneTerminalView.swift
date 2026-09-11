@@ -6,9 +6,9 @@ import SwiftUI
 /// Live 1:1 rendering of one pane via SwiftTerm's own AppKit `TerminalView`
 /// (real glyph rendering, scrollback, selection), fed the same backfill +
 /// observe bytes `PaneTerminal` verifies headlessly in PaddockCoreTests.
-/// Read-only for Task 18: the view is never made first responder anywhere in
-/// this file, so no keystroke reaches SwiftTerm's input path at all (Task
-/// 18c wires typing explicitly via `send_input`, not through this view).
+/// The view is never made first responder anywhere in this file, so no
+/// keystroke reaches SwiftTerm's input path at all -- typing is wired
+/// explicitly via `send_input` at the pane-cell layer, above this view.
 /// SwiftTerm's scrollback is entirely local to the view; nothing here ever
 /// calls `pane.scroll`.
 struct PaneTerminalView: View {
@@ -22,29 +22,68 @@ struct PaneTerminalView: View {
     /// canvas's normal click-to-focus, since a click landing on the AppKit
     /// terminal body never reaches SwiftUI's own tap gesture.
     let onPlainClick: () -> Void
-    /// Backs the deep-history region (Task 18b). `nil` leaves this view
-    /// exactly as Task 18 left it: no region, no `pane.selection.read`
-    /// traffic. Production wiring (a shared `PaneTerminal` per pane, fed a
-    /// session-wide `HistoryCapabilityGate`) is follow-up work; no call site
-    /// passes one yet.
+    /// Backs the deep-history region and the pristine-launcher screen check.
+    /// `nil` leaves this view with no region and no `pane.selection.read`
+    /// traffic (used only by call sites, if any, that have no terminal to
+    /// share -- production always passes one, owned per-pane by
+    /// `SessionViewModel`).
     var paneTerminal: PaneTerminal?
+    /// Fired with the current non-empty screen row count after every frame
+    /// this view feeds into `paneTerminal`, so the pristine-launcher check
+    /// sees real content rather than staying purely keystroke-driven.
+    var onScreenActivity: ((Int) -> Void)?
 
     @State private var copiedLineCount: Int?
+    @State private var historyCapable: Bool
+    @State private var historyCapabilityToken: UUID?
+
+    init(
+        cols: Int, rows: Int, feed: PaneLiveFeed, terminalGround: SwiftUI.Color,
+        onPlainClick: @escaping () -> Void, paneTerminal: PaneTerminal? = nil,
+        onScreenActivity: ((Int) -> Void)? = nil
+    ) {
+        self.cols = cols
+        self.rows = rows
+        self.feed = feed
+        self.terminalGround = terminalGround
+        self.onPlainClick = onPlainClick
+        self.paneTerminal = paneTerminal
+        self.onScreenActivity = onScreenActivity
+        _historyCapable = State(initialValue: paneTerminal?.historyCapable ?? false)
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             VStack(spacing: 0) {
-                if let paneTerminal, paneTerminal.historyCapable {
+                if let paneTerminal, historyCapable {
                     PaneHistoryRegion(paneTerminal: paneTerminal)
                 }
-                TerminalRepresentable(cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick)
-                    .background(terminalGround)
+                TerminalRepresentable(
+                    cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick,
+                    paneTerminal: paneTerminal, onScreenActivity: onScreenActivity
+                )
+                .background(terminalGround)
             }
 
             if let copiedLineCount {
                 CopyChip(lineCount: copiedLineCount)
                     .padding(8)
                     .transition(.opacity)
+            }
+        }
+        // Reactive, not polled: `historyCapable` only ever transitions
+        // true -> false (the gate never recovers), so registering once per
+        // view identity is enough -- a listener added after the flip
+        // already happened is a documented no-op on the gate side, matched
+        // here by seeding `historyCapable` from the CURRENT value above.
+        .onAppear {
+            historyCapabilityToken = paneTerminal?.onHistoryCapabilityLost {
+                Task { @MainActor in historyCapable = false }
+            }
+        }
+        .onDisappear {
+            if let historyCapabilityToken {
+                paneTerminal?.removeHistoryCapabilityListener(historyCapabilityToken)
             }
         }
     }
@@ -79,7 +118,12 @@ private struct CopyChip: View {
 /// every child immediately regardless of scroll position, but a lazy one
 /// only attaches a child once it nears the visible viewport -- so the
 /// sentinel's `onAppear` fires exactly when the user scrolls this region to
-/// its current top, which is the "past the top" trigger the brief asks for.
+/// its current top. It carries `.id(loadGeneration)`: each successful load
+/// prepends a new chunk ABOVE the sentinel's position but does not move the
+/// sentinel view itself, so without a fresh identity per load SwiftUI treats
+/// it as the same child that already "appeared" once and never fires again
+/// -- `loadGeneration` forces a new node each time so scrolling back up to
+/// the (new) top re-triggers it.
 private struct PaneHistoryRegion: View {
     let paneTerminal: PaneTerminal
 
@@ -87,12 +131,13 @@ private struct PaneHistoryRegion: View {
     @State private var isLoading = false
     @State private var reachedStart = false
     @State private var showsChangedNotice = false
+    @State private var loadGeneration = 0
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if !reachedStart {
-                    Color.clear.frame(height: 1).onAppear(perform: loadMore)
+                    Color.clear.frame(height: 1).id(loadGeneration).onAppear(perform: loadMore)
                 }
                 if showsChangedNotice {
                     Text("History changed while loading; older lines may be out of order.")
@@ -115,7 +160,10 @@ private struct PaneHistoryRegion: View {
         guard !isLoading else { return }
         isLoading = true
         Task {
-            defer { isLoading = false }
+            defer {
+                isLoading = false
+                loadGeneration += 1
+            }
             do {
                 let more = try await paneTerminal.loadOlderHistory(chunkRows: 200)
                 text = paneTerminal.historyText
@@ -143,6 +191,12 @@ private struct TerminalRepresentable: NSViewRepresentable {
     let feed: PaneLiveFeed
     let onCopy: (Int) -> Void
     let onPlainClick: () -> Void
+    /// Mirrors the same backfill + frames into the headless terminal that
+    /// backs deep history and the pristine-launcher screen check -- fed
+    /// from this single feed loop rather than a second consumer of
+    /// `feed.frames`, since `AsyncStream` has no built-in fan-out.
+    var paneTerminal: PaneTerminal?
+    var onScreenActivity: ((Int) -> Void)?
 
     final class Coordinator {
         var feedTask: Task<Void, Never>?
@@ -157,6 +211,11 @@ private struct TerminalRepresentable: NSViewRepresentable {
         view.allowMouseReporting = false
         view.onCopy = onCopy
         view.onPlainClick = onPlainClick
+        let paneTerminal = self.paneTerminal
+        let onScreenActivity = self.onScreenActivity
+        if let backfill = feed.backfillANSI {
+            paneTerminal?.seedBackfill(ansi: backfill)
+        }
         context.coordinator.feedTask = Task { @MainActor [weak view] in
             if let backfill = feed.backfillANSI {
                 view?.feed(byteArray: [UInt8](backfill)[...])
@@ -168,6 +227,10 @@ private struct TerminalRepresentable: NSViewRepresentable {
                     reset: { view.terminal.resetToInitialState() },
                     feed: { view.feed(byteArray: [UInt8]($0)[...]) }
                 )
+                if let paneTerminal {
+                    paneTerminal.ingest(frame)
+                    onScreenActivity?(paneTerminal.nonEmptyRowCount())
+                }
             }
         }
         return view

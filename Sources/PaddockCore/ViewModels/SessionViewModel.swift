@@ -66,6 +66,14 @@ public final class SessionViewModel {
     private let client: any HerdrCommandClient
     private let observeAttacher: (any PaneObserveAttaching)?
 
+    // One gate for the whole session (per the controller's preference): the
+    // first unsupported `pane.selection.read` reply hides deep history for
+    // every pane, not just the one that discovered it.
+    private let historyCapabilityGate = HistoryCapabilityGate()
+    private var paneTerminals: [PaneID: PaneTerminal] = [:]
+    private var inputRouters: [PaneID: InputRouter] = [:]
+    private let paneLauncherRegistry = PaneLauncherRegistry()
+
     public init(client: any HerdrCommandClient, observeAttacher: (any PaneObserveAttaching)? = nil) {
         self.client = client
         self.observeAttacher = observeAttacher
@@ -302,5 +310,83 @@ public final class SessionViewModel {
         struct Result: Decodable { let text: String }
         struct Envelope: Decodable { let result: Result }
         return try? JSONDecoder().decode(Envelope.self, from: data).result.text
+    }
+
+    // MARK: - per-pane headless terminal (deep history + pristine-launcher screen check)
+
+    /// The shared headless mirror for `pane`, created once and cached for
+    /// its lifetime -- `cols`/`rows` from its first call win; a later resize
+    /// does not replace it (deep history's absolute-row math and the
+    /// pristine screen check both tolerate the pane's initial size).
+    public func paneTerminal(for pane: PaneRecord, cols: Int, rows: Int) -> PaneTerminal {
+        if let existing = paneTerminals[pane.paneID] { return existing }
+        let terminal = PaneTerminal(
+            cols: cols, rows: rows, paneID: pane.paneID, client: client, historyCapability: historyCapabilityGate
+        )
+        paneTerminals[pane.paneID] = terminal
+        return terminal
+    }
+
+    // MARK: - typing-lite
+
+    /// The shared `InputRouter` for `pane`, created once and cached for its
+    /// lifetime.
+    public func inputRouter(for pane: PaneID) -> InputRouter {
+        if let existing = inputRouters[pane] { return existing }
+        let router = InputRouter(client: client, paneID: pane)
+        inputRouters[pane] = router
+        return router
+    }
+
+    // MARK: - new-pane harness launcher
+
+    public func isPristineLauncherPane(_ pane: PaneID) -> Bool {
+        paneLauncherRegistry.isPristine(pane)
+    }
+
+    public func recordLauncherKeystroke(_ pane: PaneID) {
+        paneLauncherRegistry.recordKeystroke(pane)
+    }
+
+    public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
+        paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
+    }
+
+    /// Sends `<binary>\n` to `pane` in one `send_input` call (the overlay's
+    /// click contract) and hides the launcher for that pane immediately,
+    /// same as a real keystroke would.
+    public func launchHarness(_ binary: String, in pane: PaneID) async {
+        _ = try? await client.requestRaw(
+            "pane.send_input", ["pane_id": .string(pane.rawValue), "text": .string(binary + "\n")]
+        )
+        paneLauncherRegistry.recordKeystroke(pane)
+    }
+
+    /// Splits `pane` rightward via `pane.split` and focuses the new pane,
+    /// registering it as paddock-created so the launcher can show on it.
+    /// The one creation-verb call site pulled forward from Task 28's scope
+    /// (a "Split Right" context-menu command) to exercise the provenance
+    /// registry live; `cwd` is deliberately omitted so herdr follows the
+    /// source pane's own cwd.
+    public func splitRight(from pane: PaneID) async {
+        guard let data = try? await client.requestRaw(
+            "pane.split",
+            ["target_pane_id": .string(pane.rawValue), "direction": .string("right"), "focus": .bool(true)]
+        ) else { return }
+        guard let newPaneID = Self.extractSplitPaneID(data) else { return }
+        paneLauncherRegistry.registerPaddockCreated(newPaneID)
+    }
+
+    /// `pane.split`'s response nests the new pane's id under a `"pane"` key
+    /// (verified against herdr's `PaneSplitResult` and pinned by
+    /// `spikes/lib/seed-layout.sh`'s own `.result.pane.pane_id` read).
+    private static func extractSplitPaneID(_ data: Data) -> PaneID? {
+        struct PanePayload: Decodable {
+            let paneID: PaneID
+            enum CodingKeys: String, CodingKey { case paneID = "pane_id" }
+        }
+        struct Result: Decodable { let pane: PanePayload }
+        struct Envelope: Decodable { let result: Result }
+        return try? JSONDecoder().decode(Envelope.self, from: data).result.pane.paneID
     }
 }

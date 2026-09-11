@@ -11,7 +11,7 @@ import SwiftTerm
 /// `Terminal` is not documented `Sendable` and is single-threaded internally;
 /// the lock serializes `ingest`/`seedBackfill` (frame consumer) against
 /// `screenText` (a reader that can run concurrently, e.g. from a view). The
-/// same lock also guards the deep-history state added for Task 18b.
+/// same lock also guards the deep-history state below.
 public final class PaneTerminal: @unchecked Sendable {
     private let lock = NSLock()
     private let term: Terminal
@@ -68,7 +68,20 @@ public final class PaneTerminal: @unchecked Sendable {
             .joined(separator: "\n")
     }
 
-    // MARK: - Deep history (Task 18b)
+    /// Count of visible rows with any non-whitespace content -- the
+    /// pristine-launcher heuristic: a bare shell prompt is at most 2 such
+    /// rows (the shell's own startup line, if any, and the prompt line
+    /// itself).
+    public func nonEmptyRowCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return (0..<term.rows).reduce(into: 0) { count, row in
+            guard let line = term.getLine(row: row)?.translateToString(trimRight: true) else { return }
+            if !line.trimmingCharacters(in: .whitespaces).isEmpty { count += 1 }
+        }
+    }
+
+    // MARK: - Deep history
 
     /// Plain scrollback fetched via `loadOlderHistory`, oldest-first. Rendered
     /// dimmed above the styled live buffer; empty until the first successful
@@ -93,6 +106,21 @@ public final class PaneTerminal: @unchecked Sendable {
     /// passed at init, so one unsupported reply on any pane's
     /// `PaneTerminal` hides the affordance for every pane in the session.
     public var historyCapable: Bool { historyCapability.isCapable }
+
+    /// Registers `listener` to fire the moment the shared gate flips to
+    /// unsupported (never fired if it is already unsupported at
+    /// registration time -- callers check `historyCapable` themselves for
+    /// that case). Lets a view hide the history region reactively on a
+    /// pane whose OWN `loadOlderHistory` never ran, since the capability is
+    /// session-wide, not per-pane. Returns a token for `removeHistoryCapabilityListener`.
+    @discardableResult
+    public func onHistoryCapabilityLost(_ listener: @escaping @Sendable () -> Void) -> UUID {
+        historyCapability.addListener(listener)
+    }
+
+    public func removeHistoryCapabilityListener(_ token: UUID) {
+        historyCapability.removeListener(token)
+    }
 
     /// Fetches the next older `chunkRows`-sized block of absolute rows via
     /// `pane.selection.read`, prepending it to `historyText`. Returns `false`
@@ -234,13 +262,35 @@ public final class PaneTerminal: @unchecked Sendable {
 public final class HistoryCapabilityGate: @unchecked Sendable {
     private let lock = NSLock()
     private var capable = true
+    private var listeners: [UUID: @Sendable () -> Void] = [:]
 
     public init() {}
 
     public var isCapable: Bool { lock.withLockHeld { capable } }
 
     func markUnsupported() {
-        lock.withLockHeld { capable = false }
+        let toNotify: [@Sendable () -> Void] = lock.withLockHeld {
+            guard capable else { return [] }
+            capable = false
+            let fired = Array(listeners.values)
+            listeners.removeAll()
+            return fired
+        }
+        for notify in toNotify { notify() }
+    }
+
+    @discardableResult
+    func addListener(_ listener: @escaping @Sendable () -> Void) -> UUID {
+        let token = UUID()
+        lock.withLockHeld {
+            guard capable else { return }
+            listeners[token] = listener
+        }
+        return token
+    }
+
+    func removeListener(_ token: UUID) {
+        lock.withLockHeld { listeners.removeValue(forKey: token) }
     }
 }
 
