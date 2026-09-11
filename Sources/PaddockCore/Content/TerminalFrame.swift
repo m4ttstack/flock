@@ -16,6 +16,22 @@ public struct TerminalFrame: Equatable, Sendable {
     }
 }
 
+/// The one full-frame-reset rule every terminal-feeding path must apply,
+/// extracted so the headless `PaneTerminal` (tested) and the live AppKit
+/// path (`PaneTerminalView`, untestable without a display) share the exact
+/// same code rather than two hand-copies that can drift. `full` frames are a
+/// from-scratch repaint (absolute cursor addressing), not a diff against
+/// prior terminal state, so any stale cells outside what the new frame
+/// touches would survive without a reset first.
+public enum FrameFeeder {
+    public static func feed(_ frame: TerminalFrame, reset: () -> Void, feed: (Data) -> Void) {
+        if frame.full {
+            reset()
+        }
+        feed(frame.bytes)
+    }
+}
+
 /// Decoded shape of one `herdr terminal session observe` NDJSON line.
 enum ObserveWireLine: Sendable {
     case frame(TerminalFrame)

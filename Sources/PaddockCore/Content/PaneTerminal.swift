@@ -28,16 +28,12 @@ public final class PaneTerminal: @unchecked Sendable {
         term.feed(byteArray: [UInt8](ansi))
     }
 
-    /// `full` frames are a from-scratch repaint (absolute cursor addressing),
-    /// not a diff against prior terminal state, so any stale cells outside
-    /// what the new frame touches would survive without this reset first.
+    /// Applies `FrameFeeder`'s shared full-frame-reset rule against this
+    /// headless terminal.
     public func ingest(_ frame: TerminalFrame) {
         lock.lock()
         defer { lock.unlock() }
-        if frame.full {
-            term.resetToInitialState()
-        }
-        term.feed(byteArray: [UInt8](frame.bytes))
+        FrameFeeder.feed(frame, reset: { term.resetToInitialState() }, feed: { term.feed(byteArray: [UInt8]($0)) })
     }
 
     public func screenText() -> String {

@@ -88,10 +88,11 @@ private struct TerminalRepresentable: NSViewRepresentable {
             }
             for await frame in feed.frames {
                 guard let view else { return }
-                if frame.full {
-                    view.terminal.resetToInitialState()
-                }
-                view.feed(byteArray: [UInt8](frame.bytes)[...])
+                FrameFeeder.feed(
+                    frame,
+                    reset: { view.terminal.resetToInitialState() },
+                    feed: { view.feed(byteArray: [UInt8]($0)[...]) }
+                )
             }
         }
         return view

@@ -52,6 +52,17 @@ public final class SessionViewModel {
 
     private var lastLineRevisions: [PaneID: Int] = [:]
     private var attachedDims: [PaneID: (cols: Int, rows: Int)] = [:]
+    // One chained task per pane: every attach/reattach/detach request for a
+    // pane waits for whatever request came immediately before it (for that
+    // SAME pane only -- other panes are unaffected) before touching
+    // `observeAttacher`. This is what actually closes the reentrancy hole a
+    // simple "recheck after await" guard cannot: once a `detach()` call is
+    // issued there is no way to un-issue it, so an attach and a detach for
+    // the same pane must never reach `observeAttacher` concurrently in the
+    // first place. Not pruned as requests settle -- bounded by how many
+    // distinct panes have ever existed in the session, not by request
+    // volume, so this does not grow unbounded in practice.
+    private var paneWork: [PaneID: Task<PaneLiveFeed?, Never>] = [:]
     private let client: any HerdrCommandClient
     private let observeAttacher: (any PaneObserveAttaching)?
 
@@ -199,8 +210,53 @@ public final class SessionViewModel {
     /// real cell size -- callers pass the layout's own `CellRect.width`/
     /// `.height` (already in terminal cells), never a pixel frame, matching
     /// `ObserveSupervisor`'s documented contract.
+    ///
+    /// Chained through `paneWork` (see its doc comment): a resize arriving
+    /// while an earlier attach for the SAME pane is still awaiting its
+    /// backfill RPC does not race it. The new request waits for the earlier
+    /// one to fully settle, then reconciles from whatever state that left
+    /// behind toward its own (newer) dims -- so the observe child always
+    /// ends up at the most recently requested size, never a stale one a
+    /// resize already superseded.
     public func beginOrUpdateLiveAttach(pane: PaneRecord, cols: Int, rows: Int) async -> PaneLiveFeed? {
         guard let observeAttacher, cols > 0, rows > 0 else { return nil }
+        let paneID = pane.paneID
+        let previous = paneWork[paneID]
+        let task = Task { [weak self] () -> PaneLiveFeed? in
+            _ = await previous?.value
+            guard let self else { return nil }
+            return await self.performAttach(pane: pane, cols: cols, rows: rows, observeAttacher: observeAttacher)
+        }
+        paneWork[paneID] = task
+        return await task.value
+    }
+
+    /// Detaches a pane that left the visible set (tab switch, split closed,
+    /// window resize dropping it off-screen). Chained through the same
+    /// `paneWork` queue as attach/reattach, for the same reason: a detach
+    /// fired from `onDisappear` must wait for any attach already in flight
+    /// for this pane to finish before it can safely tear anything down --
+    /// otherwise a fast reappear's fresh attach can install a new session
+    /// that this (by-then-stale) detach then kills, since once `detach()`
+    /// is issued there is no way to un-issue it.
+    public func endLiveAttach(pane: PaneID) async {
+        guard let observeAttacher else { return }
+        let previous = paneWork[pane]
+        let task = Task { [weak self] () -> PaneLiveFeed? in
+            _ = await previous?.value
+            await self?.performDetach(pane: pane, observeAttacher: observeAttacher)
+            return nil
+        }
+        paneWork[pane] = task
+        _ = await task.value
+    }
+
+    /// Runs only after every request queued ahead of it (for this pane) has
+    /// fully settled, so `attachedDims[pane.paneID]` reflects the true
+    /// current state -- never a value a since-superseded request captured.
+    private func performAttach(
+        pane: PaneRecord, cols: Int, rows: Int, observeAttacher: any PaneObserveAttaching
+    ) async -> PaneLiveFeed? {
         if let existing = attachedDims[pane.paneID] {
             guard existing != (cols, rows) else { return nil }
             attachedDims[pane.paneID] = (cols, rows)
@@ -213,10 +269,8 @@ public final class SessionViewModel {
         return PaneLiveFeed(backfillANSI: backfillANSI, frames: frames)
     }
 
-    /// Detaches a pane that left the visible set (tab switch, split closed,
-    /// window resize dropping it off-screen).
-    public func endLiveAttach(pane: PaneID) async {
-        guard attachedDims.removeValue(forKey: pane) != nil, let observeAttacher else { return }
+    private func performDetach(pane: PaneID, observeAttacher: any PaneObserveAttaching) async {
+        guard attachedDims.removeValue(forKey: pane) != nil else { return }
         await observeAttacher.detach(pane)
     }
 

@@ -58,10 +58,21 @@ private actor RecordingObserveAttacher: PaneObserveAttaching {
     private(set) var attachCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
     private(set) var reattachCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
     private(set) var detachCalls: [PaneID] = []
+    // Mirrors `ObserveSupervisor`'s own real session bookkeeping: a
+    // `reattach` on a pane with no session is a documented no-op there
+    // (`guard let old = sessions.removeValue(forKey: pane) else { return
+    // }`). A fake that unconditionally "succeeds" on every reattach call
+    // regardless of whether an attach ever happened would hide an
+    // interleaving bug entirely -- the raw call logs above look identical
+    // either way; only this settled state tells buggy and fixed apart.
+    private(set) var sessionDims: [PaneID: (cols: Int, rows: Int)] = [:]
     private var continuations: [PaneID: AsyncStream<TerminalFrame>.Continuation] = [:]
+    private var detachHoldEnabled = false
+    private var pendingDetachContinuations: [CheckedContinuation<Void, Never>] = []
 
     func attach(_ pane: PaneID, cols: Int, rows: Int) async -> AsyncStream<TerminalFrame> {
         attachCalls.append((pane, cols, rows))
+        sessionDims[pane] = (cols, rows)
         let (stream, continuation) = AsyncStream<TerminalFrame>.makeStream()
         continuations[pane] = continuation
         return stream
@@ -69,10 +80,26 @@ private actor RecordingObserveAttacher: PaneObserveAttaching {
 
     func reattach(_ pane: PaneID, cols: Int, rows: Int) async {
         reattachCalls.append((pane, cols, rows))
+        guard sessionDims[pane] != nil else { return }
+        sessionDims[pane] = (cols, rows)
+    }
+
+    /// Every subsequent `detach` call suspends until `releaseNextDetach()`
+    /// resumes it, one at a time (FIFO) -- lets a test pin a detach mid-
+    /// flight while a superseding attach request queues up behind it.
+    func holdDetach() { detachHoldEnabled = true }
+
+    func releaseNextDetach() {
+        guard !pendingDetachContinuations.isEmpty else { return }
+        pendingDetachContinuations.removeFirst().resume()
     }
 
     func detach(_ pane: PaneID) async {
         detachCalls.append(pane)
+        if detachHoldEnabled {
+            await withCheckedContinuation { pendingDetachContinuations.append($0) }
+        }
+        sessionDims.removeValue(forKey: pane)
         continuations.removeValue(forKey: pane)?.finish()
     }
 }
@@ -448,6 +475,105 @@ final class SessionViewModelTests: XCTestCase {
         let feed = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
 
         XCTAssertEqual(feed?.backfillANSI.map { String(data: $0, encoding: .utf8) ?? "" }, "backfilled\n")
+    }
+
+    // MARK: - live attach reentrancy (fix round 1)
+
+    /// A resize arriving while the FIRST attach for a pane is still
+    /// awaiting its backfill RPC must not spawn (or leave running) a
+    /// session at the stale, superseded dims -- the pane must end up
+    /// attached at the newest requested size, and only that size.
+    @MainActor
+    func testResizeDuringInFlightFirstAttachEndsAtNewestDimsOnly() async {
+        let attacher = RecordingObserveAttacher()
+        let client = RecordingCommandClient()
+        await client.hold()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
+        let pane = makePaneRecord()
+
+        let firstTask = Task { await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        let secondTask = Task { await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 100, rows: 30) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        await client.releaseNext()
+        let firstFeed = await firstTask.value
+        let secondFeed = await secondTask.value
+
+        XCTAssertNotNil(firstFeed, "the first-ever attach for this pane returns the real feed")
+        XCTAssertNil(secondFeed, "the resize reattaches the same feed in place; no new feed")
+
+        let attachCalls = await attacher.attachCalls
+        let reattachCalls = await attacher.reattachCalls
+        XCTAssertEqual(attachCalls.count, 1)
+        XCTAssertEqual(attachCalls.first?.cols, 80)
+        XCTAssertEqual(reattachCalls.count, 1)
+        XCTAssertEqual(reattachCalls.first?.cols, 100)
+        XCTAssertEqual(reattachCalls.first?.rows, 30)
+
+        // The actual discriminator: with a naively unserialized attach path,
+        // B's `reattach(100,30)` races A's still-in-flight first attach and
+        // no-ops (no session exists yet), then A resumes and installs a REAL
+        // session at its own stale 80x24 -- so the fake's own settled
+        // session state, not just call counts, is what proves the fix.
+        let settledSession = await attacher.sessionDims[pane.paneID]
+        XCTAssertEqual(settledSession?.cols, 100, "the real observe child must end up at the newest dims")
+        XCTAssertEqual(settledSession?.rows, 30)
+
+        // Confirm the settled state really is 100x30, not the stale 80x24:
+        // a third call at 100x30 must be a no-op (no session should ever be
+        // re-established at 80x24, and the "already attached, same dims"
+        // fast path must fire here rather than another reattach).
+        let noop = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 100, rows: 30)
+        XCTAssertNil(noop)
+        let attachCallsAfter = await attacher.attachCalls
+        let reattachCallsAfter = await attacher.reattachCalls
+        XCTAssertEqual(attachCallsAfter.count, 1, "no session should ever be (re)established at 80x24 again")
+        XCTAssertEqual(reattachCallsAfter.count, 1, "settled state is already 100x30; a repeat call is a no-op")
+    }
+
+    /// A detach queued (e.g. from `onDisappear`) while it is still in
+    /// flight must not be allowed to kill a fresh attach for the same pane
+    /// that arrives behind it (a fast reappear) -- the fresh attach must
+    /// wait for the stale detach to fully settle, then genuinely re-attach.
+    @MainActor
+    func testFastReappearAttachIsNotClobberedByAStaleDetach() async {
+        let attacher = RecordingObserveAttacher()
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
+        let pane = makePaneRecord()
+
+        // A real prior attach: the pane was already live.
+        let initialFeed = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
+        XCTAssertNotNil(initialFeed)
+
+        await attacher.holdDetach()
+        let detachTask = Task { await viewModel.endLiveAttach(pane: pane.paneID) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        // Fast reappear: a fresh attach request for the same pane, queued
+        // behind the still-in-flight (held) detach.
+        let reattachTask = Task { await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        await attacher.releaseNextDetach()
+        await detachTask.value
+        let feed = await reattachTask.value
+
+        XCTAssertNotNil(feed, "the reappear must re-attach for real, not be silently dropped")
+        let attachCalls = await attacher.attachCalls
+        XCTAssertEqual(attachCalls.count, 2, "one for the original attach, one for the reappear")
+        let detachCalls = await attacher.detachCalls
+        XCTAssertEqual(detachCalls, [pane.paneID], "exactly one detach, ordered before the reappear's attach")
+
+        // The actual discriminator: without serialization, the stale
+        // detach resumes AFTER the reappear's fresh attach has already
+        // installed a new session and wipes it out from under it.
+        let settledSession = await attacher.sessionDims[pane.paneID]
+        XCTAssertNotNil(settledSession, "the reappear's fresh session must survive the stale queued detach")
+        XCTAssertEqual(settledSession?.cols, 80)
+        XCTAssertEqual(settledSession?.rows, 24)
     }
 }
 
