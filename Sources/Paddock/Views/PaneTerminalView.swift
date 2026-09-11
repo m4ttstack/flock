@@ -22,13 +22,24 @@ struct PaneTerminalView: View {
     /// canvas's normal click-to-focus, since a click landing on the AppKit
     /// terminal body never reaches SwiftUI's own tap gesture.
     let onPlainClick: () -> Void
+    /// Backs the deep-history region (Task 18b). `nil` leaves this view
+    /// exactly as Task 18 left it: no region, no `pane.selection.read`
+    /// traffic. Production wiring (a shared `PaneTerminal` per pane, fed a
+    /// session-wide `HistoryCapabilityGate`) is follow-up work; no call site
+    /// passes one yet.
+    var paneTerminal: PaneTerminal?
 
     @State private var copiedLineCount: Int?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            TerminalRepresentable(cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick)
-                .background(terminalGround)
+            VStack(spacing: 0) {
+                if let paneTerminal, paneTerminal.historyCapable {
+                    PaneHistoryRegion(paneTerminal: paneTerminal)
+                }
+                TerminalRepresentable(cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick)
+                    .background(terminalGround)
+            }
 
             if let copiedLineCount {
                 CopyChip(lineCount: copiedLineCount)
@@ -56,6 +67,70 @@ private struct CopyChip: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.7)))
+    }
+}
+
+/// Plain, dimmed scrollback rendered above the styled live buffer, fetched on
+/// demand via `PaneTerminal.loadOlderHistory`. Never touches `pane.scroll`:
+/// herdr's own viewport is untouched by scrolling this region.
+///
+/// A `Color.clear` sentinel sits above the accumulated text inside a
+/// `LazyVStack`; a plain `VStack` would realize (and fire `onAppear` for)
+/// every child immediately regardless of scroll position, but a lazy one
+/// only attaches a child once it nears the visible viewport -- so the
+/// sentinel's `onAppear` fires exactly when the user scrolls this region to
+/// its current top, which is the "past the top" trigger the brief asks for.
+private struct PaneHistoryRegion: View {
+    let paneTerminal: PaneTerminal
+
+    @State private var text = ""
+    @State private var isLoading = false
+    @State private var reachedStart = false
+    @State private var showsChangedNotice = false
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if !reachedStart {
+                    Color.clear.frame(height: 1).onAppear(perform: loadMore)
+                }
+                if showsChangedNotice {
+                    Text("History changed while loading; older lines may be out of order.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                }
+                Text(text.isEmpty ? " " : text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 6)
+            }
+        }
+        .frame(maxHeight: 160)
+    }
+
+    private func loadMore() {
+        guard !isLoading else { return }
+        isLoading = true
+        Task {
+            defer { isLoading = false }
+            do {
+                let more = try await paneTerminal.loadOlderHistory(chunkRows: 200)
+                text = paneTerminal.historyText
+                if !more { reachedStart = true }
+            } catch PaneHistoryError.contentChanged {
+                showsChangedNotice = true
+                text = paneTerminal.historyText
+            } catch {
+                // `.unsupported` and any transport failure: stop asking: the
+                // affordance itself hides on the next render once
+                // `paneTerminal.historyCapable` (checked by the parent view)
+                // has flipped, or the pane is simply unreachable right now.
+                reachedStart = true
+            }
+        }
     }
 }
 
