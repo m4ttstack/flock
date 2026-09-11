@@ -285,7 +285,13 @@ private struct TerminalRepresentable: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> CopyOnSelectTerminalView {
-        let view = CopyOnSelectTerminalView(frame: .zero, font: nil, options: TerminalOptions(cols: cols, rows: rows))
+        // The history browser renders in SF Mono 11; the terminal must use
+        // the IDENTICAL face and size or the browse boundary (and every
+        // entry/exit) reads as a font change instead of a color change.
+        let view = CopyOnSelectTerminalView(
+            frame: .zero,
+            font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            options: TerminalOptions(cols: cols, rows: rows))
         // Real herdr mouse reporting has no meaning here (there is no PTY
         // behind this view); selection must always stay paddock-local.
         view.allowMouseReporting = false
