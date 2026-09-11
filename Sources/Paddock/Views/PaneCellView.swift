@@ -25,7 +25,18 @@ struct PaneCellView: View {
             RoundedRectangle(cornerRadius: 9)
                 .strokeBorder(isFocused ? theme.accent : theme.separator, lineWidth: isFocused ? 2 : 1)
         )
-        .shadow(color: isFocused ? theme.accent.opacity(0.18) : .clear, radius: isFocused ? 6 : 0)
+        // A solid, unblurred halo ring outside the cell (matching the
+        // reference's `box-shadow: 0 0 0 3px`, zero blur, fixed spread).
+        // `HaloRing` is a real ring geometry (even-odd cutout), not a filled
+        // rect relying on the opaque cell to hide its interior -- a filled
+        // rect there visibly bled accent color across the header.
+        .background {
+            if isFocused {
+                HaloRing(cornerRadius: 9, thickness: 3)
+                    .fill(theme.accent.opacity(0.18), style: FillStyle(eoFill: true))
+                    .padding(-3)
+            }
+        }
     }
 
     private var header: some View {
@@ -36,10 +47,32 @@ struct PaneCellView: View {
                 .foregroundStyle(theme.text)
                 .lineLimit(1)
             Spacer(minLength: 4)
+            if let statusColor {
+                Text(pane.agentStatus.rawValue)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(statusColor.opacity(0.14)))
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: 28)
         .background(theme.paneHeaderBg)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.separator).frame(height: 1)
+        }
+    }
+
+    /// Status chips only accompany the active states (working/blocked/done);
+    /// idle and unknown are dot-only per the pane-states reference.
+    private var statusColor: Color? {
+        switch pane.agentStatus {
+        case .working: theme.yellow
+        case .blocked: theme.red
+        case .done: theme.teal
+        case .idle, .unknown: nil
+        }
     }
 
     private var content: some View {
@@ -67,5 +100,19 @@ struct PaneCellView: View {
     private var cwdTail: String {
         guard let last = pane.cwd.split(separator: "/").last else { return pane.cwd }
         return "~/\(last)"
+    }
+}
+
+/// A ring shape (outer rounded rect minus an inset inner one, even-odd
+/// filled) so the focused-pane halo is geometrically confined to its band --
+/// no reliance on an opaque foreground to hide fill in the interior.
+private struct HaloRing: Shape {
+    var cornerRadius: CGFloat
+    var thickness: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path(roundedRect: rect, cornerRadius: cornerRadius + thickness)
+        path.addPath(Path(roundedRect: rect.insetBy(dx: thickness, dy: thickness), cornerRadius: cornerRadius))
+        return path
     }
 }

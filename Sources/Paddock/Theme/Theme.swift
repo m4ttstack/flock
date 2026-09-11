@@ -28,22 +28,37 @@ public struct Theme: Identifiable, Equatable, Sendable {
     public let teal: Color
     public let peach: Color
 
+    /// Named chrome roles for the shell UI ("rail background", "tab strip
+    /// background", ...), so views reference a role rather than a raw
+    /// palette field. Each is a neutral (hue-preserving-only-in-that-it-has-
+    /// none) black/white step off `panelBg`, never a themed field like
+    /// `activeRowBg` or `surface0` -- those carry the palette's own hue
+    /// (e.g. tokyo-night's blue-purple), which reads as mis-tinted chrome
+    /// once it's the whole background of a bar rather than an accent.
+    public let windowBg: Color
+    public let railBg: Color
+    public let tabStripBg: Color
+    public let paneHeaderBg: Color
+    public let separator: Color
+
     public static func == (lhs: Theme, rhs: Theme) -> Bool { lhs.id == rhs.id }
-
-    /// Named chrome roles for the shell UI, so views reference a role
-    /// ("rail background") rather than a raw palette field: every view stays
-    /// theme-driven even as the rail/strip/titlebar mapping is retuned.
-    public var titlebarBg: Color { surface0 }
-    public var railBg: Color { sidebarBg }
-    public var tabStripBg: Color { surface0 }
-    public var paneHeaderBg: Color { surface1 }
-    public var separator: Color { surfaceDim }
-    public var hoverBg: Color { selectionBg }
 }
-
 
 private func rgb(_ r: Int, _ g: Int, _ b: Int) -> Color {
     Color(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
+}
+
+/// Offsets each channel of `c` by a fixed per-role delta, clamped to a valid
+/// byte. Used only to derive neutral chrome shades off `panelBg`; never
+/// applied to accent/status/text fields, which stay the palette's own hue.
+/// The deltas below are calibrated against tokyo-night's own panelBg
+/// (26, 27, 38) so it reproduces `docs/design/src/Main.dc.html`'s chrome
+/// hexes exactly (window #1E1F28, sidebar #16171E, strip #1B1C24, pane
+/// header #20212B, border #2A2C37); every other theme inherits the same
+/// deltas off its own panelBg.
+private func chromeOffset(_ c: (Int, Int, Int), _ delta: (Int, Int, Int)) -> (Int, Int, Int) {
+    func clampByte(_ v: Int) -> Int { min(255, max(0, v)) }
+    return (clampByte(c.0 + delta.0), clampByte(c.1 + delta.1), clampByte(c.2 + delta.2))
 }
 
 extension Theme {
@@ -93,6 +108,17 @@ extension Theme {
         self.blue = rgb(blue.0, blue.1, blue.2)
         self.teal = rgb(teal.0, teal.1, teal.2)
         self.peach = rgb(peach.0, peach.1, peach.2)
+
+        let window = chromeOffset(panelBg, (4, 4, 2))
+        self.windowBg = rgb(window.0, window.1, window.2)
+        let rail = chromeOffset(panelBg, (-4, -4, -8))
+        self.railBg = rgb(rail.0, rail.1, rail.2)
+        let strip = chromeOffset(panelBg, (1, 1, -2))
+        self.tabStripBg = rgb(strip.0, strip.1, strip.2)
+        let paneHeader = chromeOffset(panelBg, (6, 6, 5))
+        self.paneHeaderBg = rgb(paneHeader.0, paneHeader.1, paneHeader.2)
+        let border = chromeOffset(panelBg, (16, 17, 17))
+        self.separator = rgb(border.0, border.1, border.2)
     }
 
     /// Catppuccin Mocha, herdr's default.

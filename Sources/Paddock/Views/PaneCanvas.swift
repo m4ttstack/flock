@@ -22,7 +22,13 @@ struct PaneCanvas: View {
                             PaneCellView(
                                 theme: theme,
                                 pane: pane,
-                                isFocused: pane.paneID == layout.focusedPaneID,
+                                // Session-level focus, not the layout snapshot's
+                                // own `focusedPaneID`: a `pane.focus` jump emits
+                                // `pane_focused` (updates `model.focusedPaneID`)
+                                // but never `layout_updated`, so the layout's own
+                                // field goes stale the moment focus moves without
+                                // a resize/split alongside it.
+                                isFocused: pane.paneID == viewModel.model?.focusedPaneID,
                                 lastLine: viewModel.lastLine(for: pane)
                             )
                             .frame(
@@ -45,6 +51,6 @@ struct PaneCanvas: View {
             }
         }
         .padding(10)
-        .background(theme.panelBg)
+        .background(theme.windowBg)
     }
 }

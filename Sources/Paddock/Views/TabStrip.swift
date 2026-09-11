@@ -50,12 +50,14 @@ private struct TabPill: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(
+            // One neutral surface step above the strip (reusing paneHeaderBg,
+            // itself one step above windowBg), not a raw hued surface field.
             RoundedRectangle(cornerRadius: 7)
-                .fill(isSelected ? theme.surface0 : Color.clear)
+                .fill(isSelected ? theme.paneHeaderBg : Color.clear)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(isSelected ? theme.surface1 : Color.clear, lineWidth: 1)
+                .strokeBorder(isSelected ? theme.separator : Color.clear, lineWidth: 1)
         )
         .contentShape(Rectangle())
     }

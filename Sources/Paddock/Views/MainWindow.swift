@@ -1,3 +1,4 @@
+import AppKit
 import PaddockCore
 import SwiftUI
 
@@ -36,8 +37,10 @@ struct MainWindow: View {
                 }
             }
         }
-        .background(theme.panelBg)
+        .background(theme.windowBg)
         .frame(minWidth: 900, minHeight: 560)
+        .ignoresSafeArea(edges: .top)
+        .background(TitlebarConfigurator(windowBg: theme.windowBg))
     }
 
     private var selectedWorkspaceTabs: [TabRecord] {
@@ -73,7 +76,7 @@ private struct TitleBar: View {
             .padding(.trailing, 16)
         }
         .frame(height: 44)
-        .background(theme.titlebarBg)
+        .background(theme.windowBg)
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.separator).frame(height: 1)
         }
@@ -107,5 +110,33 @@ private struct UnsupportedBanner: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(theme.red.opacity(0.12))
+    }
+}
+
+/// Merges the system titlebar into our own content so the traffic lights
+/// sit directly on `TitleBar`'s dark 44px bar with zero gray system strip
+/// above it: `.windowStyle(.hiddenTitleBar)` alone still leaves a titlebar
+/// safe-area inset that pushes SwiftUI content down, so `MainWindow` also
+/// ignores the top safe area, and this configurator paints the window's own
+/// background so nothing shows through before the first frame draws.
+private struct TitlebarConfigurator: NSViewRepresentable {
+    let windowBg: Color
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { configure(view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        configure(nsView)
+    }
+
+    private func configure(_ view: NSView) {
+        guard let window = view.window else { return }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+        window.backgroundColor = NSColor(windowBg)
     }
 }
