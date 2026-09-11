@@ -74,7 +74,7 @@ public struct ScrollInfo: Codable, Equatable, Sendable {
     }
 }
 
-public struct PaneRecord: Codable, Sendable {
+public struct PaneRecord: Codable, Equatable, Sendable {
     public let paneID: PaneID
     public let workspaceID: WorkspaceID
     public let tabID: TabID
@@ -100,10 +100,10 @@ public struct PaneRecord: Codable, Sendable {
     }
 }
 
-public struct TabRecord: Codable, Sendable {
+public struct TabRecord: Codable, Equatable, Sendable {
     public let tabID: TabID
     public let workspaceID: WorkspaceID
-    public let label: String
+    public var label: String
     public let number: Int
     public let paneCount: Int
     public let agentStatus: AgentStatus
@@ -118,9 +118,9 @@ public struct TabRecord: Codable, Sendable {
     }
 }
 
-public struct WorkspaceRecord: Codable, Sendable {
+public struct WorkspaceRecord: Codable, Equatable, Sendable {
     public let workspaceID: WorkspaceID
-    public let label: String
+    public var label: String
     public let number: Int
     public let activeTabID: TabID
     public let agentStatus: AgentStatus
@@ -146,13 +146,13 @@ public struct PaneRect: Codable, Equatable, Sendable {
     }
 }
 
-public struct LayoutSnapshot: Codable, Sendable {
+public struct LayoutSnapshot: Codable, Equatable, Sendable {
     public let workspaceID: WorkspaceID
     public let tabID: TabID
     public let zoomed: Bool
     public let area: CellRect
     public let focusedPaneID: PaneID?
-    public let panes: [PaneRect]
+    public var panes: [PaneRect]
     public let splits: [SplitInfo]
 
     enum CodingKeys: String, CodingKey {

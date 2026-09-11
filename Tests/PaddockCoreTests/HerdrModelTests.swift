@@ -2,13 +2,6 @@ import XCTest
 @testable import PaddockCore
 
 final class HerdrModelTests: XCTestCase {
-    func fixture(_ name: String) throws -> Data {
-        try Data(contentsOf: Bundle(for: HerdrModelTests.self).url(forResource: name, withExtension: nil)!)
-    }
-    func fixtureLines(_ name: String) throws -> [Data] {
-        try (fixture(name).split(separator: 0x0A) as [Data])
-    }
-
     func testSnapshotFixtureDecodes() throws {
         let data = try fixture("snapshot.json")
         let snap = try HerdrDecoder.snapshot(fromResponseLine: data)
