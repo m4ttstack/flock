@@ -77,9 +77,9 @@ final class InputRouterTests: XCTestCase {
         router.sendKey(.enter)
         router.sendControlCombo("c")
 
-        // No positive wait possible for "never arrives"; a short grace
-        // period is the best a test can do, matching the brief's own
-        // "dropped" framing (never sent, not merely delayed).
+        // No positive wait is possible for "never arrives"; a short grace
+        // period is the best a test can do for "dropped" (never sent, not
+        // merely delayed).
         try? await Task.sleep(nanoseconds: 60_000_000)
 
         XCTAssertEqual(server.receivedRequests.filter { $0.method == "pane.send_input" }.count, 0)
@@ -98,6 +98,42 @@ final class InputRouterTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 60_000_000)
 
         XCTAssertEqual(server.receivedRequests.filter { $0.method == "pane.send_input" }.count, 0)
+    }
+
+    /// `sendKey`/`sendControlCombo`/the debounce flush each used to spawn an
+    /// unlinked `Task`; two flights could complete out of order since each
+    /// `requestRaw` opens its own socket connection (`HerdrClient`'s
+    /// connect-per-request contract) -- the exact bug class fixed in
+    /// `PaneTerminal.loadOlderHistory`. Proven here by holding the first
+    /// send mid-flight: a second send must not even be ISSUED (let alone
+    /// received) until the first fully completes.
+    @MainActor
+    func testCrossFlightSendsAreSerializedNotIssuedConcurrently() async throws {
+        let server = FakeHerdrServer(); try server.start(); defer { server.stop() }
+        server.respond(to: "pane.send_input", withResultJSON: "{}")
+        let router = InputRouter(client: HerdrClient(socketPath: server.socketPath), paneID: PaneID(rawValue: "w1:p1"))
+
+        let release = server.holdNext(method: "pane.send_input")
+        router.sendKey(.enter)
+        await waitForRequests(server, method: "pane.send_input", count: 1)
+
+        router.sendControlCombo("c")
+        // A generous grace period: with the bug, the second send's own
+        // socket connection would already show up here, well before
+        // `release()` ever runs.
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(
+            server.receivedRequests.filter { $0.method == "pane.send_input" }.count, 1,
+            "a second send must not be issued until the first, still held in flight, fully completes"
+        )
+
+        release()
+        await waitForRequests(server, method: "pane.send_input", count: 2)
+
+        let calls = server.receivedRequests.filter { $0.method == "pane.send_input" }
+        XCTAssertEqual(calls.count, 2)
+        XCTAssertEqual(try paramsDict(calls[0].paramsJSON)["keys"] as? [String], ["enter"], "issued first, must be received first")
+        XCTAssertEqual(try paramsDict(calls[1].paramsJSON)["keys"] as? [String], ["ctrl+c"])
     }
 }
 

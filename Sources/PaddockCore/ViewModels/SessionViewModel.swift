@@ -291,8 +291,14 @@ public final class SessionViewModel {
         // ever runs -- reading `backfillLineCount` as still its `0` default
         // and anchoring the first chunk at the pane's total row count,
         // duplicating whatever backfill goes on to show once seeded.
+        //
+        // `lineCount` is deliberately NOT passed here: `backfill.lines` is
+        // the REQUESTED `pane.read` `lines` value, not a promise of how many
+        // rows actually came back. herdr's real recent-read range can return
+        // fewer (see `seedBackfill`'s own doc), so `PaneTerminal` measures
+        // the real row count from `backfill.data` itself.
         if let backfill {
-            paneTerminal(for: pane, cols: cols, rows: rows).seedBackfill(ansi: backfill.data, lineCount: backfill.lines)
+            paneTerminal(for: pane, cols: cols, rows: rows).seedBackfill(ansi: backfill.data)
         }
         let frames = await observeAttacher.attach(pane.paneID, cols: cols, rows: rows)
         return PaneLiveFeed(backfillANSI: backfill?.data, backfillLineCount: backfill?.lines, frames: frames)

@@ -64,7 +64,7 @@ struct PaneLauncherOverlay: View {
                         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.separator, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("paddock.pane.launcher.\(entry.id)")
+                    .accessibilityIdentifier("paddock.pane.launcher.\(entry.binary)")
                 }
             }
             .allowsHitTesting(true)

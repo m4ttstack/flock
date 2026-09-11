@@ -180,7 +180,17 @@ private struct PaneHistoryRegion: View {
             // means the sentinel is off-screen until the user actually
             // scrolls up to it.
             .onChange(of: text) { _, _ in
+                // A single synchronous `scrollTo` right after `text` grows
+                // can target the ScrollView's PRE-update layout (the newly
+                // inserted content hasn't been measured yet), landing short
+                // of the true new bottom -- visually indistinguishable from
+                // a real content gap even though the underlying text is
+                // fully contiguous. The follow-up call on the next run loop
+                // tick corrects for that once layout has caught up.
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                DispatchQueue.main.async {
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                }
             }
         }
         .frame(maxHeight: 160)

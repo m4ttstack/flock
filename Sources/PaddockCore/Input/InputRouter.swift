@@ -45,6 +45,14 @@ public final class InputRouter {
     private let debounceNanoseconds: UInt64
     private var pendingText = ""
     private var flushTask: Task<Void, Never>?
+    /// Every `send_input` call for this pane chains onto this, so two
+    /// flights (e.g. a debounce-triggered flush racing a following
+    /// named-key send) can never complete out of order: each `requestRaw`
+    /// opens its own socket connection (`HerdrClient`'s connect-per-request
+    /// contract), and unlinked Tasks could otherwise resolve in either
+    /// order -- the exact class of bug already found and fixed in
+    /// `PaneTerminal.loadOlderHistory`.
+    private var sendChain: Task<Void, Never>?
 
     public init(
         client: any HerdrCommandClient,
@@ -71,7 +79,9 @@ public final class InputRouter {
         guard !isRenaming, !isDragLive else { return }
         cancelFlush()
         let text = drainPendingText()
-        Task { [client, paneID] in
+        let client = self.client
+        let paneID = self.paneID
+        enqueueSend {
             if !text.isEmpty { await Self.sendText(text, pane: paneID, client: client) }
             await Self.sendKeys([key.rawValue], pane: paneID, client: client)
         }
@@ -85,7 +95,9 @@ public final class InputRouter {
         cancelFlush()
         let text = drainPendingText()
         let combo = "ctrl\(Self.controlComboSeparator)\(String(character).lowercased())"
-        Task { [client, paneID] in
+        let client = self.client
+        let paneID = self.paneID
+        enqueueSend {
             if !text.isEmpty { await Self.sendText(text, pane: paneID, client: client) }
             await Self.sendKeys([combo], pane: paneID, client: client)
         }
@@ -108,12 +120,22 @@ public final class InputRouter {
     private func flushPendingText() {
         let text = drainPendingText()
         guard !text.isEmpty else { return }
-        Task { [client, paneID] in await Self.sendText(text, pane: paneID, client: client) }
+        let client = self.client
+        let paneID = self.paneID
+        enqueueSend { await Self.sendText(text, pane: paneID, client: client) }
     }
 
     private func drainPendingText() -> String {
         defer { pendingText = "" }
         return pendingText
+    }
+
+    private func enqueueSend(_ operation: @escaping @Sendable () async -> Void) {
+        let previous = sendChain
+        sendChain = Task {
+            _ = await previous?.value
+            await operation()
+        }
     }
 
     private static func sendText(_ text: String, pane: PaneID, client: any HerdrCommandClient) async {

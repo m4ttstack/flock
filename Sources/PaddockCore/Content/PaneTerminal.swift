@@ -56,11 +56,17 @@ public final class PaneTerminal: @unchecked Sendable {
     /// backfill is meant to sit directly beneath the first live frame with no
     /// torn seam, per spike 4's backfill probe.
     ///
-    /// `lineCount` is however many lines the backfill request actually
-    /// asked for (`pane.read`'s own `lines` param) -- the anchor deep
-    /// history needs to stay contiguous with what is already on screen.
-    /// Defaults to counting line breaks in `ansi` itself when a caller has
-    /// no better number on hand.
+    /// `lineCount`, when given, MUST be the number of rows actually rendered
+    /// in `ansi` -- NOT the `lines` value a caller requested from
+    /// `pane.read`. herdr's own recent-read range (`ghostty_recent_read_range`)
+    /// anchors its end at the last non-blank row or the cursor row,
+    /// whichever is greater, which can fall short of the pane's true last
+    /// row whenever trailing rows are blank -- so a `lines:1000` request can
+    /// return FEWER than 1000 actual rows. Trusting the requested count over
+    /// the real one reproduced a live, reviewer-caught bug: the deep-history
+    /// anchor landed short of the live buffer's true top by exactly the
+    /// shortfall, leaving an unshown gap between the two. Default (no
+    /// `lineCount` given) measures the real row count directly from `ansi`.
     public func seedBackfill(ansi: Data, lineCount: Int? = nil) {
         lock.lock()
         defer { lock.unlock() }
@@ -68,9 +74,13 @@ public final class PaneTerminal: @unchecked Sendable {
         backfillLineCount = lineCount ?? Self.countLines(in: ansi)
     }
 
+    /// Counts rendered rows as newline-delimited segments: `N` newlines make
+    /// `N + 1` rows when the text has no trailing newline (the common case --
+    /// the cursor sits mid-row at a live prompt), `N` rows when it does.
     private static func countLines(in ansi: Data) -> Int {
         guard !ansi.isEmpty else { return 0 }
-        return ansi.reduce(into: 0) { count, byte in if byte == 0x0A { count += 1 } }
+        let newlineCount = ansi.reduce(into: 0) { count, byte in if byte == 0x0A { count += 1 } }
+        return ansi.last == 0x0A ? newlineCount : newlineCount + 1
     }
 
     /// Applies `FrameFeeder`'s shared full-frame-reset rule against this
@@ -256,12 +266,37 @@ public final class PaneTerminal: @unchecked Sendable {
     /// at `totalRows` itself, which would silently skip every row already
     /// covered by backfill and leave an unshown gap before the first older
     /// chunk.
+    /// Anchors on whichever of two independent "already shown" boundaries is
+    /// SMALLER (further back), since either alone can be wrong depending on
+    /// the pane's shape:
+    ///
+    /// - `maxOffsetFromBottom` is `pane.get`'s own boundary between genuine
+    ///   scrollback and the current live viewport (always shown by the live
+    ///   frame, regardless of backfill). For a pane with little or no real
+    ///   scrollback (a fresh, near-empty pane), this is `0` or small.
+    /// - `totalRows - backfillLineCount` assumes backfill's snapshot covers
+    ///   exactly the LAST `backfillLineCount` rows of the pane's total. That
+    ///   holds when the cursor sits at the true bottom (an actively-used
+    ///   pane with real scrollback), but herdr's own recent-read range
+    ///   (`ghostty_recent_read_range`) anchors on the cursor/last-content
+    ///   row, which for a fresh pane can sit near the TOP of an otherwise
+    ///   blank viewport -- making this boundary land well past where
+    ///   backfill's content actually is.
+    ///
+    /// Trusting either alone reproduces a live, reviewer-caught bug: on a
+    /// long-scrollback pane the first (viewport) boundary alone would
+    /// request rows backfill already covers; on a fresh, near-empty pane the
+    /// second (backfill-count) boundary alone requested rows that don't
+    /// exist as real scrollback at all, and herdr answered with the SAME
+    /// current-viewport content backfill already showed -- a duplicated
+    /// prompt, reproduced on every near-empty pane, not just one.
     private func ensureInitialized(client: any HerdrCommandClient, paneID: PaneID) async throws {
         guard lock.withLockHeld({ oldestFetchedRow == nil }) else { return }
-        let rowCount = try await fetchTotalRowCount(client: client, paneID: paneID)
+        let (totalRows, maxOffsetFromBottom) = try await fetchScrollBounds(client: client, paneID: paneID)
         lock.withLockHeld {
             guard oldestFetchedRow == nil else { return }
-            oldestFetchedRow = max(0, rowCount - backfillLineCount)
+            let backfillBoundary = max(0, totalRows - backfillLineCount)
+            oldestFetchedRow = min(maxOffsetFromBottom, backfillBoundary)
         }
     }
 
@@ -269,7 +304,9 @@ public final class PaneTerminal: @unchecked Sendable {
     /// `"type"` tag (verified against herdr's response schema); only
     /// `scroll` is read here, so every other `PaneInfo` field is left
     /// undeclared and ignored by the decoder.
-    private func fetchTotalRowCount(client: any HerdrCommandClient, paneID: PaneID) async throws -> Int {
+    private func fetchScrollBounds(
+        client: any HerdrCommandClient, paneID: PaneID
+    ) async throws -> (totalRows: Int, maxOffsetFromBottom: Int) {
         struct ScrollPayload: Decodable {
             let maxOffsetFromBottom: Int
             let viewportRows: Int
@@ -284,11 +321,12 @@ public final class PaneTerminal: @unchecked Sendable {
 
         let data = try await client.requestRaw("pane.get", ["pane_id": .string(paneID.rawValue)])
         let scroll = try JSONDecoder().decode(Envelope.self, from: data).result.pane.scroll
-        return (scroll?.maxOffsetFromBottom ?? 0) + (scroll?.viewportRows ?? 0)
+        let maxOffsetFromBottom = scroll?.maxOffsetFromBottom ?? 0
+        return (maxOffsetFromBottom + (scroll?.viewportRows ?? 0), maxOffsetFromBottom)
     }
 
-    /// `anchor`/`cursor` address absolute rows, never the live viewport, per
-    /// the brief's recipe. `content_revision` is deliberately omitted:
+    /// `anchor`/`cursor` address absolute rows, never the live viewport.
+    /// `content_revision` is deliberately omitted:
     /// `PaneSelectionReadParams.content_revision` is optional specifically so
     /// a caller with no reliable revision can skip herdr's staleness check
     /// (see `runtime.content_seq()` in herdr's `pane_selection_text`) rather
@@ -315,7 +353,8 @@ public final class PaneTerminal: @unchecked Sendable {
     /// error"; `invalid_request` is the code its wire layer actually returns
     /// for a request whose `method` tag does not decode (verified against
     /// `server.rs`'s `handle_connection_with_stop`). The others are kept as a
-    /// defensive allowance for a future/renamed code, per the brief.
+    /// defensive allowance in case herdr renames or adds a code for this
+    /// condition later.
     private static func isCapabilityLossCode(_ code: String) -> Bool {
         switch code {
         case "invalid_request", "unknown_method", "method_not_found", "unsupported_method":
