@@ -18,6 +18,10 @@ struct PaneTerminalView: View {
     // SwiftTerm also exports a top-level `Color` (`Colors.swift`), so this
     // must stay qualified in any file that imports both it and SwiftUI.
     let terminalGround: SwiftUI.Color
+    /// The 1px divider between the dimmed history region and the live
+    /// buffer -- `theme.separator`, threaded in as a plain `Color` like
+    /// `terminalGround` rather than the whole `Theme`.
+    let seamColor: SwiftUI.Color
     /// A click that ended with no selection: this view's stand-in for the
     /// canvas's normal click-to-focus, since a click landing on the AppKit
     /// terminal body never reaches SwiftUI's own tap gesture.
@@ -40,7 +44,7 @@ struct PaneTerminalView: View {
     init(
         cols: Int, rows: Int, feed: PaneLiveFeed, terminalGround: SwiftUI.Color,
         onPlainClick: @escaping () -> Void, paneTerminal: PaneTerminal? = nil,
-        onScreenActivity: ((Int) -> Void)? = nil
+        onScreenActivity: ((Int) -> Void)? = nil, seamColor: SwiftUI.Color = .white.opacity(0.08)
     ) {
         self.cols = cols
         self.rows = rows
@@ -49,6 +53,7 @@ struct PaneTerminalView: View {
         self.onPlainClick = onPlainClick
         self.paneTerminal = paneTerminal
         self.onScreenActivity = onScreenActivity
+        self.seamColor = seamColor
         _historyCapable = State(initialValue: paneTerminal?.historyCapable ?? false)
     }
 
@@ -56,14 +61,20 @@ struct PaneTerminalView: View {
         ZStack(alignment: .bottomTrailing) {
             VStack(spacing: 0) {
                 if let paneTerminal, historyCapable {
-                    PaneHistoryRegion(paneTerminal: paneTerminal)
+                    PaneHistoryRegion(paneTerminal: paneTerminal, ground: terminalGround, seam: seamColor)
                 }
                 TerminalRepresentable(
                     cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick,
-                    paneTerminal: paneTerminal, onScreenActivity: onScreenActivity
+                    paneTerminal: paneTerminal, onScreenActivity: onScreenActivity, ground: terminalGround
                 )
-                .background(terminalGround)
             }
+            // The pane body is ONE ground color top to bottom (history
+            // region + terminal + any inset): the pane's own background
+            // catches any seam a child view's layout doesn't cover, on top
+            // of `TerminalRepresentable` setting SwiftTerm's own
+            // `nativeBackgroundColor` (its NSView otherwise paints pure
+            // black regardless of anything drawn behind it).
+            .background(terminalGround)
 
             if let copiedLineCount {
                 CopyChip(lineCount: copiedLineCount)
@@ -126,6 +137,8 @@ private struct CopyChip: View {
 /// the (new) top re-triggers it.
 private struct PaneHistoryRegion: View {
     let paneTerminal: PaneTerminal
+    let ground: SwiftUI.Color
+    let seam: SwiftUI.Color
 
     @State private var text = ""
     @State private var isLoading = false
@@ -133,27 +146,48 @@ private struct PaneHistoryRegion: View {
     @State private var showsChangedNotice = false
     @State private var loadGeneration = 0
 
+    private static let bottomAnchor = "paddock.history.bottom"
+
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if !reachedStart {
-                    Color.clear.frame(height: 1).id(loadGeneration).onAppear(perform: loadMore)
-                }
-                if showsChangedNotice {
-                    Text("History changed while loading; older lines may be out of order.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.orange)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if !reachedStart {
+                        Color.clear.frame(height: 1).id(loadGeneration).onAppear(perform: loadMore)
+                    }
+                    if showsChangedNotice {
+                        Text("History changed while loading; older lines may be out of order.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                    }
+                    Text(text.isEmpty ? " " : text)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.top, 4)
+                    Color.clear.frame(height: 1).id(Self.bottomAnchor)
                 }
-                Text(text.isEmpty ? " " : text)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 6)
+            }
+            // Starts (and snaps back to) the edge adjacent to the live
+            // buffer rather than this region's own top: the sentinel that
+            // triggers more loading sits at the top, so leaving the view
+            // there by default re-fired it immediately on every load
+            // (the "greedy" loop that also left a partial top row visibly
+            // clipped by the fixed-height frame). Anchoring to the bottom
+            // means the sentinel is off-screen until the user actually
+            // scrolls up to it.
+            .onChange(of: text) { _, _ in
+                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
             }
         }
         .frame(maxHeight: 160)
+        .background(ground)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(seam).frame(height: 1)
+        }
     }
 
     private func loadMore() {
@@ -197,6 +231,7 @@ private struct TerminalRepresentable: NSViewRepresentable {
     /// `feed.frames`, since `AsyncStream` has no built-in fan-out.
     var paneTerminal: PaneTerminal?
     var onScreenActivity: ((Int) -> Void)?
+    var ground: SwiftUI.Color
 
     final class Coordinator {
         var feedTask: Task<Void, Never>?
@@ -211,10 +246,16 @@ private struct TerminalRepresentable: NSViewRepresentable {
         view.allowMouseReporting = false
         view.onCopy = onCopy
         view.onPlainClick = onPlainClick
+        // `TerminalView` paints its OWN opaque background from this
+        // property (defaulting to plain black), independent of anything
+        // SwiftUI draws behind the NSView -- a `.background()` modifier on
+        // this representable is invisible wherever the terminal itself has
+        // painted, which is everywhere its buffer cells are empty.
+        view.nativeBackgroundColor = NSColor(ground)
         let paneTerminal = self.paneTerminal
         let onScreenActivity = self.onScreenActivity
         if let backfill = feed.backfillANSI {
-            paneTerminal?.seedBackfill(ansi: backfill)
+            paneTerminal?.seedBackfill(ansi: backfill, lineCount: feed.backfillLineCount)
         }
         context.coordinator.feedTask = Task { @MainActor [weak view] in
             if let backfill = feed.backfillANSI {
@@ -239,6 +280,7 @@ private struct TerminalRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: CopyOnSelectTerminalView, context: Context) {
         nsView.onCopy = onCopy
         nsView.onPlainClick = onPlainClick
+        nsView.nativeBackgroundColor = NSColor(ground)
         // `TerminalView` recomputes cols/rows from its own pixel frame on
         // every `setFrameSize` (per SwiftTerm's own doc comment: "cols and
         // rows... are otherwise recomputed from the frame size"), which

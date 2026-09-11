@@ -41,23 +41,31 @@ private struct TabPill: View {
         HStack(spacing: 7) {
             Text(tab.label)
                 .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? theme.text : theme.subtext0)
+                .foregroundStyle(isSelected ? theme.chromeTextStrong : theme.chromeTextDim)
             Text("\(tab.paneCount)")
                 .font(.system(size: 10))
                 .foregroundStyle(theme.overlay0)
+                .padding(.horizontal, isSelected ? 4 : 0)
+                .padding(.vertical, isSelected ? 1 : 0)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 3).fill(theme.windowBg)
+                    }
+                }
             StatusDot(status: tab.agentStatus, theme: theme, size: 7)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(
-            // One neutral surface step above the strip (reusing paneHeaderBg,
-            // itself one step above windowBg), not a raw hued surface field.
+            // The selected pill's own surface role -- see `Theme`'s doc on
+            // `tabPillSelectedBg`/`tabPillSelectedBorder` for why these are
+            // distinct roles from `separator` rather than a reuse of it.
             RoundedRectangle(cornerRadius: 7)
-                .fill(isSelected ? theme.paneHeaderBg : Color.clear)
+                .fill(isSelected ? theme.tabPillSelectedBg : Color.clear)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(isSelected ? theme.separator : Color.clear, lineWidth: 1)
+                .strokeBorder(isSelected ? theme.tabPillSelectedBorder : Color.clear, lineWidth: 1)
         )
         .contentShape(Rectangle())
     }

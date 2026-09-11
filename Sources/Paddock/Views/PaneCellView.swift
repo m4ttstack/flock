@@ -155,7 +155,8 @@ struct PaneCellView: View {
                     paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
                     onScreenActivity: { nonEmptyRowCount in
                         viewModel.recordLauncherScreenActivity(pane.paneID, nonEmptyRowCount: nonEmptyRowCount)
-                    }
+                    },
+                    seamColor: theme.separator
                 )
                 if viewModel.isPristineLauncherPane(pane.paneID) {
                     PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in

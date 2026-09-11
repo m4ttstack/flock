@@ -31,6 +31,12 @@ public final class PaneTerminal: @unchecked Sendable {
     // Coalescing guard for `loadOlderHistory`: see its own doc comment.
     private var isLoadingHistory = false
     private var historyLoadWaiters: [CheckedContinuation<Bool, Error>] = []
+    // Line count of whatever `seedBackfill` fed in, so the first
+    // `loadOlderHistory` call anchors `oldestFetchedRow` at the row
+    // directly above what the live view already shows -- never at the
+    // pane's total row count, which would leave an unshown, uncommunicated
+    // gap between the loaded history and the live buffer's own top.
+    private var backfillLineCount = 0
 
     public init(
         cols: Int,
@@ -49,10 +55,22 @@ public final class PaneTerminal: @unchecked Sendable {
     /// Seeds scrollback history before any live frame arrives. Never resets:
     /// backfill is meant to sit directly beneath the first live frame with no
     /// torn seam, per spike 4's backfill probe.
-    public func seedBackfill(ansi: Data) {
+    ///
+    /// `lineCount` is however many lines the backfill request actually
+    /// asked for (`pane.read`'s own `lines` param) -- the anchor deep
+    /// history needs to stay contiguous with what is already on screen.
+    /// Defaults to counting line breaks in `ansi` itself when a caller has
+    /// no better number on hand.
+    public func seedBackfill(ansi: Data, lineCount: Int? = nil) {
         lock.lock()
         defer { lock.unlock() }
         term.feed(byteArray: [UInt8](ansi))
+        backfillLineCount = lineCount ?? Self.countLines(in: ansi)
+    }
+
+    private static func countLines(in ansi: Data) -> Int {
+        guard !ansi.isEmpty else { return 0 }
+        return ansi.reduce(into: 0) { count, byte in if byte == 0x0A { count += 1 } }
     }
 
     /// Applies `FrameFeeder`'s shared full-frame-reset rule against this
@@ -233,12 +251,17 @@ public final class PaneTerminal: @unchecked Sendable {
         }
     }
 
+    /// Anchors `oldestFetchedRow` at `totalRows - backfillLineCount` -- the
+    /// absolute row directly above what the live view already shows -- never
+    /// at `totalRows` itself, which would silently skip every row already
+    /// covered by backfill and leave an unshown gap before the first older
+    /// chunk.
     private func ensureInitialized(client: any HerdrCommandClient, paneID: PaneID) async throws {
         guard lock.withLockHeld({ oldestFetchedRow == nil }) else { return }
         let rowCount = try await fetchTotalRowCount(client: client, paneID: paneID)
         lock.withLockHeld {
             guard oldestFetchedRow == nil else { return }
-            oldestFetchedRow = rowCount
+            oldestFetchedRow = max(0, rowCount - backfillLineCount)
         }
     }
 

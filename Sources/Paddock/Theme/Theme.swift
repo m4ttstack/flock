@@ -40,6 +40,18 @@ public struct Theme: Identifiable, Equatable, Sendable {
     public let tabStripBg: Color
     public let paneHeaderBg: Color
     public let separator: Color
+    /// Selected tab pill: one surface step above the strip, with its own
+    /// (slightly lighter) border -- distinct from `separator`'s plain
+    /// 1px-divider role even though they happen to land on the same value
+    /// in tokyo-night, so the two can diverge later without a silent
+    /// coupling.
+    public let tabPillSelectedBg: Color
+    public let tabPillSelectedBorder: Color
+    /// Neutral (non-hued) chrome label text, for chrome elements that must
+    /// read correctly regardless of the palette's own hue -- e.g. the
+    /// selected/unselected tab pill label, never a themed field like `text`.
+    public let chromeTextStrong: Color
+    public let chromeTextDim: Color
 
     public static func == (lhs: Theme, rhs: Theme) -> Bool { lhs.id == rhs.id }
 }
@@ -119,6 +131,18 @@ extension Theme {
         self.paneHeaderBg = rgb(paneHeader.0, paneHeader.1, paneHeader.2)
         let border = chromeOffset(panelBg, (16, 17, 17))
         self.separator = rgb(border.0, border.1, border.2)
+        // Calibrated against tokyo-night's own panelBg (26, 27, 38) to
+        // reproduce the reference exactly: selected pill fill #2A2C37
+        // (same delta as `separator`), border #3A3D4A, label #E6E7EB,
+        // unselected label #9B9DA9.
+        let pillBg = chromeOffset(panelBg, (16, 17, 17))
+        self.tabPillSelectedBg = rgb(pillBg.0, pillBg.1, pillBg.2)
+        let pillBorder = chromeOffset(panelBg, (32, 34, 36))
+        self.tabPillSelectedBorder = rgb(pillBorder.0, pillBorder.1, pillBorder.2)
+        let strong = chromeOffset(panelBg, (204, 204, 197))
+        self.chromeTextStrong = rgb(strong.0, strong.1, strong.2)
+        let dim = chromeOffset(panelBg, (129, 130, 131))
+        self.chromeTextDim = rgb(dim.0, dim.1, dim.2)
     }
 
     /// Catppuccin Mocha, herdr's default.

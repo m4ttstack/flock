@@ -30,6 +30,32 @@ final class DeepHistoryTests: XCTestCase {
         try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(paramsJSON.utf8)) as? [String: Any])
     }
 
+    // MARK: - contiguous anchor (no gap against the already-shown backfill)
+
+    /// Reported live: a dimmed band of loaded history followed by an abrupt,
+    /// uncommunicated jump straight into the live buffer's own top, with the
+    /// rows in between never shown or accounted for anywhere. Root cause:
+    /// `oldestFetchedRow` was seeded from the pane's TOTAL row count, not
+    /// from the row directly above what backfill already displays -- so the
+    /// first `loadOlderHistory` chunk started well short of the live
+    /// buffer's actual top, skipping every row backfill already covers.
+    func testFirstChunkAnchorsContiguouslyAboveTheBackfilledLiveBuffer() async throws {
+        let server = FakeHerdrServer(); try server.start(); defer { server.stop() }
+        server.respond(to: "pane.get", withResultJSON: Self.paneGet1000Rows)
+        server.respond(to: "pane.selection.read", withResultJSON: selectionResult("OLDER"))
+        let term = makeTerminal(server: server)
+        // Backfill covers the last 800 of the pane's 1000 total rows (rows
+        // 200-999); the live buffer's own top sits at absolute row 200.
+        term.seedBackfill(ansi: Data(String(repeating: "x\n", count: 800).utf8), lineCount: 800)
+
+        _ = try await term.loadOlderHistory(chunkRows: 200)
+
+        let request = try XCTUnwrap(server.receivedRequests.last { $0.method == "pane.selection.read" })
+        let params = try selectionReadParams(request.paramsJSON)
+        XCTAssertEqual((params["cursor"] as? [String: Any])?["row"] as? Int, 199, "must end exactly where the live buffer's top begins, not overlap it")
+        XCTAssertEqual((params["anchor"] as? [String: Any])?["row"] as? Int, 0)
+    }
+
     // MARK: - sequential chunks + oldest-first accumulation
 
     func testSequentialChunksRequestDecreasingAbsoluteRowRangesAndAccumulateOldestFirst() async throws {

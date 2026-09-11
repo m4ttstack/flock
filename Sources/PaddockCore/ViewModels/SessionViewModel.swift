@@ -34,7 +34,17 @@ extension ObserveSupervisor: PaneObserveAttaching {}
 /// already iterating keeps delivering, just at the new size.
 public struct PaneLiveFeed: Sendable {
     public let backfillANSI: Data?
+    /// How many lines `backfillANSI` was requested for (`pane.read`'s own
+    /// `lines` param) -- deep history's contiguity anchor. `nil` alongside
+    /// a `nil` `backfillANSI`.
+    public let backfillLineCount: Int?
     public let frames: AsyncStream<TerminalFrame>
+
+    public init(backfillANSI: Data?, backfillLineCount: Int? = nil, frames: AsyncStream<TerminalFrame>) {
+        self.backfillANSI = backfillANSI
+        self.backfillLineCount = backfillLineCount
+        self.frames = frames
+    }
 }
 
 /// Selection and focus-jump logic for the shell UI. Views render from this
@@ -272,9 +282,9 @@ public final class SessionViewModel {
             return nil
         }
         attachedDims[pane.paneID] = (cols, rows)
-        let backfillANSI = await fetchBackfillANSI(for: pane, cols: cols, rows: rows)
+        let backfill = await fetchBackfillANSI(for: pane, cols: cols, rows: rows)
         let frames = await observeAttacher.attach(pane.paneID, cols: cols, rows: rows)
-        return PaneLiveFeed(backfillANSI: backfillANSI, frames: frames)
+        return PaneLiveFeed(backfillANSI: backfill?.data, backfillLineCount: backfill?.lines, frames: frames)
     }
 
     private func performDetach(pane: PaneID, observeAttacher: any PaneObserveAttaching) async {
@@ -290,7 +300,7 @@ public final class SessionViewModel {
     /// scroll), and capped to `scroll.viewportRows`; every other pane
     /// (including an unrecognized alt-screen program like a scratch `vim`)
     /// safely takes the full 1000-line request, per the spike's measurement.
-    private func fetchBackfillANSI(for pane: PaneRecord, cols: Int, rows: Int) async -> Data? {
+    private func fetchBackfillANSI(for pane: PaneRecord, cols: Int, rows: Int) async -> (data: Data, lines: Int)? {
         let viewportRows = pane.scroll?.viewportRows ?? rows
         let isRecognizedAgent = pane.agentStatus != .unknown
         let lines = isRecognizedAgent ? min(1000, viewportRows) : 1000
@@ -303,7 +313,7 @@ public final class SessionViewModel {
         guard let data = try? await client.requestRaw("pane.read", params),
               let text = Self.extractReadText(data)
         else { return nil }
-        return Data(text.utf8)
+        return (Data(text.utf8), lines)
     }
 
     private static func extractReadText(_ data: Data) -> String? {
