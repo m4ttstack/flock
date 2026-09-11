@@ -43,3 +43,14 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Paddock:
+    build:
+      targets:
+        Paddock: all
+        PaddockCore: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [PaddockCoreTests, PaddockUITests]
