@@ -37,4 +37,19 @@ final class HerdrClientTests: XCTestCase {
         }
         XCTAssertEqual(fake.acceptedConnectionCount, 50)
     }
+
+    func testLargeRequestPayloadWriteCompletes() async throws {
+        // Regression: DispatchIO's write handler can fire more than once for
+        // one write (partial-progress reports before the final done==true
+        // call); a payload large enough to plausibly split pins that a
+        // split write still completes exactly once, not a double-resumed
+        // continuation crash.
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.get", withResultJSON: #"{"type":"pane_info","pane":{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"idle","revision":1,"cwd":"/tmp"}}"#)
+        let client = HerdrClient(socketPath: fake.socketPath)
+        let padding = String(repeating: "x", count: 1_000_000)
+        let data = try await client.requestRaw("pane.get", ["pane_id": .string("w1:p1"), "padding": .string(padding)])
+        XCTAssertFalse(data.isEmpty)
+        XCTAssertEqual(fake.receivedRequests.last?.paramsJSON.contains(padding), true)
+    }
 }

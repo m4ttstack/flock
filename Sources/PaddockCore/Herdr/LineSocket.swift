@@ -67,7 +67,12 @@ public actor LineSocket {
         let queue = self.queue
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let dispatchData = framed.withUnsafeBytes { DispatchData(bytes: $0) }
-            channel.write(offset: 0, data: dispatchData, queue: queue) { _, _, err in
+            channel.write(offset: 0, data: dispatchData, queue: queue) { done, _, err in
+                // DispatchIO can invoke this handler more than once per write
+                // (partial progress reports); only the final call carries
+                // done == true, and only that call may resume the
+                // continuation, or a split write double-resumes it.
+                guard done else { return }
                 if err != 0 {
                     continuation.resume(throwing: LineSocketError.io(err))
                 } else {

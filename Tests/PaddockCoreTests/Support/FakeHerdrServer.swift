@@ -40,7 +40,10 @@ final class FakeHerdrServer: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private var behaviors: [String: Behavior] = [:]
+    private var respondBehaviors: [String: String] = [:]
+    // One-shot: consumed by the next request for that method, then cleared,
+    // falling through to `respondBehaviors` afterward.
+    private var pendingFailures: [String: (code: String, message: String)] = [:]
     private var storedReceivedRequests: [(method: String, paramsJSON: String)] = []
     private var storedAcceptedConnectionCount = 0
     private var subscriberFDs: Set<Int32> = []
@@ -74,11 +77,11 @@ final class FakeHerdrServer: @unchecked Sendable {
     }
 
     func respond(to method: String, withResultJSON json: String) {
-        lock.withLock { behaviors[method] = .success(json) }
+        lock.withLock { respondBehaviors[method] = json }
     }
 
     func failNext(method: String, code: String, message: String) {
-        lock.withLock { behaviors[method] = .failure(code: code, message: message) }
+        lock.withLock { pendingFailures[method] = (code: code, message: message) }
     }
 
     func pushEventLine(_ json: String) {
@@ -177,7 +180,15 @@ final class FakeHerdrServer: @unchecked Sendable {
             return
         }
 
-        let behavior = lock.withLock { behaviors[request.method] }
+        let behavior: Behavior? = lock.withLock {
+            if let failure = pendingFailures.removeValue(forKey: request.method) {
+                return .failure(code: failure.code, message: failure.message)
+            }
+            if let json = respondBehaviors[request.method] {
+                return .success(json)
+            }
+            return nil
+        }
         let responseLine: String
         switch behavior {
         case .success(let json)?:
