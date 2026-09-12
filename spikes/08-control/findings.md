@@ -227,6 +227,20 @@ test is the natural place); this spike only clears the herdr half.
    "$sock"` JSON-RPC for anything that must be scoped to one scratch
    server**, as this spike's scripts do throughout, rather than trusting the
    `herdr pane *` CLI subcommands to respect the env override.
+
+   Addendum (post-review): the inconsistency does NOT extend to the verb the
+   18f bridge spawns. `herdr terminal session control`/`herdr terminal
+   attach` demonstrably honor `HERDR_SOCKET_PATH`: every Q1-Q5 attach
+   targeted pane IDs that exist only on the scratch server (w1-w8 namespace,
+   disjoint from the default session's), and per source
+   (`attach_terminal_client`, headless.rs) a wrong-server target produces an
+   explicit not-found shutdown, which never occurred. Hygiene note: the
+   env-unset comparison ran read-only verbs only (`pane list`, `pane get`);
+   the single write verb ran with the scratch socket exported and its error
+   was confirmed in the scratch server's own log. 18f's manual smoke still
+   includes one explicit negative check (control attach to a
+   default-session-only pane ID with the scratch socket exported must be
+   rejected not-found).
 3. **This sandbox has no real controlling tty**, so the brief's suggested
    `script -q /dev/null herdr ...` recipe fails outright (herdr sees a
    zero-sized grid and refuses). `pty_spawn.py`'s explicit
