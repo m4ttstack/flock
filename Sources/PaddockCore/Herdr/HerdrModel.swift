@@ -190,6 +190,102 @@ public struct SessionSnapshot: Codable, Sendable {
     }
 }
 
+/// The leaf payload of `layout.export`'s tree. Only the fields geometry
+/// needs are decoded; `command`/`env` exist on the wire but have no reader
+/// here.
+public struct ExportedLayoutPane: Decodable, Equatable, Sendable {
+    public let paneID: PaneID?
+    public let label: String?
+    public let cwd: String?
+
+    public init(paneID: PaneID?, label: String? = nil, cwd: String? = nil) {
+        self.paneID = paneID
+        self.label = label
+        self.cwd = cwd
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case paneID = "pane_id"
+        case label
+        case cwd
+    }
+}
+
+/// `layout.export`'s split tree: a JSON `type`-tagged union (`"pane"` /
+/// `"split"`) rather than the flat `splits` array `LayoutSnapshot` carries,
+/// so nesting is the tree's own parent/child structure, never reconstructed
+/// by rect containment. An unrecognized `type` throws during decode, which
+/// callers must read as an unknown shape and fall back to rect derivation,
+/// not as a crash.
+public indirect enum ExportedLayoutNode: Decodable, Equatable, Sendable {
+    case pane(ExportedLayoutPane)
+    case split(direction: SplitDirection, ratio: Double, first: ExportedLayoutNode, second: ExportedLayoutNode)
+
+    private enum CodingKeys: String, CodingKey {
+        case type, direction, ratio, first, second
+    }
+
+    private enum NodeType: String, Decodable {
+        case pane, split
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(NodeType.self, forKey: .type) {
+        case .pane:
+            self = .pane(try ExportedLayoutPane(from: decoder))
+        case .split:
+            self = .split(
+                direction: try container.decode(SplitDirection.self, forKey: .direction),
+                ratio: try container.decode(Double.self, forKey: .ratio),
+                first: try container.decode(ExportedLayoutNode.self, forKey: .first),
+                second: try container.decode(ExportedLayoutNode.self, forKey: .second)
+            )
+        }
+    }
+}
+
+public struct ExportedLayoutDescription: Decodable, Equatable, Sendable {
+    public let workspaceID: WorkspaceID
+    public let tabID: TabID
+    public let zoomed: Bool
+    public let focusedPaneID: PaneID
+    public let root: ExportedLayoutNode
+
+    public init(workspaceID: WorkspaceID, tabID: TabID, zoomed: Bool, focusedPaneID: PaneID, root: ExportedLayoutNode) {
+        self.workspaceID = workspaceID
+        self.tabID = tabID
+        self.zoomed = zoomed
+        self.focusedPaneID = focusedPaneID
+        self.root = root
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case workspaceID = "workspace_id"
+        case tabID = "tab_id"
+        case zoomed
+        case focusedPaneID = "focused_pane_id"
+        case root
+    }
+}
+
+/// A tab's geometry-relevant fingerprint: area, pane set, and split
+/// direction/ratio/rect, deliberately excluding focus and zoom so those
+/// alone never trigger a `layout.export` refetch. Equal signatures mean the
+/// coordinator's cached export (or its fallback flag) is still good for
+/// this tab.
+public struct LayoutTopologySignature: Equatable, Sendable {
+    private let area: CellRect
+    private let paneIDs: Set<PaneID>
+    private let splits: [SplitInfo]
+
+    public init(layout: LayoutSnapshot) {
+        area = layout.area
+        paneIDs = Set(layout.panes.map(\.paneID))
+        splits = layout.splits
+    }
+}
+
 public enum HerdrDecoder {
     private struct SnapshotResponse: Decodable {
         struct Result: Decodable {

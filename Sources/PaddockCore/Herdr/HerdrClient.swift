@@ -66,6 +66,22 @@ public actor HerdrClient {
         try await performRequest(method: method, params: params)
     }
 
+    /// Fetches herdr's own split tree for one tab. Wire-verified against
+    /// herdr HEAD (src/app/api/layouts.rs `handle_layout_export` and
+    /// src/api/schema/panes.rs `LayoutExportParams`/`LayoutDescription`):
+    /// request is `{tab_id}`, response unwraps as `result.layout`.
+    public func layoutExport(tabID: TabID) async throws -> ExportedLayoutDescription {
+        struct Params: Encodable, Sendable {
+            let tabID: String
+            enum CodingKeys: String, CodingKey { case tabID = "tab_id" }
+        }
+        struct Wrapper: Decodable, Sendable {
+            let layout: ExportedLayoutDescription
+        }
+        let wrapper: Wrapper = try await request("layout.export", Params(tabID: tabID.rawValue), as: Wrapper.self)
+        return wrapper.layout
+    }
+
     public func verifyProtocol() async throws {
         let result: PingResult = try await request("ping", [String: JSONValue](), as: PingResult.self)
         guard result.protocolVersion >= Self.minimumProtocol else {

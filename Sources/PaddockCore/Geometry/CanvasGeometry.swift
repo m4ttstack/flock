@@ -15,6 +15,23 @@ public struct CanvasGeometry: Equatable, Sendable {
     public let paneFrames: [PaneID: CGRect]
     public let dividers: [DividerHandle]
 
+    /// The render path's single entry point: reads `exported` (herdr's own
+    /// split tree) when it names this tab, and falls back to rect derivation
+    /// otherwise -- an export the coordinator never fetched, or one that
+    /// failed and got flagged for fallback, both read as `exported == nil`
+    /// or tab-mismatched here.
+    public static func resolved(
+        layout: LayoutSnapshot,
+        exported: ExportedLayoutDescription?,
+        in size: CGSize,
+        dividerThickness: CGFloat = 6
+    ) -> CanvasGeometry {
+        if let exported, exported.tabID == layout.tabID {
+            return CanvasGeometry(exportedRoot: exported.root, area: layout.area, tabID: layout.tabID, in: size, dividerThickness: dividerThickness)
+        }
+        return CanvasGeometry(layout: layout, in: size, dividerThickness: dividerThickness)
+    }
+
     public init(layout: LayoutSnapshot, in size: CGSize, dividerThickness: CGFloat = 6) {
         let area = layout.area
         guard area.width > 0, area.height > 0 else {
@@ -44,11 +61,80 @@ public struct CanvasGeometry: Equatable, Sendable {
         )
     }
 
+    /// Builds geometry from herdr's own split tree (`layout.export`) instead
+    /// of reconstructing nesting by rect containment: the tree already gives
+    /// parent/child order, so paths and regions fall out of a direct walk.
+    /// `area` is the tab's cell-grid rect (from the tab's `LayoutSnapshot`,
+    /// which `layout.export` does not itself carry).
+    public init(exportedRoot root: ExportedLayoutNode, area: CellRect, tabID: TabID, in size: CGSize, dividerThickness: CGFloat = 6) {
+        guard area.width > 0, area.height > 0 else {
+            paneFrames = [:]
+            dividers = []
+            return
+        }
+
+        let scaleX = size.width / CGFloat(area.width)
+        let scaleY = size.height / CGFloat(area.height)
+        func scale(_ rect: CellRect) -> CGRect {
+            CGRect(
+                x: CGFloat(rect.x - area.x) * scaleX,
+                y: CGFloat(rect.y - area.y) * scaleY,
+                width: CGFloat(rect.width) * scaleX,
+                height: CGFloat(rect.height) * scaleY
+            )
+        }
+
+        var paneFrames: [PaneID: CGRect] = [:]
+        var dividers: [DividerHandle] = []
+        CanvasGeometry.walk(
+            root,
+            rect: area,
+            path: [],
+            tabID: tabID,
+            scale: scale,
+            thickness: dividerThickness,
+            paneFrames: &paneFrames,
+            dividers: &dividers
+        )
+        self.paneFrames = paneFrames
+        self.dividers = dividers
+    }
+
+    private static func walk(
+        _ node: ExportedLayoutNode,
+        rect: CellRect,
+        path: [Bool],
+        tabID: TabID,
+        scale: (CellRect) -> CGRect,
+        thickness: CGFloat,
+        paneFrames: inout [PaneID: CGRect],
+        dividers: inout [DividerHandle]
+    ) {
+        switch node {
+        case .pane(let pane):
+            guard let paneID = pane.paneID else { return }
+            paneFrames[paneID] = scale(rect)
+        case .split(let direction, let ratio, let first, let second):
+            let (firstRegion, secondRegion) = childRegions(of: rect, direction: direction, ratio: ratio)
+            dividers.append(DividerHandle(
+                tabID: tabID,
+                path: path,
+                frame: dividerFrame(direction: direction, ratio: ratio, fullFrame: scale(rect), thickness: thickness),
+                direction: direction
+            ))
+            walk(first, rect: firstRegion, path: path + [false], tabID: tabID, scale: scale, thickness: thickness, paneFrames: &paneFrames, dividers: &dividers)
+            walk(second, rect: secondRegion, path: path + [true], tabID: tabID, scale: scale, thickness: thickness, paneFrames: &paneFrames, dividers: &dividers)
+        }
+    }
+
     /// Splits nest by rect containment, not array order: the root is the split
     /// spanning the full layout area; a split contained in a parent's first-child
     /// region gets `false` appended to the parent's path, the second-child region
     /// gets `true`. A split whose parent cannot be resolved this way is dropped
-    /// rather than guessed at.
+    /// rather than guessed at. Fixture-verified fallback only: the render path
+    /// reads `layout.export`'s tree (see `init(exportedRoot:...)`); this stays
+    /// live as the cross-check in `CanvasGeometryTests` and as the coordinator's
+    /// failure fallback.
     private static func dividerHandles(
         splits: [SplitInfo],
         area: CellRect,
@@ -83,20 +169,38 @@ public struct CanvasGeometry: Equatable, Sendable {
             return DividerHandle(
                 tabID: tabID,
                 path: path,
-                frame: dividerFrame(for: split, fullFrame: full, thickness: thickness),
+                frame: dividerFrame(direction: split.direction, ratio: Double(split.ratio), fullFrame: full, thickness: thickness),
                 direction: split.direction
             )
         }
     }
 
-    private static func dividerFrame(for split: SplitInfo, fullFrame: CGRect, thickness: CGFloat) -> CGRect {
-        switch split.direction {
+    private static func dividerFrame(direction: SplitDirection, ratio: Double, fullFrame: CGRect, thickness: CGFloat) -> CGRect {
+        switch direction {
         case .right:
-            let boundaryX = fullFrame.minX + CGFloat(split.ratio) * fullFrame.width
+            let boundaryX = fullFrame.minX + CGFloat(ratio) * fullFrame.width
             return CGRect(x: boundaryX - thickness / 2, y: fullFrame.minY, width: thickness, height: fullFrame.height)
         case .down:
-            let boundaryY = fullFrame.minY + CGFloat(split.ratio) * fullFrame.height
+            let boundaryY = fullFrame.minY + CGFloat(ratio) * fullFrame.height
             return CGRect(x: fullFrame.minX, y: boundaryY - thickness / 2, width: fullFrame.width, height: thickness)
+        }
+    }
+
+    /// Shared by both derivations: splits a rect into its two child regions
+    /// for a given direction and ratio, rounding the same way a real herdr
+    /// tab's cell grid would.
+    fileprivate static func childRegions(of rect: CellRect, direction: SplitDirection, ratio: Double) -> (first: CellRect, second: CellRect) {
+        switch direction {
+        case .right:
+            let firstWidth = Int((Double(rect.width) * ratio).rounded())
+            let first = CellRect(x: rect.x, y: rect.y, width: firstWidth, height: rect.height)
+            let second = CellRect(x: rect.x + firstWidth, y: rect.y, width: rect.width - firstWidth, height: rect.height)
+            return (first, second)
+        case .down:
+            let firstHeight = Int((Double(rect.height) * ratio).rounded())
+            let first = CellRect(x: rect.x, y: rect.y, width: rect.width, height: firstHeight)
+            let second = CellRect(x: rect.x, y: rect.y + firstHeight, width: rect.width, height: rect.height - firstHeight)
+            return (first, second)
         }
     }
 
@@ -111,23 +215,10 @@ public struct CanvasGeometry: Equatable, Sendable {
 
 private extension SplitInfo {
     var firstChildRegion: CellRect {
-        switch direction {
-        case .right:
-            let firstWidth = Int((Double(rect.width) * ratio).rounded())
-            return CellRect(x: rect.x, y: rect.y, width: firstWidth, height: rect.height)
-        case .down:
-            let firstHeight = Int((Double(rect.height) * ratio).rounded())
-            return CellRect(x: rect.x, y: rect.y, width: rect.width, height: firstHeight)
-        }
+        CanvasGeometry.childRegions(of: rect, direction: direction, ratio: Double(ratio)).first
     }
 
     var secondChildRegion: CellRect {
-        let first = firstChildRegion
-        switch direction {
-        case .right:
-            return CellRect(x: rect.x + first.width, y: rect.y, width: rect.width - first.width, height: rect.height)
-        case .down:
-            return CellRect(x: rect.x, y: rect.y + first.height, width: rect.width, height: rect.height - first.height)
-        }
+        CanvasGeometry.childRegions(of: rect, direction: direction, ratio: Double(ratio)).second
     }
 }

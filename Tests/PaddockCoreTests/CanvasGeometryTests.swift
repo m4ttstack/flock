@@ -150,6 +150,47 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(nested.frame.width, 100, accuracy: 1)
     }
 
+    /// The rect-derivation fixture from the tests above, re-expressed as the
+    /// tree `layout.export` would actually return, must produce the same
+    /// paneFrames/dividers: this is the fallback's cross-check, proving the
+    /// two derivations agree on the canonical fixture.
+    func testExportedTreeMapsToSameDividerPathsAsRectDerivation() throws {
+        let layout = threePaneLayout(nestedInSecondChild: true)
+        let size = CGSize(width: 200, height: 100)
+        let rectDerived = CanvasGeometry(layout: layout, in: size, dividerThickness: 6)
+
+        let exportedRoot = ExportedLayoutNode.split(
+            direction: .right,
+            ratio: 0.5,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "other"))),
+            second: .split(
+                direction: .down,
+                ratio: 0.4,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "top"))),
+                second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "bottom")))
+            )
+        )
+        let exportedDerived = CanvasGeometry(
+            exportedRoot: exportedRoot,
+            area: layout.area,
+            tabID: layout.tabID,
+            in: size,
+            dividerThickness: 6
+        )
+
+        XCTAssertEqual(exportedDerived.paneFrames, rectDerived.paneFrames)
+
+        let rectByPath = Dictionary(uniqueKeysWithValues: rectDerived.dividers.map { ($0.path, $0) })
+        let exportedByPath = Dictionary(uniqueKeysWithValues: exportedDerived.dividers.map { ($0.path, $0) })
+        XCTAssertEqual(Set(rectByPath.keys), Set(exportedByPath.keys))
+        for (path, divider) in rectByPath {
+            let matched = try XCTUnwrap(exportedByPath[path])
+            XCTAssertEqual(matched.direction, divider.direction)
+            XCTAssertEqual(matched.frame, divider.frame)
+            XCTAssertEqual(matched.tabID, divider.tabID)
+        }
+    }
+
     func testZeroSizeAreaYieldsZeroFramesWithoutCrashing() {
         let degenerate = LayoutSnapshot(
             workspaceID: WorkspaceID(rawValue: "w"),
