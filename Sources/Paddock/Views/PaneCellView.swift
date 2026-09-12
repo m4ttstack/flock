@@ -90,33 +90,33 @@ struct PaneCellView: View {
                     .padding(-3)
             }
         }
-        // One task per (dims, renderer) identity: a renderer change attaches
-        // the NEW renderer's transport FIRST and only tears down the OLD one
-        // once that succeeds, both awaits chained through the same
-        // `paneWork` entry -- so this pane is never left with neither
-        // transport live (the OLD renderer's own view branch has already
-        // stopped rendering by the time its state clears, since `rendererKind`
-        // switched on the same render pass that started this task), and a
-        // focus flip-flop can never leave two attaches (one observe, one
-        // ghostty) racing out of order for the same pane.
+        // One task per (dims, renderer) identity, exactly ONE view-model call
+        // per branch: SwiftUI's `.task(id:)` cancellation is cooperative, so
+        // a superseded task body for this pane (a fast flip-flop while an
+        // attach RPC is still in flight) is not actually stopped -- it keeps
+        // running to completion, sharing this view's unsynchronized
+        // `feed`/`ghosttySurface` `@State` with whatever fresh task body
+        // replaced it. Two separate attach-then-detach calls left a window
+        // for a stale body's own (delayed) detach to enqueue on `paneWork`
+        // AFTER a fresher body's attach and undo it. `swapToGhostty`/
+        // `swapToObserve` fold attach and the old transport's teardown into
+        // ONE `paneWork` step, deciding what to tear down from the view
+        // model's own truth at the moment that step runs, not from this
+        // view's `@State` -- so a stale call's second pass, if one is even
+        // still chained behind it, always finds current truth rather than a
+        // snapshot from before it started.
         .task(id: AttachDims(paneID: pane.paneID, cols: cols, rows: rows, renderer: rendererKind)) {
             let paneID = pane.paneID
             switch rendererKind {
             case .swiftTerm:
-                if let newFeed = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: cols, rows: rows) {
+                ghosttySurface = nil
+                if let newFeed = await viewModel.swapToObserve(pane: pane, cols: cols, rows: rows) {
                     feed = newFeed
                 }
-                if ghosttySurface != nil {
-                    ghosttySurface = nil
-                    await viewModel.endGhosttyAttach(pane: paneID)
-                }
             case .ghostty:
-                if let surface = await viewModel.beginOrUpdateGhosttyAttach(pane: paneID, cols: cols, rows: rows) {
+                feed = nil
+                if let surface = await viewModel.swapToGhostty(pane: paneID, cols: cols, rows: rows) {
                     ghosttySurface = surface
-                }
-                if feed != nil {
-                    feed = nil
-                    await viewModel.endLiveAttach(pane: paneID)
                 }
             }
         }

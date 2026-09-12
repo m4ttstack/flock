@@ -398,6 +398,64 @@ public final class SessionViewModel {
         await surface.detach()
     }
 
+    // MARK: - renderer swap (single call per pane, cancellation-safe)
+
+    /// Swaps `pane` onto the ghostty transport in ONE `paneWork` step:
+    /// attaches (or resizes) its ghostty surface, then -- inside that SAME
+    /// step -- tears down whatever observe attach `attachedDims` says this
+    /// pane ACTUALLY still carries, read at the moment this step runs on the
+    /// chain, never from anything a caller believes. `PaneCellView` calls
+    /// this exactly once per render identity instead of two separate
+    /// attach/detach calls: SwiftUI's `.task(id:)` cancellation is
+    /// cooperative, so a superseded task body for this pane can keep running
+    /// to completion after a fast flip-flop, and if attach and detach were
+    /// two separate enqueues, a stale body's own (delayed) detach call could
+    /// land on `paneWork` AFTER a fresher call's attach and undo it, settling
+    /// the pane with neither transport. Folding both into one step removes
+    /// that window entirely: a stale call's own detach decision is made
+    /// after it, not a fresher call, is next on the chain, so its second
+    /// pass (if a fresher call is already chained behind it) finds nothing
+    /// stale to act on and a fresher call chained behind IT always re-reads
+    /// current truth before deciding anything.
+    @discardableResult
+    public func swapToGhostty(pane: PaneID, cols: Int, rows: Int) async -> (any GhosttyPaneSurface)? {
+        guard let ghosttyFactory, cols > 0, rows > 0 else { return nil }
+        let previous = paneWork[pane]
+        let task = Task { [weak self] () -> PaneLiveFeed? in
+            _ = await previous?.value
+            guard let self else { return nil }
+            await self.performGhosttyAttach(pane: pane, cols: cols, rows: rows, factory: ghosttyFactory)
+            if let observeAttacher = self.observeAttacher, self.attachedDims[pane] != nil {
+                await self.performDetach(pane: pane, observeAttacher: observeAttacher)
+            }
+            return nil
+        }
+        paneWork[pane] = task
+        _ = await task.value
+        return ghosttySurfaces[pane]
+    }
+
+    /// Symmetric: attaches (or reattaches) `pane`'s observe feed, then tears
+    /// down whatever ghostty surface `ghosttySurfaces` says this pane
+    /// actually still carries -- same single-step reasoning as
+    /// `swapToGhostty`.
+    public func swapToObserve(pane: PaneRecord, cols: Int, rows: Int) async -> PaneLiveFeed? {
+        guard let observeAttacher, cols > 0, rows > 0 else { return nil }
+        let paneID = pane.paneID
+        let previous = paneWork[paneID]
+        let task = Task { [weak self] () -> PaneLiveFeed? in
+            _ = await previous?.value
+            guard let self else { return nil }
+            let feed = await self.performAttach(pane: pane, cols: cols, rows: rows, observeAttacher: observeAttacher)
+            if self.ghosttySurfaces[paneID] != nil {
+                await self.performGhosttyDetach(pane: paneID)
+            }
+            return feed
+        }
+        paneWork[paneID] = task
+        return await task.value
+    }
+
     /// `pane.read {source:"recent", format:"ansi", lines:N}` per spike 4's
     /// backfill recipe. Alt-screen heuristic: `PaneRecord` carries no direct
     /// alt-screen flag, so a recognized agent (`agentStatus != .unknown`) is

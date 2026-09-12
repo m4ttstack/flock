@@ -993,23 +993,20 @@ final class SessionViewModelTests: XCTestCase {
         let paneA = makePaneRecord(paneID: "w1:p1")
         let paneB = makePaneRecord(paneID: "w1:p2")
 
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: paneA.paneID, cols: 80, rows: 24)
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: paneB, cols: 80, rows: 24)
+        _ = await viewModel.swapToGhostty(pane: paneA.paneID, cols: 80, rows: 24)
+        _ = await viewModel.swapToObserve(pane: paneB, cols: 80, rows: 24)
         await assertExactlyOneArmedPane(armed: paneA.paneID, observed: paneB.paneID, viewModel: viewModel, attacher: attacher)
 
-        // Flip to B: each pane attaches its NEW transport before tearing
-        // down its OLD one, matching `PaneCellView`'s own per-pane ordering.
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: paneA, cols: 80, rows: 24)
-        await viewModel.endGhosttyAttach(pane: paneA.paneID)
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: paneB.paneID, cols: 80, rows: 24)
-        await viewModel.endLiveAttach(pane: paneB.paneID)
+        // Flip to B: each pane makes exactly one seam call, which attaches
+        // its NEW transport then tears down its OWN OLD one internally,
+        // matching what `PaneCellView` now calls per branch.
+        _ = await viewModel.swapToObserve(pane: paneA, cols: 80, rows: 24)
+        _ = await viewModel.swapToGhostty(pane: paneB.paneID, cols: 80, rows: 24)
         await assertExactlyOneArmedPane(armed: paneB.paneID, observed: paneA.paneID, viewModel: viewModel, attacher: attacher)
 
         // Flip back to A.
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: paneB, cols: 80, rows: 24)
-        await viewModel.endGhosttyAttach(pane: paneB.paneID)
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: paneA.paneID, cols: 80, rows: 24)
-        await viewModel.endLiveAttach(pane: paneA.paneID)
+        _ = await viewModel.swapToObserve(pane: paneB, cols: 80, rows: 24)
+        _ = await viewModel.swapToGhostty(pane: paneA.paneID, cols: 80, rows: 24)
         await assertExactlyOneArmedPane(armed: paneA.paneID, observed: paneB.paneID, viewModel: viewModel, attacher: attacher)
     }
 
@@ -1025,12 +1022,13 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNil(sessionDims[armed], "the armed pane must not still carry an observe session", line: line)
     }
 
-    /// Pane losing focus (ghostty -> swiftTerm): `PaneCellView` attaches the
-    /// new observe transport BEFORE tearing down the old ghostty surface.
-    /// Discriminator: while the observe attach's backfill RPC is still held
-    /// open, the ghostty surface must still be armed -- a detach-old-first
-    /// ordering would have already torn it down before this attach was even
-    /// issued, leaving the pane transiently fed by neither transport.
+    /// Pane losing focus (ghostty -> swiftTerm): `swapToObserve` attaches the
+    /// new observe transport BEFORE tearing down the old ghostty surface,
+    /// both inside the SAME `paneWork` step. Discriminator: while the
+    /// observe attach's backfill RPC is still held open, the ghostty surface
+    /// must still be armed -- a detach-old-first ordering would have already
+    /// torn it down before this attach was even issued, leaving the pane
+    /// transiently fed by neither transport.
     @MainActor
     func testFocusLossKeepsGhosttyArmedUntilTheObserveAttachIsLive() async {
         let attacher = RecordingObserveAttacher()
@@ -1039,11 +1037,11 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
         let pane = makePaneRecord()
 
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane.paneID, cols: 80, rows: 24)
+        _ = await viewModel.swapToGhostty(pane: pane.paneID, cols: 80, rows: 24)
         XCTAssertNotNil(viewModel.ghosttySurface(for: pane.paneID))
 
         await client.hold()
-        let attachTask = Task { await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24) }
+        let swapTask = Task { await viewModel.swapToObserve(pane: pane, cols: 80, rows: 24) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
         XCTAssertNotNil(
@@ -1052,11 +1050,10 @@ final class SessionViewModelTests: XCTestCase {
         )
 
         await client.releaseNext()
-        let feed = await attachTask.value
+        let feed = await swapTask.value
         XCTAssertNotNil(feed)
 
-        await viewModel.endGhosttyAttach(pane: pane.paneID)
-        XCTAssertNil(viewModel.ghosttySurface(for: pane.paneID))
+        XCTAssertNil(viewModel.ghosttySurface(for: pane.paneID), "the swap tears down the old ghostty surface once observe is live")
         let attachCalls = await attacher.attachCalls
         XCTAssertEqual(attachCalls.count, 1)
     }
@@ -1074,11 +1071,11 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
         let pane = makePaneRecord()
 
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
+        _ = await viewModel.swapToObserve(pane: pane, cols: 80, rows: 24)
         let attachCallsBefore = await attacher.attachCalls
         XCTAssertEqual(attachCallsBefore.count, 1)
 
-        let ghosttyTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane.paneID, cols: 80, rows: 24) }
+        let swapTask = Task { await viewModel.swapToGhostty(pane: pane.paneID, cols: 80, rows: 24) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
         let detachCallsDuring = await attacher.detachCalls
@@ -1088,12 +1085,58 @@ final class SessionViewModelTests: XCTestCase {
         )
 
         factory.releaseNext()
-        let surface = await ghosttyTask.value
+        let surface = await swapTask.value
         XCTAssertNotNil(surface)
 
-        await viewModel.endLiveAttach(pane: pane.paneID)
         let detachCallsAfter = await attacher.detachCalls
         XCTAssertEqual(detachCallsAfter, [pane.paneID])
+    }
+
+    /// The stale-task race: SwiftUI's `.task(id:)` cancellation is
+    /// cooperative, so a superseded task body for this pane (focus left,
+    /// then returned, faster than the first swap's own attach RPC resolved)
+    /// is not actually stopped -- it keeps running to completion. Simulated
+    /// here as two competing calls for the SAME pane: `swapToObserve` (the
+    /// stale, superseded request, "B") issued first with its backfill RPC
+    /// held open, then `swapToGhostty` (the fresh, final request, back to
+    /// "A") issued and chained behind it before either settles. The pane
+    /// must end up carrying exactly the transport the LAST (fresh) request
+    /// asked for -- never neither.
+    @MainActor
+    func testStaleSupersededSwapCannotClobberAFresherSwapOnTheSamePane() async {
+        let attacher = RecordingObserveAttacher()
+        let factory = FakeGhosttyPaneFactory()
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
+        let pane = makePaneRecord()
+
+        // Steady state: the pane starts ghostty-armed ("A").
+        _ = await viewModel.swapToGhostty(pane: pane.paneID, cols: 80, rows: 24)
+        XCTAssertNotNil(viewModel.ghosttySurface(for: pane.paneID))
+
+        // Stale task body: focus briefly left ("B"); its swap-to-observe
+        // request is issued first, but its backfill RPC is held open.
+        await client.hold()
+        let staleTask = Task { await viewModel.swapToObserve(pane: pane, cols: 80, rows: 24) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        // Fresh task body: focus returned to "A" before the stale swap ever
+        // settled. The stale task above is NOT actually cancelled -- it
+        // keeps running.
+        let freshTask = Task { await viewModel.swapToGhostty(pane: pane.paneID, cols: 80, rows: 24) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        // Release the stale swap's held RPC; both tasks now settle in order.
+        await client.releaseNext()
+        _ = await staleTask.value
+        _ = await freshTask.value
+
+        XCTAssertNotNil(
+            viewModel.ghosttySurface(for: pane.paneID),
+            "the pane must settle armed, matching the LAST swap requested -- never neither transport"
+        )
+        let sessionDims = await attacher.sessionDims
+        XCTAssertNil(sessionDims[pane.paneID], "no leftover observe session from the superseded stale swap")
     }
 
     // MARK: - deep-history/backfill seeding order
