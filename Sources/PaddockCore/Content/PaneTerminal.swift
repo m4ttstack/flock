@@ -4,15 +4,11 @@ import Foundation
 /// `pane.selection.read` and anchors them against whatever the pane's LIVE
 /// renderer actually retains locally right now, read through
 /// `localRetentionProvider`/`localRetainedTextProvider` (ghostty's own
-/// retained screen -- `GhosttySession.retainedRowCount`/`retainedText` --
-/// since 18j; there is exactly one buffer per pane to stay adjacent to,
-/// never a second, headless mirror kept only for this class's own use).
-///
-/// `Terminal` played that mirroring role before 18m's mode-switching bridge:
-/// SwiftTerm rendered every unfocused pane and this type fed it the same
-/// backfill/frame bytes headlessly so deep history had something local to
-/// probe without AppKit. Ghostty now renders every pane directly, so the
-/// probe reads the real thing instead.
+/// retained screen -- `GhosttySession.retainedRowCount`/`retainedText`);
+/// there is exactly one buffer per pane to stay adjacent to, never a
+/// second, headless mirror kept only for this class's own use. Every pane
+/// renders through ghostty directly, so the anchor probe always reads the
+/// real, on-screen buffer.
 public final class PaneTerminal: @unchecked Sendable {
     private let lock = NSLock()
     private let cols: Int

@@ -22,11 +22,15 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
 
     func makeSurface(for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void) async -> any GhosttyPaneSurface {
         // `nil` when the FIFO cannot be created (`PaneControlChannel.init?`'s
-        // documented failure case): the bridge then simply never learns to
-        // switch modes and stays observe-only for this pane's whole life,
-        // same graceful degradation `PaneControlChannel`'s own doc comment
-        // describes.
+        // documented failure case): the bridge then never learns to switch
+        // modes and stays observe-only -- unable to ever become the
+        // control-mode (typeable) pane -- for its whole life. Logged, not
+        // silently degraded: a pane that can never take real keyboard input
+        // is a user-visible defect, not a cosmetic one.
         let channel = PaneControlChannel()
+        if channel == nil {
+            FileHandle.standardError.write(Data("paddock: failed to create control channel for pane \(pane.rawValue); it will never accept keyboard input\n".utf8))
+        }
         let argv = BridgeOptions.argv(
             executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0],
             target: pane.rawValue,

@@ -69,10 +69,9 @@ final class DeepHistoryTests: XCTestCase {
     /// `GhosttySession.retainedRowCount()` would report for a real surface:
     /// `ensureInitialized` must anchor `oldestFetchedRow` at exactly
     /// `totalRows - held`, whatever `held` the provider returns, never at
-    /// the pane's raw total. Before 18m this same anchor was pinned against
-    /// SwiftTerm's own scrollback-capping arithmetic (fed lines in,
-    /// `locallyHeldRowCount()` out); ghostty renders every pane directly
-    /// now, so the retention value is simply handed in.
+    /// the pane's raw total. Ghostty renders every pane directly, so the
+    /// retention value always comes from the provider, handed in here as a
+    /// hand-picked fake rather than derived from a real ghostty surface.
     func testHandComputedRetentionFromTheProviderFakeAnchorsTheFirstChunk() async throws {
         let server = FakeHerdrServer(); try server.start(); defer { server.stop() }
         server.respond(to: "pane.get", withResultJSON: Self.paneGet1000Rows)
@@ -98,7 +97,7 @@ final class DeepHistoryTests: XCTestCase {
     /// as non-adjacent numbers, not as a param assertion that can pass for
     /// the wrong reason.
     ///
-    /// Modeled on a real, reviewer-caught defect from before 18m: herdr's
+    /// Modeled on a real, reviewer-caught defect: herdr's
     /// recent-read range (`ghostty_recent_read_range`) could return FEWER
     /// rows than the `lines` value a caller requested, and trusting the
     /// requested count over what the renderer actually retained left the

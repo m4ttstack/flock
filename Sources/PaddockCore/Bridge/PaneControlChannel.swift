@@ -30,9 +30,14 @@ public final class PaneControlChannel {
     public let path: String
     private var fd: Int32 = -1
 
-    /// Returns nil when the FIFO cannot be made; the pane then simply has no
-    /// control channel, which today costs nothing since there is no
-    /// scroll-forwarding path to lose.
+    /// Returns nil when the FIFO cannot be made; the pane then has no way to
+    /// ever send `paddock.mode` -- its bridge is stuck in the observe mode
+    /// it was born in for the pane's whole life, so it can never become the
+    /// control-mode (typeable) pane. `GhosttyControlSurfaceFactory` logs
+    /// this failure rather than degrading silently, since it is a real,
+    /// user-visible loss (a pane that can never be focused for input), not
+    /// the merely-cosmetic scroll-forwarding gap this channel's own `send`
+    /// path guards elsewhere.
     public init?(directory: URL = FileManager.default.temporaryDirectory) {
         let name = "paddock-\(UUID().uuidString.prefix(8)).ctl"
         let url = directory.appendingPathComponent(name)

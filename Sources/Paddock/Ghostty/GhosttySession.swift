@@ -53,12 +53,10 @@ final class GhosttySession {
     /// Fired by `GhosttySurfaceView.keyDown` for real user key input (never
     /// from `flagsChanged`, and never for a bare Command combo -- see that
     /// call site). Set by `GhosttyControlSurfaceFactory.makeSurface` at
-    /// creation, from `SessionViewModel`'s own `recordLauncherKeystroke`, so
-    /// the launcher-pristine contract holds for a ghostty pane exactly like
-    /// it already does for a SwiftTerm one: without this, a ghostty pane's
-    /// keystrokes bypass `PaneCellView.routeKeyPress` entirely and the
-    /// pristine launcher overlay would never hide, staying hit-testable over
-    /// live terminal output.
+    /// creation, from `SessionViewModel`'s own `recordLauncherKeystroke`:
+    /// without this, a real keystroke into a pristine pane would never hide
+    /// the launcher overlay, leaving it hit-testable over live terminal
+    /// output.
     var onUserInput: (() -> Void)?
     nonisolated(unsafe) private var secureEventInputEnabled = false
     /// The FIFO to this pane's bridge, set by `GhosttyControlSurfaceFactory`
@@ -266,7 +264,7 @@ final class GhosttySession {
     /// never disagree about what "retained" means. Deliberately untrimmed
     /// (unlike `retainedText()`): the anchor math is owed to how many rows
     /// herdr's own `pane.get` total counts against, which includes trailing
-    /// blank rows the same way the SwiftTerm-side probe's row count does.
+    /// blank rows.
     func retainedRowCount() -> Int {
         readScreenRows().count
     }
