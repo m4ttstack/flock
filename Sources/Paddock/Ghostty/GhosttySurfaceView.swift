@@ -184,23 +184,49 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// the click is handed back to the responder chain (`super`) rather than
     /// consumed here, which is what lets that modifier's own hit-testing see
     /// it. libghostty's own context menu is never shown by this view.
+    ///
+    /// Holding Option overrides the routing toggle in either direction, one
+    /// click at a time: `RightClickDisposition.decide` sends it straight to
+    /// the pane (mods stripped of `.option` first) on a control-mode
+    /// (focused) pane, or drops it silently on an observe-mode one -- never
+    /// the menu, since the user asked for a pane click, not a menu. `mode`
+    /// is `wantsFocus`-derived because, in this app, the resolved-focused
+    /// pane is the only one ever in `.control` mode.
     override func rightMouseDown(with event: NSEvent) {
-        guard isRightClickRoutedToPane else {
+        switch rightClickDisposition(for: event) {
+        case .menu:
             super.rightMouseDown(with: event)
-            return
+        case .forwardToPane:
+            requestWindowFirstResponder()
+            session.sendMousePosition(event)
+            session.sendMouseButton(.right, pressed: true, event: event, modifierOverride: strippingOption(event.modifierFlags))
+        case .drop:
+            break
         }
-        requestWindowFirstResponder()
-        session.sendMousePosition(event)
-        session.sendMouseButton(.right, pressed: true, event: event)
     }
 
     override func rightMouseUp(with event: NSEvent) {
-        guard isRightClickRoutedToPane else {
+        switch rightClickDisposition(for: event) {
+        case .menu:
             super.rightMouseUp(with: event)
-            return
+        case .forwardToPane:
+            session.sendMousePosition(event)
+            session.sendMouseButton(.right, pressed: false, event: event, modifierOverride: strippingOption(event.modifierFlags))
+        case .drop:
+            break
         }
-        session.sendMousePosition(event)
-        session.sendMouseButton(.right, pressed: false, event: event)
+    }
+
+    private func rightClickDisposition(for event: NSEvent) -> RightClickDisposition {
+        RightClickDisposition.decide(
+            optionHeld: event.modifierFlags.contains(.option),
+            routingEnabled: isRightClickRoutedToPane,
+            mode: wantsFocus ? .control : .observe
+        )
+    }
+
+    private func strippingOption(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+        flags.subtracting(.option)
     }
 
     override func otherMouseDown(with event: NSEvent) {

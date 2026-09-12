@@ -189,11 +189,19 @@ final class GhosttySession {
 
     /// True when libghostty consumed the click, i.e. the program in the pane
     /// wanted it. A false means the view can offer its own context menu.
+    /// `modifierOverride`, when given, replaces `event.modifierFlags` for
+    /// the mods ghostty sees -- an Option-held right click forwarded via
+    /// `RightClickDisposition.forwardToPane` strips `.option` first so the
+    /// pane sees a plain right click, not alt+right (see
+    /// `GhosttySurfaceView.rightMouseDown`).
     @discardableResult
-    func sendMouseButton(_ button: GhosttySurfaceView.MouseButton, pressed: Bool, event: NSEvent) -> Bool {
+    func sendMouseButton(
+        _ button: GhosttySurfaceView.MouseButton, pressed: Bool, event: NSEvent,
+        modifierOverride: NSEvent.ModifierFlags? = nil
+    ) -> Bool {
         guard let surface else { return false }
         let state: ghostty_input_mouse_state_e = pressed ? GHOSTTY_MOUSE_PRESS : GHOSTTY_MOUSE_RELEASE
-        return ghostty_surface_mouse_button(surface, state, translate(button), translate(event.modifierFlags))
+        return ghostty_surface_mouse_button(surface, state, translate(button), translate(modifierOverride ?? event.modifierFlags))
     }
 
     func sendMousePosition(_ event: NSEvent) {
