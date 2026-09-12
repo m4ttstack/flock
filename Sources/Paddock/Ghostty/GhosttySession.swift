@@ -31,6 +31,14 @@ final class GhosttySession {
         fileprivate(set) var isMouseHidden = false
         /// The cell in pixels, which is how a wheel delta becomes a line count.
         fileprivate(set) var cellSize: (width: Int, height: Int)?
+        /// The scrollback viewport's offset from the top of libghostty's own
+        /// scrollback-plus-active area (`terminal.Scrollbar.offset`; 0 means
+        /// scrolled all the way up). Fed by `GHOSTTY_ACTION_SCROLLBAR`, which
+        /// fires whenever ghostty's own scroll position changes -- so, like
+        /// every other action-delivered field on this type, it can lag a
+        /// wheel tick or two behind a fast flick.
+        fileprivate(set) var scrollbackOffset: UInt64 = 0
+        var isAtScrollbackTop: Bool { scrollbackOffset == 0 }
     }
 
     let host: GhosttyHost
@@ -224,6 +232,45 @@ final class GhosttySession {
         return ghostty_surface_has_selection(surface)
     }
 
+    /// The full retained screen (scrollback plus active area), trimmed of
+    /// trailing blank rows for display -- the deep-history browser's live
+    /// buffer text for a ghostty-rendered pane. Same call
+    /// (`ghostty_surface_read_text` over a whole-`GHOSTTY_POINT_SCREEN`
+    /// selection) ghostty's own macOS app uses for its "select all" content
+    /// cache. Zig's own doc comment on this entry point calls it "expensive"
+    /// and asks callers to throttle it; call sites here are reveal-time and
+    /// first-anchor-time only, never per scroll tick or per frame.
+    func retainedText() -> String {
+        var lines = readScreenRows()
+        while let last = lines.last, last.isEmpty { lines.removeLast() }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Row count backing the deep-history anchor's `oldestFetchedRow` math
+    /// (`PaneTerminal.ensureInitialized`) -- counted from the SAME untrimmed
+    /// rows `retainedText()` reads, never independently, so the two can
+    /// never disagree about what "retained" means. Deliberately untrimmed
+    /// (unlike `retainedText()`): the anchor math is owed to how many rows
+    /// herdr's own `pane.get` total counts against, which includes trailing
+    /// blank rows the same way the SwiftTerm-side probe's row count does.
+    func retainedRowCount() -> Int {
+        readScreenRows().count
+    }
+
+    private func readScreenRows() -> [String] {
+        guard let surface else { return [] }
+        var text = ghostty_text_s()
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            rectangle: false)
+        guard ghostty_surface_read_text(surface, selection, &text) else { return [] }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text_len > 0 else { return [] }
+        return String(cString: text.text).components(separatedBy: "\n")
+    }
+
     func paste(_ text: String) {
         insertText(text)
     }
@@ -312,6 +359,8 @@ final class GhosttySession {
                 width: Int(action.action.cell_size.width),
                 height: Int(action.action.cell_size.height)
             )
+        case GHOSTTY_ACTION_SCROLLBAR:
+            state.scrollbackOffset = action.action.scrollbar.offset
         case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
             let title = state.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let title, !title.isEmpty {

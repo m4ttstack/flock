@@ -145,17 +145,69 @@ struct PaneTerminalView: View {
 /// SwiftTerm view fed frames -- see `GhosttyControlSurfaceFactory`. Input,
 /// mouse passthrough, clipboard and resize all happen inside
 /// `GhosttySurfaceView`/`GhosttySession` themselves; this wrapper only hosts
-/// the surface and keeps it restyled when the active theme changes. There is
-/// no history browser here: the deep-history overlay introspects a
-/// SwiftTerm buffer this pane no longer has one of -- the unfocused-pane
-/// policy and the history overlay's ghostty story both live elsewhere.
+/// the surface and keeps it restyled when the active theme changes.
+///
+/// The deep-history browser overlays here exactly as it does on
+/// `PaneTerminalView`: same `HistoryBrowseView`, same `BrowserScrollState`.
+/// The one difference is the buffer-text source -- `GhosttySurfaceRepresentable`
+/// wires `paneTerminal`'s `localRetentionProvider`/`localRetainedTextProvider`
+/// from `GhosttySession.retainedRowCount`/`retainedText` (libghostty's own
+/// retained screen) instead of a second SwiftTerm instance, so there is only
+/// ever one buffer for this pane to disagree with itself about.
 struct GhosttyPaneTerminalView: View {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
+    /// Backs the deep-history region, shared with `SessionViewModel`'s
+    /// per-pane cache the same way `PaneTerminalView` shares it -- `nil`
+    /// leaves this view with no region, same fallback as that view.
+    var paneTerminal: PaneTerminal?
+    let historyDim: SwiftUI.Color
+
+    @State private var historyCapable: Bool
+    @State private var historyCapabilityToken: UUID?
+    @State private var historyRevealed = false
+    @State private var browserState = BrowserScrollState()
+
+    init(
+        surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, paneTerminal: PaneTerminal? = nil,
+        historyDim: SwiftUI.Color = SwiftUI.Color(red: 0.34, green: 0.37, blue: 0.54)
+    ) {
+        self.surface = surface
+        self.theme = theme
+        self.isFocused = isFocused
+        self.paneTerminal = paneTerminal
+        self.historyDim = historyDim
+        _historyCapable = State(initialValue: paneTerminal?.historyCapable ?? false)
+    }
 
     var body: some View {
-        GhosttySurfaceRepresentable(surface: surface, theme: theme, isFocused: isFocused)
+        ZStack(alignment: .bottomTrailing) {
+            GhosttySurfaceRepresentable(
+                surface: surface, theme: theme, isFocused: isFocused, paneTerminal: paneTerminal,
+                browserState: browserState,
+                onScrollPastTop: { withAnimation(.easeOut(duration: 0.2)) { historyRevealed = true } },
+                onScrollBackToLive: { withAnimation(.easeIn(duration: 0.15)) { historyRevealed = false } }
+            )
+
+            if let paneTerminal, historyCapable, historyRevealed {
+                HistoryBrowseView(
+                    paneTerminal: paneTerminal, ground: theme.terminalGround, ink: historyDim,
+                    liveInk: theme.terminalForeground, state: browserState
+                )
+                .transition(.opacity)
+            }
+        }
+        .onAppear {
+            historyCapabilityToken = paneTerminal?.onHistoryCapabilityLost {
+                Task { @MainActor in historyCapable = false }
+            }
+        }
+        .onDisappear {
+            if let historyCapabilityToken {
+                paneTerminal?.removeHistoryCapabilityListener(historyCapabilityToken)
+            }
+        }
     }
 }
 
@@ -169,6 +221,10 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
+    var paneTerminal: PaneTerminal?
+    var browserState: BrowserScrollState?
+    var onScrollPastTop: (() -> Void)?
+    var onScrollBackToLive: (() -> Void)?
 
     final class Coordinator {
         var lastAppliedThemeID: String?
@@ -184,8 +240,18 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             return PlaceholderGhosttyHostView(background: theme.terminalGround)
         }
         context.coordinator.lastAppliedThemeID = theme.id
-        let view = GhosttySurfaceView(session: handle.session)
+        let session = handle.session
+        let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
+        view.onScrollPastTop = onScrollPastTop
+        view.onScrollBackToLive = onScrollBackToLive
+        view.browserState = browserState
+        // Deep-history adjacency reads straight from libghostty's own
+        // retained screen (see `GhosttySession.retainedText`'s doc) --
+        // there is only ever one buffer for this pane, unlike the
+        // SwiftTerm-rendered path's two-instance divergence.
+        paneTerminal?.localRetentionProvider = { [weak session] in session?.retainedRowCount() ?? 0 }
+        paneTerminal?.localRetainedTextProvider = { [weak session] in session?.retainedText() ?? "" }
         return view
     }
 
@@ -196,6 +262,9 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             ghosttyView.session.updateTheme(theme.ghosttyThemeColors())
         }
         ghosttyView.wantsFocus = isFocused
+        ghosttyView.onScrollPastTop = onScrollPastTop
+        ghosttyView.onScrollBackToLive = onScrollBackToLive
+        ghosttyView.browserState = browserState
         // Mirrors what SwiftTerm panes get from `.focused($keyCaptureFocused)`:
         // becoming the resolved-focused pane grabs real AppKit key focus
         // immediately, with no extra click needed first. The PRIMARY grab

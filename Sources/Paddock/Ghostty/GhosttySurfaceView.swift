@@ -44,6 +44,20 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// a second `updateNSView` call).
     var wantsFocus = false
 
+    /// Wired by `GhosttySurfaceRepresentable` from the pane cell's own
+    /// `BrowserScrollState` and reveal/exit closures -- same shared state the
+    /// SwiftTerm-rendered pane's `CopyOnSelectTerminalView` reads, so the two
+    /// renderers' history browser behaves identically regardless of which
+    /// one is live.
+    var onScrollPastTop: (() -> Void)?
+    var onScrollBackToLive: (() -> Void)?
+    var browserState: BrowserScrollState?
+    private var lastEdgeSignal = Date.distantPast
+    /// `nonisolated(unsafe)`, matching `windowObservers`/`globalObservers`
+    /// above: `deinit` is not actor-isolated, so the monitor cleanup there
+    /// needs to reach this property from a nonisolated context.
+    nonisolated(unsafe) private var scrollEdgeMonitor: Any?
+
     /// The surface is born at libghostty's own internal placeholder size
     /// (`ghostty_surface_config_s` has no size field), so the initial frame
     /// here is just this view's own starting point before its first real
@@ -67,6 +81,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         for observer in windowObservers + globalObservers {
             notificationCenter.removeObserver(observer)
         }
+        if let scrollEdgeMonitor { NSEvent.removeMonitor(scrollEdgeMonitor) }
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -83,7 +98,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         super.viewDidMoveToWindow()
         updateObservers()
         applyBackgroundColor()
-        guard window != nil else { return }
+        if window == nil {
+            if let scrollEdgeMonitor { NSEvent.removeMonitor(scrollEdgeMonitor) }
+            scrollEdgeMonitor = nil
+            return
+        }
+        if scrollEdgeMonitor == nil {
+            scrollEdgeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                self?.handleScrollEdge(event)
+                return event
+            }
+        }
         session.attach(to: self)
         renderIfNeeded()
         if wantsFocus, window?.firstResponder !== self {
@@ -188,6 +213,41 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// diversion hook here the way Herdglass's `onScrollWheel` had one.
     override func scrollWheel(with event: NSEvent) {
         session.sendScrollWheel(event)
+    }
+
+    /// Deep history reveals by intent, the same gesture
+    /// `CopyOnSelectTerminalView.handleScrollEdge` uses: an up-scroll while
+    /// already at the very top signals past-the-top; a down-scroll while the
+    /// browser sits at its live end signals back-to-live. `scrollWheel`
+    /// above is never called at all once the browser overlay is topmost
+    /// (its own SwiftUI `ScrollView` wins the hit test then), so a LOCAL
+    /// event monitor -- observing before dispatch, added/removed alongside
+    /// the window in `viewDidMoveToWindow` -- is the only way to see the
+    /// gesture in both states; returning the event unmodified means
+    /// libghostty (or the overlay) still receives it untouched. libghostty
+    /// exposes no synchronous scroll-position read, only the
+    /// action-delivered `GHOSTTY_ACTION_SCROLLBAR` offset on `session.state`,
+    /// so "at top" can lag a wheel tick behind a fast flick -- a missed tick
+    /// only delays the reveal by one more tick of continued scrolling, never
+    /// triggers a wrong one.
+    private func handleScrollEdge(_ event: NSEvent) {
+        guard event.window === window else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return }
+        let deltaY = event.scrollingDeltaY
+        guard deltaY != 0, Date().timeIntervalSince(lastEdgeSignal) > 0.25 else { return }
+        let scrollingUp = deltaY > 0
+        if let browserState, browserState.browsing {
+            if !scrollingUp, browserState.atLiveEnd {
+                lastEdgeSignal = Date()
+                onScrollBackToLive?()
+            }
+            return
+        }
+        if scrollingUp, session.state.isAtScrollbackTop {
+            lastEdgeSignal = Date()
+            onScrollPastTop?()
+        }
     }
 
     // MARK: - Keyboard

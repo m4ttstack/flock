@@ -229,7 +229,11 @@ struct PaneCellView: View {
         case .ghostty:
             if let ghosttySurface {
                 ZStack(alignment: .top) {
-                    GhosttyPaneTerminalView(surface: ghosttySurface, theme: theme, isFocused: isFocused)
+                    GhosttyPaneTerminalView(
+                        surface: ghosttySurface, theme: theme, isFocused: isFocused,
+                        paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
+                        historyDim: theme.overlay0
+                    )
                     // Writes straight to the surface's PTY (via the session),
                     // not `pane.send_input`/`InputRouter`: there is no herdr
                     // attach in between for a ghostty pane to route through.
