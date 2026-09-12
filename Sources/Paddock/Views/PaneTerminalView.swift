@@ -18,6 +18,10 @@ struct PaneTerminalView: View {
     // SwiftTerm also exports a top-level `Color` (`Colors.swift`), so this
     // must stay qualified in any file that imports both it and SwiftUI.
     let terminalGround: SwiftUI.Color
+    /// The terminal's default foreground, from the active theme's own
+    /// `terminalForeground` role -- follows theme changes the same as
+    /// `terminalGround`, never a fixed constant.
+    let terminalForeground: SwiftUI.Color
     /// A click that ended with no selection: this view's stand-in for the
     /// canvas's normal click-to-focus, since a click landing on the AppKit
     /// terminal body never reaches SwiftUI's own tap gesture.
@@ -53,6 +57,7 @@ struct PaneTerminalView: View {
 
     init(
         cols: Int, rows: Int, feed: PaneLiveFeed, terminalGround: SwiftUI.Color,
+        terminalForeground: SwiftUI.Color,
         onPlainClick: @escaping () -> Void, paneTerminal: PaneTerminal? = nil,
         onScreenActivity: ((Int) -> Void)? = nil,
         historyDim: SwiftUI.Color = SwiftUI.Color(red: 0.34, green: 0.37, blue: 0.54)
@@ -61,6 +66,7 @@ struct PaneTerminalView: View {
         self.rows = rows
         self.feed = feed
         self.terminalGround = terminalGround
+        self.terminalForeground = terminalForeground
         self.onPlainClick = onPlainClick
         self.paneTerminal = paneTerminal
         self.onScreenActivity = onScreenActivity
@@ -73,6 +79,7 @@ struct PaneTerminalView: View {
             TerminalRepresentable(
                 cols: cols, rows: rows, feed: feed, onCopy: showCopyChip, onPlainClick: onPlainClick,
                 paneTerminal: paneTerminal, onScreenActivity: onScreenActivity, ground: terminalGround,
+                foreground: terminalForeground,
                 onScrollPastTop: { withAnimation(.easeOut(duration: 0.2)) { historyRevealed = true } },
                 onScrollBackToLive: { withAnimation(.easeIn(duration: 0.15)) { historyRevealed = false } },
                 browserState: browserState
@@ -95,8 +102,11 @@ struct PaneTerminalView: View {
             // buffer's own text, adjacency exact by construction because
             // that text is read from the rendered terminal itself.
             if let paneTerminal, historyCapable, historyRevealed {
-                HistoryBrowseView(paneTerminal: paneTerminal, ground: terminalGround, ink: historyDim, state: browserState)
-                    .transition(.opacity)
+                HistoryBrowseView(
+                    paneTerminal: paneTerminal, ground: terminalGround, ink: historyDim,
+                    liveInk: terminalForeground, state: browserState
+                )
+                .transition(.opacity)
             }
 
             if let copiedLineCount {
@@ -162,6 +172,10 @@ private struct HistoryBrowseView: View {
     let paneTerminal: PaneTerminal
     let ground: SwiftUI.Color
     let ink: SwiftUI.Color
+    /// The live buffer's own ink, matching the terminal's active
+    /// `terminalForeground` role -- the browse boundary stays color-only
+    /// (dim history vs. this) even as the theme changes.
+    let liveInk: SwiftUI.Color
     let state: BrowserScrollState
 
     @State private var text = ""
@@ -196,7 +210,7 @@ private struct HistoryBrowseView: View {
                     }
                     Text(bufferText.isEmpty ? " " : bufferText)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(SwiftUI.Color(red: 0xC9 / 255, green: 0xCB / 255, blue: 0xD4 / 255))
+                        .foregroundStyle(liveInk)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 11)
                     Color.clear.frame(height: 1).id(Self.bottomAnchor)
@@ -274,6 +288,7 @@ private struct TerminalRepresentable: NSViewRepresentable {
     var paneTerminal: PaneTerminal?
     var onScreenActivity: ((Int) -> Void)?
     var ground: SwiftUI.Color
+    var foreground: SwiftUI.Color
     var onScrollPastTop: (() -> Void)?
     var onScrollBackToLive: (() -> Void)?
     var browserState: BrowserScrollState?
@@ -303,6 +318,7 @@ private struct TerminalRepresentable: NSViewRepresentable {
         // this representable is invisible wherever the terminal itself has
         // painted, which is everywhere its buffer cells are empty.
         view.nativeBackgroundColor = NSColor(ground)
+        view.nativeForegroundColor = NSColor(foreground)
         view.onScrollPastTop = onScrollPastTop
         view.onScrollBackToLive = onScrollBackToLive
         view.browserState = browserState
@@ -349,6 +365,7 @@ private struct TerminalRepresentable: NSViewRepresentable {
         nsView.onCopy = onCopy
         nsView.onPlainClick = onPlainClick
         nsView.nativeBackgroundColor = NSColor(ground)
+        nsView.nativeForegroundColor = NSColor(foreground)
         nsView.onScrollPastTop = onScrollPastTop
         nsView.onScrollBackToLive = onScrollBackToLive
         nsView.browserState = browserState

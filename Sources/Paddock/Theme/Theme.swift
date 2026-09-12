@@ -53,6 +53,14 @@ public struct Theme: Identifiable, Equatable, Sendable {
     public let chromeTextStrong: Color
     public let chromeTextDim: Color
 
+    /// The terminal body's own ground and default foreground -- unlike the
+    /// chrome roles above, these follow the active theme (herdr does the
+    /// same: a pane's ground is the palette's own dark step, never a fixed
+    /// constant). Full ANSI 16-color theming is out of scope; only the
+    /// terminal's base ground/fg follow the palette.
+    public let terminalGround: Color
+    public let terminalForeground: Color
+
     public static func == (lhs: Theme, rhs: Theme) -> Bool { lhs.id == rhs.id }
 }
 
@@ -143,6 +151,16 @@ extension Theme {
         self.chromeTextStrong = rgb(strong.0, strong.1, strong.2)
         let dim = chromeOffset(panelBg, (129, 130, 131))
         self.chromeTextDim = rgb(dim.0, dim.1, dim.2)
+
+        // Blended toward black off the palette's own panelBg, calibrated so
+        // tokyo-night (panelBg 26, 27, 38) lands at the previous fixed
+        // constant #191A22 -- preserving the default look exactly while
+        // letting every other theme derive its own terminal ground the same
+        // way. Foreground follows the palette's own body-text color: the
+        // one role already tuned for legibility against a dark ground.
+        let ground = chromeOffset(panelBg, (-1, -1, -4))
+        self.terminalGround = rgb(ground.0, ground.1, ground.2)
+        self.terminalForeground = rgb(text.0, text.1, text.2)
     }
 
     /// Catppuccin Mocha, herdr's default.
