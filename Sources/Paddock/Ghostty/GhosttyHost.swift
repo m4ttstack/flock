@@ -39,8 +39,9 @@ final class GhosttyHost {
     /// The config every surface's per-surface clone is cloned from. Freed
     /// only in `deinit`: `ghostty_app_update_config`/`ghostty_config_clone`
     /// both clone what they are given, so this can stay alive and unchanged
-    /// for the app's whole lifetime. `nonisolated(unsafe)` for the same
-    /// reason as `app`: `deinit` is not actor-isolated, and reads it too.
+    /// for the app's whole lifetime. `nonisolated(unsafe)` solely because
+    /// `deinit` is not actor-isolated; every live touch stays on the main
+    /// actor (libghostty callback threads never read it, unlike `app`).
     nonisolated(unsafe) private var baseConfig: ghostty_config_t?
 
     /// `ghostty_init` has to run before any other libghostty call, the config
