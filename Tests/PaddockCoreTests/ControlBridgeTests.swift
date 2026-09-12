@@ -516,7 +516,7 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertFalse(proc.isRunning, "SIGKILL fallback must have ended the process")
     }
 
-    // MARK: - BridgeModeSwitcher: peer-gone race (F5)
+    // MARK: - BridgeModeSwitcher: peer-gone race
 
     /// The race `terminateCurrent` and `requestSwitch` must never leave a
     /// window for: the bridge's own PTY goes away (the GUI tore the pane's
@@ -551,36 +551,63 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(spawnCount.value, 0, "a mode request arriving after the peer is gone must never spawn a replacement")
     }
 
-    /// The other ordering: a switch completes (installing a NEW current
-    /// child), then the peer goes away. `terminateCurrent` must terminate
-    /// the NEW child, never a stale reference to the one the switch already
-    /// replaced.
-    func testRequestSwitchThenTerminateCurrentTerminatesTheNewChildNotTheOld() {
-        let terminatedModes = LockedBox<[PaneMode]>([])
+    /// The genuinely concurrent ordering: `terminateCurrent` arrives while a
+    /// switch is parked mid-flight (inside `spawnChild`, after the old child
+    /// is already gone but before the new one is installed as `current`).
+    /// Without holding its own lock across the whole operation,
+    /// `terminateCurrent` could read the stale `current` here, terminate it
+    /// (a no-op double-kill of the already-dead old child), and return --
+    /// leaving nothing to ever terminate the switch's own new child once it
+    /// finishes installing. `terminateCurrent` must instead block until the
+    /// switch settles, then terminate whichever child is ACTUALLY current.
+    func testTerminateCurrentDuringAnInFlightSwitchWaitsThenKillsWhicheverChildEndsUpCurrent() {
         let herdrIn = Pipe()
-        let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
+        let spawnEntered = DispatchSemaphore(value: 0)
+        let releaseSpawn = DispatchSemaphore(value: 0)
+        let terminatedModes = LockedBox<[PaneMode]>([])
         let initial = BridgeChild(
             mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
             fromHerdrHandle: Pipe().fileHandleForReading)
+        let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
         let switcher = BridgeModeSwitcher(
             initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
             spawnChild: { mode, _ in
-                BridgeChild(
+                spawnEntered.signal()
+                releaseSpawn.wait()
+                return BridgeChild(
                     mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
                     fromHerdrHandle: Pipe().fileHandleForReading)
             },
             terminateChild: { child in terminatedModes.mutate { $0.append(child.mode) } }
         )
 
-        switcher.requestSwitch(to: .control)
-        switcher.terminateCurrent()
+        let switchDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            switcher.requestSwitch(to: .control)
+            switchDone.signal()
+        }
+        XCTAssertEqual(spawnEntered.wait(timeout: .now() + 2), .success)
+
+        let terminateDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            switcher.terminateCurrent()
+            terminateDone.signal()
+        }
+        usleep(50_000)
+        XCTAssertEqual(
+            terminateDone.wait(timeout: .now()), .timedOut,
+            "terminateCurrent must queue behind the in-flight switch, not slip past it and read a stale current")
+
+        releaseSpawn.signal()
+        XCTAssertEqual(switchDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(terminateDone.wait(timeout: .now() + 2), .success)
 
         XCTAssertEqual(
             terminatedModes.value, [.observe, .control],
-            "the switch's own old-child terminate, then terminateCurrent on the NEW (control) child -- never the old one twice while the new one leaks")
+            "the switch's own old-child terminate, then terminateCurrent on whichever child is ACTUALLY current (the new control child) -- never orphaned")
     }
 
-    // MARK: - startHerdrOutput: per-child buffer + generation (F2)
+    // MARK: - startHerdrOutput: per-child buffer + generation
 
     /// A mode switch's new child must never inherit a byte the OLD child's
     /// own line buffer was still holding: herdr flushes at 8KB chunk
@@ -647,6 +674,89 @@ final class ControlBridgeTests: XCTestCase {
         newOut.fileHandleForWriting.write(freshFrame)
         let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
         XCTAssertEqual(decoded, freshPayload, "the new (current-generation) child's own frame must still decode normally")
+    }
+
+    // MARK: - recordSize: a resize arriving mid-switch reaches the NEW child
+
+    /// A resize that lands while `requestSwitch` is mid-kill (the switch
+    /// holds `BridgeModeSwitcher`'s own lock for its whole duration) must
+    /// queue behind it, never slip past and apply to a child the switch is
+    /// about to replace. The spawn necessarily used whatever size was
+    /// latest BEFORE the resize landed; the resize must still reach the
+    /// FRESHLY SPAWNED child once `recordSize` finally runs.
+    func testResizeArrivingMidSwitchReachesTheNewChild() throws {
+        let oldIn = Pipe()
+        let newIn = Pipe()
+        let io = BridgeIO(herdrInFD: oldIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        let initial = BridgeChild(
+            mode: .observe, process: Process(), toHerdrFD: oldIn.fileHandleForWriting.fileDescriptor,
+            fromHerdrHandle: Pipe().fileHandleForReading)
+        let terminateEntered = DispatchSemaphore(value: 0)
+        let releaseTerminate = DispatchSemaphore(value: 0)
+        let spawnedAt = LockedBox<PTYSize?>(nil)
+        let switcher = BridgeModeSwitcher(
+            initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
+            spawnChild: { mode, size in
+                spawnedAt.mutate { $0 = size }
+                return BridgeChild(
+                    mode: mode, process: Process(), toHerdrFD: newIn.fileHandleForWriting.fileDescriptor,
+                    fromHerdrHandle: Pipe().fileHandleForReading)
+            },
+            terminateChild: { _ in
+                terminateEntered.signal()
+                releaseTerminate.wait()
+            }
+        )
+
+        let switchDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            switcher.requestSwitch(to: .control)
+            switchDone.signal()
+        }
+        XCTAssertEqual(terminateEntered.wait(timeout: .now() + 2), .success)
+
+        // The resize lands while the switch holds the lock (kill in progress).
+        let resizeDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            switcher.recordSize(PTYSize(cols: 132, rows: 50))
+            resizeDone.signal()
+        }
+        usleep(50_000)
+        XCTAssertEqual(
+            resizeDone.wait(timeout: .now()), .timedOut,
+            "recordSize must queue behind the in-flight switch, not slip past it")
+
+        releaseTerminate.signal()
+        XCTAssertEqual(switchDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(resizeDone.wait(timeout: .now() + 2), .success)
+
+        XCTAssertEqual(spawnedAt.value, PTYSize(cols: 80, rows: 24), "the spawn necessarily used the stale size")
+        let received = readAllAvailableForTest(newIn.fileHandleForReading.fileDescriptor)
+        let line = String(decoding: received, as: UTF8.self)
+        XCTAssertTrue(
+            line.contains("\"terminal.resize\"") && line.contains("132") && line.contains("50"),
+            "the NEW child must receive the up-to-date resize; got: \(line)")
+    }
+
+    // MARK: - startControlPipe: several mode lines in one read collapse to the last
+
+    func testSeveralModeLinesInOneReadCollapseToTheLastOne() async throws {
+        let control = Pipe()
+        let io = BridgeIO(herdrInFD: Pipe().fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        let seen = LockedBox<[PaneMode]>([])
+        io.onModeCommand = { mode in seen.mutate { $0.append(mode) } }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        let burst = [
+            ControlBridge.encodeLine(["type": "paddock.mode", "mode": "control"])!,
+            ControlBridge.encodeLine(["type": "paddock.mode", "mode": "observe"])!,
+            ControlBridge.encodeLine(["type": "paddock.mode", "mode": "control"])!,
+            ControlBridge.encodeLine(["type": "paddock.mode", "mode": "observe"])!,
+        ].reduce(Data()) { $0 + $1 }
+        control.fileHandleForWriting.write(burst)
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertEqual(seen.value, [.observe], "four mode lines in one read must collapse to a single request for the LAST one")
     }
 }
 
