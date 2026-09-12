@@ -723,6 +723,58 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(surface.modeCalls, [.observe, .control])
     }
 
+    /// The cross-pane race the single-pane stale test above cannot see:
+    /// `reconcilePaneModeIfNeeded` fires one `Task` per focus transition, and
+    /// each one's own two steps chase DIFFERENT panes (old, then new), so
+    /// two overlapping transitions never serialize against each other
+    /// directly the way two calls for the SAME pane do. Holding pane A's OWN
+    /// `setMode` call open is what forces the race: while the first
+    /// transition's (A -> B) own A-step sits parked, the second transition
+    /// (B -> A, arriving before the first ever finishes) races its OWN B-step
+    /// in ahead unheld, so when the first transition's A-step finally
+    /// releases and it moves on to ITS B-step, that step is the one
+    /// enqueued LAST on B's chain -- exactly the ordering the review's own
+    /// probe used to reproduce A=[control, observe, control],
+    /// B=[observe, control] (both panes left in `.control`) from a captured,
+    /// not run-time-derived, mode decision.
+    @MainActor
+    func testHeldABAFlipCannotLeaveTwoControlModePanes() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let paneA = PaneID(rawValue: "w1:p1")
+        let paneB = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(paneA, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(paneB, cols: 80, rows: 24)
+        let surfaceA = try XCTUnwrap(factory.surfaces[paneA])
+        let surfaceB = try XCTUnwrap(factory.surfaces[paneB])
+
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        await viewModel.waitForPaneModeReconciliation()
+        XCTAssertEqual(surfaceA.currentMode, .control)
+
+        // Flip to B, but hold A's own `setMode` call (its demotion to
+        // observe) open mid-flight -- this is the FIRST transition's own
+        // first step.
+        surfaceA.holdMode()
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p2"), connection: .live)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        // Flip back to A while the first transition's A-step is still
+        // parked. This second transition's OWN B-step (unheld) races in and
+        // settles B at .observe before the first transition ever reaches
+        // its own (stale) B-step.
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        surfaceA.releaseNextMode() // releases the first transition's parked A-step (-> observe)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        surfaceA.releaseNextMode() // releases the second transition's own A-step (-> control)
+        await viewModel.waitForPaneModeReconciliation()
+
+        XCTAssertEqual(surfaceA.currentMode, .control, "the actually-focused pane must end up armed")
+        XCTAssertNotEqual(surfaceB.currentMode, .control, "no other pane may still be control-mode once the dust settles")
+    }
+
     // MARK: - context-menu commands (split down, close, right-click routing)
 
     @MainActor

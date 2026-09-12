@@ -193,6 +193,7 @@ public enum ControlBridge {
             do {
                 try proc.run()
             } catch {
+                fputs("paddock-bridge: failed to spawn herdr (\(mode.rawValue)): \(error)\n", stderr)
                 return nil
             }
             return BridgeChild(mode: mode, process: proc, toHerdrFD: toHerdr.fileHandleForWriting.fileDescriptor, fromHerdrHandle: fromHerdr.fileHandleForReading)
@@ -203,7 +204,6 @@ public enum ControlBridge {
         // moments later, over the FIFO, from `SessionViewModel`'s own
         // attach -- see `GhosttySession.setPaneMode`.
         guard let initialChild = spawnChild(mode: .observe, size: size) else {
-            fputs("paddock-bridge: failed to spawn herdr: \n", stderr)
             exit(1)
         }
 
@@ -236,7 +236,6 @@ public enum ControlBridge {
         // than this read is caught by the read, a change later than it by
         // the source.
         if let resize = startupResize(spawned: size, current: currentWinSize(fd: STDIN_FILENO)) {
-            io.send(["type": "terminal.resize", "cols": resize.cols, "rows": resize.rows])
             switcher.recordSize(resize)
         }
         io.startHerdrOutput(initialChild.fromHerdrHandle)
@@ -381,6 +380,12 @@ final class BridgeModeSwitcher: @unchecked Sendable {
     private let lock = NSLock()
     private var current: BridgeChild
     private var latestSize: PTYSize
+    /// Set once the bridge's own PTY has gone away for good (the GUI tore
+    /// the pane's surface down entirely) -- checked by `requestSwitch`
+    /// before it spawns anything, so a mode line racing that teardown can
+    /// never spawn a replacement child nothing will ever go on to kill (see
+    /// `terminateCurrent`'s own doc for the race this closes).
+    private var peerGone = false
     private let io: BridgeIO
     private let spawnChild: (PaneMode, PTYSize) -> BridgeChild?
     private let terminateChild: (BridgeChild) -> Void
@@ -402,32 +407,55 @@ final class BridgeModeSwitcher: @unchecked Sendable {
 
     /// Updates the size the NEXT mode switch will spawn its replacement
     /// child at -- the latest SIGWINCH-observed size, not the size the
-    /// bridge itself was started with.
+    /// bridge itself was started with -- and immediately re-sends a
+    /// `terminal.resize` for it to whichever child is CURRENTLY live. The
+    /// re-send matters exactly when a resize races a mode switch: `send`
+    /// and this update both take `lock`, so a resize that arrives while
+    /// `requestSwitch` is mid-flight (kill + spawn + rewire can take up to
+    /// the escalation timeout) queues behind it and, once it finally runs,
+    /// pushes the up-to-date size to the FRESHLY SPAWNED child -- which was
+    /// necessarily spawned from the size `requestSwitch` had captured
+    /// before this update landed, and would otherwise never learn of it.
     func recordSize(_ size: PTYSize) {
-        lock.withLockHeld { latestSize = size }
+        lock.lock()
+        latestSize = size
+        lock.unlock()
+        io.send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows])
     }
 
     /// Terminates the live child outright (the GUI tore the pane's surface
     /// down entirely, not a mode switch) -- wired to `BridgeIO`'s stdin-EOF
-    /// path.
+    /// path. Holds the lock across the terminate call itself (not just the
+    /// read of `current`) and marks `peerGone`, both while still holding it:
+    /// without this, a `requestSwitch` racing this call could read `current`
+    /// before this terminates it, then (after this releases the lock) kill
+    /// it AGAIN, spawn a brand new child, and install it as `current` --
+    /// with the bridge's own PTY already gone and nothing left to tell this
+    /// new child to switch again, that child (and its herdr process) is
+    /// orphaned forever, reachable in practice as a focus flip immediately
+    /// followed by a fast tab switch.
     func terminateCurrent() {
-        let child = lock.withLockHeld { current }
-        terminateChild(child)
+        lock.lock()
+        defer { lock.unlock() }
+        guard !peerGone else { return }
+        peerGone = true
+        terminateChild(current)
     }
 
     /// Kills the current child and spawns `newMode` at the latest known
     /// size, then re-points `BridgeIO` at the new pipes -- a no-op if
-    /// `newMode` already matches. Safe to call synchronously from
-    /// `BridgeIO`'s control-pipe background queue: the bounded kill-wait
-    /// blocks that queue, never the main actor. If the replacement fails to
-    /// spawn, the bridge is left exactly as it was (old child already dead,
-    /// `BridgeIO` untouched) rather than silently wedged on a mode no
-    /// process backs -- a caller who cares can retry with another
-    /// `paddock.mode` line.
+    /// `newMode` already matches OR the bridge's peer is already gone (see
+    /// `terminateCurrent`). Safe to call synchronously from `BridgeIO`'s
+    /// control-pipe background queue: the bounded kill-wait blocks that
+    /// queue, never the main actor. If the replacement fails to spawn, the
+    /// bridge's own wait loop exits on the next iteration (the old child is
+    /// already dead) rather than staying retryable -- a caller who wants a
+    /// warning should check `spawnChild`'s own stderr output, since the
+    /// error itself is not otherwise surfaced here.
     func requestSwitch(to newMode: PaneMode) {
         lock.lock()
         defer { lock.unlock() }
-        guard newMode != current.mode else { return }
+        guard !peerGone, newMode != current.mode else { return }
         let old = current
         let size = latestSize
         terminateChild(old)
@@ -534,23 +562,31 @@ private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
 /// stdout for production use.
 ///
 /// `@unchecked Sendable`: `stdinFD`/`stdoutFD`/`onPeerGone` are immutable
-/// after init. `herdrInFD`/`closed`/`mode`/`latestSize` are read and written
-/// only inside `writeLock`. `herdrOutputLines` is its own internally-locked
-/// buffer. `stdinSource`/`winchSource`/`controlSource` are each written
-/// exactly once, by `startStdin`/`startWinch`/`startControlPipe`, all called
-/// synchronously from `ControlBridge.run` before any of the sources are
-/// resumed and so before any of their event handlers can run; `close()`
-/// only ever runs after `run`'s wait loop, i.e. strictly after every
-/// `start*` call has returned. `onModeCommand`/`onSizeChanged` are set once,
-/// synchronously, before `startControlPipe`/`startWinch` resume their
-/// sources, matching that same invariant.
+/// after init. `herdrInFD`/`closed`/`mode` are read and written only inside
+/// `writeLock`. `herdrOutputGeneration` and every write to `stdoutFD` are
+/// guarded by `stdoutLock` (see `startHerdrOutput`'s own doc for why a
+/// separate lock from `writeLock` is needed). `stdinSource`/`winchSource`/
+/// `controlSource` are each written exactly once, by `startStdin`/
+/// `startWinch`/`startControlPipe`, all called synchronously from
+/// `ControlBridge.run` before any of the sources are resumed and so before
+/// any of their event handlers can run; `close()` only ever runs after
+/// `run`'s wait loop, i.e. strictly after every `start*` call has returned.
+/// `onModeCommand`/`onSizeChanged` are set once, synchronously, before
+/// `startControlPipe`/`startWinch` resume their sources, matching that same
+/// invariant.
 final class BridgeIO: @unchecked Sendable {
     private var herdrInFD: Int32
     private let stdinFD: Int32
     private let stdoutFD: Int32
     private let onPeerGone: () -> Void
     private let writeLock = NSLock()
-    private let herdrOutputLines = BridgeLineBuffer()
+    /// Guards `stdoutFD` writes AND `herdrOutputGeneration` together (see
+    /// `startHerdrOutput`): every write checks the generation it was
+    /// installed under is still current, atomically with the write itself,
+    /// so a stale (superseded) child's in-flight callback can never
+    /// interleave bytes with -- or land after -- the current child's own.
+    private let stdoutLock = NSLock()
+    private var herdrOutputGeneration = 0
     private var stdinSource: DispatchSourceRead?
     private var winchSource: DispatchSourceSignal?
     private var controlSource: DispatchSourceRead?
@@ -613,8 +649,15 @@ final class BridgeIO: @unchecked Sendable {
     /// own scrollback are all untouched -- only which process is behind
     /// `send`/`startHerdrOutput` changes. The caller (`BridgeModeSwitcher`)
     /// has already detached the OLD `fromHerdrHandle`'s readability handler
-    /// before this runs, so re-arming `startHerdrOutput` here cannot race a
-    /// stray EOF from the child this is replacing.
+    /// before this runs, but that only stops FUTURE invocations -- it does
+    /// not wait for one already in progress, which could still be mid-write
+    /// to `stdoutFD` when the new child's own handler starts. `startHerdrOutput`
+    /// bumps the output generation and gives the new handler a FRESH
+    /// `BridgeLineBuffer` (never the old child's, which could hold a
+    /// partial line the new child's own first, full-frame line would
+    /// otherwise get glued onto and fail to decode) precisely so the old
+    /// handler's in-flight tail is recognized as stale and cannot interleave
+    /// bytes with, or land after, the new child's.
     func rewireHerdrChild(inFD: Int32, output: FileHandle) {
         writeLock.lock()
         herdrInFD = inFD
@@ -676,13 +719,22 @@ final class BridgeIO: @unchecked Sendable {
             let n = read(fd, &buffer, buffer.count)
             guard n > 0 else { return }
             commands.append(Data(buffer.prefix(n)))
+            var latestMode: PaneMode?
             while let line = commands.popLine() {
                 if let requestedMode = ControlBridge.parseModeCommand(line) {
-                    onModeCommand?(requestedMode)
+                    latestMode = requestedMode
                     continue
                 }
                 guard let command = ControlBridge.parseForwardableControlCommand(line) else { continue }
                 send(command)
+            }
+            // Coalesced: several `paddock.mode` lines queued in the same
+            // read (a fast focus flip-flop landing before the bridge gets a
+            // scheduler turn) collapse into ONE kill+spawn for whichever
+            // mode was requested LAST -- the ones in between are already
+            // stale before a mode switch could even start.
+            if let latestMode {
+                onModeCommand?(latestMode)
             }
         }
         if closeOnCancel {
@@ -701,30 +753,60 @@ final class BridgeIO: @unchecked Sendable {
         winch.setEventHandler { [self] in
             let ws = currentWinSize(fd: fd)
             guard ws.cols > 0, ws.rows > 0 else { return }
-            let size = PTYSize(cols: ws.cols, rows: ws.rows)
-            // In observe mode this resize is view-local at herdr's end (18d);
-            // in control mode it resizes the real pane -- either way the
-            // bridge always sends it, so every pane's surface fits its cell
-            // at its own font regardless of which verb is currently live.
-            send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows])
-            onSizeChanged?(size)
+            // `onSizeChanged` (wired to `BridgeModeSwitcher.recordSize`) is
+            // the ONLY sender: it records the size, THEN sends
+            // `terminal.resize` to whichever child is CURRENTLY live --
+            // sending directly here first let a resize that raced a mode
+            // switch reach the OLD, dying child and get lost, since
+            // recording landed only after the switch's own spawn had
+            // already captured a stale size. In BOTH modes the resize still
+            // reaches herdr: an observe client's resize is view-local
+            // there, a control client's resizes the real pane.
+            onSizeChanged?(PTYSize(cols: ws.cols, rows: ws.rows))
         }
         winch.resume()
         winchSource = winch
     }
 
+    /// A fresh `BridgeLineBuffer`, scoped to this ONE child, per call: a
+    /// mode switch's new child never inherits a byte the old child's own
+    /// buffer was still holding (a partial line -- herdr flushes at 8KB
+    /// chunk boundaries, so any frame over that size is genuinely
+    /// observable mid-line), which would otherwise glue onto the new
+    /// child's first (always full-frame) line and fail to decode, losing
+    /// the repaint. `generation` is bumped once per call and captured by
+    /// this closure; every write checks it is still current, atomically
+    /// with the write, under `stdoutLock` (see that property's own doc) --
+    /// so a superseded child's callback, however far into an already-started
+    /// invocation it was when replaced, can write nothing once a newer
+    /// generation exists, and cannot interleave with the new child's own
+    /// writes either.
     func startHerdrOutput(_ herdrOut: FileHandle) {
+        let lines = BridgeLineBuffer()
+        let generation: Int = {
+            stdoutLock.lock()
+            defer { stdoutLock.unlock() }
+            herdrOutputGeneration += 1
+            return herdrOutputGeneration
+        }()
         herdrOut.readabilityHandler = { [self] handle in
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
-                onPeerGone()
+                stdoutLock.lock()
+                let stillCurrent = herdrOutputGeneration == generation
+                stdoutLock.unlock()
+                if stillCurrent { onPeerGone() }
                 return
             }
-            herdrOutputLines.append(data)
-            while let line = herdrOutputLines.popLine() {
+            lines.append(data)
+            while let line = lines.popLine() {
                 guard let bytes = ControlBridge.decodeFrame(line) else { continue }
-                writeIgnoringBrokenPipe(stdoutFD, bytes)
+                stdoutLock.lock()
+                let stillCurrent = herdrOutputGeneration == generation
+                if stillCurrent { writeIgnoringBrokenPipe(stdoutFD, bytes) }
+                stdoutLock.unlock()
+                if !stillCurrent { return }
             }
         }
     }

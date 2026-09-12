@@ -355,9 +355,35 @@ public final class SessionViewModel {
         modeArmedPane = resolved
         pendingModeReconciliation = Task { [weak self] in
             guard let self else { return }
-            if let old { await self.setPaneMode(.observe, for: old) }
-            if let resolved { await self.setPaneMode(.control, for: resolved) }
+            if let old { await self.applyCurrentlyArmedMode(for: old) }
+            if let resolved { await self.applyCurrentlyArmedMode(for: resolved) }
         }
+    }
+
+    /// Sets `pane`'s surface to whichever mode `modeArmedPane` says is
+    /// correct AT THE MOMENT this step actually runs on `pane`'s own
+    /// `paneWork` chain -- never a mode value captured when the reconcile
+    /// `Task` above was created. This is what keeps a fast A -> B -> A focus
+    /// flip-flop correct: `reconcilePaneModeIfNeeded` fires one such `Task`
+    /// per transition, and two of them can touch the SAME pane's chain in
+    /// either order (their own two steps chase different panes, so they
+    /// never serialize against each other directly) -- a captured `.control`
+    /// for a pane that was only briefly the target can otherwise apply
+    /// AFTER a later transition already demoted it, leaving two panes
+    /// armed. Deriving `desired` fresh, from `modeArmedPane`, every time a
+    /// step for this pane finally runs closes that: whichever step for a
+    /// given pane runs LAST always re-reads the live intent and corrects
+    /// course if a stale one already applied the wrong mode.
+    private func applyCurrentlyArmedMode(for pane: PaneID) async {
+        let previous = paneWork[pane]
+        let task = Task { [weak self] in
+            _ = await previous?.value
+            guard let self, let surface = self.ghosttySurfaces[pane] else { return }
+            let desired: PaneMode = (self.modeArmedPane == pane) ? .control : .observe
+            await self.sendModeIfChanged(desired, to: pane, surface: surface)
+        }
+        paneWork[pane] = task
+        await task.value
     }
 
     /// Lets a test await the exact focus-driven mode-reconcile step a

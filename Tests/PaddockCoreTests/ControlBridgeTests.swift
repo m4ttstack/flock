@@ -497,11 +497,15 @@ final class ControlBridgeTests: XCTestCase {
 
     /// A bounded, real-process exercise of the escalation timing itself
     /// (SIGTERM, wait, SIGKILL fallback), independent of any herdr binary:
-    /// `/bin/sleep` stands in for a wedged child that ignores SIGTERM.
+    /// `/bin/sh` stands in for a wedged child that ignores SIGTERM. SIGKILL
+    /// only reaches THIS process, not a `sleep` child it might spawn, so the
+    /// sleep itself is kept short (2s, not the original 30s) -- if
+    /// `terminateWithBoundedEscalation` ever failed to kill the parent, the
+    /// orphaned sleep still exits on its own well within the test run.
     func testTerminateWithBoundedEscalationKillsAProcessThatIgnoresSIGTERM() {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", "trap '' TERM; sleep 30"]
+        proc.arguments = ["-c", "trap '' TERM; sleep 2"]
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         try? proc.run()
@@ -510,6 +514,139 @@ final class ControlBridgeTests: XCTestCase {
         terminateWithBoundedEscalation(proc, timeout: 0.2)
 
         XCTAssertFalse(proc.isRunning, "SIGKILL fallback must have ended the process")
+    }
+
+    // MARK: - BridgeModeSwitcher: peer-gone race (F5)
+
+    /// The race `terminateCurrent` and `requestSwitch` must never leave a
+    /// window for: the bridge's own PTY goes away (the GUI tore the pane's
+    /// surface down) at the same moment a queued `paddock.mode` line would
+    /// otherwise spawn a replacement child -- one nothing would ever go on
+    /// to kill, since the stdin source that would have noticed another
+    /// PTY-EOF is already cancelled. `terminateCurrent` must win this and
+    /// leave `requestSwitch` a no-op.
+    func testTerminateCurrentPreventsALaterRequestSwitchFromSpawning() {
+        let spawnCount = LockedBox<Int>(0)
+        let terminatedModes = LockedBox<[PaneMode]>([])
+        let herdrIn = Pipe()
+        let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
+        let initial = BridgeChild(
+            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            fromHerdrHandle: Pipe().fileHandleForReading)
+        let switcher = BridgeModeSwitcher(
+            initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
+            spawnChild: { mode, _ in
+                spawnCount.mutate { $0 += 1 }
+                return BridgeChild(
+                    mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+                    fromHerdrHandle: Pipe().fileHandleForReading)
+            },
+            terminateChild: { child in terminatedModes.mutate { $0.append(child.mode) } }
+        )
+
+        switcher.terminateCurrent()
+        switcher.requestSwitch(to: .control)
+
+        XCTAssertEqual(terminatedModes.value, [.observe], "only the original terminate may run")
+        XCTAssertEqual(spawnCount.value, 0, "a mode request arriving after the peer is gone must never spawn a replacement")
+    }
+
+    /// The other ordering: a switch completes (installing a NEW current
+    /// child), then the peer goes away. `terminateCurrent` must terminate
+    /// the NEW child, never a stale reference to the one the switch already
+    /// replaced.
+    func testRequestSwitchThenTerminateCurrentTerminatesTheNewChildNotTheOld() {
+        let terminatedModes = LockedBox<[PaneMode]>([])
+        let herdrIn = Pipe()
+        let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
+        let initial = BridgeChild(
+            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            fromHerdrHandle: Pipe().fileHandleForReading)
+        let switcher = BridgeModeSwitcher(
+            initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
+            spawnChild: { mode, _ in
+                BridgeChild(
+                    mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+                    fromHerdrHandle: Pipe().fileHandleForReading)
+            },
+            terminateChild: { child in terminatedModes.mutate { $0.append(child.mode) } }
+        )
+
+        switcher.requestSwitch(to: .control)
+        switcher.terminateCurrent()
+
+        XCTAssertEqual(
+            terminatedModes.value, [.observe, .control],
+            "the switch's own old-child terminate, then terminateCurrent on the NEW (control) child -- never the old one twice while the new one leaks")
+    }
+
+    // MARK: - startHerdrOutput: per-child buffer + generation (F2)
+
+    /// A mode switch's new child must never inherit a byte the OLD child's
+    /// own line buffer was still holding: herdr flushes at 8KB chunk
+    /// boundaries, so a partial (no trailing newline) line is a real state
+    /// to be caught mid-switch. Gluing it onto the new child's own first
+    /// line (always a full-frame repaint) would fail to decode and lose
+    /// that repaint.
+    func testRewireHerdrChildNeverGluesOldPartialLineOntoNewChildsFirstLine() async throws {
+        let stdoutCapture = Pipe()
+        let oldOut = Pipe()
+        let newOut = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        io.startHerdrOutput(oldOut.fileHandleForReading)
+
+        // The old child writes a PARTIAL line (no trailing newline) --
+        // exactly the mid-line state a mode switch can catch a real herdr
+        // child in.
+        oldOut.fileHandleForWriting.write(Data(#"{"type":"terminal.frame","#.utf8))
+        try await Task.sleep(for: .milliseconds(50))
+
+        // The mode switch: `BridgeModeSwitcher` always detaches the old
+        // handle's readability handler before rewiring; mirrored here.
+        oldOut.fileHandleForReading.readabilityHandler = nil
+        io.rewireHerdrChild(inFD: Pipe().fileHandleForWriting.fileDescriptor, output: newOut.fileHandleForReading)
+
+        let payload = Data("FULL REPAINT".utf8)
+        let fullFrame = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": payload.base64EncodedString()])!
+        newOut.fileHandleForWriting.write(fullFrame)
+
+        let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(decoded, payload, "the new child's own full-frame line must decode cleanly, never glued to the old child's partial line")
+    }
+
+    /// Simulates the harder race directly: the OLD child's handle is left
+    /// armed (standing in for an invocation of it already in flight when
+    /// the generation advances) and still writes a well-formed frame AFTER
+    /// the rewire. That write must never reach `stdoutFD` -- the generation
+    /// check inside `startHerdrOutput`'s closure is the only thing that can
+    /// catch this, since nothing else distinguishes an old-generation write
+    /// from a new one once both handles are technically live.
+    func testStaleGenerationWriteAfterRewireNeverReachesStdout() async throws {
+        let stdoutCapture = Pipe()
+        let oldOut = Pipe()
+        let newOut = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        io.startHerdrOutput(oldOut.fileHandleForReading)
+
+        io.rewireHerdrChild(inFD: Pipe().fileHandleForWriting.fileDescriptor, output: newOut.fileHandleForReading)
+
+        let stalePayload = Data("STALE".utf8)
+        let staleFrame = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": stalePayload.base64EncodedString()])!
+        oldOut.fileHandleForWriting.write(staleFrame)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(
+            readAllAvailableForTest(stdoutCapture.fileHandleForReading.fileDescriptor).count, 0,
+            "a write on the SUPERSEDED child's handle must never reach stdout once a newer generation exists")
+
+        let freshPayload = Data("FRESH".utf8)
+        let freshFrame = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": freshPayload.base64EncodedString()])!
+        newOut.fileHandleForWriting.write(freshFrame)
+        let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(decoded, freshPayload, "the new (current-generation) child's own frame must still decode normally")
     }
 }
 
