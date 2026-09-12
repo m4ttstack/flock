@@ -2,7 +2,6 @@ import Foundation
 import PaddockCore
 import SwiftUI
 
-@main
 struct PaddockApp: App {
     @State private var themeStore = ThemeStore()
     @State private var herdrStore: HerdrStore

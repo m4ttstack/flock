@@ -14,6 +14,14 @@ carries.
 (paths and the artifact's consuming build system differ; the vendoring
 mechanics do not).
 
+`Sources/PaddockCore/Bridge/ControlBridge.swift` and
+`Sources/PaddockCore/Bridge/PaneControlChannel.swift` are ported from
+Herdglass's `Sources/HerdrClient/ControlBridge.swift` and
+`PaneControlChannel.swift` (adapted for paddock's `--bridge <pane>` argv
+shape, dependency-injected I/O for testability, and dropping the
+scroll-forwarding path entirely per paddock's control-transport ruling that
+pane scrollback is shared viewport state, not per-client).
+
 Business Source License 1.1. Licensor: Alexander Arutyunov. The Licensed
 Work is (c) 2026 Alexander Arutyunov. Change Date 2030-08-21, Change License
 MIT. Reused with the licensor's authorization.
