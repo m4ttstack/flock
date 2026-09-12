@@ -157,6 +157,48 @@ private actor RecordingObserveAttacher: PaneObserveAttaching {
     }
 }
 
+/// A fake `GhosttyPaneSurface`: records what `SessionViewModel` does to it,
+/// with no real libghostty surface, `NSView`, or bridge process anywhere.
+@MainActor
+private final class FakeGhosttyPaneSurface: GhosttyPaneSurface {
+    let pane: PaneID
+    private(set) var resizeCalls: [(cols: Int, rows: Int)] = []
+    private(set) var detachCallCount = 0
+    private(set) var typedText: [String] = []
+
+    init(pane: PaneID) {
+        self.pane = pane
+    }
+
+    func resize(cols: Int, rows: Int) {
+        resizeCalls.append((cols, rows))
+    }
+
+    func detach() {
+        detachCallCount += 1
+    }
+
+    func typeText(_ text: String) {
+        typedText.append(text)
+    }
+}
+
+/// A fake `GhosttyPaneFactory` for `SessionViewModelTests`' ghostty attach
+/// lifecycle tests -- records every `makeSurface` call and hands back a
+/// `FakeGhosttyPaneSurface` per pane so a test can inspect it after the fact.
+@MainActor
+private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
+    private(set) var makeSurfaceCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
+    private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
+
+    func makeSurface(for pane: PaneID, cols: Int, rows: Int) -> any GhosttyPaneSurface {
+        makeSurfaceCalls.append((pane, cols, rows))
+        let surface = FakeGhosttyPaneSurface(pane: pane)
+        surfaces[pane] = surface
+        return surface
+    }
+}
+
 private func makePaneRecord(
     paneID: String = "w1:p1",
     agentStatus: AgentStatus = .unknown,
@@ -665,6 +707,73 @@ final class SessionViewModelTests: XCTestCase {
         let sendCall = try? XCTUnwrap(calls.last { $0.method == "pane.send_input" })
         XCTAssertEqual(stringParam(sendCall?.params ?? [:], "text"), "claude\n")
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "launching hides the overlay like a real keystroke would")
+    }
+
+    // MARK: - ghostty control-plane attach (focused pane, Task 18h)
+
+    @MainActor
+    func testGhosttyAttachIsANoOpWithNoFactoryInjected() async {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+
+        let surface = await viewModel.beginOrUpdateGhosttyAttach(pane: PaneID(rawValue: "w1:p1"), cols: 80, rows: 24)
+
+        XCTAssertNil(surface)
+    }
+
+    @MainActor
+    func testGhosttyAttachCreatesExactlyOneSurfacePerPane() async {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        let first = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        let second = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 100, rows: 30)
+
+        XCTAssertNotNil(first)
+        XCTAssertNotNil(second)
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "a resize must never spawn a second surface for the same pane")
+        XCTAssertTrue(first === second, "the same surface instance is handed back across a resize")
+    }
+
+    @MainActor
+    func testGhosttyAttachResizePropagatesToTheExistingSurface() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 100, rows: 30)
+
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100])
+        XCTAssertEqual(surface.resizeCalls.map(\.rows), [30])
+    }
+
+    @MainActor
+    func testEndGhosttyAttachTearsDownTheBridgeChild() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        await viewModel.endGhosttyAttach(pane: pane)
+
+        XCTAssertEqual(surface.detachCallCount, 1)
+        XCTAssertNil(viewModel.ghosttySurface(for: pane), "the torn-down surface must not still be reachable")
+    }
+
+    @MainActor
+    func testGhosttyReattachAfterDetachCreatesAFreshSurface() async {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        await viewModel.endGhosttyAttach(pane: pane)
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "a fresh attach after a real detach creates a NEW surface")
     }
 
     // MARK: - deep-history/backfill seeding order

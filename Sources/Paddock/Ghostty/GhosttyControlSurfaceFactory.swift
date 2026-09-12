@@ -1,0 +1,66 @@
+import Foundation
+import PaddockCore
+
+/// Adapts `GhosttyHost` to `SessionViewModel`'s renderer-agnostic
+/// `GhosttyPaneFactory` seam: builds the 18f bridge's argv (this same app
+/// binary, re-invoked with `--bridge <pane> --socket <path>`, per
+/// `Sources/Paddock/main.swift`'s dispatch) and asks the host for a session.
+/// `herdrBinary` is deliberately left unset: the bridge process inherits this
+/// app's environment, so its own `HERDR_BIN`/`PATH` resolution
+/// (`ControlBridge`'s `resolveHerdrBinary`) already agrees with whatever
+/// `ObserveSupervisor` resolved for the observe path, with no duplicate
+/// lookup needed here.
+@MainActor
+final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
+    private let host: GhosttyHost
+    private let socketPath: String
+    private let themeColors: () -> GhosttyThemeColors
+
+    init(host: GhosttyHost, socketPath: String, themeColors: @escaping () -> GhosttyThemeColors) {
+        self.host = host
+        self.socketPath = socketPath
+        self.themeColors = themeColors
+    }
+
+    func makeSurface(for pane: PaneID, cols: Int, rows: Int) -> any GhosttyPaneSurface {
+        let argv = BridgeOptions.argv(
+            executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0],
+            target: pane.rawValue,
+            cols: cols,
+            rows: rows,
+            socketPath: socketPath
+        )
+        let session = host.makeSession(configuration: .init(commandArgv: argv, themeColors: themeColors()))
+        return GhosttySessionSurfaceHandle(session: session)
+    }
+}
+
+/// The concrete `GhosttyPaneSurface` conformance: wraps the real
+/// `GhosttySession` so `SessionViewModel` (AppKit-free) can hold one behind
+/// the protocol while the view layer downcasts back to this type to reach
+/// `session` for hosting the `NSView` and pushing live theme updates.
+final class GhosttySessionSurfaceHandle: GhosttyPaneSurface {
+    let session: GhosttySession
+
+    init(session: GhosttySession) {
+        self.session = session
+    }
+
+    /// A no-op by design: a real surface's size is driven by its NSView's
+    /// own pixel layout (`GhosttySurfaceView.layout()` -> `session.resize(to:)`),
+    /// never by the layout-cell cols/rows this seam is handed -- see
+    /// `GhosttyPaneSurface.resize`'s doc comment. The call still reaches
+    /// here (rather than being dropped from the protocol) so
+    /// `SessionViewModel` has one lifecycle contract for both renderers.
+    func resize(cols: Int, rows: Int) {}
+
+    /// Drops paddock's only strong reference to the session. If nothing else
+    /// still holds one (the hosting `NSView` has already been torn down, or
+    /// never existed for this call), ARC frees it here, which frees the
+    /// libghostty surface and ends the bridge's PTY.
+    func detach() {}
+
+    func typeText(_ text: String) {
+        session.insertText(text)
+    }
+}

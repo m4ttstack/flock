@@ -238,6 +238,27 @@ final class GhosttySession {
         ghostty_surface_refresh(surface)
     }
 
+    /// Restyles a LIVE surface: unlike `createSurface`'s one-time app-config
+    /// swap, this pushes straight onto the surface that already exists via
+    /// `ghostty_surface_update_config` (ghostty's own live-reload entry
+    /// point -- see `Surface.zig`'s `updateConfig`, which only touches
+    /// rendering-affecting state and never re-runs the surface's command),
+    /// so a theme change repaints every focused pane without tearing its
+    /// bridge down. Ported from Herdglass's `TerminalSession.updateConfig`
+    /// (BSL-1.1, attributed): push, then re-apply the light/dark scheme the
+    /// same way `attach` does, since a config push does not imply one.
+    @discardableResult
+    func updateTheme(_ colors: GhosttyThemeColors) -> Bool {
+        configuration.themeColors = colors
+        guard let surface else { return false }
+        guard host.updateLiveConfig(surface: surface, colors: colors, commandArgv: configuration.commandArgv) else {
+            return false
+        }
+        applyColorScheme(appearance: view?.effectiveAppearance)
+        requestRender()
+        return true
+    }
+
     /// The two AppKit text commands libghostty has bindings for. Everything
     /// else the view suppresses or passes on.
     func performCommand(_ selector: Selector) -> Bool {

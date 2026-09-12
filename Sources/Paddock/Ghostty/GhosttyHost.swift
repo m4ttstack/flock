@@ -171,6 +171,38 @@ final class GhosttyHost {
         return true
     }
 
+    /// Restyles a surface that already exists, in place: same scratch-config
+    /// mechanism as `configureNextSurface` (a clone of `baseConfig` loaded
+    /// from a temp `.ghostty` file), but pushed via
+    /// `ghostty_surface_update_config` onto the given surface instead of
+    /// `ghostty_app_update_config` onto the app -- a new surface already
+    /// gets its theme from `Launch.themeColors` at creation, so the app-wide
+    /// config never needs to carry the live palette itself. `commandArgv`
+    /// is required by `GhosttyThemeConfig.configText` but has no live effect
+    /// here: `ghostty_surface_update_config` never re-runs a surface's
+    /// command (see the call site's doc comment).
+    @discardableResult
+    func updateLiveConfig(surface: ghostty_surface_t, colors: GhosttyThemeColors, commandArgv: [String]) -> Bool {
+        guard let baseConfig, !commandArgv.isEmpty else { return false }
+        let text = GhosttyThemeConfig.configText(colors: colors, commandArgv: commandArgv)
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("paddock-surface-update-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")
+        guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil,
+              let clone = ghostty_config_clone(baseConfig)
+        else { return false }
+        defer {
+            ghostty_config_free(clone)
+            try? FileManager.default.removeItem(at: file)
+        }
+        let before = ghostty_config_diagnostics_count(clone)
+        file.path.withCString { path in
+            ghostty_config_load_file(clone, path)
+        }
+        guard ghostty_config_diagnostics_count(clone) == before else { return false }
+        ghostty_surface_update_config(surface, clone)
+        return true
+    }
+
     /// The sessions still alive, dropping any whose pane has gone.
     fileprivate func liveSessions() -> [GhosttySession] {
         sessions = sessions.filter { $0.value.value != nil }

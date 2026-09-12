@@ -75,6 +75,14 @@ public final class SessionViewModel {
     private var paneWork: [PaneID: Task<PaneLiveFeed?, Never>] = [:]
     private let client: any HerdrCommandClient
     private let observeAttacher: (any PaneObserveAttaching)?
+    private let ghosttyFactory: (any GhosttyPaneFactory)?
+    // The focused pane's live surface, keyed by pane so a stale surface from
+    // a pane that has since lost focus is never mistaken for the current
+    // one. Attach/detach for a given pane always goes through `paneWork`
+    // (the SAME chain the observe path uses), so a focus flip-flop can never
+    // race an observe attach/detach against a ghostty attach/detach for that
+    // pane.
+    private var ghosttySurfaces: [PaneID: any GhosttyPaneSurface] = [:]
 
     // One gate for the whole session: the first unsupported
     // `pane.selection.read` reply hides deep history for every pane, not
@@ -91,9 +99,14 @@ public final class SessionViewModel {
     // writer of this verb today.
     private var rightClickRoutedToPane: Set<PaneID> = []
 
-    public init(client: any HerdrCommandClient, observeAttacher: (any PaneObserveAttaching)? = nil) {
+    public init(
+        client: any HerdrCommandClient,
+        observeAttacher: (any PaneObserveAttaching)? = nil,
+        ghosttyFactory: (any GhosttyPaneFactory)? = nil
+    ) {
         self.client = client
         self.observeAttacher = observeAttacher
+        self.ghosttyFactory = ghosttyFactory
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -314,6 +327,71 @@ public final class SessionViewModel {
     private func performDetach(pane: PaneID, observeAttacher: any PaneObserveAttaching) async {
         guard attachedDims.removeValue(forKey: pane) != nil else { return }
         await observeAttacher.detach(pane)
+    }
+
+    // MARK: - ghostty control-plane attach (focused pane only)
+
+    /// Creates `pane`'s ghostty surface the first time, or resizes the
+    /// existing one -- never a second surface for a pane that already has
+    /// one, matching the observe path's own "same pane, new dims" contract.
+    /// Chained through the same `paneWork` entry the observe path uses (see
+    /// its own doc comment), so a pane transitioning between renderers can
+    /// never have both an observe attach and a ghostty attach in flight at
+    /// once. Returns the surface (new or existing) so a caller can hand it
+    /// to `@State`, the same reactivity path `feed` already uses for the
+    /// observe side -- reading `ghosttySurface(for:)` back out independently
+    /// would depend on whether a dictionary mutation buried inside a method
+    /// call still registers as an `@Observable` access, which this sidesteps
+    /// entirely.
+    @discardableResult
+    public func beginOrUpdateGhosttyAttach(pane: PaneID, cols: Int, rows: Int) async -> (any GhosttyPaneSurface)? {
+        guard let ghosttyFactory, cols > 0, rows > 0 else { return nil }
+        let previous = paneWork[pane]
+        let task = Task { [weak self] () -> PaneLiveFeed? in
+            _ = await previous?.value
+            await self?.performGhosttyAttach(pane: pane, cols: cols, rows: rows, factory: ghosttyFactory)
+            return nil
+        }
+        paneWork[pane] = task
+        _ = await task.value
+        return ghosttySurfaces[pane]
+    }
+
+    /// Tears down `pane`'s ghostty surface, if it has one -- called when the
+    /// pane loses focus (falling back to the observe path) or leaves the
+    /// visible set entirely. Chained through `paneWork` like `endLiveAttach`.
+    public func endGhosttyAttach(pane: PaneID) async {
+        let previous = paneWork[pane]
+        let task = Task { [weak self] () -> PaneLiveFeed? in
+            _ = await previous?.value
+            await self?.performGhosttyDetach(pane: pane)
+            return nil
+        }
+        paneWork[pane] = task
+        _ = await task.value
+    }
+
+    /// `pane`'s live ghostty surface, if it has one.
+    public func ghosttySurface(for pane: PaneID) -> (any GhosttyPaneSurface)? {
+        ghosttySurfaces[pane]
+    }
+
+    /// `async` (despite a synchronous body) purely so the `Task` closures
+    /// above can `await` it: that is what lets a synchronous, MainActor-only
+    /// call run safely from a closure whose own isolation is not otherwise
+    /// pinned to this actor, matching `performAttach`/`performDetach`'s own
+    /// shape.
+    private func performGhosttyAttach(pane: PaneID, cols: Int, rows: Int, factory: any GhosttyPaneFactory) async {
+        if let existing = ghosttySurfaces[pane] {
+            existing.resize(cols: cols, rows: rows)
+            return
+        }
+        ghosttySurfaces[pane] = factory.makeSurface(for: pane, cols: cols, rows: rows)
+    }
+
+    private func performGhosttyDetach(pane: PaneID) async {
+        guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
+        surface.detach()
     }
 
     /// `pane.read {source:"recent", format:"ansi", lines:N}` per spike 4's

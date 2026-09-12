@@ -20,11 +20,24 @@ struct PaneCellView: View {
     let rows: Int
 
     @State private var feed: PaneLiveFeed?
-    /// Grabs system keyboard focus only while `isFocused`, so `onKeyPress`
-    /// below only ever fires for the resolved-focused pane's own cell --
-    /// "focused-pane only" is enforced by WHICH cell listens, not by a check
-    /// inside `InputRouter` itself.
+    @State private var ghosttySurface: (any GhosttyPaneSurface)?
+    /// Grabs system keyboard focus only while `isFocused` AND this cell is
+    /// on the SwiftTerm path, so `onKeyPress` below only ever fires for a
+    /// resolved-focused, SwiftTerm-rendered pane -- a ghostty-rendered pane's
+    /// keys reach `GhosttySurfaceView`'s own `NSResponder` path directly
+    /// (real AppKit first-responder status, requested by
+    /// `GhosttySurfaceRepresentable`), never through here, so the same
+    /// keystroke can never be delivered twice.
     @FocusState private var keyCaptureFocused: Bool
+
+    /// Which renderer this cell uses right now: today, exactly the resolved-
+    /// focused pane gets ghostty and every other pane stays on SwiftTerm.
+    /// Kept as one small function (not scattered `isFocused` checks) so a
+    /// later policy change (Task 18i) only has to move this, not restructure
+    /// the attach/detach or content-switch call sites that read it.
+    private var rendererKind: PaneRendererKind {
+        isFocused ? .ghostty : .swiftTerm
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,21 +62,51 @@ struct PaneCellView: View {
                     .padding(-3)
             }
         }
-        .task(id: AttachDims(paneID: pane.paneID, cols: cols, rows: rows)) {
-            if let newFeed = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: cols, rows: rows) {
-                feed = newFeed
+        // One task per (dims, renderer) identity: a renderer change tears
+        // down whatever the OTHER renderer owned for this pane BEFORE
+        // starting its own attach, both awaits chained through the same
+        // `paneWork` entry -- so a focus flip-flop can never leave two
+        // attaches (one observe, one ghostty) alive for the same pane, and
+        // never races a separate teardown effect against this one to decide
+        // which order they settle in.
+        .task(id: AttachDims(paneID: pane.paneID, cols: cols, rows: rows, renderer: rendererKind)) {
+            let paneID = pane.paneID
+            switch rendererKind {
+            case .swiftTerm:
+                if ghosttySurface != nil {
+                    ghosttySurface = nil
+                    await viewModel.endGhosttyAttach(pane: paneID)
+                }
+                if let newFeed = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: cols, rows: rows) {
+                    feed = newFeed
+                }
+            case .ghostty:
+                if feed != nil {
+                    feed = nil
+                    await viewModel.endLiveAttach(pane: paneID)
+                }
+                if let surface = await viewModel.beginOrUpdateGhosttyAttach(pane: paneID, cols: cols, rows: rows) {
+                    ghosttySurface = surface
+                }
             }
         }
         .onDisappear {
             let paneID = pane.paneID
-            Task { await viewModel.endLiveAttach(pane: paneID) }
+            switch rendererKind {
+            case .swiftTerm:
+                Task { await viewModel.endLiveAttach(pane: paneID) }
+            case .ghostty:
+                Task { await viewModel.endGhosttyAttach(pane: paneID) }
+            }
         }
-        .focusable(isFocused)
+        .focusable(isFocused && rendererKind == .swiftTerm)
         .focusEffectDisabled()
         .focused($keyCaptureFocused)
-        .onChange(of: isFocused, initial: true) { _, newValue in keyCaptureFocused = newValue }
+        .onChange(of: isFocused, initial: true) { _, newValue in
+            keyCaptureFocused = newValue && rendererKind == .swiftTerm
+        }
         .onKeyPress(phases: .down) { press in
-            guard isFocused else { return .ignored }
+            guard isFocused, rendererKind == .swiftTerm else { return .ignored }
             return routeKeyPress(press)
         }
         .contextMenu {
@@ -162,26 +205,46 @@ struct PaneCellView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let feed {
-            ZStack(alignment: .top) {
-                PaneTerminalView(
-                    cols: cols, rows: rows, feed: feed, terminalGround: theme.terminalGround,
-                    terminalForeground: theme.terminalForeground,
-                    onPlainClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
-                    paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
-                    onScreenActivity: { nonEmptyRowCount in
-                        viewModel.recordLauncherScreenActivity(pane.paneID, nonEmptyRowCount: nonEmptyRowCount)
-                    },
-                    historyDim: theme.overlay0
-                )
-                if viewModel.isPristineLauncherPane(pane.paneID) {
-                    PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
-                        Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }
+        switch rendererKind {
+        case .ghostty:
+            if let ghosttySurface {
+                ZStack(alignment: .top) {
+                    GhosttyPaneTerminalView(surface: ghosttySurface, theme: theme, isFocused: isFocused)
+                    // Writes straight to the surface's PTY (via the session),
+                    // not `pane.send_input`/`InputRouter`: there is no herdr
+                    // attach in between for a ghostty pane to route through.
+                    if viewModel.isPristineLauncherPane(pane.paneID) {
+                        PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
+                            ghosttySurface.typeText(entry.binary + "\n")
+                            viewModel.recordLauncherKeystroke(pane.paneID)
+                        }
                     }
                 }
+            } else {
+                cardContent
             }
-        } else {
-            cardContent
+        case .swiftTerm:
+            if let feed {
+                ZStack(alignment: .top) {
+                    PaneTerminalView(
+                        cols: cols, rows: rows, feed: feed, terminalGround: theme.terminalGround,
+                        terminalForeground: theme.terminalForeground,
+                        onPlainClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
+                        paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
+                        onScreenActivity: { nonEmptyRowCount in
+                            viewModel.recordLauncherScreenActivity(pane.paneID, nonEmptyRowCount: nonEmptyRowCount)
+                        },
+                        historyDim: theme.overlay0
+                    )
+                    if viewModel.isPristineLauncherPane(pane.paneID) {
+                        PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
+                            Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }
+                        }
+                    }
+                }
+            } else {
+                cardContent
+            }
         }
     }
 
@@ -230,10 +293,21 @@ struct PaneCellView: View {
     }
 }
 
+/// Which live renderer a pane cell uses. A parameter of the attach seam
+/// (`PaneCellView.rendererKind`, threaded through `AttachDims` and the
+/// content switch below) rather than an `isFocused` check sprinkled across
+/// call sites, so a later policy change only has to move where this value
+/// comes from.
+enum PaneRendererKind: Equatable {
+    case ghostty
+    case swiftTerm
+}
+
 private struct AttachDims: Equatable {
     let paneID: PaneID
     let cols: Int
     let rows: Int
+    let renderer: PaneRendererKind
 }
 
 /// A ring shape (outer rounded rect minus an inset inner one, even-odd
