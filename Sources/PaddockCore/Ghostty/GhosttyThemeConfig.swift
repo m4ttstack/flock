@@ -1,0 +1,85 @@
+// Portions derived from Herdglass (BSL-1.1), Sources/Herdglass/GhosttyRuntime.swift
+// (the scratch-config `command =` workaround) and GhosttyConfig.swift (the
+// config-text shape this reads back out of).
+import Foundation
+
+/// One color slot in a ghostty config: 0...255 per channel, decoupled from any
+/// UI framework's color type so this stays reachable from `PaddockCoreTests`
+/// with no app host. The call site (`Theme`'s own theme-mapping extension,
+/// which needs `NSColor` to read a `SwiftUI.Color` back into bytes) lives in
+/// the app target instead.
+public struct GhosttyThemeColor: Equatable, Sendable {
+    public var red: UInt8
+    public var green: UInt8
+    public var blue: UInt8
+
+    public init(red: UInt8, green: UInt8, blue: UInt8) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+
+    /// `#rrggbb`, the form ghostty's own docs use for `palette = N=#rrggbb`
+    /// (bare `rrggbb` parses too, but `#` is unambiguous and self-documenting).
+    var hex: String {
+        String(format: "#%02x%02x%02x", red, green, blue)
+    }
+}
+
+/// The slots a ghostty config needs to look like one paddock theme: the
+/// terminal's own background/foreground plus the full 16-slot ANSI palette,
+/// in ghostty's `palette = N=...` order (0...7 normal, 8...15 bright).
+public struct GhosttyThemeColors: Equatable, Sendable {
+    public var background: GhosttyThemeColor
+    public var foreground: GhosttyThemeColor
+    public var ansi: [GhosttyThemeColor]
+
+    /// Traps a wrong-sized palette at construction (a programmer error, never
+    /// user input) rather than letting `configText` silently emit a partial
+    /// `palette` block that libghostty would then fill the rest of from its
+    /// own defaults.
+    public init(background: GhosttyThemeColor, foreground: GhosttyThemeColor, ansi: [GhosttyThemeColor]) {
+        precondition(ansi.count == 16, "GhosttyThemeColors needs exactly 16 ANSI slots, got \(ansi.count)")
+        self.background = background
+        self.foreground = foreground
+        self.ansi = ansi
+    }
+}
+
+public enum GhosttyThemeConfig {
+    /// The config text for one theme: `background`, `foreground`, then
+    /// `palette = 0=...` through `palette = 15=...`, one line each.
+    public static func configText(colors: GhosttyThemeColors) -> String {
+        var lines = [
+            "background = \(colors.background.hex)",
+            "foreground = \(colors.foreground.hex)",
+        ]
+        for (index, color) in colors.ansi.enumerated() {
+            lines.append("palette = \(index)=\(color.hex)")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The scratch `.ghostty` file text loaded before a surface is created:
+    /// the theme lines above, plus the one line that gets a surface's real
+    /// command past libghostty's silent drop of `ghostty_surface_config_s`'s
+    /// `command`/`env_vars` fields at this vendored commit (see
+    /// `GhosttyHost.configureNextSurface`, the call site). `shell:` is
+    /// explicit rather than relying on the default, so a bridge argument
+    /// containing a colon (a socket path, for instance) is never read as a
+    /// `direct:`-style prefix.
+    public static func configText(colors: GhosttyThemeColors, commandArgv: [String]) -> String {
+        let command = commandArgv.map(\.shellEscaped).joined(separator: " ")
+        return configText(colors: colors) + "command = shell:\(command)\n"
+    }
+}
+
+extension String {
+    /// Single-quoted for a POSIX shell, doubling any embedded single quote so
+    /// the scratch config's `command = shell:...` line survives an argument
+    /// with a space or a quote in it (a socket path under a temp directory
+    /// with a space, in particular).
+    var shellEscaped: String {
+        "'" + replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}

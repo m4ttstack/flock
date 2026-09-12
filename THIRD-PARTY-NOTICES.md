@@ -22,6 +22,19 @@ shape, dependency-injected I/O for testability, and dropping the
 scroll-forwarding path entirely per paddock's control-transport ruling that
 pane scrollback is shared viewport state, not per-client).
 
+`Sources/Paddock/Ghostty/GhosttyHost.swift`, `GhosttySession.swift`, and
+`GhosttySurfaceView.swift` are ported from Herdglass's
+`Sources/Herdglass/Ghostty/TerminalHost.swift`, `TerminalSession.swift`, and
+`TerminalSurfaceView.swift`, with the config-loading half of
+`Sources/Herdglass/GhosttyRuntime.swift` folded into `GhosttyHost` (the
+window-chrome config reader in `GhosttyConfig.swift` is not ported).
+`Sources/PaddockCore/Ghostty/GhosttyThemeConfig.swift` and
+`GhosttyKeyMods.swift` are the pure parts of the same port (theme-config text
+generation and the key-modifier translation table), split out so they stay
+reachable from `PaddockCoreTests` without an app host. Adapted for paddock's
+own `Theme` system in place of mirroring a local Ghostty install, and for the
+`--bridge` argv paddock's surfaces run in place of a shell.
+
 Business Source License 1.1. Licensor: Alexander Arutyunov. The Licensed
 Work is (c) 2026 Alexander Arutyunov. Change Date 2030-08-21, Change License
 MIT. Reused with the licensor's authorization.
@@ -63,8 +76,11 @@ SOFTWARE.
 
 <https://github.com/briannadoubt/GhosttyKit>
 
-Upstream ancestor of the AppKit/libghostty glue a later task ports into
-Paddock; no code from it is in this tree yet.
+Upstream ancestor of the AppKit/libghostty glue in
+`Sources/Paddock/Ghostty/`, reached through Herdglass's own port of it
+(Herdglass's file headers name GhosttyKit as their source; this tree ports
+from Herdglass, not from GhosttyKit directly, but the lineage runs through
+both).
 
 MIT License
 
