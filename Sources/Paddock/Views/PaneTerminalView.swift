@@ -497,7 +497,9 @@ private struct TerminalRepresentable: NSViewRepresentable {
         // own separate feed (a different `Terminal` instance entirely).
         context.coordinator.feedTask = Task { @MainActor [weak view] in
             if let backfill = feed.backfillANSI {
-                view?.feed(byteArray: [UInt8](backfill)[...])
+                // Same cursor-hide-until-corrected contract `PaneTerminal.seedBackfill`
+                // applies to the headless mirror: see `BackfillFeed`'s doc comment.
+                view?.feed(byteArray: [UInt8](BackfillFeed.bytes(prefixing: backfill))[...])
             }
             for await frame in feed.frames {
                 guard let view else { return }

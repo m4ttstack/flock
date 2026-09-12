@@ -32,6 +32,26 @@ public enum FrameFeeder {
     }
 }
 
+/// Backfill (`pane.read {source:"recent", format:"ansi"}`) is a flat glyph
+/// dump with no trailing cursor-position escape at all -- confirmed against a
+/// live pane, whose backfill text ends the instant its visible glyphs do. A
+/// live `terminal.frame`, by contrast, always brackets its redraw with
+/// `\u{1B}[?25l` before and an absolute `\u{1B}[...H\u{1B}[?25h` after (also
+/// confirmed live). Feeding backfill bytes as-is therefore leaves the
+/// terminal's cursor visible at wherever the naive glyph stream ends, almost
+/// never the pane's real cursor cell, until the first full frame's own
+/// leading hide/trailing show-at-the-right-place bracket corrects it. Hiding
+/// the cursor for the backfill-only window closes that gap: the frame's own
+/// `?25l` becomes a harmless no-op and its `?25h` is what actually reveals
+/// the cursor, the first time this pane has a real position to show it at.
+public enum BackfillFeed {
+    public static let cursorHidePrefix = Data("\u{1B}[?25l".utf8)
+
+    public static func bytes(prefixing ansi: Data) -> Data {
+        cursorHidePrefix + ansi
+    }
+}
+
 /// Decoded shape of one `herdr terminal session observe` NDJSON line.
 enum ObserveWireLine: Sendable {
     case frame(TerminalFrame)

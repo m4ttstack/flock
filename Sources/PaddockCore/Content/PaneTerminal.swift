@@ -52,6 +52,19 @@ public final class PaneTerminal: @unchecked Sendable {
         term = Terminal(delegate: NullPaneTerminalDelegate(), options: TerminalOptions(cols: cols, rows: rows))
     }
 
+    /// Test-only seam: a caller-supplied delegate observes the
+    /// `showCursor`/`hideCursor` calls `seedBackfill`'s `BackfillFeed` prefix
+    /// and a subsequent full-frame ingest drive, which the public initializer
+    /// has no way to expose since `NullPaneTerminalDelegate` is silent by
+    /// design.
+    init(cols: Int, rows: Int, delegate: TerminalDelegate) {
+        self.cols = cols
+        self.paneID = nil
+        self.client = nil
+        self.historyCapability = HistoryCapabilityGate()
+        term = Terminal(delegate: delegate, options: TerminalOptions(cols: cols, rows: rows))
+    }
+
     /// Seeds scrollback history before any live frame arrives. Never resets:
     /// backfill is meant to sit directly beneath the first live frame with no
     /// torn seam, per spike 4's backfill probe.
@@ -70,7 +83,7 @@ public final class PaneTerminal: @unchecked Sendable {
     public func seedBackfill(ansi: Data, lineCount: Int? = nil) {
         lock.lock()
         defer { lock.unlock() }
-        term.feed(byteArray: [UInt8](ansi))
+        term.feed(byteArray: [UInt8](BackfillFeed.bytes(prefixing: ansi)))
         backfillLineCount = lineCount ?? Self.countLines(in: ansi)
     }
 

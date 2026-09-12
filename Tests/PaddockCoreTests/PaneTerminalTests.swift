@@ -1,5 +1,16 @@
 import XCTest
+import SwiftTerm
 @testable import PaddockCore
+
+/// Records `showCursor`/`hideCursor` calls in order, so a test can assert
+/// the backfill-then-full-frame cursor contract directly instead of
+/// inferring it from screen text (which cannot express "hidden").
+private final class CursorEventRecordingDelegate: TerminalDelegate {
+    private(set) var events: [String] = []
+    func send(source: Terminal, data: ArraySlice<UInt8>) {}
+    func showCursor(source: Terminal) { events.append("show") }
+    func hideCursor(source: Terminal) { events.append("hide") }
+}
 
 final class PaneTerminalTests: XCTestCase {
     private static var fixturePath: String {
@@ -64,6 +75,43 @@ final class PaneTerminalTests: XCTestCase {
             return XCTFail("live text missing from screenText()")
         }
         XCTAssertLessThan(backfillRow, liveRow, "backfill text must render above live text")
+    }
+
+    // MARK: - backfill cursor hide (stray hollow-cursor regression)
+
+    /// Backfill text carries no cursor-position escape at all (confirmed
+    /// against a live pane's `pane.read --source recent --format ansi`
+    /// dump, which ends the instant its visible glyphs do). Feeding it
+    /// unprefixed leaves the cursor visible wherever the naive glyph stream
+    /// happens to end -- almost never the pane's real cursor cell. Seeding
+    /// must hide it instead, with no `show` yet: nothing describes where
+    /// the real cursor belongs until a live frame says so.
+    func testSeedBackfillHidesCursorWithNoCorrespondingShow() {
+        let delegate = CursorEventRecordingDelegate()
+        let term = PaneTerminal(cols: 20, rows: 4, delegate: delegate)
+        term.seedBackfill(ansi: Data("BACKFILL-LINE\r\n".utf8))
+        XCTAssertEqual(delegate.events, ["hide"])
+    }
+
+    /// A live full frame always brackets its redraw with a leading
+    /// `?25l` and a trailing absolute-position-then-`?25h` (confirmed
+    /// against a real captured frame: `...\u{1B}[3;5H\u{1B}[?25h`). That
+    /// trailing show is what actually reveals the cursor, at the frame's
+    /// own authoritative position -- correcting whatever backfill left
+    /// behind rather than compounding it. Only one more `hide` event, not
+    /// two: `resetToInitialState()` (the full-frame reset) saves and
+    /// restores `cursorHidden` around its own state rebuild, so a
+    /// full-frame's own leading `?25l` finds the cursor already hidden
+    /// from `seedBackfill` and fires no second delegate call.
+    func testFullFrameShowsCursorAtItsOwnPositionAfterBackfillHidIt() {
+        let delegate = CursorEventRecordingDelegate()
+        let term = PaneTerminal(cols: 20, rows: 4, delegate: delegate)
+        term.seedBackfill(ansi: Data("BACKFILL-LINE\r\n".utf8))
+        term.ingest(TerminalFrame(
+            seq: 1, full: true, width: 20, height: 4,
+            bytes: Data("\u{1B}[?25l\u{1B}[2;1HLIVE-LINE\u{1B}[2;5H\u{1B}[?25h".utf8)
+        ))
+        XCTAssertEqual(delegate.events, ["hide", "show"])
     }
 
     // MARK: - known SwiftTerm 1.20.0 issue (spike 4, FINDINGS.md Caveat 2)
