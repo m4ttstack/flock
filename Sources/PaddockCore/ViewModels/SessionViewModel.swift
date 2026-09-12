@@ -386,12 +386,16 @@ public final class SessionViewModel {
             existing.resize(cols: cols, rows: rows)
             return
         }
-        ghosttySurfaces[pane] = factory.makeSurface(for: pane, cols: cols, rows: rows)
+        // The closure is the launcher-pristine contract's ghostty half: see
+        // `GhosttyPaneFactory.makeSurface`'s doc comment.
+        ghosttySurfaces[pane] = await factory.makeSurface(for: pane, cols: cols, rows: rows) { [weak self] in
+            self?.recordLauncherKeystroke(pane)
+        }
     }
 
     private func performGhosttyDetach(pane: PaneID) async {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
-        surface.detach()
+        await surface.detach()
     }
 
     /// `pane.read {source:"recent", format:"ansi", lines:N}` per spike 4's

@@ -42,6 +42,16 @@ final class GhosttySession {
     /// The surface's process went away. `processAlive` is true when libghostty
     /// is asking to close rather than reporting a child that already exited.
     var closeHandler: ((Bool) -> Void)?
+    /// Fired by `GhosttySurfaceView.keyDown` for real user key input (never
+    /// from `flagsChanged`, and never for a bare Command combo -- see that
+    /// call site). Set by `GhosttyControlSurfaceFactory.makeSurface` at
+    /// creation, from `SessionViewModel`'s own `recordLauncherKeystroke`, so
+    /// the launcher-pristine contract holds for a ghostty pane exactly like
+    /// it already does for a SwiftTerm one: without this, a ghostty pane's
+    /// keystrokes bypass `PaneCellView.routeKeyPress` entirely and the
+    /// pristine launcher overlay would never hide, staying hit-testable over
+    /// live terminal output.
+    var onUserInput: (() -> Void)?
     nonisolated(unsafe) private var secureEventInputEnabled = false
 
     init(host: GhosttyHost, configuration: Launch) {

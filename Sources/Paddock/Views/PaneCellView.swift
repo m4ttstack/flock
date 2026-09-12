@@ -33,8 +33,9 @@ struct PaneCellView: View {
     /// Which renderer this cell uses right now: today, exactly the resolved-
     /// focused pane gets ghostty and every other pane stays on SwiftTerm.
     /// Kept as one small function (not scattered `isFocused` checks) so a
-    /// later policy change (Task 18i) only has to move this, not restructure
-    /// the attach/detach or content-switch call sites that read it.
+    /// later change to the unfocused-pane renderer policy only has to move
+    /// this, not restructure the attach/detach or content-switch call sites
+    /// that read it.
     private var rendererKind: PaneRendererKind {
         isFocused ? .ghostty : .swiftTerm
     }

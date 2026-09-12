@@ -2,7 +2,7 @@ import Foundation
 import PaddockCore
 
 /// Adapts `GhosttyHost` to `SessionViewModel`'s renderer-agnostic
-/// `GhosttyPaneFactory` seam: builds the 18f bridge's argv (this same app
+/// `GhosttyPaneFactory` seam: builds the bridge's argv (this same app
 /// binary, re-invoked with `--bridge <pane> --socket <path>`, per
 /// `Sources/Paddock/main.swift`'s dispatch) and asks the host for a session.
 /// `herdrBinary` is deliberately left unset: the bridge process inherits this
@@ -22,7 +22,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         self.themeColors = themeColors
     }
 
-    func makeSurface(for pane: PaneID, cols: Int, rows: Int) -> any GhosttyPaneSurface {
+    func makeSurface(for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void) async -> any GhosttyPaneSurface {
         let argv = BridgeOptions.argv(
             executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0],
             target: pane.rawValue,
@@ -31,6 +31,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
             socketPath: socketPath
         )
         let session = host.makeSession(configuration: .init(commandArgv: argv, themeColors: themeColors()))
+        session.onUserInput = onUserInput
         return GhosttySessionSurfaceHandle(session: session)
     }
 }
@@ -39,7 +40,13 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
 /// `GhosttySession` so `SessionViewModel` (AppKit-free) can hold one behind
 /// the protocol while the view layer downcasts back to this type to reach
 /// `session` for hosting the `NSView` and pushing live theme updates.
-final class GhosttySessionSurfaceHandle: GhosttyPaneSurface {
+///
+/// `@unchecked Sendable`: `session` is a `let`, but `GhosttySession` itself
+/// is `@MainActor`-isolated and mutable -- safe here only because every
+/// touch of it, from any caller, goes through this type's own `@MainActor`
+/// protocol methods or the view layer's `@MainActor` downcast, never off
+/// the main actor.
+final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable {
     let session: GhosttySession
 
     init(session: GhosttySession) {
@@ -58,7 +65,7 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface {
     /// still holds one (the hosting `NSView` has already been torn down, or
     /// never existed for this call), ARC frees it here, which frees the
     /// libghostty surface and ends the bridge's PTY.
-    func detach() {}
+    func detach() async {}
 
     func typeText(_ text: String) {
         session.insertText(text)

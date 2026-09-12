@@ -141,13 +141,14 @@ struct PaneTerminalView: View {
 }
 
 /// Live 1:1 rendering of the FOCUSED pane via a real libghostty surface
-/// whose PTY child is the 18f bridge (`ControlBridge`), not a SwiftTerm view
-/// fed frames -- see `GhosttyControlSurfaceFactory`. Input, mouse passthrough,
-/// clipboard and resize all happen inside `GhosttySurfaceView`/`GhosttySession`
-/// themselves; this wrapper only hosts the surface and keeps it restyled
-/// when the active theme changes. There is no history browser here: the
-/// deep-history overlay introspects a SwiftTerm buffer this pane no longer
-/// has one of (Task 18j re-anchors it for ghostty panes).
+/// whose PTY child is a herdr-aware bridge process (`ControlBridge`), not a
+/// SwiftTerm view fed frames -- see `GhosttyControlSurfaceFactory`. Input,
+/// mouse passthrough, clipboard and resize all happen inside
+/// `GhosttySurfaceView`/`GhosttySession` themselves; this wrapper only hosts
+/// the surface and keeps it restyled when the active theme changes. There is
+/// no history browser here: the deep-history overlay introspects a
+/// SwiftTerm buffer this pane no longer has one of -- the unfocused-pane
+/// policy and the history overlay's ghostty story both live elsewhere.
 struct GhosttyPaneTerminalView: View {
     let surface: any GhosttyPaneSurface
     let theme: Theme

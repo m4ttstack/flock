@@ -159,12 +159,22 @@ private actor RecordingObserveAttacher: PaneObserveAttaching {
 
 /// A fake `GhosttyPaneSurface`: records what `SessionViewModel` does to it,
 /// with no real libghostty surface, `NSView`, or bridge process anywhere.
+/// `detach()` can be held open one call at a time, the same shape as
+/// `RecordingObserveAttacher.holdDetach`/`releaseNextDetach`, so a test can
+/// pin a stale detach mid-flight while a fast reappear's fresh attach races
+/// it.
+/// `@unchecked Sendable` for the same reason `GhosttySessionSurfaceHandle`
+/// is: every touch of this class's state happens through its own
+/// `@MainActor`-isolated methods, from tests that are themselves
+/// `@MainActor`, even when a value crosses through `Task.value`.
 @MainActor
-private final class FakeGhosttyPaneSurface: GhosttyPaneSurface {
+private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Sendable {
     let pane: PaneID
     private(set) var resizeCalls: [(cols: Int, rows: Int)] = []
     private(set) var detachCallCount = 0
     private(set) var typedText: [String] = []
+    private var detachHoldEnabled = false
+    private var pendingDetachContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(pane: PaneID) {
         self.pane = pane
@@ -174,8 +184,20 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface {
         resizeCalls.append((cols, rows))
     }
 
-    func detach() {
+    func holdDetach() {
+        detachHoldEnabled = true
+    }
+
+    func releaseNextDetach() {
+        guard !pendingDetachContinuations.isEmpty else { return }
+        pendingDetachContinuations.removeFirst().resume()
+    }
+
+    func detach() async {
         detachCallCount += 1
+        if detachHoldEnabled {
+            await withCheckedContinuation { pendingDetachContinuations.append($0) }
+        }
     }
 
     func typeText(_ text: String) {
@@ -184,15 +206,36 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface {
 }
 
 /// A fake `GhosttyPaneFactory` for `SessionViewModelTests`' ghostty attach
-/// lifecycle tests -- records every `makeSurface` call and hands back a
-/// `FakeGhosttyPaneSurface` per pane so a test can inspect it after the fact.
+/// lifecycle tests -- records every `makeSurface` call (including the
+/// `onUserInput` closure `SessionViewModel` hands it, so a test can invoke
+/// it directly to pin the launcher-pristine contract) and hands back a
+/// `FakeGhosttyPaneSurface` per pane. `makeSurface` can be held open one
+/// call at a time, the same shape as `RecordingCommandClient.hold`/
+/// `releaseNext`, so a test can pin a first attach mid-creation while a
+/// resize races it.
 @MainActor
 private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     private(set) var makeSurfaceCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
     private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
+    private(set) var onUserInputHandlers: [PaneID: () -> Void] = [:]
+    private var holdEnabled = false
+    private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
 
-    func makeSurface(for pane: PaneID, cols: Int, rows: Int) -> any GhosttyPaneSurface {
+    func hold() {
+        holdEnabled = true
+    }
+
+    func releaseNext() {
+        guard !pendingContinuations.isEmpty else { return }
+        pendingContinuations.removeFirst().resume()
+    }
+
+    func makeSurface(for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void) async -> any GhosttyPaneSurface {
         makeSurfaceCalls.append((pane, cols, rows))
+        onUserInputHandlers[pane] = onUserInput
+        if holdEnabled {
+            await withCheckedContinuation { pendingContinuations.append($0) }
+        }
         let surface = FakeGhosttyPaneSurface(pane: pane)
         surfaces[pane] = surface
         return surface
@@ -709,7 +752,7 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "launching hides the overlay like a real keystroke would")
     }
 
-    // MARK: - ghostty control-plane attach (focused pane, Task 18h)
+    // MARK: - ghostty control-plane attach (focused pane)
 
     @MainActor
     func testGhosttyAttachIsANoOpWithNoFactoryInjected() async {
@@ -735,8 +778,16 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(first === second, "the same surface instance is handed back across a resize")
     }
 
+    /// Pins the seam contract, not a claim about real ghostty behavior:
+    /// `SessionViewModel` forwards a dims change to the existing surface's
+    /// `resize(cols:rows:)` unconditionally. Production's own conformance
+    /// (`GhosttySessionSurfaceHandle.resize`) deliberately ignores the call --
+    /// a real surface's size is pixel-layout-driven, never cols/rows-driven
+    /// (see that method's own doc comment) -- so this only proves the
+    /// ViewModel-to-surface forwarding, not that resizing does anything
+    /// visible in production.
     @MainActor
-    func testGhosttyAttachResizePropagatesToTheExistingSurface() async throws {
+    func testGhosttyAttachForwardsResizeCallToTheExistingSurface() async throws {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
@@ -774,6 +825,117 @@ final class SessionViewModelTests: XCTestCase {
         _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
 
         XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "a fresh attach after a real detach creates a NEW surface")
+    }
+
+    /// A resize arriving while the FIRST-EVER ghostty attach for a pane is
+    /// still awaiting `makeSurface` must not spawn (or leave reachable) a
+    /// second surface at the stale, superseded dims -- mirrors
+    /// `testResizeDuringInFlightFirstAttachEndsAtNewestDimsOnly`'s discipline
+    /// for the observe path, using `FakeGhosttyPaneFactory`'s own hold/release
+    /// instead of the command client's.
+    @MainActor
+    func testGhosttyResizeDuringInFlightFirstAttachEndsAtNewestDimsWithNoStaleSurfaceLeaked() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        factory.hold()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        let firstTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        let secondTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 100, rows: 30) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        factory.releaseNext()
+        let firstSurface = await firstTask.value
+        let secondSurface = await secondTask.value
+
+        XCTAssertNotNil(firstSurface, "the first-ever attach for this pane returns the real surface")
+        XCTAssertNotNil(secondSurface, "the resize resolves too, once creation settles")
+        XCTAssertTrue(firstSurface === secondSurface, "no stale second surface may exist for the same pane")
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "only ONE makeSurface call, even though a resize arrived mid-creation")
+
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100], "the newest dims are applied via resize once creation settles")
+        XCTAssertEqual(surface.resizeCalls.map(\.rows), [30])
+
+        // The actual discriminator: without `paneWork` serialization, the
+        // resize could race ahead of the held creation and see no surface
+        // yet, spawning its OWN second one at the stale dims.
+        let noop = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 100, rows: 30)
+        XCTAssertTrue(noop === surface)
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "still only one surface ever created for this pane")
+    }
+
+    /// A detach queued while it is still in flight must not be allowed to
+    /// wipe out a fresh attach for the same pane that arrives behind it (a
+    /// fast reappear) -- mirrors
+    /// `testFastReappearAttachIsNotClobberedByAStaleDetach`'s discipline for
+    /// the observe path, using `FakeGhosttyPaneSurface.holdDetach`/
+    /// `releaseNextDetach` instead of the observe attacher's.
+    @MainActor
+    func testGhosttyFastReappearAttachIsNotClobberedByAStaleDetach() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        let initialSurface = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        XCTAssertNotNil(initialSurface)
+        let firstSurface = try XCTUnwrap(factory.surfaces[pane])
+        firstSurface.holdDetach()
+
+        let detachTask = Task { await viewModel.endGhosttyAttach(pane: pane) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        // Fast reappear: a fresh attach request for the same pane, queued
+        // behind the still-in-flight (held) detach.
+        let reattachTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        firstSurface.releaseNextDetach()
+        await detachTask.value
+        let reappearSurface = await reattachTask.value
+
+        XCTAssertNotNil(reappearSurface, "the reappear must re-attach for real, not be silently dropped")
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "one for the original attach, one for the reappear")
+        XCTAssertEqual(firstSurface.detachCallCount, 1)
+
+        // The actual discriminator: without serialization, the stale detach
+        // resumes AFTER the reappear's fresh attach has already installed a
+        // new surface, and wipes it out from under it.
+        XCTAssertNotNil(viewModel.ghosttySurface(for: pane), "the reappear's fresh surface must survive the stale queued detach")
+        XCTAssertFalse(reappearSurface === firstSurface, "the reappear creates a genuinely NEW surface, not the torn-down one")
+    }
+
+    /// The launcher-pristine contract's ghostty half: a keystroke reported
+    /// through the ghostty input seam (`onUserInput`, the closure
+    /// `GhosttyPaneFactory.makeSurface` is handed) must hide the launcher
+    /// exactly like a SwiftTerm pane's `recordLauncherKeystroke` call
+    /// already does -- pinned here at the seam `SessionViewModel` actually
+    /// owns, with no real `NSEvent`/`GhosttySurfaceView` needed: a ghostty
+    /// pane's keys bypass `PaneCellView.routeKeyPress` (and so
+    /// `recordLauncherKeystroke`) entirely, so without this wiring a fresh
+    /// split's launcher buttons would stay hit-testable over live terminal
+    /// output forever.
+    @MainActor
+    func testGhosttyPaneKeystrokeThroughInputSeamHidesTheLauncher() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let client = StubSplitCommandClient(newPaneID: "w1:p2")
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p2")
+
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        XCTAssertTrue(viewModel.isPristineLauncherPane(pane), "a freshly paddock-created pane starts pristine")
+
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        let onUserInput = try XCTUnwrap(factory.onUserInputHandlers[pane])
+
+        onUserInput()
+
+        XCTAssertFalse(
+            viewModel.isPristineLauncherPane(pane),
+            "a keystroke reported through the ghostty seam must hide the launcher, same as a real one does on SwiftTerm"
+        )
     }
 
     // MARK: - deep-history/backfill seeding order

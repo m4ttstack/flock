@@ -193,6 +193,14 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
+        // `keyDown` (never `flagsChanged`) is by construction real key input,
+        // not a bare modifier change -- the one exception is a Command combo,
+        // excluded to match `PaneCellView.routeKeyPress`'s own exemption for
+        // it (a Command combo is the system's to handle, not a sign the user
+        // started typing into this pane).
+        if !event.modifierFlags.contains(.command) {
+            session.onUserInput?()
+        }
         keyTextAccumulator = []
         interpretKeyEvents([event])
         let text = keyTextAccumulator?.joined()
