@@ -104,3 +104,13 @@ Known artifacts on the capture, for the checkpoint hands-on pass: a stray
 hollow-box glyph mid-pane in the unfocused SwiftTerm pane (pre-existing
 observe-path rendering, unchanged by the port) and that pane's thin scroller
 line at its right edge.
+
+## Checkpoint 2c evidence: single renderer (parity/checkpoint-2c/single-renderer.png)
+
+Both panes are libghostty surfaces (unfocused = observe-mode bridge,
+focused = control-mode). Chrome samples unchanged from 2b (titlebar
+#1E2028, rail #17181E, tab strip #1C1C24, pane header #20212B). Visible in
+the frame: identical face and pitch in both panes, the unfocused pane's
+hollow cursor at its real prompt row (the 2b stray-glyph artifact is gone
+with SwiftTerm), and the tail of a 100k-line stream that was flipped
+mid-output without corruption.
