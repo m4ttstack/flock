@@ -47,60 +47,6 @@ private actor FakeLayoutExportClient: LayoutExportClient {
     }
 }
 
-/// Records requests like `RecordingCommandClient` but answers `pane.read`
-/// with a canned `text` payload, so backfill tests can assert the fed bytes
-/// as well as the request params.
-private actor StubReadCommandClient: HerdrCommandClient {
-    private(set) var calls: [(method: String, params: [String: JSONValue])] = []
-    private let readText: String
-
-    init(readText: String = "seeded\n") {
-        self.readText = readText
-    }
-
-    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
-        calls.append((method, params))
-        guard method == "pane.read" else { return Data("{}".utf8) }
-        let escaped = readText.replacingOccurrences(of: "\n", with: "\\n")
-        return Data(#"{"result":{"text":"\#(escaped)"}}"#.utf8)
-    }
-}
-
-/// Answers `pane.read` (backfill), `pane.get` (total row count), and
-/// `pane.selection.read` (a deep-history chunk) -- an end-to-end integration
-/// double proving `SessionViewModel.performAttach` seeds `PaneTerminal`'s
-/// backfill BEFORE any `loadOlderHistory` call can run, so the first chunk
-/// never overlaps what backfill already covers.
-private actor StubHistoryIntegrationClient: HerdrCommandClient {
-    private(set) var calls: [(method: String, params: [String: JSONValue])] = []
-    private let backfillLineCount: Int
-    private let totalRows: Int
-
-    init(backfillLineCount: Int, totalRows: Int) {
-        self.backfillLineCount = backfillLineCount
-        self.totalRows = totalRows
-    }
-
-    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
-        calls.append((method, params))
-        switch method {
-        case "pane.read":
-            let text = (0..<backfillLineCount).map { "backfill-\($0)" }.joined(separator: "\\n")
-            return Data(#"{"result":{"text":"\#(text)"}}"#.utf8)
-        case "pane.get":
-            let maxOffset = totalRows - 24
-            return Data(
-                #"{"result":{"pane":{"revision":0,"scroll":{"max_offset_from_bottom":\#(maxOffset),"viewport_rows":24}}}}"#
-                    .utf8
-            )
-        case "pane.selection.read":
-            return Data(#"{"result":{"text":"OLDER"}}"#.utf8)
-        default:
-            return Data("{}".utf8)
-        }
-    }
-}
-
 /// Records requests like `RecordingCommandClient` but answers `pane.split`
 /// with a canned new-pane id, matching herdr's real `result.pane.pane_id`
 /// response shape (pinned by `spikes/lib/seed-layout.sh`'s own read of it).
@@ -119,68 +65,32 @@ private actor StubSplitCommandClient: HerdrCommandClient {
     }
 }
 
-/// A test double for `ObserveSupervisor` that records calls and hands back
-/// a controllable `AsyncStream` per pane, without spawning real processes.
-private actor RecordingObserveAttacher: PaneObserveAttaching {
-    private(set) var attachCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
-    private(set) var reattachCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
-    private(set) var detachCalls: [PaneID] = []
-    // Mirrors `ObserveSupervisor`'s own real session bookkeeping: a
-    // `reattach` on a pane with no session is a documented no-op there
-    // (`guard let old = sessions.removeValue(forKey: pane) else { return
-    // }`). A fake that unconditionally "succeeds" on every reattach call
-    // regardless of whether an attach ever happened would hide an
-    // interleaving bug entirely -- the raw call logs above look identical
-    // either way; only this settled state tells buggy and fixed apart.
-    private(set) var sessionDims: [PaneID: (cols: Int, rows: Int)] = [:]
-    private var continuations: [PaneID: AsyncStream<TerminalFrame>.Continuation] = [:]
-    private var detachHoldEnabled = false
-    private var pendingDetachContinuations: [CheckedContinuation<Void, Never>] = []
+/// Shared, thread-safe log of `(pane, mode)` events a test hands to every
+/// `FakeGhosttyPaneSurface` it creates through `FakeGhosttyPaneFactory`, so
+/// it can assert the ORDER two different panes' surfaces were told to
+/// switch mode in -- the cross-pane invariant `reconcilePaneModeIfNeeded`
+/// owns (old pane's `.observe` before new pane's `.control`).
+private final class ModeEventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var events: [(pane: PaneID, mode: PaneMode)] = []
 
-    func attach(_ pane: PaneID, cols: Int, rows: Int) async -> AsyncStream<TerminalFrame> {
-        attachCalls.append((pane, cols, rows))
-        sessionDims[pane] = (cols, rows)
-        let (stream, continuation) = AsyncStream<TerminalFrame>.makeStream()
-        continuations[pane] = continuation
-        return stream
-    }
-
-    func reattach(_ pane: PaneID, cols: Int, rows: Int) async {
-        reattachCalls.append((pane, cols, rows))
-        guard sessionDims[pane] != nil else { return }
-        sessionDims[pane] = (cols, rows)
-    }
-
-    /// Every subsequent `detach` call suspends until `releaseNextDetach()`
-    /// resumes it, one at a time (FIFO) -- lets a test pin a detach mid-
-    /// flight while a superseding attach request queues up behind it.
-    func holdDetach() { detachHoldEnabled = true }
-
-    func releaseNextDetach() {
-        guard !pendingDetachContinuations.isEmpty else { return }
-        pendingDetachContinuations.removeFirst().resume()
-    }
-
-    func detach(_ pane: PaneID) async {
-        detachCalls.append(pane)
-        if detachHoldEnabled {
-            await withCheckedContinuation { pendingDetachContinuations.append($0) }
-        }
-        sessionDims.removeValue(forKey: pane)
-        continuations.removeValue(forKey: pane)?.finish()
+    func record(pane: PaneID, mode: PaneMode) {
+        lock.lock()
+        defer { lock.unlock() }
+        events.append((pane, mode))
     }
 }
 
 /// A fake `GhosttyPaneSurface`: records what `SessionViewModel` does to it,
 /// with no real libghostty surface, `NSView`, or bridge process anywhere.
-/// `detach()` has no hold/release of its own (unlike
-/// `RecordingObserveAttacher`'s): `SessionViewModel.performGhosttyDetach`
-/// removes the pane's `ghosttySurfaces` entry SYNCHRONOUSLY, before ever
-/// calling this method, so nothing a held `detach()` here could still be
-/// "in the middle of" would leave that dictionary entry in a stale state
-/// for another call to race against -- see
-/// `testGhosttyAttachWaitsForAPendingObserveDetachOnTheSamePaneBeforeCreatingASurface`'s
-/// doc comment for the real, structurally-checkable hazard on this seam.
+/// `setMode` can be held open one call at a time (mirroring
+/// `FakeGhosttyPaneFactory.makeSurface`'s own hold/release), so a test can
+/// pin a stale mode-switch mid-flight while a fresher one for the same pane
+/// races it. `detach()` has no hold/release of its own:
+/// `SessionViewModel.performDetach` removes the pane's `ghosttySurfaces`
+/// entry SYNCHRONOUSLY, before ever calling this method, so nothing a held
+/// `detach()` here could still be "in the middle of" would leave that
+/// dictionary entry in a stale state for another call to race against.
 /// `@unchecked Sendable` for the same reason `GhosttySessionSurfaceHandle`
 /// is: every touch of this class's state happens through its own
 /// `@MainActor`-isolated methods, from tests that are themselves
@@ -191,6 +101,11 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     private(set) var resizeCalls: [(cols: Int, rows: Int)] = []
     private(set) var detachCallCount = 0
     private(set) var typedText: [String] = []
+    private(set) var modeCalls: [PaneMode] = []
+    private(set) var currentMode: PaneMode?
+    var sharedModeLog: ModeEventLog?
+    private var holdModeEnabled = false
+    private var pendingModeContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(pane: PaneID) {
         self.pane = pane
@@ -207,6 +122,24 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     func typeText(_ text: String) {
         typedText.append(text)
     }
+
+    func holdMode() {
+        holdModeEnabled = true
+    }
+
+    func releaseNextMode() {
+        guard !pendingModeContinuations.isEmpty else { return }
+        pendingModeContinuations.removeFirst().resume()
+    }
+
+    func setMode(_ mode: PaneMode) async {
+        if holdModeEnabled {
+            await withCheckedContinuation { pendingModeContinuations.append($0) }
+        }
+        modeCalls.append(mode)
+        currentMode = mode
+        sharedModeLog?.record(pane: pane, mode: mode)
+    }
 }
 
 /// A fake `GhosttyPaneFactory` for `SessionViewModelTests`' ghostty attach
@@ -222,6 +155,7 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     private(set) var makeSurfaceCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
     private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
     private(set) var onUserInputHandlers: [PaneID: () -> Void] = [:]
+    var modeLog: ModeEventLog?
     private var holdEnabled = false
     private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
 
@@ -241,22 +175,10 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
             await withCheckedContinuation { pendingContinuations.append($0) }
         }
         let surface = FakeGhosttyPaneSurface(pane: pane)
+        surface.sharedModeLog = modeLog
         surfaces[pane] = surface
         return surface
     }
-}
-
-private func makePaneRecord(
-    paneID: String = "w1:p1",
-    agentStatus: AgentStatus = .unknown,
-    viewportRows: Int? = nil
-) -> PaneRecord {
-    PaneRecord(
-        paneID: PaneID(rawValue: paneID), workspaceID: WorkspaceID(rawValue: "w1"),
-        tabID: TabID(rawValue: "w1:t1"), focused: false, agentStatus: agentStatus,
-        revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp",
-        scroll: viewportRows.map { ScrollInfo(offsetFromBottom: 0, maxOffsetFromBottom: 0, viewportRows: $0) }
-    )
 }
 
 private func stringParam(_ params: [String: JSONValue], _ key: String) -> String? {
@@ -514,210 +436,6 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
     }
 
-    // MARK: - live attach
-
-    @MainActor
-    func testBeginLiveAttachCallsAttacherWithLayoutCellDims() async {
-        let attacher = RecordingObserveAttacher()
-        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher)
-
-        let feed = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
-
-        XCTAssertNotNil(feed)
-        let calls = await attacher.attachCalls
-        XCTAssertEqual(calls.count, 1)
-        XCTAssertEqual(calls.first?.pane, PaneID(rawValue: "w1:p1"))
-        XCTAssertEqual(calls.first?.cols, 80)
-        XCTAssertEqual(calls.first?.rows, 24)
-    }
-
-    @MainActor
-    func testBeginLiveAttachTwiceWithSameDimsIsANoOp() async {
-        let attacher = RecordingObserveAttacher()
-        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher)
-
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
-        let second = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
-
-        XCTAssertNil(second, "a repeat call with unchanged dims must not re-attach")
-        let attachCalls = await attacher.attachCalls
-        XCTAssertEqual(attachCalls.count, 1)
-    }
-
-    @MainActor
-    func testBeginLiveAttachWithChangedDimsReattachesWithoutANewFeed() async {
-        let attacher = RecordingObserveAttacher()
-        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher)
-
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
-        let resized = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 100, rows: 30)
-
-        XCTAssertNil(resized, "a dims change reattaches in place; the original stream keeps delivering")
-        let reattachCalls = await attacher.reattachCalls
-        XCTAssertEqual(reattachCalls.count, 1)
-        XCTAssertEqual(reattachCalls.first?.cols, 100)
-        XCTAssertEqual(reattachCalls.first?.rows, 30)
-        let attachCalls = await attacher.attachCalls
-        XCTAssertEqual(attachCalls.count, 1, "reattach must not spawn a second attach")
-    }
-
-    @MainActor
-    func testEndLiveAttachDetachesAndAllowsReattach() async {
-        let attacher = RecordingObserveAttacher()
-        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher)
-
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
-        await viewModel.endLiveAttach(pane: PaneID(rawValue: "w1:p1"))
-
-        let detachCalls = await attacher.detachCalls
-        XCTAssertEqual(detachCalls, [PaneID(rawValue: "w1:p1")])
-
-        // Having left the visible set and detached, a later re-entry attaches
-        // fresh (a real new feed), not the same-dims no-op path above.
-        let feed = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
-        XCTAssertNotNil(feed)
-        let attachCalls = await attacher.attachCalls
-        XCTAssertEqual(attachCalls.count, 2)
-    }
-
-    @MainActor
-    func testBackfillRequestsFullThousandLinesForNonAgentPane() async {
-        let attacher = RecordingObserveAttacher()
-        let client = StubReadCommandClient()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
-        let pane = makePaneRecord(agentStatus: .unknown, viewportRows: 24)
-
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
-
-        let calls = await client.calls
-        let readCall = calls.first { $0.method == "pane.read" }
-        XCTAssertEqual(readCall.flatMap { intParam($0.params, "lines") }, 1000)
-    }
-
-    @MainActor
-    func testBackfillCapsLinesToViewportRowsForRecognizedAgentPane() async {
-        let attacher = RecordingObserveAttacher()
-        let client = StubReadCommandClient()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
-        let pane = makePaneRecord(agentStatus: .working, viewportRows: 40)
-
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 120, rows: 40)
-
-        let calls = await client.calls
-        let readCall = calls.first { $0.method == "pane.read" }
-        XCTAssertEqual(readCall.flatMap { intParam($0.params, "lines") }, 40)
-    }
-
-    @MainActor
-    func testBackfillANSISeedsFromPaneReadText() async {
-        let attacher = RecordingObserveAttacher()
-        let client = StubReadCommandClient(readText: "backfilled\n")
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
-
-        let feed = await viewModel.beginOrUpdateLiveAttach(pane: makePaneRecord(), cols: 80, rows: 24)
-
-        XCTAssertEqual(feed?.backfillANSI.map { String(data: $0, encoding: .utf8) ?? "" }, "backfilled\n")
-    }
-
-    // MARK: - live attach reentrancy (fix round 1)
-
-    /// A resize arriving while the FIRST attach for a pane is still
-    /// awaiting its backfill RPC must not spawn (or leave running) a
-    /// session at the stale, superseded dims -- the pane must end up
-    /// attached at the newest requested size, and only that size.
-    @MainActor
-    func testResizeDuringInFlightFirstAttachEndsAtNewestDimsOnly() async {
-        let attacher = RecordingObserveAttacher()
-        let client = RecordingCommandClient()
-        await client.hold()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
-        let pane = makePaneRecord()
-
-        let firstTask = Task { await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-
-        let secondTask = Task { await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 100, rows: 30) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-
-        await client.releaseNext()
-        let firstFeed = await firstTask.value
-        let secondFeed = await secondTask.value
-
-        XCTAssertNotNil(firstFeed, "the first-ever attach for this pane returns the real feed")
-        XCTAssertNil(secondFeed, "the resize reattaches the same feed in place; no new feed")
-
-        let attachCalls = await attacher.attachCalls
-        let reattachCalls = await attacher.reattachCalls
-        XCTAssertEqual(attachCalls.count, 1)
-        XCTAssertEqual(attachCalls.first?.cols, 80)
-        XCTAssertEqual(reattachCalls.count, 1)
-        XCTAssertEqual(reattachCalls.first?.cols, 100)
-        XCTAssertEqual(reattachCalls.first?.rows, 30)
-
-        // The actual discriminator: with a naively unserialized attach path,
-        // B's `reattach(100,30)` races A's still-in-flight first attach and
-        // no-ops (no session exists yet), then A resumes and installs a REAL
-        // session at its own stale 80x24 -- so the fake's own settled
-        // session state, not just call counts, is what proves the fix.
-        let settledSession = await attacher.sessionDims[pane.paneID]
-        XCTAssertEqual(settledSession?.cols, 100, "the real observe child must end up at the newest dims")
-        XCTAssertEqual(settledSession?.rows, 30)
-
-        // Confirm the settled state really is 100x30, not the stale 80x24:
-        // a third call at 100x30 must be a no-op (no session should ever be
-        // re-established at 80x24, and the "already attached, same dims"
-        // fast path must fire here rather than another reattach).
-        let noop = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 100, rows: 30)
-        XCTAssertNil(noop)
-        let attachCallsAfter = await attacher.attachCalls
-        let reattachCallsAfter = await attacher.reattachCalls
-        XCTAssertEqual(attachCallsAfter.count, 1, "no session should ever be (re)established at 80x24 again")
-        XCTAssertEqual(reattachCallsAfter.count, 1, "settled state is already 100x30; a repeat call is a no-op")
-    }
-
-    /// A detach queued (e.g. from `onDisappear`) while it is still in
-    /// flight must not be allowed to kill a fresh attach for the same pane
-    /// that arrives behind it (a fast reappear) -- the fresh attach must
-    /// wait for the stale detach to fully settle, then genuinely re-attach.
-    @MainActor
-    func testFastReappearAttachIsNotClobberedByAStaleDetach() async {
-        let attacher = RecordingObserveAttacher()
-        let client = RecordingCommandClient()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher)
-        let pane = makePaneRecord()
-
-        // A real prior attach: the pane was already live.
-        let initialFeed = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
-        XCTAssertNotNil(initialFeed)
-
-        await attacher.holdDetach()
-        let detachTask = Task { await viewModel.endLiveAttach(pane: pane.paneID) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-
-        // Fast reappear: a fresh attach request for the same pane, queued
-        // behind the still-in-flight (held) detach.
-        let reattachTask = Task { await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-
-        await attacher.releaseNextDetach()
-        await detachTask.value
-        let feed = await reattachTask.value
-
-        XCTAssertNotNil(feed, "the reappear must re-attach for real, not be silently dropped")
-        let attachCalls = await attacher.attachCalls
-        XCTAssertEqual(attachCalls.count, 2, "one for the original attach, one for the reappear")
-        let detachCalls = await attacher.detachCalls
-        XCTAssertEqual(detachCalls, [pane.paneID], "exactly one detach, ordered before the reappear's attach")
-
-        // The actual discriminator: without serialization, the stale
-        // detach resumes AFTER the reappear's fresh attach has already
-        // installed a new session and wipes it out from under it.
-        let settledSession = await attacher.sessionDims[pane.paneID]
-        XCTAssertNotNil(settledSession, "the reappear's fresh session must survive the stale queued detach")
-        XCTAssertEqual(settledSession?.cols, 80)
-        XCTAssertEqual(settledSession?.rows, 24)
-    }
-
     // MARK: - new-pane harness launcher provenance
 
     @MainActor
@@ -756,25 +474,25 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "launching hides the overlay like a real keystroke would")
     }
 
-    // MARK: - ghostty control-plane attach (focused pane)
+    // MARK: - ghostty pane attach (every visible pane, one surface for its whole life)
 
     @MainActor
-    func testGhosttyAttachIsANoOpWithNoFactoryInjected() async {
+    func testAttachIsANoOpWithNoFactoryInjected() async {
         let viewModel = SessionViewModel(client: RecordingCommandClient())
 
-        let surface = await viewModel.beginOrUpdateGhosttyAttach(pane: PaneID(rawValue: "w1:p1"), cols: 80, rows: 24)
+        let surface = await viewModel.attachPane(PaneID(rawValue: "w1:p1"), cols: 80, rows: 24)
 
         XCTAssertNil(surface)
     }
 
     @MainActor
-    func testGhosttyAttachCreatesExactlyOneSurfacePerPane() async {
+    func testAttachCreatesExactlyOneSurfacePerPane() async {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        let first = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
-        let second = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 100, rows: 30)
+        let first = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        let second = await viewModel.attachPane(pane, cols: 100, rows: 30)
 
         XCTAssertNotNil(first)
         XCTAssertNotNil(second)
@@ -791,13 +509,13 @@ final class SessionViewModelTests: XCTestCase {
     /// ViewModel-to-surface forwarding, not that resizing does anything
     /// visible in production.
     @MainActor
-    func testGhosttyAttachForwardsResizeCallToTheExistingSurface() async throws {
+    func testAttachForwardsResizeCallToTheExistingSurface() async throws {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 100, rows: 30)
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane, cols: 100, rows: 30)
 
         let surface = try XCTUnwrap(factory.surfaces[pane])
         XCTAssertEqual(surface.resizeCalls.map(\.cols), [100])
@@ -805,49 +523,46 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testEndGhosttyAttachTearsDownTheBridgeChild() async throws {
+    func testDetachTearsDownTheBridgeChild() async throws {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
         let surface = try XCTUnwrap(factory.surfaces[pane])
-        await viewModel.endGhosttyAttach(pane: pane)
+        await viewModel.detachPane(pane)
 
         XCTAssertEqual(surface.detachCallCount, 1)
         XCTAssertNil(viewModel.ghosttySurface(for: pane), "the torn-down surface must not still be reachable")
     }
 
     @MainActor
-    func testGhosttyReattachAfterDetachCreatesAFreshSurface() async {
+    func testReattachAfterDetachCreatesAFreshSurface() async {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
-        await viewModel.endGhosttyAttach(pane: pane)
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        await viewModel.detachPane(pane)
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
 
         XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "a fresh attach after a real detach creates a NEW surface")
     }
 
-    /// A resize arriving while the FIRST-EVER ghostty attach for a pane is
-    /// still awaiting `makeSurface` must not spawn (or leave reachable) a
-    /// second surface at the stale, superseded dims -- mirrors
-    /// `testResizeDuringInFlightFirstAttachEndsAtNewestDimsOnly`'s discipline
-    /// for the observe path, using `FakeGhosttyPaneFactory`'s own hold/release
-    /// instead of the command client's.
+    /// A resize arriving while the FIRST-EVER attach for a pane is still
+    /// awaiting `makeSurface` must not spawn (or leave reachable) a second
+    /// surface at the stale, superseded dims.
     @MainActor
-    func testGhosttyResizeDuringInFlightFirstAttachEndsAtNewestDimsWithNoStaleSurfaceLeaked() async throws {
+    func testResizeDuringInFlightFirstAttachEndsAtNewestDimsWithNoStaleSurfaceLeaked() async throws {
         let factory = FakeGhosttyPaneFactory()
         factory.hold()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        let firstTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24) }
+        let firstTask = Task { await viewModel.attachPane(pane, cols: 80, rows: 24) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
-        let secondTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 100, rows: 30) }
+        let secondTask = Task { await viewModel.attachPane(pane, cols: 100, rows: 30) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
         factory.releaseNext()
@@ -866,78 +581,14 @@ final class SessionViewModelTests: XCTestCase {
         // The actual discriminator: without `paneWork` serialization, the
         // resize could race ahead of the held creation and see no surface
         // yet, spawning its OWN second one at the stale dims.
-        let noop = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 100, rows: 30)
+        let noop = await viewModel.attachPane(pane, cols: 100, rows: 30)
         XCTAssertTrue(noop === surface)
         XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "still only one surface ever created for this pane")
     }
 
-    /// A same-renderer "stale detach vs. fast reappear" race, mirroring
-    /// `testFastReappearAttachIsNotClobberedByAStaleDetach`'s observe-path
-    /// test exactly, does NOT discriminate anything on the ghostty side:
-    /// `performGhosttyDetach` removes the pane's `ghosttySurfaces` entry
-    /// SYNCHRONOUSLY, as its very first action, before it ever calls
-    /// `surface.detach()` -- so by the time any hold on `detach()` could
-    /// matter, the dictionary is already cleared, and a reappear sees a
-    /// fresh, empty slot whether or not `paneWork` serializes anything.
-    /// (The observe path's own version of this test discriminates for real
-    /// because ITS fake, `RecordingObserveAttacher`, deliberately defers
-    /// clearing its own `sessionDims` entry until AFTER its held `detach`
-    /// resumes -- there is no equivalent deferred, fake-owned state here to
-    /// race against.)
-    ///
-    /// The hazard `paneWork` DOES guard on this seam is a RENDERER FLIP: a
-    /// pane transitioning from observe to ghostty (or back) must have the
-    /// OLD renderer's detach fully settle before the NEW renderer's attach
-    /// is allowed to create anything, because both operations share the
-    /// same `paneWork[pane]` chain precisely so they can never run
-    /// concurrently for one pane. This is the real, structurally-checkable
-    /// property: hold the observe detach, start a ghostty attach for the
-    /// SAME pane behind it, and prove no surface exists until the detach
-    /// releases.
-    @MainActor
-    func testGhosttyAttachWaitsForAPendingObserveDetachOnTheSamePaneBeforeCreatingASurface() async throws {
-        let attacher = RecordingObserveAttacher()
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher, ghosttyFactory: factory)
-        let pane = makePaneRecord()
-
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
-
-        await attacher.holdDetach()
-        let detachTask = Task { await viewModel.endLiveAttach(pane: pane.paneID) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-
-        // The renderer flip: a ghostty attach for the SAME pane, dispatched
-        // as its own task, must queue behind the still-in-flight observe
-        // detach -- sharing `paneWork` across both renderers is what makes
-        // this true; separate per-renderer chains would let it run
-        // concurrently instead.
-        let ghosttyTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane.paneID, cols: 80, rows: 24) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-
-        XCTAssertEqual(
-            factory.makeSurfaceCalls.count, 0,
-            "the ghostty attach must not create a surface while the observe detach for the SAME pane is still settling"
-        )
-
-        await attacher.releaseNextDetach()
-        await detachTask.value
-        let surface = await ghosttyTask.value
-
-        XCTAssertNotNil(surface, "the ghostty attach resolves once the observe detach has fully settled")
-        XCTAssertEqual(factory.makeSurfaceCalls.count, 1)
-    }
-
     /// The launcher-pristine contract's ghostty half: a keystroke reported
     /// through the ghostty input seam (`onUserInput`, the closure
-    /// `GhosttyPaneFactory.makeSurface` is handed) must hide the launcher
-    /// exactly like a SwiftTerm pane's `recordLauncherKeystroke` call
-    /// already does -- pinned here at the seam `SessionViewModel` actually
-    /// owns, with no real `NSEvent`/`GhosttySurfaceView` needed: a ghostty
-    /// pane's keys bypass `PaneCellView.routeKeyPress` (and so
-    /// `recordLauncherKeystroke`) entirely, so without this wiring a fresh
-    /// split's launcher buttons would stay hit-testable over live terminal
-    /// output forever.
+    /// `GhosttyPaneFactory.makeSurface` is handed) must hide the launcher.
     @MainActor
     func testGhosttyPaneKeystrokeThroughInputSeamHidesTheLauncher() async throws {
         let factory = FakeGhosttyPaneFactory()
@@ -948,243 +599,128 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
         XCTAssertTrue(viewModel.isPristineLauncherPane(pane), "a freshly paddock-created pane starts pristine")
 
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
         let onUserInput = try XCTUnwrap(factory.onUserInputHandlers[pane])
 
         onUserInput()
 
         XCTAssertFalse(
             viewModel.isPristineLauncherPane(pane),
-            "a keystroke reported through the ghostty seam must hide the launcher, same as a real one does on SwiftTerm"
+            "a keystroke reported through the ghostty seam must hide the launcher"
         )
     }
 
-    // MARK: - unfocused-pane read-only guarantees (renderer swap)
+    // MARK: - mode switch (focus-driven, at most one control-mode pane)
 
-    /// The structural half of "unfocused panes have no input path": an
-    /// observe-attached pane must never carry a ghostty surface, and the
-    /// ghostty factory's `onUserInput` handler -- the seam a keystroke
-    /// reaches to hide the launcher -- must never be wired for it, since
-    /// `makeSurface` (the only place that handler is created) is called
-    /// exclusively from `beginOrUpdateGhosttyAttach`.
+    /// A pane attached while it is ALREADY the resolved-focused pane is
+    /// armed `.control` immediately, with no separate reconcile round trip
+    /// needed; any other pane's attach never touches mode at all (the
+    /// bridge's own default, observe, is left alone).
     @MainActor
-    func testObserveAttachedPaneHasNoGhosttySurfaceAndNoInputHandler() async {
-        let attacher = RecordingObserveAttacher()
+    func testAttachArmsControlOnlyForTheAlreadyFocusedPane() async {
         let factory = FakeGhosttyPaneFactory()
-        let client = StubReadCommandClient()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
-        let observePane = makePaneRecord(paneID: "w1:p1")
-        let ghosttyPane = PaneID(rawValue: "w1:p2")
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        let focused = PaneID(rawValue: "w1:p1")
+        let other = PaneID(rawValue: "w1:p2")
 
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: observePane, cols: 80, rows: 24)
-        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: ghosttyPane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(focused, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(other, cols: 80, rows: 24)
 
-        XCTAssertNil(
-            viewModel.ghosttySurface(for: observePane.paneID),
-            "an observe-fed pane must never carry a ghostty surface"
-        )
-        XCTAssertNil(
-            factory.onUserInputHandlers[observePane.paneID],
-            "no ghostty input handler was ever wired for the observe-fed pane"
-        )
+        XCTAssertEqual(factory.surfaces[focused]?.modeCalls, [.control])
+        XCTAssertEqual(factory.surfaces[other]?.modeCalls, [], "an unfocused pane's surface is never told to switch mode at attach")
+    }
+
+    /// Across a focus flip sequence (A focused, flip to B, flip back to A),
+    /// exactly one pane's surface holds `.control` at every settle point,
+    /// and BOTH panes keep exactly one surface each -- `attachPane` never
+    /// creates a second one, no matter how many times focus moves.
+    @MainActor
+    func testExactlyOneControlModePaneAcrossAFocusFlipSequence() async {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        let paneA = PaneID(rawValue: "w1:p1")
+        let paneB = PaneID(rawValue: "w1:p2")
+
+        _ = await viewModel.attachPane(paneA, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(paneB, cols: 80, rows: 24)
+        XCTAssertEqual(factory.surfaces[paneA]?.currentMode, .control)
+        XCTAssertNotEqual(factory.surfaces[paneB]?.currentMode, .control)
+
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p2"), connection: .live)
+        await viewModel.waitForPaneModeReconciliation()
+        XCTAssertEqual(factory.surfaces[paneA]?.currentMode, .observe)
+        XCTAssertEqual(factory.surfaces[paneB]?.currentMode, .control)
+
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        await viewModel.waitForPaneModeReconciliation()
+        XCTAssertEqual(factory.surfaces[paneA]?.currentMode, .control)
+        XCTAssertEqual(factory.surfaces[paneB]?.currentMode, .observe)
+
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "exactly one surface per pane across the whole flip sequence")
+    }
+
+    /// The cross-pane ordering the mode switch owns: the OLD focused pane's
+    /// surface is told `.observe` before the NEW one is told `.control`.
+    /// Both panes attach before either is ever focused, so the ONLY mode
+    /// events on the shared log are the ones this focus flip itself
+    /// produces (the very first focus, A with no prior "old", then the
+    /// flip to B) -- isolating the ordering invariant from the separate
+    /// attach-time arm behavior `testAttachArmsControlOnlyForTheAlreadyFocusedPane`
+    /// already covers.
+    @MainActor
+    func testFocusFlipSendsObserveToOldPaneBeforeControlToNewPane() async {
+        let factory = FakeGhosttyPaneFactory()
+        let modeLog = ModeEventLog()
+        factory.modeLog = modeLog
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let paneA = PaneID(rawValue: "w1:p1")
+        let paneB = PaneID(rawValue: "w1:p2")
+
+        _ = await viewModel.attachPane(paneA, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(paneB, cols: 80, rows: 24)
+        XCTAssertTrue(modeLog.events.isEmpty, "neither pane is focused yet, so attach must not have armed anything")
+
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        await viewModel.waitForPaneModeReconciliation()
+
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p2"), connection: .live)
+        await viewModel.waitForPaneModeReconciliation()
+
+        XCTAssertEqual(modeLog.events.map(\.pane), [paneA, paneA, paneB])
         XCTAssertEqual(
-            factory.makeSurfaceCalls.map(\.pane), [ghosttyPane],
-            "makeSurface must only ever be called for a pane that went through the ghostty attach path"
+            modeLog.events.map(\.mode), [.control, .observe, .control],
+            "A arms first (no prior pane to demote); the flip then demotes A before promoting B"
         )
     }
 
-    /// Across a focus flip sequence (A armed, flip to B, flip back to A),
-    /// exactly one pane carries a live ghostty surface at every settle point
-    /// and the other is confirmed observe-fed via the fake's own session
-    /// state -- not just call counts, which would stay identical whether the
-    /// invariant held or not.
+    /// The stale-task race, adapted to modes: a stale mode-switch request
+    /// for a pane (its own `setMode` call held open) must not be allowed to
+    /// land AFTER a fresher request for the SAME pane and clobber it -- the
+    /// pane must settle at whatever the LAST request asked for.
     @MainActor
-    func testExactlyOneArmedPaneAcrossAFocusFlipSequence() async {
-        let attacher = RecordingObserveAttacher()
+    func testStaleSupersededModeSwitchCannotClobberAFresherOneOnTheSamePane() async throws {
         let factory = FakeGhosttyPaneFactory()
-        let client = StubReadCommandClient()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
-        let paneA = makePaneRecord(paneID: "w1:p1")
-        let paneB = makePaneRecord(paneID: "w1:p2")
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
 
-        _ = await viewModel.swapToGhostty(pane: paneA.paneID, cols: 80, rows: 24)
-        _ = await viewModel.swapToObserve(pane: paneB, cols: 80, rows: 24)
-        await assertExactlyOneArmedPane(armed: paneA.paneID, observed: paneB.paneID, viewModel: viewModel, attacher: attacher)
-
-        // Flip to B: each pane makes exactly one seam call, which attaches
-        // its NEW transport then tears down its OWN OLD one internally,
-        // matching what `PaneCellView` now calls per branch.
-        _ = await viewModel.swapToObserve(pane: paneA, cols: 80, rows: 24)
-        _ = await viewModel.swapToGhostty(pane: paneB.paneID, cols: 80, rows: 24)
-        await assertExactlyOneArmedPane(armed: paneB.paneID, observed: paneA.paneID, viewModel: viewModel, attacher: attacher)
-
-        // Flip back to A.
-        _ = await viewModel.swapToObserve(pane: paneB, cols: 80, rows: 24)
-        _ = await viewModel.swapToGhostty(pane: paneA.paneID, cols: 80, rows: 24)
-        await assertExactlyOneArmedPane(armed: paneA.paneID, observed: paneB.paneID, viewModel: viewModel, attacher: attacher)
-    }
-
-    @MainActor
-    private func assertExactlyOneArmedPane(
-        armed: PaneID, observed: PaneID, viewModel: SessionViewModel, attacher: RecordingObserveAttacher,
-        line: UInt = #line
-    ) async {
-        XCTAssertNotNil(viewModel.ghosttySurface(for: armed), "\(armed.rawValue) must be the one armed pane", line: line)
-        XCTAssertNil(viewModel.ghosttySurface(for: observed), "\(observed.rawValue) must not carry a ghostty surface", line: line)
-        let sessionDims = await attacher.sessionDims
-        XCTAssertNotNil(sessionDims[observed], "the non-armed pane must be observe-fed", line: line)
-        XCTAssertNil(sessionDims[armed], "the armed pane must not still carry an observe session", line: line)
-    }
-
-    /// Pane losing focus (ghostty -> swiftTerm): `swapToObserve` attaches the
-    /// new observe transport BEFORE tearing down the old ghostty surface,
-    /// both inside the SAME `paneWork` step. Discriminator: while the
-    /// observe attach's backfill RPC is still held open, the ghostty surface
-    /// must still be armed -- a detach-old-first ordering would have already
-    /// torn it down before this attach was even issued, leaving the pane
-    /// transiently fed by neither transport.
-    @MainActor
-    func testFocusLossKeepsGhosttyArmedUntilTheObserveAttachIsLive() async {
-        let attacher = RecordingObserveAttacher()
-        let factory = FakeGhosttyPaneFactory()
-        let client = RecordingCommandClient()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
-        let pane = makePaneRecord()
-
-        _ = await viewModel.swapToGhostty(pane: pane.paneID, cols: 80, rows: 24)
-        XCTAssertNotNil(viewModel.ghosttySurface(for: pane.paneID))
-
-        await client.hold()
-        let swapTask = Task { await viewModel.swapToObserve(pane: pane, cols: 80, rows: 24) }
+        surface.holdMode()
+        let staleTask = Task { await viewModel.setPaneMode(.observe, for: pane) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
-        XCTAssertNotNil(
-            viewModel.ghosttySurface(for: pane.paneID),
-            "the pane must never sit with no live transport while the new (observe) attach is still settling"
-        )
-
-        await client.releaseNext()
-        let feed = await swapTask.value
-        XCTAssertNotNil(feed)
-
-        XCTAssertNil(viewModel.ghosttySurface(for: pane.paneID), "the swap tears down the old ghostty surface once observe is live")
-        let attachCalls = await attacher.attachCalls
-        XCTAssertEqual(attachCalls.count, 1)
-    }
-
-    /// Symmetric case: pane gaining focus (swiftTerm -> ghostty). While the
-    /// ghostty surface is still being created, the observe attach must not
-    /// yet have been torn down -- a detach-old-first ordering would already
-    /// have called `detach` here.
-    @MainActor
-    func testFocusGainKeepsObserveArmedUntilTheGhosttyAttachIsLive() async {
-        let attacher = RecordingObserveAttacher()
-        let factory = FakeGhosttyPaneFactory()
-        factory.hold()
-        let client = StubReadCommandClient()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
-        let pane = makePaneRecord()
-
-        _ = await viewModel.swapToObserve(pane: pane, cols: 80, rows: 24)
-        let attachCallsBefore = await attacher.attachCalls
-        XCTAssertEqual(attachCallsBefore.count, 1)
-
-        let swapTask = Task { await viewModel.swapToGhostty(pane: pane.paneID, cols: 80, rows: 24) }
+        let freshTask = Task { await viewModel.setPaneMode(.control, for: pane) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
-        let detachCallsDuring = await attacher.detachCalls
-        XCTAssertTrue(
-            detachCallsDuring.isEmpty,
-            "the observe transport must still be feeding while the new (ghostty) attach is still settling"
-        )
-
-        factory.releaseNext()
-        let surface = await swapTask.value
-        XCTAssertNotNil(surface)
-
-        let detachCallsAfter = await attacher.detachCalls
-        XCTAssertEqual(detachCallsAfter, [pane.paneID])
-    }
-
-    /// The stale-task race: SwiftUI's `.task(id:)` cancellation is
-    /// cooperative, so a superseded task body for this pane (focus left,
-    /// then returned, faster than the first swap's own attach RPC resolved)
-    /// is not actually stopped -- it keeps running to completion. Simulated
-    /// here as two competing calls for the SAME pane: `swapToObserve` (the
-    /// stale, superseded request, "B") issued first with its backfill RPC
-    /// held open, then `swapToGhostty` (the fresh, final request, back to
-    /// "A") issued and chained behind it before either settles. The pane
-    /// must end up carrying exactly the transport the LAST (fresh) request
-    /// asked for -- never neither.
-    @MainActor
-    func testStaleSupersededSwapCannotClobberAFresherSwapOnTheSamePane() async {
-        let attacher = RecordingObserveAttacher()
-        let factory = FakeGhosttyPaneFactory()
-        let client = RecordingCommandClient()
-        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
-        let pane = makePaneRecord()
-
-        // Steady state: the pane starts ghostty-armed ("A").
-        _ = await viewModel.swapToGhostty(pane: pane.paneID, cols: 80, rows: 24)
-        XCTAssertNotNil(viewModel.ghosttySurface(for: pane.paneID))
-
-        // Stale task body: focus briefly left ("B"); its swap-to-observe
-        // request is issued first, but its backfill RPC is held open.
-        await client.hold()
-        let staleTask = Task { await viewModel.swapToObserve(pane: pane, cols: 80, rows: 24) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-
-        // Fresh task body: focus returned to "A" before the stale swap ever
-        // settled. The stale task above is NOT actually cancelled -- it
-        // keeps running.
-        let freshTask = Task { await viewModel.swapToGhostty(pane: pane.paneID, cols: 80, rows: 24) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-
-        // Release the stale swap's held RPC; both tasks now settle in order.
-        await client.releaseNext()
+        surface.releaseNextMode()
         _ = await staleTask.value
+        surface.releaseNextMode()
         _ = await freshTask.value
 
-        XCTAssertNotNil(
-            viewModel.ghosttySurface(for: pane.paneID),
-            "the pane must settle armed, matching the LAST swap requested -- never neither transport"
-        )
-        let sessionDims = await attacher.sessionDims
-        XCTAssertNil(sessionDims[pane.paneID], "no leftover observe session from the superseded stale swap")
-    }
-
-    // MARK: - deep-history/backfill seeding order
-
-    /// Reported live: the dimmed history region duplicated exactly what the
-    /// live buffer already showed. Root cause: the history region is a
-    /// VStack sibling declared ABOVE the terminal representable, so its own
-    /// `onAppear` (triggering `loadOlderHistory`) could fire before
-    /// `TerminalRepresentable.makeNSView` ever ran -- the one place that
-    /// used to seed `PaneTerminal`'s backfill -- reading `backfillLineCount`
-    /// as its `0` default and anchoring the first chunk at the pane's total
-    /// row count, squarely inside what backfill was about to cover.
-    /// `performAttach` now seeds backfill itself, before any view can race
-    /// it; this proves the first chunk it requests never overlaps.
-    @MainActor
-    func testFirstHistoryChunkAfterAttachNeverOverlapsSeededBackfill() async throws {
-        let client = StubHistoryIntegrationClient(backfillLineCount: 1000, totalRows: 1500)
-        let viewModel = SessionViewModel(client: client, observeAttacher: RecordingObserveAttacher())
-        let pane = makePaneRecord()
-
-        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
-        let terminal = viewModel.paneTerminal(for: pane, cols: 80, rows: 24)
-        let oldestHeldAbsoluteRow = 1500 - terminal.locallyHeldRowCount()
-        _ = try await terminal.loadOlderHistory(chunkRows: 200)
-
-        let calls = await client.calls
-        let request = try XCTUnwrap(calls.last { $0.method == "pane.selection.read" })
-        guard case .object(let cursor)? = request.params["cursor"] else {
-            return XCTFail("expected a cursor param")
-        }
-        XCTAssertEqual(
-            intParam(cursor, "row"), oldestHeldAbsoluteRow - 1,
-            "must end exactly where the locally retained buffer begins, never inside it"
-        )
+        XCTAssertEqual(surface.currentMode, .control, "the settled mode must match the LAST request, never the stale one")
+        XCTAssertEqual(surface.modeCalls, [.observe, .control])
     }
 
     // MARK: - context-menu commands (split down, close, right-click routing)
@@ -1305,9 +841,4 @@ final class SessionViewModelTests: XCTestCase {
         calls = await layoutExportClient.calls
         XCTAssertEqual(calls, [tabID, tabID])
     }
-}
-
-private func intParam(_ params: [String: JSONValue], _ key: String) -> Int? {
-    guard case .int(let value)? = params[key] else { return nil }
-    return value
 }

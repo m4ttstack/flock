@@ -15,38 +15,6 @@ public struct ProtocolMismatch: Equatable, Sendable {
     public let required: Int
 }
 
-/// The subset of `ObserveSupervisor` the view-model needs to drive live
-/// attach; a test double substitutes for it in `SessionViewModelTests`
-/// without spawning real `herdr` child processes.
-public protocol PaneObserveAttaching: Sendable {
-    func attach(_ pane: PaneID, cols: Int, rows: Int) async -> AsyncStream<TerminalFrame>
-    func reattach(_ pane: PaneID, cols: Int, rows: Int) async
-    func detach(_ pane: PaneID) async
-}
-
-extension ObserveSupervisor: PaneObserveAttaching {}
-
-/// A one-shot handoff for a newly attached pane: backfill ANSI (nil when the
-/// pane.read failed or returned nothing) to feed first, then the live frame
-/// stream. Returned only from the FIRST attach of a pane; a later dims
-/// change reattaches in place and returns nil, since `ObserveSupervisor`
-/// hands the SAME continuation to the new session -- the stream a caller is
-/// already iterating keeps delivering, just at the new size.
-public struct PaneLiveFeed: Sendable {
-    public let backfillANSI: Data?
-    /// How many lines `backfillANSI` was requested for (`pane.read`'s own
-    /// `lines` param) -- deep history's contiguity anchor. `nil` alongside
-    /// a `nil` `backfillANSI`.
-    public let backfillLineCount: Int?
-    public let frames: AsyncStream<TerminalFrame>
-
-    public init(backfillANSI: Data?, backfillLineCount: Int? = nil, frames: AsyncStream<TerminalFrame>) {
-        self.backfillANSI = backfillANSI
-        self.backfillLineCount = backfillLineCount
-        self.frames = frames
-    }
-}
-
 /// Selection and focus-jump logic for the shell UI. Views render from this
 /// (rail/strip/canvas) and stay untested until the e2e suite; every decision
 /// about what is selected, and what herdr command a click issues, lives here.
@@ -61,28 +29,43 @@ public final class SessionViewModel {
     public private(set) var lastLines: [PaneID: String] = [:]
 
     private var lastLineRevisions: [PaneID: Int] = [:]
-    private var attachedDims: [PaneID: (cols: Int, rows: Int)] = [:]
-    // One chained task per pane: every attach/reattach/detach request for a
-    // pane waits for whatever request came immediately before it (for that
-    // SAME pane only -- other panes are unaffected) before touching
-    // `observeAttacher`. This is what actually closes the reentrancy hole a
-    // simple "recheck after await" guard cannot: once a `detach()` call is
-    // issued there is no way to un-issue it, so an attach and a detach for
-    // the same pane must never reach `observeAttacher` concurrently in the
-    // first place. Not pruned as requests settle -- bounded by how many
-    // distinct panes have ever existed in the session, not by request
-    // volume, so this does not grow unbounded in practice.
-    private var paneWork: [PaneID: Task<PaneLiveFeed?, Never>] = [:]
+    // One chained task per pane: every attach/mode/detach request for a pane
+    // waits for whatever request came immediately before it (for that SAME
+    // pane only -- other panes are unaffected) before touching
+    // `ghosttySurfaces`. This is what actually closes the reentrancy hole a
+    // simple "recheck after await" guard cannot: a resize arriving mid-attach,
+    // or a mode switch arriving mid-detach, must never reach the surface
+    // concurrently with whatever request is already in flight for the same
+    // pane. Not pruned as requests settle -- bounded by how many distinct
+    // panes have ever existed in the session, not by request volume, so this
+    // does not grow unbounded in practice.
+    private var paneWork: [PaneID: Task<Void, Never>] = [:]
     private let client: any HerdrCommandClient
-    private let observeAttacher: (any PaneObserveAttaching)?
     private let ghosttyFactory: (any GhosttyPaneFactory)?
-    // The focused pane's live surface, keyed by pane so a stale surface from
-    // a pane that has since lost focus is never mistaken for the current
-    // one. Attach/detach for a given pane always goes through `paneWork`
-    // (the SAME chain the observe path uses), so a focus flip-flop can never
-    // race an observe attach/detach against a ghostty attach/detach for that
-    // pane.
+    // Every visible pane's live surface, keyed by pane -- created exactly
+    // once per pane, on first visibility, and torn down only when the pane
+    // leaves the visible set entirely. Attach/mode/detach for a given pane
+    // always goes through `paneWork`, so a focus flip can never race a
+    // resize or a teardown for that pane.
     private var ghosttySurfaces: [PaneID: any GhosttyPaneSurface] = [:]
+    // Which pane, if any, currently holds `.control` mode -- the ViewModel's
+    // own record of what it last told a bridge, independent of
+    // `resolvedFocusedPaneID` so a focus change can be diffed against it
+    // (old pane gets `.observe`, new pane gets `.control`, in that order).
+    private var modeArmedPane: PaneID?
+    // The last mode actually sent to each pane's surface -- the dedup guard
+    // `sendModeIfChanged` reads before every send, so two independently
+    // triggered calls for the same pane (attach's own arm-check and a
+    // reconcile that was enqueued before the pane had a surface at all, so
+    // it could only find out once it finally ran) can never double-send the
+    // identical mode. Cleared on detach: a fresh surface has told the
+    // bridge nothing yet, whatever a previous surface for this pane once was.
+    private var lastSentMode: [PaneID: PaneMode] = [:]
+    // The in-flight (or most recently settled) mode-reconcile `Task`, so a
+    // test can await the exact settle point a focus change produces without
+    // polling -- `waitForPaneModeReconciliation()`. Production never reads
+    // this back.
+    private var pendingModeReconciliation: Task<Void, Never>?
 
     // One gate for the whole session: the first unsupported
     // `pane.selection.read` reply hides deep history for every pane, not
@@ -108,12 +91,10 @@ public final class SessionViewModel {
 
     public init(
         client: any HerdrCommandClient,
-        observeAttacher: (any PaneObserveAttaching)? = nil,
         ghosttyFactory: (any GhosttyPaneFactory)? = nil,
         layoutExportClient: (any LayoutExportClient)? = nil
     ) {
         self.client = client
-        self.observeAttacher = observeAttacher
         self.ghosttyFactory = ghosttyFactory
         self.layoutExportCoordinator = layoutExportClient.map { LayoutExportCoordinator(client: $0) }
     }
@@ -145,6 +126,7 @@ public final class SessionViewModel {
             optimisticFocusedPaneID = nil
         }
         refreshLayoutExports()
+        reconcilePaneModeIfNeeded()
     }
 
     /// Kicks the coordinator's per-tab refresh off the same seam every other
@@ -178,7 +160,9 @@ public final class SessionViewModel {
     /// target while a `pane.focus` round trip is in flight (or has not yet
     /// echoed back), else the model's own field. Painting from this instead
     /// of `model?.focusedPaneID` directly is what makes the accent ring move
-    /// on the same frame as the click rather than 24-100+ms later.
+    /// on the same frame as the click rather than 24-100+ms later. The same
+    /// field drives which pane's bridge holds `.control` mode -- see
+    /// `reconcilePaneModeIfNeeded`.
     public var resolvedFocusedPaneID: PaneID? {
         optimisticFocusedPaneID ?? model?.focusedPaneID
     }
@@ -229,11 +213,13 @@ public final class SessionViewModel {
     /// superseded it (the `== id` guard).
     public func jumpToHerdr(pane id: PaneID) async {
         optimisticFocusedPaneID = id
+        reconcilePaneModeIfNeeded()
         do {
             _ = try await client.requestRaw("pane.focus", ["pane_id": .string(id.rawValue)])
         } catch {
             if optimisticFocusedPaneID == id {
                 optimisticFocusedPaneID = nil
+                reconcilePaneModeIfNeeded()
             }
         }
     }
@@ -278,134 +264,45 @@ public final class SessionViewModel {
         _ = try? await client.requestRaw(method, params)
     }
 
-    // MARK: - live attach
-
-    /// Attaches `pane` live at `cols`x`rows`, or reattaches in place if it is
-    /// already attached at different dims. `cols`/`rows` must be the pane's
-    /// real cell size -- callers pass the layout's own `CellRect.width`/
-    /// `.height` (already in terminal cells), never a pixel frame, matching
-    /// `ObserveSupervisor`'s documented contract.
-    ///
-    /// Chained through `paneWork` (see its doc comment): a resize arriving
-    /// while an earlier attach for the SAME pane is still awaiting its
-    /// backfill RPC does not race it. The new request waits for the earlier
-    /// one to fully settle, then reconciles from whatever state that left
-    /// behind toward its own (newer) dims -- so the observe child always
-    /// ends up at the most recently requested size, never a stale one a
-    /// resize already superseded.
-    public func beginOrUpdateLiveAttach(pane: PaneRecord, cols: Int, rows: Int) async -> PaneLiveFeed? {
-        guard let observeAttacher, cols > 0, rows > 0 else { return nil }
-        let paneID = pane.paneID
-        let previous = paneWork[paneID]
-        let task = Task { [weak self] () -> PaneLiveFeed? in
-            _ = await previous?.value
-            guard let self else { return nil }
-            return await self.performAttach(pane: pane, cols: cols, rows: rows, observeAttacher: observeAttacher)
-        }
-        paneWork[paneID] = task
-        return await task.value
-    }
-
-    /// Detaches a pane that left the visible set (tab switch, split closed,
-    /// window resize dropping it off-screen). Chained through the same
-    /// `paneWork` queue as attach/reattach, for the same reason: a detach
-    /// fired from `onDisappear` must wait for any attach already in flight
-    /// for this pane to finish before it can safely tear anything down --
-    /// otherwise a fast reappear's fresh attach can install a new session
-    /// that this (by-then-stale) detach then kills, since once `detach()`
-    /// is issued there is no way to un-issue it.
-    public func endLiveAttach(pane: PaneID) async {
-        guard let observeAttacher else { return }
-        let previous = paneWork[pane]
-        let task = Task { [weak self] () -> PaneLiveFeed? in
-            _ = await previous?.value
-            await self?.performDetach(pane: pane, observeAttacher: observeAttacher)
-            return nil
-        }
-        paneWork[pane] = task
-        _ = await task.value
-    }
-
-    /// Runs only after every request queued ahead of it (for this pane) has
-    /// fully settled, so `attachedDims[pane.paneID]` reflects the true
-    /// current state -- never a value a since-superseded request captured.
-    private func performAttach(
-        pane: PaneRecord, cols: Int, rows: Int, observeAttacher: any PaneObserveAttaching
-    ) async -> PaneLiveFeed? {
-        if let existing = attachedDims[pane.paneID] {
-            guard existing != (cols, rows) else { return nil }
-            attachedDims[pane.paneID] = (cols, rows)
-            await observeAttacher.reattach(pane.paneID, cols: cols, rows: rows)
-            return nil
-        }
-        attachedDims[pane.paneID] = (cols, rows)
-        let backfill = await fetchBackfillANSI(for: pane, cols: cols, rows: rows)
-        // Seeded here, synchronously before this feed ever reaches a view,
-        // rather than from `TerminalRepresentable.makeNSView`: the deep
-        // history region is a VStack SIBLING of the terminal representable,
-        // declared ABOVE it, so its own `onAppear` can fire (and call
-        // `loadOlderHistory`) before an NSViewRepresentable's `makeNSView`
-        // ever runs -- reading `backfillLineCount` as still its `0` default
-        // and anchoring the first chunk at the pane's total row count,
-        // duplicating whatever backfill goes on to show once seeded.
-        //
-        // `lineCount` is deliberately NOT passed here: `backfill.lines` is
-        // the REQUESTED `pane.read` `lines` value, not a promise of how many
-        // rows actually came back. herdr's real recent-read range can return
-        // fewer (see `seedBackfill`'s own doc), so `PaneTerminal` measures
-        // the real row count from `backfill.data` itself.
-        if let backfill {
-            paneTerminal(for: pane, cols: cols, rows: rows).seedBackfill(ansi: backfill.data)
-        }
-        let frames = await observeAttacher.attach(pane.paneID, cols: cols, rows: rows)
-        return PaneLiveFeed(backfillANSI: backfill?.data, backfillLineCount: backfill?.lines, frames: frames)
-    }
-
-    private func performDetach(pane: PaneID, observeAttacher: any PaneObserveAttaching) async {
-        guard attachedDims.removeValue(forKey: pane) != nil else { return }
-        await observeAttacher.detach(pane)
-    }
-
-    // MARK: - ghostty control-plane attach (focused pane only)
+    // MARK: - ghostty pane attach (every visible pane, one surface for its whole life)
 
     /// Creates `pane`'s ghostty surface the first time, or resizes the
     /// existing one -- never a second surface for a pane that already has
-    /// one, matching the observe path's own "same pane, new dims" contract.
-    /// Chained through the same `paneWork` entry the observe path uses (see
-    /// its own doc comment), so a pane transitioning between renderers can
-    /// never have both an observe attach and a ghostty attach in flight at
-    /// once. Returns the surface (new or existing) so a caller can hand it
-    /// to `@State`, the same reactivity path `feed` already uses for the
-    /// observe side -- reading `ghosttySurface(for:)` back out independently
-    /// would depend on whether a dictionary mutation buried inside a method
-    /// call still registers as an `@Observable` access, which this sidesteps
-    /// entirely.
+    /// one. Chained through `paneWork` (see its own doc comment), so a
+    /// resize racing a fresh attach for the same pane can never reach the
+    /// factory concurrently. Returns the surface (new or existing) so a
+    /// caller can hand it to `@State`, reading `ghosttySurface(for:)` back
+    /// out independently would depend on whether a dictionary mutation
+    /// buried inside a method call still registers as an `@Observable`
+    /// access, which this sidesteps entirely.
     @discardableResult
-    public func beginOrUpdateGhosttyAttach(pane: PaneID, cols: Int, rows: Int) async -> (any GhosttyPaneSurface)? {
+    public func attachPane(_ pane: PaneID, cols: Int, rows: Int) async -> (any GhosttyPaneSurface)? {
         guard let ghosttyFactory, cols > 0, rows > 0 else { return nil }
         let previous = paneWork[pane]
-        let task = Task { [weak self] () -> PaneLiveFeed? in
+        let task = Task { [weak self] in
             _ = await previous?.value
-            await self?.performGhosttyAttach(pane: pane, cols: cols, rows: rows, factory: ghosttyFactory)
-            return nil
+            guard let self else { return }
+            await self.performAttach(pane: pane, cols: cols, rows: rows, factory: ghosttyFactory)
         }
         paneWork[pane] = task
-        _ = await task.value
+        await task.value
         return ghosttySurfaces[pane]
     }
 
-    /// Tears down `pane`'s ghostty surface, if it has one -- called when the
-    /// pane loses focus (falling back to the observe path) or leaves the
-    /// visible set entirely. Chained through `paneWork` like `endLiveAttach`.
-    public func endGhosttyAttach(pane: PaneID) async {
+    /// Tears down `pane`'s ghostty surface -- called when the pane leaves
+    /// the visible set entirely (tab switch, split closed, window resize
+    /// dropping it off-screen). Chained through `paneWork` like `attachPane`.
+    public func detachPane(_ pane: PaneID) async {
         let previous = paneWork[pane]
-        let task = Task { [weak self] () -> PaneLiveFeed? in
+        let task = Task { [weak self] in
             _ = await previous?.value
-            await self?.performGhosttyDetach(pane: pane)
-            return nil
+            await self?.performDetach(pane: pane)
         }
         paneWork[pane] = task
-        _ = await task.value
+        await task.value
+        if modeArmedPane == pane {
+            modeArmedPane = nil
+        }
     }
 
     /// `pane`'s live ghostty surface, if it has one.
@@ -413,126 +310,114 @@ public final class SessionViewModel {
         ghosttySurfaces[pane]
     }
 
-    /// `async` (despite a synchronous body) purely so the `Task` closures
-    /// above can `await` it: that is what lets a synchronous, MainActor-only
-    /// call run safely from a closure whose own isolation is not otherwise
-    /// pinned to this actor, matching `performAttach`/`performDetach`'s own
-    /// shape.
-    private func performGhosttyAttach(pane: PaneID, cols: Int, rows: Int, factory: any GhosttyPaneFactory) async {
+    private func performAttach(pane: PaneID, cols: Int, rows: Int, factory: any GhosttyPaneFactory) async {
         if let existing = ghosttySurfaces[pane] {
             existing.resize(cols: cols, rows: rows)
             return
         }
         // The closure is the launcher-pristine contract's ghostty half: see
         // `GhosttyPaneFactory.makeSurface`'s doc comment.
-        ghosttySurfaces[pane] = await factory.makeSurface(for: pane, cols: cols, rows: rows) { [weak self] in
+        let surface = await factory.makeSurface(for: pane, cols: cols, rows: rows) { [weak self] in
             self?.recordLauncherKeystroke(pane)
+        }
+        ghosttySurfaces[pane] = surface
+        // A bridge is always born in observe mode (`ControlBridge.run`); only
+        // the currently resolved-focused pane needs telling to switch --
+        // every other pane simply stays at its default. Read the CURRENT
+        // resolved focus, never a caller-supplied flag, so a focus change
+        // that lands mid-attach is never missed.
+        if resolvedFocusedPaneID == pane {
+            await sendModeIfChanged(.control, to: pane, surface: surface)
+            modeArmedPane = pane
         }
     }
 
-    private func performGhosttyDetach(pane: PaneID) async {
+    private func performDetach(pane: PaneID) async {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
+        lastSentMode.removeValue(forKey: pane)
         await surface.detach()
     }
 
-    // MARK: - renderer swap (single call per pane, cancellation-safe)
+    // MARK: - mode switch (focus-driven, at most one control-mode pane)
 
-    /// Swaps `pane` onto the ghostty transport in ONE `paneWork` step:
-    /// attaches (or resizes) its ghostty surface, then -- inside that SAME
-    /// step -- tears down whatever observe attach `attachedDims` says this
-    /// pane ACTUALLY still carries, read at the moment this step runs on the
-    /// chain, never from anything a caller believes. `PaneCellView` calls
-    /// this exactly once per render identity instead of two separate
-    /// attach/detach calls: SwiftUI's `.task(id:)` cancellation is
-    /// cooperative, so a superseded task body for this pane can keep running
-    /// to completion after a fast flip-flop, and if attach and detach were
-    /// two separate enqueues, a stale body's own (delayed) detach call could
-    /// land on `paneWork` AFTER a fresher call's attach and undo it, settling
-    /// the pane with neither transport. Folding both into one step removes
-    /// that window entirely: a stale call's own detach decision is made
-    /// after it, not a fresher call, is next on the chain, so its second
-    /// pass (if a fresher call is already chained behind it) finds nothing
-    /// stale to act on and a fresher call chained behind IT always re-reads
-    /// current truth before deciding anything.
+    /// Diffs `resolvedFocusedPaneID` against `modeArmedPane` and, if they
+    /// differ, sends `.observe` to whichever pane was armed before sending
+    /// `.control` to whichever pane is armed now -- in that order, awaited
+    /// sequentially, so a bridge is never asked to hold `.control` while the
+    /// pane that is about to replace it still does. `modeArmedPane` itself
+    /// updates synchronously (before either send goes out) so a second,
+    /// faster flip arriving while the first is still in flight diffs
+    /// against the NEWEST target, not a stale one.
+    private func reconcilePaneModeIfNeeded() {
+        let resolved = resolvedFocusedPaneID
+        guard resolved != modeArmedPane else { return }
+        let old = modeArmedPane
+        modeArmedPane = resolved
+        pendingModeReconciliation = Task { [weak self] in
+            guard let self else { return }
+            if let old { await self.setPaneMode(.observe, for: old) }
+            if let resolved { await self.setPaneMode(.control, for: resolved) }
+        }
+    }
+
+    /// Lets a test await the exact focus-driven mode-reconcile step a
+    /// preceding `update`/`jumpToHerdr(pane:)` call kicked off, instead of
+    /// polling; a no-op (returns immediately) if no reconciliation is
+    /// pending. Production never calls this.
+    public func waitForPaneModeReconciliation() async {
+        await pendingModeReconciliation?.value
+    }
+
+    /// Sends `mode` to `pane`'s surface, chained through `paneWork` like
+    /// every other per-pane request: a call queued behind an in-flight
+    /// attach/detach/mode-switch for the SAME pane waits for it to settle
+    /// first, and -- since `paneWork[pane]` always holds only the LAST
+    /// enqueued step -- a stale call whose own step is still running when a
+    /// fresher one for the same pane is issued can never have its (delayed)
+    /// effect land after the fresher one and clobber it: the fresher step
+    /// simply becomes the new chain tail, and whichever step actually runs
+    /// last decides the pane's settled mode. A pane with no surface yet
+    /// (detached, or never attached) is a no-op; `attachPane` arms a
+    /// freshly-created surface itself, from the resolved focus at that
+    /// moment, so this method never needs to.
     @discardableResult
-    public func swapToGhostty(pane: PaneID, cols: Int, rows: Int) async -> (any GhosttyPaneSurface)? {
-        guard let ghosttyFactory, cols > 0, rows > 0 else { return nil }
+    public func setPaneMode(_ mode: PaneMode, for pane: PaneID) async -> Bool {
         let previous = paneWork[pane]
-        let task = Task { [weak self] () -> PaneLiveFeed? in
+        let task = Task { [weak self] in
             _ = await previous?.value
-            guard let self else { return nil }
-            await self.performGhosttyAttach(pane: pane, cols: cols, rows: rows, factory: ghosttyFactory)
-            if let observeAttacher = self.observeAttacher, self.attachedDims[pane] != nil {
-                await self.performDetach(pane: pane, observeAttacher: observeAttacher)
-            }
-            return nil
+            guard let self, let surface = self.ghosttySurfaces[pane] else { return }
+            await self.sendModeIfChanged(mode, to: pane, surface: surface)
         }
         paneWork[pane] = task
-        _ = await task.value
-        return ghosttySurfaces[pane]
+        await task.value
+        return ghosttySurfaces[pane] != nil
     }
 
-    /// Symmetric: attaches (or reattaches) `pane`'s observe feed, then tears
-    /// down whatever ghostty surface `ghosttySurfaces` says this pane
-    /// actually still carries -- same single-step reasoning as
-    /// `swapToGhostty`.
-    public func swapToObserve(pane: PaneRecord, cols: Int, rows: Int) async -> PaneLiveFeed? {
-        guard let observeAttacher, cols > 0, rows > 0 else { return nil }
-        let paneID = pane.paneID
-        let previous = paneWork[paneID]
-        let task = Task { [weak self] () -> PaneLiveFeed? in
-            _ = await previous?.value
-            guard let self else { return nil }
-            let feed = await self.performAttach(pane: pane, cols: cols, rows: rows, observeAttacher: observeAttacher)
-            if self.ghosttySurfaces[paneID] != nil {
-                await self.performGhosttyDetach(pane: paneID)
-            }
-            return feed
-        }
-        paneWork[paneID] = task
-        return await task.value
-    }
-
-    /// `pane.read {source:"recent", format:"ansi", lines:N}` per spike 4's
-    /// backfill recipe. Alt-screen heuristic: `PaneRecord` carries no direct
-    /// alt-screen flag, so a recognized agent (`agentStatus != .unknown`) is
-    /// treated as the risky alt-screen case the spike could not fully verify
-    /// (large `lines` unproven safe against a recognized agent's synthetic
-    /// scroll), and capped to `scroll.viewportRows`; every other pane
-    /// (including an unrecognized alt-screen program like a scratch `vim`)
-    /// safely takes the full 1000-line request, per the spike's measurement.
-    private func fetchBackfillANSI(for pane: PaneRecord, cols: Int, rows: Int) async -> (data: Data, lines: Int)? {
-        let viewportRows = pane.scroll?.viewportRows ?? rows
-        let isRecognizedAgent = pane.agentStatus != .unknown
-        let lines = isRecognizedAgent ? min(1000, viewportRows) : 1000
-        let params: [String: JSONValue] = [
-            "pane_id": .string(pane.paneID.rawValue),
-            "source": .string("recent"),
-            "format": .string("ansi"),
-            "lines": .int(lines),
-        ]
-        guard let data = try? await client.requestRaw("pane.read", params),
-              let text = Self.extractReadText(data)
-        else { return nil }
-        return (Data(text.utf8), lines)
-    }
-
-    private static func extractReadText(_ data: Data) -> String? {
-        struct Result: Decodable { let text: String }
-        struct Envelope: Decodable { let result: Result }
-        return try? JSONDecoder().decode(Envelope.self, from: data).result.text
+    /// The single writer of every mode a pane's surface is ever told --
+    /// `performAttach`'s own arm-on-attach and `setPaneMode`'s
+    /// reconcile-driven calls both go through this, so the two can never
+    /// double-apply the identical mode to the same pane just because a
+    /// reconcile enqueued BEFORE a pane's surface existed happens to run
+    /// AFTER `attachPane` already armed it (the reconcile Task and
+    /// `attachPane`'s own task are independently scheduled; `paneWork`
+    /// orders them relative to each OTHER but neither knows what mode the
+    /// other already sent). Comparing against `lastSentMode` -- not against
+    /// how the call was triggered -- is what makes a redundant send
+    /// impossible regardless of interleaving.
+    private func sendModeIfChanged(_ mode: PaneMode, to pane: PaneID, surface: any GhosttyPaneSurface) async {
+        guard lastSentMode[pane] != mode else { return }
+        lastSentMode[pane] = mode
+        await surface.setMode(mode)
     }
 
     // MARK: - per-pane headless terminal (deep history + pristine-launcher screen check)
 
-    /// The shared headless mirror for `pane`, created once and cached for
-    /// its lifetime -- `cols`/`rows` from its first call win; a later resize
-    /// does not replace it (deep history's absolute-row math and the
-    /// pristine screen check both tolerate the pane's initial size).
+    /// The shared deep-history helper for `pane`, created once and cached
+    /// for its lifetime.
     public func paneTerminal(for pane: PaneRecord, cols: Int, rows: Int) -> PaneTerminal {
         if let existing = paneTerminals[pane.paneID] { return existing }
         let terminal = PaneTerminal(
-            cols: cols, rows: rows, paneID: pane.paneID, client: client, historyCapability: historyCapabilityGate
+            cols: cols, paneID: pane.paneID, client: client, historyCapability: historyCapabilityGate
         )
         paneTerminals[pane.paneID] = terminal
         return terminal

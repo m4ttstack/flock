@@ -45,14 +45,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     var wantsFocus = false
 
     /// Wired by `GhosttySurfaceRepresentable` from the pane cell's own
-    /// `BrowserScrollState` and reveal/exit closures -- same shared state the
-    /// SwiftTerm-rendered pane's `CopyOnSelectTerminalView` reads, so the two
-    /// renderers' history browser behaves identically regardless of which
-    /// one is live.
+    /// `BrowserScrollState` and reveal/exit closures.
     var onScrollPastTop: (() -> Void)?
     var onScrollBackToLive: (() -> Void)?
     var browserState: BrowserScrollState?
     private var lastEdgeSignal = Date.distantPast
+    /// Mirrors `SessionViewModel.isRightClickRoutedToPane(_:)` for this pane,
+    /// set by `GhosttySurfaceRepresentable`. `false` (the default, matching
+    /// herdr's own `PaneRightClickTarget` default) means a right click is
+    /// handed back to the responder chain so SwiftUI's `.contextMenu` on
+    /// `PaneCellView` presents; only `true` sends it into libghostty.
+    var isRightClickRoutedToPane = false
     /// `nonisolated(unsafe)`, matching `windowObservers`/`globalObservers`
     /// above: `deinit` is not actor-isolated, so the monitor cleanup there
     /// needs to reach this property from a nonisolated context.
@@ -175,17 +178,27 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         session.sendMouseButton(.left, pressed: false, event: event)
     }
 
-    /// libghostty gets the right click first; the context menu is what
-    /// happens when the program in the pane does not want it.
+    /// Herdr's own action menu (Split/Close/right-click routing), presented
+    /// by SwiftUI's `.contextMenu` on `PaneCellView`, is the default for
+    /// every pane, focused or not: unless the pane's routing toggle is on,
+    /// the click is handed back to the responder chain (`super`) rather than
+    /// consumed here, which is what lets that modifier's own hit-testing see
+    /// it. libghostty's own context menu is never shown by this view.
     override func rightMouseDown(with event: NSEvent) {
+        guard isRightClickRoutedToPane else {
+            super.rightMouseDown(with: event)
+            return
+        }
         requestWindowFirstResponder()
         session.sendMousePosition(event)
-        if !session.sendMouseButton(.right, pressed: true, event: event) {
-            presentContextMenu(with: event)
-        }
+        session.sendMouseButton(.right, pressed: true, event: event)
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        guard isRightClickRoutedToPane else {
+            super.rightMouseUp(with: event)
+            return
+        }
         session.sendMousePosition(event)
         session.sendMouseButton(.right, pressed: false, event: event)
     }
@@ -215,8 +228,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         session.sendScrollWheel(event)
     }
 
-    /// Deep history reveals by intent, the same gesture
-    /// `CopyOnSelectTerminalView.handleScrollEdge` uses: an up-scroll while
+    /// Deep history reveals by intent: an up-scroll while
     /// already at the very top signals past-the-top; a down-scroll while the
     /// browser sits at its live end signals back-to-live. `scrollWheel`
     /// above is never called at all once the browser overlay is topmost
@@ -525,34 +537,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             return nil
         }
         return CGDirectDisplayID(screenNumber.uint32Value)
-    }
-
-    private func presentContextMenu(with event: NSEvent) {
-        guard let menu = makeContextMenu() else { return }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
-    }
-
-    private func makeContextMenu() -> NSMenu? {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.addItem(menuItem(title: "Copy", action: #selector(copy(_:))))
-        menu.addItem(menuItem(title: "Paste", action: #selector(paste(_:))))
-        menu.addItem(menuItem(title: "Select All", action: #selector(selectAll(_:))))
-
-        if session.state.hoveredLinkURL?.isEmpty == false {
-            menu.addItem(NSMenuItem.separator())
-            menu.addItem(menuItem(title: "Open Hovered Link", action: #selector(openHoveredLink(_:))))
-            menu.addItem(menuItem(title: "Copy Hovered Link", action: #selector(copyHoveredLink(_:))))
-        }
-
-        return menu
-    }
-
-    private func menuItem(title: String, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        item.isEnabled = isMenuActionEnabled(action)
-        return item
     }
 
     private func isMenuActionEnabled(_ action: Selector?) -> Bool {

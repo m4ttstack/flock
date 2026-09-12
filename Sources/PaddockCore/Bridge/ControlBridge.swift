@@ -92,13 +92,21 @@ public struct PTYSize: Equatable, Sendable {
     }
 }
 
-/// PTY child for libghostty: translates herdr `terminal session control`
-/// NDJSON into raw bytes on stdout / keystrokes on stdin.
+/// Which herdr session verb the bridge's current child speaks. The pane's
+/// ghostty surface, the PTY, and libghostty's own scrollback never change
+/// across a mode switch -- only which verb is behind the bridge's pipes.
+public enum PaneMode: String, Equatable, Sendable {
+    case control
+    case observe
+}
+
+/// PTY child for libghostty: translates a herdr `terminal session` NDJSON
+/// stream into raw bytes on stdout / keystrokes on stdin, and switches that
+/// child, live, between herdr's two session verbs on `paddock.mode`.
 public enum ControlBridge {
     /// Clear screen + cursor home, written to the pty as the bridge's very
-    /// first bytes: a pane's ghostty surface is recreated fresh on every
-    /// focus (`GhosttyControlSurfaceFactory.makeSurface`), and on macOS that
-    /// surface always execs its command through `/usr/bin/login`
+    /// first bytes: a pane's ghostty surface is created once for its whole
+    /// life, and on macOS its child always execs through `/usr/bin/login`
     /// (`Vendor/ghostty/src/termio/Exec.zig` `execCommand`'s darwin branch,
     /// unconditional for both `.shell` and `.direct` commands whenever the
     /// passwd lookup for the running uid succeeds), which writes its own
@@ -107,13 +115,36 @@ public enum ControlBridge {
     /// darwin branch skips the wrap, so this is the only reachable point at
     /// which paddock ever sees the pty: wiping it before the first real
     /// `terminal.frame` arrives bounds the banner's visible lifetime to a
-    /// single paint no matter how long login/exec take upstream.
+    /// single paint, once per pane, no matter how long login/exec take
+    /// upstream -- a later mode switch never re-execs `/usr/bin/login` (the
+    /// bridge itself is not respawned, only its herdr child), so this only
+    /// ever needs to run once.
     static let startupClearScreen = Data("\u{1B}[2J\u{1B}[H".utf8)
 
     /// Split out so a test can drive it over a plain pipe fd instead of the
     /// process's real `STDOUT_FILENO`.
     static func writeStartupClearScreen(to fd: Int32) {
         writeIgnoringBrokenPipe(fd, startupClearScreen)
+    }
+
+    /// The herdr child argv for `mode` at `cols`x`rows`. Takeover is always
+    /// on for control mode (it only ever evicts a stale prior paddock bridge
+    /// on the same pane; the ordinary herdr TUI is a separate client mode
+    /// takeover cannot touch) -- observe mode carries no ownership to evict,
+    /// so it takes no `--takeover` flag at all.
+    static func childArgv(mode: PaneMode, target: String, cols: Int, rows: Int) -> [String] {
+        switch mode {
+        case .control:
+            return [
+                "terminal", "session", "control", target, "--takeover",
+                "--cols", "\(cols)", "--rows", "\(rows)",
+            ]
+        case .observe:
+            return [
+                "terminal", "session", "observe", target,
+                "--cols", "\(cols)", "--rows", "\(rows)",
+            ]
+        }
     }
 
     public static func run(arguments: [String] = Array(CommandLine.arguments.dropFirst())) {
@@ -143,36 +174,57 @@ public enum ControlBridge {
             if size.rows <= 0 { size.rows = ioctlSize.rows > 0 ? ioctlSize.rows : 24 }
         }
 
-        let proc = Process()
-        proc.executableURL = executableURL
-        // Target before flags: herdr's CLI mis-parses a leading `--takeover`
-        // as an unknown option. Takeover is always on: it only ever evicts a
-        // stale prior paddock bridge on the same pane; the ordinary herdr TUI
-        // is a separate client mode that takeover cannot touch.
-        proc.arguments = prefixArguments + [
-            "terminal", "session", "control", options.target, "--takeover",
-            "--cols", "\(size.cols)", "--rows", "\(size.rows)",
-        ]
-        var processEnv = ProcessInfo.processInfo.environment
-        if let socket = options.socketPath { processEnv["HERDR_SOCKET_PATH"] = socket }
-        proc.environment = processEnv
+        func spawnChild(mode: PaneMode, size: PTYSize) -> BridgeChild? {
+            let proc = Process()
+            proc.executableURL = executableURL
+            // Target before flags: herdr's CLI mis-parses a leading
+            // `--takeover` as an unknown option.
+            proc.arguments = prefixArguments + childArgv(mode: mode, target: options.target, cols: size.cols, rows: size.rows)
+            var processEnv = ProcessInfo.processInfo.environment
+            if let socket = options.socketPath { processEnv["HERDR_SOCKET_PATH"] = socket }
+            proc.environment = processEnv
 
-        let toHerdr = Pipe()
-        let fromHerdr = Pipe()
-        proc.standardInput = toHerdr
-        proc.standardOutput = fromHerdr
-        proc.standardError = FileHandle.standardError
+            let toHerdr = Pipe()
+            let fromHerdr = Pipe()
+            proc.standardInput = toHerdr
+            proc.standardOutput = fromHerdr
+            proc.standardError = FileHandle.standardError
 
-        do {
-            try proc.run()
-        } catch {
-            fputs("paddock-bridge: failed to spawn herdr: \(error)\n", stderr)
+            do {
+                try proc.run()
+            } catch {
+                return nil
+            }
+            return BridgeChild(mode: mode, process: proc, toHerdrFD: toHerdr.fileHandleForWriting.fileDescriptor, fromHerdrHandle: fromHerdr.fileHandleForReading)
+        }
+
+        // A pane's bridge is born in OBSERVE mode unconditionally: whichever
+        // pane is actually focused gets its `paddock.mode: control` line
+        // moments later, over the FIFO, from `SessionViewModel`'s own
+        // attach -- see `GhosttySession.setPaneMode`.
+        guard let initialChild = spawnChild(mode: .observe, size: size) else {
+            fputs("paddock-bridge: failed to spawn herdr: \n", stderr)
             exit(1)
         }
 
-        let io = BridgeIO(herdrInFD: toHerdr.fileHandleForWriting.fileDescriptor) {
-            if proc.isRunning { proc.terminate() }
-        }
+        let switcherBox = Box<BridgeModeSwitcher>()
+        let io = BridgeIO(
+            herdrInFD: initialChild.toHerdrFD, mode: .observe,
+            onPeerGone: { switcherBox.value?.terminateCurrent() }
+        )
+        io.onModeCommand = { mode in switcherBox.value?.requestSwitch(to: mode) }
+        io.onSizeChanged = { newSize in switcherBox.value?.recordSize(newSize) }
+
+        let switcher = BridgeModeSwitcher(
+            initial: initialChild, size: size, io: io,
+            spawnChild: spawnChild,
+            terminateChild: { child in
+                child.fromHerdrHandle.readabilityHandler = nil
+                terminateWithBoundedEscalation(child.process)
+            }
+        )
+        switcherBox.value = switcher
+
         io.startStdin()
         io.startWinch()
         // Read the size again now that the signal source exists, because the
@@ -185,19 +237,27 @@ public enum ControlBridge {
         // the source.
         if let resize = startupResize(spawned: size, current: currentWinSize(fd: STDIN_FILENO)) {
             io.send(["type": "terminal.resize", "cols": resize.cols, "rows": resize.rows])
+            switcher.recordSize(resize)
         }
-        io.startHerdrOutput(fromHerdr.fileHandleForReading)
+        io.startHerdrOutput(initialChild.fromHerdrHandle)
         if let controlPipe = options.controlPipe {
             io.startControlPipe(at: controlPipe)
         }
 
-        proc.waitUntilExit()
+        // Blocks on whichever child is current; a mode switch replaces it
+        // out from under this loop (see `BridgeModeSwitcher.requestSwitch`),
+        // so re-check identity before deciding the bridge itself should end
+        // -- a stale wait waking up because the OLD (killed) child exited is
+        // not the bridge's own end-of-life.
+        while true {
+            let proc = switcher.currentProcess
+            proc.waitUntilExit()
+            if switcher.currentProcess === proc { break }
+        }
         io.close()
         if var cookedTerminal { tcsetattr(STDIN_FILENO, TCSAFLUSH, &cookedTerminal) }
-        // Keep the pipes alive until herdr has fully exited.
-        withExtendedLifetime(toHerdr) {}
-        withExtendedLifetime(fromHerdr) {}
-        exit(proc.terminationStatus == 0 ? 0 : max(Int32(proc.terminationStatus), 1))
+        let status = switcher.currentProcess.terminationStatus
+        exit(status == 0 ? 0 : max(Int32(status), 1))
     }
 
     /// The resize a starting bridge owes herdr, or nil when the PTY still has
@@ -236,6 +296,8 @@ public enum ControlBridge {
     /// from under them. This filter is the enforcement point; the FIFO itself
     /// is plain text any process could write to, and `PaneControlChannel`
     /// deliberately has no API that would construct a scroll command.
+    /// `paddock.mode` lines never reach this function at all -- see
+    /// `parseModeCommand` and `BridgeIO.startControlPipe`'s own dispatch.
     static func parseForwardableControlCommand(_ line: Data) -> [String: Any]? {
         guard
             let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
@@ -246,6 +308,21 @@ public enum ControlBridge {
         return command
     }
 
+    /// `nil` for anything that is not a well-formed `paddock.mode` command,
+    /// INCLUDING a recognized shape whose `mode` value is neither
+    /// `"control"` nor `"observe"` -- an unknown mode is ignored, not a crash
+    /// or a reason to tear down the control-pipe loop. Paddock-namespaced
+    /// (`paddock.` rather than `terminal.`) so it can never be mistaken for a
+    /// forwardable line by `parseForwardableControlCommand` above.
+    static func parseModeCommand(_ line: Data) -> PaneMode? {
+        guard
+            let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+            command["type"] as? String == "paddock.mode",
+            let mode = command["mode"] as? String
+        else { return nil }
+        return PaneMode(rawValue: mode)
+    }
+
     /// The NDJSON line for one control-channel object, or nil if it cannot
     /// be encoded.
     static func encodeLine(_ object: [String: Any]) -> Data? {
@@ -253,6 +330,120 @@ public enum ControlBridge {
         var payload = data
         payload.append(0x0A)
         return payload
+    }
+}
+
+/// One live herdr child: which verb it speaks, the process itself, and the
+/// pipe ends `BridgeIO` reads/writes.
+struct BridgeChild {
+    let mode: PaneMode
+    let process: Process
+    let toHerdrFD: Int32
+    let fromHerdrHandle: FileHandle
+}
+
+/// SIGTERM, then a bounded synchronous wait, then SIGKILL if the child is
+/// still alive. Blocks (rather than detaching the wait) because a mode
+/// switch must not spawn the replacement child until the pane it is about
+/// to take over is actually free. Safe to call on a background queue (the
+/// control-pipe's own), never
+/// on the main actor.
+func terminateWithBoundedEscalation(_ process: Process, timeout: TimeInterval = 0.3) {
+    process.terminationHandler = nil
+    process.terminate()
+    let deadline = Date().addingTimeInterval(timeout)
+    while process.isRunning, Date() < deadline {
+        usleep(10_000)
+    }
+    if process.isRunning {
+        kill(process.processIdentifier, SIGKILL)
+    }
+}
+
+/// Single-writer-then-read holder for a value with a genuine init-order
+/// cycle (`BridgeIO`'s callbacks need to reach a `BridgeModeSwitcher` that
+/// itself needs the already-constructed `BridgeIO`). Written exactly once,
+/// synchronously, before any `BridgeIO` source is resumed; read only from
+/// callbacks that cannot fire before that point.
+final class Box<T>: @unchecked Sendable {
+    var value: T?
+}
+
+/// Owns whichever herdr child is live right now and performs the live mode
+/// switch (kill the old child, spawn the other verb at the same size,
+/// re-point `BridgeIO` at the new pipes) `BridgeIO`'s control-pipe reader
+/// requests. Spawn and terminate are injected so this is unit-testable
+/// without a real herdr binary or child process.
+///
+/// `@unchecked Sendable`: every stored var is read and written only inside
+/// `lock`; `io`/`spawnChild`/`terminateChild` are immutable after init.
+final class BridgeModeSwitcher: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: BridgeChild
+    private var latestSize: PTYSize
+    private let io: BridgeIO
+    private let spawnChild: (PaneMode, PTYSize) -> BridgeChild?
+    private let terminateChild: (BridgeChild) -> Void
+
+    init(
+        initial: BridgeChild, size: PTYSize, io: BridgeIO,
+        spawnChild: @escaping (PaneMode, PTYSize) -> BridgeChild?,
+        terminateChild: @escaping (BridgeChild) -> Void
+    ) {
+        self.current = initial
+        self.latestSize = size
+        self.io = io
+        self.spawnChild = spawnChild
+        self.terminateChild = terminateChild
+    }
+
+    var currentProcess: Process { lock.withLockHeld { current.process } }
+    var currentMode: PaneMode { lock.withLockHeld { current.mode } }
+
+    /// Updates the size the NEXT mode switch will spawn its replacement
+    /// child at -- the latest SIGWINCH-observed size, not the size the
+    /// bridge itself was started with.
+    func recordSize(_ size: PTYSize) {
+        lock.withLockHeld { latestSize = size }
+    }
+
+    /// Terminates the live child outright (the GUI tore the pane's surface
+    /// down entirely, not a mode switch) -- wired to `BridgeIO`'s stdin-EOF
+    /// path.
+    func terminateCurrent() {
+        let child = lock.withLockHeld { current }
+        terminateChild(child)
+    }
+
+    /// Kills the current child and spawns `newMode` at the latest known
+    /// size, then re-points `BridgeIO` at the new pipes -- a no-op if
+    /// `newMode` already matches. Safe to call synchronously from
+    /// `BridgeIO`'s control-pipe background queue: the bounded kill-wait
+    /// blocks that queue, never the main actor. If the replacement fails to
+    /// spawn, the bridge is left exactly as it was (old child already dead,
+    /// `BridgeIO` untouched) rather than silently wedged on a mode no
+    /// process backs -- a caller who cares can retry with another
+    /// `paddock.mode` line.
+    func requestSwitch(to newMode: PaneMode) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard newMode != current.mode else { return }
+        let old = current
+        let size = latestSize
+        terminateChild(old)
+        guard let next = spawnChild(newMode, size) else { return }
+        current = next
+        io.rewireHerdrChild(inFD: next.toHerdrFD, output: next.fromHerdrHandle)
+        io.setMode(newMode)
+    }
+}
+
+/// Mirrors `PaneTerminal.swift`'s own private helper of the same name.
+private extension NSLock {
+    func withLockHeld<T>(_ body: () -> T) -> T {
+        lock()
+        defer { unlock() }
+        return body()
     }
 }
 
@@ -287,10 +478,7 @@ private func currentWinSize(fd: Int32) -> PTYSize {
 /// `herdrBinary` explicit (from `--herdr-bin`/`HERDR_BIN`, already resolved
 /// into `BridgeOptions`) wins; otherwise a bare `herdr` found on `PATH` is
 /// run through `/usr/bin/env`, since `Process.executableURL` needs a real
-/// path and will not search `PATH` itself. Mirrors `ObserveSupervisor`'s own
-/// resolution so the two herdr-spawning paths in paddock agree, rather than
-/// porting Herdglass's separate SSH-oriented `HerdrPaths` (paddock has no
-/// remote/SSH concept to serve).
+/// path and will not search `PATH` itself.
 private func resolveHerdrBinary(explicit: String?) -> (URL, [String])? {
     if let explicit, !explicit.isEmpty {
         return (URL(fileURLWithPath: explicit), [])
@@ -345,17 +533,19 @@ private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
 /// required. `stdinFD`/`stdoutFD` default to the process's real stdin/
 /// stdout for production use.
 ///
-/// `@unchecked Sendable`: `herdrInFD`/`stdinFD`/`stdoutFD`/`onPeerGone` are
-/// immutable after init. `closed` is read and written only inside
-/// `writeLock`. `herdrOutputLines` is its own internally-locked buffer.
-/// `stdinSource`/`winchSource`/`controlSource` are each written exactly once,
-/// by `startStdin`/`startWinch`/`startControlPipe`, all called synchronously
-/// from `ControlBridge.run` before any of the sources are resumed and so
-/// before any of their event handlers can run; `close()` only ever runs
-/// after `run`'s `proc.waitUntilExit()`, i.e. strictly after every `start*`
-/// call has returned.
+/// `@unchecked Sendable`: `stdinFD`/`stdoutFD`/`onPeerGone` are immutable
+/// after init. `herdrInFD`/`closed`/`mode`/`latestSize` are read and written
+/// only inside `writeLock`. `herdrOutputLines` is its own internally-locked
+/// buffer. `stdinSource`/`winchSource`/`controlSource` are each written
+/// exactly once, by `startStdin`/`startWinch`/`startControlPipe`, all called
+/// synchronously from `ControlBridge.run` before any of the sources are
+/// resumed and so before any of their event handlers can run; `close()`
+/// only ever runs after `run`'s wait loop, i.e. strictly after every
+/// `start*` call has returned. `onModeCommand`/`onSizeChanged` are set once,
+/// synchronously, before `startControlPipe`/`startWinch` resume their
+/// sources, matching that same invariant.
 final class BridgeIO: @unchecked Sendable {
-    private let herdrInFD: Int32
+    private var herdrInFD: Int32
     private let stdinFD: Int32
     private let stdoutFD: Int32
     private let onPeerGone: () -> Void
@@ -365,11 +555,25 @@ final class BridgeIO: @unchecked Sendable {
     private var winchSource: DispatchSourceSignal?
     private var controlSource: DispatchSourceRead?
     private var closed = false
+    private var mode: PaneMode
 
-    init(herdrInFD: Int32, stdinFD: Int32 = STDIN_FILENO, stdoutFD: Int32 = STDOUT_FILENO, onPeerGone: @escaping () -> Void) {
+    /// Fired when a `paddock.mode` line arrives on the control pipe --
+    /// `ControlBridge.run` wires this to `BridgeModeSwitcher.requestSwitch`.
+    /// Never invoked for anything else; a `paddock.mode` line is never
+    /// forwarded to herdr regardless of whether this is set.
+    var onModeCommand: ((PaneMode) -> Void)?
+    /// Fired on every SIGWINCH-observed size change, so `BridgeModeSwitcher`
+    /// always spawns a replacement child at the pane's real current size.
+    var onSizeChanged: ((PTYSize) -> Void)?
+
+    init(
+        herdrInFD: Int32, stdinFD: Int32 = STDIN_FILENO, stdoutFD: Int32 = STDOUT_FILENO,
+        mode: PaneMode = .observe, onPeerGone: @escaping () -> Void
+    ) {
         self.herdrInFD = herdrInFD
         self.stdinFD = stdinFD
         self.stdoutFD = stdoutFD
+        self.mode = mode
         self.onPeerGone = onPeerGone
     }
 
@@ -390,26 +594,67 @@ final class BridgeIO: @unchecked Sendable {
         writeIgnoringBrokenPipe(herdrInFD, payload)
     }
 
+    /// Which verb this bridge's current child speaks. `startStdin`'s handler
+    /// reads this on every stdin event to decide whether to forward.
+    func setMode(_ newMode: PaneMode) {
+        writeLock.lock()
+        mode = newMode
+        writeLock.unlock()
+    }
+
+    private func currentMode() -> PaneMode {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        return mode
+    }
+
+    /// Re-points this `BridgeIO` at a NEW herdr child's pipes after a mode
+    /// switch: the PTY (`stdinFD`/`stdoutFD`), the surface, and libghostty's
+    /// own scrollback are all untouched -- only which process is behind
+    /// `send`/`startHerdrOutput` changes. The caller (`BridgeModeSwitcher`)
+    /// has already detached the OLD `fromHerdrHandle`'s readability handler
+    /// before this runs, so re-arming `startHerdrOutput` here cannot race a
+    /// stray EOF from the child this is replacing.
+    func rewireHerdrChild(inFD: Int32, output: FileHandle) {
+        writeLock.lock()
+        herdrInFD = inFD
+        writeLock.unlock()
+        startHerdrOutput(output)
+    }
+
     func startStdin() {
         let fd = stdinFD
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .userInteractive))
         source.setEventHandler { [self] in
             var buffer = [UInt8](repeating: 0, count: 4096)
             guard let data = readAvailable(fd, into: &buffer) else {
-                send(["type": "terminal.release"])
+                if currentMode() == .control {
+                    send(["type": "terminal.release"])
+                }
                 source.cancel()
                 onPeerGone()
                 return
             }
+            // Observe mode has no input path at all: bytes are read (so the
+            // PTY never blocks) and discarded, never written to the herdr
+            // child -- the structural read-only guarantee for an unfocused
+            // pane moves from "no surface exists" to "the bridge drops
+            // input," matched at herdr's own end by an observe client
+            // having no input path either.
+            guard currentMode() == .control else { return }
             send(ControlBridge.encodeInput(data))
         }
         source.resume()
         stdinSource = source
     }
 
-    /// Commands the surface cannot express as keystrokes. Forwarded to
-    /// `send` verbatim EXCEPT `terminal.scroll`, filtered by
-    /// `ControlBridge.parseForwardableControlCommand` -- see its doc comment.
+    /// Commands the surface cannot express as keystrokes, plus the
+    /// `paddock.mode` upgrade path. `paddock.mode` lines are intercepted
+    /// here and never reach `send`/herdr at all; everything else is
+    /// forwarded verbatim EXCEPT `terminal.scroll`, filtered by
+    /// `ControlBridge.parseForwardableControlCommand` -- see its doc
+    /// comment. Stays live in both modes: it is how a bridge born in
+    /// observe mode ever learns to switch to control.
     func startControlPipe(at path: String) {
         // O_RDWR mirrors the GUI side: neither end may ever see EOF just
         // because the other is idle.
@@ -432,6 +677,10 @@ final class BridgeIO: @unchecked Sendable {
             guard n > 0 else { return }
             commands.append(Data(buffer.prefix(n)))
             while let line = commands.popLine() {
+                if let requestedMode = ControlBridge.parseModeCommand(line) {
+                    onModeCommand?(requestedMode)
+                    continue
+                }
                 guard let command = ControlBridge.parseForwardableControlCommand(line) else { continue }
                 send(command)
             }
@@ -452,7 +701,13 @@ final class BridgeIO: @unchecked Sendable {
         winch.setEventHandler { [self] in
             let ws = currentWinSize(fd: fd)
             guard ws.cols > 0, ws.rows > 0 else { return }
-            send(["type": "terminal.resize", "cols": ws.cols, "rows": ws.rows])
+            let size = PTYSize(cols: ws.cols, rows: ws.rows)
+            // In observe mode this resize is view-local at herdr's end (18d);
+            // in control mode it resizes the real pane -- either way the
+            // bridge always sends it, so every pane's surface fits its cell
+            // at its own font regardless of which verb is currently live.
+            send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows])
+            onSizeChanged?(size)
         }
         winch.resume()
         winchSource = winch

@@ -7,9 +7,7 @@ import PaddockCore
 /// `Sources/Paddock/main.swift`'s dispatch) and asks the host for a session.
 /// `herdrBinary` is deliberately left unset: the bridge process inherits this
 /// app's environment, so its own `HERDR_BIN`/`PATH` resolution
-/// (`ControlBridge`'s `resolveHerdrBinary`) already agrees with whatever
-/// `ObserveSupervisor` resolved for the observe path, with no duplicate
-/// lookup needed here.
+/// (`ControlBridge`'s `resolveHerdrBinary`) needs no separate lookup here.
 @MainActor
 final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     private let host: GhosttyHost
@@ -23,15 +21,23 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     }
 
     func makeSurface(for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void) async -> any GhosttyPaneSurface {
+        // `nil` when the FIFO cannot be created (`PaneControlChannel.init?`'s
+        // documented failure case): the bridge then simply never learns to
+        // switch modes and stays observe-only for this pane's whole life,
+        // same graceful degradation `PaneControlChannel`'s own doc comment
+        // describes.
+        let channel = PaneControlChannel()
         let argv = BridgeOptions.argv(
             executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0],
             target: pane.rawValue,
             cols: cols,
             rows: rows,
-            socketPath: socketPath
+            socketPath: socketPath,
+            controlPipe: channel?.path
         )
         let session = host.makeSession(configuration: .init(commandArgv: argv, themeColors: themeColors()))
         session.onUserInput = onUserInput
+        session.controlChannel = channel
         return GhosttySessionSurfaceHandle(session: session)
     }
 }
@@ -69,5 +75,9 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
 
     func typeText(_ text: String) {
         session.insertText(text)
+    }
+
+    func setMode(_ mode: PaneMode) async {
+        session.setPaneMode(mode)
     }
 }

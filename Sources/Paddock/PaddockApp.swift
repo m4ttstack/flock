@@ -19,14 +19,9 @@ struct PaddockApp: App {
         let themeStore = ThemeStore()
         _themeStore = State(initialValue: themeStore)
         _herdrStore = State(initialValue: HerdrStore(socketPath: socketPath))
-        // Absent only when no herdr binary resolves at all (no HERDR_BIN,
-        // none on PATH): panes then stay in status-card mode with no live
-        // attach, rather than the app failing to launch.
-        let observeAttacher = try? ObserveSupervisor(socketPath: socketPath)
         // Absent only when libghostty itself failed to initialize (see
-        // `GhosttyHost.Failure`): the focused pane then falls back to
-        // `PaneRendererKind.swiftTerm` for every pane, same as any other
-        // pane, rather than the app failing to launch.
+        // `GhosttyHost.Failure`): every pane then stays in status-card mode
+        // with no live attach at all, rather than the app failing to launch.
         let ghosttyHost = try? GhosttyHost()
         let ghosttyFactory = ghosttyHost.map { host in
             GhosttyControlSurfaceFactory(host: host, socketPath: socketPath) {
@@ -40,7 +35,6 @@ struct PaddockApp: App {
         let herdrClient = HerdrClient(socketPath: socketPath)
         _viewModel = State(initialValue: SessionViewModel(
             client: herdrClient,
-            observeAttacher: observeAttacher,
             ghosttyFactory: ghosttyFactory,
             layoutExportClient: herdrClient
         ))

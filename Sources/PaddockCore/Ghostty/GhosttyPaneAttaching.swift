@@ -1,17 +1,16 @@
 import Foundation
 
 /// One pane's live control-plane surface: a real libghostty surface whose PTY
-/// child is a herdr-aware bridge process, attached to the pane over its own
-/// herdr connection -- nothing like `PaneObserveAttaching`'s frame stream.
-/// `PaddockCore` never constructs one (that needs AppKit and `GhosttyKit`,
-/// both app-target-only); this is the seam a concrete `GhosttySession`
-/// wrapper conforms to from `Sources/Paddock`, and that a fake substitutes
-/// for in `SessionViewModelTests`.
+/// child is a herdr-aware bridge process (`ControlBridge`), attached to the
+/// pane over its own herdr connection. `PaddockCore` never constructs one
+/// (that needs AppKit and `GhosttyKit`, both app-target-only); this is the
+/// seam a concrete `GhosttySession` wrapper conforms to from
+/// `Sources/Paddock`, and that a fake substitutes for in
+/// `SessionViewModelTests`.
 /// `Sendable`: race tests hand an instance out of an unstructured `Task`'s
-/// `.value` (the same way the observe path's `PaneLiveFeed` already does),
-/// which requires the crossing type itself to be `Sendable` even though
-/// everything stays on the main actor in practice. Every conformance is
-/// `@unchecked Sendable` for that reason, never touched off `@MainActor`.
+/// `.value`, which requires the crossing type itself to be `Sendable` even
+/// though everything stays on the main actor in practice. Every conformance
+/// is `@unchecked Sendable` for that reason, never touched off `@MainActor`.
 @MainActor
 public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// Called on every attach for a pane that already has a surface (a
@@ -32,13 +31,20 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// (`pane.send_input`/`InputRouter` never apply here; there is no herdr
     /// attach in between to send them over).
     func typeText(_ text: String)
+
+    /// Switches the pane's bridge, live, between herdr's `control` and
+    /// `observe` session verbs -- the PTY, the surface, and libghostty's own
+    /// scrollback all stay exactly as they are; only which verb is behind
+    /// the bridge's pipes changes. `async` so a fake can hold it open in a
+    /// test the same way `detach()` can; the real conformance is a
+    /// synchronous FIFO write underneath.
+    func setMode(_ mode: PaneMode) async
 }
 
 /// Creates a `GhosttyPaneSurface` for one pane. Implemented in the app
-/// target (`GhosttyHost`), injected into `SessionViewModel` the same way
-/// `PaneObserveAttaching` is -- absent entirely when ghostty could not be
-/// initialized, in which case ghostty attach is simply a no-op and every
-/// pane stays on the observe path.
+/// target (`GhosttyHost`), injected into `SessionViewModel` -- absent
+/// entirely when ghostty could not be initialized, in which case every
+/// pane attach is simply a no-op and no pane ever goes live.
 @MainActor
 public protocol GhosttyPaneFactory {
     /// `onUserInput` is handed to the surface so it can report real user

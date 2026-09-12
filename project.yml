@@ -5,15 +5,12 @@ options:
 settings:
   SWIFT_VERSION: "6.0"
   SWIFT_STRICT_CONCURRENCY: complete
-packages:
-  SwiftTerm: { url: https://github.com/migueldeicaza/SwiftTerm, exactVersion: 1.20.0 }
 targets:
   PaddockCore:
     type: framework
     platform: macOS
     sources: [Sources/PaddockCore]
     dependencies:
-      - package: SwiftTerm
       - framework: Vendor/GhosttyKit.xcframework
         embed: false
       - sdk: AppKit.framework
@@ -33,7 +30,7 @@ targets:
     type: application
     platform: macOS
     sources: [Sources/Paddock]
-    dependencies: [{ target: PaddockCore }, { package: SwiftTerm }]
+    dependencies: [{ target: PaddockCore }]
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -44,7 +41,7 @@ targets:
       - Tests/PaddockCoreTests
       - path: Tests/Fixtures
         buildPhase: resources
-    dependencies: [{ target: PaddockCore }, { package: SwiftTerm }]
+    dependencies: [{ target: PaddockCore }]
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

@@ -57,6 +57,14 @@ public final class PaneControlChannel {
         writeIgnoringBrokenPipe(fd, payload)
     }
 
+    /// The live control/observe upgrade: paddock-namespaced (`paddock.mode`,
+    /// never `terminal.*`) so `ControlBridge.parseForwardableControlCommand`
+    /// can never mistake it for a forwardable command, and so it survives
+    /// unfiltered regardless of which herdr verb is currently live.
+    public func setMode(_ mode: PaneMode) {
+        send(["type": "paddock.mode", "mode": mode.rawValue])
+    }
+
     public func close() {
         guard fd >= 0 else { return }
         Foundation.close(fd)

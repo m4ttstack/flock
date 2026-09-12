@@ -61,6 +61,12 @@ final class GhosttySession {
     /// live terminal output.
     var onUserInput: (() -> Void)?
     nonisolated(unsafe) private var secureEventInputEnabled = false
+    /// The FIFO to this pane's bridge, set by `GhosttyControlSurfaceFactory`
+    /// right after construction (before the session is ever attached to a
+    /// view). Retained for the session's whole life: releasing it (session
+    /// `deinit`) closes and unlinks the FIFO the same way freeing the
+    /// libghostty surface ends the bridge's PTY.
+    var controlChannel: PaneControlChannel?
 
     init(host: GhosttyHost, configuration: Launch) {
         self.host = host
@@ -273,6 +279,14 @@ final class GhosttySession {
 
     func paste(_ text: String) {
         insertText(text)
+    }
+
+    /// The live control/observe upgrade -- see `ControlBridge`'s own
+    /// mode-switch doc. A no-op if this session's factory never wired a
+    /// control channel (a test double, say): the bridge simply stays at
+    /// whatever mode it was born in.
+    func setPaneMode(_ mode: PaneMode) {
+        controlChannel?.setMode(mode)
     }
 
     func openHoveredLink() {

@@ -3,10 +3,10 @@ import SwiftUI
 
 /// A single pane cell: header (title/dot/chip) stays constant, the body
 /// swaps between status-card mode (glyph/cwd/hint, for a pane not yet
-/// attached) and live mode (a real terminal view) once `SessionViewModel`
-/// hands back a feed. Every pane the canvas renders is a visible pane of the
-/// selected tab, so it attaches live per the standing attach policy; card
-/// mode is what shows while that attach is still in flight.
+/// attached) and live mode (its one ghostty surface) once `SessionViewModel`
+/// hands one back. Every pane the canvas renders is a visible pane of the
+/// selected tab, so it attaches on first visibility per the standing attach
+/// policy; card mode is what shows while that attach is still in flight.
 struct PaneCellView: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -19,52 +19,10 @@ struct PaneCellView: View {
     let cols: Int
     let rows: Int
 
-    @State private var feed: PaneLiveFeed?
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
-    /// Grabs system keyboard focus only while `isFocused` AND this cell is
-    /// on the SwiftTerm path, so `onKeyPress` below only ever fires for a
-    /// resolved-focused, SwiftTerm-rendered pane -- a ghostty-rendered pane's
-    /// keys reach `GhosttySurfaceView`'s own `NSResponder` path directly
-    /// (real AppKit first-responder status, requested by
-    /// `GhosttySurfaceRepresentable`), never through here, so the same
-    /// keystroke can never be delivered twice.
-    @FocusState private var keyCaptureFocused: Bool
-
-    /// Which renderer this cell uses right now: today, exactly the resolved-
-    /// focused pane gets ghostty and every other pane stays on SwiftTerm.
-    /// Kept as one small function (not scattered `isFocused` checks) so a
-    /// later change to the unfocused-pane renderer policy only has to move
-    /// this, not restructure the attach/detach or content-switch call sites
-    /// that read it.
-    private var rendererKind: PaneRendererKind {
-        isFocused ? .ghostty : .swiftTerm
-    }
 
     var body: some View {
-        // The four SwiftTerm-only modifiers below are attached ONLY on that
-        // branch, not just parameterized to false/nil on the ghostty one:
-        // `.focused($_)` ties a cell into SwiftUI's OWN first-responder
-        // reconciliation for as long as it is attached, even while bound to
-        // `false` -- that reconciliation can re-steal `NSWindow.firstResponder`
-        // out from under `GhosttySurfaceRepresentable`'s own imperative
-        // `requestFocus()` (confirmed live in smoke: keystrokes never reached
-        // the bridge's PTY until this modifier chain was removed outright for
-        // a ghostty-rendered pane, not merely neutered). A ghostty pane's
-        // keyboard focus is AppKit's to own, in full.
-        switch rendererKind {
-        case .swiftTerm:
-            cell
-                .focusable(isFocused)
-                .focusEffectDisabled()
-                .focused($keyCaptureFocused)
-                .onChange(of: isFocused, initial: true) { _, newValue in keyCaptureFocused = newValue }
-                .onKeyPress(phases: .down) { press in
-                    guard isFocused else { return .ignored }
-                    return routeKeyPress(press)
-                }
-        case .ghostty:
-            cell
-        }
+        cell
     }
 
     private var cell: some View {
@@ -90,44 +48,23 @@ struct PaneCellView: View {
                     .padding(-3)
             }
         }
-        // One task per (dims, renderer) identity, exactly ONE view-model call
-        // per branch: SwiftUI's `.task(id:)` cancellation is cooperative, so
-        // a superseded task body for this pane (a fast flip-flop while an
-        // attach RPC is still in flight) is not actually stopped -- it keeps
+        // One task per (pane, dims) identity, never keyed on focus: the pane
+        // gets exactly one surface for its whole visible life, created here
+        // on first visibility and resized in place on every later dims
+        // change. SwiftUI's `.task(id:)` cancellation is cooperative, so a
+        // superseded task body (a fast resize while an earlier attach for
+        // this pane is still settling) is not actually stopped -- it keeps
         // running to completion, sharing this view's unsynchronized
-        // `feed`/`ghosttySurface` `@State` with whatever fresh task body
-        // replaced it. Two separate attach-then-detach calls left a window
-        // for a stale body's own (delayed) detach to enqueue on `paneWork`
-        // AFTER a fresher body's attach and undo it. `swapToGhostty`/
-        // `swapToObserve` fold attach and the old transport's teardown into
-        // ONE `paneWork` step, deciding what to tear down from the view
-        // model's own truth at the moment that step runs, not from this
-        // view's `@State` -- so a stale call's second pass, if one is even
-        // still chained behind it, always finds current truth rather than a
-        // snapshot from before it started.
-        .task(id: AttachDims(paneID: pane.paneID, cols: cols, rows: rows, renderer: rendererKind)) {
-            let paneID = pane.paneID
-            switch rendererKind {
-            case .swiftTerm:
-                ghosttySurface = nil
-                if let newFeed = await viewModel.swapToObserve(pane: pane, cols: cols, rows: rows) {
-                    feed = newFeed
-                }
-            case .ghostty:
-                feed = nil
-                if let surface = await viewModel.swapToGhostty(pane: paneID, cols: cols, rows: rows) {
-                    ghosttySurface = surface
-                }
-            }
+        // `ghosttySurface` `@State` with whatever fresh task body replaced
+        // it. `attachPane` is itself chained through the view model's own
+        // `paneWork`, so a stale body's call always resolves against
+        // whatever the fresher body already did, never clobbering it: both
+        // ultimately read back the SAME (single) surface for this pane.
+        .task(id: AttachDims(paneID: pane.paneID, cols: cols, rows: rows)) {
+            ghosttySurface = await viewModel.attachPane(pane.paneID, cols: cols, rows: rows)
         }
         .onDisappear {
-            let paneID = pane.paneID
-            switch rendererKind {
-            case .swiftTerm:
-                Task { await viewModel.endLiveAttach(pane: paneID) }
-            case .ghostty:
-                Task { await viewModel.endGhosttyAttach(pane: paneID) }
-            }
+            Task { await viewModel.detachPane(pane.paneID) }
         }
         .contextMenu {
             Button("Split Right") {
@@ -153,38 +90,6 @@ struct PaneCellView: View {
             )
             .accessibilityIdentifier("paddock.pane.menu.rightClickToPane")
         }
-    }
-
-    /// Translates one SwiftUI `KeyPress` into an `InputRouter` call. Command
-    /// combos (copy, quit, ...) are left alone (`.ignored`) so the system
-    /// keeps handling them normally; everything else -- plain characters,
-    /// the named specials, and Control combos -- routes to `send_input`,
-    /// never through SwiftTerm's own input path.
-    private func routeKeyPress(_ press: KeyPress) -> KeyPress.Result {
-        guard !press.modifiers.contains(.command) else { return .ignored }
-        let router = viewModel.inputRouter(for: pane.paneID)
-
-        if press.modifiers.contains(.control), press.key.character.isLetter {
-            router.sendControlCombo(press.key.character)
-            viewModel.recordLauncherKeystroke(pane.paneID)
-            return .handled
-        }
-
-        switch press.key {
-        case .return: router.sendKey(.enter)
-        case .escape: router.sendKey(.esc)
-        case .upArrow: router.sendKey(.up)
-        case .downArrow: router.sendKey(.down)
-        case .leftArrow: router.sendKey(.left)
-        case .rightArrow: router.sendKey(.right)
-        case .delete: router.sendKey(.backspace)
-        case .tab: router.sendKey(.tab)
-        default:
-            guard !press.characters.isEmpty else { return .ignored }
-            router.typeCharacter(press.characters)
-        }
-        viewModel.recordLauncherKeystroke(pane.paneID)
-        return .handled
     }
 
     private var header: some View {
@@ -225,50 +130,26 @@ struct PaneCellView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch rendererKind {
-        case .ghostty:
-            if let ghosttySurface {
-                ZStack(alignment: .top) {
-                    GhosttyPaneTerminalView(
-                        surface: ghosttySurface, theme: theme, isFocused: isFocused,
-                        paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
-                        historyDim: theme.overlay0
-                    )
-                    // Writes straight to the surface's PTY (via the session),
-                    // not `pane.send_input`/`InputRouter`: there is no herdr
-                    // attach in between for a ghostty pane to route through.
-                    if viewModel.isPristineLauncherPane(pane.paneID) {
-                        PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
-                            ghosttySurface.typeText(entry.binary + "\n")
-                            viewModel.recordLauncherKeystroke(pane.paneID)
-                        }
+        if let ghosttySurface {
+            ZStack(alignment: .top) {
+                GhosttyPaneTerminalView(
+                    surface: ghosttySurface, theme: theme, isFocused: isFocused,
+                    isRightClickRoutedToPane: viewModel.isRightClickRoutedToPane(pane.paneID),
+                    paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
+                    historyDim: theme.overlay0
+                )
+                // Writes straight to the surface's PTY (via the session),
+                // not `pane.send_input`/`InputRouter`: there is no herdr
+                // attach in between for a ghostty pane to route through.
+                if viewModel.isPristineLauncherPane(pane.paneID) {
+                    PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
+                        ghosttySurface.typeText(entry.binary + "\n")
+                        viewModel.recordLauncherKeystroke(pane.paneID)
                     }
                 }
-            } else {
-                cardContent
             }
-        case .swiftTerm:
-            if let feed {
-                ZStack(alignment: .top) {
-                    PaneTerminalView(
-                        cols: cols, rows: rows, feed: feed, terminalGround: theme.terminalGround,
-                        terminalForeground: theme.terminalForeground,
-                        onPlainClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
-                        paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
-                        onScreenActivity: { nonEmptyRowCount in
-                            viewModel.recordLauncherScreenActivity(pane.paneID, nonEmptyRowCount: nonEmptyRowCount)
-                        },
-                        historyDim: theme.overlay0
-                    )
-                    if viewModel.isPristineLauncherPane(pane.paneID) {
-                        PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
-                            Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }
-                        }
-                    }
-                }
-            } else {
-                cardContent
-            }
+        } else {
+            cardContent
         }
     }
 
@@ -317,21 +198,10 @@ struct PaneCellView: View {
     }
 }
 
-/// Which live renderer a pane cell uses. A parameter of the attach seam
-/// (`PaneCellView.rendererKind`, threaded through `AttachDims` and the
-/// content switch below) rather than an `isFocused` check sprinkled across
-/// call sites, so a later policy change only has to move where this value
-/// comes from.
-enum PaneRendererKind: Equatable {
-    case ghostty
-    case swiftTerm
-}
-
 private struct AttachDims: Equatable {
     let paneID: PaneID
     let cols: Int
     let rows: Int
-    let renderer: PaneRendererKind
 }
 
 /// A ring shape (outer rounded rect minus an inset inner one, even-odd

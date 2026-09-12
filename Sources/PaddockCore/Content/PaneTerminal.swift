@@ -1,20 +1,20 @@
 import Foundation
-import SwiftTerm
 
-/// Headless SwiftTerm bridge for one pane: feeds observe frames and backfill
-/// ANSI into a `Terminal` with no view attached, so content correctness is
-/// testable without AppKit. `PaneTerminalView` renders the same bytes through
-/// SwiftTerm's own AppKit `TerminalView` for the live UI; this type exists so
-/// the byte-level contract (full-frame reset, backfill-then-live ordering) has
-/// a fast, headless test surface.
+/// Deep-history helper for one pane: fetches older scrollback chunks via
+/// `pane.selection.read` and anchors them against whatever the pane's LIVE
+/// renderer actually retains locally right now, read through
+/// `localRetentionProvider`/`localRetainedTextProvider` (ghostty's own
+/// retained screen -- `GhosttySession.retainedRowCount`/`retainedText` --
+/// since 18j; there is exactly one buffer per pane to stay adjacent to,
+/// never a second, headless mirror kept only for this class's own use).
 ///
-/// `Terminal` is not documented `Sendable` and is single-threaded internally;
-/// the lock serializes `ingest`/`seedBackfill` (frame consumer) against
-/// `screenText` (a reader that can run concurrently, e.g. from a view). The
-/// same lock also guards the deep-history state below.
+/// `Terminal` played that mirroring role before 18m's mode-switching bridge:
+/// SwiftTerm rendered every unfocused pane and this type fed it the same
+/// backfill/frame bytes headlessly so deep history had something local to
+/// probe without AppKit. Ghostty now renders every pane directly, so the
+/// probe reads the real thing instead.
 public final class PaneTerminal: @unchecked Sendable {
     private let lock = NSLock()
-    private let term: Terminal
     private let cols: Int
     private let paneID: PaneID?
     private let client: (any HerdrCommandClient)?
@@ -31,16 +31,9 @@ public final class PaneTerminal: @unchecked Sendable {
     // Coalescing guard for `loadOlderHistory`: see its own doc comment.
     private var isLoadingHistory = false
     private var historyLoadWaiters: [CheckedContinuation<Bool, Error>] = []
-    // Line count of whatever `seedBackfill` fed in, so the first
-    // `loadOlderHistory` call anchors `oldestFetchedRow` at the row
-    // directly above what the live view already shows -- never at the
-    // pane's total row count, which would leave an unshown, uncommunicated
-    // gap between the loaded history and the live buffer's own top.
-    private var backfillLineCount = 0
 
     public init(
         cols: Int,
-        rows: Int,
         paneID: PaneID? = nil,
         client: (any HerdrCommandClient)? = nil,
         historyCapability: HistoryCapabilityGate = HistoryCapabilityGate()
@@ -49,80 +42,6 @@ public final class PaneTerminal: @unchecked Sendable {
         self.paneID = paneID
         self.client = client
         self.historyCapability = historyCapability
-        term = Terminal(delegate: NullPaneTerminalDelegate(), options: TerminalOptions(cols: cols, rows: rows))
-    }
-
-    /// Test-only seam: a caller-supplied delegate observes the
-    /// `showCursor`/`hideCursor` calls `seedBackfill`'s `BackfillFeed` prefix
-    /// and a subsequent full-frame ingest drive, which the public initializer
-    /// has no way to expose since `NullPaneTerminalDelegate` is silent by
-    /// design.
-    init(cols: Int, rows: Int, delegate: TerminalDelegate) {
-        self.cols = cols
-        self.paneID = nil
-        self.client = nil
-        self.historyCapability = HistoryCapabilityGate()
-        term = Terminal(delegate: delegate, options: TerminalOptions(cols: cols, rows: rows))
-    }
-
-    /// Seeds scrollback history before any live frame arrives. Never resets:
-    /// backfill is meant to sit directly beneath the first live frame with no
-    /// torn seam, per spike 4's backfill probe.
-    ///
-    /// `lineCount`, when given, MUST be the number of rows actually rendered
-    /// in `ansi` -- NOT the `lines` value a caller requested from
-    /// `pane.read`. herdr's own recent-read range (`ghostty_recent_read_range`)
-    /// anchors its end at the last non-blank row or the cursor row,
-    /// whichever is greater, which can fall short of the pane's true last
-    /// row whenever trailing rows are blank -- so a `lines:1000` request can
-    /// return FEWER than 1000 actual rows. Trusting the requested count over
-    /// the real one reproduced a live, reviewer-caught bug: the deep-history
-    /// anchor landed short of the live buffer's true top by exactly the
-    /// shortfall, leaving an unshown gap between the two. Default (no
-    /// `lineCount` given) measures the real row count directly from `ansi`.
-    public func seedBackfill(ansi: Data, lineCount: Int? = nil) {
-        lock.lock()
-        defer { lock.unlock() }
-        term.feed(byteArray: [UInt8](BackfillFeed.bytes(prefixing: ansi)))
-        backfillLineCount = lineCount ?? Self.countLines(in: ansi)
-    }
-
-    /// Counts rendered rows as newline-delimited segments: `N` newlines make
-    /// `N + 1` rows when the text has no trailing newline (the common case --
-    /// the cursor sits mid-row at a live prompt), `N` rows when it does.
-    private static func countLines(in ansi: Data) -> Int {
-        guard !ansi.isEmpty else { return 0 }
-        let newlineCount = ansi.reduce(into: 0) { count, byte in if byte == 0x0A { count += 1 } }
-        return ansi.last == 0x0A ? newlineCount : newlineCount + 1
-    }
-
-    /// Applies `FrameFeeder`'s shared full-frame-reset rule against this
-    /// headless terminal.
-    public func ingest(_ frame: TerminalFrame) {
-        lock.lock()
-        defer { lock.unlock() }
-        FrameFeeder.feed(frame, reset: { term.resetToInitialState() }, feed: { term.feed(byteArray: [UInt8]($0)) })
-    }
-
-    public func screenText() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        return (0..<term.rows)
-            .compactMap { term.getLine(row: $0)?.translateToString(trimRight: true) }
-            .joined(separator: "\n")
-    }
-
-    /// Count of visible rows with any non-whitespace content -- the
-    /// pristine-launcher heuristic: a bare shell prompt is at most 2 such
-    /// rows (the shell's own startup line, if any, and the prompt line
-    /// itself).
-    public func nonEmptyRowCount() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return (0..<term.rows).reduce(into: 0) { count, row in
-            guard let line = term.getLine(row: row)?.translateToString(trimRight: true) else { return }
-            if !line.trimmingCharacters(in: .whitespaces).isEmpty { count += 1 }
-        }
     }
 
     // MARK: - Deep history
@@ -131,18 +50,14 @@ public final class PaneTerminal: @unchecked Sendable {
     /// dimmed above the styled live buffer; empty until the first successful
     /// call.
     public var historyText: String {
-        lock.lock()
-        defer { lock.unlock() }
-        return historyChunks.joined()
+        lock.withLockHeld { historyChunks.joined() }
     }
 
     /// Set once a `stale_content` reply survives one retry. The view reads
     /// this to render a small notice rather than the throw itself carrying
     /// UI text.
     public var historyChangedNotice: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedHistoryChangedNotice
+        lock.withLockHeld { storedHistoryChangedNotice }
     }
 
     /// Whether this session's herdr server has confirmed support for
@@ -275,130 +190,37 @@ public final class PaneTerminal: @unchecked Sendable {
     }
 
     /// Anchors `oldestFetchedRow` at the absolute row directly above what
-    /// this terminal ACTUALLY RETAINS locally -- probed from the buffer
-    /// itself, never from fed-line bookkeeping. Backfill can feed more
-    /// lines than the scrollback limit keeps (the buffer silently trims its
-    /// oldest rows), so `backfillLineCount`-based arithmetic drifts by
-    /// exactly the trimmed amount and leaves an unshown gap between the
-    /// first history chunk and the oldest visible row. The probe measures
-    /// retention truth, which also collapses the fresh-pane case: a pane
-    /// whose retained rows already cover herdr's total has no older history
-    /// (anchor 0, first load answers false).
+    /// the pane's live renderer ACTUALLY RETAINS locally, probed via
+    /// `localRetentionProvider` -- never from fed-line bookkeeping, since a
+    /// renderer's scrollback limit can trim below however many lines were
+    /// ever fed to it, and the anchor is owed to what the buffer holds, not
+    /// what it was told. `held` is `0` when no provider is set (nothing
+    /// locally retained), which fetches from the pane's absolute total --
+    /// production always sets a provider (`GhosttySurfaceRepresentable`
+    /// wires it at attach), so this only matters for a caller-supplied
+    /// `PaneTerminal` with no rendered view behind it yet.
     private func ensureInitialized(client: any HerdrCommandClient, paneID: PaneID) async throws {
         guard lock.withLockHeld({ oldestFetchedRow == nil }) else { return }
         let (totalRows, _) = try await fetchScrollBounds(client: client, paneID: paneID)
-        // The rendered terminal mutates on the main actor (its feed task);
-        // probing it must hop there, or the probe races a mid-feed buffer.
-        let held: Int
-        if let localRetentionProvider {
-            held = await MainActor.run { localRetentionProvider() }
-        } else {
-            held = locallyHeldRowCount()
-        }
+        let held = await MainActor.run { localRetentionProvider?() ?? 0 }
         lock.withLockHeld {
             guard oldestFetchedRow == nil else { return }
             oldestFetchedRow = max(0, totalRows - held)
         }
     }
 
-    /// When set, overrides the headless probe as the source of locally-held
-    /// truth. The RENDERED terminal is a second SwiftTerm instance whose
-    /// retention can diverge from the headless mirror (full-frame resets
-    /// land at different effective points in each stream), and adjacency is
-    /// owed to what the USER SEES -- so the view layer hands its own
-    /// terminal's probed count in here.
+    /// The pane's live renderer's currently-held row count (scrollback plus
+    /// screen), read on the main actor since the renderer mutates there.
+    /// Wired by the view layer at attach time
+    /// (`GhosttySurfaceRepresentable.makeNSView`) from
+    /// `GhosttySession.retainedRowCount`.
     public var localRetentionProvider: (@MainActor () -> Int)?
 
-    /// The rendered terminal's full retained text (scrollback + screen,
-    /// trimmed), same divergence rationale as `localRetentionProvider`:
-    /// the history browser shows the live buffer AS THE USER'S VIEW HOLDS
-    /// IT, so fetched history and buffer text meet with no gap by
-    /// construction.
+    /// The pane's live renderer's full retained text (scrollback + screen,
+    /// trimmed) -- the history browser shows the live buffer AS THE USER'S
+    /// VIEW HOLDS IT, so fetched history and buffer text meet with no gap
+    /// by construction. Wired alongside `localRetentionProvider`.
     public var localRetainedTextProvider: (@MainActor () -> String)?
-
-    /// All rows a terminal's buffer currently holds, joined by newlines
-    /// (probe window per `heldRowCount(of:)`).
-    public static func retainedText(of term: Terminal) -> String {
-        let stride = max(1, term.rows)
-        var inside = -1
-        var probe = 0
-        while probe <= 50_000_000 {
-            if term.getScrollInvariantLine(row: probe) != nil { inside = probe; break }
-            probe += stride
-        }
-        if inside < 0 { return "" }
-        var row = inside
-        if term.getScrollInvariantLine(row: 0) != nil {
-            row = 0
-        } else {
-            var lowInvalid = max(0, inside - stride)
-            var lowValid = inside
-            while lowValid - lowInvalid > 1 {
-                let mid = (lowInvalid + lowValid) / 2
-                if term.getScrollInvariantLine(row: mid) == nil { lowInvalid = mid } else { lowValid = mid }
-            }
-            row = lowValid
-        }
-        var lines: [String] = []
-        while let line = term.getScrollInvariantLine(row: row) {
-            lines.append(line.translateToString(trimRight: true))
-            row += 1
-        }
-        while let last = lines.last, last.isEmpty { lines.removeLast() }
-        return lines.joined(separator: "\n")
-    }
-
-    /// The number of rows (scrollback plus screen) a terminal's buffer
-    /// holds right now, measured through the public scroll-invariant row
-    /// accessor: valid rows form one contiguous window whose lower edge
-    /// rises as the circular buffer trims, so an exponential probe finds a
-    /// valid row and two binary searches find the window's edges. Exact
-    /// where any fed-line counter drifts by whatever trimming discarded.
-    func locallyHeldRowCount() -> Int {
-        lock.withLockHeld { Self.heldRowCount(of: term) }
-    }
-
-    /// Same probe, callable against ANY SwiftTerm `Terminal` (the view
-    /// layer uses it on its rendered instance for `localRetentionProvider`).
-    ///
-    /// Valid rows form one contiguous window `[linesTop, linesTop + count)`
-    /// whose edges are not public. The window always spans at least the
-    /// screen's `rows`, so striding by `rows` from zero cannot step over it
-    /// (a pure doubling probe can, and did: 1024 -> 2048 clears a window
-    /// ending at 2040 entirely); once any valid row is found, each edge is
-    /// binary-searched on its own monotonic side.
-    public static func heldRowCount(of term: Terminal) -> Int {
-        let stride = max(1, term.rows)
-        var inside = -1
-        var probe = 0
-        while probe <= 50_000_000 {
-            if term.getScrollInvariantLine(row: probe) != nil { inside = probe; break }
-            probe += stride
-        }
-        if inside < 0 { return 0 }
-
-        var lowValid = inside
-        if term.getScrollInvariantLine(row: 0) != nil {
-            lowValid = 0
-        } else {
-            var lowInvalid = max(0, inside - stride)
-            while lowValid - lowInvalid > 1 {
-                let mid = (lowInvalid + lowValid) / 2
-                if term.getScrollInvariantLine(row: mid) == nil { lowInvalid = mid } else { lowValid = mid }
-            }
-        }
-
-        var hiValid = inside
-        var hiInvalid = inside + 1
-        while term.getScrollInvariantLine(row: hiInvalid) != nil { hiInvalid *= 2 }
-        while hiInvalid - hiValid > 1 {
-            let mid = (hiValid + hiInvalid) / 2
-            if term.getScrollInvariantLine(row: mid) != nil { hiValid = mid } else { hiInvalid = mid }
-        }
-        return hiValid - lowValid + 1
-    }
-
-
 
     /// `pane.get`'s wire shape nests fields under a `"pane"` key alongside a
     /// `"type"` tag (verified against herdr's response schema); only
@@ -521,8 +343,4 @@ private extension NSLock {
         defer { unlock() }
         return body()
     }
-}
-
-private final class NullPaneTerminalDelegate: TerminalDelegate {
-    func send(source: Terminal, data: ArraySlice<UInt8>) {}
 }
