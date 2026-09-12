@@ -945,6 +945,157 @@ final class SessionViewModelTests: XCTestCase {
         )
     }
 
+    // MARK: - unfocused-pane read-only guarantees (renderer swap)
+
+    /// The structural half of "unfocused panes have no input path": an
+    /// observe-attached pane must never carry a ghostty surface, and the
+    /// ghostty factory's `onUserInput` handler -- the seam a keystroke
+    /// reaches to hide the launcher -- must never be wired for it, since
+    /// `makeSurface` (the only place that handler is created) is called
+    /// exclusively from `beginOrUpdateGhosttyAttach`.
+    @MainActor
+    func testObserveAttachedPaneHasNoGhosttySurfaceAndNoInputHandler() async {
+        let attacher = RecordingObserveAttacher()
+        let factory = FakeGhosttyPaneFactory()
+        let client = StubReadCommandClient()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
+        let observePane = makePaneRecord(paneID: "w1:p1")
+        let ghosttyPane = PaneID(rawValue: "w1:p2")
+
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: observePane, cols: 80, rows: 24)
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: ghosttyPane, cols: 80, rows: 24)
+
+        XCTAssertNil(
+            viewModel.ghosttySurface(for: observePane.paneID),
+            "an observe-fed pane must never carry a ghostty surface"
+        )
+        XCTAssertNil(
+            factory.onUserInputHandlers[observePane.paneID],
+            "no ghostty input handler was ever wired for the observe-fed pane"
+        )
+        XCTAssertEqual(
+            factory.makeSurfaceCalls.map(\.pane), [ghosttyPane],
+            "makeSurface must only ever be called for a pane that went through the ghostty attach path"
+        )
+    }
+
+    /// Across a focus flip sequence (A armed, flip to B, flip back to A),
+    /// exactly one pane carries a live ghostty surface at every settle point
+    /// and the other is confirmed observe-fed via the fake's own session
+    /// state -- not just call counts, which would stay identical whether the
+    /// invariant held or not.
+    @MainActor
+    func testExactlyOneArmedPaneAcrossAFocusFlipSequence() async {
+        let attacher = RecordingObserveAttacher()
+        let factory = FakeGhosttyPaneFactory()
+        let client = StubReadCommandClient()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
+        let paneA = makePaneRecord(paneID: "w1:p1")
+        let paneB = makePaneRecord(paneID: "w1:p2")
+
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: paneA.paneID, cols: 80, rows: 24)
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: paneB, cols: 80, rows: 24)
+        await assertExactlyOneArmedPane(armed: paneA.paneID, observed: paneB.paneID, viewModel: viewModel, attacher: attacher)
+
+        // Flip to B: each pane attaches its NEW transport before tearing
+        // down its OLD one, matching `PaneCellView`'s own per-pane ordering.
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: paneA, cols: 80, rows: 24)
+        await viewModel.endGhosttyAttach(pane: paneA.paneID)
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: paneB.paneID, cols: 80, rows: 24)
+        await viewModel.endLiveAttach(pane: paneB.paneID)
+        await assertExactlyOneArmedPane(armed: paneB.paneID, observed: paneA.paneID, viewModel: viewModel, attacher: attacher)
+
+        // Flip back to A.
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: paneB, cols: 80, rows: 24)
+        await viewModel.endGhosttyAttach(pane: paneB.paneID)
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: paneA.paneID, cols: 80, rows: 24)
+        await viewModel.endLiveAttach(pane: paneA.paneID)
+        await assertExactlyOneArmedPane(armed: paneA.paneID, observed: paneB.paneID, viewModel: viewModel, attacher: attacher)
+    }
+
+    @MainActor
+    private func assertExactlyOneArmedPane(
+        armed: PaneID, observed: PaneID, viewModel: SessionViewModel, attacher: RecordingObserveAttacher,
+        line: UInt = #line
+    ) async {
+        XCTAssertNotNil(viewModel.ghosttySurface(for: armed), "\(armed.rawValue) must be the one armed pane", line: line)
+        XCTAssertNil(viewModel.ghosttySurface(for: observed), "\(observed.rawValue) must not carry a ghostty surface", line: line)
+        let sessionDims = await attacher.sessionDims
+        XCTAssertNotNil(sessionDims[observed], "the non-armed pane must be observe-fed", line: line)
+        XCTAssertNil(sessionDims[armed], "the armed pane must not still carry an observe session", line: line)
+    }
+
+    /// Pane losing focus (ghostty -> swiftTerm): `PaneCellView` attaches the
+    /// new observe transport BEFORE tearing down the old ghostty surface.
+    /// Discriminator: while the observe attach's backfill RPC is still held
+    /// open, the ghostty surface must still be armed -- a detach-old-first
+    /// ordering would have already torn it down before this attach was even
+    /// issued, leaving the pane transiently fed by neither transport.
+    @MainActor
+    func testFocusLossKeepsGhosttyArmedUntilTheObserveAttachIsLive() async {
+        let attacher = RecordingObserveAttacher()
+        let factory = FakeGhosttyPaneFactory()
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
+        let pane = makePaneRecord()
+
+        _ = await viewModel.beginOrUpdateGhosttyAttach(pane: pane.paneID, cols: 80, rows: 24)
+        XCTAssertNotNil(viewModel.ghosttySurface(for: pane.paneID))
+
+        await client.hold()
+        let attachTask = Task { await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        XCTAssertNotNil(
+            viewModel.ghosttySurface(for: pane.paneID),
+            "the pane must never sit with no live transport while the new (observe) attach is still settling"
+        )
+
+        await client.releaseNext()
+        let feed = await attachTask.value
+        XCTAssertNotNil(feed)
+
+        await viewModel.endGhosttyAttach(pane: pane.paneID)
+        XCTAssertNil(viewModel.ghosttySurface(for: pane.paneID))
+        let attachCalls = await attacher.attachCalls
+        XCTAssertEqual(attachCalls.count, 1)
+    }
+
+    /// Symmetric case: pane gaining focus (swiftTerm -> ghostty). While the
+    /// ghostty surface is still being created, the observe attach must not
+    /// yet have been torn down -- a detach-old-first ordering would already
+    /// have called `detach` here.
+    @MainActor
+    func testFocusGainKeepsObserveArmedUntilTheGhosttyAttachIsLive() async {
+        let attacher = RecordingObserveAttacher()
+        let factory = FakeGhosttyPaneFactory()
+        factory.hold()
+        let client = StubReadCommandClient()
+        let viewModel = SessionViewModel(client: client, observeAttacher: attacher, ghosttyFactory: factory)
+        let pane = makePaneRecord()
+
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
+        let attachCallsBefore = await attacher.attachCalls
+        XCTAssertEqual(attachCallsBefore.count, 1)
+
+        let ghosttyTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane.paneID, cols: 80, rows: 24) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        let detachCallsDuring = await attacher.detachCalls
+        XCTAssertTrue(
+            detachCallsDuring.isEmpty,
+            "the observe transport must still be feeding while the new (ghostty) attach is still settling"
+        )
+
+        factory.releaseNext()
+        let surface = await ghosttyTask.value
+        XCTAssertNotNil(surface)
+
+        await viewModel.endLiveAttach(pane: pane.paneID)
+        let detachCallsAfter = await attacher.detachCalls
+        XCTAssertEqual(detachCallsAfter, [pane.paneID])
+    }
+
     // MARK: - deep-history/backfill seeding order
 
     /// Reported live: the dimmed history region duplicated exactly what the

@@ -90,31 +90,33 @@ struct PaneCellView: View {
                     .padding(-3)
             }
         }
-        // One task per (dims, renderer) identity: a renderer change tears
-        // down whatever the OTHER renderer owned for this pane BEFORE
-        // starting its own attach, both awaits chained through the same
-        // `paneWork` entry -- so a focus flip-flop can never leave two
-        // attaches (one observe, one ghostty) alive for the same pane, and
-        // never races a separate teardown effect against this one to decide
-        // which order they settle in.
+        // One task per (dims, renderer) identity: a renderer change attaches
+        // the NEW renderer's transport FIRST and only tears down the OLD one
+        // once that succeeds, both awaits chained through the same
+        // `paneWork` entry -- so this pane is never left with neither
+        // transport live (the OLD renderer's own view branch has already
+        // stopped rendering by the time its state clears, since `rendererKind`
+        // switched on the same render pass that started this task), and a
+        // focus flip-flop can never leave two attaches (one observe, one
+        // ghostty) racing out of order for the same pane.
         .task(id: AttachDims(paneID: pane.paneID, cols: cols, rows: rows, renderer: rendererKind)) {
             let paneID = pane.paneID
             switch rendererKind {
             case .swiftTerm:
+                if let newFeed = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: cols, rows: rows) {
+                    feed = newFeed
+                }
                 if ghosttySurface != nil {
                     ghosttySurface = nil
                     await viewModel.endGhosttyAttach(pane: paneID)
                 }
-                if let newFeed = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: cols, rows: rows) {
-                    feed = newFeed
-                }
             case .ghostty:
+                if let surface = await viewModel.beginOrUpdateGhosttyAttach(pane: paneID, cols: cols, rows: rows) {
+                    ghosttySurface = surface
+                }
                 if feed != nil {
                     feed = nil
                     await viewModel.endLiveAttach(pane: paneID)
-                }
-                if let surface = await viewModel.beginOrUpdateGhosttyAttach(pane: paneID, cols: cols, rows: rows) {
-                    ghosttySurface = surface
                 }
             }
         }
