@@ -166,14 +166,25 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     // MARK: - Mouse
 
+    /// `onPrimaryClick` always fires, focused or not -- it is how herdr
+    /// focus ever moves to an unfocused pane at all (the header row has its
+    /// own tap gesture; the body does not). Everything past it -- grabbing
+    /// AppKit first responder, forwarding the click into libghostty -- is
+    /// gated on `wantsFocus`: an unfocused pane's body click only asks
+    /// `SessionViewModel` to move focus there, exactly like the old
+    /// SwiftTerm-rendered path's `onPlainClick` did, and never simultaneously
+    /// steals AppKit's first-responder status out from under whichever pane
+    /// truly holds it right now.
     override func mouseDown(with event: NSEvent) {
         onPrimaryClick?()
+        guard wantsFocus else { return }
         requestWindowFirstResponder()
         session.sendMousePosition(event)
         session.sendMouseButton(.left, pressed: true, event: event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard wantsFocus else { return }
         session.sendMousePosition(event)
         session.sendMouseButton(.left, pressed: false, event: event)
     }
@@ -230,12 +241,14 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func otherMouseDown(with event: NSEvent) {
+        guard wantsFocus else { return }
         requestWindowFirstResponder()
         session.sendMousePosition(event)
         session.sendMouseButton(.other(Int(event.buttonNumber)), pressed: true, event: event)
     }
 
     override func otherMouseUp(with event: NSEvent) {
+        guard wantsFocus else { return }
         session.sendMousePosition(event)
         session.sendMouseButton(.other(Int(event.buttonNumber)), pressed: false, event: event)
     }
@@ -290,12 +303,20 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     // MARK: - Keyboard
 
+    /// Gated on `wantsFocus`, not just on AppKit first-responder status: the
+    /// view-layer half of the three independent unfocused-input guards (the
+    /// other two are the bridge dropping stdin in observe mode, and herdr
+    /// giving an observe client no input path at all). `requestWindowFirst
+    /// Responder` no longer runs for an unfocused pane, so this should be
+    /// unreachable in practice -- kept as defense in depth against AppKit
+    /// assigning first responder some other way (window activation, Tab
+    /// navigation) this view does not control.
     override func keyDown(with event: NSEvent) {
+        guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
         // `keyDown` (never `flagsChanged`) is by construction real key input,
-        // not a bare modifier change -- the one exception is a Command combo,
-        // excluded to match `PaneCellView.routeKeyPress`'s own exemption for
-        // it (a Command combo is the system's to handle, not a sign the user
-        // started typing into this pane).
+        // not a bare modifier change -- the one exception is a Command combo
+        // (the system's to handle, not a sign the user started typing into
+        // this pane).
         if !event.modifierFlags.contains(.command) {
             session.onUserInput?()
         }
@@ -395,6 +416,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
+        guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
         guard let text = Self.plainString(from: string) else { return }
         unmarkText()
         if keyTextAccumulator != nil {
@@ -548,7 +570,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
     }
 
+    /// Gated on `wantsFocus` here, once, rather than at each call site: no
+    /// caller -- a mouse-down, `requestFocus()`, `viewDidMoveToWindow` --
+    /// may ever move real AppKit first-responder status onto a pane that is
+    /// not the resolved-focused one, or the wrong pane's surface starts
+    /// reporting itself focused (`becomeFirstResponder` -> `session.
+    /// setFocused(true)`) while still sitting on an observe-mode bridge that
+    /// drops every keystroke this then routes to it.
     private func requestWindowFirstResponder() {
+        guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
         guard let window else { return }
         if !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)

@@ -135,12 +135,13 @@ struct PaneCellView: View {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
                     isRightClickRoutedToPane: viewModel.isRightClickRoutedToPane(pane.paneID),
+                    onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
                     historyDim: theme.overlay0
                 )
-                // Writes straight to the surface's PTY (via the session),
-                // not `pane.send_input`/`InputRouter`: there is no herdr
-                // attach in between for a ghostty pane to route through.
+                // Writes straight to the surface's PTY (via the session):
+                // there is no herdr attach in between for a ghostty pane to
+                // route through.
                 if viewModel.isPristineLauncherPane(pane.paneID) {
                     PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
                         ghosttySurface.typeText(entry.binary + "\n")

@@ -24,6 +24,12 @@ struct GhosttyPaneTerminalView: View {
     /// pane's own program instead of presenting herdr's action menu only
     /// when the toggle is on.
     let isRightClickRoutedToPane: Bool
+    /// A left click landed in this pane's body, with no drag/selection --
+    /// wired to `SessionViewModel.jumpToHerdr(pane:)` the same way the old
+    /// SwiftTerm-rendered path's `onPlainClick` was (Task 18): clicking an
+    /// UNFOCUSED pane's body is how herdr focus moves there at all, since
+    /// only the header row has its own tap gesture.
+    let onPrimaryClick: () -> Void
     /// Backs the deep-history region, shared with `SessionViewModel`'s
     /// per-pane cache. `nil` leaves this view with no region.
     var paneTerminal: PaneTerminal?
@@ -39,6 +45,7 @@ struct GhosttyPaneTerminalView: View {
 
     init(
         surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, isRightClickRoutedToPane: Bool = false,
+        onPrimaryClick: @escaping () -> Void = {},
         paneTerminal: PaneTerminal? = nil,
         historyDim: SwiftUI.Color = SwiftUI.Color(red: 0.34, green: 0.37, blue: 0.54)
     ) {
@@ -46,6 +53,7 @@ struct GhosttyPaneTerminalView: View {
         self.theme = theme
         self.isFocused = isFocused
         self.isRightClickRoutedToPane = isRightClickRoutedToPane
+        self.onPrimaryClick = onPrimaryClick
         self.paneTerminal = paneTerminal
         self.historyDim = historyDim
         _historyCapable = State(initialValue: paneTerminal?.historyCapable ?? false)
@@ -55,7 +63,8 @@ struct GhosttyPaneTerminalView: View {
         ZStack(alignment: .bottomTrailing) {
             GhosttySurfaceRepresentable(
                 surface: surface, theme: theme, isFocused: isFocused,
-                isRightClickRoutedToPane: isRightClickRoutedToPane, paneTerminal: paneTerminal,
+                isRightClickRoutedToPane: isRightClickRoutedToPane, onPrimaryClick: onPrimaryClick,
+                paneTerminal: paneTerminal,
                 browserState: browserState,
                 onScrollPastTop: { withAnimation(.easeOut(duration: 0.2)) { historyRevealed = true } },
                 onScrollBackToLive: { withAnimation(.easeIn(duration: 0.15)) { historyRevealed = false } }
@@ -98,6 +107,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let theme: Theme
     let isFocused: Bool
     var isRightClickRoutedToPane: Bool = false
+    var onPrimaryClick: () -> Void = {}
     var paneTerminal: PaneTerminal?
     var browserState: BrowserScrollState?
     var onScrollPastTop: (() -> Void)?
@@ -121,6 +131,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.isRightClickRoutedToPane = isRightClickRoutedToPane
+        view.onPrimaryClick = onPrimaryClick
         view.onScrollPastTop = onScrollPastTop
         view.onScrollBackToLive = onScrollBackToLive
         view.browserState = browserState
@@ -140,6 +151,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         }
         ghosttyView.wantsFocus = isFocused
         ghosttyView.isRightClickRoutedToPane = isRightClickRoutedToPane
+        ghosttyView.onPrimaryClick = onPrimaryClick
         ghosttyView.onScrollPastTop = onScrollPastTop
         ghosttyView.onScrollBackToLive = onScrollBackToLive
         ghosttyView.browserState = browserState
