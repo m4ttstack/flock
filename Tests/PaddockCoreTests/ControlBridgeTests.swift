@@ -137,8 +137,8 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(parsed?["type"] as? String, "terminal.input")
     }
 
-    /// The (18d) hard requirement: scroll must never cross the FIFO, even
-    /// though it is otherwise a well-formed `terminal.*` command.
+    /// Scroll must never cross the FIFO, even though it is otherwise a
+    /// well-formed `terminal.*` command.
     func testParseForwardableControlCommandRejectsScroll() {
         let line = ControlBridge.encodeLine([
             "type": "terminal.scroll", "direction": "up", "lines": 5, "source": "wheel",

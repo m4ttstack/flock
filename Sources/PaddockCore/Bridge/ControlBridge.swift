@@ -120,11 +120,10 @@ public enum ControlBridge {
 
         let proc = Process()
         proc.executableURL = executableURL
-        // Target before flags: `--takeover` first mis-parses the target as
-        // an unknown option (spikes/08-control/findings.md, surprise 1).
-        // Takeover is always on: it only ever evicts a stale prior paddock
-        // bridge on the same pane, never the ordinary herdr TUI (18d ruling,
-        // same findings doc, Q1).
+        // Target before flags: herdr's CLI mis-parses a leading `--takeover`
+        // as an unknown option. Takeover is always on: it only ever evicts a
+        // stale prior paddock bridge on the same pane; the ordinary herdr TUI
+        // is a separate client mode that takeover cannot touch.
         proc.arguments = prefixArguments + [
             "terminal", "session", "control", options.target, "--takeover",
             "--cols", "\(size.cols)", "--rows", "\(size.rows)",
@@ -207,10 +206,9 @@ public enum ControlBridge {
     /// control command read off the FIFO. `terminal.scroll` is excluded even
     /// though it would otherwise be well-formed: unlike every other
     /// `terminal.*` message, scroll mutates the pane's one shared viewport,
-    /// read by every other client of that pane, not a per-client offset
-    /// (verified against herdr's server source and live, spikes/08-control/
-    /// findings.md Q3) -- forwarding it here would move Matt's real pane out
-    /// from under him. This filter is the enforcement point; the FIFO itself
+    /// read by every other client of that pane, not a per-client offset;
+    /// forwarding it here would move the user's real pane out
+    /// from under them. This filter is the enforcement point; the FIFO itself
     /// is plain text any process could write to, and `PaneControlChannel`
     /// deliberately has no API that would construct a scroll command.
     static func parseForwardableControlCommand(_ line: Data) -> [String: Any]? {
@@ -457,14 +455,21 @@ final class BridgeIO: @unchecked Sendable {
 /// control pipe); records come back as `Data`, not `String`, so a single
 /// non-UTF-8 byte in one line cannot stall the drain loop
 /// (`while let line = buffer.popLine()`) behind an undecodable record.
+/// Internally locked so an instance stays safe even if it is ever shared
+/// beyond a single DispatchSource's serial handler.
 private final class BridgeLineBuffer: @unchecked Sendable {
+    private let lock = NSLock()
     private var buffer = Data()
 
     func append(_ data: Data) {
+        lock.lock()
+        defer { lock.unlock() }
         buffer.append(data)
     }
 
     func popLine() -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
         guard let newline = buffer.firstIndex(of: 0x0A) else { return nil }
         let line = Data(buffer[buffer.startIndex..<newline])
         buffer.removeSubrange(buffer.startIndex...newline)

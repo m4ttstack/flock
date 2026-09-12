@@ -14,8 +14,7 @@ import Darwin
 /// `scroll` API: herdr's pane scrollback is real, shared viewport state
 /// mutated on the one ghostty terminal core object every reader of the pane
 /// (a live TUI attach, an observe client, this bridge) shares -- there is no
-/// per-client scroll offset anywhere in herdr's model (verified against
-/// server source and live, spikes/08-control/findings.md Q3). Forwarding a
+/// per-client scroll offset anywhere in herdr's model. Forwarding a
 /// `terminal.scroll` here would move the pane out from under whoever else is
 /// looking at it. Any in-surface scroll gesture must stay local to
 /// libghostty's own scrollback (fed by the same `terminal.frame` bytes the
