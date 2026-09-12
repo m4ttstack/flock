@@ -122,12 +122,20 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   raw PTY bytes; input rides `ghostty_surface_key` (kitty-aware, IME);
   the surface computes its grid from pixel size. Paddock adds what
   Herdglass lacks: mouse-reporting passthrough and read-only unfocused
-  panes (input armed only for the paddock-focused pane). The exact
-  libghostty commit is pinned (Herdglass-validated
+  panes. EVERY visible pane is one ghostty surface for its whole life
+  (ruled 2026-09-12 at Checkpoint 2b, after a focus-swap hybrid produced
+  font jumps, banner flashes, and cursor artifacts at every seam): the
+  bridge starts in observe mode (`herdr terminal session observe`, no
+  input path, view-local resize) and switches in place to control mode
+  (`terminal session control --takeover`) on paddock focus via a
+  paddock-namespaced FIFO command, back to observe on blur; the PTY,
+  surface, and scrollback survive the switch. Exactly one pane is in
+  control mode at a time. Right-click on any pane opens the herdr action
+  menu; it reaches the terminal only when the pane's routing toggle is
+  on. The exact libghostty commit is pinned (Herdglass-validated
   08450e21e5a3ad94b62d1e67f9eda554dfa1c971, vendored via zig submodule
-  build). SwiftTerm remains only as the headless history-anchoring
-  mirror until retired. Plan Phase 2.5 carries the port tasks; the
-  study report lives at
+  build). SwiftTerm is fully retired. Plan Phase 2.5 carries the port
+  tasks; the study report lives at
   `.superpowers/sdd/2026-09-10-paddock/herdglass-study.md`.
 - **Backfill:** one `pane.read` (`recent`, `format: ansi`, <= 1000 lines,
   alt-screen cap above) seeds history at attach.
