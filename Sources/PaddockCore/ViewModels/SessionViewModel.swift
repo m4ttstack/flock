@@ -83,6 +83,13 @@ public final class SessionViewModel {
     private var paneTerminals: [PaneID: PaneTerminal] = [:]
     private var inputRouters: [PaneID: InputRouter] = [:]
     private let paneLauncherRegistry = PaneLauncherRegistry()
+    // Local mirror of each pane's `right_click` routing, seeded `false`
+    // (herdr) to match `PaneRightClickTarget`'s own server-side default;
+    // never read back from herdr, so a pane closed/reopened under the same
+    // id would resume showing the last value THIS session set, not
+    // necessarily the server's -- acceptable since paddock is the only
+    // writer of this verb today.
+    private var rightClickRoutedToPane: Set<PaneID> = []
 
     public init(client: any HerdrCommandClient, observeAttacher: (any PaneObserveAttaching)? = nil) {
         self.client = client
@@ -406,13 +413,63 @@ public final class SessionViewModel {
     /// registry live; `cwd` is deliberately omitted so herdr follows the
     /// source pane's own cwd.
     public func splitRight(from pane: PaneID) async {
+        await performSplit(from: pane, direction: "right")
+    }
+
+    /// Same shape as `splitRight`, `direction: "down"` per herdr's
+    /// `SplitDirection` schema (only `right`/`down` exist; there is no
+    /// `up`/`left`).
+    public func splitDown(from pane: PaneID) async {
+        await performSplit(from: pane, direction: "down")
+    }
+
+    private func performSplit(from pane: PaneID, direction: String) async {
         guard let data = try? await client.requestRaw(
             "pane.split",
-            ["target_pane_id": .string(pane.rawValue), "direction": .string("right"), "focus": .bool(true)]
+            ["target_pane_id": .string(pane.rawValue), "direction": .string(direction), "focus": .bool(true)]
         ) else { return }
         guard let newPaneID = Self.extractSplitPaneID(data) else { return }
         paneLauncherRegistry.registerPaddockCreated(newPaneID)
         launcherRegistryVersion += 1
+    }
+
+    /// Closes `pane` directly via `pane.close {pane_id}` -- a creation/
+    /// destruction verb like `splitRight`, so no undo journal: closing is
+    /// final the same way herdr's own close is.
+    public func closePane(_ pane: PaneID) async {
+        _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
+    }
+
+    /// Whether right-clicks in `pane` currently route to the pane's own
+    /// program rather than herdr's context menu -- local mirror of the last
+    /// `pane.input.set` this session sent, read by the context-menu
+    /// checkmark.
+    public func isRightClickRoutedToPane(_ pane: PaneID) -> Bool {
+        rightClickRoutedToPane.contains(pane)
+    }
+
+    /// Flips `pane`'s right-click routing and sends the new state via
+    /// `pane.input.set`. Optimistic like `jumpToHerdr(pane:)`: the local
+    /// flag flips before the round trip so the menu's checkmark reflects
+    /// intent immediately, and reverts if the request fails.
+    public func toggleRightClickRouting(for pane: PaneID) async {
+        let routeToPane = !rightClickRoutedToPane.contains(pane)
+        if routeToPane {
+            rightClickRoutedToPane.insert(pane)
+        } else {
+            rightClickRoutedToPane.remove(pane)
+        }
+        let target = routeToPane ? "pane" : "herdr"
+        guard (try? await client.requestRaw(
+            "pane.input.set", ["pane_id": .string(pane.rawValue), "right_click": .string(target)]
+        )) != nil else {
+            if routeToPane {
+                rightClickRoutedToPane.remove(pane)
+            } else {
+                rightClickRoutedToPane.insert(pane)
+            }
+            return
+        }
     }
 
     /// `pane.split`'s response nests the new pane's id under a `"pane"` key

@@ -700,6 +700,69 @@ final class SessionViewModelTests: XCTestCase {
             "must end exactly where the locally retained buffer begins, never inside it"
         )
     }
+
+    // MARK: - context-menu commands (split down, close, right-click routing)
+
+    @MainActor
+    func testSplitDownSendsDownDirectionAndRegistersTheNewPaneAsPristine() async {
+        let client = StubSplitCommandClient(newPaneID: "w1:p3")
+        let viewModel = SessionViewModel(client: client)
+
+        await viewModel.splitDown(from: PaneID(rawValue: "w1:p1"))
+
+        let calls = await client.calls
+        let splitCall = try? XCTUnwrap(calls.first { $0.method == "pane.split" })
+        XCTAssertEqual(stringParam(splitCall?.params ?? [:], "target_pane_id"), "w1:p1")
+        XCTAssertEqual(stringParam(splitCall?.params ?? [:], "direction"), "down")
+        XCTAssertTrue(viewModel.isPristineLauncherPane(PaneID(rawValue: "w1:p3")))
+    }
+
+    @MainActor
+    func testClosePaneSendsPaneCloseWithPaneID() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client)
+
+        await viewModel.closePane(PaneID(rawValue: "w1:p1"))
+
+        let calls = await client.calls
+        let closeCall = try? XCTUnwrap(calls.first { $0.method == "pane.close" })
+        XCTAssertEqual(stringParam(closeCall?.params ?? [:], "pane_id"), "w1:p1")
+    }
+
+    /// Local state flips optimistically (matching `jumpToHerdr(pane:)`'s own
+    /// pattern) so the checkmark reflects intent on the same frame as the
+    /// click; the wire value flips between herdr's two `PaneRightClickTarget`
+    /// variants on each toggle.
+    @MainActor
+    func testToggleRightClickRoutingFlipsStateAndSendsPaneInputSet() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client)
+        let pane = PaneID(rawValue: "w1:p1")
+        XCTAssertFalse(viewModel.isRightClickRoutedToPane(pane), "defaults to herdr, matching the server default")
+
+        await viewModel.toggleRightClickRouting(for: pane)
+        XCTAssertTrue(viewModel.isRightClickRoutedToPane(pane))
+
+        await viewModel.toggleRightClickRouting(for: pane)
+        XCTAssertFalse(viewModel.isRightClickRoutedToPane(pane))
+
+        let calls = await client.calls
+        let setCalls = calls.filter { $0.method == "pane.input.set" }
+        XCTAssertEqual(setCalls.count, 2)
+        XCTAssertEqual(stringParam(setCalls[0].params, "pane_id"), "w1:p1")
+        XCTAssertEqual(stringParam(setCalls[0].params, "right_click"), "pane")
+        XCTAssertEqual(stringParam(setCalls[1].params, "right_click"), "herdr")
+    }
+
+    @MainActor
+    func testToggleRightClickRoutingRevertsLocalStateWhenTheRequestFails() async {
+        let viewModel = SessionViewModel(client: FailingCommandClient())
+        let pane = PaneID(rawValue: "w1:p1")
+
+        await viewModel.toggleRightClickRouting(for: pane)
+
+        XCTAssertFalse(viewModel.isRightClickRoutedToPane(pane), "a failed round trip must not leave a stale optimistic flip")
+    }
 }
 
 private func intParam(_ params: [String: JSONValue], _ key: String) -> Int? {

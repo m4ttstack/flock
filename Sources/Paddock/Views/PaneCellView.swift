@@ -26,16 +26,12 @@ struct PaneCellView: View {
     /// inside `InputRouter` itself.
     @FocusState private var keyCaptureFocused: Bool
 
-    /// The terminal's own ground, held constant across every theme per the
-    /// task brief.
-    private static let terminalGround = Color(red: 0x19 / 255, green: 0x1A / 255, blue: 0x22 / 255)
-
     var body: some View {
         VStack(spacing: 0) {
             header
             content
         }
-        .background(Self.terminalGround)
+        .background(theme.terminalGround)
         .clipShape(RoundedRectangle(cornerRadius: 9))
         .overlay(
             RoundedRectangle(cornerRadius: 9)
@@ -74,6 +70,25 @@ struct PaneCellView: View {
             Button("Split Right") {
                 Task { await viewModel.splitRight(from: pane.paneID) }
             }
+            .accessibilityIdentifier("paddock.pane.menu.splitRight")
+            Button("Split Down") {
+                Task { await viewModel.splitDown(from: pane.paneID) }
+            }
+            .accessibilityIdentifier("paddock.pane.menu.splitDown")
+            Divider()
+            Button("Close Pane") {
+                Task { await viewModel.closePane(pane.paneID) }
+            }
+            .accessibilityIdentifier("paddock.pane.menu.closePane")
+            Divider()
+            Toggle(
+                "Send Right-Clicks to Pane",
+                isOn: Binding(
+                    get: { viewModel.isRightClickRoutedToPane(pane.paneID) },
+                    set: { _ in Task { await viewModel.toggleRightClickRouting(for: pane.paneID) } }
+                )
+            )
+            .accessibilityIdentifier("paddock.pane.menu.rightClickToPane")
         }
     }
 
@@ -150,7 +165,8 @@ struct PaneCellView: View {
         if let feed {
             ZStack(alignment: .top) {
                 PaneTerminalView(
-                    cols: cols, rows: rows, feed: feed, terminalGround: Self.terminalGround,
+                    cols: cols, rows: rows, feed: feed, terminalGround: theme.terminalGround,
+                    terminalForeground: theme.terminalForeground,
                     onPlainClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
                     onScreenActivity: { nonEmptyRowCount in
@@ -193,7 +209,7 @@ struct PaneCellView: View {
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
-                            .fill(Self.terminalGround)
+                            .fill(theme.terminalGround)
                             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(theme.separator, lineWidth: 1))
                     )
             }
