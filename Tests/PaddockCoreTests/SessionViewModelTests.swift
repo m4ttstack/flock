@@ -100,7 +100,6 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     let pane: PaneID
     private(set) var resizeCalls: [(cols: Int, rows: Int)] = []
     private(set) var detachCallCount = 0
-    private(set) var typedText: [String] = []
     private(set) var modeCalls: [PaneMode] = []
     private(set) var currentMode: PaneMode?
     var sharedModeLog: ModeEventLog?
@@ -117,10 +116,6 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
 
     func detach() async {
         detachCallCount += 1
-    }
-
-    func typeText(_ text: String) {
-        typedText.append(text)
     }
 
     func holdMode() {
@@ -155,6 +150,7 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     private(set) var makeSurfaceCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
     private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
     private(set) var onUserInputHandlers: [PaneID: () -> Void] = [:]
+    private(set) var onScreenActivityHandlers: [PaneID: (Int) -> Bool] = [:]
     var modeLog: ModeEventLog?
     private var holdEnabled = false
     private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
@@ -168,9 +164,13 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
         pendingContinuations.removeFirst().resume()
     }
 
-    func makeSurface(for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void) async -> any GhosttyPaneSurface {
+    func makeSurface(
+        for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void,
+        onScreenActivity: @escaping (Int) -> Bool
+    ) async -> any GhosttyPaneSurface {
         makeSurfaceCalls.append((pane, cols, rows))
         onUserInputHandlers[pane] = onUserInput
+        onScreenActivityHandlers[pane] = onScreenActivity
         if holdEnabled {
             await withCheckedContinuation { pendingContinuations.append($0) }
         }
@@ -474,6 +474,39 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "launching hides the overlay like a real keystroke would")
     }
 
+    /// A launcher click can land on a pane that is NOT the resolved-focused
+    /// one (split right, click back into the original pane, then click the
+    /// overlay on the new pane) -- that pane's bridge is in observe mode,
+    /// which drops every byte written straight into its PTY. `launchHarness`
+    /// must reach it over `pane.send_input` regardless, never through the
+    /// surface itself.
+    @MainActor
+    func testLaunchHarnessReachesAnObserveModePaneViaSendInputNotThePTY() async throws {
+        let client = StubSplitCommandClient(newPaneID: "w1:p2")
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory)
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let newPane = PaneID(rawValue: "w1:p2")
+        // No focus is ever set on this view model, so the new pane's
+        // surface stays in the bridge's default observe mode for the whole
+        // test -- never armed to control.
+        _ = await viewModel.attachPane(newPane, cols: 80, rows: 24)
+        let surface = try XCTUnwrap(factory.surfaces[newPane])
+        XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
+
+        await viewModel.launchHarness("claude", in: newPane)
+
+        let calls = await client.calls
+        let sendCall = try XCTUnwrap(calls.last { $0.method == "pane.send_input" })
+        XCTAssertEqual(
+            stringParam(sendCall.params, "text"), "claude\n",
+            "the command reaches the pane over pane.send_input, focus-independent")
+        XCTAssertTrue(
+            surface.modeCalls.isEmpty,
+            "the pane's surface was never armed to control -- send_input, not the PTY, is what delivered this")
+        XCTAssertFalse(viewModel.isPristineLauncherPane(newPane))
+    }
+
     // MARK: - ghostty pane attach (every visible pane, one surface for its whole life)
 
     @MainActor
@@ -608,6 +641,40 @@ final class SessionViewModelTests: XCTestCase {
             viewModel.isPristineLauncherPane(pane),
             "a keystroke reported through the ghostty seam must hide the launcher"
         )
+    }
+
+    /// The launcher-pristine contract's OTHER half: a pane whose program
+    /// prints real output, never typed into, also hides the overlay.
+    /// `GhosttySession` reports this through `onScreenActivity`, gated on
+    /// `isPristineLauncherPane` at the ViewModel end so a call arriving
+    /// after the pane is already hidden (by either path) is a cheap no-op
+    /// that also tells the surface to stop reporting.
+    @MainActor
+    func testScreenActivityThroughGhosttySeamHidesTheLauncherAndStopsFurtherReporting() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let client = StubSplitCommandClient(newPaneID: "w1:p2")
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p2")
+
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        XCTAssertTrue(viewModel.isPristineLauncherPane(pane))
+
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        let onScreenActivity = try XCTUnwrap(factory.onScreenActivityHandlers[pane])
+
+        // At most the bare prompt (<=2 non-empty rows): still pristine, and
+        // the surface is told to keep reporting.
+        XCTAssertTrue(onScreenActivity(2), "still just the prompt -- keep polling")
+        XCTAssertTrue(viewModel.isPristineLauncherPane(pane))
+
+        // Real output beyond the prompt rows: hides the launcher, and tells
+        // the surface to stop.
+        XCTAssertFalse(onScreenActivity(3), "output beyond the prompt hides the pane -- stop polling")
+        XCTAssertFalse(viewModel.isPristineLauncherPane(pane))
+
+        // A later call (the surface's own throttle firing once more before
+        // it notices the stop signal) must stay a harmless no-op.
+        XCTAssertFalse(onScreenActivity(10))
     }
 
     // MARK: - mode switch (focus-driven, at most one control-mode pane)

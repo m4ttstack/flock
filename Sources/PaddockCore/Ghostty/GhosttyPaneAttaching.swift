@@ -26,12 +26,6 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// something can, without changing this contract later.
     func detach() async
 
-    /// Types `text` into the surface as if the user had, writing straight to
-    /// the bridge's PTY -- the launcher overlay's route for a ghostty pane
-    /// (`pane.send_input` never applies here; there is no herdr attach in
-    /// between to send it over).
-    func typeText(_ text: String)
-
     /// Switches the pane's bridge, live, between herdr's `control` and
     /// `observe` session verbs -- the PTY, the surface, and libghostty's own
     /// scrollback all stay exactly as they are; only which verb is behind
@@ -55,5 +49,17 @@ public protocol GhosttyPaneFactory {
     /// factory call site, keeps that contract testable against a fake
     /// without any real NSView or NSEvent: a test can invoke it directly and
     /// assert the pristine flag clears.
-    func makeSurface(for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void) async -> any GhosttyPaneSurface
+    ///
+    /// `onScreenActivity` is the launcher-pristine contract's OTHER half:
+    /// called with the surface's current non-empty retained-row count
+    /// whenever the surface reports new content, so a pane whose program
+    /// prints real output (never typed into) also hides the overlay, not
+    /// only a pane that received a keystroke. Returns whether the surface
+    /// should keep reporting; a `false` (the pane is no longer pristine, by
+    /// either path) is the surface's own signal to stop polling for this
+    /// pane's whole remaining life.
+    func makeSurface(
+        for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void,
+        onScreenActivity: @escaping (Int) -> Bool
+    ) async -> any GhosttyPaneSurface
 }

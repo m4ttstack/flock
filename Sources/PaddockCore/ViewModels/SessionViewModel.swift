@@ -314,11 +314,21 @@ public final class SessionViewModel {
             existing.resize(cols: cols, rows: rows)
             return
         }
-        // The closure is the launcher-pristine contract's ghostty half: see
-        // `GhosttyPaneFactory.makeSurface`'s doc comment.
-        let surface = await factory.makeSurface(for: pane, cols: cols, rows: rows) { [weak self] in
-            self?.recordLauncherKeystroke(pane)
-        }
+        // Both closures are the launcher-pristine contract's ghostty half:
+        // see `GhosttyPaneFactory.makeSurface`'s doc comment. The screen-
+        // activity one guards on `isPristineLauncherPane` itself before
+        // ever touching the registry -- once ANY path (a keystroke, or this
+        // one) has hidden the pane, every later call is a cheap no-op that
+        // also tells the surface to stop reporting for good.
+        let surface = await factory.makeSurface(
+            for: pane, cols: cols, rows: rows,
+            onUserInput: { [weak self] in self?.recordLauncherKeystroke(pane) },
+            onScreenActivity: { [weak self] nonEmptyRowCount in
+                guard let self, self.isPristineLauncherPane(pane) else { return false }
+                self.recordLauncherScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
+                return self.isPristineLauncherPane(pane)
+            }
+        )
         ghosttySurfaces[pane] = surface
         // A bridge is always born in observe mode (`ControlBridge.run`); only
         // the currently resolved-focused pane needs telling to switch --
@@ -464,6 +474,16 @@ public final class SessionViewModel {
 
     public func recordLauncherKeystroke(_ pane: PaneID) {
         paneLauncherRegistry.recordKeystroke(pane)
+        launcherRegistryVersion += 1
+    }
+
+    /// The launcher-pristine contract's screen-activity half: a pane whose
+    /// program prints real output, never typed into, also hides the
+    /// overlay. `nonEmptyRowCount` is the surface's own retained-screen
+    /// count (`GhosttySession.reportScreenActivityIfDue`); the threshold
+    /// for "still just the bare prompt" lives in `PaneLauncherRegistry`.
+    public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
+        paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
         launcherRegistryVersion += 1
     }
 

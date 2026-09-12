@@ -269,6 +269,34 @@ final class GhosttySession {
         readScreenRows().count
     }
 
+    /// The launcher-pristine contract's screen-activity half: called with
+    /// this pane's current non-empty retained-row count on every real
+    /// content change (see `reportScreenActivityIfDue`'s own doc), so a
+    /// pane whose program prints real output -- never typed into -- also
+    /// hides the overlay. Returns whether to keep reporting; `false` (no
+    /// longer pristine) makes this session stop calling it for good.
+    var onScreenActivity: ((Int) -> Bool)?
+    private var screenActivityStillWanted = true
+    private var lastScreenActivityCheck = Date.distantPast
+
+    /// Throttled to at most 4 times a second, and only while some listener
+    /// still wants to know: `GHOSTTY_ACTION_RENDER` is ghostty's own "real
+    /// content changed, please redraw" signal (see `handle`'s own case for
+    /// it), which is what makes this an actual content-change hook rather
+    /// than a blind timer -- counting non-empty rows is a full retained-
+    /// buffer scan (`retainedText()`'s own doc calls the underlying read
+    /// "expensive"), so it must never run once per render.
+    private func reportScreenActivityIfDue() {
+        guard screenActivityStillWanted, let onScreenActivity else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastScreenActivityCheck) >= 0.25 else { return }
+        lastScreenActivityCheck = now
+        let nonEmptyRows = readScreenRows().reduce(into: 0) { count, line in
+            if !line.trimmingCharacters(in: .whitespaces).isEmpty { count += 1 }
+        }
+        screenActivityStillWanted = onScreenActivity(nonEmptyRows)
+    }
+
     private func readScreenRows() -> [String] {
         guard let surface else { return [] }
         var text = ghostty_text_s()
@@ -360,6 +388,7 @@ final class GhosttySession {
         switch action.tag {
         case GHOSTTY_ACTION_RENDER:
             requestRender()
+            reportScreenActivityIfDue()
         case GHOSTTY_ACTION_SET_TITLE:
             state.title = text
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:

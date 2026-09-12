@@ -22,6 +22,24 @@ final class PaneLauncherRegistryTests: XCTestCase {
 
         registry.recordKeystroke(pane)
         XCTAssertFalse(registry.isPristine(pane))
+
+        // Permanent: a later "still just the prompt" screen read must not
+        // resurrect it.
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 1)
+        XCTAssertFalse(registry.isPristine(pane))
+    }
+
+    @MainActor
+    func testOutputBeyondPromptHidesPermanently() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+        registry.registerPaddockCreated(pane)
+
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 2)
+        XCTAssertTrue(registry.isPristine(pane), "at most 2 non-empty rows is still just the bare prompt")
+
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 3)
+        XCTAssertFalse(registry.isPristine(pane), "output beyond the prompt rows hides it for good")
     }
 
     @MainActor
@@ -31,7 +49,7 @@ final class PaneLauncherRegistryTests: XCTestCase {
         // Never registered via `registerPaddockCreated` -- a pane herdr
         // itself created (not through paddock's split/tab/workspace verbs).
         XCTAssertFalse(registry.isPristine(pane))
-        registry.recordKeystroke(pane)
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 1)
         XCTAssertFalse(registry.isPristine(pane))
     }
 }

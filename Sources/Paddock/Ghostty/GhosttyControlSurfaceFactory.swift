@@ -20,7 +20,10 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         self.themeColors = themeColors
     }
 
-    func makeSurface(for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void) async -> any GhosttyPaneSurface {
+    func makeSurface(
+        for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void,
+        onScreenActivity: @escaping (Int) -> Bool
+    ) async -> any GhosttyPaneSurface {
         // `nil` when the FIFO cannot be created (`PaneControlChannel.init?`'s
         // documented failure case): the bridge then never learns to switch
         // modes and stays observe-only -- unable to ever become the
@@ -41,6 +44,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         )
         let session = host.makeSession(configuration: .init(commandArgv: argv, themeColors: themeColors()))
         session.onUserInput = onUserInput
+        session.onScreenActivity = onScreenActivity
         session.controlChannel = channel
         return GhosttySessionSurfaceHandle(session: session)
     }
@@ -76,10 +80,6 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     /// never existed for this call), ARC frees it here, which frees the
     /// libghostty surface and ends the bridge's PTY.
     func detach() async {}
-
-    func typeText(_ text: String) {
-        session.insertText(text)
-    }
 
     func setMode(_ mode: PaneMode) async {
         session.setPaneMode(mode)

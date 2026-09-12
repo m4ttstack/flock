@@ -139,13 +139,19 @@ struct PaneCellView: View {
                     paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
                     historyDim: theme.overlay0
                 )
-                // Writes straight to the surface's PTY (via the session):
-                // there is no herdr attach in between for a ghostty pane to
-                // route through.
+                // Routed through `pane.send_input`, never `ghosttySurface
+                // .typeText` straight into the PTY: a launcher click can
+                // land on a pane that is NOT the resolved-focused one (split
+                // right, click back into the original pane, then click the
+                // overlay on the new pane), and that pane's bridge is in
+                // observe mode -- typeText's bytes would silently vanish
+                // into a PTY the bridge drops all stdin from. send_input is
+                // focus-independent, the same route the pane's own regular
+                // keystrokes never get to take once they land on an
+                // observe-mode pane.
                 if viewModel.isPristineLauncherPane(pane.paneID) {
                     PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
-                        ghosttySurface.typeText(entry.binary + "\n")
-                        viewModel.recordLauncherKeystroke(pane.paneID)
+                        Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }
                     }
                 }
             }
