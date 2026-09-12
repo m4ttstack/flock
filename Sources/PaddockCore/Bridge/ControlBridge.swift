@@ -95,8 +95,33 @@ public struct PTYSize: Equatable, Sendable {
 /// PTY child for libghostty: translates herdr `terminal session control`
 /// NDJSON into raw bytes on stdout / keystrokes on stdin.
 public enum ControlBridge {
+    /// Clear screen + cursor home, written to the pty as the bridge's very
+    /// first bytes: a pane's ghostty surface is recreated fresh on every
+    /// focus (`GhosttyControlSurfaceFactory.makeSurface`), and on macOS that
+    /// surface always execs its command through `/usr/bin/login`
+    /// (`Vendor/ghostty/src/termio/Exec.zig` `execCommand`'s darwin branch,
+    /// unconditional for both `.shell` and `.direct` commands whenever the
+    /// passwd lookup for the running uid succeeds), which writes its own
+    /// "Last login: ..." banner straight into the pty before this process
+    /// even starts. No config key, `command =` spelling, or env var in that
+    /// darwin branch skips the wrap, so this is the only reachable point at
+    /// which paddock ever sees the pty: wiping it before the first real
+    /// `terminal.frame` arrives bounds the banner's visible lifetime to a
+    /// single paint no matter how long login/exec take upstream.
+    static let startupClearScreen = Data("\u{1B}[2J\u{1B}[H".utf8)
+
+    /// Split out so a test can drive it over a plain pipe fd instead of the
+    /// process's real `STDOUT_FILENO`.
+    static func writeStartupClearScreen(to fd: Int32) {
+        writeIgnoringBrokenPipe(fd, startupClearScreen)
+    }
+
     public static func run(arguments: [String] = Array(CommandLine.arguments.dropFirst())) {
         signal(SIGPIPE, SIG_IGN)
+        // Before anything else touches stdout, including `setvbuf` below:
+        // every microsecond this waits is a microsecond longer the login
+        // banner sits alone on the pane.
+        writeStartupClearScreen(to: STDOUT_FILENO)
         setvbuf(stdout, nil, _IONBF, 0)
         setvbuf(stdin, nil, _IONBF, 0)
 

@@ -84,6 +84,19 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(options.controlPipe, "/tmp/round-ctl.fifo")
     }
 
+    // MARK: - startup clear screen (login-banner flash)
+
+    func testStartupClearScreenIsClearPlusHome() {
+        XCTAssertEqual(ControlBridge.startupClearScreen, Data("\u{1B}[2J\u{1B}[H".utf8))
+    }
+
+    func testWriteStartupClearScreenWritesToGivenFD() {
+        let pipe = Pipe()
+        ControlBridge.writeStartupClearScreen(to: pipe.fileHandleForWriting.fileDescriptor)
+        let written = readAllAvailableForTest(pipe.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(written, ControlBridge.startupClearScreen)
+    }
+
     // MARK: - startupResize
 
     func testStartupResizeNilWhenUnchanged() {
