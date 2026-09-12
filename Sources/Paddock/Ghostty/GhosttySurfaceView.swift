@@ -31,6 +31,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var cursorHidden = false
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var globalObservers: [NSObjectProtocol] = []
+    /// Whether this view should grab real AppKit key focus as soon as it has
+    /// a window. Set by `GhosttySurfaceRepresentable` from the pane's
+    /// resolved-focused state. Read (not just written) from `updateNSView`
+    /// too, so a later flip while the view already has a window still takes
+    /// effect -- but `viewDidMoveToWindow` is the primary trigger: it is the
+    /// only place guaranteed to run exactly when `window` first becomes
+    /// non-nil, which `updateNSView` is not (confirmed live: `updateNSView`'s
+    /// own focus request ran once, immediately after `makeNSView`, with
+    /// `window` still nil -- silently lost, never retried, because nothing
+    /// about this representable's inputs changes again after that to trigger
+    /// a second `updateNSView` call).
+    var wantsFocus = false
 
     /// The surface is born at libghostty's own internal placeholder size
     /// (`ghostty_surface_config_s` has no size field), so the initial frame
@@ -74,6 +86,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard window != nil else { return }
         session.attach(to: self)
         renderIfNeeded()
+        if wantsFocus, window?.firstResponder !== self {
+            requestFocus()
+        }
     }
 
     override func updateTrackingAreas() {

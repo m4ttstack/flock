@@ -183,7 +183,9 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             return PlaceholderGhosttyHostView(background: theme.terminalGround)
         }
         context.coordinator.lastAppliedThemeID = theme.id
-        return GhosttySurfaceView(session: handle.session)
+        let view = GhosttySurfaceView(session: handle.session)
+        view.wantsFocus = isFocused
+        return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
@@ -192,10 +194,14 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             context.coordinator.lastAppliedThemeID = theme.id
             ghosttyView.session.updateTheme(theme.ghosttyThemeColors())
         }
+        ghosttyView.wantsFocus = isFocused
         // Mirrors what SwiftTerm panes get from `.focused($keyCaptureFocused)`:
         // becoming the resolved-focused pane grabs real AppKit key focus
-        // immediately, with no extra click needed first.
-        if isFocused, ghosttyView.window?.firstResponder !== ghosttyView {
+        // immediately, with no extra click needed first. The PRIMARY grab
+        // happens in `GhosttySurfaceView.viewDidMoveToWindow` (the point
+        // `window` is guaranteed non-nil); this is a best-effort follow-up
+        // for a later flip while the view already has one.
+        if isFocused, ghosttyView.window != nil, ghosttyView.window?.firstResponder !== ghosttyView {
             ghosttyView.requestFocus()
         }
     }

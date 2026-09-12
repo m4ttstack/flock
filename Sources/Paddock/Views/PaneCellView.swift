@@ -40,6 +40,33 @@ struct PaneCellView: View {
     }
 
     var body: some View {
+        // The four SwiftTerm-only modifiers below are attached ONLY on that
+        // branch, not just parameterized to false/nil on the ghostty one:
+        // `.focused($_)` ties a cell into SwiftUI's OWN first-responder
+        // reconciliation for as long as it is attached, even while bound to
+        // `false` -- that reconciliation can re-steal `NSWindow.firstResponder`
+        // out from under `GhosttySurfaceRepresentable`'s own imperative
+        // `requestFocus()` (confirmed live in smoke: keystrokes never reached
+        // the bridge's PTY until this modifier chain was removed outright for
+        // a ghostty-rendered pane, not merely neutered). A ghostty pane's
+        // keyboard focus is AppKit's to own, in full.
+        switch rendererKind {
+        case .swiftTerm:
+            cell
+                .focusable(isFocused)
+                .focusEffectDisabled()
+                .focused($keyCaptureFocused)
+                .onChange(of: isFocused, initial: true) { _, newValue in keyCaptureFocused = newValue }
+                .onKeyPress(phases: .down) { press in
+                    guard isFocused else { return .ignored }
+                    return routeKeyPress(press)
+                }
+        case .ghostty:
+            cell
+        }
+    }
+
+    private var cell: some View {
         VStack(spacing: 0) {
             header
             content
@@ -98,16 +125,6 @@ struct PaneCellView: View {
             case .ghostty:
                 Task { await viewModel.endGhosttyAttach(pane: paneID) }
             }
-        }
-        .focusable(isFocused && rendererKind == .swiftTerm)
-        .focusEffectDisabled()
-        .focused($keyCaptureFocused)
-        .onChange(of: isFocused, initial: true) { _, newValue in
-            keyCaptureFocused = newValue && rendererKind == .swiftTerm
-        }
-        .onKeyPress(phases: .down) { press in
-            guard isFocused, rendererKind == .swiftTerm else { return .ignored }
-            return routeKeyPress(press)
         }
         .contextMenu {
             Button("Split Right") {
