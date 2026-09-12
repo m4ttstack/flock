@@ -64,11 +64,25 @@ public final class InputRouter {
         self.debounceNanoseconds = debounceNanoseconds
     }
 
+    /// A lone DEL (0x7F) or BS (0x08) reaching this call is always a
+    /// mis-routed Backspace, never real content: live-verified against a
+    /// scratch herdr session (zsh, `stty` `erase = ^?`) that `keys:
+    /// ["backspace"]` sends 0x7F and erases correctly, while either byte
+    /// sent as `text` rides herdr's bracketed-paste wrapping and lands in
+    /// the buffer as an unprintable literal, echoing `^?` instead of erasing
+    /// -- the exact defect this guards against, independent of why a raw
+    /// control byte reached here instead of the named-key path.
+    private static let backspaceControlBytes: Set<Character> = ["\u{7f}", "\u{08}"]
+
     /// Appends one plain character (or short string -- e.g. an
     /// IME-composed grapheme) to the pending batch and (re)starts the
     /// debounce. A no-op while renaming or a drag is live.
     public func typeCharacter(_ text: String) {
         guard !isRenaming, !isDragLive, !text.isEmpty else { return }
+        if text.count == 1, let only = text.first, Self.backspaceControlBytes.contains(only) {
+            sendKey(.backspace)
+            return
+        }
         pendingText += text
         scheduleFlush()
     }

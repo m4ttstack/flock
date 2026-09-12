@@ -43,6 +43,34 @@ final class InputRouterTests: XCTestCase {
         XCTAssertEqual(secondParams["keys"] as? [String], ["enter"], "the key follows the flushed text, not before it")
     }
 
+    /// Live-verified against a scratch herdr session (zsh, `stty` reports
+    /// `erase = ^?`): `pane.send_input {keys:["backspace"]}` sends 0x7F and
+    /// erases the previous character correctly, while the identical byte
+    /// sent as `text` rides herdr's bracketed-paste wrapping and echoes back
+    /// literally as `^?` instead of erasing -- reproduced by hand over the
+    /// raw socket before this test was written. `typeCharacter` must never
+    /// let a lone DEL/BS reach the text batch; it redirects to the
+    /// named-key path instead, regardless of why the byte arrived here.
+    @MainActor
+    func testTypeCharacterRedirectsLoneControlBytesToNamedBackspace() async throws {
+        let server = FakeHerdrServer(); try server.start(); defer { server.stop() }
+        server.respond(to: "pane.send_input", withResultJSON: "{}")
+        let router = InputRouter(client: HerdrClient(socketPath: server.socketPath), paneID: PaneID(rawValue: "w1:p1"))
+
+        router.typeCharacter("\u{7f}")
+        router.typeCharacter("\u{08}")
+
+        await waitForRequests(server, method: "pane.send_input", count: 2)
+
+        let calls = server.receivedRequests.filter { $0.method == "pane.send_input" }
+        XCTAssertEqual(calls.count, 2)
+        for call in calls {
+            let params = try paramsDict(call.paramsJSON)
+            XCTAssertEqual(params["keys"] as? [String], ["backspace"], "never wire a control byte through as text")
+            XCTAssertNil(params["text"])
+        }
+    }
+
     /// The brief describes ctrl-combos as `"ctrl-<char>"`, but herdr's real
     /// wire parser (`app/api_helpers.rs`'s `normalize_api_key_alias` feeding
     /// `config/keybinds.rs`'s `parse_key_combo`, which splits strictly on
