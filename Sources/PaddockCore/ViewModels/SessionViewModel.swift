@@ -99,14 +99,23 @@ public final class SessionViewModel {
     // writer of this verb today.
     private var rightClickRoutedToPane: Set<PaneID> = []
 
+    // `nil` only when no `layoutExportClient` was injected (a test double
+    // that only implements `HerdrCommandClient`, say); every pane canvas
+    // then reads `exportedLayout(for:)` as `nil` and `CanvasGeometry.resolved`
+    // falls back to rect derivation for every tab, same as a per-tab fetch
+    // failure would.
+    private let layoutExportCoordinator: LayoutExportCoordinator?
+
     public init(
         client: any HerdrCommandClient,
         observeAttacher: (any PaneObserveAttaching)? = nil,
-        ghosttyFactory: (any GhosttyPaneFactory)? = nil
+        ghosttyFactory: (any GhosttyPaneFactory)? = nil,
+        layoutExportClient: (any LayoutExportClient)? = nil
     ) {
         self.client = client
         self.observeAttacher = observeAttacher
         self.ghosttyFactory = ghosttyFactory
+        self.layoutExportCoordinator = layoutExportClient.map { LayoutExportCoordinator(client: $0) }
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -135,6 +144,34 @@ public final class SessionViewModel {
         if optimisticFocusedPaneID != nil, model?.focusedPaneID == optimisticFocusedPaneID {
             optimisticFocusedPaneID = nil
         }
+        refreshLayoutExports()
+    }
+
+    /// Kicks the coordinator's per-tab refresh off the same seam every other
+    /// derived state in this class updates from: `HerdrStore`'s own model
+    /// stream, via `update(model:connection:)`. Selected tab first, the rest
+    /// chained; each tab's `LayoutTopologySignature` is what keeps an
+    /// unrelated tab's cached export from ever being refetched here.
+    private func refreshLayoutExports() {
+        guard let layoutExportCoordinator, let model else { return }
+        layoutExportCoordinator.refresh(
+            tabIDsInOrder: model.layouts.keys.sorted { $0.rawValue < $1.rawValue },
+            layouts: model.layouts,
+            selectedTabID: selectedTabID
+        )
+    }
+
+    /// The split tree the coordinator has cached for `tabID`, or `nil` before
+    /// its first successful `layout.export` (or while that tab is in
+    /// fallback). `PaneCanvas` reads this to drive `CanvasGeometry.resolved`.
+    public func exportedLayout(for tabID: TabID) -> ExportedLayoutDescription? {
+        layoutExportCoordinator?.exportedLayouts[tabID]
+    }
+
+    /// Lets a test await the coordinator's in-flight refresh instead of
+    /// racing it; a no-op when no `layoutExportClient` was injected.
+    public func waitForLayoutExportsIdle() async {
+        await layoutExportCoordinator?.waitForIdle()
     }
 
     /// What views should treat as "the focused pane": the optimistic click

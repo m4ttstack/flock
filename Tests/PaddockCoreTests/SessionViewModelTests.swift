@@ -33,6 +33,20 @@ private actor FailingCommandClient: HerdrCommandClient {
     }
 }
 
+private actor FakeLayoutExportClient: LayoutExportClient {
+    private(set) var calls: [TabID] = []
+    private let result: ExportedLayoutDescription
+
+    init(result: ExportedLayoutDescription) {
+        self.result = result
+    }
+
+    func layoutExport(tabID: TabID) async throws -> ExportedLayoutDescription {
+        calls.append(tabID)
+        return result
+    }
+}
+
 /// Records requests like `RecordingCommandClient` but answers `pane.read`
 /// with a canned `text` payload, so backfill tests can assert the fed bytes
 /// as well as the request params.
@@ -1234,6 +1248,62 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.toggleRightClickRouting(for: pane)
 
         XCTAssertFalse(viewModel.isRightClickRoutedToPane(pane), "a failed round trip must not leave a stale optimistic flip")
+    }
+
+    @MainActor
+    func testLayoutExportRefreshesOnlyWhenThatTabsSignatureChangesThroughUpdate() async {
+        let tabID = TabID(rawValue: "w1:t1")
+        let paneID = PaneID(rawValue: "w1:p1")
+        let exported = ExportedLayoutDescription(
+            workspaceID: WorkspaceID(rawValue: "w1"),
+            tabID: tabID,
+            zoomed: false,
+            focusedPaneID: paneID,
+            root: .pane(ExportedLayoutPane(paneID: paneID))
+        )
+        let layoutExportClient = FakeLayoutExportClient(result: exported)
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), layoutExportClient: layoutExportClient)
+
+        func modelWithLayout(_ layout: LayoutSnapshot) -> SessionModel {
+            var model = makeModel()
+            model.layouts[tabID] = layout
+            return model
+        }
+        let singlePane = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: tabID, zoomed: false,
+            area: CellRect(x: 0, y: 0, width: 80, height: 24), focusedPaneID: paneID,
+            panes: [PaneRect(paneID: paneID, focused: true, rect: CellRect(x: 0, y: 0, width: 80, height: 24))],
+            splits: []
+        )
+
+        // The seam PaddockApp's `.onChange(of: herdrStore.model)` calls into:
+        // the first update for a tab always fetches.
+        viewModel.update(model: modelWithLayout(singlePane), connection: .live)
+        await viewModel.waitForLayoutExportsIdle()
+        var calls = await layoutExportClient.calls
+        XCTAssertEqual(calls, [tabID])
+        XCTAssertEqual(viewModel.exportedLayout(for: tabID), exported)
+
+        // Same layout again: unchanged signature, no refetch.
+        viewModel.update(model: modelWithLayout(singlePane), connection: .live)
+        await viewModel.waitForLayoutExportsIdle()
+        calls = await layoutExportClient.calls
+        XCTAssertEqual(calls, [tabID])
+
+        // A real layout change (a split appears): signature changes, refetch.
+        let splitLayout = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: tabID, zoomed: false,
+            area: CellRect(x: 0, y: 0, width: 80, height: 24), focusedPaneID: paneID,
+            panes: [
+                PaneRect(paneID: paneID, focused: true, rect: CellRect(x: 0, y: 0, width: 40, height: 24)),
+                PaneRect(paneID: PaneID(rawValue: "w1:p2"), focused: false, rect: CellRect(x: 40, y: 0, width: 40, height: 24)),
+            ],
+            splits: [SplitInfo(id: "s1", direction: .right, ratio: 0.5, rect: CellRect(x: 0, y: 0, width: 80, height: 24))]
+        )
+        viewModel.update(model: modelWithLayout(splitLayout), connection: .live)
+        await viewModel.waitForLayoutExportsIdle()
+        calls = await layoutExportClient.calls
+        XCTAssertEqual(calls, [tabID, tabID])
     }
 }
 

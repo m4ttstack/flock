@@ -1,4 +1,14 @@
 import Foundation
+import Observation
+
+/// The subset of `HerdrClient` the coordinator needs; `HerdrClient` conforms
+/// below. Narrowed to just this one verb so a `HerdrCommandClient` test
+/// double built for `SessionViewModelTests` never has to implement it.
+public protocol LayoutExportClient: Sendable {
+    func layoutExport(tabID: TabID) async throws -> ExportedLayoutDescription
+}
+
+extension HerdrClient: LayoutExportClient {}
 
 /// Keeps each tab's `layout.export` tree current so `CanvasGeometry.resolved`
 /// can read herdr's own split tree instead of the rect-containment fallback.
@@ -15,15 +25,16 @@ import Foundation
 /// server supports `layout.export`, so a failure here is treated as
 /// transient, never cached as permanent.
 @MainActor
+@Observable
 public final class LayoutExportCoordinator {
     public private(set) var exportedLayouts: [TabID: ExportedLayoutDescription] = [:]
     public private(set) var fallbackTabs: Set<TabID> = []
 
-    private let client: HerdrClient
+    private let client: any LayoutExportClient
     private var signatures: [TabID: LayoutTopologySignature] = [:]
     private var refreshTask: Task<Void, Never>?
 
-    public init(client: HerdrClient) {
+    public init(client: any LayoutExportClient) {
         self.client = client
     }
 

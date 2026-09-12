@@ -1,9 +1,11 @@
 import PaddockCore
 import SwiftUI
 
-/// The pane canvas for the selected tab: `CanvasGeometry` scales the layout's
-/// cell rects to the available size, and each pane renders inset by half the
-/// 6px gutter so adjacent cells read as separated.
+/// The pane canvas for the selected tab: `CanvasGeometry.resolved` reads
+/// herdr's own `layout.export` split tree when the view-model has one cached
+/// for this tab, falling back to rect derivation otherwise, then scales the
+/// result to the available size; each pane renders inset by half the 6px
+/// gutter so adjacent cells read as separated.
 struct PaneCanvas: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -15,7 +17,12 @@ struct PaneCanvas: View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 if let layout {
-                    let geometry = CanvasGeometry(layout: layout, in: proxy.size, dividerThickness: Self.dividerThickness)
+                    let geometry = CanvasGeometry.resolved(
+                        layout: layout,
+                        exported: viewModel.exportedLayout(for: layout.tabID),
+                        in: proxy.size,
+                        dividerThickness: Self.dividerThickness
+                    )
                     ForEach(layout.panes, id: \.paneID) { paneRect in
                         if let pane = viewModel.model?.panes[paneRect.paneID],
                            let frame = geometry.paneFrames[paneRect.paneID] {

@@ -33,10 +33,16 @@ struct PaddockApp: App {
                 themeStore.active.ghosttyThemeColors()
             }
         }
+        // One client, two roles: `HerdrClient` conforms to both
+        // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
+        // command verbs and the layout-export coordinator share the same
+        // actor rather than opening a second one.
+        let herdrClient = HerdrClient(socketPath: socketPath)
         _viewModel = State(initialValue: SessionViewModel(
-            client: HerdrClient(socketPath: socketPath),
+            client: herdrClient,
             observeAttacher: observeAttacher,
-            ghosttyFactory: ghosttyFactory
+            ghosttyFactory: ghosttyFactory,
+            layoutExportClient: herdrClient
         ))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
     }
