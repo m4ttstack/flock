@@ -223,10 +223,14 @@ transform/opacity only, interruptible springs.
 - **Right-click routing (herdr 0.9, v1):** paddock surfaces the per-pane
   `pane.input.set { right_click: "pane" | "herdr" }` toggle in its pane
   context menu and pane header, reflecting the live routing state. The
-  Option+click gesture (one-off right-click delivered INTO the pane app,
-  mirroring herdr's `ui.right_click_passthrough_modifier`) is first-class in
-  the design but ships with the v1.5 input channel; no API delivers a mouse
-  event from outside today (`pane.send_input` takes text/keys only).
+  Option+right-click gesture (one-off right-click delivered INTO the pane
+  app, mirroring herdr's `ui.right_click_passthrough_modifier`) ships in v1
+  (pulled forward 2026-09-12: the libghostty surface owns a real PTY, so a
+  mouse button forwards natively via `ghostty_surface_mouse_button` with
+  the Option modifier stripped). Disposition on a control-mode pane: Option
+  held = forward to pane, else routing toggle on = forward, else herdr
+  action menu. On an observe-mode pane Option+right-click does nothing
+  (input dropped, no menu).
 - **Attention toasts (v1):** top-right stack derived from
   `pane.agent_status_changed` / `pane.agent_detected` (blocked = needs
   input, working-to-idle/done = finished). Click = jump: `workspace.focus` +
