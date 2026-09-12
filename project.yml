@@ -12,7 +12,20 @@ targets:
     type: framework
     platform: macOS
     sources: [Sources/PaddockCore]
-    dependencies: [{ package: SwiftTerm }]
+    dependencies:
+      - package: SwiftTerm
+      - framework: Vendor/GhosttyKit.xcframework
+        embed: false
+      - sdk: AppKit.framework
+      - sdk: Carbon.framework
+      - sdk: CoreGraphics.framework
+      - sdk: CoreText.framework
+      - sdk: IOSurface.framework
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreVideo.framework
+      - sdk: UserNotifications.framework
+      - sdk: libc++.tbd
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
