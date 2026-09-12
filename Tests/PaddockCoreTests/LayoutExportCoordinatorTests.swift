@@ -156,4 +156,107 @@ final class LayoutExportCoordinatorTests: XCTestCase {
         await coordinator.waitForIdle()
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "layout.export" }.count, 2)
     }
+
+    /// Reproduces the completion-after-cancel race directly, with no real
+    /// socket involved (so there is no ambiguity about which connection a
+    /// server-side hold applies to): the first `layoutExport` call suspends
+    /// on a continuation until explicitly released; the second call (issued
+    /// once the first is confirmed in flight) resolves immediately. A
+    /// superseded fetch resolving late must not be allowed to write once it
+    /// finally completes, even though the superseding fetch already landed a
+    /// fresher result first.
+    @MainActor
+    func testSupersededFetchCommitsNothingAndFreshResultWins() async throws {
+        let tabA = TabID(rawValue: "w1:t1")
+        let paneID = PaneID(rawValue: "w1:p1")
+        func exported(ratio: Double) -> ExportedLayoutDescription {
+            ExportedLayoutDescription(
+                workspaceID: WorkspaceID(rawValue: "w1"), tabID: tabA, zoomed: false, focusedPaneID: paneID,
+                root: .split(
+                    direction: .right, ratio: ratio,
+                    first: .pane(ExportedLayoutPane(paneID: paneID)),
+                    second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "w1:p2")))
+                )
+            )
+        }
+        let staleResult = exported(ratio: 0.9)
+        let freshResult = exported(ratio: 0.7)
+        let client = HoldableLayoutExportClient(firstResult: staleResult, secondResult: freshResult)
+
+        let coordinator = LayoutExportCoordinator(client: client)
+        let staleLayout = singlePaneLayout(
+            tabID: tabA, paneID: paneID,
+            splits: [SplitInfo(id: "s1", direction: .right, ratio: 0.5, rect: CellRect(x: 0, y: 0, width: 100, height: 50))],
+            panes: [
+                PaneRect(paneID: paneID, focused: true, rect: CellRect(x: 0, y: 0, width: 50, height: 50)),
+                PaneRect(paneID: PaneID(rawValue: "w1:p2"), focused: false, rect: CellRect(x: 50, y: 0, width: 50, height: 50)),
+            ]
+        )
+
+        // The first fetch goes out and suspends; `waitUntilFirstCallStarted`
+        // returns only once it has genuinely begun (no sleep-based guess).
+        coordinator.refresh(tabIDsInOrder: [tabA], layouts: [tabA: staleLayout], selectedTabID: tabA)
+        await client.waitUntilFirstCallStarted()
+
+        // A layout change (ratio 0.7) supersedes it before it resolves: this
+        // cancels the first fetch's task and issues a second call, which
+        // resolves immediately (it is not the held one).
+        let freshLayout = singlePaneLayout(
+            tabID: tabA, paneID: paneID,
+            splits: [SplitInfo(id: "s1", direction: .right, ratio: 0.7, rect: CellRect(x: 0, y: 0, width: 100, height: 50))],
+            panes: staleLayout.panes
+        )
+        coordinator.refresh(tabIDsInOrder: [tabA], layouts: [tabA: freshLayout], selectedTabID: tabA)
+        await coordinator.waitForIdle()
+
+        XCTAssertEqual(coordinator.exportedLayouts[tabA], freshResult, "the fresh fetch must land before the stale one is even released")
+
+        // Release the superseded fetch; it must commit nothing.
+        await client.release()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(coordinator.exportedLayouts[tabA], freshResult, "a superseded fetch resolving late must not clobber the fresh result already committed")
+    }
+}
+
+/// The first `layoutExport` call suspends until `release()` is called; every
+/// call after that resolves immediately. Lets a test force a fetch to
+/// resolve strictly after it has been superseded, without any real socket or
+/// server-side hold involved.
+private actor HoldableLayoutExportClient: LayoutExportClient {
+    private var callCount = 0
+    private var heldContinuation: CheckedContinuation<Void, Never>?
+    private var startedContinuation: CheckedContinuation<Void, Never>?
+    private var firstCallStarted = false
+    private let firstResult: ExportedLayoutDescription
+    private let secondResult: ExportedLayoutDescription
+
+    init(firstResult: ExportedLayoutDescription, secondResult: ExportedLayoutDescription) {
+        self.firstResult = firstResult
+        self.secondResult = secondResult
+    }
+
+    func layoutExport(tabID: TabID) async throws -> ExportedLayoutDescription {
+        callCount += 1
+        guard callCount == 1 else { return secondResult }
+        firstCallStarted = true
+        startedContinuation?.resume()
+        startedContinuation = nil
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            heldContinuation = continuation
+        }
+        return firstResult
+    }
+
+    func waitUntilFirstCallStarted() async {
+        if firstCallStarted { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            startedContinuation = continuation
+        }
+    }
+
+    func release() {
+        heldContinuation?.resume()
+        heldContinuation = nil
+    }
 }
