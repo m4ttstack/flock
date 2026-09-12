@@ -78,3 +78,29 @@ UNCHANGED `paneHeaderBg` role (`(29, 30, 38)` sampled vs `(32, 33, 43)`
 computed) in the same capture, so it is the capture pipeline's color
 management (this display is P3; `screencapture`'s raw channel values read
 naively as sRGB), not an implementation defect in the new roles.
+
+## Checkpoint 2b evidence: ghostty renderer parity (parity/checkpoint-2b/launch.png)
+
+Tokyo-night, seeded scratch session, focused pane = libghostty surface,
+unfocused = SwiftTerm observe. Sampled sRGB-converted (display is P3; +-1
+channel offsets are the documented capture-pipeline artifact, not drift):
+
+| Point | Sampled | Reference | Verdict |
+|---|---|---|---|
+| Titlebar bg | #1E2028 | #1E1F28 | ok (P3 +-1) |
+| Rail bg | #17181E | #16171E | ok (P3 +-1) |
+| Tab strip bg | #1C1C24 | #1B1C24 | ok (P3 +-1) |
+| Selected pill fill | #2A2C37 | #2A2C37 | EXACT |
+| Selected pill label | #E6E7EB | #E6E7EB | EXACT |
+| Pane header bg | #20212B | #20212B | EXACT |
+| ghostty terminal ground | #191A22 | #191A22 | EXACT |
+| SwiftTerm terminal ground | #191A22 | #191A22 | EXACT |
+
+The two renderers painting an identical ground was the port's visual bar:
+the themed ghostty config (background/foreground/palette) lands the same
+hex the SwiftTerm path ships.
+
+Known artifacts on the capture, for the checkpoint hands-on pass: a stray
+hollow-box glyph mid-pane in the unfocused SwiftTerm pane (pre-existing
+observe-path rendering, unchanged by the port) and that pane's thin scroller
+line at its right edge.
