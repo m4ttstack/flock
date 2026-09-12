@@ -72,7 +72,6 @@ public final class SessionViewModel {
     // just the one that discovered it.
     private let historyCapabilityGate = HistoryCapabilityGate()
     private var paneTerminals: [PaneID: PaneTerminal] = [:]
-    private var inputRouters: [PaneID: InputRouter] = [:]
     private let paneLauncherRegistry = PaneLauncherRegistry()
     // Local mirror of each pane's `right_click` routing, seeded `false`
     // (herdr) to match `PaneRightClickTarget`'s own server-side default;
@@ -449,17 +448,6 @@ public final class SessionViewModel {
         return terminal
     }
 
-    // MARK: - typing-lite
-
-    /// The shared `InputRouter` for `pane`, created once and cached for its
-    /// lifetime.
-    public func inputRouter(for pane: PaneID) -> InputRouter {
-        if let existing = inputRouters[pane] { return existing }
-        let router = InputRouter(client: client, paneID: pane)
-        inputRouters[pane] = router
-        return router
-    }
-
     // MARK: - new-pane harness launcher
 
     /// `PaneLauncherRegistry` is a plain (non-`@Observable`) class, so a
@@ -476,11 +464,6 @@ public final class SessionViewModel {
 
     public func recordLauncherKeystroke(_ pane: PaneID) {
         paneLauncherRegistry.recordKeystroke(pane)
-        launcherRegistryVersion += 1
-    }
-
-    public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
-        paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
         launcherRegistryVersion += 1
     }
 

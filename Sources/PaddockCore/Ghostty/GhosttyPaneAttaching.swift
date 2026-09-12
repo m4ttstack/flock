@@ -28,8 +28,8 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
 
     /// Types `text` into the surface as if the user had, writing straight to
     /// the bridge's PTY -- the launcher overlay's route for a ghostty pane
-    /// (`pane.send_input`/`InputRouter` never apply here; there is no herdr
-    /// attach in between to send them over).
+    /// (`pane.send_input` never applies here; there is no herdr attach in
+    /// between to send it over).
     func typeText(_ text: String)
 
     /// Switches the pane's bridge, live, between herdr's `control` and

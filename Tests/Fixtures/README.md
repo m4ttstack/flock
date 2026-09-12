@@ -18,8 +18,8 @@ captures ran in `/tmp` and printed only synthetic `printf` output.
 - `snapshot.json`: the raw single-line response to `session.snapshot`
   (`nc -U "$sock" | head -1`, no reformatting) after `seed-layout.sh` built
   the canonical layout (one workspace, tabA with two side-by-side panes,
-  tabB with one pane). Same wire shape as `events.ndjson` and
-  `observe.ndjson`: one JSON object per line.
+  tabB with one pane). Same wire shape as `events.ndjson`: one JSON object
+  per line.
 - `events.ndjson`: an `events.subscribe` stream (types: `layout.updated`,
   `pane.updated`, and the lifecycle types `workspace.created`,
   `workspace.closed`, `workspace.renamed`, `tab.created`, `tab.closed`,
@@ -31,11 +31,6 @@ captures ran in `/tmp` and printed only synthetic `printf` output.
   `pane_created`, layout updates) followed by exactly one `pane.move` to
   `new_tab` (1 more `tab_created` for the new tab, 1 `pane_moved`, a
   `pane_focused`, a final `layout_updated`). 16 lines total.
-- `observe.ndjson`: 38 frames from
-  `herdr terminal session observe <pane> --cols 80 --rows 24`, one `full:
-  true` frame followed by 37 incremental frames, produced by running twelve
-  `printf` commands (including ANSI red) in the observed pane via
-  `herdr pane run`.
 
 ## Recapture commands
 
@@ -44,7 +39,7 @@ Run everything from the repo root. Never point any of this at
 every scratch session afterwards.
 
 ```bash
-# 1. snapshot.json + observe.ndjson: one scratch session, seeded once.
+# 1. snapshot.json: one scratch session, seeded once.
 sock=$(spikes/lib/scratch-session.sh start fixtures)
 map=$(spikes/lib/seed-layout.sh "$sock")
 p1=$(jq -r .p1 <<<"$map")
@@ -52,17 +47,6 @@ echo "$map"
 
 printf '%s\n' '{"id":"f1","method":"session.snapshot","params":{}}' \
   | nc -U "$sock" | head -1 > Tests/Fixtures/snapshot.json
-
-HERDR_SOCKET_PATH="$sock" herdr terminal session observe "$p1" --cols 80 --rows 24 \
-  > Tests/Fixtures/observe.ndjson &
-obspid=$!
-sleep 0.5
-for i in $(seq 1 12); do
-  HERDR_SOCKET_PATH="$sock" herdr pane run "$p1" "printf 'line $i \033[31mred\033[0m done\n'"
-  sleep 0.3
-done
-sleep 1
-kill "$obspid"
 
 spikes/lib/scratch-session.sh stop fixtures
 
