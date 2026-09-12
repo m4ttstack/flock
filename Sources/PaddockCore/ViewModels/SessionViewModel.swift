@@ -489,9 +489,8 @@ public final class SessionViewModel {
     }
 
     /// Splits `pane` rightward via `pane.split` and focuses the new pane,
-    /// registering it as paddock-created so the launcher can show on it.
-    /// The one creation-verb call site pulled forward from Task 28's scope
-    /// (a "Split Right" context-menu command) to exercise the provenance
+    /// registering it as paddock-created so the launcher can show on it --
+    /// a "Split Right" context-menu command exercising the provenance
     /// registry live; `cwd` is deliberately omitted so herdr follows the
     /// source pane's own cwd.
     public func splitRight(from pane: PaneID) async {

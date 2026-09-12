@@ -159,10 +159,14 @@ private actor RecordingObserveAttacher: PaneObserveAttaching {
 
 /// A fake `GhosttyPaneSurface`: records what `SessionViewModel` does to it,
 /// with no real libghostty surface, `NSView`, or bridge process anywhere.
-/// `detach()` can be held open one call at a time, the same shape as
-/// `RecordingObserveAttacher.holdDetach`/`releaseNextDetach`, so a test can
-/// pin a stale detach mid-flight while a fast reappear's fresh attach races
-/// it.
+/// `detach()` has no hold/release of its own (unlike
+/// `RecordingObserveAttacher`'s): `SessionViewModel.performGhosttyDetach`
+/// removes the pane's `ghosttySurfaces` entry SYNCHRONOUSLY, before ever
+/// calling this method, so nothing a held `detach()` here could still be
+/// "in the middle of" would leave that dictionary entry in a stale state
+/// for another call to race against -- see
+/// `testGhosttyAttachWaitsForAPendingObserveDetachOnTheSamePaneBeforeCreatingASurface`'s
+/// doc comment for the real, structurally-checkable hazard on this seam.
 /// `@unchecked Sendable` for the same reason `GhosttySessionSurfaceHandle`
 /// is: every touch of this class's state happens through its own
 /// `@MainActor`-isolated methods, from tests that are themselves
@@ -173,8 +177,6 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     private(set) var resizeCalls: [(cols: Int, rows: Int)] = []
     private(set) var detachCallCount = 0
     private(set) var typedText: [String] = []
-    private var detachHoldEnabled = false
-    private var pendingDetachContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(pane: PaneID) {
         self.pane = pane
@@ -184,20 +186,8 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
         resizeCalls.append((cols, rows))
     }
 
-    func holdDetach() {
-        detachHoldEnabled = true
-    }
-
-    func releaseNextDetach() {
-        guard !pendingDetachContinuations.isEmpty else { return }
-        pendingDetachContinuations.removeFirst().resume()
-    }
-
     func detach() async {
         detachCallCount += 1
-        if detachHoldEnabled {
-            await withCheckedContinuation { pendingDetachContinuations.append($0) }
-        }
     }
 
     func typeText(_ text: String) {
@@ -867,44 +857,61 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "still only one surface ever created for this pane")
     }
 
-    /// A detach queued while it is still in flight must not be allowed to
-    /// wipe out a fresh attach for the same pane that arrives behind it (a
-    /// fast reappear) -- mirrors
-    /// `testFastReappearAttachIsNotClobberedByAStaleDetach`'s discipline for
-    /// the observe path, using `FakeGhosttyPaneSurface.holdDetach`/
-    /// `releaseNextDetach` instead of the observe attacher's.
+    /// A same-renderer "stale detach vs. fast reappear" race, mirroring
+    /// `testFastReappearAttachIsNotClobberedByAStaleDetach`'s observe-path
+    /// test exactly, does NOT discriminate anything on the ghostty side:
+    /// `performGhosttyDetach` removes the pane's `ghosttySurfaces` entry
+    /// SYNCHRONOUSLY, as its very first action, before it ever calls
+    /// `surface.detach()` -- so by the time any hold on `detach()` could
+    /// matter, the dictionary is already cleared, and a reappear sees a
+    /// fresh, empty slot whether or not `paneWork` serializes anything.
+    /// (The observe path's own version of this test discriminates for real
+    /// because ITS fake, `RecordingObserveAttacher`, deliberately defers
+    /// clearing its own `sessionDims` entry until AFTER its held `detach`
+    /// resumes -- there is no equivalent deferred, fake-owned state here to
+    /// race against.)
+    ///
+    /// The hazard `paneWork` DOES guard on this seam is a RENDERER FLIP: a
+    /// pane transitioning from observe to ghostty (or back) must have the
+    /// OLD renderer's detach fully settle before the NEW renderer's attach
+    /// is allowed to create anything, because both operations share the
+    /// same `paneWork[pane]` chain precisely so they can never run
+    /// concurrently for one pane. This is the real, structurally-checkable
+    /// property: hold the observe detach, start a ghostty attach for the
+    /// SAME pane behind it, and prove no surface exists until the detach
+    /// releases.
     @MainActor
-    func testGhosttyFastReappearAttachIsNotClobberedByAStaleDetach() async throws {
+    func testGhosttyAttachWaitsForAPendingObserveDetachOnTheSamePaneBeforeCreatingASurface() async throws {
+        let attacher = RecordingObserveAttacher()
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
+        let viewModel = SessionViewModel(client: StubReadCommandClient(), observeAttacher: attacher, ghosttyFactory: factory)
+        let pane = makePaneRecord()
 
-        let initialSurface = await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24)
-        XCTAssertNotNil(initialSurface)
-        let firstSurface = try XCTUnwrap(factory.surfaces[pane])
-        firstSurface.holdDetach()
+        _ = await viewModel.beginOrUpdateLiveAttach(pane: pane, cols: 80, rows: 24)
 
-        let detachTask = Task { await viewModel.endGhosttyAttach(pane: pane) }
+        await attacher.holdDetach()
+        let detachTask = Task { await viewModel.endLiveAttach(pane: pane.paneID) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
-        // Fast reappear: a fresh attach request for the same pane, queued
-        // behind the still-in-flight (held) detach.
-        let reattachTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane, cols: 80, rows: 24) }
+        // The renderer flip: a ghostty attach for the SAME pane, dispatched
+        // as its own task, must queue behind the still-in-flight observe
+        // detach -- sharing `paneWork` across both renderers is what makes
+        // this true; separate per-renderer chains would let it run
+        // concurrently instead.
+        let ghosttyTask = Task { await viewModel.beginOrUpdateGhosttyAttach(pane: pane.paneID, cols: 80, rows: 24) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
-        firstSurface.releaseNextDetach()
+        XCTAssertEqual(
+            factory.makeSurfaceCalls.count, 0,
+            "the ghostty attach must not create a surface while the observe detach for the SAME pane is still settling"
+        )
+
+        await attacher.releaseNextDetach()
         await detachTask.value
-        let reappearSurface = await reattachTask.value
+        let surface = await ghosttyTask.value
 
-        XCTAssertNotNil(reappearSurface, "the reappear must re-attach for real, not be silently dropped")
-        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "one for the original attach, one for the reappear")
-        XCTAssertEqual(firstSurface.detachCallCount, 1)
-
-        // The actual discriminator: without serialization, the stale detach
-        // resumes AFTER the reappear's fresh attach has already installed a
-        // new surface, and wipes it out from under it.
-        XCTAssertNotNil(viewModel.ghosttySurface(for: pane), "the reappear's fresh surface must survive the stale queued detach")
-        XCTAssertFalse(reappearSurface === firstSurface, "the reappear creates a genuinely NEW surface, not the torn-down one")
+        XCTAssertNotNil(surface, "the ghostty attach resolves once the observe detach has fully settled")
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1)
     }
 
     /// The launcher-pristine contract's ghostty half: a keystroke reported
