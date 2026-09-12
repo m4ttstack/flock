@@ -110,8 +110,17 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   authority. Docs name this the third-party bridge path. Paddock shells out to
   the herdr binary rather than speaking `herdr-client.sock` (that protocol is
   strict version-matched; the CLI is the stable adapter).
-- **Renderer:** SwiftTerm view per attached pane (MIT, active), fed the ANSI
-  bytes, read-only in v1. Local scrollback accumulates from attach.
+- **Renderer:** libghostty (Ghostty's embeddable terminal core, via its
+  Swift packaging), fed the ANSI bytes, read-only surface with paddock's
+  own input routing on top. DECIDED 2026-09-11 by Matt, superseding
+  SwiftTerm after checkpoint testing showed the integration seams (font
+  fit, sizing, theming) are exactly what a Ghostty surface does natively;
+  the libghostty Swift ecosystem (GhosttyKit, libghostty-spm, shipped
+  multiplexer/agent apps) is production-viable as of 2026. Integration
+  mechanics (package choice, byte-stream feeding without a PTY, headless
+  mirror strategy) are settled by a dedicated spike; the API is
+  alpha-labeled, so exact versions are pinned. SwiftTerm remains only
+  until the swap lands, then is removed.
 - **Backfill:** one `pane.read` (`recent`, `format: ansi`, <= 1000 lines,
   alt-screen cap above) seeds history at attach.
 - **Deep history:** `pane.selection.read` chunks (plain text) render as a
