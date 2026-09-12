@@ -409,13 +409,19 @@ final class BridgeModeSwitcher: @unchecked Sendable {
     /// child at -- the latest SIGWINCH-observed size, not the size the
     /// bridge itself was started with -- and immediately re-sends a
     /// `terminal.resize` for it to whichever child is CURRENTLY live. The
-    /// re-send matters exactly when a resize races a mode switch: `send`
-    /// and this update both take `lock`, so a resize that arrives while
-    /// `requestSwitch` is mid-flight (kill + spawn + rewire can take up to
-    /// the escalation timeout) queues behind it and, once it finally runs,
-    /// pushes the up-to-date size to the FRESHLY SPAWNED child -- which was
-    /// necessarily spawned from the size `requestSwitch` had captured
-    /// before this update landed, and would otherwise never learn of it.
+    /// re-send matters exactly when a resize races a mode switch: the WRITE
+    /// to `latestSize` takes this switcher's OWN `lock` (the same one
+    /// `requestSwitch` holds for its whole kill + spawn + rewire, up to the
+    /// escalation timeout), so a resize arriving mid-switch queues behind
+    /// it there and only updates `latestSize` once the switch has fully
+    /// settled. The SEND after that (`io.send`, which takes `BridgeIO`'s own
+    /// `writeLock`, a different lock entirely) then strictly follows: by
+    /// the time it runs, any switch that was in flight has already rewired
+    /// `io` to the new child, so the send always reaches whichever child is
+    /// current -- the freshly spawned one, if a switch just raced this,
+    /// which necessarily spawned from whatever size `requestSwitch` had
+    /// captured BEFORE this update landed and would otherwise never learn
+    /// of it.
     func recordSize(_ size: PTYSize) {
         lock.lock()
         latestSize = size

@@ -3,18 +3,17 @@ import PaddockCore
 import SwiftUI
 
 /// Live 1:1 rendering of one pane via a real libghostty surface whose PTY
-/// child is a herdr-aware bridge process (`ControlBridge`), not a
-/// SwiftTerm view fed frames -- see `GhosttyControlSurfaceFactory`. Input,
-/// mouse passthrough, clipboard and resize all happen inside
-/// `GhosttySurfaceView`/`GhosttySession` themselves; this wrapper only hosts
-/// the surface and keeps it restyled when the active theme changes.
+/// child is a herdr-aware bridge process (`ControlBridge`) -- see
+/// `GhosttyControlSurfaceFactory`. Input, mouse passthrough, clipboard and
+/// resize all happen inside `GhosttySurfaceView`/`GhosttySession`
+/// themselves; this wrapper only hosts the surface and keeps it restyled
+/// when the active theme changes.
 ///
 /// The deep-history browser overlays a full-body scroll surface: fetched
 /// history (dim) flows straight into the buffer's own retained text (regular
 /// ink), snapshotted from libghostty's own retained screen
-/// (`GhosttySession.retainedRowCount`/`retainedText`) rather than a second
-/// SwiftTerm instance, so there is only ever one buffer for a pane to
-/// disagree with itself about.
+/// (`GhosttySession.retainedRowCount`/`retainedText`) -- there is only ever
+/// one buffer for a pane to disagree with itself about.
 struct GhosttyPaneTerminalView: View {
     let surface: any GhosttyPaneSurface
     let theme: Theme
@@ -24,11 +23,13 @@ struct GhosttyPaneTerminalView: View {
     /// pane's own program instead of presenting herdr's action menu only
     /// when the toggle is on.
     let isRightClickRoutedToPane: Bool
-    /// A left click landed in this pane's body, with no drag/selection --
-    /// wired to `SessionViewModel.jumpToHerdr(pane:)` the same way the old
-    /// SwiftTerm-rendered path's `onPlainClick` was (Task 18): clicking an
-    /// UNFOCUSED pane's body is how herdr focus moves there at all, since
-    /// only the header row has its own tap gesture.
+    /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
+    /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus
+    /// ever moves to this pane at all, since only the header row has its
+    /// own tap gesture; an ALREADY-focused pane's body click (a drag-select
+    /// start included) never fires this, since a real `pane.focus` RPC on
+    /// every click into a pane the user is already working in would serve
+    /// no purpose (see `GhosttySurfaceView.mouseDown`'s own gate).
     let onPrimaryClick: () -> Void
     /// Backs the deep-history region, shared with `SessionViewModel`'s
     /// per-pane cache. `nil` leaves this view with no region.

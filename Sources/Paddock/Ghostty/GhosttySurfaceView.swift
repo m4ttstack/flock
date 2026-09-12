@@ -43,6 +43,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// about this representable's inputs changes again after that to trigger
     /// a second `updateNSView` call).
     var wantsFocus = false
+    /// Per-button record of what the matching mouse-DOWN actually did, read
+    /// back by the UP so it always replays the SAME decision -- never
+    /// re-derived from `wantsFocus`/the routing toggle at up-time, which can
+    /// have changed in between (a focus flip mid-drag) and would otherwise
+    /// drop the release ghostty is still owed, leaving its mouse-button
+    /// state stuck down.
+    private var leftButtonWasForwarded = false
+    private var rightButtonDownDisposition: RightClickDisposition = .drop
+    private var forwardedOtherButtons: Set<Int> = []
 
     /// Wired by `GhosttySurfaceRepresentable` from the pane cell's own
     /// `BrowserScrollState` and reveal/exit closures.
@@ -166,25 +175,33 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     // MARK: - Mouse
 
-    /// `onPrimaryClick` always fires, focused or not -- it is how herdr
-    /// focus ever moves to an unfocused pane at all (the header row has its
-    /// own tap gesture; the body does not). Everything past it -- grabbing
-    /// AppKit first responder, forwarding the click into libghostty -- is
-    /// gated on `wantsFocus`: an unfocused pane's body click only asks
-    /// `SessionViewModel` to move focus there, exactly like the old
-    /// SwiftTerm-rendered path's `onPlainClick` did, and never simultaneously
+    /// `onPrimaryClick` fires only while `!wantsFocus` -- it is how herdr
+    /// focus ever moves to an UNFOCUSED pane at all (the header row has its
+    /// own tap gesture; the body does not). An ALREADY-focused pane's body
+    /// click (including a drag-select's own mouse-down) must never repeat
+    /// it: `jumpToHerdr(pane:)` issues a real `pane.focus` RPC every call,
+    /// so firing it on every click into a pane the user is already working
+    /// in would mean a `pane.focus` round trip per click/select-drag with
+    /// no purpose. Everything past this -- grabbing AppKit first responder,
+    /// forwarding the click into libghostty -- is separately gated on
+    /// `wantsFocus`: an unfocused pane's body click only asks
+    /// `SessionViewModel` to move focus there, and never simultaneously
     /// steals AppKit's first-responder status out from under whichever pane
     /// truly holds it right now.
     override func mouseDown(with event: NSEvent) {
-        onPrimaryClick?()
-        guard wantsFocus else { return }
+        guard wantsFocus else {
+            leftButtonWasForwarded = false
+            onPrimaryClick?()
+            return
+        }
+        leftButtonWasForwarded = true
         requestWindowFirstResponder()
         session.sendMousePosition(event)
         session.sendMouseButton(.left, pressed: true, event: event)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard wantsFocus else { return }
+        guard leftButtonWasForwarded else { return }
         session.sendMousePosition(event)
         session.sendMouseButton(.left, pressed: false, event: event)
     }
@@ -208,7 +225,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// is `wantsFocus`-derived because, in this app, the resolved-focused
     /// pane is the only one ever in `.control` mode.
     override func rightMouseDown(with event: NSEvent) {
-        switch rightClickDisposition(for: event) {
+        let disposition = rightClickDisposition(for: event)
+        rightButtonDownDisposition = disposition
+        switch disposition {
         case .menu:
             super.rightMouseDown(with: event)
         case .forwardToPane:
@@ -221,7 +240,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func rightMouseUp(with event: NSEvent) {
-        switch rightClickDisposition(for: event) {
+        switch rightButtonDownDisposition {
         case .menu:
             super.rightMouseUp(with: event)
         case .forwardToPane:
@@ -246,13 +265,14 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func otherMouseDown(with event: NSEvent) {
         guard wantsFocus else { return }
+        forwardedOtherButtons.insert(Int(event.buttonNumber))
         requestWindowFirstResponder()
         session.sendMousePosition(event)
         session.sendMouseButton(.other(Int(event.buttonNumber)), pressed: true, event: event)
     }
 
     override func otherMouseUp(with event: NSEvent) {
-        guard wantsFocus else { return }
+        guard forwardedOtherButtons.remove(Int(event.buttonNumber)) != nil else { return }
         session.sendMousePosition(event)
         session.sendMouseButton(.other(Int(event.buttonNumber)), pressed: false, event: event)
     }

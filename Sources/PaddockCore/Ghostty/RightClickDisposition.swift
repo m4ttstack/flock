@@ -20,7 +20,7 @@ public enum RightClickDisposition: Equatable, Sendable {
     /// the user asked for a pane click, not a menu, so none shows.
     case drop
 
-    /// RULING: forwarding -- whether asked for by the persistent routing
+    /// Forwarding -- whether asked for by the persistent routing
     /// toggle or by a one-shot Option click -- only ever actually reaches
     /// the pane on a `.control`-mode surface; on `.observe` it drops
     /// silently instead, NEVER falling back to `.menu`. Requesting the

@@ -19,7 +19,7 @@ final class RightClickDispositionTests: XCTestCase {
     // MARK: - No option: the persistent routing toggle asks for forwarding,
     // but it only actually reaches the pane on a control-mode surface --
     // an observe-mode pane has no input path to deliver it to, so it drops
-    // rather than falling back to the menu (RULING, F6).
+    // rather than falling back to the menu.
 
     func testNoOptionRoutingEnabledForwardsOnlyOnControlMode() {
         XCTAssertEqual(
