@@ -20,18 +20,24 @@ public enum RightClickDisposition: Equatable, Sendable {
     /// the user asked for a pane click, not a menu, so none shows.
     case drop
 
-    /// `optionHeld` is the click's own physical modifier, checked first and
-    /// unconditionally: Option always means "send this click to the pane,
-    /// one-shot," bypassing the persistent routing toggle in either
-    /// direction. Without Option, the existing persistent toggle decides,
-    /// same as before Option existed at all. `mode` is the pane's CURRENT
-    /// bridge mode (`.control` only for the resolved-focused pane in this
-    /// app) -- an Option click has nowhere to go on an `.observe` pane, so
-    /// it drops rather than falling back to either other disposition.
+    /// RULING: forwarding -- whether asked for by the persistent routing
+    /// toggle or by a one-shot Option click -- only ever actually reaches
+    /// the pane on a `.control`-mode surface; on `.observe` it drops
+    /// silently instead, NEVER falling back to `.menu`. Requesting the
+    /// pane's own program is what the toggle (or Option) means, and an
+    /// unfocused pane's bridge has no input path to deliver that to (see
+    /// `GhosttySurfaceView.requestWindowFirstResponder`'s own gate) -- a
+    /// menu on a routing-enabled pane would silently ignore the user's own
+    /// standing choice.
+    ///
+    /// `optionHeld` is the click's own physical modifier, checked first:
+    /// Option always means "send this click to the pane, one-shot,"
+    /// overriding the persistent toggle for this one click regardless of
+    /// what it is currently set to. Without Option, the toggle alone
+    /// decides whether forwarding was even asked for.
     public static func decide(optionHeld: Bool, routingEnabled: Bool, mode: PaneMode) -> RightClickDisposition {
-        if optionHeld {
-            return mode == .control ? .forwardToPane : .drop
-        }
-        return routingEnabled ? .forwardToPane : .menu
+        let wantsForward = optionHeld || routingEnabled
+        guard wantsForward else { return .menu }
+        return mode == .control ? .forwardToPane : .drop
     }
 }

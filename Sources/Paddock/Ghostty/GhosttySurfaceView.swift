@@ -189,12 +189,16 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         session.sendMouseButton(.left, pressed: false, event: event)
     }
 
-    /// Herdr's own action menu (Split/Close/right-click routing), presented
-    /// by SwiftUI's `.contextMenu` on `PaneCellView`, is the default for
-    /// every pane, focused or not: unless the pane's routing toggle is on,
-    /// the click is handed back to the responder chain (`super`) rather than
-    /// consumed here, which is what lets that modifier's own hit-testing see
-    /// it. libghostty's own context menu is never shown by this view.
+    /// `RightClickDisposition.decide` owns the whole decision (see its own
+    /// doc for the ruling): herdr's own action menu, presented by SwiftUI's
+    /// `.contextMenu` on `PaneCellView`, is the default when nothing asked
+    /// for forwarding -- the click is handed back to the responder chain
+    /// (`super`) rather than consumed here, which is what lets that
+    /// modifier's own hit-testing see it. When the routing toggle (or a
+    /// one-shot Option click) DOES ask for forwarding, it only actually
+    /// reaches the pane on a control-mode (focused) surface; on an
+    /// observe-mode one it drops silently instead of ever falling back to
+    /// the menu. libghostty's own context menu is never shown by this view.
     ///
     /// Holding Option overrides the routing toggle in either direction, one
     /// click at a time: `RightClickDisposition.decide` sends it straight to
