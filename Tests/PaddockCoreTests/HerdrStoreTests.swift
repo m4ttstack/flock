@@ -26,6 +26,19 @@ private let tabRenamedEventLine = #"{"data":{"type":"tab_renamed","tab_id":"w1:t
 
 private let duplicateTabCreatedEventLine = #"{"data":{"type":"tab_created","tab":{"tab_id":"w1:t1","workspace_id":"w1","label":"orig","number":1,"pane_count":1,"agent_status":"unknown"}}}"#
 
+/// A snapshot with a second, empty tab in the same workspace: the overlay
+/// tests move `w1:p1` into `w1:t2` and need a destination that already
+/// exists in the model for `HerdrStore`'s prediction to have anything to
+/// read (see `predictedEvent` in `HerdrStore.swift`).
+private func twoTabSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":1,"agent_status":"unknown"},{"tab_id":"w1:t2","workspace_id":"w1","label":"t2","number":2,"pane_count":0,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[]}}
+    """#
+}
+
+private let paneMovedToT2EventLine =
+    #"{"data":{"type":"pane_moved","pane":{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t2","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},"previous_pane_id":"w1:p1","previous_workspace_id":"w1","previous_tab_id":"w1:t1"}}"#
+
 final class HerdrStoreTests: XCTestCase {
     @MainActor
     func testBootstrapBuffersEventsDuringSnapshot() async throws {
@@ -124,5 +137,78 @@ final class HerdrStoreTests: XCTestCase {
         guard case .protocolTooOld(let found, let required) = error else { return XCTFail() }
         XCTAssertEqual(found, 19)
         XCTAssertEqual(required, 22)
+    }
+
+    // MARK: - execute: optimistic overlay
+
+    @MainActor
+    func testExecutePublishesTheOverlayBeforeTheWireRoundTripCompletes() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"}}}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let hold = fake.holdNext(method: "pane.move")
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move")
+        let task = Task { await store.execute(plan) }
+
+        // The overlay must show the predicted move immediately, before the
+        // held `pane.move` request has even been allowed to answer.
+        try await waitUntil { store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID == TabID(rawValue: "w1:t2") }
+
+        hold()
+        guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+    }
+
+    @MainActor
+    func testOverlayStaysAppliedOnceTheMatchingConvergenceEventArrives() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"}}}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .milliseconds(100))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID, TabID(rawValue: "w1:t2"))
+
+        fake.pushEventLine(paneMovedToT2EventLine)
+        // Give the timeout window time to have elapsed; a revert here would
+        // mean the convergence event failed to cancel it.
+        try await Task.sleep(nanoseconds: 250_000_000)
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID, TabID(rawValue: "w1:t2"), "a matching live event must keep the overlay, not revert it")
+    }
+
+    @MainActor
+    func testOverlayRevertsOnTimeoutWhenNoConvergenceEventArrives() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"}}}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .milliseconds(50))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID, TabID(rawValue: "w1:t2"))
+
+        // No convergence event is ever pushed, so the timeout must fall back
+        // to the pre-overlay model (here re-confirmed by a fresh snapshot,
+        // which still shows the pane in its original tab).
+        try await waitUntil(timeout: 2) {
+            store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID == TabID(rawValue: "w1:t1")
+        }
     }
 }
