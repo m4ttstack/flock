@@ -112,6 +112,14 @@ public actor MutationEngine {
                         trackedFocusID = newID
                     }
                     tracker.record(rawOp: rawOp, resolvedOp: op, resolvedSource: source, result: result, stepIndex: index, model: model)
+                } else if Self.isCompensatingSwap(op, tracker: tracker) {
+                    // A swapPanes immediately paired with an earlier move in
+                    // THIS plan (the left/top edge asymmetry, in both the
+                    // bounce and the plain cross-tab shapes) exists only to
+                    // arrange the FORWARD destination; the move's own origin
+                    // record (side) already reconstructs the correct
+                    // arrangement on undo, so a standalone "swap again" entry
+                    // here would double it back to no swap at all.
                 } else if let inverseOp = Self.simpleInverse(for: op, model: model) {
                     simpleInverseOps.insert(inverseOp, at: 0)
                 } else if Self.isCloseOp(op), !Self.isPlaceholderTabCleanup(rawOp) {
@@ -246,6 +254,11 @@ public actor MutationEngine {
         case .movePaneToNewTab, .movePaneToNewWorkspace: return result.createdTabID
         default: return nil
         }
+    }
+
+    private static func isCompensatingSwap(_ op: PrimitiveOp, tracker: MoveTracker) -> Bool {
+        guard case let .swapPanes(a, b) = op else { return false }
+        return tracker.isTrackingCurrentIdentity(a) || tracker.isTrackingCurrentIdentity(b)
     }
 
     private static func isCloseOp(_ op: PrimitiveOp) -> Bool {
@@ -462,6 +475,13 @@ private struct MoveTracker {
     }
 
     var isEmpty: Bool { origins.isEmpty }
+
+    /// Whether `pane` is the CURRENT resolved identity of some pane this
+    /// plan already moved -- used to recognize a compensating swap that
+    /// belongs to that same move, not a standalone one.
+    func isTrackingCurrentIdentity(_ pane: PaneID) -> Bool {
+        currentPaneID.values.contains(pane)
+    }
 
     /// The semantic inverse for every tracked pane, grouped by the tab each
     /// one started in. A group of more than one pane sharing an origin tab
