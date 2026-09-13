@@ -65,6 +65,30 @@ private actor StubSplitCommandClient: HerdrCommandClient {
     }
 }
 
+/// A `PlanExecuting` double for `perform`/`closePane` routing tests: records
+/// every plan handed to it and, absent a queued `nextResult`, trivially
+/// succeeds with an empty inverse (adequate for tests that only care where
+/// the OUTCOME was routed, not what a real inverse would contain).
+@MainActor
+private final class FakePlanExecutor: PlanExecuting {
+    private(set) var executedPlans: [OpPlan] = []
+    var nextResult: Result<ExecutedPlan, OpFailure>?
+
+    func execute(_ plan: OpPlan) async -> Result<ExecutedPlan, OpFailure> {
+        executedPlans.append(plan)
+        if let nextResult { return nextResult }
+        return .success(ExecutedPlan(plan: plan, inverse: OpPlan(ops: [], label: "Undo \(plan.label)")))
+    }
+}
+
+/// Captures every message a test's `noticeSink`/`UndoJournal` notify closure
+/// receives, in order.
+@MainActor
+private final class NoticeRecorder {
+    private(set) var messages: [String] = []
+    func record(_ message: String) { messages.append(message) }
+}
+
 /// Shared, thread-safe log of `(pane, mode)` events a test hands to every
 /// `FakeGhosttyPaneSurface` it creates through `FakeGhosttyPaneFactory`, so
 /// it can assert the ORDER two different panes' surfaces were told to
@@ -868,6 +892,78 @@ final class SessionViewModelTests: XCTestCase {
         let calls = await client.calls
         let closeCall = try? XCTUnwrap(calls.first { $0.method == "pane.close" })
         XCTAssertEqual(stringParam(closeCall?.params ?? [:], "pane_id"), "w1:p1")
+    }
+
+    @MainActor
+    func testClosePaneRoutesThroughThePlanExecutorAndRecordsInTheJournal() async {
+        let executor = FakePlanExecutor()
+        let notices = NoticeRecorder()
+        let journal = UndoJournal(executor: executor, model: { makeModel() }, notify: { notices.record($0) })
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+
+        await viewModel.closePane(PaneID(rawValue: "w1:p1"))
+
+        XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.closePane(PaneID(rawValue: "w1:p1"))], label: "Close pane")])
+        XCTAssertTrue(journal.canUndo)
+    }
+
+    @MainActor
+    func testPerformRoutesASuccessfulPlanToTheJournal() async {
+        let executor = FakePlanExecutor()
+        let notices = NoticeRecorder()
+        let journal = UndoJournal(executor: executor, model: { makeModel() }, notify: { notices.record($0) })
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+        var model = makeModel()
+        model.tabs[WorkspaceID(rawValue: "w1")]?.append(TabRecord(
+            tabID: TabID(rawValue: "w1:t2"), workspaceID: WorkspaceID(rawValue: "w1"),
+            label: "second", number: 2, paneCount: 0, agentStatus: .unknown
+        ))
+        viewModel.update(model: model, connection: .live)
+
+        await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
+
+        XCTAssertEqual(executor.executedPlans.map(\.label), ["Move pane into tab"])
+        XCTAssertTrue(journal.canUndo)
+        XCTAssertEqual(journal.undoLabel, "Move pane into tab")
+        XCTAssertTrue(notices.messages.isEmpty)
+    }
+
+    @MainActor
+    func testPerformRoutesAnInvalidCombinationToTheNoticeSinkWithoutTouchingTheExecutor() async {
+        let executor = FakePlanExecutor()
+        let notices = NoticeRecorder()
+        let journal = UndoJournal(executor: executor, model: { makeModel() }, notify: { notices.record($0) })
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+        viewModel.update(model: makeModel(), connection: .live)
+
+        await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .workspaceRail(insertIndex: 0))
+
+        XCTAssertTrue(executor.executedPlans.isEmpty)
+        XCTAssertFalse(journal.canUndo)
+        XCTAssertEqual(notices.messages, ["Can't move there"])
+    }
+
+    @MainActor
+    func testPerformRoutesAnExecutorFailureToTheNoticeSink() async {
+        let executor = FakePlanExecutor()
+        executor.nextResult = .failure(OpFailure(
+            failedOp: .closePane(PaneID(rawValue: "w1:p1")), code: "boom", message: "boom happened",
+            executed: [], partialInverse: OpPlan(ops: [], label: "x")
+        ))
+        let notices = NoticeRecorder()
+        let journal = UndoJournal(executor: executor, model: { makeModel() }, notify: { notices.record($0) })
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+        var model = makeModel()
+        model.tabs[WorkspaceID(rawValue: "w1")]?.append(TabRecord(
+            tabID: TabID(rawValue: "w1:t2"), workspaceID: WorkspaceID(rawValue: "w1"),
+            label: "second", number: 2, paneCount: 0, agentStatus: .unknown
+        ))
+        viewModel.update(model: model, connection: .live)
+
+        await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
+
+        XCTAssertFalse(journal.canUndo)
+        XCTAssertEqual(notices.messages, ["Move pane into tab failed: boom happened"])
     }
 
     @MainActor

@@ -10,6 +10,10 @@ import PaddockCore
 final class ToastCenter {
     enum Kind: String {
         case copied
+        /// Undo/redo journal notices (stale entry dropped, partial undo,
+        /// plan/herdr failure) -- always window-scope (`paneID == nil`),
+        /// rendered by `ToastHost` in the window's top-right corner.
+        case notice
     }
 
     struct Toast: Identifiable, Equatable {
@@ -30,6 +34,12 @@ final class ToastCenter {
 
     init(dismissAfter: Duration = .milliseconds(1200)) {
         self.dismissAfter = dismissAfter
+    }
+
+    /// Window-scope notice (the undo journal's own sink): always `paneID:
+    /// nil`, so `ToastHost` -- never a pane cell -- renders it.
+    func show(_ message: String) {
+        show(message, kind: .notice, in: nil)
     }
 
     func show(_ message: String, kind: Kind, in paneID: PaneID? = nil) {

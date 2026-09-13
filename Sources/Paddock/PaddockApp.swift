@@ -73,6 +73,7 @@ struct PaddockApp: App {
     @State private var toastCenter: ToastCenter
     @State private var herdrStore: HerdrStore
     @State private var viewModel: SessionViewModel
+    @State private var undoJournal: UndoJournal
 
     private let sessionLabel: String
 
@@ -117,7 +118,14 @@ struct PaddockApp: App {
         _terminalTextSizeStore = State(initialValue: terminalTextSizeStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
-        _herdrStore = State(initialValue: HerdrStore(socketPath: socketPath))
+        let herdrStore = HerdrStore(socketPath: socketPath)
+        _herdrStore = State(initialValue: herdrStore)
+        let undoJournal = UndoJournal(
+            executor: herdrStore,
+            model: { herdrStore.model },
+            notify: { message in toastCenter.show(message) }
+        )
+        _undoJournal = State(initialValue: undoJournal)
         // Absent only when libghostty itself failed to initialize (see
         // `GhosttyHost.Failure`): every pane then stays in status-card mode
         // with no live attach at all, rather than the app failing to launch.
@@ -140,7 +148,10 @@ struct PaddockApp: App {
         _viewModel = State(initialValue: SessionViewModel(
             client: herdrClient,
             ghosttyFactory: ghosttyFactory,
-            layoutExportClient: herdrClient
+            layoutExportClient: herdrClient,
+            planExecutor: herdrStore,
+            undoJournal: undoJournal,
+            noticeSink: { message in toastCenter.show(message) }
         ))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
     }
@@ -151,6 +162,7 @@ struct PaddockApp: App {
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(toastCenter)
+                .environment(undoJournal)
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
@@ -167,6 +179,20 @@ struct PaddockApp: App {
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(store: terminalTextSizeStore)
+            }
+            CommandGroup(replacing: .undoRedo) {
+                Button(undoJournal.undoLabel.map { "Undo \($0)" } ?? "Undo") {
+                    Task { await undoJournal.undo() }
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!undoJournal.canUndo)
+                .accessibilityIdentifier("paddock.edit.undo")
+                Button(undoJournal.redoLabel.map { "Redo \($0)" } ?? "Redo") {
+                    Task { await undoJournal.redo() }
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!undoJournal.canRedo)
+                .accessibilityIdentifier("paddock.edit.redo")
             }
         }
     }

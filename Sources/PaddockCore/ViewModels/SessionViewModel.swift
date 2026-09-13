@@ -81,14 +81,28 @@ public final class SessionViewModel {
     // failure would.
     private let layoutExportCoordinator: LayoutExportCoordinator?
 
+    // Absent only in tests that construct a bare `SessionViewModel(client:)`
+    // with no plan-execution seam at all: `closePane` then falls back to its
+    // pre-Task-22 raw `pane.close` send, and `perform` is simply a no-op
+    // (there is nothing it could route a plan to).
+    private let planExecutor: (any PlanExecuting)?
+    private let undoJournal: UndoJournal?
+    private let noticeSink: @MainActor (String) -> Void
+
     public init(
         client: any HerdrCommandClient,
         ghosttyFactory: (any GhosttyPaneFactory)? = nil,
-        layoutExportClient: (any LayoutExportClient)? = nil
+        layoutExportClient: (any LayoutExportClient)? = nil,
+        planExecutor: (any PlanExecuting)? = nil,
+        undoJournal: UndoJournal? = nil,
+        noticeSink: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
         self.layoutExportCoordinator = layoutExportClient.map { LayoutExportCoordinator(client: $0) }
+        self.planExecutor = planExecutor
+        self.undoJournal = undoJournal
+        self.noticeSink = noticeSink
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -516,11 +530,48 @@ public final class SessionViewModel {
         launcherRegistryVersion += 1
     }
 
-    /// Closes `pane` directly via `pane.close {pane_id}` -- a creation/
-    /// destruction verb like `splitRight`, so no undo journal: closing is
-    /// final the same way herdr's own close is.
+    /// Closes `pane`. Routed through `planExecutor` as a single-op `OpPlan`
+    /// when one is injected, so the close still lands in the undo journal --
+    /// its inverse is empty and `ExecutedPlan.irreversible` names the close,
+    /// so undoing it surfaces "nothing to undo for a close" rather than
+    /// silently doing nothing. Falls back to a raw `pane.close` send when no
+    /// executor was injected (test doubles that only supply a bare client).
     public func closePane(_ pane: PaneID) async {
-        _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
+        guard let planExecutor else {
+            _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
+            return
+        }
+        let result = await planExecutor.execute(OpPlan(ops: [.closePane(pane)], label: "Close pane"))
+        switch result {
+        case .success(let executed):
+            undoJournal?.record(executed)
+        case .failure(let failure):
+            noticeSink("Close pane failed: \(failure.message)")
+        }
+    }
+
+    /// Runs one context-menu move/swap command: plans `subject` onto
+    /// `target` against the live model, executes the resulting plan through
+    /// `planExecutor`, and records the outcome in `undoJournal`. `.noOp`
+    /// (e.g. a pane dropped onto its own tab) is silently ignored -- the
+    /// menu already excludes the pane's own tab, so this is a defensive
+    /// no-op rather than a path real menu selections take.
+    public func perform(subject: DragSubject, target: DropTarget) async {
+        guard let model, let planExecutor else { return }
+        switch plan(dragging: subject, onto: target, model: model) {
+        case .failure(.noOp):
+            return
+        case .failure(.invalidCombination):
+            noticeSink("Can't move there")
+        case .success(let opPlan):
+            let result = await planExecutor.execute(opPlan)
+            switch result {
+            case .success(let executed):
+                undoJournal?.record(executed)
+            case .failure(let failure):
+                noticeSink("\(opPlan.label) failed: \(failure.message)")
+            }
+        }
     }
 
     /// `pane.split`'s response nests the new pane's id under a `"pane"` key

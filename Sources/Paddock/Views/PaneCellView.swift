@@ -77,11 +77,35 @@ struct PaneCellView: View {
             }
             .accessibilityIdentifier("paddock.pane.menu.splitDown")
             Divider()
+            Menu("Move to...") {
+                ForEach(moveToEntries, id: \.accessibilityIdentifier) { entry in
+                    Button(entry.label) {
+                        Task { await viewModel.perform(subject: .pane(pane.paneID), target: entry.target) }
+                    }
+                    .accessibilityIdentifier(entry.accessibilityIdentifier)
+                }
+            }
+            if let swapTarget {
+                Button("Swap with Focused Pane") {
+                    Task { await viewModel.perform(subject: .pane(pane.paneID), target: swapTarget) }
+                }
+                .accessibilityIdentifier("paddock.pane.menu.swap")
+            }
+            Divider()
             Button("Close Pane") {
                 Task { await viewModel.closePane(pane.paneID) }
             }
             .accessibilityIdentifier("paddock.pane.menu.closePane")
         }
+    }
+
+    private var moveToEntries: [MoveToEntry] {
+        guard let model = viewModel.model else { return [] }
+        return MoveToMenu.entries(for: pane.paneID, model: model)
+    }
+
+    private var swapTarget: DropTarget? {
+        MoveToMenu.swapTarget(for: pane.paneID, focusedPane: viewModel.resolvedFocusedPaneID)
     }
 
     /// The framed terminal box. Content is clipped to the rounded frame and

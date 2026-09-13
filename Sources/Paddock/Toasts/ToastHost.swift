@@ -51,6 +51,7 @@ private struct ToastPill: View {
     private var symbolName: String {
         switch toast.kind {
         case .copied: "doc.on.doc"
+        case .notice: "arrow.uturn.backward"
         }
     }
 }
