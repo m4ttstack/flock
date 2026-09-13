@@ -12,8 +12,14 @@ final class ToastCenter {
         case copied
         /// Undo/redo journal notices (stale entry dropped, partial undo,
         /// plan/herdr failure) -- always window-scope (`paneID == nil`),
-        /// rendered by `ToastHost` in the window's top-right corner.
+        /// rendered by `ToastHost` in the window's top-right corner, with
+        /// the undo-arrow glyph.
         case notice
+        /// A command-surface outcome that is NOT about undo/redo (an
+        /// invalid move, a plan/herdr failure from `perform`/`closePane`)
+        /// -- also window-scope, but with a neutral info glyph rather than
+        /// the undo arrow, since nothing here is undoing anything.
+        case info
     }
 
     struct Toast: Identifiable, Equatable {
@@ -38,7 +44,7 @@ final class ToastCenter {
     private static func dismissAfter(for kind: Kind) -> Duration {
         switch kind {
         case .copied: return .milliseconds(1200)
-        case .notice: return .milliseconds(2500)
+        case .notice, .info: return .milliseconds(2500)
         }
     }
 

@@ -48,21 +48,26 @@ private struct ToastPill: View {
         .accessibilityIdentifier(toast.accessibilityIdentifier)
     }
 
+    /// The undo-arrow glyph is reserved for actual undo/redo notices;
+    /// anything else (an invalid move, a plan/herdr failure from
+    /// `perform`/`closePane`) gets a neutral info glyph instead -- neither
+    /// is undoing anything, so the arrow would misdescribe it.
     private var symbolName: String {
         switch toast.kind {
         case .copied: "doc.on.doc"
         case .notice: "arrow.uturn.backward"
+        case .info: "info.circle"
         }
     }
 
-    /// `.copied` keeps the green success color; a journal notice (which can
-    /// be reporting a failure or a drop, not just a confirmation) gets a
+    /// `.copied` keeps the green success color; `.notice`/`.info` (which can
+    /// be reporting a failure or a drop, not just a confirmation) get a
     /// neutral color instead -- reusing green there would read as "success"
-    /// even for a "can't undo" message.
+    /// even for a "can't undo" or "can't move there" message.
     private var iconColor: Color {
         switch toast.kind {
         case .copied: theme.green
-        case .notice: theme.subtext0
+        case .notice, .info: theme.subtext0
         }
     }
 }

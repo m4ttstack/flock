@@ -113,7 +113,7 @@ public final class UndoJournal {
     private func performUndo() async {
         guard let entry = undoStack.popLast() else { return }
         guard !entry.inverse.ops.isEmpty else {
-            notify("Nothing to undo for \(entry.plan.label): closes are final")
+            notify(Self.nothingToUndoNotice(for: entry))
             return
         }
         guard let liveModel = model() else {
@@ -131,13 +131,27 @@ public final class UndoJournal {
         case .success(let executedInverse):
             let composedRemap = Self.composeRemap(entry.paneIDRemap, then: executedInverse.paneIDRemap)
             push(
-                ExecutedPlan(plan: entry.plan, inverse: entry.inverse, irreversible: entry.irreversible, paneIDRemap: composedRemap),
+                ExecutedPlan(
+                    plan: entry.plan, inverse: entry.inverse, irreversible: entry.irreversible,
+                    paneIDRemap: composedRemap, positionLost: entry.positionLost
+                ),
                 onto: &redoStack
             )
+            if entry.positionLost {
+                notify("Undone into a new tab (original position not restorable)")
+            }
             if !entry.irreversible.isEmpty {
                 notify("Undo \(entry.plan.label) partially: \(Self.describe(entry.irreversible)) not undone")
             }
         case .failure(let failure):
+            if failure.executed.isEmpty {
+                // Nothing reached herdr -- the store already reverted its
+                // optimistic overlay and resnapshotted, so the model is
+                // exactly as it was before this attempt. Restore the entry
+                // (the same transient treatment a nil model gets) so the
+                // user can simply try again.
+                undoStack.append(entry)
+            }
             notify(Self.failureNotice(verb: "undo", label: entry.plan.label, failure: failure))
         }
     }
@@ -163,8 +177,23 @@ public final class UndoJournal {
                 notify("Redo \(entry.plan.label) partially: \(Self.describe(entry.irreversible)) not undone")
             }
         case .failure(let failure):
+            if failure.executed.isEmpty {
+                redoStack.append(entry)
+            }
             notify(Self.failureNotice(verb: "redo", label: entry.plan.label, failure: failure))
         }
+    }
+
+    /// Only an entry whose irreversible ops are ALL closes earns the
+    /// "closes are final" wording -- an empty inverse can also come from a
+    /// plan of pure focus/zoom ops (`MutationEngine.simpleInverse` has no
+    /// inverse for those either, and they are never marked irreversible),
+    /// which is not a close at all and should not be told it is one.
+    private static func nothingToUndoNotice(for entry: ExecutedPlan) -> String {
+        guard !entry.irreversible.isEmpty, entry.irreversible.allSatisfy(isClose) else {
+            return "Nothing to undo for \(entry.plan.label)"
+        }
+        return "Nothing to undo for \(entry.plan.label): closes are final"
     }
 
     private func push(_ executed: ExecutedPlan, onto stack: inout [ExecutedPlan]) {
@@ -251,7 +280,12 @@ public final class UndoJournal {
                 tabs.append(tab)
             }
         }
-        guard !tabs.isEmpty else { return plan }
+        // Always rebuilt, even to empty: `plan.needsUnzoom` can carry a
+        // stale list from whatever recorded it (the original forward plan,
+        // copied verbatim through `remapPaneIDs` for a redo) -- returning
+        // `plan` unchanged when nothing is zoomed NOW would replay that
+        // stale list and unzoom a tab that is not zoomed, which herdr's own
+        // zoom handler still focuses as a side effect (a spurious hijack).
         return OpPlan(ops: plan.ops, label: plan.label, needsUnzoom: tabs)
     }
 

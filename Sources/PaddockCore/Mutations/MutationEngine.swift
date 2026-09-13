@@ -14,17 +14,28 @@ import Foundation
 /// the undo journal composes this across successive undo/redo cycles to
 /// keep re-executing a re-planned `plan` pointed at the pane's true current
 /// identity, since a cross-workspace move re-keys the pane on every hop.
+/// `positionLost` is true when `inverse` itself recreates a tab rather than
+/// restoring the pane to its original one (see `MoveTracker.buildInverseOps`'s
+/// `positionLost` -- a lone pane's own origin tab dies the moment it leaves,
+/// same as a migration's), so undoing THIS entry lands the pane somewhere
+/// only approximately right; the undo journal surfaces that to the user
+/// rather than letting it pass as a silent, exact restore.
 public struct ExecutedPlan: Equatable, Sendable {
     public let plan: OpPlan
     public let inverse: OpPlan
     public let irreversible: [PrimitiveOp]
     public let paneIDRemap: [PaneID: PaneID]
+    public let positionLost: Bool
 
-    public init(plan: OpPlan, inverse: OpPlan, irreversible: [PrimitiveOp] = [], paneIDRemap: [PaneID: PaneID] = [:]) {
+    public init(
+        plan: OpPlan, inverse: OpPlan, irreversible: [PrimitiveOp] = [],
+        paneIDRemap: [PaneID: PaneID] = [:], positionLost: Bool = false
+    ) {
         self.plan = plan
         self.inverse = inverse
         self.irreversible = irreversible
         self.paneIDRemap = paneIDRemap
+        self.positionLost = positionLost
     }
 }
 
@@ -190,7 +201,7 @@ public actor MutationEngine {
         // says so rather than implying an exact restore.
         let inverseLabel = positionLost ? "Undo \(plan.label) (into a new tab)" : "Undo \(plan.label)"
         let inverse = OpPlan(ops: moveInverseOps + simpleInverseOps, label: inverseLabel)
-        return .success(ExecutedPlan(plan: plan, inverse: inverse, irreversible: irreversible, paneIDRemap: tracker.currentPaneIDMap))
+        return .success(ExecutedPlan(plan: plan, inverse: inverse, irreversible: irreversible, paneIDRemap: tracker.currentPaneIDMap, positionLost: positionLost))
     }
 
     private static func bestEffortFocus(_ pane: PaneID, client: HerdrClient, executed: inout [PrimitiveOp]) async {

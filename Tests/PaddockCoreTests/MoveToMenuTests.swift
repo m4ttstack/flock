@@ -85,9 +85,9 @@ final class MoveToMenuTests: XCTestCase {
         XCTAssertNil(target)
     }
 
-    /// I-2: `resolvedFocusedPaneID` is herdr's GLOBAL focus, not scoped to
-    /// this pane's own tab -- a focused pane in a DIFFERENT tab must not
-    /// offer a swap (that would plan a cross-tab MOVE under a "Swap" label).
+    /// `resolvedFocusedPaneID` is herdr's GLOBAL focus, not scoped to this
+    /// pane's own tab -- a focused pane in a DIFFERENT tab must not offer a
+    /// swap (that would plan a cross-tab MOVE under a "Swap" label).
     func testSwapTargetIsNilWhenTheFocusedPaneIsInADifferentTab() {
         let target = MoveToMenu.swapTarget(for: PaneID(rawValue: "w1:p1"), focusedPane: PaneID(rawValue: "w1:p3"), model: canonicalFixture())
 

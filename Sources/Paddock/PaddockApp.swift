@@ -151,7 +151,10 @@ struct PaddockApp: App {
             layoutExportClient: herdrClient,
             planExecutor: herdrStore,
             undoJournal: undoJournal,
-            noticeSink: { message in toastCenter.show(message) }
+            // Not an undo/redo notice -- an invalid move or a plan/herdr
+            // failure from `perform`/`closePane` -- so this gets the
+            // neutral info glyph, never the undo journal's arrow.
+            noticeSink: { message in toastCenter.show(message, kind: .info) }
         ))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
     }

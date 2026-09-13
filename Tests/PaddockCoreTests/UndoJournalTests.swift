@@ -148,6 +148,28 @@ final class UndoJournalTests: XCTestCase {
         ])
     }
 
+    @MainActor
+    func testRedoRecomputesNeedsUnzoomFreshRatherThanCopyingTheStaleRecordedList() async {
+        let executor = FakePlanExecutor()
+        let journal = UndoJournal(executor: executor, model: { self.fixtureModel() }, notify: { _ in })
+        // Recorded while "w1:t1" was zoomed; the fixture model is NOT
+        // zoomed, so a redo must NOT replay this stale list -- herdr's own
+        // zoom handler still focuses the pane it unzoomed even when the
+        // unzoom is a no-op, so replaying a stale entry here is a visible
+        // focus hijack, not a harmless no-op.
+        let originalPlan = OpPlan(
+            ops: [.focusPane(PaneID(rawValue: "w1:p1"))], label: "Move",
+            needsUnzoom: [TabID(rawValue: "w1:t1")]
+        )
+        let inversePlan = OpPlan(ops: [.focusPane(PaneID(rawValue: "w1:p2"))], label: "Undo Move")
+        journal.record(ExecutedPlan(plan: originalPlan, inverse: inversePlan))
+
+        await journal.undo()
+        await journal.redo()
+
+        XCTAssertEqual(executor.executedPlans.last?.needsUnzoom, [])
+    }
+
     // MARK: - stale entry dropped with a notice
 
     @MainActor
@@ -190,6 +212,52 @@ final class UndoJournalTests: XCTestCase {
         XCTAssertEqual(executor.executedPlans, [inverse])
     }
 
+    // MARK: - a failure with nothing executed is transient too -- restore for retry
+
+    @MainActor
+    func testFailedUndoWithNothingExecutedRestoresTheEntryForRetry() async {
+        let executor = FakePlanExecutor()
+        var notices: [String] = []
+        let journal = UndoJournal(executor: executor, model: { self.fixtureModel() }, notify: { notices.append($0) })
+        let inverse = OpPlan(ops: [.focusPane(PaneID(rawValue: "w1:p1"))], label: "Undo move")
+        journal.record(ExecutedPlan(plan: OpPlan(ops: [.focusPane(PaneID(rawValue: "w1:p2"))], label: "Move"), inverse: inverse))
+        executor.queuedResults = [.failure(OpFailure(
+            failedOp: inverse.ops[0], code: "transport_error", message: "boom", executed: [], partialInverse: OpPlan(ops: [], label: "x")
+        ))]
+
+        await journal.undo()
+
+        XCTAssertTrue(journal.canUndo, "nothing reached herdr -- the entry must be restored so the user can retry")
+        XCTAssertEqual(notices, ["Can't undo Move: boom"])
+
+        // A subsequent (now-succeeding) undo runs the SAME inverse again.
+        await journal.undo()
+        XCTAssertEqual(executor.executedPlans, [inverse, inverse])
+    }
+
+    @MainActor
+    func testFailedRedoWithNothingExecutedRestoresTheEntryForRetry() async {
+        let executor = FakePlanExecutor()
+        var notices: [String] = []
+        let journal = UndoJournal(executor: executor, model: { self.fixtureModel() }, notify: { notices.append($0) })
+        let originalPlan = OpPlan(ops: [.focusPane(PaneID(rawValue: "w1:p2"))], label: "Move")
+        journal.record(ExecutedPlan(plan: originalPlan, inverse: OpPlan(ops: [.focusPane(PaneID(rawValue: "w1:p1"))], label: "Undo move")))
+        await journal.undo()
+        notices.removeAll()
+
+        executor.queuedResults = [.failure(OpFailure(
+            failedOp: originalPlan.ops[0], code: "transport_error", message: "boom", executed: [], partialInverse: OpPlan(ops: [], label: "x")
+        ))]
+
+        await journal.redo()
+
+        XCTAssertTrue(journal.canRedo, "nothing reached herdr -- the entry must be restored so the user can retry")
+        XCTAssertEqual(notices, ["Can't redo Move: boom"])
+
+        await journal.redo()
+        XCTAssertEqual(executor.executedPlans.last, originalPlan)
+    }
+
     // MARK: - undoing a pure close is a no-op; a MIXED entry still reports partial
 
     @MainActor
@@ -229,6 +297,43 @@ final class UndoJournalTests: XCTestCase {
 
         XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.focusPane(pane)], label: "Undo Close and refocus")])
         XCTAssertEqual(notices, ["Undo Close and refocus partially: the pane close not undone"])
+    }
+
+    /// An empty inverse is not ALWAYS a close: `MutationEngine.simpleInverse`
+    /// has no inverse for a bare focus/zoom op either, and those are never
+    /// marked irreversible -- "closes are final" must not be said about them.
+    @MainActor
+    func testUndoingAnEmptyInverseThatIsNotACloseUsesThePlainNotice() async {
+        let executor = FakePlanExecutor()
+        var notices: [String] = []
+        let journal = UndoJournal(executor: executor, model: { self.fixtureModel() }, notify: { notices.append($0) })
+        journal.record(ExecutedPlan(
+            plan: OpPlan(ops: [.focusPane(PaneID(rawValue: "w1:p1"))], label: "Focus pane"),
+            inverse: OpPlan(ops: [], label: "Undo Focus pane")
+        ))
+
+        await journal.undo()
+
+        XCTAssertEqual(notices, ["Nothing to undo for Focus pane"])
+    }
+
+    // MARK: - a lost-position undo notices that the pane landed in a new tab
+
+    @MainActor
+    func testUndoingAPositionLostEntryNoticesTheNewTabRestore() async {
+        let executor = FakePlanExecutor()
+        var notices: [String] = []
+        let journal = UndoJournal(executor: executor, model: { self.fixtureModel() }, notify: { notices.append($0) })
+        journal.record(ExecutedPlan(
+            plan: OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move pane into tab"),
+            inverse: OpPlan(ops: [.movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil)], label: "Undo Move pane into tab (into a new tab)"),
+            positionLost: true
+        ))
+
+        await journal.undo()
+
+        XCTAssertEqual(notices, ["Undone into a new tab (original position not restorable)"])
+        XCTAssertTrue(journal.canRedo, "the entry is still redoable even though its position was lost")
     }
 
     // MARK: - depth 50 evicts the oldest entry
