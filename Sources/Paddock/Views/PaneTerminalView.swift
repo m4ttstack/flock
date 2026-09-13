@@ -18,11 +18,6 @@ struct GhosttyPaneTerminalView: View {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
-    /// Mirrors `SessionViewModel.isRightClickRoutedToPane(_:)` -- wired
-    /// straight into `GhosttySurfaceView` so a right click routes to the
-    /// pane's own program instead of presenting herdr's action menu only
-    /// when the toggle is on.
-    let isRightClickRoutedToPane: Bool
     /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
     /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus
     /// ever moves to this pane at all, since only the header row has its
@@ -45,7 +40,7 @@ struct GhosttyPaneTerminalView: View {
     @State private var browserState = BrowserScrollState()
 
     init(
-        surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, isRightClickRoutedToPane: Bool = false,
+        surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool,
         onPrimaryClick: @escaping () -> Void = {},
         paneTerminal: PaneTerminal? = nil,
         historyDim: SwiftUI.Color = SwiftUI.Color(red: 0.34, green: 0.37, blue: 0.54)
@@ -53,7 +48,6 @@ struct GhosttyPaneTerminalView: View {
         self.surface = surface
         self.theme = theme
         self.isFocused = isFocused
-        self.isRightClickRoutedToPane = isRightClickRoutedToPane
         self.onPrimaryClick = onPrimaryClick
         self.paneTerminal = paneTerminal
         self.historyDim = historyDim
@@ -64,7 +58,7 @@ struct GhosttyPaneTerminalView: View {
         ZStack(alignment: .bottomTrailing) {
             GhosttySurfaceRepresentable(
                 surface: surface, theme: theme, isFocused: isFocused,
-                isRightClickRoutedToPane: isRightClickRoutedToPane, onPrimaryClick: onPrimaryClick,
+                onPrimaryClick: onPrimaryClick,
                 paneTerminal: paneTerminal,
                 browserState: browserState,
                 onScrollPastTop: { withAnimation(.easeOut(duration: 0.2)) { historyRevealed = true } },
@@ -107,7 +101,6 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
-    var isRightClickRoutedToPane: Bool = false
     var onPrimaryClick: () -> Void = {}
     var paneTerminal: PaneTerminal?
     var browserState: BrowserScrollState?
@@ -131,7 +124,6 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         let session = handle.session
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
-        view.isRightClickRoutedToPane = isRightClickRoutedToPane
         view.onPrimaryClick = onPrimaryClick
         view.onScrollPastTop = onScrollPastTop
         view.onScrollBackToLive = onScrollBackToLive
@@ -151,7 +143,6 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             ghosttyView.session.updateTheme(theme.ghosttyThemeColors())
         }
         ghosttyView.wantsFocus = isFocused
-        ghosttyView.isRightClickRoutedToPane = isRightClickRoutedToPane
         ghosttyView.onPrimaryClick = onPrimaryClick
         ghosttyView.onScrollPastTop = onScrollPastTop
         ghosttyView.onScrollBackToLive = onScrollBackToLive

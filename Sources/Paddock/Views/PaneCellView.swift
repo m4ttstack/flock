@@ -89,15 +89,6 @@ struct PaneCellView: View {
                 Task { await viewModel.closePane(pane.paneID) }
             }
             .accessibilityIdentifier("paddock.pane.menu.closePane")
-            Divider()
-            Toggle(
-                "Send Right-Clicks to Pane",
-                isOn: Binding(
-                    get: { viewModel.isRightClickRoutedToPane(pane.paneID) },
-                    set: { _ in Task { await viewModel.toggleRightClickRouting(for: pane.paneID) } }
-                )
-            )
-            .accessibilityIdentifier("paddock.pane.menu.rightClickToPane")
         }
     }
 
@@ -143,7 +134,6 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
-                    isRightClickRoutedToPane: viewModel.isRightClickRoutedToPane(pane.paneID),
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
                     historyDim: theme.overlay0

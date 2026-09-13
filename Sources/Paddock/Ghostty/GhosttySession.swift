@@ -69,6 +69,22 @@ final class GhosttySession {
     /// `deinit`) closes and unlinks the FIFO the same way freeing the
     /// libghostty surface ends the bridge's PTY.
     var controlChannel: PaneControlChannel?
+    /// The FIFO the bridge reports pane state on (`paddock.mouse_capture`),
+    /// set by `GhosttyControlSurfaceFactory` alongside `controlChannel` and
+    /// retained for the session's whole life: releasing it (session `deinit`)
+    /// closes and unlinks the FIFO the same way freeing the surface ends the
+    /// PTY. Its reader callback drives `mouseCaptureEnabled`.
+    var statusChannel: PaneStatusChannel?
+
+    /// Whether the pane's own program has asked for mouse reporting, as last
+    /// reported by the bridge over `statusChannel`. Paddock's libghostty never
+    /// enters reporting mode itself (its screen is a repaint of herdr's, not
+    /// the raw DECSET), so this out-of-band flag is what tells the view
+    /// whether a click belongs to the app (`.toApp` via the control FIFO) or
+    /// to libghostty's own selection. Reset to false whenever the pane drops
+    /// to observe mode, which never reports capture.
+    private(set) var mouseCaptureEnabled = false
+    private(set) var mouseSgrPixels = false
 
     init(host: GhosttyHost, paneID: PaneID, configuration: Launch) {
         self.host = host
@@ -323,9 +339,30 @@ final class GhosttySession {
     /// The live control/observe upgrade -- see `ControlBridge`'s own
     /// mode-switch doc. A no-op if this session's factory never wired a
     /// control channel (a test double, say): the bridge simply stays at
-    /// whatever mode it was born in.
+    /// whatever mode it was born in. Dropping to observe resets capture to
+    /// false locally, without waiting for the bridge: an observe client never
+    /// receives a `MouseCapture` message, so nothing would ever clear a
+    /// stale-true flag otherwise, and a right click on the newly unfocused
+    /// pane would wrongly forward instead of showing the menu.
     func setPaneMode(_ mode: PaneMode) {
+        if mode == .observe {
+            setMouseCapture(enabled: false, sgrPixels: false)
+        }
         controlChannel?.setMode(mode)
+    }
+
+    /// Records the pane app's mouse-reporting state as reported by the bridge.
+    /// Called on the main actor from `statusChannel`'s reader callback.
+    func setMouseCapture(enabled: Bool, sgrPixels: Bool) {
+        mouseCaptureEnabled = enabled
+        mouseSgrPixels = sgrPixels
+    }
+
+    /// Sends one structured mouse event to the pane's own program over the
+    /// control FIFO. The only path to the app's mouse handling, since
+    /// paddock's libghostty is never in reporting mode.
+    func sendPaneMouse(_ command: MouseForwarding.Command) {
+        controlChannel?.send(command.json())
     }
 
     func openHoveredLink() {

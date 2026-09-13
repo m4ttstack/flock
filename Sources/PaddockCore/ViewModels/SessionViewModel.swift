@@ -73,13 +73,6 @@ public final class SessionViewModel {
     private let historyCapabilityGate = HistoryCapabilityGate()
     private var paneTerminals: [PaneID: PaneTerminal] = [:]
     private let paneLauncherRegistry = PaneLauncherRegistry()
-    // Local mirror of each pane's `right_click` routing, seeded `false`
-    // (herdr) to match `PaneRightClickTarget`'s own server-side default;
-    // never read back from herdr, so a pane closed/reopened under the same
-    // id would resume showing the last value THIS session set, not
-    // necessarily the server's -- acceptable since paddock is the only
-    // writer of this verb today.
-    private var rightClickRoutedToPane: Set<PaneID> = []
 
     // `nil` only when no `layoutExportClient` was injected (a test double
     // that only implements `HerdrCommandClient`, say); every pane canvas
@@ -528,38 +521,6 @@ public final class SessionViewModel {
     /// final the same way herdr's own close is.
     public func closePane(_ pane: PaneID) async {
         _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
-    }
-
-    /// Whether right-clicks in `pane` currently route to the pane's own
-    /// program rather than herdr's context menu -- local mirror of the last
-    /// `pane.input.set` this session sent, read by the context-menu
-    /// checkmark.
-    public func isRightClickRoutedToPane(_ pane: PaneID) -> Bool {
-        rightClickRoutedToPane.contains(pane)
-    }
-
-    /// Flips `pane`'s right-click routing and sends the new state via
-    /// `pane.input.set`. Optimistic like `jumpToHerdr(pane:)`: the local
-    /// flag flips before the round trip so the menu's checkmark reflects
-    /// intent immediately, and reverts if the request fails.
-    public func toggleRightClickRouting(for pane: PaneID) async {
-        let routeToPane = !rightClickRoutedToPane.contains(pane)
-        if routeToPane {
-            rightClickRoutedToPane.insert(pane)
-        } else {
-            rightClickRoutedToPane.remove(pane)
-        }
-        let target = routeToPane ? "pane" : "herdr"
-        guard (try? await client.requestRaw(
-            "pane.input.set", ["pane_id": .string(pane.rawValue), "right_click": .string(target)]
-        )) != nil else {
-            if routeToPane {
-                rightClickRoutedToPane.remove(pane)
-            } else {
-                rightClickRoutedToPane.insert(pane)
-            }
-            return
-        }
     }
 
     /// `pane.split`'s response nests the new pane's id under a `"pane"` key

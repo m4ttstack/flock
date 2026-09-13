@@ -26,6 +26,7 @@ final class ControlBridgeTests: XCTestCase {
             "--socket", "/tmp/a.sock",
             "--herdr-bin", "/opt/homebrew/bin/herdr",
             "--control-pipe", "/tmp/ctl.fifo",
+            "--status-pipe", "/tmp/status.fifo",
         ], environment: [:])
         XCTAssertEqual(options.target, "w1:p1")
         XCTAssertEqual(options.cols, 120)
@@ -33,6 +34,7 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(options.socketPath, "/tmp/a.sock")
         XCTAssertEqual(options.herdrBinary, "/opt/homebrew/bin/herdr")
         XCTAssertEqual(options.controlPipe, "/tmp/ctl.fifo")
+        XCTAssertEqual(options.statusPipe, "/tmp/status.fifo")
     }
 
     func testBridgeOptionsFallsBackToEnvironmentWhenFlagsAbsent() {
@@ -41,6 +43,7 @@ final class ControlBridgeTests: XCTestCase {
             "HERDR_SOCKET_PATH": "/tmp/env.sock",
             "HERDR_BIN": "/usr/local/bin/herdr",
             PaneControlChannel.environmentKey: "/tmp/env-ctl.fifo",
+            PaneStatusChannel.environmentKey: "/tmp/env-status.fifo",
         ])
         XCTAssertEqual(options.target, "w2:p3")
         XCTAssertNil(options.cols)
@@ -48,6 +51,7 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(options.socketPath, "/tmp/env.sock")
         XCTAssertEqual(options.herdrBinary, "/usr/local/bin/herdr")
         XCTAssertEqual(options.controlPipe, "/tmp/env-ctl.fifo")
+        XCTAssertEqual(options.statusPipe, "/tmp/env-status.fifo")
     }
 
     func testBridgeOptionsFlagWinsOverEnvironment() {
@@ -71,7 +75,8 @@ final class ControlBridgeTests: XCTestCase {
             rows: 30,
             socketPath: "/tmp/round.sock",
             herdrBinary: "/opt/homebrew/bin/herdr",
-            controlPipe: "/tmp/round-ctl.fifo"
+            controlPipe: "/tmp/round-ctl.fifo",
+            statusPipe: "/tmp/round-status.fifo"
         )
         // First element is the executable path, not a flag; BridgeOptions
         // only ever parses arguments AFTER argv[0].
@@ -82,6 +87,7 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(options.socketPath, "/tmp/round.sock")
         XCTAssertEqual(options.herdrBinary, "/opt/homebrew/bin/herdr")
         XCTAssertEqual(options.controlPipe, "/tmp/round-ctl.fifo")
+        XCTAssertEqual(options.statusPipe, "/tmp/round-status.fifo")
     }
 
     // MARK: - startup clear screen (login-banner flash)
@@ -172,9 +178,43 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertNil(ControlBridge.parseForwardableControlCommand(line.dropLast()))
     }
 
+    /// Structured mouse events ride the same `terminal.*` filter that carries
+    /// input and resize; only `terminal.scroll` is singled out and banned.
+    func testParseForwardableControlCommandAcceptsMouse() {
+        let line = ControlBridge.encodeLine([
+            "type": "terminal.mouse", "kind": "down", "button": "left",
+            "column": 9, "row": 4, "modifiers": 0, "lines": 1,
+        ])!
+        let parsed = ControlBridge.parseForwardableControlCommand(line.dropLast())
+        XCTAssertEqual(parsed?["type"] as? String, "terminal.mouse")
+        XCTAssertEqual(parsed?["button"] as? String, "left")
+    }
+
     func testParseForwardableControlCommandRejectsNonTerminalType() {
         let line = ControlBridge.encodeLine(["type": "session.hello"])!
         XCTAssertNil(ControlBridge.parseForwardableControlCommand(line.dropLast()))
+    }
+
+    // MARK: - encodeMouseCaptureStatus (bridge -> app status line)
+
+    func testEncodeMouseCaptureStatusTranslatesHerdrLine() throws {
+        let line = try XCTUnwrap(ControlBridge.encodeMouseCaptureStatus(
+            Data(#"{"type":"terminal.mouse_capture","enabled":true,"sgr_pixels":true}"#.utf8)))
+        XCTAssertEqual(line.last, 0x0A, "status lines are newline-terminated for the app's line reader")
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: line.dropLast()) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "paddock.mouse_capture")
+        XCTAssertEqual(object["enabled"] as? Bool, true)
+        XCTAssertEqual(object["sgr_pixels"] as? Bool, true)
+    }
+
+    func testEncodeMouseCaptureStatusDefaultsSgrPixelsAndRejectsOthers() throws {
+        let defaulted = try XCTUnwrap(ControlBridge.encodeMouseCaptureStatus(
+            Data(#"{"type":"terminal.mouse_capture","enabled":false}"#.utf8)))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: defaulted.dropLast()) as? [String: Any])
+        XCTAssertEqual(object["enabled"] as? Bool, false)
+        XCTAssertEqual(object["sgr_pixels"] as? Bool, false)
+        XCTAssertNil(ControlBridge.encodeMouseCaptureStatus(Data(#"{"type":"terminal.frame","bytes":"AA=="}"#.utf8)))
+        XCTAssertNil(ControlBridge.encodeMouseCaptureStatus(Data("{not json".utf8)))
     }
 
     func testParseForwardableControlCommandRejectsMalformedJSON() {
@@ -238,6 +278,44 @@ final class ControlBridgeTests: XCTestCase {
             let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
             XCTAssertEqual(decoded, payload, "split at byte \(splitIndex) must still decode the frame cleanly")
         }
+    }
+
+    /// A `terminal.mouse_capture` line from the herdr child is relayed to the
+    /// status FIFO as `paddock.mouse_capture`, never to the PTY stdout; a
+    /// `terminal.frame` still goes only to stdout.
+    func testHerdrOutputRelaysMouseCaptureToStatusFDAndFramesToStdout() async throws {
+        let fromHerdr = Pipe()
+        let stdoutCapture = Pipe()
+        let statusCapture = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
+            statusFD: statusCapture.fileHandleForWriting.fileDescriptor,
+            onPeerGone: {}
+        )
+        io.startHerdrOutput(fromHerdr.fileHandleForReading)
+
+        let captureLine = ControlBridge.encodeLine([
+            "type": "terminal.mouse_capture", "enabled": true, "sgr_pixels": false,
+        ])!
+        fromHerdr.fileHandleForWriting.write(captureLine)
+
+        let status = try await waitForNonEmptyRead(statusCapture.fileHandleForReading.fileDescriptor)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: status.split(separator: 0x0A)[0]) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "paddock.mouse_capture")
+        XCTAssertEqual(object["enabled"] as? Bool, true)
+        // The capture line must not have leaked onto the PTY stdout.
+        XCTAssertEqual(readAllAvailableForTest(stdoutCapture.fileHandleForReading.fileDescriptor).count, 0)
+
+        // A real frame still reaches stdout, not the status pipe.
+        let payload = Data("PAINT".utf8)
+        let frame = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": payload.base64EncodedString()])!
+        fromHerdr.fileHandleForWriting.write(frame)
+        let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(decoded, payload)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(readAllAvailableForTest(statusCapture.fileHandleForReading.fileDescriptor).count, 0)
     }
 
     func testHerdrOutputSkipsMalformedLineWithoutStoppingSubsequentFrames() async throws {

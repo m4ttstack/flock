@@ -19,6 +19,7 @@ public struct BridgeOptions: Equatable, Sendable {
     public var socketPath: String?
     public var herdrBinary: String?
     public var controlPipe: String?
+    public var statusPipe: String?
 
     public init(arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) {
         var values: [String: String] = [:]
@@ -50,6 +51,7 @@ public struct BridgeOptions: Equatable, Sendable {
         socketPath = pick("--socket", "HERDR_SOCKET_PATH")
         herdrBinary = pick("--herdr-bin", "HERDR_BIN")
         controlPipe = pick("--control-pipe", PaneControlChannel.environmentKey)
+        statusPipe = pick("--status-pipe", PaneStatusChannel.environmentKey)
     }
 
     /// The argv a ghostty surface configures libghostty to run for a pane.
@@ -64,7 +66,8 @@ public struct BridgeOptions: Equatable, Sendable {
         rows: Int,
         socketPath: String,
         herdrBinary: String? = nil,
-        controlPipe: String? = nil
+        controlPipe: String? = nil,
+        statusPipe: String? = nil
     ) -> [String] {
         var argv = [
             executablePath, "--bridge", target,
@@ -76,6 +79,9 @@ public struct BridgeOptions: Equatable, Sendable {
         }
         if let controlPipe, !controlPipe.isEmpty {
             argv += ["--control-pipe", controlPipe]
+        }
+        if let statusPipe, !statusPipe.isEmpty {
+            argv += ["--status-pipe", statusPipe]
         }
         return argv
     }
@@ -207,9 +213,18 @@ public enum ControlBridge {
             exit(1)
         }
 
+        // The app holds this FIFO's read end open (`PaneStatusChannel`), so
+        // O_RDWR|O_NONBLOCK never blocks and never sees EOF; -1 (no pipe, or
+        // it could not be opened) simply disables capture relaying, degrading
+        // to the pre-passthrough selection-only behavior.
+        let statusFD: Int32 = options.statusPipe.map { open($0, O_RDWR | O_NONBLOCK) } ?? -1
+        if let statusPipe = options.statusPipe, statusFD < 0 {
+            fputs("paddock-bridge: cannot open status pipe \(statusPipe)\n", stderr)
+        }
+
         let switcherBox = Box<BridgeModeSwitcher>()
         let io = BridgeIO(
-            herdrInFD: initialChild.toHerdrFD, mode: .observe,
+            herdrInFD: initialChild.toHerdrFD, statusFD: statusFD, mode: .observe,
             onPeerGone: { switcherBox.value?.terminateCurrent() }
         )
         io.onModeCommand = { mode in switcherBox.value?.requestSwitch(to: mode) }
@@ -254,6 +269,7 @@ public enum ControlBridge {
             if switcher.currentProcess === proc { break }
         }
         io.close()
+        if statusFD >= 0 { Foundation.close(statusFD) }
         if var cookedTerminal { tcsetattr(STDIN_FILENO, TCSAFLUSH, &cookedTerminal) }
         let status = switcher.currentProcess.terminationStatus
         exit(status == 0 ? 0 : max(Int32(status), 1))
@@ -284,6 +300,26 @@ public enum ControlBridge {
     /// The `terminal.input` object for a chunk of raw PTY bytes.
     static func encodeInput(_ bytes: Data) -> [String: Any] {
         ["type": "terminal.input", "bytes": bytes.base64EncodedString()]
+    }
+
+    /// A `paddock.mouse_capture` NDJSON line for a herdr `terminal.mouse_capture`
+    /// line, or nil for anything else. This is how the bridge relays the one
+    /// piece of pane state its `terminal.frame` stream drops (herdr's screen
+    /// repaint never carries the mouse DECSET) out to the app on the status
+    /// FIFO. Paddock-namespaced so it can never be mistaken for a forwardable
+    /// `terminal.*` command. A pure function so the parse is testable.
+    static func encodeMouseCaptureStatus(_ line: Data) -> Data? {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+            object["type"] as? String == "terminal.mouse_capture",
+            let enabled = object["enabled"] as? Bool
+        else { return nil }
+        let sgrPixels = object["sgr_pixels"] as? Bool ?? false
+        return encodeLine([
+            "type": "paddock.mouse_capture",
+            "enabled": enabled,
+            "sgr_pixels": sgrPixels,
+        ])
     }
 
     /// `nil` for anything that is not a well-formed, forwardable `terminal.*`
@@ -584,6 +620,12 @@ final class BridgeIO: @unchecked Sendable {
     private var herdrInFD: Int32
     private let stdinFD: Int32
     private let stdoutFD: Int32
+    /// The bridge -> app status FIFO (`--status-pipe`), write-only from here,
+    /// or -1 when no status pipe was configured. Written under `stdoutLock`
+    /// alongside the frame writes so a superseded child's in-flight
+    /// mouse-capture line is gated by the same generation check the PTY
+    /// writes are (see `startHerdrOutput`).
+    private let statusFD: Int32
     private let onPeerGone: () -> Void
     private let writeLock = NSLock()
     /// Guards `stdoutFD` writes AND `herdrOutputGeneration` together (see
@@ -610,11 +652,12 @@ final class BridgeIO: @unchecked Sendable {
 
     init(
         herdrInFD: Int32, stdinFD: Int32 = STDIN_FILENO, stdoutFD: Int32 = STDOUT_FILENO,
-        mode: PaneMode = .observe, onPeerGone: @escaping () -> Void
+        statusFD: Int32 = -1, mode: PaneMode = .observe, onPeerGone: @escaping () -> Void
     ) {
         self.herdrInFD = herdrInFD
         self.stdinFD = stdinFD
         self.stdoutFD = stdoutFD
+        self.statusFD = statusFD
         self.mode = mode
         self.onPeerGone = onPeerGone
     }
@@ -807,12 +850,26 @@ final class BridgeIO: @unchecked Sendable {
             }
             lines.append(data)
             while let line = lines.popLine() {
-                guard let bytes = ControlBridge.decodeFrame(line) else { continue }
-                stdoutLock.lock()
-                let stillCurrent = herdrOutputGeneration == generation
-                if stillCurrent { writeIgnoringBrokenPipe(stdoutFD, bytes) }
-                stdoutLock.unlock()
-                if !stillCurrent { return }
+                if let bytes = ControlBridge.decodeFrame(line) {
+                    stdoutLock.lock()
+                    let stillCurrent = herdrOutputGeneration == generation
+                    if stillCurrent { writeIgnoringBrokenPipe(stdoutFD, bytes) }
+                    stdoutLock.unlock()
+                    if !stillCurrent { return }
+                    continue
+                }
+                // The pane app toggled mouse reporting: relay it to the app on
+                // the status FIFO. Gated by the SAME generation check as the
+                // PTY writes, so a superseded control child's in-flight
+                // capture line can never re-enable capture on a pane that has
+                // since switched to observe (an observe child never emits one).
+                if statusFD >= 0, let statusLine = ControlBridge.encodeMouseCaptureStatus(line) {
+                    stdoutLock.lock()
+                    let stillCurrent = herdrOutputGeneration == generation
+                    if stillCurrent { writeIgnoringBrokenPipe(statusFD, statusLine) }
+                    stdoutLock.unlock()
+                    if !stillCurrent { return }
+                }
             }
         }
     }

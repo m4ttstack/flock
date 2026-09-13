@@ -1,43 +1,37 @@
 import Foundation
 
-/// What a right click on a pane's ghostty surface should do, decided
-/// PURELY from the click's own modifier state plus the two pieces of
-/// standing pane state that already govern it -- no view, event object, or
-/// libghostty call inside this type, so the decision itself is testable
-/// with no `NSEvent`/`NSView` anywhere.
+/// What a right click on a pane's ghostty surface should do, decided PURELY
+/// from the click's own Option state, whether the pane app has asked for
+/// mouse reporting, and the pane's mode -- no view, event object, or
+/// libghostty call inside this type, so the decision is testable with no
+/// `NSEvent`/`NSView` anywhere.
 public enum RightClickDisposition: Equatable, Sendable {
-    /// Present herdr's own action menu (Split/Close/routing toggle):
-    /// `GhosttySurfaceView` hands the event back to the responder chain so
-    /// SwiftUI's `.contextMenu` on `PaneCellView` shows it.
+    /// Present herdr's own action menu (Split/Close/...): `GhosttySurfaceView`
+    /// hands the event back to the responder chain so SwiftUI's
+    /// `.contextMenu` on `PaneCellView` shows it.
     case menu
-    /// Send the click into the pane's program via
-    /// `ghostty_surface_mouse_button`, with any `.option` bit stripped from
-    /// the modifiers passed to ghostty first -- the pane sees a plain right
-    /// click, not alt+right.
+    /// Send the click into the pane's own program. `GhosttySurfaceView`
+    /// routes it through `MouseForwarding`, which turns it into a
+    /// `terminal.mouse` line on the control FIFO (capture is on whenever this
+    /// is returned).
     case forwardToPane
-    /// Neither: an Option-held right click on an observe-mode (unfocused)
-    /// pane has nowhere to go (the bridge drops input in observe mode) and
-    /// the user asked for a pane click, not a menu, so none shows.
-    case drop
 
-    /// Forwarding -- whether asked for by the persistent routing
-    /// toggle or by a one-shot Option click -- only ever actually reaches
-    /// the pane on a `.control`-mode surface; on `.observe` it drops
-    /// silently instead, NEVER falling back to `.menu`. Requesting the
-    /// pane's own program is what the toggle (or Option) means, and an
-    /// unfocused pane's bridge has no input path to deliver that to (see
-    /// `GhosttySurfaceView.requestWindowFirstResponder`'s own gate) -- a
-    /// menu on a routing-enabled pane would silently ignore the user's own
-    /// standing choice.
+    /// The rule (Matt's, folding capture in):
+    /// - Observe-mode pane: always `.menu`. The herdr action menu works on
+    ///   any pane, and an unfocused pane has no input path to forward to.
+    /// - Control-mode pane with Option held: always `.menu`. Option is the
+    ///   deliberate "give me the herdr menu" gesture.
+    /// - Control-mode pane, no Option, mouse capture ON: `.forwardToPane`.
+    ///   The pane app claimed the click, so it gets it.
+    /// - Control-mode pane, no Option, mouse capture OFF: `.menu`. Nothing is
+    ///   listening in the pane, so fall through to the menu rather than drop
+    ///   the click into a plain shell.
     ///
-    /// `optionHeld` is the click's own physical modifier, checked first:
-    /// Option always means "send this click to the pane, one-shot,"
-    /// overriding the persistent toggle for this one click regardless of
-    /// what it is currently set to. Without Option, the toggle alone
-    /// decides whether forwarding was even asked for.
-    public static func decide(optionHeld: Bool, routingEnabled: Bool, mode: PaneMode) -> RightClickDisposition {
-        let wantsForward = optionHeld || routingEnabled
-        guard wantsForward else { return .menu }
-        return mode == .control ? .forwardToPane : .drop
+    /// Right-clicks land in the pane by default (capture on) and Option
+    /// summons the menu -- the inverse of a persistent per-pane toggle, which
+    /// this replaces.
+    public static func decide(optionHeld: Bool, captureEnabled: Bool, mode: PaneMode) -> RightClickDisposition {
+        guard mode == .control, !optionHeld, captureEnabled else { return .menu }
+        return .forwardToPane
     }
 }

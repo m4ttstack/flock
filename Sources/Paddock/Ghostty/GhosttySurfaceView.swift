@@ -43,15 +43,24 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// about this representable's inputs changes again after that to trigger
     /// a second `updateNSView` call).
     var wantsFocus = false
-    /// Per-button record of what the matching mouse-DOWN actually did, read
-    /// back by the UP so it always replays the SAME decision -- never
-    /// re-derived from `wantsFocus`/the routing toggle at up-time, which can
-    /// have changed in between (a focus flip mid-drag) and would otherwise
-    /// drop the release ghostty is still owed, leaving its mouse-button
-    /// state stuck down.
-    private var leftButtonWasForwarded = false
-    private var rightButtonDownDisposition: RightClickDisposition = .drop
-    private var forwardedOtherButtons: Set<Int> = []
+    /// Where the matching mouse-DOWN actually sent a button, read back by the
+    /// UP so it always replays the SAME destination -- never re-derived from
+    /// `wantsFocus`/capture at up-time, which can have changed in between (a
+    /// focus flip or a capture toggle mid-click) and would otherwise strand
+    /// the release: a libghostty button left stuck down, or an app that got a
+    /// down over the FIFO but never its up.
+    private enum ButtonRoute {
+        /// The DOWN was sent to the pane's own program as a `terminal.mouse`
+        /// line; its UP must go there too.
+        case app
+        /// The DOWN went into libghostty via `ghostty_surface_mouse_button`;
+        /// its UP must too.
+        case surface
+    }
+    private var leftButtonRoute: ButtonRoute?
+    private var rightButtonRoute: ButtonRoute?
+    private var rightButtonDownDisposition: RightClickDisposition = .menu
+    private var otherButtonRoutes: [Int: ButtonRoute] = [:]
 
     /// Wired by `GhosttySurfaceRepresentable` from the pane cell's own
     /// `BrowserScrollState` and reveal/exit closures.
@@ -59,12 +68,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     var onScrollBackToLive: (() -> Void)?
     var browserState: BrowserScrollState?
     private var lastEdgeSignal = Date.distantPast
-    /// Mirrors `SessionViewModel.isRightClickRoutedToPane(_:)` for this pane,
-    /// set by `GhosttySurfaceRepresentable`. `false` (the default, matching
-    /// herdr's own `PaneRightClickTarget` default) means a right click is
-    /// handed back to the responder chain so SwiftUI's `.contextMenu` on
-    /// `PaneCellView` presents; only `true` sends it into libghostty.
-    var isRightClickRoutedToPane = false
     /// `nonisolated(unsafe)`, matching `windowObservers`/`globalObservers`
     /// above: `deinit` is not actor-isolated, so the monitor cleanup there
     /// needs to reach this property from a nonisolated context.
@@ -190,52 +193,42 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// truly holds it right now.
     override func mouseDown(with event: NSEvent) {
         guard wantsFocus else {
-            leftButtonWasForwarded = false
+            leftButtonRoute = nil
             onPrimaryClick?()
             return
         }
-        leftButtonWasForwarded = true
         requestWindowFirstResponder()
-        session.sendMousePosition(event)
-        session.sendMouseButton(.left, pressed: true, event: event)
+        leftButtonRoute = sendButtonDown(.left, event: event)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard leftButtonWasForwarded else { return }
-        session.sendMousePosition(event)
-        session.sendMouseButton(.left, pressed: false, event: event)
+        sendButtonUp(.left, event: event, route: leftButtonRoute)
+        leftButtonRoute = nil
     }
 
-    /// `RightClickDisposition.decide` owns the whole decision (see its own
-    /// doc for the ruling): herdr's own action menu, presented by SwiftUI's
-    /// `.contextMenu` on `PaneCellView`, is the default when nothing asked
-    /// for forwarding -- the click is handed back to the responder chain
-    /// (`super`) rather than consumed here, which is what lets that
-    /// modifier's own hit-testing see it. When the routing toggle (or a
-    /// one-shot Option click) DOES ask for forwarding, it only actually
-    /// reaches the pane on a control-mode (focused) surface; on an
-    /// observe-mode one it drops silently instead of ever falling back to
-    /// the menu. libghostty's own context menu is never shown by this view.
-    ///
-    /// Holding Option overrides the routing toggle in either direction, one
-    /// click at a time: `RightClickDisposition.decide` sends it straight to
-    /// the pane (mods stripped of `.option` first) on a control-mode
-    /// (focused) pane, or drops it silently on an observe-mode one -- never
-    /// the menu, since the user asked for a pane click, not a menu. `mode`
-    /// is `wantsFocus`-derived because, in this app, the resolved-focused
-    /// pane is the only one ever in `.control` mode.
+    /// Right-clicks land in the pane by default and Option summons the herdr
+    /// action menu -- see `RightClickDisposition.decide` for the full rule
+    /// (Matt's): a control-mode pane whose app has claimed the mouse forwards
+    /// a plain right-click to the pane; Option, a plain shell (capture off),
+    /// or an observe-mode pane all get the menu instead. The menu is
+    /// presented by SwiftUI's `.contextMenu` on `PaneCellView`, reached by
+    /// handing the event back to the responder chain (`super`); libghostty's
+    /// own context menu is never shown here. `mode` is `wantsFocus`-derived
+    /// because the resolved-focused pane is the only one ever in `.control`.
     override func rightMouseDown(with event: NSEvent) {
-        let disposition = rightClickDisposition(for: event)
+        let disposition = RightClickDisposition.decide(
+            optionHeld: event.modifierFlags.contains(.option),
+            captureEnabled: session.mouseCaptureEnabled,
+            mode: wantsFocus ? .control : .observe
+        )
         rightButtonDownDisposition = disposition
         switch disposition {
         case .menu:
+            rightButtonRoute = nil
             super.rightMouseDown(with: event)
         case .forwardToPane:
             requestWindowFirstResponder()
-            session.sendMousePosition(event)
-            session.sendMouseButton(.right, pressed: true, event: event, modifierOverride: strippingOption(event.modifierFlags))
-        case .drop:
-            break
+            rightButtonRoute = sendButtonDown(.right, event: event)
         }
     }
 
@@ -244,51 +237,168 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         case .menu:
             super.rightMouseUp(with: event)
         case .forwardToPane:
-            session.sendMousePosition(event)
-            session.sendMouseButton(.right, pressed: false, event: event, modifierOverride: strippingOption(event.modifierFlags))
-        case .drop:
-            break
+            sendButtonUp(.right, event: event, route: rightButtonRoute)
         }
-    }
-
-    private func rightClickDisposition(for event: NSEvent) -> RightClickDisposition {
-        RightClickDisposition.decide(
-            optionHeld: event.modifierFlags.contains(.option),
-            routingEnabled: isRightClickRoutedToPane,
-            mode: wantsFocus ? .control : .observe
-        )
-    }
-
-    private func strippingOption(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
-        flags.subtracting(.option)
+        rightButtonRoute = nil
     }
 
     override func otherMouseDown(with event: NSEvent) {
         guard wantsFocus else { return }
-        forwardedOtherButtons.insert(Int(event.buttonNumber))
         requestWindowFirstResponder()
-        session.sendMousePosition(event)
-        session.sendMouseButton(.other(Int(event.buttonNumber)), pressed: true, event: event)
+        let number = Int(event.buttonNumber)
+        otherButtonRoutes[number] = sendButtonDown(otherButton(number), event: event, appkitNumber: number)
     }
 
     override func otherMouseUp(with event: NSEvent) {
-        guard forwardedOtherButtons.remove(Int(event.buttonNumber)) != nil else { return }
-        session.sendMousePosition(event)
-        session.sendMouseButton(.other(Int(event.buttonNumber)), pressed: false, event: event)
+        let number = Int(event.buttonNumber)
+        guard let route = otherButtonRoutes.removeValue(forKey: number) else { return }
+        sendButtonUp(otherButton(number), event: event, route: route, appkitNumber: number)
     }
 
     override func mouseEntered(with event: NSEvent) { session.sendMousePosition(event) }
     override func mouseExited(with event: NSEvent) { session.sendMouseExit(modifiers: event.modifierFlags) }
-    override func mouseMoved(with event: NSEvent) { session.sendMousePosition(event) }
-    override func mouseDragged(with event: NSEvent) { session.sendMousePosition(event) }
+
+    /// Under capture the app owns the pointer, so motion becomes a
+    /// `terminal.mouse` moved line (herdr drops it unless the app enabled
+    /// any-motion tracking); otherwise it stays a libghostty position update
+    /// for hover/link detection and selection.
+    override func mouseMoved(with event: NSEvent) {
+        switch mouseDecision(kind: .moved, button: nil, event: event) {
+        case .toApp(let command): session.sendPaneMouse(command)
+        case .toSurface: session.sendMousePosition(event)
+        case .drop: break
+        }
+    }
+
+    /// A drag belongs to whatever the left DOWN decided, kept in step with
+    /// the down/up pairing: an app-routed drag becomes a `terminal.mouse`
+    /// drag line, a surface-routed one stays a libghostty position update
+    /// (that is how libghostty extends a selection).
+    override func mouseDragged(with event: NSEvent) {
+        switch leftButtonRoute {
+        case .app:
+            if let command = mouseCommand(kind: .drag, button: .left, event: event) {
+                session.sendPaneMouse(command)
+            }
+        case .surface, nil:
+            session.sendMousePosition(event)
+        }
+    }
+
     override func rightMouseDragged(with event: NSEvent) { session.sendMousePosition(event) }
     override func otherMouseDragged(with event: NSEvent) { session.sendMousePosition(event) }
 
-    /// Always local to libghostty's own scrollback -- see
-    /// `GhosttySession.sendScrollWheel`'s doc comment for why there is no
-    /// diversion hook here the way Herdglass's `onScrollWheel` had one.
+    /// Under capture a wheel gesture becomes a `terminal.mouse` scroll line
+    /// for the pane's own program (never `terminal.scroll`, which mutates the
+    /// shared herdr viewport); otherwise it stays local to libghostty's own
+    /// scrollback, as it always has.
     override func scrollWheel(with event: NSEvent) {
+        let deltaY = event.scrollingDeltaY
+        let deltaX = event.scrollingDeltaX
+        let kind: MouseForwarding.EventKind?
+        if abs(deltaY) >= abs(deltaX) {
+            kind = deltaY > 0 ? .scrollUp : (deltaY < 0 ? .scrollDown : nil)
+        } else {
+            kind = deltaX > 0 ? .scrollLeft : (deltaX < 0 ? .scrollRight : nil)
+        }
+        if let kind, case .toApp(let command) = mouseDecision(kind: kind, button: nil, event: event) {
+            session.sendPaneMouse(command)
+            return
+        }
         session.sendScrollWheel(event)
+    }
+
+    // MARK: - Mouse forwarding helpers
+
+    private func otherButton(_ appkitNumber: Int) -> MouseForwarding.Button {
+        appkitNumber == 2 ? .middle : .other(appkitNumber)
+    }
+
+    /// Routes a button DOWN through `MouseForwarding` and performs it, then
+    /// returns where it went so the matching UP can replay the same
+    /// destination. `appkitNumber` is AppKit's own `buttonNumber` for the
+    /// surface path's `.other(n)` (nil for left/right, whose surface enum
+    /// cases are fixed).
+    private func sendButtonDown(_ button: MouseForwarding.Button, event: NSEvent, appkitNumber: Int? = nil) -> ButtonRoute? {
+        switch mouseDecision(kind: .down, button: button, event: event) {
+        case .toApp(let command):
+            session.sendPaneMouse(command)
+            return .app
+        case .toSurface:
+            session.sendMousePosition(event)
+            session.sendMouseButton(surfaceButton(button, appkitNumber: appkitNumber), pressed: true, event: event)
+            return .surface
+        case .drop:
+            return nil
+        }
+    }
+
+    private func sendButtonUp(_ button: MouseForwarding.Button, event: NSEvent, route: ButtonRoute?, appkitNumber: Int? = nil) {
+        switch route {
+        case .app:
+            if let command = mouseCommand(kind: .up, button: button, event: event) {
+                session.sendPaneMouse(command)
+            }
+        case .surface:
+            session.sendMousePosition(event)
+            session.sendMouseButton(surfaceButton(button, appkitNumber: appkitNumber), pressed: false, event: event)
+        case nil:
+            break
+        }
+    }
+
+    private func surfaceButton(_ button: MouseForwarding.Button, appkitNumber: Int?) -> MouseButton {
+        switch button {
+        case .left: return .left
+        case .right: return .right
+        case .middle: return .other(appkitNumber ?? 2)
+        case .other(let number): return .other(number)
+        }
+    }
+
+    private func mouseDecision(kind: MouseForwarding.EventKind, button: MouseForwarding.Button?, event: NSEvent, lines: Int = 1) -> MouseForwarding.Decision {
+        MouseForwarding.decide(
+            kind: kind, button: button, modifiers: crosstermModifiers(event.modifierFlags),
+            point: forwardingPoint(event), cellSize: cellSizeInPoints(),
+            captureEnabled: session.mouseCaptureEnabled, mode: wantsFocus ? .control : .observe,
+            shiftHeld: event.modifierFlags.contains(.shift), lines: lines
+        )
+    }
+
+    private func mouseCommand(kind: MouseForwarding.EventKind, button: MouseForwarding.Button?, event: NSEvent, lines: Int = 1) -> MouseForwarding.Command? {
+        MouseForwarding.command(
+            kind: kind, button: button, modifiers: crosstermModifiers(event.modifierFlags),
+            point: forwardingPoint(event), cellSize: cellSizeInPoints(), lines: lines
+        )
+    }
+
+    private func crosstermModifiers(_ flags: NSEvent.ModifierFlags) -> UInt8 {
+        MouseForwarding.crosstermModifiers(
+            shift: flags.contains(.shift), control: flags.contains(.control),
+            option: flags.contains(.option), command: flags.contains(.command)
+        )
+    }
+
+    /// The click point in the surface's top-left-origin point space -- the
+    /// same y-flip `GhosttySession.sendMousePosition` applies for
+    /// `ghostty_surface_mouse_pos`, so app and surface see one coordinate
+    /// system.
+    private func forwardingPoint(_ event: NSEvent) -> MouseForwarding.Point {
+        let point = convert(event.locationInWindow, from: nil)
+        return MouseForwarding.Point(x: Double(point.x), y: Double(bounds.height - point.y))
+    }
+
+    /// One cell in view POINTS: libghostty reports the cell in pixels
+    /// (`GHOSTTY_ACTION_CELL_SIZE`), and the surface is sized in pixels
+    /// (`bounds * scale`), but the click point above is in points, so the
+    /// pixel cell is divided by the backing scale to match. `nil` until the
+    /// first cell-size action arrives; `MouseForwarding` then falls back to
+    /// the surface path rather than fabricate a cell.
+    private func cellSizeInPoints() -> MouseForwarding.CellSize? {
+        guard let cell = session.state.cellSize, cell.width > 0, cell.height > 0 else { return nil }
+        let scale = Double(window?.backingScaleFactor ?? window?.screen?.backingScaleFactor ?? 2)
+        guard scale > 0 else { return nil }
+        return MouseForwarding.CellSize(width: Double(cell.width) / scale, height: Double(cell.height) / scale)
     }
 
     /// Deep history reveals by intent: an up-scroll while
@@ -306,6 +416,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// only delays the reveal by one more tick of continued scrolling, never
     /// triggers a wrong one.
     private func handleScrollEdge(_ event: NSEvent) {
+        // Under capture the wheel is the app's, forwarded as a
+        // `terminal.mouse` scroll line; libghostty's own scrollback never
+        // moves, so a deep-history reveal here would fight the pane's program.
+        guard !session.mouseCaptureEnabled else { return }
         guard event.window === window else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }

@@ -1,0 +1,122 @@
+// Portions derived from Herdglass (BSL-1.1), Sources/HerdrClient/PaneControlChannel.swift.
+import Foundation
+#if canImport(Glibc)
+import Glibc
+#else
+import Darwin
+#endif
+
+/// Out-of-band bridge -> GUI channel, one FIFO per attached pane -- the mirror
+/// of `PaneControlChannel`, in the opposite direction. The GUI creates the
+/// FIFO and reads it; the bridge opens the path from its `--status-pipe` argv
+/// and writes to it.
+///
+/// It carries only what the surface's own PTY stream (`terminal.frame`) drops:
+/// today, `paddock.mouse_capture` lines, so the app learns when the pane's
+/// program turns mouse reporting on or off. Paddock's libghostty never enters
+/// reporting mode itself (its screen is a repaint of herdr's, never the raw
+/// DECSET), so this out-of-band signal is the only way the view knows whether
+/// to forward a click to the app or let libghostty select.
+public final class PaneStatusChannel {
+    /// Environment variable the bridge reads the FIFO path from, mirroring
+    /// `PaneControlChannel.environmentKey`.
+    public static let environmentKey = "HERDR_TERM_STATUS_PIPE"
+
+    public let path: String
+    private var fd: Int32 = -1
+    private var source: DispatchSourceRead?
+    private let buffer = StatusLineBuffer()
+
+    /// Returns nil when the FIFO cannot be made; the pane then never learns
+    /// its mouse-capture state and every click takes the selection path (the
+    /// pre-passthrough behavior). `GhosttyControlSurfaceFactory` logs this,
+    /// like the control-channel failure, but it degrades gracefully rather
+    /// than losing input entirely.
+    public init?(directory: URL = FileManager.default.temporaryDirectory) {
+        let name = "paddock-\(UUID().uuidString.prefix(8)).status"
+        let url = directory.appendingPathComponent(name)
+        guard mkfifo(url.path, 0o600) == 0 else { return nil }
+        // O_RDWR, not O_RDONLY: holding a writer open ourselves keeps this
+        // read end from ever seeing EOF just because the bridge has not
+        // opened its own write end yet, matching `PaneControlChannel`.
+        let descriptor = open(url.path, O_RDWR | O_NONBLOCK)
+        guard descriptor >= 0 else {
+            unlink(url.path)
+            return nil
+        }
+        path = url.path
+        fd = descriptor
+    }
+
+    deinit { close() }
+
+    /// Starts reading `paddock.mouse_capture` lines off the FIFO on a
+    /// background queue, invoking `onCapture(enabled, sgrPixels)` for each.
+    /// Guarded exactly like the bridge's own FIFO reader: a short read is not
+    /// EOF, non-JSON and non-matching lines are skipped, and a single
+    /// undecodable byte cannot stall the drain loop (lines are split as
+    /// `Data`, decoded per line). Callbacks arrive on the reader queue; the
+    /// caller hops to the main actor.
+    public func start(onCapture: @escaping @Sendable (Bool, Bool) -> Void) {
+        guard fd >= 0, source == nil else { return }
+        let readFD = fd
+        let source = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: .global(qos: .userInteractive))
+        source.setEventHandler { [buffer] in
+            var scratch = [UInt8](repeating: 0, count: 4096)
+            let n = read(readFD, &scratch, scratch.count)
+            guard n > 0 else { return }
+            buffer.append(Data(scratch.prefix(n)))
+            while let line = buffer.popLine() {
+                guard let (enabled, sgrPixels) = PaneStatusChannel.parseMouseCapture(line) else { continue }
+                onCapture(enabled, sgrPixels)
+            }
+        }
+        source.resume()
+        self.source = source
+    }
+
+    /// `(enabled, sgrPixels)` for a well-formed `paddock.mouse_capture` line,
+    /// nil for anything else. Pure, so the parse is testable without a FIFO.
+    public static func parseMouseCapture(_ line: Data) -> (Bool, Bool)? {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+            object["type"] as? String == "paddock.mouse_capture",
+            let enabled = object["enabled"] as? Bool
+        else { return nil }
+        let sgrPixels = object["sgr_pixels"] as? Bool ?? false
+        return (enabled, sgrPixels)
+    }
+
+    public func close() {
+        source?.cancel()
+        source = nil
+        guard fd >= 0 else { return }
+        Foundation.close(fd)
+        fd = -1
+        unlink(path)
+    }
+}
+
+/// Splits a byte stream into newline-delimited records, internally locked so
+/// the reader's serial handler and any future sharing stay safe. Records come
+/// back as `Data`, not `String`, so one non-UTF-8 byte cannot stall the drain
+/// loop -- the same contract as the bridge's own `BridgeLineBuffer`.
+private final class StatusLineBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+
+    func append(_ data: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        buffer.append(data)
+    }
+
+    func popLine() -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let newline = buffer.firstIndex(of: 0x0A) else { return nil }
+        let line = Data(buffer[buffer.startIndex..<newline])
+        buffer.removeSubrange(buffer.startIndex...newline)
+        return line
+    }
+}

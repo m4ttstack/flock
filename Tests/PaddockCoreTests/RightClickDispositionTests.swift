@@ -2,35 +2,44 @@ import XCTest
 @testable import PaddockCore
 
 final class RightClickDispositionTests: XCTestCase {
-    // MARK: - Option held: always one-shot to the pane on control, drop on observe
+    // Right-clicks land in the pane by default; Option summons the herdr menu.
 
-    func testOptionHeldOnControlModeForwardsRegardlessOfRoutingToggle() {
+    // MARK: - Control mode
+
+    func testControlModeCaptureOnPlainRightClickForwardsToPane() {
         XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: true, routingEnabled: false, mode: .control), .forwardToPane)
-        XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: true, routingEnabled: true, mode: .control), .forwardToPane)
+            RightClickDisposition.decide(optionHeld: false, captureEnabled: true, mode: .control),
+            .forwardToPane,
+            "the pane app claimed the mouse, so a plain right-click is its click")
     }
 
-    func testOptionHeldOnObserveModeDropsNeverShowsMenu() {
-        XCTAssertEqual(RightClickDisposition.decide(optionHeld: true, routingEnabled: false, mode: .observe), .drop)
-        XCTAssertEqual(RightClickDisposition.decide(optionHeld: true, routingEnabled: true, mode: .observe), .drop)
+    func testControlModeCaptureOnWithOptionShowsTheMenu() {
+        XCTAssertEqual(
+            RightClickDisposition.decide(optionHeld: true, captureEnabled: true, mode: .control),
+            .menu,
+            "Option is the deliberate gesture for the herdr action menu")
     }
 
-    // MARK: - No option: the persistent routing toggle asks for forwarding,
-    // but it only actually reaches the pane on a control-mode surface --
-    // an observe-mode pane has no input path to deliver it to, so it drops
-    // rather than falling back to the menu.
-
-    func testNoOptionRoutingEnabledForwardsOnlyOnControlMode() {
+    func testControlModeCaptureOffShowsTheMenu() {
         XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: false, routingEnabled: true, mode: .control), .forwardToPane)
+            RightClickDisposition.decide(optionHeld: false, captureEnabled: false, mode: .control),
+            .menu,
+            "nothing is listening in a plain shell, so fall through to the menu")
         XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: false, routingEnabled: true, mode: .observe), .drop,
-            "the toggle asked for forwarding; an observe-mode pane has nowhere to deliver it, so it drops, never falls back to the menu")
+            RightClickDisposition.decide(optionHeld: true, captureEnabled: false, mode: .control),
+            .menu)
     }
 
-    func testNoOptionRoutingDisabledShowsMenuOnEitherMode() {
-        XCTAssertEqual(RightClickDisposition.decide(optionHeld: false, routingEnabled: false, mode: .control), .menu)
-        XCTAssertEqual(RightClickDisposition.decide(optionHeld: false, routingEnabled: false, mode: .observe), .menu)
+    // MARK: - Observe mode: always the menu, forwarding never happens
+
+    func testObserveModeAlwaysShowsTheMenu() {
+        for option in [false, true] {
+            for capture in [false, true] {
+                XCTAssertEqual(
+                    RightClickDisposition.decide(optionHeld: option, captureEnabled: capture, mode: .observe),
+                    .menu,
+                    "the herdr menu works on any pane; an unfocused pane has no input path (option=\(option) capture=\(capture))")
+            }
+        }
     }
 }

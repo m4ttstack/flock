@@ -5,18 +5,27 @@ import PaddockCore
 /// `GhosttyPaneFactory` seam: builds the bridge's argv (this same app
 /// binary, re-invoked with `--bridge <pane> --socket <path>`, per
 /// `Sources/Paddock/main.swift`'s dispatch) and asks the host for a session.
-/// `herdrBinary` is deliberately left unset: the bridge process inherits this
-/// app's environment, so its own `HERDR_BIN`/`PATH` resolution
-/// (`ControlBridge`'s `resolveHerdrBinary`) needs no separate lookup here.
+///
+/// `--herdr-bin` is passed only when `PADDOCK_HERDR_BIN` is set, so a scratch
+/// run can point the bridge at a patched herdr while Matt's installed one
+/// stays default: absent it, the bridge inherits this app's environment and
+/// falls back to its own `HERDR_BIN`/`PATH` resolution
+/// (`ControlBridge.resolveHerdrBinary`).
 @MainActor
 final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     private let host: GhosttyHost
     private let socketPath: String
+    private let herdrBinaryOverride: String?
     private let themeColors: () -> GhosttyThemeColors
 
-    init(host: GhosttyHost, socketPath: String, themeColors: @escaping () -> GhosttyThemeColors) {
+    init(
+        host: GhosttyHost, socketPath: String,
+        herdrBinaryOverride: String? = ProcessInfo.processInfo.environment["PADDOCK_HERDR_BIN"],
+        themeColors: @escaping () -> GhosttyThemeColors
+    ) {
         self.host = host
         self.socketPath = socketPath
+        self.herdrBinaryOverride = (herdrBinaryOverride?.isEmpty == false) ? herdrBinaryOverride : nil
         self.themeColors = themeColors
     }
 
@@ -34,18 +43,32 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         if channel == nil {
             FileHandle.standardError.write(Data("paddock: failed to create control channel for pane \(pane.rawValue); it will never accept keyboard input\n".utf8))
         }
+        // `nil` (`PaneStatusChannel.init?` failing) is graceful, unlike a nil
+        // control channel: the pane simply never learns its mouse-capture
+        // state, so every click takes the selection path -- the
+        // pre-passthrough behavior -- rather than losing input entirely.
+        let statusChannel = PaneStatusChannel()
+        if statusChannel == nil {
+            FileHandle.standardError.write(Data("paddock: failed to create status channel for pane \(pane.rawValue); mouse passthrough disabled for it\n".utf8))
+        }
         let argv = BridgeOptions.argv(
             executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0],
             target: pane.rawValue,
             cols: cols,
             rows: rows,
             socketPath: socketPath,
-            controlPipe: channel?.path
+            herdrBinary: herdrBinaryOverride,
+            controlPipe: channel?.path,
+            statusPipe: statusChannel?.path
         )
         let session = host.makeSession(paneID: pane, configuration: .init(commandArgv: argv, themeColors: themeColors()))
         session.onUserInput = onUserInput
         session.onScreenActivity = onScreenActivity
         session.controlChannel = channel
+        session.statusChannel = statusChannel
+        statusChannel?.start { [weak session] enabled, sgrPixels in
+            Task { @MainActor in session?.setMouseCapture(enabled: enabled, sgrPixels: sgrPixels) }
+        }
         return GhosttySessionSurfaceHandle(session: session)
     }
 }

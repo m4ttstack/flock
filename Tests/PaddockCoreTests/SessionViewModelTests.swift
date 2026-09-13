@@ -870,41 +870,6 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(stringParam(closeCall?.params ?? [:], "pane_id"), "w1:p1")
     }
 
-    /// Local state flips optimistically (matching `jumpToHerdr(pane:)`'s own
-    /// pattern) so the checkmark reflects intent on the same frame as the
-    /// click; the wire value flips between herdr's two `PaneRightClickTarget`
-    /// variants on each toggle.
-    @MainActor
-    func testToggleRightClickRoutingFlipsStateAndSendsPaneInputSet() async {
-        let client = RecordingCommandClient()
-        let viewModel = SessionViewModel(client: client)
-        let pane = PaneID(rawValue: "w1:p1")
-        XCTAssertFalse(viewModel.isRightClickRoutedToPane(pane), "defaults to herdr, matching the server default")
-
-        await viewModel.toggleRightClickRouting(for: pane)
-        XCTAssertTrue(viewModel.isRightClickRoutedToPane(pane))
-
-        await viewModel.toggleRightClickRouting(for: pane)
-        XCTAssertFalse(viewModel.isRightClickRoutedToPane(pane))
-
-        let calls = await client.calls
-        let setCalls = calls.filter { $0.method == "pane.input.set" }
-        XCTAssertEqual(setCalls.count, 2)
-        XCTAssertEqual(stringParam(setCalls[0].params, "pane_id"), "w1:p1")
-        XCTAssertEqual(stringParam(setCalls[0].params, "right_click"), "pane")
-        XCTAssertEqual(stringParam(setCalls[1].params, "right_click"), "herdr")
-    }
-
-    @MainActor
-    func testToggleRightClickRoutingRevertsLocalStateWhenTheRequestFails() async {
-        let viewModel = SessionViewModel(client: FailingCommandClient())
-        let pane = PaneID(rawValue: "w1:p1")
-
-        await viewModel.toggleRightClickRouting(for: pane)
-
-        XCTAssertFalse(viewModel.isRightClickRoutedToPane(pane), "a failed round trip must not leave a stale optimistic flip")
-    }
-
     @MainActor
     func testLayoutExportRefreshesOnlyWhenThatTabsSignatureChangesThroughUpdate() async {
         let tabID = TabID(rawValue: "w1:t1")
