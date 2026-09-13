@@ -33,8 +33,13 @@ final class PaddockAppDelegate: NSObject, NSApplicationDelegate {
         guard let window = NSApp.windows.first else { return }
         if let saved = UserDefaults.standard.string(forKey: Self.frameDefaultsKey) {
             let frame = NSRectFromString(saved)
-            if frame.width > 0, frame.height > 0 {
-                window.setFrame(frame, display: true)
+            // A frame saved on a display that is no longer attached would
+            // restore the window somewhere unreachable; only a frame that
+            // still overlaps a current screen is honored, and the screen
+            // constrains it so the title bar stays grabbable.
+            if frame.width > 0, frame.height > 0,
+               let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) }) {
+                window.setFrame(window.constrainFrameRect(frame, to: screen), display: true)
             }
         }
         // Saved continuously (not only at quit), so a force-quit or crash
