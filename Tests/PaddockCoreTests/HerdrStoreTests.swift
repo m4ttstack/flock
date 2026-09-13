@@ -39,9 +39,9 @@ private func twoTabSnapshotResultJSON() -> String {
 private let paneMovedToT2EventLine =
     #"{"data":{"type":"pane_moved","pane":{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t2","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},"previous_pane_id":"w1:p1","previous_workspace_id":"w1","previous_tab_id":"w1:t1"}}"#
 
-/// Three tabs in one workspace, for the moveTab prediction gap-rule tests
-/// (F2/N6): leftward and rightward reorders need at least three items to
-/// tell "overshoot by one" apart from "land exactly at priorIndex".
+/// Three tabs in one workspace, for the moveTab prediction gap-rule tests:
+/// leftward and rightward reorders need at least three items to tell
+/// "overshoot by one" apart from "land exactly at priorIndex".
 private func threeTabSnapshotResultJSON() -> String {
     #"""
     {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":null,"workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w1:t2","workspace_id":"w1","label":"t2","number":2,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w1:t3","workspace_id":"w1","label":"t3","number":3,"pane_count":0,"agent_status":"unknown"}],"panes":[],"layouts":[]}}
@@ -227,7 +227,7 @@ final class HerdrStoreTests: XCTestCase {
         }
     }
 
-    /// F3: herdr's `pane.rename` handler emits no event at all for a
+    /// herdr's `pane.rename` handler emits no event at all for a
     /// label-only change, so a plan of nothing but renamePane ops must arm
     /// no watch -- there is nothing to ever confirm it with, and a timeout
     /// would otherwise revert a change that in fact landed.
@@ -252,9 +252,9 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "no timeout-triggered re-snapshot should have fired")
     }
 
-    /// F4(d): a plan whose every op maps to no convergence kind at all
-    /// (here, a close) must arm nothing either -- there is no prediction to
-    /// protect and no event family to ever wait for.
+    /// A plan whose every op maps to no convergence kind at all (here, a
+    /// close) must arm nothing either -- there is no prediction to protect
+    /// and no event family to ever wait for.
     @MainActor
     func testCloseOnlyPlanArmsNoWatch() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
@@ -274,7 +274,7 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "no timeout-triggered re-snapshot should have fired")
     }
 
-    /// F4(a): the convergence watch must be armed before the wire round trip
+    /// The convergence watch must be armed before the wire round trip
     /// starts, since herdr's subscriber polls independently of any one
     /// request -- a matching event can land while the `pane.move` call is
     /// still in flight, and that must still count.
@@ -307,7 +307,7 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID, TabID(rawValue: "w1:t2"), "the event that landed mid-round-trip must still have counted as convergence")
     }
 
-    /// F4(b): a failed plan can still have partially applied real changes on
+    /// A failed plan can still have partially applied real changes on
     /// herdr's side, so the failure path must re-snapshot too, not just
     /// revert to the pre-plan model.
     @MainActor
@@ -332,9 +332,9 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 2, "the failure path must re-snapshot, not just revert to the pre-plan model")
     }
 
-    /// N4: the failure path used to stash a `resolvedConvergence` entry
-    /// nothing would ever collect (no task is spawned to await it on
-    /// failure), leaking one dictionary entry per failed `execute`.
+    /// The failure path must not stash a `resolvedConvergence` entry
+    /// nothing will ever collect (no task is spawned to await it on
+    /// failure), which would leak one dictionary entry per failed `execute`.
     @MainActor
     func testFailedExecuteLeavesNoPendingConvergenceEntry() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
@@ -356,7 +356,51 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(store.pendingConvergenceResultCountForTesting, 0)
     }
 
-    // MARK: - moveTab/moveWorkspace prediction gap rule (F2/N6)
+    /// A generation superseded by a later `execute` (while its own wire call
+    /// is still in flight, before anything has started awaiting its
+    /// resolution) gets stashed as "not matched" by the supersession itself.
+    /// If that superseded generation then goes on to fail, its failure path
+    /// must clear that stash too, not just the (already-vacated) pending
+    /// watch slot -- otherwise it leaks exactly as before, just reached via
+    /// supersession instead of a bare failure.
+    @MainActor
+    func testDiscardConvergenceClearsAStashLeftBySupersessionBeforeTheOriginalGenerationFails() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "tab.rename", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .seconds(30))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let hold = fake.holdNext(method: "pane.move")
+        let plan1 = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move")
+        let task1 = Task { await store.execute(plan1) }
+
+        // gen1's watch arms synchronously, before its wire call -- confirmed
+        // by the request already having reached the (held) fake.
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "pane.move" } }
+
+        // gen2 supersedes gen1's still-pending watch while gen1's own call
+        // is still blocked: nothing has started awaiting gen1 yet, so the
+        // supersession stashes it as "not matched".
+        let plan2 = OpPlan(ops: [.renameTab(TabID(rawValue: "w1:t1"), "renamed")], label: "Rename")
+        guard case .success = await store.execute(plan2) else { return XCTFail("expected gen2 to succeed") }
+
+        // Now let gen1 proceed -- and fail.
+        fake.failNext(method: "pane.move", code: "zoomed_tab", message: "zoomed")
+        hold()
+        switch await task1.value {
+        case .success: XCTFail("expected gen1 to fail")
+        case .failure: break
+        }
+
+        XCTAssertEqual(store.pendingConvergenceResultCountForTesting, 0)
+    }
+
+    // MARK: - moveTab/moveWorkspace prediction gap rule
 
     @MainActor
     func testMoveTabLeftwardPredictionMatchesTheGapRule() async throws {

@@ -133,10 +133,10 @@ final class MutationEngineTests: XCTestCase {
 
         // p1 started as the split's FIRST child (rects 0-40 vs 40-80 in
         // splitPairModel), so restoring it there after the default
-        // second-child landing needs a trailing swap (F5 / R1's side rule).
-        // That move crosses back from w9 into w1, re-keying the pane, so the
-        // swap must reference it via a placeholder naming the move's own
-        // step, never the literal "w9:p1" (N3 / OpPlan's own contract).
+        // second-child landing needs a trailing swap. That move crosses
+        // back from w9 into w1, re-keying the pane, so the swap must
+        // reference it via a placeholder naming the move's own step, never
+        // the literal "w9:p1" (OpPlan's own placeholder contract).
         XCTAssertEqual(executed.inverse.ops, [
             .movePaneToTab(PaneID(rawValue: "w9:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
             .swapPanes(PaneID.planPlaceholder(movedByStep: 0), PaneID(rawValue: "w1:p2")),
@@ -200,7 +200,7 @@ final class MutationEngineTests: XCTestCase {
         guard let executed = expectSuccess(result) else { return }
 
         // p1 started as the split's FIRST child, so the inverse needs a
-        // trailing swap to land it back on that side (F5 / R1's side rule).
+        // trailing swap to land it back on that side.
         XCTAssertEqual(executed.inverse.ops, [
             .movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
             .swapPanes(PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")),
@@ -232,9 +232,9 @@ final class MutationEngineTests: XCTestCase {
     }
 
     /// herdr's `tab.move`/`workspace.move` compute the actual resulting
-    /// index as `source < insert ? insert - 1 : insert` (F2), so the
-    /// inverse's own `insertIndex` must account for that gap, not just
-    /// replay the prior index verbatim.
+    /// index as `source < insert ? insert - 1 : insert`, so the inverse's
+    /// own `insertIndex` must account for that gap, not just replay the
+    /// prior index verbatim.
     private func threeTabModel() -> SessionModel {
         model(
             workspaces: [workspaceRecord("w1", activeTab: "w1:t1")],
@@ -360,7 +360,7 @@ final class MutationEngineTests: XCTestCase {
         }
     }
 
-    /// R2/F6: a plan mixing a genuine close with something reversible still
+    /// A plan mixing a genuine close with something reversible still
     /// produces the reversible op's inverse, and names only the close as
     /// irreversible.
     func testMixedCloseAndRenameYieldsRenameInverseWithCloseMarkedIrreversible() async throws {
@@ -379,7 +379,7 @@ final class MutationEngineTests: XCTestCase {
         XCTAssertEqual(executed.irreversible, [closeOp])
     }
 
-    // MARK: - Bounce and migration inverses (R1/F1)
+    // MARK: - Bounce and migration inverses
 
     /// A same-tab bounce (top edge: bounces then swaps, per GesturePlanner)
     /// inverts to another bounce landing on the original neighbor, not a
@@ -458,19 +458,17 @@ final class MutationEngineTests: XCTestCase {
 
         // The anchor's own move (step 0) crosses back from w2 into w1,
         // re-keying it, so step 1's target must be a placeholder naming
-        // step 0, never the literal "w2:p1" (N3).
+        // step 0, never the literal "w2:p1".
         XCTAssertEqual(executed.inverse.ops, [
             .movePaneToNewTab(PaneID(rawValue: "w2:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
             .movePaneToTab(PaneID(rawValue: "w2:p2"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID.planPlaceholder(movedByStep: 0), split: .right, ratio: 0.5),
         ])
     }
 
-    /// N1: a 3-pane origin tab (`A | (B over C)`) previously broke the
-    /// migration inverse, which replayed each pane's pairwise sibling
-    /// record in step order instead of the tree `planTabMigration` itself
-    /// used: C's recorded neighbor is B, and B's recorded neighbor is A, but
-    /// by the time C's inverse move ran, B (its supposed target) was not
-    /// yet IN the new tab -- herdr rejects a move whose target isn't
+    /// A 3-pane origin tab (`A | (B over C)`) needs the real tree, not a
+    /// pairwise-neighbor guess: C's recorded neighbor is B, and B's is A,
+    /// but by the time C's inverse move ran, B (its supposed target) would
+    /// not yet be IN the new tab -- herdr rejects a move whose target isn't
     /// already present there. The correct inverse replays the tree itself
     /// (anchor = leftmost = A, pre-order), so both B and C's moves target
     /// placeholders naming earlier steps of THIS SAME reconstruction, never
@@ -532,12 +530,38 @@ final class MutationEngineTests: XCTestCase {
         ])
     }
 
-    /// N2: a plan mixing a simple op with a bounce built the bounce's own
-    /// placeholders relative to the tracker's local array, but the combined
-    /// inverse used to be simpleInverseOps FIRST -- shifting every
-    /// move-group placeholder's target step by however many simple ops
-    /// preceded it, so the closeTab below resolved against the wrong step
-    /// (the rename's own inverse) and the whole inverse plan failed
+    /// A migration-shaped group (2+ panes sharing an origin tab) whose
+    /// origin tab carries no layout at all -- the tree cannot be rebuilt --
+    /// must not guess at a shape: it reports no inverse for that group and
+    /// names every move that touched it irreversible instead.
+    func testMigrationGroupWithUnbuildableOriginTreeYieldsNoInverseAndReportsIrreversible() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w2:p9"}}}"#)
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let modelWithoutOriginLayout = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 2), tabRecord("w2:t1", workspace: "w2", paneCount: 0)],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1"), paneRecord("w1:p2", workspace: "w1", tab: "w1:t1")],
+            layouts: []
+        )
+        let moveP1 = PrimitiveOp.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil)
+        let moveP2 = PrimitiveOp.movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil)
+        let plan = OpPlan(ops: [moveP1, moveP2], label: "Move both panes")
+        let result = await engine.execute(plan, model: modelWithoutOriginLayout)
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertTrue(executed.inverse.ops.isEmpty, "no inverse should be guessed without the origin tree")
+        XCTAssertEqual(executed.irreversible, [moveP1, moveP2])
+    }
+
+    /// A plan mixing a simple op with a bounce builds the bounce's own
+    /// placeholders relative to the move group's own position in the
+    /// combined array: if the simple op's inverse landed before the move
+    /// group instead of after, every move-group placeholder's target step
+    /// would be shifted by however many simple ops preceded it, so the
+    /// closeTab below would resolve against the wrong step (the rename's
+    /// own inverse) and the whole inverse plan would fail
     /// unresolved_placeholder. Runs the inverse for real against the fake
     /// to prove the closeTab actually resolves, not just that the op list
     /// looks right.
@@ -585,7 +609,7 @@ final class MutationEngineTests: XCTestCase {
         }
     }
 
-    // MARK: - Unresolved placeholders fail the plan (R3/F8)
+    // MARK: - Unresolved placeholders fail the plan
 
     func testUnresolvedTabPlaceholderFailsBeforeAnyWireCall() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
@@ -624,8 +648,8 @@ final class MutationEngineTests: XCTestCase {
         XCTAssertTrue(fake.receivedRequests.isEmpty, "the sentinel must never reach the wire")
     }
 
-    /// F8: the tab_not_found-as-success rule is scoped to a placeholder tab
-    /// id; a literal one naming a real, missing target is a genuine failure.
+    /// The tab_not_found-as-success rule is scoped to a placeholder tab id;
+    /// a literal one naming a real, missing target is a genuine failure.
     func testLiteralCloseTabTabNotFoundIsStillAFailure() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
         fake.failNext(method: "tab.close", code: "tab_not_found", message: "no such tab")
@@ -644,7 +668,7 @@ final class MutationEngineTests: XCTestCase {
         }
     }
 
-    // MARK: - Unzoom focus hijack (F7)
+    // MARK: - Unzoom focus hijack
 
     /// herdr's `pane.zoom` focuses the pane it unzoomed and switches the
     /// active workspace/tab to it; an unzoom that ran without the
@@ -689,9 +713,9 @@ final class MutationEngineTests: XCTestCase {
         XCTAssertEqual(requestParams(lastRequest)["pane_id"] as? String, "w9:p1")
     }
 
-    /// N5: the plan's own last op is an explicit focus, so that choice is
-    /// the plan's own intent and the unzoom-hijack correction must not
-    /// overrule it with the pre-plan focus.
+    /// The plan's own last op is an explicit focus, so that choice is the
+    /// plan's own intent and the unzoom-hijack correction must not overrule
+    /// it with the pre-plan focus.
     func testUnzoomHijackCorrectionIsSkippedWhenThePlanEndsWithAnExplicitFocus() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
         fake.respond(to: "pane.zoom", withResultJSON: "{}")
@@ -712,7 +736,7 @@ final class MutationEngineTests: XCTestCase {
         XCTAssertEqual(requestParams(lastRequest)["pane_id"] as? String, "w1:p2")
     }
 
-    // MARK: - partialInverse (N6)
+    // MARK: - partialInverse
 
     /// A plan failing at its second op yields a partialInverse equal to the
     /// inverse of exactly what ran before the failure -- the first op only.
@@ -763,5 +787,27 @@ final class MutationEngineTests: XCTestCase {
         _ = expectSuccess(result)
 
         XCTAssertFalse(fake.receivedRequests.contains { $0.method == "pane.focus" })
+    }
+
+    /// The plan's own last op is an explicit focus, so that stands even
+    /// though the moved pane held focus before the plan ran -- the
+    /// focus-follow rule must not append a second, correcting focusPane
+    /// back to the moved pane.
+    func testExplicitTrailingFocusOverridesTheFocusFollowRuleForAMovedPane() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w9:p1"},"created_workspace":{"workspace_id":"w9"},"created_tab":{"tab_id":"w9:t1"}}}"#)
+        fake.respond(to: "pane.focus", withResultJSON: "{}")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let plan = OpPlan(ops: [
+            .movePaneToNewWorkspace(PaneID(rawValue: "w1:p1"), label: nil, tabLabel: nil),
+            .focusPane(PaneID(rawValue: "w1:p2")),
+        ], label: "Move then focus")
+        let result = await engine.execute(plan, model: splitPairModel(focusedPaneID: "w1:p1"))
+        _ = expectSuccess(result)
+
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "pane.focus" }.count, 1)
+        let lastRequest = fake.receivedRequests.last!
+        XCTAssertEqual(requestParams(lastRequest)["pane_id"] as? String, "w1:p2")
     }
 }

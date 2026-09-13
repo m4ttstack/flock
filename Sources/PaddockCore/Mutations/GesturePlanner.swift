@@ -40,9 +40,10 @@ public func plan(dragging subject: DragSubject, onto target: DropTarget, model: 
 // MARK: - pane subject
 
 /// Left/top edges need the moved pane on the opposite side from where a
-/// plain split lands it (Spike 3 case 4: `split:right` places the moved-in
-/// pane to the right of its target, never the left), so those two edges
-/// append a trailing `swapPanes` to flip the pair.
+/// plain split lands it: a `movePaneToTab` split always places the target
+/// as the first child and the moved-in pane as the second, at the node's
+/// own ratio -- never the reverse -- so those two edges append a trailing
+/// `swapPanes` to flip the pair.
 private struct EdgeMapping {
     let direction: SplitDirection
     let needsSwap: Bool
@@ -70,9 +71,9 @@ private func planPaneEdge(pane: PaneID, target t: PaneID, edge: Edge, model: Ses
     if sameTab {
         // herdr refuses same-tab `pane.move` outright (`same_tab`), so this
         // is always the bounce: park the pane in a fresh same-workspace tab,
-        // then split it back in next to `t`. Same workspace round-trips the
-        // same pane id (Spike 3 case 5), so no placeholder is needed for it;
-        // only the temp tab's id is unknown until `movePaneToNewTab` runs.
+        // then split it back in next to `t`. A same-workspace move keeps the
+        // pane's own id, so no placeholder is needed for it; only the temp
+        // tab's id is unknown until `movePaneToNewTab` runs.
         var ops: [PrimitiveOp] = [
             .movePaneToNewTab(pane, workspace: subjectRecord.workspaceID, label: nil),
             .movePaneToTab(pane, tab: targetRecord.tabID, target: t, split: mapping.direction, ratio: 0.5),

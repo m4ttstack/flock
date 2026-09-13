@@ -189,6 +189,12 @@ public final class HerdrStore {
     /// `resolveConvergence` there instead would leave one `resolvedConvergence`
     /// entry behind per failed `execute`, forever.
     private func discardConvergence(_ generation: Int) {
+        // A generation can reach here having ALREADY been stashed (armed,
+        // then superseded by a later `execute` before this one's own
+        // failure was discovered) -- `resolveConvergence`'s "nobody waiting"
+        // branch stashes unconditionally, so clear that stash too, not only
+        // the still-pending case below.
+        resolvedConvergence.removeValue(forKey: generation)
         guard pendingConvergence?.generation == generation else { return }
         pendingConvergence = nil
         if let pair = convergenceContinuation, pair.generation == generation {

@@ -64,13 +64,20 @@ public actor MutationEngine {
         var tracker = MoveTracker()
         var simpleInverseOps: [PrimitiveOp] = []
 
-        // The move-group ops come first: their own placeholders are built
-        // relative to position 0 of THIS combined array (`MoveTracker`
-        // knows nothing about `simpleInverseOps`' length), so putting them
-        // first is what keeps those placeholder step indices correct
-        // without threading an offset through the tracker.
+        // Move-group ops always come first, simple ops after: a move
+        // group's own placeholders are built relative to position 0 of
+        // wherever it lands, so putting it first is what keeps those step
+        // indices correct without threading an offset through the tracker.
+        // This ordering is exact, not arbitrary, only because no
+        // planner-produced plan ever mixes a move with a simple op (rename/
+        // swap/reorder) in the first place, and a simple op's own inverse
+        // does not depend on anything a move touched, so the two commute --
+        // reordering one relative to the other changes nothing about
+        // either's own correctness. A hand-built plan that DOES mix them is
+        // still undone correctly per op, just not necessarily in true
+        // reverse-chronological order across the two families.
         func partialInverse() -> OpPlan {
-            OpPlan(ops: tracker.buildInverseOps() + simpleInverseOps, label: "Undo \(plan.label)")
+            OpPlan(ops: tracker.buildInverseOps().ops + simpleInverseOps, label: "Undo \(plan.label)")
         }
 
         var unzoomRan = false
@@ -147,22 +154,30 @@ public actor MutationEngine {
             }
         }
 
-        if focusNeedsRestore, let finalID = trackedFocusID {
-            // `pane.move` never focuses the pane it moved (confirmed live);
-            // restore focus only for the pane that held it before the plan,
-            // and only once, at wherever the plan's moves finally left it.
-            await Self.bestEffortFocus(finalID, client: client, executed: &executed)
-        } else if unzoomRan, !Self.lastOpIsExplicitFocus(plan), let originalFocus = model.focusedPaneID {
-            // herdr's pane.zoom focuses the pane it unzoomed and switches
-            // the active workspace/tab to it (confirmed against source), so
-            // an unzoom that ran without the move-focus rule above already
-            // retargeting focus leaves the wrong pane focused unless
-            // corrected here -- unless the plan's own last op is itself an
-            // explicit focus, in which case that op's own choice must stand.
-            await Self.bestEffortFocus(originalFocus, client: client, executed: &executed)
+        // Neither correction below may run when the plan's own last op is
+        // itself an explicit focus: that is the plan's own stated intent
+        // for where focus lands, and both corrections exist only to fix up
+        // focus the plan itself never addressed.
+        if !Self.lastOpIsExplicitFocus(plan) {
+            if focusNeedsRestore, let finalID = trackedFocusID {
+                // `pane.move` never focuses the pane it moved (confirmed
+                // live); restore focus only for the pane that held it
+                // before the plan, and only once, at wherever the plan's
+                // moves finally left it.
+                await Self.bestEffortFocus(finalID, client: client, executed: &executed)
+            } else if unzoomRan, let originalFocus = model.focusedPaneID {
+                // herdr's pane.zoom focuses the pane it unzoomed and
+                // switches the active workspace/tab to it (confirmed
+                // against source), so an unzoom that ran without the
+                // move-focus rule above already retargeting focus leaves
+                // the wrong pane focused unless corrected here.
+                await Self.bestEffortFocus(originalFocus, client: client, executed: &executed)
+            }
         }
 
-        let inverse = OpPlan(ops: tracker.buildInverseOps() + simpleInverseOps, label: "Undo \(plan.label)")
+        let (moveInverseOps, moveIrreversible) = tracker.buildInverseOps()
+        irreversible.append(contentsOf: moveIrreversible)
+        let inverse = OpPlan(ops: moveInverseOps + simpleInverseOps, label: "Undo \(plan.label)")
         return .success(ExecutedPlan(plan: plan, inverse: inverse, irreversible: irreversible))
     }
 
@@ -308,7 +323,8 @@ public actor MutationEngine {
 
     /// Whether `plan`'s own last op already names an explicit focus target
     /// -- if so, that is the plan's own intent for where focus lands, and
-    /// the unzoom-hijack correction must not overrule it.
+    /// neither the focus-follow-a-moved-pane rule nor the unzoom-hijack
+    /// correction may overrule it.
     private static func lastOpIsExplicitFocus(_ plan: OpPlan) -> Bool {
         switch plan.ops.last {
         case .focusPane, .focusTab, .focusWorkspace: return true
@@ -486,6 +502,11 @@ private struct MoveTracker {
     private var currentTabID: [PaneID: TabID] = [:]
     private var currentWorkspaceID: [PaneID: WorkspaceID] = [:]
     private var knownTabWorkspaces: [TabID: WorkspaceID] = [:]
+    // Every resolved move op recorded against each origin key, in the order
+    // it ran -- read only when that key's group turns out irreversible (its
+    // origin tab's tree could not be rebuilt), to report exactly which
+    // forward ops the caller must treat as having no inverse.
+    private var movedOpsByOriginKey: [PaneID: [PrimitiveOp]] = [:]
     // The origin tab's own split tree, captured once (from the model as it
     // stood before the plan ran) the first time any of its panes is
     // recorded -- the tree a multi-pane group's migration-shaped inverse
@@ -516,6 +537,7 @@ private struct MoveTracker {
         }
         guard let originKey else { return }
         originKeyForStep[stepIndex] = originKey
+        movedOpsByOriginKey[originKey, default: []].append(resolvedOp)
         currentPaneID[originKey] = result.movedPaneNewID ?? resolvedSource
         if let tab = MutationEngine.destinationTabForTracking(of: resolvedOp, result: result) {
             currentTabID[originKey] = tab
@@ -536,8 +558,9 @@ private struct MoveTracker {
     }
 
     /// The semantic inverse for every tracked pane, grouped by the tab each
-    /// one started in. A group of more than one pane sharing an origin tab
-    /// can only come from a tab migration, which evacuates that tab
+    /// one started in, plus every move op that turned out to have no
+    /// inverse (see below). A group of more than one pane sharing an origin
+    /// tab can only come from a tab migration, which evacuates that tab
     /// entirely -- herdr auto-closes it once its last pane leaves, so that
     /// origin tab id is dead by the time any inverse plan could run, and the
     /// honest reconstruction replays the origin tab's own split tree
@@ -545,19 +568,26 @@ private struct MoveTracker {
     /// workspace, never a `movePaneToTab` back into the vacated id and never
     /// a naive per-pane sibling guess (a 3+-pane tree's pairwise "neighbor"
     /// is not always still IN the new tab at the moment a later pane's
-    /// inverse move would need it as a target). A single pane whose final
-    /// tab is its own origin tab is the same-tab bounce case: herdr refuses
-    /// a same-tab `pane.move` outright, so that also needs the temp-tab
-    /// dance, not a direct move. Every other single-pane case is a plain
-    /// cross-tab move back.
-    func buildInverseOps() -> [PrimitiveOp] {
-        guard !origins.isEmpty else { return [] }
+    /// inverse move would need it as a target). When that tree cannot be
+    /// rebuilt at all (a hand-built plan whose model never carried a layout
+    /// for the origin tab, or one that later drifted out from under it),
+    /// this reports no inverse for the whole group rather than guess at a
+    /// shape: replaying pairwise sibling records without the real tree can
+    /// target a pane not yet present in the new tab (herdr rejects that) or
+    /// land the pane in the wrong place without herdr ever objecting, which
+    /// is worse. A single pane whose final tab is its own origin tab is the
+    /// same-tab bounce case: herdr refuses a same-tab `pane.move` outright,
+    /// so that also needs the temp-tab dance, not a direct move. Every other
+    /// single-pane case is a plain cross-tab move back.
+    func buildInverseOps() -> (ops: [PrimitiveOp], irreversible: [PrimitiveOp]) {
+        guard !origins.isEmpty else { return ([], []) }
         func remap(_ id: PaneID?) -> PaneID? {
             guard let id else { return nil }
             return currentPaneID[id] ?? id
         }
 
         var ops: [PrimitiveOp] = []
+        var irreversible: [PrimitiveOp] = []
         let groups = Dictionary(grouping: origins.keys, by: { origins[$0]!.tabID })
         for (originTabID, keysInGroup) in groups.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             let sortedKeys = keysInGroup.sorted { origins[$0]!.stepIndex < origins[$1]!.stepIndex }
@@ -567,20 +597,17 @@ private struct MoveTracker {
             else { continue }
 
             if sortedKeys.count > 1 {
+                guard let tree = treeByOriginTab[originTabID] else {
+                    for key in sortedKeys {
+                        irreversible.append(contentsOf: movedOpsByOriginKey[key] ?? [])
+                    }
+                    continue
+                }
                 // A fresh sub-plan of its own: its placeholders are built
                 // relative to ITS OWN position 0, so they must be shifted by
                 // wherever this group actually lands in the combined array
                 // before being appended -- see `shiftPlaceholders`.
-                let localOps: [PrimitiveOp]
-                if let tree = treeByOriginTab[originTabID] {
-                    localOps = Self.migrationInverseOps(tree: tree, workspaceID: firstOrigin.workspaceID) { currentPaneID[$0] ?? $0 }
-                } else {
-                    // Defensive fallback: the forward planner itself
-                    // requires a buildable tree to ever produce a
-                    // multi-pane migration, so this path should be
-                    // unreachable in practice.
-                    localOps = Self.fallbackMigrationInverseOps(sortedKeys: sortedKeys, origins: origins, currentPaneID: currentPaneID)
-                }
+                let localOps = Self.migrationInverseOps(tree: tree, workspaceID: firstOrigin.workspaceID) { currentPaneID[$0] ?? $0 }
                 ops.append(contentsOf: Self.shiftPlaceholders(in: localOps, by: ops.count))
             } else if currentTabID[firstKey] == originTabID {
                 let tempStep = ops.count
@@ -614,7 +641,7 @@ private struct MoveTracker {
                 }
             }
         }
-        return ops
+        return (ops, irreversible)
     }
 
     /// Replays `tree` -- the origin tab's own split shape, captured before
@@ -643,31 +670,6 @@ private struct MoveTracker {
         let secondAnchor = PaneID.planPlaceholder(movedByStep: thisStep)
         materializeInverse(first, anchor: anchor, destinationTab: destinationTab, remap: remap, ops: &ops)
         materializeInverse(second, anchor: secondAnchor, destinationTab: destinationTab, remap: remap, ops: &ops)
-    }
-
-    /// Best-effort reconstruction for the (should-be-unreachable) case where
-    /// the origin tab's tree could not be rebuilt: replays each pane's own
-    /// pairwise sibling record instead of the real tree shape. Correct only
-    /// when every member's recorded neighbor is itself a group member still
-    /// present in the new tab by the time its own move runs -- true for a
-    /// 2-pane migration, not guaranteed beyond that -- which is exactly why
-    /// the tree-based path above is the real fix and this is a fallback.
-    private static func fallbackMigrationInverseOps(sortedKeys: [PaneID], origins: [PaneID: PaneOrigin], currentPaneID: [PaneID: PaneID]) -> [PrimitiveOp] {
-        func remap(_ id: PaneID?) -> PaneID? {
-            guard let id else { return nil }
-            return currentPaneID[id] ?? id
-        }
-        guard let firstKey = sortedKeys.first, let firstOrigin = origins[firstKey], let firstFinalID = currentPaneID[firstKey] else { return [] }
-        var ops: [PrimitiveOp] = [.movePaneToNewTab(firstFinalID, workspace: firstOrigin.workspaceID, label: nil)]
-        let newTab = TabID.planPlaceholder(createdByStep: 0)
-        for key in sortedKeys.dropFirst() {
-            guard let origin = origins[key], let finalID = currentPaneID[key] else { continue }
-            ops.append(.movePaneToTab(finalID, tab: newTab, target: remap(origin.neighborPaneID), split: origin.split, ratio: origin.ratio))
-            if origin.wasFirstChild, let neighbor = remap(origin.neighborPaneID) {
-                ops.append(.swapPanes(finalID, neighbor))
-            }
-        }
-        return ops
     }
 
     /// Rewrites every placeholder id embedded in `ops` (built as if it were
