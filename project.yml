@@ -31,9 +31,24 @@ targets:
     platform: macOS
     sources: [Sources/Paddock]
     dependencies: [{ target: PaddockCore }]
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
+    info:
+      path: Sources/Paddock/Info.plist
+      properties:
+        # Evaluated by AppKit at the earliest point in launch, before any of
+        # our own code (the app delegate included) runs -- a stale window-
+        # restoration identity cached outside the app (an
+        # `AppWindowsController`-owned entry keyed by bundle id, survives
+        # every per-app default/preference reset) otherwise makes every
+        # launch's automatic window-restoration attempt resolve to a null
+        # window with no error and no fallback to a fresh default window.
+        # `.restorationBehavior(.disabled)` on the scene and
+        # `NSApplicationDelegate.applicationSupportsSecureRestorableState`
+        # both run too late in the launch sequence to prevent this specific
+        # attempt (confirmed empirically: neither stopped it, and an
+        # `NSLog` inside the delegate method never fired before the
+        # restoration attempt logged). This Info.plist key is read before
+        # either of those.
+        NSApplicationSupportsSecureRestorableState: NO
   PaddockCoreTests:
     type: bundle.unit-test
     platform: macOS

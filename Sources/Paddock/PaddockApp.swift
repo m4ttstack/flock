@@ -1,8 +1,18 @@
+import AppKit
 import Foundation
 import PaddockCore
 import SwiftUI
 
+/// Declares (dynamically; `Info.plist`'s `NSApplicationSupportsSecureRestorableState`
+/// declares the same thing statically, for the earliest part of launch this
+/// delegate is not yet installed for) that this app does not participate in
+/// AppKit's secure-restorable-state scheme.
+final class PaddockAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { false }
+}
+
 struct PaddockApp: App {
+    @NSApplicationDelegateAdaptor(PaddockAppDelegate.self) private var appDelegate
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
     @State private var toastCenter: ToastCenter
@@ -12,6 +22,21 @@ struct PaddockApp: App {
     private let sessionLabel: String
 
     init() {
+        // The one setting that actually stops AppKit's legacy
+        // `NSPersistentUIRestorationSupport` path (`_reopenWindowsAsNecessaryIncludingRestorableState`)
+        // from running before this app's own window is ever created: a
+        // window-restore attempt against ANY identifier this scene's own
+        // modifier chain does not currently produce byte-for-byte resolves
+        // to a null window with no error, and nothing then falls back to
+        // creating a fresh default window -- a zero-window launch with no
+        // crash and no visible error anywhere. `.restorationBehavior(.disabled)`
+        // on the `WindowGroup` scene below and `PaddockAppDelegate`'s
+        // `applicationSupportsSecureRestorableState` are the documented,
+        // forward-looking way to say the same thing, but both install too
+        // late to preempt THIS specific legacy path (confirmed empirically:
+        // neither stopped it). This is the equivalent of always launching
+        // with `-ApplePersistenceIgnoreState YES`.
+        UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
         let socketPath = Self.resolveSocketPath()
         // A plain local, not `self.themeStore`: an escaping closure built
         // here (below) cannot capture any part of `self` before every stored
@@ -67,6 +92,9 @@ struct PaddockApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
+        // Declarative opt-out of SwiftUI's own scene-restoration bookkeeping
+        // for this scene, alongside the two lower-level opt-outs above.
+        .restorationBehavior(.disabled)
         .commands {
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
