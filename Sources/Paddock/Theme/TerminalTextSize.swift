@@ -4,13 +4,19 @@ import Observation
 /// The one terminal font face both renderers load: the ghostty surface (via
 /// `GhosttyThemeConfig`'s `font-family` config line) and the deep-history
 /// overlay (`Font.custom`/`NSFont`). "SF Mono" -- what SwiftUI's
-/// `.system(design: .monospaced)` resolves to -- is not a CoreText-
-/// discoverable family name on a stock macOS install: it ships privately
-/// inside Xcode.app/Terminal.app, never into `/System/Library/Fonts`, and
-/// ghostty's own font-discovery test only round-trips `CTFontCreateWithName`
-/// against "Menlo" (`Vendor/ghostty/src/font/face/coretext.zig`), which is
-/// also the one confirmed present at `/System/Library/Fonts/Menlo.ttc` on
-/// this machine. "Menlo" is the pinned face for that reason.
+/// `.system(design: .monospaced)` resolves to -- is NOT CoreText-discoverable
+/// by family name, even with Xcode.app installed: the file exists
+/// (`Xcode.app/Contents/SharedFrameworks/DVTUserInterfaceKit.framework/.../
+/// Fonts/SF-Mono.ttf`), but it is a private resource Xcode/Terminal load for
+/// their own UI, never registered into any system font directory or the
+/// font-family catalog CoreText's name lookup searches. Confirmed on this
+/// machine: `NSFont(name: "SF Mono", size:)` is `nil`, and
+/// `CTFontCreateWithName("SF Mono", ...)` silently falls back to Helvetica
+/// rather than failing loudly. "Menlo" is public, present at
+/// `/System/Library/Fonts/Menlo.ttc`, and is the one family name ghostty's
+/// own font-discovery test round-trips through `CTFontCreateWithName`
+/// (`Vendor/ghostty/src/font/face/coretext.zig`) -- the pinned face for both
+/// reasons.
 public enum TerminalFont {
     public static let face = "Menlo"
 }
