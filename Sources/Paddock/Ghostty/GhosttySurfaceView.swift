@@ -61,6 +61,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var rightButtonRoute: ButtonRoute?
     private var rightButtonDownDisposition: RightClickDisposition = .menu
     private var otherButtonRoutes: [Int: ButtonRoute] = [:]
+    /// Whole-cell wheel steps for the app under capture; reset by
+    /// `mouseCaptureDidEnd` so a momentum tail never emits after the app
+    /// stopped listening.
+    private var scrollAccumulator = ScrollAccumulator()
 
     /// Wired by `GhosttySurfaceRepresentable` from the pane cell's own
     /// `BrowserScrollState` and reveal/exit closures.
@@ -207,10 +211,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     /// Right-clicks land in the pane by default and Option summons the herdr
-    /// action menu -- see `RightClickDisposition.decide` for the full rule
-    /// (Matt's): a control-mode pane whose app has claimed the mouse forwards
-    /// a plain right-click to the pane; Option, a plain shell (capture off),
-    /// or an observe-mode pane all get the menu instead. The menu is
+    /// action menu -- see `RightClickDisposition.decide` for the full rule:
+    /// a control-mode pane whose app has claimed the mouse forwards a plain
+    /// right-click to the pane; Option, a plain shell (capture off), or an
+    /// observe-mode pane all get the menu instead. The menu is
     /// presented by SwiftUI's `.contextMenu` on `PaneCellView`, reached by
     /// handing the event back to the responder chain (`super`); libghostty's
     /// own context menu is never shown here. `mode` is `wantsFocus`-derived
@@ -260,55 +264,83 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     /// Under capture the app owns the pointer, so motion becomes a
     /// `terminal.mouse` moved line (herdr drops it unless the app enabled
-    /// any-motion tracking); otherwise it stays a libghostty position update
-    /// for hover/link detection and selection.
+    /// any-motion tracking). Otherwise, observe panes included, it stays a
+    /// libghostty position update: hover links and the pointer shape are
+    /// local surface state, not pane input, so `.drop` still feeds them.
     override func mouseMoved(with event: NSEvent) {
         switch mouseDecision(kind: .moved, button: nil, event: event) {
         case .toApp(let command): session.sendPaneMouse(command)
-        case .toSurface: session.sendMousePosition(event)
-        case .drop: break
+        case .toSurface, .drop: session.sendMousePosition(event)
         }
     }
 
-    /// A drag belongs to whatever the left DOWN decided, kept in step with
-    /// the down/up pairing: an app-routed drag becomes a `terminal.mouse`
+    /// A drag belongs to whatever its button's DOWN decided, kept in step
+    /// with the down/up pairing: an app-routed drag becomes a `terminal.mouse`
     /// drag line, a surface-routed one stays a libghostty position update
     /// (that is how libghostty extends a selection).
     override func mouseDragged(with event: NSEvent) {
-        switch leftButtonRoute {
+        sendDrag(.left, event: event, route: leftButtonRoute)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        sendDrag(.right, event: event, route: rightButtonRoute)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        let number = Int(event.buttonNumber)
+        sendDrag(otherButton(number), event: event, route: otherButtonRoutes[number])
+    }
+
+    /// Under capture a wheel gesture becomes whole-cell `terminal.mouse`
+    /// scroll lines for the pane's own program (never `terminal.scroll`,
+    /// which mutates the shared herdr viewport), one per cell crossed via
+    /// `ScrollAccumulator`, mirroring libghostty's own report cadence.
+    /// Otherwise it stays local to libghostty's own scrollback, as it always
+    /// has, and any pending remainder is dropped.
+    override func scrollWheel(with event: NSEvent) {
+        guard case .toApp = mouseDecision(kind: .scrollUp, button: nil, event: event),
+              let cell = cellSizeInPoints()
+        else {
+            scrollAccumulator.reset()
+            session.sendScrollWheel(event)
+            return
+        }
+        let steps = scrollAccumulator.add(
+            deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
+            precise: event.hasPreciseScrollingDeltas, cellSize: cell
+        )
+        emitScrollSteps(steps.y, positive: .scrollUp, negative: .scrollDown, event: event)
+        emitScrollSteps(steps.x, positive: .scrollLeft, negative: .scrollRight, event: event)
+    }
+
+    /// Called by the session on a capture on -> off transition.
+    func mouseCaptureDidEnd() {
+        scrollAccumulator.reset()
+    }
+
+    // MARK: - Mouse forwarding helpers
+
+    private func emitScrollSteps(
+        _ steps: Int, positive: MouseForwarding.EventKind, negative: MouseForwarding.EventKind, event: NSEvent
+    ) {
+        guard steps != 0, let command = mouseCommand(kind: steps > 0 ? positive : negative, button: nil, event: event) else {
+            return
+        }
+        for _ in 0..<abs(steps) {
+            session.sendPaneMouse(command)
+        }
+    }
+
+    private func sendDrag(_ button: MouseForwarding.Button, event: NSEvent, route: ButtonRoute?) {
+        switch route {
         case .app:
-            if let command = mouseCommand(kind: .drag, button: .left, event: event) {
+            if let command = mouseCommand(kind: .drag, button: button, event: event) {
                 session.sendPaneMouse(command)
             }
         case .surface, nil:
             session.sendMousePosition(event)
         }
     }
-
-    override func rightMouseDragged(with event: NSEvent) { session.sendMousePosition(event) }
-    override func otherMouseDragged(with event: NSEvent) { session.sendMousePosition(event) }
-
-    /// Under capture a wheel gesture becomes a `terminal.mouse` scroll line
-    /// for the pane's own program (never `terminal.scroll`, which mutates the
-    /// shared herdr viewport); otherwise it stays local to libghostty's own
-    /// scrollback, as it always has.
-    override func scrollWheel(with event: NSEvent) {
-        let deltaY = event.scrollingDeltaY
-        let deltaX = event.scrollingDeltaX
-        let kind: MouseForwarding.EventKind?
-        if abs(deltaY) >= abs(deltaX) {
-            kind = deltaY > 0 ? .scrollUp : (deltaY < 0 ? .scrollDown : nil)
-        } else {
-            kind = deltaX > 0 ? .scrollLeft : (deltaX < 0 ? .scrollRight : nil)
-        }
-        if let kind, case .toApp(let command) = mouseDecision(kind: kind, button: nil, event: event) {
-            session.sendPaneMouse(command)
-            return
-        }
-        session.sendScrollWheel(event)
-    }
-
-    // MARK: - Mouse forwarding helpers
 
     private func otherButton(_ appkitNumber: Int) -> MouseForwarding.Button {
         appkitNumber == 2 ? .middle : .other(appkitNumber)
@@ -359,7 +391,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func mouseDecision(kind: MouseForwarding.EventKind, button: MouseForwarding.Button?, event: NSEvent, lines: Int = 1) -> MouseForwarding.Decision {
         MouseForwarding.decide(
             kind: kind, button: button, modifiers: crosstermModifiers(event.modifierFlags),
-            point: forwardingPoint(event), cellSize: cellSizeInPoints(),
+            point: forwardingPoint(event), cellSize: cellSizeInPoints(), grid: session.surfaceGeometry()?.grid,
             captureEnabled: session.mouseCaptureEnabled, mode: wantsFocus ? .control : .observe,
             shiftHeld: event.modifierFlags.contains(.shift), lines: lines
         )
@@ -368,7 +400,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func mouseCommand(kind: MouseForwarding.EventKind, button: MouseForwarding.Button?, event: NSEvent, lines: Int = 1) -> MouseForwarding.Command? {
         MouseForwarding.command(
             kind: kind, button: button, modifiers: crosstermModifiers(event.modifierFlags),
-            point: forwardingPoint(event), cellSize: cellSizeInPoints(), lines: lines
+            point: forwardingPoint(event), cellSize: cellSizeInPoints(), grid: session.surfaceGeometry()?.grid,
+            lines: lines
         )
     }
 
@@ -382,23 +415,25 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// The click point in the surface's top-left-origin point space -- the
     /// same y-flip `GhosttySession.sendMousePosition` applies for
     /// `ghostty_surface_mouse_pos`, so app and surface see one coordinate
-    /// system.
+    /// system. Origin 0 is the grid's origin because the scratch config
+    /// zeroes libghostty's window padding (`GhosttyThemeConfig`).
     private func forwardingPoint(_ event: NSEvent) -> MouseForwarding.Point {
         let point = convert(event.locationInWindow, from: nil)
         return MouseForwarding.Point(x: Double(point.x), y: Double(bounds.height - point.y))
     }
 
-    /// One cell in view POINTS: libghostty reports the cell in pixels
-    /// (`GHOSTTY_ACTION_CELL_SIZE`), and the surface is sized in pixels
-    /// (`bounds * scale`), but the click point above is in points, so the
-    /// pixel cell is divided by the backing scale to match. `nil` until the
-    /// first cell-size action arrives; `MouseForwarding` then falls back to
-    /// the surface path rather than fabricate a cell.
+    /// One cell in view POINTS: libghostty sizes the surface and reports its
+    /// cell in pixels (`ghostty_surface_size`), but the click point above is
+    /// in points, so the pixel cell is divided by the backing scale to match.
+    /// `nil` until the surface has laid out; `MouseForwarding` then falls back
+    /// to the surface path rather than fabricate a cell.
     private func cellSizeInPoints() -> MouseForwarding.CellSize? {
-        guard let cell = session.state.cellSize, cell.width > 0, cell.height > 0 else { return nil }
+        guard let geometry = session.surfaceGeometry() else { return nil }
         let scale = Double(window?.backingScaleFactor ?? window?.screen?.backingScaleFactor ?? 2)
         guard scale > 0 else { return nil }
-        return MouseForwarding.CellSize(width: Double(cell.width) / scale, height: Double(cell.height) / scale)
+        return MouseForwarding.CellSize(
+            width: Double(geometry.cellPixels.width) / scale, height: Double(geometry.cellPixels.height) / scale
+        )
     }
 
     /// Deep history reveals by intent: an up-scroll while

@@ -82,9 +82,10 @@ final class GhosttySession {
     /// the raw DECSET), so this out-of-band flag is what tells the view
     /// whether a click belongs to the app (`.toApp` via the control FIFO) or
     /// to libghostty's own selection. Reset to false whenever the pane drops
-    /// to observe mode, which never reports capture.
+    /// to observe mode, which never reports capture. `sgr_pixels` is not kept:
+    /// a control client never negotiates pixel mouse, so herdr always reports
+    /// it false.
     private(set) var mouseCaptureEnabled = false
-    private(set) var mouseSgrPixels = false
 
     init(host: GhosttyHost, paneID: PaneID, configuration: Launch) {
         self.host = host
@@ -346,16 +347,23 @@ final class GhosttySession {
     /// pane would wrongly forward instead of showing the menu.
     func setPaneMode(_ mode: PaneMode) {
         if mode == .observe {
-            setMouseCapture(enabled: false, sgrPixels: false)
+            setMouseCapture(enabled: false)
         }
         controlChannel?.setMode(mode)
     }
 
-    /// Records the pane app's mouse-reporting state as reported by the bridge.
-    /// Called on the main actor from `statusChannel`'s reader callback.
-    func setMouseCapture(enabled: Bool, sgrPixels: Bool) {
+    /// Records the pane app's mouse-reporting state as reported by the bridge
+    /// (called on the main actor from `statusChannel`'s reader). A true ->
+    /// false transition tells the view to drop any pending wheel remainder:
+    /// a momentum tail that lands after the app disabled mouse mode would
+    /// otherwise still be forwarded, and herdr routes a wheel event on a
+    /// non-reporting pane to its SHARED scrollback viewport.
+    func setMouseCapture(enabled: Bool) {
+        let wasEnabled = mouseCaptureEnabled
         mouseCaptureEnabled = enabled
-        mouseSgrPixels = sgrPixels
+        if wasEnabled, !enabled {
+            view?.mouseCaptureDidEnd()
+        }
     }
 
     /// Sends one structured mouse event to the pane's own program over the
@@ -363,6 +371,20 @@ final class GhosttySession {
     /// paddock's libghostty is never in reporting mode.
     func sendPaneMouse(_ command: MouseForwarding.Command) {
         controlChannel?.send(command.json())
+    }
+
+    /// The surface's live grid and cell, read from libghostty
+    /// (`ghostty_surface_size`) rather than from the action-delivered
+    /// `state.cellSize`, so the clamp and the cell divisor come from the same
+    /// snapshot. `nil` before the surface exists or before its first layout.
+    func surfaceGeometry() -> (grid: MouseForwarding.GridSize, cellPixels: (width: Int, height: Int))? {
+        guard let surface else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard size.columns > 0, size.rows > 0, size.cell_width_px > 0, size.cell_height_px > 0 else { return nil }
+        return (
+            MouseForwarding.GridSize(columns: Int(size.columns), rows: Int(size.rows)),
+            (Int(size.cell_width_px), Int(size.cell_height_px))
+        )
     }
 
     func openHoveredLink() {

@@ -16,7 +16,7 @@ public enum RightClickDisposition: Equatable, Sendable {
     /// is returned).
     case forwardToPane
 
-    /// The rule (Matt's, folding capture in):
+    /// The rule:
     /// - Observe-mode pane: always `.menu`. The herdr action menu works on
     ///   any pane, and an unfocused pane has no input path to forward to.
     /// - Control-mode pane with Option held: always `.menu`. Option is the

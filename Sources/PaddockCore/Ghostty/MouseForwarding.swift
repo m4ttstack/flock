@@ -79,14 +79,26 @@ public enum MouseForwarding {
         }
     }
 
+    /// The terminal grid in cells, for clamping a point in the right/bottom
+    /// remainder (or past the surface) onto the last cell the way libghostty's
+    /// own grid lookup does. herdr drops any event whose cell is outside the
+    /// terminal, so without the clamp a down in range whose up drifted into
+    /// the remainder would leave the app with an unpaired down.
+    public struct GridSize: Equatable, Sendable {
+        public var columns: Int
+        public var rows: Int
+        public init(columns: Int, rows: Int) {
+            self.columns = columns
+            self.rows = rows
+        }
+    }
+
     /// A `terminal.mouse` command for the control FIFO. Cell coordinates are
-    /// ZERO-based, matching `ClientMousePosition::Cell`: herdr converts them
-    /// to 1-based SGR when it encodes for the pane. Confirmed live against
-    /// herdr v0.9.0 + this branch: `{"column":9,"row":4}` produced the SGR
-    /// report `ESC[<0;10;5M` (see src/server/pane_input.rs
-    /// `terminal_attach_mouse_position`, which passes `Cell{column,row}`
-    /// straight to `ghostty_mouse_position_for_terminal`, and
-    /// src/pane/input.rs:99 which uses them as the raw encoder position).
+    /// ZERO-based, matching `ClientMousePosition::Cell`: herdr passes them
+    /// straight to its encoder (src/server/pane_input.rs
+    /// `terminal_attach_mouse_position`, src/pane/input.rs
+    /// `ghostty_mouse_position_for_terminal`), which emits the 1-based SGR
+    /// report, so `{"column":9,"row":4}` becomes `ESC[<0;10;5M`.
     public struct Command: Equatable, Sendable {
         public var kind: String
         public var button: String?
@@ -157,6 +169,7 @@ public enum MouseForwarding {
         modifiers: UInt8,
         point: Point,
         cellSize: CellSize?,
+        grid: GridSize?,
         captureEnabled: Bool,
         mode: PaneMode,
         shiftHeld: Bool,
@@ -167,7 +180,7 @@ public enum MouseForwarding {
         guard captureEnabled else { return .toSurface }
         guard let command = command(
             kind: kind, button: button, modifiers: modifiers,
-            point: point, cellSize: cellSize, lines: lines
+            point: point, cellSize: cellSize, grid: grid, lines: lines
         ) else {
             return .toSurface
         }
@@ -177,14 +190,17 @@ public enum MouseForwarding {
     /// Builds the `terminal.mouse` command for an event, or nil when it
     /// cannot be expressed on the wire: no cell size known yet, a button-kind
     /// with no button, or a button past middle (no `ClientMouseButton`
-    /// variant). Exposed so the view can build the paired UP that must follow
-    /// a DOWN that went `.toApp`, without re-running the whole decision.
+    /// variant). The cell is floored from the point and clamped into `grid`
+    /// when one is known (a nil grid leaves the raw floor; herdr is the final
+    /// gate). Exposed so the view can build the paired UP that must follow a
+    /// DOWN that went `.toApp`, without re-running the whole decision.
     public static func command(
         kind: EventKind,
         button: Button?,
         modifiers: UInt8,
         point: Point,
         cellSize: CellSize?,
+        grid: GridSize?,
         lines: Int
     ) -> Command? {
         guard let cellSize, cellSize.width > 0, cellSize.height > 0 else { return nil }
@@ -200,8 +216,12 @@ public enum MouseForwarding {
         case (false, .none):
             wireButton = nil
         }
-        let column = max(0, Int((point.x / cellSize.width).rounded(.down)))
-        let row = max(0, Int((point.y / cellSize.height).rounded(.down)))
+        var column = max(0, Int((point.x / cellSize.width).rounded(.down)))
+        var row = max(0, Int((point.y / cellSize.height).rounded(.down)))
+        if let grid, grid.columns > 0, grid.rows > 0 {
+            column = min(column, grid.columns - 1)
+            row = min(row, grid.rows - 1)
+        }
         return Command(
             kind: kind.wireName, button: wireButton, column: column, row: row,
             modifiers: modifiers, lines: max(1, lines)

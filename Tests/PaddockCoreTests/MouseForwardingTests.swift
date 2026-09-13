@@ -17,7 +17,7 @@ final class MouseForwardingTests: XCTestCase {
     ) -> MouseForwarding.Decision {
         MouseForwarding.decide(
             kind: kind, button: button, modifiers: modifiers,
-            point: point, cellSize: cellSize ?? cell,
+            point: point, cellSize: cellSize ?? cell, grid: nil,
             captureEnabled: captureEnabled, mode: mode, shiftHeld: shiftHeld, lines: lines
         )
     }
@@ -64,7 +64,7 @@ final class MouseForwardingTests: XCTestCase {
     func testMissingCellSizeFallsBackToSurface() {
         let decision = MouseForwarding.decide(
             kind: .down, button: .left, modifiers: 0,
-            point: .init(x: 10, y: 10), cellSize: nil,
+            point: .init(x: 10, y: 10), cellSize: nil, grid: nil,
             captureEnabled: true, mode: .control, shiftHeld: false, lines: 1
         )
         XCTAssertEqual(decision, .toSurface, "no cell size yet: never fabricate a cell, fall back to the surface")
@@ -73,7 +73,7 @@ final class MouseForwardingTests: XCTestCase {
     func testButtonlessKindWithNoCellAlsoFallsBack() {
         let decision = MouseForwarding.decide(
             kind: .moved, button: nil, modifiers: 0,
-            point: .init(x: 10, y: 10), cellSize: nil,
+            point: .init(x: 10, y: 10), cellSize: nil, grid: nil,
             captureEnabled: true, mode: .control, shiftHeld: false, lines: 1
         )
         XCTAssertEqual(decision, .toSurface)
@@ -82,9 +82,8 @@ final class MouseForwardingTests: XCTestCase {
     // MARK: - Command shape and coordinate conversion
 
     /// Cells are ZERO-based on the wire. Point (75, 70) with an 8x16 cell is
-    /// column floor(75/8)=9, row floor(70/16)=4 -- which herdr encodes as the
-    /// 1-based SGR report ESC[<0;10;5M (confirmed live against this branch;
-    /// see MouseForwarding.Command's doc and src/pane/input.rs:99).
+    /// column floor(75/8)=9, row floor(70/16)=4, which herdr's encoder emits
+    /// as the 1-based SGR report ESC[<0;10;5M (see MouseForwarding.Command).
     func testDownCommandConvertsPointToZeroBasedCell() {
         guard case .toApp(let command) = decide(
             point: .init(x: 75, y: 70), captureEnabled: true, mode: .control
@@ -96,6 +95,46 @@ final class MouseForwardingTests: XCTestCase {
         XCTAssertEqual(command.column, 9)
         XCTAssertEqual(command.row, 4)
         XCTAssertEqual(command.lines, 1)
+    }
+
+    /// The far edge clamps to the last cell, as libghostty's own grid lookup
+    /// does: herdr drops any event whose cell is outside the terminal, so a
+    /// down in range whose up drifted into the right/bottom remainder would
+    /// otherwise leave the app with an unpaired down.
+    func testCellClampsToGridFarEdge() {
+        let grid = MouseForwarding.GridSize(columns: 80, rows: 24)
+        // 80 columns * 8pt = 640pt; the remainder past that and any overshoot
+        // must land on column 79 / row 23.
+        guard case .toApp(let command) = MouseForwarding.decide(
+            kind: .up, button: .left, modifiers: 0,
+            point: .init(x: 645, y: 400), cellSize: cell, grid: grid,
+            captureEnabled: true, mode: .control, shiftHeld: false, lines: 1
+        ) else {
+            return XCTFail("expected toApp")
+        }
+        XCTAssertEqual(command.column, 79)
+        XCTAssertEqual(command.row, 23)
+        // Exactly on the last cell is unchanged by the clamp.
+        guard case .toApp(let last) = MouseForwarding.decide(
+            kind: .down, button: .left, modifiers: 0,
+            point: .init(x: 639, y: 383), cellSize: cell, grid: grid,
+            captureEnabled: true, mode: .control, shiftHeld: false, lines: 1
+        ) else {
+            return XCTFail("expected toApp")
+        }
+        XCTAssertEqual([last.column, last.row], [79, 23])
+    }
+
+    func testMissingGridDoesNotClamp() {
+        // No grid known yet: the raw floor stands (herdr is the final gate).
+        guard case .toApp(let command) = MouseForwarding.decide(
+            kind: .down, button: .left, modifiers: 0,
+            point: .init(x: 645, y: 400), cellSize: cell, grid: nil,
+            captureEnabled: true, mode: .control, shiftHeld: false, lines: 1
+        ) else {
+            return XCTFail("expected toApp")
+        }
+        XCTAssertEqual([command.column, command.row], [80, 25])
     }
 
     func testCellFloorsWithinACellAndClampsNegatives() {
@@ -154,13 +193,13 @@ final class MouseForwardingTests: XCTestCase {
             decide(button: .other(3), captureEnabled: true, mode: .control), .toSurface)
         XCTAssertNil(MouseForwarding.command(
             kind: .down, button: .other(3), modifiers: 0,
-            point: .init(x: 0, y: 0), cellSize: cell, lines: 1))
+            point: .init(x: 0, y: 0), cellSize: cell, grid: nil, lines: 1))
     }
 
     func testDownKindWithNoButtonProducesNoCommand() {
         XCTAssertNil(MouseForwarding.command(
             kind: .down, button: nil, modifiers: 0,
-            point: .init(x: 0, y: 0), cellSize: cell, lines: 1))
+            point: .init(x: 0, y: 0), cellSize: cell, grid: nil, lines: 1))
     }
 }
 
