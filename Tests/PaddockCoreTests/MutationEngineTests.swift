@@ -134,9 +134,12 @@ final class MutationEngineTests: XCTestCase {
         // p1 started as the split's FIRST child (rects 0-40 vs 40-80 in
         // splitPairModel), so restoring it there after the default
         // second-child landing needs a trailing swap (F5 / R1's side rule).
+        // That move crosses back from w9 into w1, re-keying the pane, so the
+        // swap must reference it via a placeholder naming the move's own
+        // step, never the literal "w9:p1" (N3 / OpPlan's own contract).
         XCTAssertEqual(executed.inverse.ops, [
             .movePaneToTab(PaneID(rawValue: "w9:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
-            .swapPanes(PaneID(rawValue: "w9:p1"), PaneID(rawValue: "w1:p2")),
+            .swapPanes(PaneID.planPlaceholder(movedByStep: 0), PaneID(rawValue: "w1:p2")),
         ])
     }
 
@@ -453,9 +456,12 @@ final class MutationEngineTests: XCTestCase {
         let result = await engine.execute(forwardPlan, model: twoPaneModel)
         guard let executed = expectSuccess(result) else { return }
 
+        // The anchor's own move (step 0) crosses back from w2 into w1,
+        // re-keying it, so step 1's target must be a placeholder naming
+        // step 0, never the literal "w2:p1" (N3).
         XCTAssertEqual(executed.inverse.ops, [
             .movePaneToNewTab(PaneID(rawValue: "w2:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
-            .movePaneToTab(PaneID(rawValue: "w2:p2"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID(rawValue: "w2:p1"), split: .right, ratio: 0.5),
+            .movePaneToTab(PaneID(rawValue: "w2:p2"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID.planPlaceholder(movedByStep: 0), split: .right, ratio: 0.5),
         ])
     }
 

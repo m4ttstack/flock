@@ -248,7 +248,10 @@ private func unzoomList(model: SessionModel, source: TabID?, destination: TabID?
 }
 
 /// A tab's split layout reconstructed as a binary tree from
-/// `LayoutSnapshot`'s flat `splits`/`panes` arrays.
+/// `LayoutSnapshot`'s flat `splits`/`panes` arrays. Internal (not
+/// `private`): `MutationEngine` reuses this same reconstruction to rebuild
+/// a migrated tab's original shape for its inverse, rather than duplicating
+/// tree-building logic that must stay in lockstep with this one.
 ///
 /// `SessionModel` -- unlike `SessionViewModel`'s `layoutExportCoordinator`,
 /// which is outside PaddockCore's pure model -- carries no `layout.export`
@@ -260,7 +263,7 @@ private func unzoomList(model: SessionModel, source: TabID?, destination: TabID?
 /// exactly matches a child region is that child. A tree that cannot be
 /// reconstructed this way (no split or pane rect matches some child region)
 /// fails the plan rather than guessing at a shape.
-private indirect enum SplitTree {
+indirect enum SplitTree {
     case pane(PaneID)
     case split(direction: SplitDirection, ratio: Double, first: SplitTree, second: SplitTree)
 

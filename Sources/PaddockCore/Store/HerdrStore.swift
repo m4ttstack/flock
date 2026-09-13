@@ -54,6 +54,13 @@ public final class HerdrStore {
     private var resolvedConvergence: [Int: Bool] = [:]
     private var isStopped = false
 
+    /// Test seam only: production code never reads this. `resolvedConvergence`
+    /// should hold at most the one entry a just-landed early convergence
+    /// event stashed for a task that has not yet called
+    /// `awaitConvergenceResolution` to collect it -- a growing count would
+    /// mean some path is stashing a result nothing will ever read.
+    var pendingConvergenceResultCountForTesting: Int { resolvedConvergence.count }
+
     private struct PendingConvergence {
         let generation: Int
         let kinds: Set<ConvergenceKind>
@@ -176,6 +183,20 @@ public final class HerdrStore {
         }
     }
 
+    /// Clears a still-pending watch WITHOUT stashing a result -- used on the
+    /// failure path, where nothing ever spawned a task that will call
+    /// `awaitConvergenceResolution` for this generation to collect it. Using
+    /// `resolveConvergence` there instead would leave one `resolvedConvergence`
+    /// entry behind per failed `execute`, forever.
+    private func discardConvergence(_ generation: Int) {
+        guard pendingConvergence?.generation == generation else { return }
+        pendingConvergence = nil
+        if let pair = convergenceContinuation, pair.generation == generation {
+            convergenceContinuation = nil
+            pair.continuation.resume(returning: false)
+        }
+    }
+
     /// Waits for `armConvergence(kinds:generation:)`'s watch to resolve,
     /// picking up an outcome that already landed (a matching event arrived
     /// during the round trip, or the watch was superseded) before this is
@@ -194,7 +215,7 @@ public final class HerdrStore {
     }
 
     private func revertAndResnapshot(fallback: SessionModel, generation: Int) async {
-        resolveConvergence(generation, matched: false)
+        discardConvergence(generation)
         guard !isStopped, overlayGeneration == generation else { return }
         model = fallback
         let client = HerdrClient(socketPath: socketPath)
