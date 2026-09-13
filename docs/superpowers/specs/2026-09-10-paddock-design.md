@@ -223,14 +223,15 @@ transform/opacity only, interruptible springs.
 - **Right-click routing (herdr 0.9, v1):** paddock surfaces the per-pane
   `pane.input.set { right_click: "pane" | "herdr" }` toggle in its pane
   context menu and pane header, reflecting the live routing state. The
-  Option+right-click gesture (one-off right-click delivered INTO the pane
-  app, mirroring herdr's `ui.right_click_passthrough_modifier`) ships in v1
-  (pulled forward 2026-09-12: the libghostty surface owns a real PTY, so a
-  mouse button forwards natively via `ghostty_surface_mouse_button` with
-  the Option modifier stripped). Disposition on a control-mode pane: Option
-  held = forward to pane, else routing toggle on = forward, else herdr
-  action menu. On an observe-mode pane Option+right-click does nothing
-  (input dropped, no menu).
+  Right-click disposition (Matt's ruling 2026-09-13, inverting the
+  earlier gesture): on the focused (control-mode) pane a PLAIN right-click
+  lands in the pane app whenever that app has mouse reporting on (herdr
+  reports the state as `MouseCapture`); when nothing in the pane is
+  listening it falls through to the herdr action menu. Option+right-click
+  always opens the herdr action menu. Unfocused (observe-mode) panes:
+  right-click opens the menu, nothing ever forwards. Paddock does not
+  mirror herdr's per-pane `right_click` routing setting (herdr's own TUI
+  keeps it); the paddock context-menu toggle is gone.
 - **Attention toasts (v1):** top-right stack derived from
   `pane.agent_status_changed` / `pane.agent_detected` (blocked = needs
   input, working-to-idle/done = finished). Click = jump: `workspace.focus` +
