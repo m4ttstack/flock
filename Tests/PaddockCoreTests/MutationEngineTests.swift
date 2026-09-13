@@ -465,6 +465,119 @@ final class MutationEngineTests: XCTestCase {
         ])
     }
 
+    /// N1: a 3-pane origin tab (`A | (B over C)`) previously broke the
+    /// migration inverse, which replayed each pane's pairwise sibling
+    /// record in step order instead of the tree `planTabMigration` itself
+    /// used: C's recorded neighbor is B, and B's recorded neighbor is A, but
+    /// by the time C's inverse move ran, B (its supposed target) was not
+    /// yet IN the new tab -- herdr rejects a move whose target isn't
+    /// already present there. The correct inverse replays the tree itself
+    /// (anchor = leftmost = A, pre-order), so both B and C's moves target
+    /// placeholders naming earlier steps of THIS SAME reconstruction, never
+    /// each other directly.
+    func testMigrationInverseForA3PaneOriginTabReplaysTheTreeNotPairwiseNeighbors() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respondSequence(to: "pane.move", withResultJSONs: [
+            #"{"move_result":{"pane":{"pane_id":"w2:pA"},"created_workspace":{"workspace_id":"w2"},"created_tab":{"tab_id":"w2:t9"}}}"#,
+            #"{"move_result":{"pane":{"pane_id":"w2:pB"}}}"#,
+            #"{"move_result":{"pane":{"pane_id":"w2:pC"}}}"#,
+        ])
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        // Root splits right into (A | nested); nested splits down into
+        // (B | C). A occupies the left half; B the top-right quarter; C the
+        // bottom-right quarter.
+        let threePaneModel = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 3)],
+            panes: [
+                paneRecord("w1:pA", workspace: "w1", tab: "w1:t1", focused: true),
+                paneRecord("w1:pB", workspace: "w1", tab: "w1:t1"),
+                paneRecord("w1:pC", workspace: "w1", tab: "w1:t1"),
+            ],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:pA",
+                panes: [
+                    paneRect("w1:pA", rect(0, 0, 40, 24), focused: true),
+                    paneRect("w1:pB", rect(40, 0, 40, 12)),
+                    paneRect("w1:pC", rect(40, 12, 40, 12)),
+                ],
+                splits: [
+                    splitInfo("root", .right, 0.5, rect(0, 0, 80, 24)),
+                    splitInfo("nested", .down, 0.5, rect(40, 0, 40, 24)),
+                ]
+            )]
+        )
+        guard let forwardPlan = expectPlanSuccess(plan(
+            dragging: .tab(TabID(rawValue: "w1:t1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), model: threePaneModel
+        )) else { return }
+        // Sanity: A anchors (leftmost) and stays the target for B (root's
+        // second child, brought in against A); C (nested's second child)
+        // then targets B's own step, since B is what now occupies the
+        // nested subtree's region -- per GesturePlanner's own anchor-
+        // carrying convention.
+        XCTAssertEqual(forwardPlan.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:pA"), workspace: WorkspaceID(rawValue: "w2"), label: nil),
+            .movePaneToTab(PaneID(rawValue: "w1:pB"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID.planPlaceholder(movedByStep: 0), split: .right, ratio: 0.5),
+            .movePaneToTab(PaneID(rawValue: "w1:pC"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID.planPlaceholder(movedByStep: 1), split: .down, ratio: 0.5),
+        ])
+
+        let result = await engine.execute(forwardPlan, model: threePaneModel)
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertEqual(executed.inverse.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w2:pA"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
+            .movePaneToTab(PaneID(rawValue: "w2:pB"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID.planPlaceholder(movedByStep: 0), split: .right, ratio: 0.5),
+            .movePaneToTab(PaneID(rawValue: "w2:pC"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID.planPlaceholder(movedByStep: 1), split: .down, ratio: 0.5),
+        ])
+    }
+
+    /// N2: a plan mixing a simple op with a bounce built the bounce's own
+    /// placeholders relative to the tracker's local array, but the combined
+    /// inverse used to be simpleInverseOps FIRST -- shifting every
+    /// move-group placeholder's target step by however many simple ops
+    /// preceded it, so the closeTab below resolved against the wrong step
+    /// (the rename's own inverse) and the whole inverse plan failed
+    /// unresolved_placeholder. Runs the inverse for real against the fake
+    /// to prove the closeTab actually resolves, not just that the op list
+    /// looks right.
+    func testCompositeRenameAndBouncePlanProducesAnExecutableInverse() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "tab.rename", withResultJSON: "{}")
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"},"created_tab":{"tab_id":"w1:tTEMP"}}}"#)
+        fake.failNext(method: "tab.close", code: "tab_not_found", message: "already gone")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let renameOp = PrimitiveOp.renameTab(TabID(rawValue: "w1:t1"), "newlabel")
+        let moveOutOp = PrimitiveOp.movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil)
+        let moveBackOp = PrimitiveOp.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .down, ratio: 0.5)
+        let closeOp = PrimitiveOp.closeTab(TabID.planPlaceholder(createdByStep: 1))
+        let plan = OpPlan(ops: [renameOp, moveOutOp, moveBackOp, closeOp], label: "Rename then bounce")
+
+        let result = await engine.execute(plan, model: splitPairModel())
+        guard let executed = expectSuccess(result) else { return }
+
+        // Move-group ops first (their own placeholders are position-0
+        // relative), the rename's simple inverse after.
+        XCTAssertEqual(executed.inverse.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
+            .movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
+            .closeTab(TabID.planPlaceholder(createdByStep: 0)),
+            .swapPanes(PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")),
+            .renameTab(TabID(rawValue: "w1:t1"), "w1:t1"),
+        ])
+
+        // Now actually run the inverse: the closeTab's placeholder must
+        // resolve against the FIRST move op of THIS plan, not get thrown
+        // off by the rename that now trails it.
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"},"created_tab":{"tab_id":"w1:tTEMP2"}}}"#)
+        fake.respond(to: "pane.swap", withResultJSON: #"{"swap":{"reason":null}}"#)
+        fake.respond(to: "tab.close", withResultJSON: "{}")
+        guard case .success = await engine.execute(executed.inverse, model: splitPairModel()) else {
+            return XCTFail("expected the inverse plan itself to execute successfully")
+        }
+    }
+
     private func expectPlanSuccess(_ result: Result<OpPlan, PlanError>, file: StaticString = #filePath, line: UInt = #line) -> OpPlan? {
         switch result {
         case .success(let plan): return plan
