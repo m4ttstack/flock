@@ -81,10 +81,9 @@ public final class SessionViewModel {
     // failure would.
     private let layoutExportCoordinator: LayoutExportCoordinator?
 
-    // Absent only in tests that construct a bare `SessionViewModel(client:)`
-    // with no plan-execution seam at all: `closePane` then falls back to its
-    // pre-Task-22 raw `pane.close` send, and `perform` is simply a no-op
-    // (there is nothing it could route a plan to).
+    // A `nil` `planExecutor` means no plan-execution seam exists at all:
+    // `closePane` then falls back to a raw `pane.close` send, and `perform`
+    // is a no-op (there is nothing it could route a plan to).
     private let planExecutor: (any PlanExecuting)?
     private let undoJournal: UndoJournal?
     private let noticeSink: @MainActor (String) -> Void
@@ -536,17 +535,32 @@ public final class SessionViewModel {
     /// so undoing it surfaces "nothing to undo for a close" rather than
     /// silently doing nothing. Falls back to a raw `pane.close` send when no
     /// executor was injected (test doubles that only supply a bare client).
+    /// When an `undoJournal` is also injected, this runs through its shared
+    /// chain (see `UndoJournal.runExclusively`) so it can never interleave
+    /// with an in-flight `perform`/`undo`/`redo`.
     public func closePane(_ pane: PaneID) async {
         guard let planExecutor else {
             _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
             return
         }
-        let result = await planExecutor.execute(OpPlan(ops: [.closePane(pane)], label: "Close pane"))
+        guard let undoJournal else {
+            await Self.closePane(pane, executor: planExecutor, notify: noticeSink) { _ in }
+            return
+        }
+        await undoJournal.runExclusively { [noticeSink] in
+            await Self.closePane(pane, executor: planExecutor, notify: noticeSink, record: undoJournal.record)
+        }
+    }
+
+    private static func closePane(
+        _ pane: PaneID, executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void
+    ) async {
+        let result = await executor.execute(OpPlan(ops: [.closePane(pane)], label: "Close pane"))
         switch result {
         case .success(let executed):
-            undoJournal?.record(executed)
+            record(executed)
         case .failure(let failure):
-            noticeSink("Close pane failed: \(failure.message)")
+            notify("Close pane failed: \(failure.message)")
         }
     }
 
@@ -555,21 +569,45 @@ public final class SessionViewModel {
     /// `planExecutor`, and records the outcome in `undoJournal`. `.noOp`
     /// (e.g. a pane dropped onto its own tab) is silently ignored -- the
     /// menu already excludes the pane's own tab, so this is a defensive
-    /// no-op rather than a path real menu selections take.
+    /// no-op rather than a path real menu selections take. When an
+    /// `undoJournal` is injected, this runs through its shared chain so it
+    /// can never interleave with an in-flight `undo`/`redo` (a `record` call
+    /// racing an in-flight `undo`'s own stack mutation would otherwise be
+    /// able to wipe the redo stack mid-step).
     public func perform(subject: DragSubject, target: DropTarget) async {
-        guard let model, let planExecutor else { return }
+        guard planExecutor != nil else { return }
+        guard let undoJournal else {
+            guard let model, let planExecutor else { return }
+            await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: noticeSink) { _ in }
+            return
+        }
+        // Reads `model` fresh once this closure actually runs, not at the
+        // moment `perform` was called: queued behind an in-flight
+        // undo/redo, the model can move on while this waits its turn, and
+        // planning against a snapshot captured before the wait would plan
+        // against a tab/workspace arrangement that no longer holds.
+        await undoJournal.runExclusively { [weak self] in
+            guard let self, let model = self.model, let planExecutor = self.planExecutor else { return }
+            await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: self.noticeSink, record: undoJournal.record)
+        }
+    }
+
+    private static func perform(
+        subject: DragSubject, target: DropTarget, model: SessionModel,
+        executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void
+    ) async {
         switch plan(dragging: subject, onto: target, model: model) {
         case .failure(.noOp):
             return
         case .failure(.invalidCombination):
-            noticeSink("Can't move there")
+            notify("Can't move there")
         case .success(let opPlan):
-            let result = await planExecutor.execute(opPlan)
+            let result = await executor.execute(opPlan)
             switch result {
             case .success(let executed):
-                undoJournal?.record(executed)
+                record(executed)
             case .failure(let failure):
-                noticeSink("\(opPlan.label) failed: \(failure.message)")
+                notify("\(opPlan.label) failed: \(failure.message)")
             }
         }
     }

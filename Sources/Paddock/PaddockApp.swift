@@ -185,13 +185,13 @@ struct PaddockApp: App {
                     Task { await undoJournal.undo() }
                 }
                 .keyboardShortcut("z", modifiers: .command)
-                .disabled(!undoJournal.canUndo)
+                .disabled(!undoJournal.canUndo || undoJournal.isBusy)
                 .accessibilityIdentifier("paddock.edit.undo")
                 Button(undoJournal.redoLabel.map { "Redo \($0)" } ?? "Redo") {
                     Task { await undoJournal.redo() }
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(!undoJournal.canRedo)
+                .disabled(!undoJournal.canRedo || undoJournal.isBusy)
                 .accessibilityIdentifier("paddock.edit.redo")
             }
         }
