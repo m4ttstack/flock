@@ -211,4 +211,109 @@ final class HerdrStoreTests: XCTestCase {
             store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID == TabID(rawValue: "w1:t1")
         }
     }
+
+    /// F3: herdr's `pane.rename` handler emits no event at all for a
+    /// label-only change, so a plan of nothing but renamePane ops must arm
+    /// no watch -- there is nothing to ever confirm it with, and a timeout
+    /// would otherwise revert a change that in fact landed.
+    @MainActor
+    func testRenamePaneOnlyPlanArmsNoWatchAndTheOverlayStandsPastTheTimeout() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "pane.rename", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .milliseconds(30))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.renamePane(PaneID(rawValue: "w1:p1"), "scratch")], label: "Rename")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.label, "scratch")
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.label, "scratch", "no watch was armed, so nothing should ever have reverted this")
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "no timeout-triggered re-snapshot should have fired")
+    }
+
+    /// F4(d): a plan whose every op maps to no convergence kind at all
+    /// (here, a close) must arm nothing either -- there is no prediction to
+    /// protect and no event family to ever wait for.
+    @MainActor
+    func testCloseOnlyPlanArmsNoWatch() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "tab.close", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .milliseconds(30))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.closeTab(TabID(rawValue: "w1:t2"))], label: "Close tab")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "no timeout-triggered re-snapshot should have fired")
+    }
+
+    /// F4(a): the convergence watch must be armed before the wire round trip
+    /// starts, since herdr's subscriber polls independently of any one
+    /// request -- a matching event can land while the `pane.move` call is
+    /// still in flight, and that must still count.
+    @MainActor
+    func testConvergenceEventDuringTheRoundTripCounts() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"}}}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .milliseconds(100))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let hold = fake.holdNext(method: "pane.move")
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move")
+        let task = Task { await store.execute(plan) }
+
+        // The request has reached the fake (and is now blocked on the hold)
+        // before the confirming event is pushed, so the watch -- armed
+        // synchronously before this call was even made -- is the only thing
+        // that can have caught it.
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "pane.move" } }
+        fake.pushEventLine(paneMovedToT2EventLine)
+        hold()
+
+        guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+        try await Task.sleep(nanoseconds: 250_000_000)
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID, TabID(rawValue: "w1:t2"), "the event that landed mid-round-trip must still have counted as convergence")
+    }
+
+    /// F4(b): a failed plan can still have partially applied real changes on
+    /// herdr's side, so the failure path must re-snapshot too, not just
+    /// revert to the pre-plan model.
+    @MainActor
+    func testFailurePathAlsoRequestsAResnapshot() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"changed":false,"reason":"zoomed_tab","pane":{"pane_id":"w1:p1"}}}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1)
+
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move")
+        switch await store.execute(plan) {
+        case .success: XCTFail("expected a failure")
+        case .failure: break
+        }
+
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 2, "the failure path must re-snapshot, not just revert to the pre-plan model")
+    }
 }
