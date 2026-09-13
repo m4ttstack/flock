@@ -180,6 +180,21 @@ final class GesturePlannerTests: XCTestCase {
         }
     }
 
+    /// A pane dropped on its own edge must not enter the same-tab bounce:
+    /// the bounce's second op would target the dragged pane itself after it
+    /// already moved to the temp tab, failing at execution rather than
+    /// being a no-op.
+    func testDropOnOwnEdgeIsNoOp() {
+        let model = twoTabModel()
+        for edge: Edge in [.left, .right, .top, .bottom] {
+            let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .paneEdge(PaneID(rawValue: "w1:p1"), edge), model: model)
+            switch result {
+            case .failure(.noOp): break
+            default: XCTFail("expected .noOp for edge \(edge), got \(result)")
+            }
+        }
+    }
+
     // MARK: - Named test 8: zoomed target tab is listed in needsUnzoom
 
     func testZoomedTargetListedInNeedsUnzoom() {
@@ -247,6 +262,28 @@ final class GesturePlannerTests: XCTestCase {
                 target: PaneID.planPlaceholder(movedByStep: 0), split: .down, ratio: 0.5
             ),
         ])
+    }
+
+    /// A migration whose split list has no split rect exactly matching the
+    /// tab's own area cannot resolve a root, so the plan must fail rather
+    /// than guess at one (e.g. via a largest-area heuristic).
+    func testTabMigrationWithUnresolvableRootIsInvalidCombination() {
+        let model = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 2)],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true), paneRecord("w1:p2", workspace: "w1", tab: "w1:t1")],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24), focused: true), paneRect("w1:p2", rect(40, 0, 40, 24))],
+                // Deliberately mismatched: no split rect equals the tab's own area.
+                splits: [splitInfo("s1", .right, 0.5, rect(0, 0, 79, 24))]
+            )]
+        )
+        let result = plan(dragging: .tab(TabID(rawValue: "w1:t1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), model: model)
+        switch result {
+        case .failure(.invalidCombination): break
+        default: XCTFail("expected .invalidCombination, got \(result)")
+        }
     }
 
     // MARK: - Extra rules: pane -> paneInterior
@@ -322,6 +359,37 @@ final class GesturePlannerTests: XCTestCase {
     func testWorkspaceOntoTabStripIsInvalidCombination() {
         let model = twoTabModel()
         let result = plan(dragging: .workspace(WorkspaceID(rawValue: "w2")), onto: .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0), model: model)
+        switch result {
+        case .failure(.invalidCombination): break
+        default: XCTFail("expected .invalidCombination, got \(result)")
+        }
+    }
+
+    /// Pane-subject drops name a destination tab/workspace/tab id directly
+    /// (unlike tab/workspace-subject drops, which look theirs up from the
+    /// model), so each must validate that destination exists too, not just
+    /// the subject pane.
+    func testPaneToNonexistentTabThumbnailIsInvalidCombination() {
+        let model = twoTabModel()
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .tabThumbnail(TabID(rawValue: "nonexistent")), model: model)
+        switch result {
+        case .failure(.invalidCombination): break
+        default: XCTFail("expected .invalidCombination, got \(result)")
+        }
+    }
+
+    func testPaneToNonexistentWorkspaceThumbnailIsInvalidCombination() {
+        let model = twoTabModel()
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "nonexistent")), model: model)
+        switch result {
+        case .failure(.invalidCombination): break
+        default: XCTFail("expected .invalidCombination, got \(result)")
+        }
+    }
+
+    func testPaneToNonexistentNewTabWorkspaceIsInvalidCombination() {
+        let model = twoTabModel()
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .newTab(WorkspaceID(rawValue: "nonexistent")), model: model)
         switch result {
         case .failure(.invalidCombination): break
         default: XCTFail("expected .invalidCombination, got \(result)")

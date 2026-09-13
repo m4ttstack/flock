@@ -30,7 +30,7 @@ public enum DragSubject: Equatable, Sendable {
 /// Focus is the executor's concern, not the plan's: `pane.move` never
 /// focuses the moved pane on the wire (confirmed against herdr directly),
 /// and this planner does not add a `focusPane`/`focusTab` op to compensate
-/// either. Restoring focus after a plan runs is Task 21's job.
+/// either. Restoring focus after a plan runs is the executor's job.
 ///
 /// Some ops need an id this plan cannot know until an earlier op in the same
 /// plan has actually executed against herdr: the tab `movePaneToNewTab`

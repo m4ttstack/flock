@@ -1,8 +1,8 @@
 import Foundation
 
 /// Turns one drag gesture into an ordered `OpPlan` against `model`, per the
-/// design spec's verb table. Pure: no I/O, no herdr calls -- Task 21's
-/// executor is the only thing that runs `ops` for real.
+/// design spec's verb table. Pure: no I/O, no herdr calls -- the executor is
+/// the only thing that runs `ops` for real.
 public func plan(dragging subject: DragSubject, onto target: DropTarget, model: SessionModel) -> Result<OpPlan, PlanError> {
     switch (subject, target) {
     case let (.pane(pane), .paneEdge(t, edge)):
@@ -58,6 +58,9 @@ private struct EdgeMapping {
 }
 
 private func planPaneEdge(pane: PaneID, target t: PaneID, edge: Edge, model: SessionModel) -> Result<OpPlan, PlanError> {
+    if pane == t {
+        return .failure(.noOp)
+    }
     guard let subjectRecord = model.panes[pane], let targetRecord = model.panes[t] else {
         return .failure(.invalidCombination)
     }
@@ -122,7 +125,8 @@ private func planPaneInterior(pane: PaneID, target t: PaneID, model: SessionMode
 }
 
 private func planPaneToTabThumbnail(pane: PaneID, tab: TabID, model: SessionModel) -> Result<OpPlan, PlanError> {
-    guard let subjectRecord = model.panes[pane] else {
+    guard let subjectRecord = model.panes[pane],
+          model.tabs.values.contains(where: { $0.contains { $0.tabID == tab } }) else {
         return .failure(.invalidCombination)
     }
     return .success(OpPlan(
@@ -133,7 +137,8 @@ private func planPaneToTabThumbnail(pane: PaneID, tab: TabID, model: SessionMode
 }
 
 private func planPaneToNewTab(pane: PaneID, workspace: WorkspaceID, model: SessionModel) -> Result<OpPlan, PlanError> {
-    guard let subjectRecord = model.panes[pane] else {
+    guard let subjectRecord = model.panes[pane],
+          model.workspaces.contains(where: { $0.workspaceID == workspace }) else {
         return .failure(.invalidCombination)
     }
     return .success(OpPlan(
@@ -274,8 +279,7 @@ private indirect enum SplitTree {
         if layout.panes.count == 1 {
             return .pane(layout.panes[0].paneID)
         }
-        guard let root = layout.splits.first(where: { $0.rect == layout.area })
-            ?? layout.splits.max(by: { cellArea($0.rect) < cellArea($1.rect) }) else {
+        guard let root = layout.splits.first(where: { $0.rect == layout.area }) else {
             return nil
         }
         return buildSubtree(from: root, splits: layout.splits, panes: layout.panes)
@@ -318,6 +322,4 @@ private indirect enum SplitTree {
             return (first, second)
         }
     }
-
-    private static func cellArea(_ rect: CellRect) -> Int { rect.width * rect.height }
 }
