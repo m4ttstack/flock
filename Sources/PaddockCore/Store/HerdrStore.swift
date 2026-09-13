@@ -1,10 +1,6 @@
 import Foundation
 import Observation
 
-public struct OpPlan: Sendable {
-    public init() {}
-}
-
 public struct ExecutedPlan: Sendable {
     public init() {}
 }
