@@ -12,22 +12,34 @@ public protocol PlanExecuting: AnyObject {
 
 extension HerdrStore: PlanExecuting {}
 
-/// Undo/redo over `ExecutedPlan.inverse`, per pane-rearrange gesture.
+/// Undo/redo over `ExecutedPlan`, per pane-rearrange gesture.
 ///
-/// Both stacks hold `ExecutedPlan`s, not raw `OpPlan`s: undoing an entry
-/// means executing its `inverse`, and the `ExecutedPlan` THAT execution
-/// returns is itself pushed onto the opposite stack -- its own `.inverse` is
-/// exactly the plan that re-creates the entry just undone (the same
-/// placeholder-substitution machinery that made the original plan
-/// resolution-order-independent runs again, fresh, on each of these
-/// re-executions), so redo is simply "execute the popped entry's inverse"
-/// with no separate representation for "the forward direction" ever needed.
+/// `undoStack` holds entries ready to undo (execute `.inverse`);
+/// `redoStack` holds entries ready to redo (execute `.plan`, remapped
+/// through `.paneIDRemap` first -- see below). Undo pops an undo-stack
+/// entry, executes its `.inverse`, and on success pushes the SAME entry
+/// (never the result of running the inverse) onto the redo stack, with its
+/// `paneIDRemap` composed against whatever the inverse's own execution just
+/// revealed. Redo pops a redo-stack entry, substitutes its `.plan`'s
+/// literal pane ids through its `paneIDRemap` (a plan recorded against a
+/// pane's ORIGINAL id must reference whatever id that same physical pane
+/// currently holds, since undo's own move may have re-keyed it), executes
+/// the result, and pushes THAT fresh `ExecutedPlan` -- inverse and remap
+/// both newly computed against the live model -- onto the undo stack. This
+/// asymmetry (undo requeues the same entry; redo produces a fresh one) is
+/// what keeps `undoLabel`/`redoLabel` reading the label of the action each
+/// button would actually perform, and keeps every subsequent undo running
+/// against an inverse that is valid RIGHT NOW rather than one computed once
+/// and replayed stale.
 ///
-/// A popped entry is checked against the CURRENT model before it runs: every
-/// literal `PaneID`/`TabID`/`WorkspaceID` its `inverse` references must still
-/// exist (a placeholder id is exempt -- it only resolves once its own step
-/// has run, so it cannot be checked ahead of time and is never stale in this
-/// sense). A stale entry is dropped without being executed.
+/// A popped entry is checked against the CURRENT model before it runs:
+/// every literal `PaneID`/`TabID`/`WorkspaceID` the plan-to-run references
+/// must still exist (a placeholder id is exempt -- it only resolves once
+/// its own step has run). A `nil` model (not yet connected) restores the
+/// entry rather than discarding it -- that is a transient gap, not evidence
+/// the entry is actually stale. An entry whose `.inverse` has no ops at all
+/// (a close: herdr has no "recreate" verb) is dropped on undo without ever
+/// reaching the executor.
 @MainActor
 @Observable
 public final class UndoJournal {
@@ -38,6 +50,12 @@ public final class UndoJournal {
     private let executor: any PlanExecuting
     private let model: @MainActor () -> SessionModel?
     private let notify: @MainActor (String) -> Void
+
+    /// Every `perform`/`closePane`/`undo`/`redo` call runs through this one
+    /// chain (see `runExclusively`), so two of them -- issued back to back,
+    /// from anywhere -- can never interleave their stack/model mutations.
+    private var chain: Task<Void, Never>?
+    public private(set) var isBusy = false
 
     public init(
         executor: any PlanExecuting,
@@ -66,52 +84,86 @@ public final class UndoJournal {
         redoStack.removeAll()
     }
 
+    /// Runs `body` after any step already chained through this journal
+    /// finishes -- the same seam `undo`/`redo` use, exposed so
+    /// `SessionViewModel.perform`/`closePane` can serialize against undo/redo
+    /// too (all four mutate the same two stacks and the same live model).
+    /// `isBusy` covers the whole chain, not just undo/redo, so a consumer
+    /// (the Edit menu) can disable itself for the width of ANY in-flight step.
+    public func runExclusively(_ body: @escaping () async -> Void) async {
+        let previous = chain
+        let task = Task { [weak self] in
+            _ = await previous?.value
+            self?.isBusy = true
+            await body()
+            self?.isBusy = false
+        }
+        chain = task
+        await task.value
+    }
+
     public func undo() async {
-        await step(direction: .undo)
+        await runExclusively { [weak self] in await self?.performUndo() }
     }
 
     public func redo() async {
-        await step(direction: .redo)
+        await runExclusively { [weak self] in await self?.performRedo() }
     }
 
-    private enum Direction {
-        case undo, redo
-        var verb: String {
-            switch self {
-            case .undo: return "undo"
-            case .redo: return "redo"
-            }
-        }
-    }
-
-    /// Both directions are the same shape (per this type's own doc comment:
-    /// undo and redo are each just "execute the popped entry's inverse and
-    /// push what came back onto the other stack"), so one method reads/
-    /// writes `undoStack`/`redoStack` directly rather than threading them as
-    /// `inout` across the `await` below.
-    private func step(direction: Direction) async {
-        let entry: ExecutedPlan?
-        switch direction {
-        case .undo: entry = undoStack.popLast()
-        case .redo: entry = redoStack.popLast()
-        }
-        guard let entry else { return }
-        guard isFresh(entry) else {
-            notify("Can't \(direction.verb): \(entry.plan.label), panes changed")
+    private func performUndo() async {
+        guard let entry = undoStack.popLast() else { return }
+        guard !entry.inverse.ops.isEmpty else {
+            notify("Nothing to undo for \(entry.plan.label): closes are final")
             return
         }
-        let result = await executor.execute(entry.inverse)
+        guard let liveModel = model() else {
+            undoStack.append(entry)
+            notify("Can't undo: \(entry.plan.label), not connected")
+            return
+        }
+        guard Self.referencesExist(entry.inverse, model: liveModel) else {
+            notify("Can't undo: \(entry.plan.label), panes changed")
+            return
+        }
+
+        let result = await executor.execute(Self.addingNeedsUnzoom(to: entry.inverse, model: liveModel))
         switch result {
         case .success(let executedInverse):
-            switch direction {
-            case .undo: push(executedInverse, onto: &redoStack)
-            case .redo: push(executedInverse, onto: &undoStack)
-            }
+            let composedRemap = Self.composeRemap(entry.paneIDRemap, then: executedInverse.paneIDRemap)
+            push(
+                ExecutedPlan(plan: entry.plan, inverse: entry.inverse, irreversible: entry.irreversible, paneIDRemap: composedRemap),
+                onto: &redoStack
+            )
             if !entry.irreversible.isEmpty {
-                notify("\(direction.verb.capitalized) \(entry.plan.label) partially: \(Self.describe(entry.irreversible)) not undone")
+                notify("Undo \(entry.plan.label) partially: \(Self.describe(entry.irreversible)) not undone")
             }
         case .failure(let failure):
-            notify("Can't \(direction.verb) \(entry.plan.label): \(failure.message)")
+            notify(Self.failureNotice(verb: "undo", label: entry.plan.label, failure: failure))
+        }
+    }
+
+    private func performRedo() async {
+        guard let entry = redoStack.popLast() else { return }
+        guard let liveModel = model() else {
+            redoStack.append(entry)
+            notify("Can't redo: \(entry.plan.label), not connected")
+            return
+        }
+        let planToRun = Self.remapPaneIDs(in: entry.plan, using: entry.paneIDRemap)
+        guard Self.referencesExist(planToRun, model: liveModel) else {
+            notify("Can't redo: \(entry.plan.label), panes changed")
+            return
+        }
+
+        let result = await executor.execute(Self.addingNeedsUnzoom(to: planToRun, model: liveModel))
+        switch result {
+        case .success(let executed):
+            push(executed, onto: &undoStack)
+            if !entry.irreversible.isEmpty {
+                notify("Redo \(entry.plan.label) partially: \(Self.describe(entry.irreversible)) not undone")
+            }
+        case .failure(let failure):
+            notify(Self.failureNotice(verb: "redo", label: entry.plan.label, failure: failure))
         }
     }
 
@@ -122,13 +174,122 @@ public final class UndoJournal {
         }
     }
 
-    /// `entry.inverse` is about to run against the live model, so every
-    /// literal id it names must still be in it -- a placeholder never is,
-    /// but it also never needs to be (it resolves fresh off that inverse's
-    /// own `OpResult`s once it starts running, exactly like any other plan).
-    private func isFresh(_ entry: ExecutedPlan) -> Bool {
-        guard let model = model() else { return false }
-        return entry.inverse.ops.allSatisfy { Self.referencesExist($0, model: model) }
+    private static func failureNotice(verb: String, label: String, failure: OpFailure) -> String {
+        guard !failure.executed.isEmpty else {
+            return "Can't \(verb) \(label): \(failure.message)"
+        }
+        // Some ops in `planToRun` reached herdr before the failure -- silently
+        // discarding `failure.partialInverse` here would hide that the model
+        // no longer matches either the pre- or post-step state.
+        return "Can't \(verb) \(label): \(failure.message) (\(failure.executed.count) step(s) already ran and were not reverted)"
+    }
+
+    /// Substitutes every LITERAL (non-placeholder) `PaneID` in `plan`'s ops
+    /// through `remap`, leaving an id unmapped when `remap` has no entry for
+    /// it -- a literal id this plan never itself moved is assumed unchanged;
+    /// `referencesExist` (checked right after) is what catches it if that
+    /// assumption turns out wrong (closed out from under it some other way).
+    /// `TabID`/`WorkspaceID` literals are never re-keyed by any op, so only
+    /// `PaneID` substitution is needed.
+    private static func remapPaneIDs(in plan: OpPlan, using remap: [PaneID: PaneID]) -> OpPlan {
+        func pane(_ id: PaneID) -> PaneID {
+            guard id.planPlaceholderStep == nil else { return id }
+            return remap[id] ?? id
+        }
+        let remappedOps = plan.ops.map { op -> PrimitiveOp in
+            switch op {
+            case let .movePaneToTab(p, t, target, split, ratio):
+                return .movePaneToTab(pane(p), tab: t, target: target.map(pane), split: split, ratio: ratio)
+            case let .movePaneToNewTab(p, workspace, label):
+                return .movePaneToNewTab(pane(p), workspace: workspace, label: label)
+            case let .movePaneToNewWorkspace(p, label, tabLabel):
+                return .movePaneToNewWorkspace(pane(p), label: label, tabLabel: tabLabel)
+            case let .swapPanes(a, b):
+                return .swapPanes(pane(a), pane(b))
+            case let .renamePane(p, label):
+                return .renamePane(pane(p), label)
+            case let .closePane(p):
+                return .closePane(pane(p))
+            case let .zoom(p, mode):
+                return .zoom(pane(p), mode: mode)
+            case let .focusPane(p):
+                return .focusPane(pane(p))
+            case .setSplitRatio, .moveTab, .moveWorkspace, .renameTab, .renameWorkspace,
+                 .closeTab, .closeWorkspace, .focusTab, .focusWorkspace:
+                return op
+            }
+        }
+        return OpPlan(ops: remappedOps, label: plan.label, needsUnzoom: plan.needsUnzoom)
+    }
+
+    /// Chains two remaps end to end: for every `(origin, mid)` in `first`,
+    /// look `mid` up in `second` (falling back to `mid` itself when `second`
+    /// never touched that pane) -- so a pane re-keyed once by the plan an
+    /// entry was first recorded from, and again by whatever its inverse just
+    /// ran, still resolves from its ORIGINAL id all the way to its truly
+    /// current one.
+    private static func composeRemap(_ first: [PaneID: PaneID], then second: [PaneID: PaneID]) -> [PaneID: PaneID] {
+        var composed = first
+        for (origin, mid) in first {
+            composed[origin] = second[mid] ?? mid
+        }
+        return composed
+    }
+
+    /// Neither `entry.inverse` nor a redo's remapped `entry.plan` ever
+    /// carries a `needsUnzoom` of its own -- the forward gesture planner's
+    /// `OpPlan.needsUnzoom` only ever covered THAT gesture's own tabs, and
+    /// this journal builds no equivalent when it hands either plan back to
+    /// the executor. Computed fresh here, from the CURRENT model, over every
+    /// tab the plan's own ops reference, so a tab zoomed now (regardless of
+    /// whether it was zoomed when the entry was first recorded) is still
+    /// unzoomed before these ops run.
+    private static func addingNeedsUnzoom(to plan: OpPlan, model: SessionModel) -> OpPlan {
+        var tabs: [TabID] = []
+        for op in plan.ops {
+            for tab in tabsReferenced(by: op, model: model) where model.layouts[tab]?.zoomed == true && !tabs.contains(tab) {
+                tabs.append(tab)
+            }
+        }
+        guard !tabs.isEmpty else { return plan }
+        return OpPlan(ops: plan.ops, label: plan.label, needsUnzoom: tabs)
+    }
+
+    private static func tabsReferenced(by op: PrimitiveOp, model: SessionModel) -> [TabID] {
+        func tabOfPane(_ id: PaneID) -> TabID? {
+            guard id.planPlaceholderStep == nil else { return nil }
+            return model.panes[id]?.tabID
+        }
+        switch op {
+        case let .movePaneToTab(p, t, target, _, _):
+            return [tabOfPane(p), t, target.flatMap(tabOfPane)].compactMap { $0 }
+        case let .movePaneToNewTab(p, _, _):
+            return [tabOfPane(p)].compactMap { $0 }
+        case let .movePaneToNewWorkspace(p, _, _):
+            return [tabOfPane(p)].compactMap { $0 }
+        case let .swapPanes(a, b):
+            return [tabOfPane(a), tabOfPane(b)].compactMap { $0 }
+        case let .setSplitRatio(t, _, _):
+            return [t]
+        case let .moveTab(t, _):
+            return [t]
+        case let .renameTab(t, _):
+            return [t]
+        case let .closeTab(t):
+            return [t]
+        case let .zoom(p, _):
+            return [tabOfPane(p)].compactMap { $0 }
+        case let .focusPane(p):
+            return [tabOfPane(p)].compactMap { $0 }
+        case let .focusTab(t):
+            return [t]
+        case .moveWorkspace, .renamePane, .renameWorkspace, .closePane, .closeWorkspace, .focusWorkspace:
+            return []
+        }
+    }
+
+    private static func referencesExist(_ plan: OpPlan, model: SessionModel) -> Bool {
+        plan.ops.allSatisfy { referencesExist($0, model: model) }
     }
 
     private static func referencesExist(_ op: PrimitiveOp, model: SessionModel) -> Bool {
@@ -174,8 +335,8 @@ public final class UndoJournal {
         }
     }
 
-    /// Describes what `irreversible` left standing, for the partial-undo
-    /// notice. A close is the only op family that ever lands here (see
+    /// Describes what `irreversible` left standing, for the partial-undo/
+    /// redo notice. A close is the only op family that ever lands here (see
     /// `MutationEngine.simpleInverse`'s doc comment), so a single close is
     /// named directly rather than spelled out as "1 change".
     private static func describe(_ ops: [PrimitiveOp]) -> String {
