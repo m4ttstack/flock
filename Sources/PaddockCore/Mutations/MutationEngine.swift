@@ -8,16 +8,23 @@ import Foundation
 /// actually ran. `irreversible` names every op in `plan` whose inverse was
 /// omitted (a genuine close, not a bounce's own throwaway temp-tab cleanup),
 /// so the undo journal can label this entry as partially irreversible rather
-/// than silently under-restoring.
+/// than silently under-restoring. `paneIDRemap` maps every literal `PaneID`
+/// `plan.ops` referenced as a move's own source to whatever id that same
+/// physical pane ended up with once every op in `plan` finished running --
+/// the undo journal composes this across successive undo/redo cycles to
+/// keep re-executing a re-planned `plan` pointed at the pane's true current
+/// identity, since a cross-workspace move re-keys the pane on every hop.
 public struct ExecutedPlan: Equatable, Sendable {
     public let plan: OpPlan
     public let inverse: OpPlan
     public let irreversible: [PrimitiveOp]
+    public let paneIDRemap: [PaneID: PaneID]
 
-    public init(plan: OpPlan, inverse: OpPlan, irreversible: [PrimitiveOp] = []) {
+    public init(plan: OpPlan, inverse: OpPlan, irreversible: [PrimitiveOp] = [], paneIDRemap: [PaneID: PaneID] = [:]) {
         self.plan = plan
         self.inverse = inverse
         self.irreversible = irreversible
+        self.paneIDRemap = paneIDRemap
     }
 }
 
@@ -175,10 +182,15 @@ public actor MutationEngine {
             }
         }
 
-        let (moveInverseOps, moveIrreversible) = tracker.buildInverseOps()
+        let (moveInverseOps, moveIrreversible, positionLost) = tracker.buildInverseOps()
         irreversible.append(contentsOf: moveIrreversible)
-        let inverse = OpPlan(ops: moveInverseOps + simpleInverseOps, label: "Undo \(plan.label)")
-        return .success(ExecutedPlan(plan: plan, inverse: inverse, irreversible: irreversible))
+        // A pane recreated in a brand-new tab (its own origin tab was a
+        // single-pane tab herdr auto-closed once vacated) lands somewhere
+        // that is correct only up to which workspace it is in -- the label
+        // says so rather than implying an exact restore.
+        let inverseLabel = positionLost ? "Undo \(plan.label) (into a new tab)" : "Undo \(plan.label)"
+        let inverse = OpPlan(ops: moveInverseOps + simpleInverseOps, label: inverseLabel)
+        return .success(ExecutedPlan(plan: plan, inverse: inverse, irreversible: irreversible, paneIDRemap: tracker.currentPaneIDMap))
     }
 
     private static func bestEffortFocus(_ pane: PaneID, client: HerdrClient, executed: inout [PrimitiveOp]) async {
@@ -550,6 +562,10 @@ private struct MoveTracker {
 
     var isEmpty: Bool { origins.isEmpty }
 
+    /// Every tracked pane's origin (pre-plan) literal id mapped to its
+    /// current (post-plan) id -- `ExecutedPlan.paneIDRemap`'s source.
+    var currentPaneIDMap: [PaneID: PaneID] { currentPaneID }
+
     /// Whether `pane` is the CURRENT resolved identity of some pane this
     /// plan already moved -- used to recognize a compensating swap that
     /// belongs to that same move, not a standalone one.
@@ -578,9 +594,14 @@ private struct MoveTracker {
     /// is worse. A single pane whose final tab is its own origin tab is the
     /// same-tab bounce case: herdr refuses a same-tab `pane.move` outright,
     /// so that also needs the temp-tab dance, not a direct move. Every other
-    /// single-pane case is a plain cross-tab move back.
-    func buildInverseOps() -> (ops: [PrimitiveOp], irreversible: [PrimitiveOp]) {
-        guard !origins.isEmpty else { return ([], []) }
+    /// single-pane case is a plain cross-tab move back UNLESS the origin tab
+    /// held only that one pane -- herdr auto-closes a tab the instant its
+    /// last pane leaves, so a single-pane origin tab is exactly as dead by
+    /// undo time as a migration's origin tab is, and gets the same
+    /// recreate-in-a-new-tab treatment (`positionLost` tells the caller so
+    /// the inverse's label can say position/identity was not restored).
+    func buildInverseOps() -> (ops: [PrimitiveOp], irreversible: [PrimitiveOp], positionLost: Bool) {
+        guard !origins.isEmpty else { return ([], [], false) }
         func remap(_ id: PaneID?) -> PaneID? {
             guard let id else { return nil }
             return currentPaneID[id] ?? id
@@ -588,6 +609,7 @@ private struct MoveTracker {
 
         var ops: [PrimitiveOp] = []
         var irreversible: [PrimitiveOp] = []
+        var positionLost = false
         let groups = Dictionary(grouping: origins.keys, by: { origins[$0]!.tabID })
         for (originTabID, keysInGroup) in groups.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             let sortedKeys = keysInGroup.sorted { origins[$0]!.stepIndex < origins[$1]!.stepIndex }
@@ -620,6 +642,14 @@ private struct MoveTracker {
                     // re-keys the pane, so the literal id is safe here.
                     ops.append(.swapPanes(firstFinalID, neighbor))
                 }
+            } else if case .pane = treeByOriginTab[originTabID] {
+                // The origin tab held only this pane -- it is dead now, the
+                // same reason a migration's origin tab is dead, so this
+                // gets the same fix: recreate a fresh tab in the origin
+                // workspace rather than target the vacated id. No sibling
+                // ever existed in a single-pane tab, so no trailing swap.
+                ops.append(.movePaneToNewTab(firstFinalID, workspace: firstOrigin.workspaceID, label: nil))
+                positionLost = true
             } else {
                 let moveStep = ops.count
                 ops.append(.movePaneToTab(firstFinalID, tab: originTabID, target: remap(firstOrigin.neighborPaneID), split: firstOrigin.split, ratio: firstOrigin.ratio))
@@ -641,7 +671,7 @@ private struct MoveTracker {
                 }
             }
         }
-        return (ops, irreversible)
+        return (ops, irreversible, positionLost)
     }
 
     /// Replays `tree` -- the origin tab's own split shape, captured before

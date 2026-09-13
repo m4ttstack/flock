@@ -190,6 +190,33 @@ final class MutationEngineTests: XCTestCase {
 
     // MARK: - Inverse per op family
 
+    func testInverseOfALonePanesMoveRecreatesANewTabInsteadOfTargetingTheDeadOrigin() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"}}}"#)
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let loneOrigin = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 1), tabRecord("w1:t2", workspace: "w1", number: 2, paneCount: 0)],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true)],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 80, 24), focused: true)]
+            )]
+        )
+
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move pane into tab")
+        let result = await engine.execute(plan, model: loneOrigin)
+        guard let executed = expectSuccess(result) else { return }
+
+        // w1:t1 held only this one pane -- herdr auto-closes a tab the
+        // instant its last pane leaves, so the inverse must recreate a
+        // fresh tab in the origin workspace rather than target the now-dead
+        // "w1:t1" (only the multi-pane migration branch used to do this).
+        XCTAssertEqual(executed.inverse.ops, [.movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil)])
+        XCTAssertEqual(executed.inverse.label, "Undo Move pane into tab (into a new tab)")
+    }
+
     func testInverseOfMovePaneToTabRestoresOriginalTabNeighborSplitAndRatio() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
         fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"}}}"#)
