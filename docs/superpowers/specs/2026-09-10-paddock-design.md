@@ -172,6 +172,22 @@ transform/opacity only, interruptible springs.
 
 ## Interaction spec (mined patterns, concrete values)
 
+- **Pane anatomy (Matt's ruling 2026-09-13, herdr parity):** no header
+  row. The pane title, status dot, and status chip sit as a legend inlaid
+  on the top border line (herdr's fieldset style); the terminal body starts
+  directly under the line, so the old 28px header becomes terminal rows.
+- **Grabbing a pane (two coexisting ways):** (1) at rest, the legend plus a
+  ~12px invisible band along the pane's top edge is the drag handle; a grip
+  glyph fades in on hover. (2) REARRANGE MODE: entered momentarily by
+  holding Control, or stickily via a View-menu toggle (both routes share one
+  state); while active every pane repaints (terminal content dims, border
+  switches to the accent color, a centered grip glyph appears, hover lifts
+  the pane a hair) and a drag can start from ANY point on a pane, with mouse
+  events no longer forwarded to the terminal. Releasing Control (or
+  toggling off) exits; a drag in progress finishes first. Control was
+  chosen over Command (Cmd-click routes to the terminal for link opening,
+  Cmd+drag moves background windows) and Option (the herdr-menu right-click
+  gesture).
 - **Pane drop semantics (VS Code model):** interior of a target pane = swap
   (same tab) or move-onto (cross tab); outer 20% edge band = directional
   split drop with live overlay preview of the resulting rects.
