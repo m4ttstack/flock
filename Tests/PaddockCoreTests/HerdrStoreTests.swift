@@ -39,6 +39,21 @@ private func twoTabSnapshotResultJSON() -> String {
 private let paneMovedToT2EventLine =
     #"{"data":{"type":"pane_moved","pane":{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t2","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},"previous_pane_id":"w1:p1","previous_workspace_id":"w1","previous_tab_id":"w1:t1"}}"#
 
+/// Three tabs in one workspace, for the moveTab prediction gap-rule tests
+/// (F2/N6): leftward and rightward reorders need at least three items to
+/// tell "overshoot by one" apart from "land exactly at priorIndex".
+private func threeTabSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":null,"workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w1:t2","workspace_id":"w1","label":"t2","number":2,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w1:t3","workspace_id":"w1","label":"t3","number":3,"pane_count":0,"agent_status":"unknown"}],"panes":[],"layouts":[]}}
+    """#
+}
+
+private func threeWorkspaceSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":null,"workspaces":[{"workspace_id":"w1","label":"w1","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"w2","number":2,"active_tab_id":"w2:t1","agent_status":"unknown"},{"workspace_id":"w3","label":"w3","number":3,"active_tab_id":"w3:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w2:t1","workspace_id":"w2","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w3:t1","workspace_id":"w3","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"}],"panes":[],"layouts":[]}}
+    """#
+}
+
 final class HerdrStoreTests: XCTestCase {
     @MainActor
     func testBootstrapBuffersEventsDuringSnapshot() async throws {
@@ -315,5 +330,119 @@ final class HerdrStoreTests: XCTestCase {
         }
 
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 2, "the failure path must re-snapshot, not just revert to the pre-plan model")
+    }
+
+    /// N4: the failure path used to stash a `resolvedConvergence` entry
+    /// nothing would ever collect (no task is spawned to await it on
+    /// failure), leaking one dictionary entry per failed `execute`.
+    @MainActor
+    func testFailedExecuteLeavesNoPendingConvergenceEntry() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"changed":false,"reason":"zoomed_tab","pane":{"pane_id":"w1:p1"}}}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move")
+        switch await store.execute(plan) {
+        case .success: XCTFail("expected a failure")
+        case .failure: break
+        }
+
+        XCTAssertEqual(store.pendingConvergenceResultCountForTesting, 0)
+    }
+
+    // MARK: - moveTab/moveWorkspace prediction gap rule (F2/N6)
+
+    @MainActor
+    func testMoveTabLeftwardPredictionMatchesTheGapRule() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: threeTabSnapshotResultJSON())
+        fake.respond(to: "tab.move", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        // t3 (index 2) to insertIndex 0: source(2) is not < insert(0), so
+        // the actual landing index is 0 -- [t3, t1, t2].
+        let plan = OpPlan(ops: [.moveTab(TabID(rawValue: "w1:t3"), insertIndex: 0)], label: "Reorder")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        XCTAssertEqual(
+            store.model?.tabs[WorkspaceID(rawValue: "w1")]?.map(\.tabID),
+            [TabID(rawValue: "w1:t3"), TabID(rawValue: "w1:t1"), TabID(rawValue: "w1:t2")]
+        )
+    }
+
+    @MainActor
+    func testMoveTabRightwardPredictionMatchesTheGapRule() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: threeTabSnapshotResultJSON())
+        fake.respond(to: "tab.move", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        // t1 (index 0) to insertIndex 2: source(0) < insert(2), so the
+        // actual landing index is insert - 1 = 1 -- [t2, t1, t3].
+        let plan = OpPlan(ops: [.moveTab(TabID(rawValue: "w1:t1"), insertIndex: 2)], label: "Reorder")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        XCTAssertEqual(
+            store.model?.tabs[WorkspaceID(rawValue: "w1")]?.map(\.tabID),
+            [TabID(rawValue: "w1:t2"), TabID(rawValue: "w1:t1"), TabID(rawValue: "w1:t3")]
+        )
+    }
+
+    @MainActor
+    func testMoveWorkspaceLeftwardPredictionMatchesTheGapRule() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: threeWorkspaceSnapshotResultJSON())
+        fake.respond(to: "workspace.move", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.moveWorkspace(WorkspaceID(rawValue: "w3"), insertIndex: 0)], label: "Reorder")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        XCTAssertEqual(
+            store.model?.workspaces.map(\.workspaceID),
+            [WorkspaceID(rawValue: "w3"), WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w2")]
+        )
+    }
+
+    @MainActor
+    func testMoveWorkspaceRightwardPredictionMatchesTheGapRule() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: threeWorkspaceSnapshotResultJSON())
+        fake.respond(to: "workspace.move", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.moveWorkspace(WorkspaceID(rawValue: "w1"), insertIndex: 2)], label: "Reorder")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        XCTAssertEqual(
+            store.model?.workspaces.map(\.workspaceID),
+            [WorkspaceID(rawValue: "w2"), WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3")]
+        )
     }
 }

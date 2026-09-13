@@ -689,6 +689,53 @@ final class MutationEngineTests: XCTestCase {
         XCTAssertEqual(requestParams(lastRequest)["pane_id"] as? String, "w9:p1")
     }
 
+    /// N5: the plan's own last op is an explicit focus, so that choice is
+    /// the plan's own intent and the unzoom-hijack correction must not
+    /// overrule it with the pre-plan focus.
+    func testUnzoomHijackCorrectionIsSkippedWhenThePlanEndsWithAnExplicitFocus() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.zoom", withResultJSON: "{}")
+        fake.respond(to: "pane.focus", withResultJSON: "{}")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let plan = OpPlan(
+            ops: [.focusPane(PaneID(rawValue: "w1:p2"))],
+            label: "Focus", needsUnzoom: [TabID(rawValue: "w1:t1")]
+        )
+        let result = await engine.execute(plan, model: splitPairModel(zoomedT1: true, focusedPaneID: "w1:p1"))
+        _ = expectSuccess(result)
+
+        // Exactly one pane.focus -- the plan's own explicit one, targeting
+        // p2 -- never a second, correcting call back to p1.
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "pane.focus" }.count, 1)
+        let lastRequest = fake.receivedRequests.last!
+        XCTAssertEqual(requestParams(lastRequest)["pane_id"] as? String, "w1:p2")
+    }
+
+    // MARK: - partialInverse (N6)
+
+    /// A plan failing at its second op yields a partialInverse equal to the
+    /// inverse of exactly what ran before the failure -- the first op only.
+    func testPartialInverseIsTheInverseOfWhatRanBeforeTheFailure() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "tab.rename", withResultJSON: "{}")
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"changed":false,"reason":"zoomed_tab","pane":{"pane_id":"w1:p1"}}}"#)
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let renameOp = PrimitiveOp.renameTab(TabID(rawValue: "w1:t1"), "newlabel")
+        let moveOp = PrimitiveOp.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)
+        let plan = OpPlan(ops: [renameOp, moveOp], label: "Rename then move")
+        let result = await engine.execute(plan, model: splitPairModel())
+
+        switch result {
+        case .success:
+            XCTFail("expected a failure")
+        case .failure(let failure):
+            XCTAssertEqual(failure.executed, [renameOp])
+            XCTAssertEqual(failure.partialInverse.ops, [.renameTab(TabID(rawValue: "w1:t1"), "w1:t1")])
+        }
+    }
+
     // MARK: - Focus-follow rule
 
     func testFocusFollowsTheMovedPaneWhenItWasFocusedBeforeThePlan() async throws {
