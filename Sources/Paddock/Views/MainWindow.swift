@@ -37,6 +37,7 @@ struct MainWindow: View {
             }
         }
         .background(theme.windowBg)
+        .overlay { ToastHost() }
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.windowBg))

@@ -4,6 +4,7 @@ import SwiftUI
 
 struct PaddockApp: App {
     @State private var themeStore = ThemeStore()
+    @State private var toastCenter: ToastCenter
     @State private var herdrStore: HerdrStore
     @State private var viewModel: SessionViewModel
 
@@ -18,11 +19,16 @@ struct PaddockApp: App {
         // rather than reading it back off `self`.
         let themeStore = ThemeStore()
         _themeStore = State(initialValue: themeStore)
+        let toastCenter = ToastCenter()
+        _toastCenter = State(initialValue: toastCenter)
         _herdrStore = State(initialValue: HerdrStore(socketPath: socketPath))
         // Absent only when libghostty itself failed to initialize (see
         // `GhosttyHost.Failure`): every pane then stays in status-card mode
         // with no live attach at all, rather than the app failing to launch.
         let ghosttyHost = try? GhosttyHost()
+        ghosttyHost?.onClipboardWrite = { text in
+            toastCenter.show(CopiedToastMessage.make(for: text), kind: .copied)
+        }
         let ghosttyFactory = ghosttyHost.map { host in
             GhosttyControlSurfaceFactory(host: host, socketPath: socketPath) {
                 themeStore.active.ghosttyThemeColors()
@@ -45,6 +51,7 @@ struct PaddockApp: App {
         WindowGroup("Paddock") {
             MainWindow(viewModel: viewModel, sessionLabel: sessionLabel)
                 .environment(themeStore)
+                .environment(toastCenter)
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)

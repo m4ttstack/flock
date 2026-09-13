@@ -44,6 +44,11 @@ final class GhosttyHost {
     /// actor (libghostty callback threads never read it, unlike `app`).
     nonisolated(unsafe) private var baseConfig: ghostty_config_t?
 
+    /// Fired with the text just written to the system clipboard by any
+    /// surface (copy-on-select's mouse-up, an explicit copy action), after
+    /// the pasteboard write has happened, on the main actor.
+    var onClipboardWrite: ((String) -> Void)?
+
     /// `ghostty_init` has to run before any other libghostty call, the config
     /// included, so it is separate from creating the app. Safe to call twice;
     /// only the first call reaches libghostty.
@@ -331,6 +336,13 @@ private func ghosttyHostWriteClipboard(
     guard !joined.isEmpty else { return }
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(joined, forType: .string)
+    // Resolved here, not inside the hop, for the same lifetime reason as
+    // `ghosttyHostAction`: the strong reference keeps the session (and so
+    // its host) alive until the main actor gets to it.
+    guard let session = ghosttySession(from: userdata) else { return }
+    Task { @MainActor in
+        session.host.onClipboardWrite?(joined)
+    }
 }
 
 private func ghosttyHostCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ processAlive: Bool) {
