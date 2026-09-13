@@ -10,7 +10,7 @@ public enum ZoomMode: String, Equatable, Sendable, Codable {
 /// Every mutation paddock issues against herdr, one case per gesture in the
 /// design spec's verb table. `perform(_:)` on `HerdrClient` is the only
 /// place that turns a case into a wire call; nothing else may call herdr
-/// mutation verbs directly once Task 21 routes call sites through here.
+/// mutation verbs directly once every call site is routed through here.
 ///
 /// `target: PaneID?` on `movePaneToTab` is the one legitimate nil: herdr
 /// resolves a nil target to the destination tab's own focused pane (used for

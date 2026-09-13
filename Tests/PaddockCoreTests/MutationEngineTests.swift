@@ -131,8 +131,12 @@ final class MutationEngineTests: XCTestCase {
         let result = await engine.execute(plan, model: splitPairModel())
         guard let executed = expectSuccess(result) else { return }
 
+        // p1 started as the split's FIRST child (rects 0-40 vs 40-80 in
+        // splitPairModel), so restoring it there after the default
+        // second-child landing needs a trailing swap (F5 / R1's side rule).
         XCTAssertEqual(executed.inverse.ops, [
             .movePaneToTab(PaneID(rawValue: "w9:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
+            .swapPanes(PaneID(rawValue: "w9:p1"), PaneID(rawValue: "w1:p2")),
         ])
     }
 
@@ -192,8 +196,11 @@ final class MutationEngineTests: XCTestCase {
         let result = await engine.execute(plan, model: splitPairModel())
         guard let executed = expectSuccess(result) else { return }
 
+        // p1 started as the split's FIRST child, so the inverse needs a
+        // trailing swap to land it back on that side (F5 / R1's side rule).
         XCTAssertEqual(executed.inverse.ops, [
             .movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
+            .swapPanes(PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")),
         ])
     }
 
@@ -221,33 +228,78 @@ final class MutationEngineTests: XCTestCase {
         XCTAssertEqual(executed.inverse.ops, [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [], ratio: 0.5)])
     }
 
-    func testInverseOfMoveTabIsThePriorIndex() async throws {
+    /// herdr's `tab.move`/`workspace.move` compute the actual resulting
+    /// index as `source < insert ? insert - 1 : insert` (F2), so the
+    /// inverse's own `insertIndex` must account for that gap, not just
+    /// replay the prior index verbatim.
+    private func threeTabModel() -> SessionModel {
+        model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1"), tabRecord("w1:t2", workspace: "w1", number: 2), tabRecord("w1:t3", workspace: "w1", number: 3)],
+            panes: [], layouts: []
+        )
+    }
+
+    func testInverseOfMoveTabLeftwardIsThePriorIndexPlusOne() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
         fake.respond(to: "tab.move", withResultJSON: "{}")
         let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
 
-        let plan = OpPlan(ops: [.moveTab(TabID(rawValue: "w1:t2"), insertIndex: 0)], label: "Reorder tab")
-        let result = await engine.execute(plan, model: splitPairModel())
+        // t3 (priorIndex 2) moves to insertIndex 0: actual landing index is
+        // 0 (source 2 is not < insert 0), which is before priorIndex, so the
+        // inverse must overshoot to priorIndex + 1 = 3.
+        let plan = OpPlan(ops: [.moveTab(TabID(rawValue: "w1:t3"), insertIndex: 0)], label: "Reorder tab leftward")
+        let result = await engine.execute(plan, model: threeTabModel())
         guard let executed = expectSuccess(result) else { return }
 
-        XCTAssertEqual(executed.inverse.ops, [.moveTab(TabID(rawValue: "w1:t2"), insertIndex: 1)])
+        XCTAssertEqual(executed.inverse.ops, [.moveTab(TabID(rawValue: "w1:t3"), insertIndex: 3)])
     }
 
-    func testInverseOfMoveWorkspaceIsThePriorIndex() async throws {
+    func testInverseOfMoveTabRightwardIsThePriorIndex() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "tab.move", withResultJSON: "{}")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        // t1 (priorIndex 0) moves to insertIndex 2: actual landing index is
+        // 1 (source 0 < insert 2, so actual = insert - 1 = 1), which is
+        // after priorIndex, so the inverse is exactly priorIndex = 0.
+        let plan = OpPlan(ops: [.moveTab(TabID(rawValue: "w1:t1"), insertIndex: 2)], label: "Reorder tab rightward")
+        let result = await engine.execute(plan, model: threeTabModel())
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertEqual(executed.inverse.ops, [.moveTab(TabID(rawValue: "w1:t1"), insertIndex: 0)])
+    }
+
+    private func threeWorkspaceModel() -> SessionModel {
+        model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1"), workspaceRecord("w3", activeTab: "w3:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1"), tabRecord("w2:t1", workspace: "w2"), tabRecord("w3:t1", workspace: "w3")],
+            panes: [], layouts: []
+        )
+    }
+
+    func testInverseOfMoveWorkspaceLeftwardIsThePriorIndexPlusOne() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
         fake.respond(to: "workspace.move", withResultJSON: "{}")
         let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
 
-        let twoWorkspaceModel = model(
-            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
-            tabs: [tabRecord("w1:t1", workspace: "w1"), tabRecord("w2:t1", workspace: "w2")],
-            panes: [], layouts: []
-        )
-        let plan = OpPlan(ops: [.moveWorkspace(WorkspaceID(rawValue: "w2"), insertIndex: 0)], label: "Reorder workspace")
-        let result = await engine.execute(plan, model: twoWorkspaceModel)
+        let plan = OpPlan(ops: [.moveWorkspace(WorkspaceID(rawValue: "w3"), insertIndex: 0)], label: "Reorder workspace leftward")
+        let result = await engine.execute(plan, model: threeWorkspaceModel())
         guard let executed = expectSuccess(result) else { return }
 
-        XCTAssertEqual(executed.inverse.ops, [.moveWorkspace(WorkspaceID(rawValue: "w2"), insertIndex: 1)])
+        XCTAssertEqual(executed.inverse.ops, [.moveWorkspace(WorkspaceID(rawValue: "w3"), insertIndex: 3)])
+    }
+
+    func testInverseOfMoveWorkspaceRightwardIsThePriorIndex() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "workspace.move", withResultJSON: "{}")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let plan = OpPlan(ops: [.moveWorkspace(WorkspaceID(rawValue: "w1"), insertIndex: 2)], label: "Reorder workspace rightward")
+        let result = await engine.execute(plan, model: threeWorkspaceModel())
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertEqual(executed.inverse.ops, [.moveWorkspace(WorkspaceID(rawValue: "w1"), insertIndex: 0)])
     }
 
     func testInverseOfRenamePaneIsThePriorLabelIncludingNilToClear() async throws {

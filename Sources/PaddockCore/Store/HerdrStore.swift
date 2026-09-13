@@ -49,12 +49,14 @@ public final class HerdrStore {
     // before touching `model`, so a superseded watch (a second `execute`
     // fired before the first converged) can never stomp the newer overlay.
     private var overlayGeneration = 0
-    private var convergenceWaiter: ConvergenceWaiter?
+    private var pendingConvergence: PendingConvergence?
+    private var convergenceContinuation: (generation: Int, continuation: CheckedContinuation<Bool, Never>)?
+    private var resolvedConvergence: [Int: Bool] = [:]
+    private var isStopped = false
 
-    private struct ConvergenceWaiter {
+    private struct PendingConvergence {
         let generation: Int
         let kinds: Set<ConvergenceKind>
-        let continuation: CheckedContinuation<Bool, Never>
     }
 
     public init(
@@ -77,46 +79,69 @@ public final class HerdrStore {
     }
 
     public func stop() {
+        isStopped = true
         runLoopTask?.cancel()
         runLoopTask = nil
         if let socket = activeSubscribeSocket {
             activeSubscribeSocket = nil
             Task { await socket.close() }
         }
-        if let waiter = convergenceWaiter {
-            convergenceWaiter = nil
-            waiter.continuation.resume(returning: false)
+        if let generation = pendingConvergence?.generation {
+            resolveConvergence(generation, matched: false)
         }
     }
 
-    /// Predicts the plan's outcome into a copy of `model`, publishes that
-    /// overlay immediately (before the wire round trip even starts, so the
-    /// UI moves on the same frame as the call), then runs the real plan.
-    /// A successful run arms a watch that waits up to
-    /// `overlayConvergenceTimeout` for a live event confirming the predicted
-    /// change; a failure, or a watch that times out, reverts to the
-    /// pre-overlay model and asks for a fresh snapshot rather than trust a
-    /// guess that never got confirmed.
+    /// Predicts the plan's outcome into a copy of `model` (see
+    /// `predictedModel`; it updates pane/tab/workspace records but not
+    /// `LayoutSnapshot` geometry, so the canvas itself still waits for the
+    /// real `layout.updated` event) and publishes that overlay before
+    /// running the real plan. The convergence watch is armed synchronously,
+    /// before the wire round trip even starts, since herdr's subscriber
+    /// polls independently and a confirming event can land during the round
+    /// trip rather than only after it. `renamePane` never converges (herdr's
+    /// rename handler emits no event for a label-only change), so a plan
+    /// whose ops produce no waitable convergence kind at all arms nothing
+    /// and simply trusts the response.
+    ///
+    /// Failure, or a watch that times out, reverts to the pre-overlay model
+    /// and asks for a fresh snapshot -- a failure can still have partially
+    /// applied real changes on herdr's side, so a plain revert to the
+    /// pre-plan model would hide those; the re-snapshot is what actually
+    /// resyncs.
     public func execute(_ plan: OpPlan) async -> Result<ExecutedPlan, OpFailure> {
         guard !plan.ops.isEmpty else {
             return .success(ExecutedPlan(plan: plan, inverse: OpPlan(ops: [], label: plan.label)))
         }
         guard let baseModel = model else {
-            return .failure(OpFailure(failedOp: plan.ops[0], code: "no_model", message: "no session model available yet", executed: []))
+            return .failure(OpFailure(
+                failedOp: plan.ops[0], code: "no_model", message: "no session model available yet",
+                executed: [], partialInverse: OpPlan(ops: [], label: plan.label)
+            ))
         }
 
         model = Self.predictedModel(applying: plan, to: baseModel)
         overlayGeneration += 1
         let generation = overlayGeneration
 
+        let kinds = Self.convergenceKinds(for: plan)
+        if !kinds.isEmpty {
+            armConvergence(kinds: kinds, generation: generation)
+        }
+
         let engine = MutationEngine(client: HerdrClient(socketPath: socketPath))
         let result = await engine.execute(plan, model: baseModel)
 
         switch result {
         case .success:
-            armConvergenceWatch(expecting: Self.convergenceKinds(for: plan), fallbackModel: baseModel, generation: generation)
+            guard !kinds.isEmpty else { break }
+            Task { [weak self] in
+                guard let self else { return }
+                let matched = await self.awaitConvergenceResolution(generation: generation, timeout: self.overlayConvergenceTimeout)
+                guard !matched else { return }
+                await self.revertAndResnapshot(fallback: baseModel, generation: generation)
+            }
         case .failure:
-            revertOverlay(to: baseModel, generation: generation)
+            await revertAndResnapshot(fallback: baseModel, generation: generation)
         }
         return result
     }
@@ -128,59 +153,55 @@ public final class HerdrStore {
         case paneFocused, tabFocused, workspaceFocused
     }
 
-    private func armConvergenceWatch(expecting kinds: Set<ConvergenceKind>, fallbackModel: SessionModel, generation: Int) {
-        let timeout = overlayConvergenceTimeout
-        Task { [weak self] in
-            guard let self else { return }
-            let matched = await self.waitForConvergence(expecting: kinds, generation: generation, timeout: timeout)
-            guard !matched else { return }
-            self.revertOverlay(to: fallbackModel, generation: generation)
-            await self.requestResnapshot(generation: generation)
+    /// Registers interest synchronously (never inside a spawned `Task`, so
+    /// there is no scheduling race against the wire call that follows).
+    /// Superseding an unresolved watch resolves it "not matched" first, so a
+    /// second `execute` racing ahead of the first can never leave a result
+    /// permanently uncollected.
+    private func armConvergence(kinds: Set<ConvergenceKind>, generation: Int) {
+        if let previous = pendingConvergence {
+            resolveConvergence(previous.generation, matched: false)
+        }
+        pendingConvergence = PendingConvergence(generation: generation, kinds: kinds)
+    }
+
+    private func resolveConvergence(_ generation: Int, matched: Bool) {
+        guard pendingConvergence?.generation == generation else { return }
+        pendingConvergence = nil
+        if let pair = convergenceContinuation, pair.generation == generation {
+            convergenceContinuation = nil
+            pair.continuation.resume(returning: matched)
+        } else {
+            resolvedConvergence[generation] = matched
         }
     }
 
-    /// Resolves as soon as a live event of one of `kinds` arrives (via
-    /// `applyLiveEvent` below) or after `timeout`, whichever comes first.
-    /// Installing a new waiter always resolves any waiter it displaces as
-    /// "not matched" first, so a second `execute` racing ahead of the first
-    /// can never leave a continuation permanently unresumed.
-    private func waitForConvergence(expecting kinds: Set<ConvergenceKind>, generation: Int, timeout: Duration) async -> Bool {
-        await withCheckedContinuation { continuation in
-            let waiter = ConvergenceWaiter(generation: generation, kinds: kinds, continuation: continuation)
-            installConvergenceWaiter(waiter)
+    /// Waits for `armConvergence(kinds:generation:)`'s watch to resolve,
+    /// picking up an outcome that already landed (a matching event arrived
+    /// during the round trip, or the watch was superseded) before this is
+    /// even called.
+    private func awaitConvergenceResolution(generation: Int, timeout: Duration) async -> Bool {
+        if let already = resolvedConvergence.removeValue(forKey: generation) { return already }
+        guard pendingConvergence?.generation == generation else { return true }
+        return await withCheckedContinuation { continuation in
+            convergenceContinuation = (generation, continuation)
             Task { [weak self] in
                 try? await Task.sleep(for: timeout)
                 guard let self else { return }
-                self.timeoutConvergenceWaiter(generation: generation)
+                self.resolveConvergence(generation, matched: false)
             }
         }
     }
 
-    private func installConvergenceWaiter(_ waiter: ConvergenceWaiter) {
-        if let previous = convergenceWaiter {
-            previous.continuation.resume(returning: false)
-        }
-        convergenceWaiter = waiter
-    }
-
-    private func timeoutConvergenceWaiter(generation: Int) {
-        guard let waiter = convergenceWaiter, waiter.generation == generation else { return }
-        convergenceWaiter = nil
-        waiter.continuation.resume(returning: false)
-    }
-
-    private func revertOverlay(to fallbackModel: SessionModel, generation: Int) {
-        guard overlayGeneration == generation else { return }
-        model = fallbackModel
-    }
-
-    private func requestResnapshot(generation: Int) async {
-        guard overlayGeneration == generation else { return }
+    private func revertAndResnapshot(fallback: SessionModel, generation: Int) async {
+        resolveConvergence(generation, matched: false)
+        guard !isStopped, overlayGeneration == generation else { return }
+        model = fallback
         let client = HerdrClient(socketPath: socketPath)
         guard let line = try? await client.requestRaw("session.snapshot", [:]),
               let snapshot = try? HerdrDecoder.snapshot(fromResponseLine: line)
         else { return }
-        guard overlayGeneration == generation else { return }
+        guard !isStopped, overlayGeneration == generation else { return }
         model = SessionModel(snapshot: snapshot)
     }
 
@@ -189,7 +210,11 @@ public final class HerdrStore {
     /// `predictedEvent`) still gets a convergence kind here: the prediction
     /// and the confirmation watch are independent -- skipping prediction
     /// only means the overlay never showed that particular change early, not
-    /// that the store stops waiting to hear it really happened.
+    /// that the store stops waiting to hear it really happened. `renamePane`
+    /// is the one exception: herdr's rename handler emits no event at all
+    /// for a label-only change (confirmed against source), so there is
+    /// nothing to ever wait for -- a plan of rename-pane ops only, or of ops
+    /// that otherwise never map to a kind, arms no watch at all.
     private static func convergenceKinds(for plan: OpPlan) -> Set<ConvergenceKind> {
         var kinds: Set<ConvergenceKind> = []
         if !plan.needsUnzoom.isEmpty { kinds.insert(.layoutUpdated) }
@@ -205,7 +230,7 @@ public final class HerdrStore {
             case .moveWorkspace:
                 kinds.insert(.workspaceMoved)
             case .renamePane:
-                kinds.insert(.paneUpdated)
+                break
             case .renameTab:
                 kinds.insert(.tabRenamed)
             case .renameWorkspace:
@@ -248,6 +273,15 @@ public final class HerdrStore {
     /// in geometry this model does not carry) is simply skipped: the overlay
     /// shows every change it safely can and leaves the rest to converge
     /// normally when the real event arrives.
+    ///
+    /// A predicted `movePaneToTab` updates `model.panes`' record for the
+    /// moved pane (its `tabID`/`workspaceID`), matching `Reducers.swift`'s
+    /// own `.paneMoved` case exactly -- but that reducer does not touch
+    /// `LayoutSnapshot.panes`/`splits` either, so neither does this
+    /// prediction. The canvas, which reads layout geometry, still waits for
+    /// the real `layout.updated` event that follows; only pane/tab/workspace
+    /// record state (tab strips, pane lists, sidebar membership) reflects
+    /// the overlay on the same frame as the call.
     private static func predictedModel(applying plan: OpPlan, to model: SessionModel) -> SessionModel {
         var predicted = model
         for tabID in plan.needsUnzoom {
@@ -294,14 +328,16 @@ public final class HerdrStore {
                   let index = tabs.firstIndex(where: { $0.tabID == tab })
             else { return nil }
             let record = tabs.remove(at: index)
-            tabs.insert(record, at: min(max(insertIndex, 0), tabs.count))
+            let actual = Self.gapAdjustedResultIndex(source: index, insert: insertIndex)
+            tabs.insert(record, at: min(max(actual, 0), tabs.count))
             return .tabMoved(tab, workspaceID, tabs)
 
         case let .moveWorkspace(workspace, insertIndex):
             var workspaces = model.workspaces
             guard let index = workspaces.firstIndex(where: { $0.workspaceID == workspace }) else { return nil }
             let record = workspaces.remove(at: index)
-            workspaces.insert(record, at: min(max(insertIndex, 0), workspaces.count))
+            let actual = Self.gapAdjustedResultIndex(source: index, insert: insertIndex)
+            workspaces.insert(record, at: min(max(actual, 0), workspaces.count))
             return .workspaceMoved(workspaces)
 
         case let .focusPane(pane):
@@ -325,6 +361,17 @@ public final class HerdrStore {
              .closePane, .closeTab, .closeWorkspace:
             return nil
         }
+    }
+
+    /// herdr's `tab.move`/`workspace.move` treat `insertIndex` as a position
+    /// in the list with the moved item already removed: the actual
+    /// resulting index is `insert - 1` when the item's prior index was
+    /// before `insert`, else `insert` outright (source: herdr's own
+    /// `workspace.rs`/`actions.rs`). Duplicated from `MutationEngine`'s own
+    /// copy rather than shared -- same one-line-formula, different module
+    /// boundary.
+    private static func gapAdjustedResultIndex(source: Int, insert: Int) -> Int {
+        source < insert ? insert - 1 : insert
     }
 
     private static func withZoomed(_ zoomed: Bool, _ layout: LayoutSnapshot) -> LayoutSnapshot {
@@ -440,9 +487,8 @@ public final class HerdrStore {
         guard var current = model else { return }
         apply(event, to: &current)
         model = current
-        if let waiter = convergenceWaiter, let kind = Self.convergenceKind(of: event), waiter.kinds.contains(kind) {
-            convergenceWaiter = nil
-            waiter.continuation.resume(returning: true)
+        if let pending = pendingConvergence, let kind = Self.convergenceKind(of: event), pending.kinds.contains(kind) {
+            resolveConvergence(pending.generation, matched: true)
         }
     }
 
