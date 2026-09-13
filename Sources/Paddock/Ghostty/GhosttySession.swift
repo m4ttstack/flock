@@ -522,23 +522,13 @@ final class GhosttySession {
         return match == .darkAqua ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT
     }
 
+    /// `.other` carries AppKit's own `buttonNumber`, so it goes through the
+    /// shared table (`GhosttyMouseButtons`, unit-tested in `PaddockCoreTests`).
     private func translate(_ button: GhosttySurfaceView.MouseButton) -> ghostty_input_mouse_button_e {
         switch button {
         case .left: return GHOSTTY_MOUSE_LEFT
         case .right: return GHOSTTY_MOUSE_RIGHT
-        case .other(let number):
-            switch number {
-            case 2: return GHOSTTY_MOUSE_MIDDLE
-            case 3: return GHOSTTY_MOUSE_FOUR
-            case 4: return GHOSTTY_MOUSE_FIVE
-            case 5: return GHOSTTY_MOUSE_SIX
-            case 6: return GHOSTTY_MOUSE_SEVEN
-            case 7: return GHOSTTY_MOUSE_EIGHT
-            case 8: return GHOSTTY_MOUSE_NINE
-            case 9: return GHOSTTY_MOUSE_TEN
-            case 10: return GHOSTTY_MOUSE_ELEVEN
-            default: return GHOSTTY_MOUSE_UNKNOWN
-            }
+        case .other(let number): return GhosttyMouseButtons.translate(buttonNumber: number)
         }
     }
 
