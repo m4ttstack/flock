@@ -33,7 +33,7 @@ private struct ToastPill: View {
         HStack(spacing: 6) {
             Image(systemName: symbolName)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(theme.green)
+                .foregroundStyle(iconColor)
             Text(toast.message)
                 .font(.system(size: 11))
                 .foregroundStyle(theme.chromeTextStrong)
@@ -52,6 +52,17 @@ private struct ToastPill: View {
         switch toast.kind {
         case .copied: "doc.on.doc"
         case .notice: "arrow.uturn.backward"
+        }
+    }
+
+    /// `.copied` keeps the green success color; a journal notice (which can
+    /// be reporting a failure or a drop, not just a confirmation) gets a
+    /// neutral color instead -- reusing green there would read as "success"
+    /// even for a "can't undo" message.
+    private var iconColor: Color {
+        switch toast.kind {
+        case .copied: theme.green
+        case .notice: theme.subtext0
         }
     }
 }

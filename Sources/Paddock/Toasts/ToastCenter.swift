@@ -21,19 +21,25 @@ final class ToastCenter {
         let kind: Kind
         let message: String
         /// The pane this toast anchors to, drawn by that pane's own cell;
-        /// `nil` is a window-scope toast, drawn by `ToastHost` instead (no
-        /// `nil` case exists yet -- reserved for the attention-toast stack).
+        /// `nil` is a window-scope toast, drawn by `ToastHost` instead --
+        /// every `.notice` toast is window-scope, `.copied` is pane-scope.
         let paneID: PaneID?
 
         var accessibilityIdentifier: String { "paddock.toast.\(kind.rawValue)" }
     }
 
     private(set) var current: Toast?
-    private let dismissAfter: Duration
     @ObservationIgnored private var dismissTask: Task<Void, Never>?
 
-    init(dismissAfter: Duration = .milliseconds(1200)) {
-        self.dismissAfter = dismissAfter
+    init() {}
+
+    /// A journal notice reads as a sentence, not a one-glance confirmation
+    /// like the copied whisper -- it stays up long enough to actually read.
+    private static func dismissAfter(for kind: Kind) -> Duration {
+        switch kind {
+        case .copied: return .milliseconds(1200)
+        case .notice: return .milliseconds(2500)
+        }
     }
 
     /// Window-scope notice (the undo journal's own sink): always `paneID:
@@ -46,7 +52,8 @@ final class ToastCenter {
         let toast = Toast(id: UUID(), kind: kind, message: message, paneID: paneID)
         current = toast
         dismissTask?.cancel()
-        dismissTask = Task { [weak self, dismissAfter] in
+        let dismissAfter = Self.dismissAfter(for: kind)
+        dismissTask = Task { [weak self] in
             try? await Task.sleep(for: dismissAfter)
             guard !Task.isCancelled else { return }
             self?.dismiss(toast.id)
