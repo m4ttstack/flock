@@ -20,8 +20,11 @@ struct GhosttyPaneTerminalView: View {
     let isFocused: Bool
     /// One truth for every ghostty surface's `font-size` and the history
     /// overlay's own font, so the deep-history seam stays color-only. See
-    /// `historyLineSpacing`, which matches the overlay's row pitch to the
-    /// surface's real `cell_height_px` at this size.
+    /// `historyRowPitch`, which pins the overlay's per-row CONTAINER height
+    /// to the surface's real `cell_height_px` at this size -- not a
+    /// `.lineSpacing` added on top of the font's own natural line height,
+    /// which can only grow the pitch and so cannot correct for a cell
+    /// SHORTER than that natural height (the default 13pt case).
     let textSize: TerminalTextSize
     /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
     /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus
@@ -75,7 +78,7 @@ struct GhosttyPaneTerminalView: View {
                 HistoryBrowseView(
                     paneTerminal: paneTerminal, ground: theme.terminalGround, ink: historyDim,
                     liveInk: theme.terminalForeground, state: browserState,
-                    fontSize: CGFloat(textSize.points), lineSpacing: historyLineSpacing
+                    fontSize: CGFloat(textSize.points), rowPitch: historyRowPitch
                 )
                 .transition(.opacity)
             }
@@ -97,41 +100,27 @@ struct GhosttyPaneTerminalView: View {
         }
     }
 
-    /// Extra spacing so the overlay's per-line pitch matches the surface's
-    /// real `cell_height_px` exactly -- `.lineSpacing` adds to a font's own
-    /// natural line height rather than replacing it, so this is the
-    /// difference between the two, never negative (a font whose natural line
-    /// height already exceeds the cell would go the other way, which ghostty
-    /// itself never produces at these three fixed sizes against `Menlo`, but
-    /// nothing here assumes that holds for some future size).
-    private var historyLineSpacing: CGFloat {
-        guard let cellHeight = cellHeightPoints else { return 0 }
-        return max(0, cellHeight - fontLineHeight(size: CGFloat(textSize.points)))
-    }
-
-    /// The surface's real cell height in points -- `surfaceGeometry()`'s
-    /// `cell_height_px` divided by the hosting window's backing scale, the
-    /// same conversion `GhosttySurfaceView.cellSizeInPoints()` does for mouse
-    /// forwarding. `nil` before the surface (or its window) exists, in which
-    /// case the overlay falls back to the font's own natural line height.
-    private var cellHeightPoints: CGFloat? {
+    /// The overlay's exact per-row container height: `surfaceGeometry()`'s
+    /// `cell_height_px` (already rounded to a whole device pixel by ghostty
+    /// itself) converted to points via `TerminalRowPitch`, using the hosting
+    /// window's REAL `backingScaleFactor` -- never an assumed 2x. Falls back
+    /// to the font's own natural line height only before the surface (or its
+    /// window) exists, since there is no real cell height to read yet.
+    private var historyRowPitch: CGFloat {
         guard let handle = surface as? GhosttySessionSurfaceHandle,
               let geometry = handle.session.surfaceGeometry()
-        else { return nil }
+        else { return fontLineHeight(size: CGFloat(textSize.points)) }
         let scale = handle.session.view?.window?.backingScaleFactor
             ?? handle.session.view?.window?.screen?.backingScaleFactor
             ?? 2
-        guard scale > 0 else { return nil }
-        return CGFloat(geometry.cellPixels.height) / scale
+        return CGFloat(TerminalRowPitch.points(cellHeightPx: geometry.cellPixels.height, scale: Double(scale)))
     }
 }
 
-/// `Menlo`'s own metrics at `size`, the way a real line of `Menlo` text
-/// occupies vertical space with NO extra `.lineSpacing` applied -- the
-/// baseline `historyLineSpacing` adds on top of to reach the surface's real
-/// cell height. Falls back to a plain multiple of the point size only if
-/// `Menlo` itself cannot be loaded (never expected on macOS; see
-/// `TerminalFont`'s own doc comment for why it is pinned).
+/// `Menlo`'s own natural line height at `size` -- used ONLY as the
+/// no-surface-yet fallback for `historyRowPitch` above, never as part of the
+/// real pitch calculation once a surface exists (that calculation is pixel-
+/// exact and font-metric-independent by design; see `TerminalRowPitch`).
 private func fontLineHeight(size: CGFloat) -> CGFloat {
     guard let font = NSFont(name: TerminalFont.face, size: size) else { return size * 1.2 }
     return font.ascender - font.descender + font.leading
@@ -251,11 +240,12 @@ private struct HistoryBrowseView: View {
     let liveInk: SwiftUI.Color
     let state: BrowserScrollState
     /// The identical face/size the ghostty surface itself renders at (see
-    /// `TerminalFont`), and the per-line spacing that closes the gap between
-    /// `Menlo`'s own line height and the surface's real cell height -- the
-    /// history/live boundary is a color change only, never a glyph-size one.
+    /// `TerminalFont`), and the exact per-row container height
+    /// (`GhosttyPaneTerminalView.historyRowPitch`) every row below is pinned
+    /// to -- the history/live boundary is a color change only, never a
+    /// glyph-size or row-pitch one.
     let fontSize: CGFloat
-    let lineSpacing: CGFloat
+    let rowPitch: CGFloat
 
     @State private var text = ""
     @State private var bufferText = ""
@@ -277,23 +267,14 @@ private struct HistoryBrowseView: View {
                         Text("History changed while loading; older lines may be out of order.")
                             .font(.system(size: 10))
                             .foregroundStyle(.orange)
-                            .padding(.horizontal, 11)
                             .padding(.vertical, 2)
                     }
-                    if !text.isEmpty {
-                        Text(text)
-                            .font(.custom(TerminalFont.face, size: fontSize))
-                            .lineSpacing(lineSpacing)
-                            .foregroundStyle(ink)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 11)
+                    ForEach(Array(historyLines.enumerated()), id: \.offset) { _, line in
+                        row(line, ink: ink)
                     }
-                    Text(bufferText.isEmpty ? " " : bufferText)
-                        .font(.custom(TerminalFont.face, size: fontSize))
-                        .lineSpacing(lineSpacing)
-                        .foregroundStyle(liveInk)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 11)
+                    ForEach(Array(bufferLines.enumerated()), id: \.offset) { _, line in
+                        row(line, ink: liveInk)
+                    }
                     Color.clear.frame(height: 1).id(Self.bottomAnchor)
                         .onAppear { state.atLiveEnd = true }
                         .onDisappear { state.atLiveEnd = false }
@@ -316,6 +297,43 @@ private struct HistoryBrowseView: View {
             state.atLiveEnd = true
         }
         .onDisappear { state.browsing = false }
+    }
+
+    /// One history/live row, pinned to the EXACT container height
+    /// `rowPitch` gives -- never `.lineSpacing` atop the font's own natural
+    /// line height (see `TerminalRowPitch`'s doc comment for why that drifts
+    /// at the default size). `.lineLimit(1)` keeps a real terminal row,
+    /// which is already single-line by construction, from ever wrapping
+    /// inside its fixed-height container. No horizontal padding here: the
+    /// surface has `window-padding-x = 0` and `PaneCellView.contentInsets`
+    /// already supplies the ONE shared inset both renderers sit inside, so
+    /// an inset here would double it and shift the overlay's column 0 off
+    /// the surface's own.
+    private func row(_ line: String, ink: SwiftUI.Color) -> some View {
+        Text(line.isEmpty ? " " : line)
+            .font(.custom(TerminalFont.face, size: fontSize))
+            .lineLimit(1)
+            .foregroundStyle(ink)
+            .frame(height: rowPitch, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// `text` (the fetched-history block, newline-joined by
+    /// `PaneTerminal.historyText`) split back into one string per real row --
+    /// `historyLines`/`bufferLines` are what `row(_:ink:)` iterates so each
+    /// row gets its OWN fixed-height container instead of one `Text` whose
+    /// internal line spacing would otherwise decide the pitch.
+    private var historyLines: [String] {
+        guard !text.isEmpty else { return [] }
+        return text.components(separatedBy: "\n")
+    }
+
+    /// The live buffer's own rows, split the same way -- `" "` (a single
+    /// blank row) when the buffer itself is empty, matching the prior
+    /// single-`Text` behavior's placeholder so the overlay is never a
+    /// zero-height gap before the surface reports any content.
+    private var bufferLines: [String] {
+        (bufferText.isEmpty ? " " : bufferText).components(separatedBy: "\n")
     }
 
     private func loadMore() {
