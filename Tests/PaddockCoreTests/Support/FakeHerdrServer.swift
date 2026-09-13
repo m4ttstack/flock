@@ -41,6 +41,11 @@ final class FakeHerdrServer: @unchecked Sendable {
 
     private let lock = NSLock()
     private var respondBehaviors: [String: String] = [:]
+    // Consumed front-to-back, one entry per request for that method; once
+    // drained, later requests fall through to `respondBehaviors` -- lets a
+    // test give two sequential calls to the SAME method two different
+    // responses (`respondBehaviors` alone can only ever hold one).
+    private var respondQueues: [String: [String]] = [:]
     // One-shot: consumed by the next request for that method, then cleared,
     // falling through to `respondBehaviors` afterward.
     private var pendingFailures: [String: (code: String, message: String)] = [:]
@@ -81,6 +86,13 @@ final class FakeHerdrServer: @unchecked Sendable {
 
     func respond(to method: String, withResultJSON json: String) {
         lock.withLock { respondBehaviors[method] = json }
+    }
+
+    /// Queues a distinct response for each of the next `jsons.count`
+    /// requests to `method`, consumed in order; a request beyond the queue
+    /// falls back to whatever `respond(to:withResultJSON:)` was last given.
+    func respondSequence(to method: String, withResultJSONs jsons: [String]) {
+        lock.withLock { respondQueues[method] = jsons }
     }
 
     func failNext(method: String, code: String, message: String) {
@@ -210,6 +222,11 @@ final class FakeHerdrServer: @unchecked Sendable {
         let behavior: Behavior? = lock.withLock {
             if let failure = pendingFailures.removeValue(forKey: request.method) {
                 return .failure(code: failure.code, message: failure.message)
+            }
+            if var queue = respondQueues[request.method], !queue.isEmpty {
+                let next = queue.removeFirst()
+                respondQueues[request.method] = queue.isEmpty ? nil : queue
+                return .success(next)
             }
             if let json = respondBehaviors[request.method] {
                 return .success(json)

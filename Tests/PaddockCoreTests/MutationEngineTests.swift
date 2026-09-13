@@ -353,7 +353,221 @@ final class MutationEngineTests: XCTestCase {
             let result = await engine.execute(plan, model: splitPairModel())
             guard let executed = expectSuccess(result) else { continue }
             XCTAssertTrue(executed.inverse.ops.isEmpty, "\(plan.label) must have no inverse ops")
+            XCTAssertEqual(executed.irreversible, plan.ops, "\(plan.label) must be reported as irreversible")
         }
+    }
+
+    /// R2/F6: a plan mixing a genuine close with something reversible still
+    /// produces the reversible op's inverse, and names only the close as
+    /// irreversible.
+    func testMixedCloseAndRenameYieldsRenameInverseWithCloseMarkedIrreversible() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.close", withResultJSON: "{}")
+        fake.respond(to: "tab.rename", withResultJSON: "{}")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let closeOp = PrimitiveOp.closePane(PaneID(rawValue: "w1:p2"))
+        let renameOp = PrimitiveOp.renameTab(TabID(rawValue: "w1:t1"), "builds")
+        let plan = OpPlan(ops: [closeOp, renameOp], label: "Close then rename")
+        let result = await engine.execute(plan, model: splitPairModel())
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertEqual(executed.inverse.ops, [.renameTab(TabID(rawValue: "w1:t1"), "w1:t1")])
+        XCTAssertEqual(executed.irreversible, [closeOp])
+    }
+
+    // MARK: - Bounce and migration inverses (R1/F1)
+
+    /// A same-tab bounce (top edge: bounces then swaps, per GesturePlanner)
+    /// inverts to another bounce landing on the original neighbor, not a
+    /// raw same-tab `movePaneToTab` herdr would refuse outright.
+    func testBounceInverseIsItselfABounceWithTheOriginalNeighborAndSwap() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p1"},"created_tab":{"tab_id":"w1:tTEMP"}}}"#)
+        fake.respond(to: "tab.close", withResultJSON: "{}")
+        fake.respond(to: "pane.swap", withResultJSON: #"{"swap":{"reason":null}}"#)
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let sameTabModel = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 2)],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true), paneRecord("w1:p2", workspace: "w1", tab: "w1:t1")],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24), focused: true), paneRect("w1:p2", rect(40, 0, 40, 24))],
+                splits: [splitInfo("s1", .right, 0.5, rect(0, 0, 80, 24))]
+            )]
+        )
+        guard let forwardPlan = expectPlanSuccess(plan(
+            dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .paneEdge(PaneID(rawValue: "w1:p2"), .top), model: sameTabModel
+        )) else { return }
+
+        let result = await engine.execute(forwardPlan, model: sameTabModel)
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertEqual(executed.inverse.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
+            .movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
+            .closeTab(TabID.planPlaceholder(createdByStep: 0)),
+            .swapPanes(PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")),
+        ])
+    }
+
+    /// A tab migration's origin tab is fully vacated (herdr auto-closes it),
+    /// so its inverse cannot target that dead id: it recreates a new tab in
+    /// the original workspace instead, replaying each pane's recorded
+    /// neighbor/split/ratio with ids remapped to their resolved identities.
+    func testMigrationInverseRecreatesTheOriginalTabInTheOriginalWorkspace() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        // Two distinct responses for the plan's two sequential pane.move
+        // calls: the anchor's creates the destination tab, the second
+        // pane's lands in it (no creation fields of its own).
+        fake.respondSequence(to: "pane.move", withResultJSONs: [
+            #"{"move_result":{"pane":{"pane_id":"w2:p1"},"created_workspace":{"workspace_id":"w2"},"created_tab":{"tab_id":"w2:t9"}}}"#,
+            #"{"move_result":{"pane":{"pane_id":"w2:p2"}}}"#,
+        ])
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let twoPaneModel = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 2)],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true), paneRecord("w1:p2", workspace: "w1", tab: "w1:t1")],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24), focused: true), paneRect("w1:p2", rect(40, 0, 40, 24))],
+                splits: [splitInfo("s1", .right, 0.5, rect(0, 0, 80, 24))]
+            )]
+        )
+        guard let forwardPlan = expectPlanSuccess(plan(
+            dragging: .tab(TabID(rawValue: "w1:t1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), model: twoPaneModel
+        )) else { return }
+        // Sanity: this is the 2-pane migration shape the fixture assumes.
+        XCTAssertEqual(forwardPlan.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w2"), label: nil),
+            .movePaneToTab(
+                PaneID(rawValue: "w1:p2"), tab: TabID.planPlaceholder(createdByStep: 0),
+                target: PaneID.planPlaceholder(movedByStep: 0), split: .right, ratio: 0.5
+            ),
+        ])
+
+        let result = await engine.execute(forwardPlan, model: twoPaneModel)
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertEqual(executed.inverse.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w2:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
+            .movePaneToTab(PaneID(rawValue: "w2:p2"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID(rawValue: "w2:p1"), split: .right, ratio: 0.5),
+        ])
+    }
+
+    private func expectPlanSuccess(_ result: Result<OpPlan, PlanError>, file: StaticString = #filePath, line: UInt = #line) -> OpPlan? {
+        switch result {
+        case .success(let plan): return plan
+        case .failure(let error): XCTFail("expected a plan, got \(error)", file: file, line: line); return nil
+        }
+    }
+
+    // MARK: - Unresolved placeholders fail the plan (R3/F8)
+
+    func testUnresolvedTabPlaceholderFailsBeforeAnyWireCall() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let badOp = PrimitiveOp.closeTab(TabID.planPlaceholder(createdByStep: 0))
+        let plan = OpPlan(ops: [badOp], label: "Close placeholder tab")
+        let result = await engine.execute(plan, model: splitPairModel())
+
+        switch result {
+        case .success:
+            XCTFail("expected a failure")
+        case .failure(let failure):
+            XCTAssertEqual(failure.code, "unresolved_placeholder")
+            XCTAssertEqual(failure.failedOp, badOp)
+            XCTAssertTrue(failure.executed.isEmpty)
+        }
+        XCTAssertTrue(fake.receivedRequests.isEmpty, "the sentinel must never reach the wire")
+    }
+
+    func testUnresolvedPanePlaceholderFailsBeforeAnyWireCall() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let badOp = PrimitiveOp.renamePane(PaneID.planPlaceholder(movedByStep: 0), "x")
+        let plan = OpPlan(ops: [badOp], label: "Rename placeholder pane")
+        let result = await engine.execute(plan, model: splitPairModel())
+
+        switch result {
+        case .success:
+            XCTFail("expected a failure")
+        case .failure(let failure):
+            XCTAssertEqual(failure.code, "unresolved_placeholder")
+            XCTAssertEqual(failure.failedOp, badOp)
+        }
+        XCTAssertTrue(fake.receivedRequests.isEmpty, "the sentinel must never reach the wire")
+    }
+
+    /// F8: the tab_not_found-as-success rule is scoped to a placeholder tab
+    /// id; a literal one naming a real, missing target is a genuine failure.
+    func testLiteralCloseTabTabNotFoundIsStillAFailure() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.failNext(method: "tab.close", code: "tab_not_found", message: "no such tab")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let op = PrimitiveOp.closeTab(TabID(rawValue: "w1:t2"))
+        let plan = OpPlan(ops: [op], label: "Close tab")
+        let result = await engine.execute(plan, model: splitPairModel())
+
+        switch result {
+        case .success:
+            XCTFail("expected a failure")
+        case .failure(let failure):
+            XCTAssertEqual(failure.code, "tab_not_found")
+            XCTAssertEqual(failure.failedOp, op)
+        }
+    }
+
+    // MARK: - Unzoom focus hijack (F7)
+
+    /// herdr's `pane.zoom` focuses the pane it unzoomed and switches the
+    /// active workspace/tab to it; an unzoom that ran without the
+    /// move-focus rule already retargeting focus must be corrected back to
+    /// whatever was focused before the plan, as a trailing `focusPane`.
+    func testUnzoomHijackIsCorrectedBackToTheOriginallyFocusedPane() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.zoom", withResultJSON: "{}")
+        fake.respond(to: "tab.rename", withResultJSON: "{}")
+        fake.respond(to: "pane.focus", withResultJSON: "{}")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        // The plan's own op touches neither pane nor focus, so nothing else
+        // would otherwise correct whatever pane.zoom just hijacked.
+        let plan = OpPlan(ops: [.renameTab(TabID(rawValue: "w1:t1"), "builds")], label: "Rename", needsUnzoom: [TabID(rawValue: "w1:t1")])
+        let result = await engine.execute(plan, model: splitPairModel(zoomedT1: true, focusedPaneID: "w1:p1"))
+        _ = expectSuccess(result)
+
+        let lastRequest = fake.receivedRequests.last!
+        XCTAssertEqual(lastRequest.method, "pane.focus")
+        XCTAssertEqual(requestParams(lastRequest)["pane_id"] as? String, "w1:p1")
+    }
+
+    func testUnzoomHijackCorrectionIsSkippedWhenTheMoveFocusRuleAlreadyRetargets() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.zoom", withResultJSON: "{}")
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w9:p1"},"created_workspace":{"workspace_id":"w9"},"created_tab":{"tab_id":"w9:t1"}}}"#)
+        fake.respond(to: "pane.focus", withResultJSON: "{}")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let plan = OpPlan(
+            ops: [.movePaneToNewWorkspace(PaneID(rawValue: "w1:p1"), label: nil, tabLabel: nil)],
+            label: "Move", needsUnzoom: [TabID(rawValue: "w1:t1")]
+        )
+        let result = await engine.execute(plan, model: splitPairModel(zoomedT1: true, focusedPaneID: "w1:p1"))
+        _ = expectSuccess(result)
+
+        // Exactly one trailing focusPane, targeting the moved pane's
+        // resolved id -- not a second one for the pre-unzoom focus.
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "pane.focus" }.count, 1)
+        let lastRequest = fake.receivedRequests.last!
+        XCTAssertEqual(requestParams(lastRequest)["pane_id"] as? String, "w9:p1")
     }
 
     // MARK: - Focus-follow rule
