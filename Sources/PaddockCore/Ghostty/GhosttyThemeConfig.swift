@@ -61,16 +61,27 @@ public enum GhosttyThemeConfig {
     }
 
     /// The scratch `.ghostty` file text loaded before a surface is created:
-    /// the theme lines above, plus the one line that gets a surface's real
-    /// command past libghostty's silent drop of `ghostty_surface_config_s`'s
-    /// `command`/`env_vars` fields at this vendored commit (see
-    /// `GhosttyHost.configureNextSurface`, the call site). `shell:` is
-    /// explicit rather than relying on the default, so a bridge argument
-    /// containing a colon (a socket path, for instance) is never read as a
-    /// `direct:`-style prefix.
+    /// the theme lines above, the padding lines, plus the one line that gets
+    /// a surface's real command past libghostty's silent drop of
+    /// `ghostty_surface_config_s`'s `command`/`env_vars` fields at this
+    /// vendored commit (see `GhosttyHost.configureNextSurface`, the call
+    /// site). `shell:` is explicit rather than relying on the default, so a
+    /// bridge argument containing a colon (a socket path, for instance) is
+    /// never read as a `direct:`-style prefix.
+    ///
+    /// `window-padding-x/y = 0` overrides libghostty's default 2px grid inset
+    /// (`window-padding-x`/`-y` in `src/config/Config.zig`, scaled in
+    /// `Surface.zig` and subtracted before every grid lookup in
+    /// `renderer/size.zig`). `MouseForwarding` divides the raw view point by
+    /// the cell size from origin 0, so any padding would shift the leftmost
+    /// and topmost slice of every cell onto the previous one; the pane chrome
+    /// already provides the visual inset.
     public static func configText(colors: GhosttyThemeColors, commandArgv: [String]) -> String {
         let command = commandArgv.map(\.shellEscaped).joined(separator: " ")
-        return configText(colors: colors) + "command = shell:\(command)\n"
+        return configText(colors: colors)
+            + "window-padding-x = 0\n"
+            + "window-padding-y = 0\n"
+            + "command = shell:\(command)\n"
     }
 }
 

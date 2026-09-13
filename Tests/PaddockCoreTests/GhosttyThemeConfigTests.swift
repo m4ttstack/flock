@@ -139,6 +139,21 @@ final class GhosttyThemeConfigTests: XCTestCase {
         ))
     }
 
+    /// The scratch config zeroes libghostty's default 2px grid padding: the
+    /// mouse-to-cell conversion divides the raw view point from origin 0, so
+    /// any padding would shift every click toward the previous cell.
+    func testConfigTextWithCommandZeroesWindowPadding() {
+        let colors = GhosttyThemeColors(
+            background: color(0, 0, 0),
+            foreground: color(255, 255, 255),
+            ansi: Array(repeating: color(0, 0, 0), count: 16)
+        )
+        let text = GhosttyThemeConfig.configText(colors: colors, commandArgv: ["/path/to/Paddock"])
+        let lines = text.split(separator: "\n").map(String.init)
+        XCTAssertTrue(lines.contains("window-padding-x = 0"), "missing window-padding-x = 0 in:\n\(text)")
+        XCTAssertTrue(lines.contains("window-padding-y = 0"), "missing window-padding-y = 0 in:\n\(text)")
+    }
+
     func testShellEscapedDoublesEmbeddedSingleQuote() {
         XCTAssertEqual("it's".shellEscaped, "'it'\\''s'")
     }
