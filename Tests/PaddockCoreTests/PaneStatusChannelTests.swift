@@ -12,7 +12,7 @@ final class PaneStatusChannelTests: XCTestCase {
         defer { channel.close() }
 
         let received = LockedBox<[(Bool, Bool)]>([])
-        channel.start { enabled, sgrPixels in
+        channel.start(queue: .global(qos: .userInteractive)) { enabled, sgrPixels in
             received.mutate { $0.append((enabled, sgrPixels)) }
         }
 
@@ -59,6 +59,17 @@ final class PaneStatusChannelTests: XCTestCase {
         }
         let path = channel.path
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        channel.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    /// After `start`, closing goes through the source's cancel handler; a
+    /// second close and a late write must both be harmless.
+    func testCloseAfterStartIsSafeAndIdempotent() throws {
+        let channel = try XCTUnwrap(PaneStatusChannel())
+        channel.start(queue: .global(qos: .userInteractive)) { _, _ in }
+        let path = channel.path
+        channel.close()
         channel.close()
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
     }

@@ -50,17 +50,20 @@ public final class PaneStatusChannel {
 
     deinit { close() }
 
-    /// Starts reading `paddock.mouse_capture` lines off the FIFO on a
-    /// background queue, invoking `onCapture(enabled, sgrPixels)` for each.
-    /// Guarded exactly like the bridge's own FIFO reader: a short read is not
-    /// EOF, non-JSON and non-matching lines are skipped, and a single
-    /// undecodable byte cannot stall the drain loop (lines are split as
-    /// `Data`, decoded per line). Callbacks arrive on the reader queue; the
-    /// caller hops to the main actor.
-    public func start(onCapture: @escaping @Sendable (Bool, Bool) -> Void) {
+    /// Starts reading `paddock.mouse_capture` lines off the FIFO on `queue`,
+    /// invoking `onCapture(enabled, sgrPixels)` for each, in arrival order.
+    /// The app passes `.main` so back-to-back capture lines (an app toggling
+    /// mouse mode off then on) apply in the order the bridge wrote them, with
+    /// no re-ordering hop in between. Guarded exactly like the bridge's own
+    /// FIFO reader: a short read is not EOF, non-JSON and non-matching lines
+    /// are skipped, and a single undecodable byte cannot stall the drain loop
+    /// (lines are split as `Data`, decoded per line). The fd is closed by the
+    /// source's cancel handler, never while an event handler may still be
+    /// reading it.
+    public func start(queue: DispatchQueue, onCapture: @escaping @Sendable (Bool, Bool) -> Void) {
         guard fd >= 0, source == nil else { return }
         let readFD = fd
-        let source = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: .global(qos: .userInteractive))
+        let source = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: queue)
         source.setEventHandler { [buffer] in
             var scratch = [UInt8](repeating: 0, count: 4096)
             let n = read(readFD, &scratch, scratch.count)
@@ -71,6 +74,7 @@ public final class PaneStatusChannel {
                 onCapture(enabled, sgrPixels)
             }
         }
+        source.setCancelHandler { Foundation.close(readFD) }
         source.resume()
         self.source = source
     }
@@ -87,11 +91,16 @@ public final class PaneStatusChannel {
         return (enabled, sgrPixels)
     }
 
+    /// Once started, the fd belongs to the source's cancel handler (see
+    /// `start`); before that, it is closed here directly.
     public func close() {
-        source?.cancel()
-        source = nil
         guard fd >= 0 else { return }
-        Foundation.close(fd)
+        if let source {
+            source.cancel()
+            self.source = nil
+        } else {
+            Foundation.close(fd)
+        }
         fd = -1
         unlink(path)
     }

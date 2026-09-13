@@ -7,8 +7,8 @@ import PaddockCore
 /// `Sources/Paddock/main.swift`'s dispatch) and asks the host for a session.
 ///
 /// `--herdr-bin` is passed only when `PADDOCK_HERDR_BIN` is set, so a scratch
-/// run can point the bridge at a patched herdr while Matt's installed one
-/// stays default: absent it, the bridge inherits this app's environment and
+/// run can point the bridge at a patched herdr while the installed one stays
+/// the default: absent it, the bridge inherits this app's environment and
 /// falls back to its own `HERDR_BIN`/`PATH` resolution
 /// (`ControlBridge.resolveHerdrBinary`).
 @MainActor
@@ -66,8 +66,13 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         session.onScreenActivity = onScreenActivity
         session.controlChannel = channel
         session.statusChannel = statusChannel
-        statusChannel?.start { [weak session] enabled, sgrPixels in
-            Task { @MainActor in session?.setMouseCapture(enabled: enabled, sgrPixels: sgrPixels) }
+        // Read on the main queue and apply synchronously: a capture line's
+        // effect lands in the order the bridge wrote it, so an app toggling
+        // mouse mode off then on can never end up applied on->off.
+        statusChannel?.start(queue: .main) { [weak session] enabled, _ in
+            MainActor.assumeIsolated {
+                session?.setMouseCapture(enabled: enabled)
+            }
         }
         return GhosttySessionSurfaceHandle(session: session)
     }
