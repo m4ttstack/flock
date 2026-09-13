@@ -54,11 +54,19 @@ public enum MoveToMenu {
     }
 
     /// The swap target for `pane`'s own "Swap with Focused Pane" menu item,
-    /// or `nil` when `pane` IS the resolved-focused pane (herdr parity: a
-    /// pane never swaps with itself, and the menu hides the item entirely in
-    /// that case rather than offering a no-op).
-    public static func swapTarget(for pane: PaneID, focusedPane: PaneID?) -> DropTarget? {
-        guard let focusedPane, focusedPane != pane else { return nil }
+    /// or `nil` when there is nothing to offer: `pane` IS the
+    /// resolved-focused pane (herdr parity: a pane never swaps with itself),
+    /// or the focused pane is in a DIFFERENT tab. `resolvedFocusedPaneID` is
+    /// herdr's GLOBAL focus, not scoped to `pane`'s own tab -- without the
+    /// same-tab check, this would plan a cross-tab MOVE (`GesturePlanner`'s
+    /// `paneInterior` cross-tab rule) under a "Swap" label whenever focus
+    /// happened to be elsewhere.
+    public static func swapTarget(for pane: PaneID, focusedPane: PaneID?, model: SessionModel) -> DropTarget? {
+        guard let focusedPane, focusedPane != pane,
+              let focusedTab = model.panes[focusedPane]?.tabID,
+              let paneTab = model.panes[pane]?.tabID,
+              focusedTab == paneTab
+        else { return nil }
         return .paneInterior(focusedPane)
     }
 }

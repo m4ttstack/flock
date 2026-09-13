@@ -34,7 +34,11 @@ final class MoveToMenuTests: XCTestCase {
                 tabRecord("w1:t2", workspace: "w1", label: "second"),
                 tabRecord("w2:t1", workspace: "w2", label: "third"),
             ],
-            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1")],
+            panes: [
+                paneRecord("w1:p1", workspace: "w1", tab: "w1:t1"),
+                paneRecord("w1:p2", workspace: "w1", tab: "w1:t1"),
+                paneRecord("w1:p3", workspace: "w1", tab: "w1:t2"),
+            ],
             layouts: []
         ))
     }
@@ -63,20 +67,29 @@ final class MoveToMenuTests: XCTestCase {
         XCTAssertEqual(entries, [])
     }
 
-    func testSwapTargetIsPaneInteriorOfTheFocusedPaneWhenNotFocused() {
-        let target = MoveToMenu.swapTarget(for: PaneID(rawValue: "w1:p1"), focusedPane: PaneID(rawValue: "w1:p2"))
+    func testSwapTargetIsPaneInteriorOfTheFocusedPaneWhenSameTabAndNotFocused() {
+        let target = MoveToMenu.swapTarget(for: PaneID(rawValue: "w1:p1"), focusedPane: PaneID(rawValue: "w1:p2"), model: canonicalFixture())
 
         XCTAssertEqual(target, .paneInterior(PaneID(rawValue: "w1:p2")))
     }
 
     func testSwapTargetIsNilWhenThePaneIsTheFocusedPane() {
-        let target = MoveToMenu.swapTarget(for: PaneID(rawValue: "w1:p1"), focusedPane: PaneID(rawValue: "w1:p1"))
+        let target = MoveToMenu.swapTarget(for: PaneID(rawValue: "w1:p1"), focusedPane: PaneID(rawValue: "w1:p1"), model: canonicalFixture())
 
         XCTAssertNil(target)
     }
 
     func testSwapTargetIsNilWhenNothingIsFocused() {
-        let target = MoveToMenu.swapTarget(for: PaneID(rawValue: "w1:p1"), focusedPane: nil)
+        let target = MoveToMenu.swapTarget(for: PaneID(rawValue: "w1:p1"), focusedPane: nil, model: canonicalFixture())
+
+        XCTAssertNil(target)
+    }
+
+    /// I-2: `resolvedFocusedPaneID` is herdr's GLOBAL focus, not scoped to
+    /// this pane's own tab -- a focused pane in a DIFFERENT tab must not
+    /// offer a swap (that would plan a cross-tab MOVE under a "Swap" label).
+    func testSwapTargetIsNilWhenTheFocusedPaneIsInADifferentTab() {
+        let target = MoveToMenu.swapTarget(for: PaneID(rawValue: "w1:p1"), focusedPane: PaneID(rawValue: "w1:p3"), model: canonicalFixture())
 
         XCTAssertNil(target)
     }

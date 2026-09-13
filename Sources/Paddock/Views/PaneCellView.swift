@@ -85,6 +85,7 @@ struct PaneCellView: View {
                     .accessibilityIdentifier(entry.accessibilityIdentifier)
                 }
             }
+            .accessibilityIdentifier("paddock.pane.menu.moveTo")
             if let swapTarget {
                 Button("Swap with Focused Pane") {
                     Task { await viewModel.perform(subject: .pane(pane.paneID), target: swapTarget) }
@@ -105,7 +106,8 @@ struct PaneCellView: View {
     }
 
     private var swapTarget: DropTarget? {
-        MoveToMenu.swapTarget(for: pane.paneID, focusedPane: viewModel.resolvedFocusedPaneID)
+        guard let model = viewModel.model else { return nil }
+        return MoveToMenu.swapTarget(for: pane.paneID, focusedPane: viewModel.resolvedFocusedPaneID, model: model)
     }
 
     /// The framed terminal box. Content is clipped to the rounded frame and
