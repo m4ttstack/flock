@@ -1,13 +1,22 @@
 import PaddockCore
 import SwiftUI
 
-/// A single pane cell: header (title/dot/chip) stays constant, the body
-/// swaps between status-card mode (glyph/cwd/hint, for a pane not yet
-/// attached) and live mode (its one ghostty surface) once `SessionViewModel`
-/// hands one back. Every pane the canvas renders is a visible pane of the
-/// selected tab, so it attaches on first visibility per the standing attach
-/// policy; card mode is what shows while that attach is still in flight.
+/// A single pane cell: the title, status dot, and chip ride the top border
+/// line as a legend (herdr's own pane framing), so no header row spends
+/// terminal space; the body swaps between status-card mode (glyph/cwd/hint,
+/// for a pane not yet attached) and live mode (its one ghostty surface) once
+/// `SessionViewModel` hands one back. Every pane the canvas renders is a
+/// visible pane of the selected tab, so it attaches on first visibility per
+/// the standing attach policy; card mode is what shows while that attach is
+/// still in flight.
 struct PaneCellView: View {
+    /// Half the legend's height: the framed box begins this far below the
+    /// cell's top so the legend can sit centered on the box's top edge
+    /// without leaving the cell's own frame.
+    static let legendHalfHeight: CGFloat = 8
+    /// Terminal content insets inside the box. Top clears the legend's lower
+    /// half; the rest mirrors the artboards' text inset from the frame.
+    static let contentInsets = EdgeInsets(top: 12, leading: 10, bottom: 8, trailing: 10)
     let theme: Theme
     let viewModel: SessionViewModel
     let pane: PaneRecord
@@ -35,28 +44,10 @@ struct PaneCellView: View {
     }
 
     private var cell: some View {
-        VStack(spacing: 0) {
-            header
-            content
-        }
-        .background(theme.terminalGround)
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(
-            RoundedRectangle(cornerRadius: 9)
-                .strokeBorder(isFocused ? theme.accent : theme.separator, lineWidth: isFocused ? 2 : 1)
-        )
-        // A solid, unblurred halo ring outside the cell (matching the
-        // reference's `box-shadow: 0 0 0 3px`, zero blur, fixed spread).
-        // `HaloRing` is a real ring geometry (even-odd cutout), not a filled
-        // rect relying on the opaque cell to hide its interior -- a filled
-        // rect there visibly bled accent color across the header.
-        .background {
-            if isFocused {
-                HaloRing(cornerRadius: 9, thickness: 3)
-                    .fill(theme.accent.opacity(0.18), style: FillStyle(eoFill: true))
-                    .padding(-3)
-            }
-        }
+        box
+            .padding(.top, Self.legendHalfHeight)
+            .overlay(alignment: .topLeading) { legend }
+            .overlay(alignment: .topTrailing) { statusChip }
         // One task per (pane, dims) identity, never keyed on focus: the pane
         // gets exactly one surface for its whole visible life, created here
         // on first visibility and resized in place on every later dims
@@ -92,28 +83,55 @@ struct PaneCellView: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 8) {
+    /// The framed terminal box. Content is clipped to the rounded frame and
+    /// the focus halo is a real ring geometry (even-odd cutout) so no accent
+    /// fill can bleed into the interior.
+    private var box: some View {
+        content
+            .padding(Self.contentInsets)
+            .background(theme.terminalGround)
+            .clipShape(RoundedRectangle(cornerRadius: 9))
+            .overlay(
+                RoundedRectangle(cornerRadius: 9)
+                    .strokeBorder(isFocused ? theme.accent : theme.separator, lineWidth: isFocused ? 2 : 1)
+            )
+            .background {
+                if isFocused {
+                    HaloRing(cornerRadius: 9, thickness: 3)
+                        .fill(theme.accent.opacity(0.18), style: FillStyle(eoFill: true))
+                        .padding(-3)
+                }
+            }
+    }
+
+    /// Dot + title inlaid on the box's top edge. The two-tone backing paints
+    /// the canvas ground above the edge and the terminal ground below it, so
+    /// the border line reads as interrupted by the legend rather than as a
+    /// pill floating over it.
+    private var legend: some View {
+        HStack(spacing: 6) {
             StatusDot(status: pane.agentStatus, theme: theme)
             Text(pane.terminalTitleStripped ?? pane.label ?? "shell")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.text)
                 .lineLimit(1)
-            Spacer(minLength: 4)
-            if let statusColor {
-                Text(pane.agentStatus.rawValue)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(statusColor)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(statusColor.opacity(0.14)))
-            }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 28)
-        .background(theme.paneHeaderBg)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.separator).frame(height: 1)
+        .legendBacking(above: theme.windowBg, below: theme.terminalGround, halfHeight: Self.legendHalfHeight)
+        .padding(.leading, 12)
+        .accessibilityIdentifier("paddock.pane.legend.\(pane.paneID.rawValue)")
+    }
+
+    @ViewBuilder
+    private var statusChip: some View {
+        if let statusColor {
+            Text(pane.agentStatus.rawValue)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(statusColor)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 4).fill(statusColor.opacity(0.14)))
+                .legendBacking(above: theme.windowBg, below: theme.terminalGround, halfHeight: Self.legendHalfHeight)
+                .padding(.trailing, 12)
         }
     }
 
@@ -218,6 +236,22 @@ private struct AttachDims: Equatable {
     let paneID: PaneID
     let cols: Int
     let rows: Int
+}
+
+private extension View {
+    /// Pins a legend element to a fixed row of `2 * halfHeight`, centered on
+    /// the seam between the two grounds, and paints each ground on its side
+    /// of that seam behind the element.
+    func legendBacking(above: Color, below: Color, halfHeight: CGFloat) -> some View {
+        padding(.horizontal, 5)
+            .frame(height: halfHeight * 2)
+            .background {
+                VStack(spacing: 0) {
+                    above
+                    below
+                }
+            }
+    }
 }
 
 /// The "Copied" whisper, geometry per the Interactions artboard's copy-on-

@@ -114,3 +114,15 @@ the frame: identical face and pitch in both panes, the unfocused pane's
 hollow cursor at its real prompt row (the 2b stray-glyph artifact is gone
 with SwiftTerm), and the tail of a 100k-line stream that was flipped
 mid-output without corruption.
+
+## Pane anatomy: legend on the border (parity/pane-legend/pane-legend.png)
+
+Matt's ruling 2026-09-13 supersedes the artboards' 28px pane header: the
+title, status dot, and chip ride the top border line as a legend (herdr's
+own framing). Measured on the capture (2x): 1pt bottom border, then a 14pt
+gap (6pt gutter + 8pt legend half) painted in `windowBg`, then the next
+pane's top border with the legend centered on it; legend backing is
+two-tone (`windowBg` above the line, `terminalGround` below) so the line
+reads as interrupted, not overlaid. Terminal content insets inside the
+box: 12 top / 10 sides / 8 bottom. Net: ~20pt more terminal per pane. The
+grip glyph and drag handle on the legend arrive with the drag layer.
