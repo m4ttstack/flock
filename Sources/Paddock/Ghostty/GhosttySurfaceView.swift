@@ -37,8 +37,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// too, so a later flip while the view already has a window still takes
     /// effect -- but `viewDidMoveToWindow` is the primary trigger: it is the
     /// only place guaranteed to run exactly when `window` first becomes
-    /// non-nil, which `updateNSView` is not (confirmed live: `updateNSView`'s
-    /// own focus request ran once, immediately after `makeNSView`, with
+    /// non-nil, which `updateNSView` is not (`updateNSView`'s
+    /// own focus request runs once, immediately after `makeNSView`, with
     /// `window` still nil -- silently lost, never retried, because nothing
     /// about this representable's inputs changes again after that to trigger
     /// a second `updateNSView` call).
