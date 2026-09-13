@@ -42,7 +42,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
             socketPath: socketPath,
             controlPipe: channel?.path
         )
-        let session = host.makeSession(configuration: .init(commandArgv: argv, themeColors: themeColors()))
+        let session = host.makeSession(paneID: pane, configuration: .init(commandArgv: argv, themeColors: themeColors()))
         session.onUserInput = onUserInput
         session.onScreenActivity = onScreenActivity
         session.controlChannel = channel

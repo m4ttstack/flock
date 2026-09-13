@@ -1,14 +1,17 @@
 import SwiftUI
 
-/// Draws `ToastCenter.current` in the window's top-right corner, below the
-/// title bar, and never takes hits: the pane underneath keeps the mouse.
+/// Draws a window-scope `ToastCenter.current` in the window's top-right
+/// corner, below the title bar, and never takes hits: the pane underneath
+/// keeps the mouse. A pane-scoped toast (`paneID != nil`, e.g. the copied
+/// whisper) is skipped here -- it renders inside its own pane cell instead
+/// (see `PaneCellView`).
 struct ToastHost: View {
     @Environment(ThemeStore.self) private var themeStore
     @Environment(ToastCenter.self) private var toastCenter
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            if let toast = toastCenter.current {
+            if let toast = toastCenter.current, toast.paneID == nil {
                 ToastPill(theme: themeStore.active, toast: toast)
                     .id(toast.id)
                     .transition(.opacity.combined(with: .move(edge: .top)))

@@ -42,6 +42,10 @@ final class GhosttySession {
     }
 
     let host: GhosttyHost
+    /// This surface's pane, the way `write_clipboard_cb` identifies which
+    /// pane's whisper toast to show: resolved once here at construction,
+    /// never re-derived from the surface pointer at callback time.
+    let paneID: PaneID
     let state = State()
     private(set) var configuration: Launch
     /// Read from libghostty's own threads, which is why it is not actor isolated.
@@ -66,8 +70,9 @@ final class GhosttySession {
     /// libghostty surface ends the bridge's PTY.
     var controlChannel: PaneControlChannel?
 
-    init(host: GhosttyHost, configuration: Launch) {
+    init(host: GhosttyHost, paneID: PaneID, configuration: Launch) {
         self.host = host
+        self.paneID = paneID
         self.configuration = configuration
         host.register(self)
     }

@@ -26,8 +26,8 @@ struct PaddockApp: App {
         // `GhosttyHost.Failure`): every pane then stays in status-card mode
         // with no live attach at all, rather than the app failing to launch.
         let ghosttyHost = try? GhosttyHost()
-        ghosttyHost?.onClipboardWrite = { text in
-            toastCenter.show(CopiedToastMessage.make(for: text), kind: .copied)
+        ghosttyHost?.onClipboardWrite = { text, paneID in
+            toastCenter.show(CopiedToastMessage.make(for: text), kind: .copied, in: paneID)
         }
         let ghosttyFactory = ghosttyHost.map { host in
             GhosttyControlSurfaceFactory(host: host, socketPath: socketPath) {

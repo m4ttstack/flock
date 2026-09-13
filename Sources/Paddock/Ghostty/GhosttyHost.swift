@@ -44,10 +44,11 @@ final class GhosttyHost {
     /// actor (libghostty callback threads never read it, unlike `app`).
     nonisolated(unsafe) private var baseConfig: ghostty_config_t?
 
-    /// Fired with the text just written to the system clipboard by any
-    /// surface (copy-on-select's mouse-up, an explicit copy action), after
-    /// the pasteboard write has happened, on the main actor.
-    var onClipboardWrite: ((String) -> Void)?
+    /// Fired with the text just written to the system clipboard and the pane
+    /// whose surface wrote it, by any surface (copy-on-select's mouse-up, an
+    /// explicit copy action), after the pasteboard write has happened, on
+    /// the main actor.
+    var onClipboardWrite: ((String, PaneID) -> Void)?
 
     /// `ghostty_init` has to run before any other libghostty call, the config
     /// included, so it is separate from creating the app. Safe to call twice;
@@ -97,8 +98,8 @@ final class GhosttyHost {
         }
     }
 
-    func makeSession(configuration: GhosttySession.Launch) -> GhosttySession {
-        GhosttySession(host: self, configuration: configuration)
+    func makeSession(paneID: PaneID, configuration: GhosttySession.Launch) -> GhosttySession {
+        GhosttySession(host: self, paneID: paneID, configuration: configuration)
     }
 
     func tick() {
@@ -341,7 +342,7 @@ private func ghosttyHostWriteClipboard(
     // its host) alive until the main actor gets to it.
     guard let session = ghosttySession(from: userdata) else { return }
     Task { @MainActor in
-        session.host.onClipboardWrite?(joined)
+        session.host.onClipboardWrite?(joined, session.paneID)
     }
 }
 

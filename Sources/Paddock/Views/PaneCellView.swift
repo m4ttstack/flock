@@ -19,7 +19,16 @@ struct PaneCellView: View {
     let cols: Int
     let rows: Int
 
+    @Environment(ToastCenter.self) private var toastCenter
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
+
+    /// `ToastCenter.current` narrowed to this pane; every other pane's cell
+    /// narrows the same single slot to `nil`, so only the one pane a copy
+    /// happened in ever shows the whisper.
+    private var ownToast: ToastCenter.Toast? {
+        guard let toast = toastCenter.current, toast.paneID == pane.paneID else { return nil }
+        return toast
+    }
 
     var body: some View {
         cell
@@ -155,6 +164,16 @@ struct PaneCellView: View {
                     }
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if let ownToast {
+                    PaneCopiedToastPill(theme: theme, toast: ownToast)
+                        .id(ownToast.id)
+                        .padding(10)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: ownToast)
         } else {
             cardContent
         }
@@ -209,6 +228,33 @@ private struct AttachDims: Equatable {
     let paneID: PaneID
     let cols: Int
     let rows: Int
+}
+
+/// The "Copied" whisper, geometry per the Interactions artboard's copy-on-
+/// selection panel: 10pt inset from the pane's bottom-right corner, 10/5
+/// padding, 6pt radius, 11pt icon, 10pt label.
+private struct PaneCopiedToastPill: View {
+    let theme: Theme
+    let toast: ToastCenter.Toast
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "doc.on.doc")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(theme.green)
+            Text(toast.message)
+                .font(.system(size: 10))
+                .foregroundStyle(theme.chromeTextStrong)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(theme.paneHeaderBg, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.tabPillSelectedBorder, lineWidth: 1))
+        .shadow(color: theme.railBg.opacity(0.4), radius: 9, y: 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(toast.accessibilityIdentifier)
+    }
 }
 
 /// A ring shape (outer rounded rect minus an inset inner one, even-odd
