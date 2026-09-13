@@ -7,8 +7,58 @@ import SwiftUI
 /// declares the same thing statically, for the earliest part of launch this
 /// delegate is not yet installed for) that this app does not participate in
 /// AppKit's secure-restorable-state scheme.
+///
+/// Also owns window-frame persistence under a fixed literal key, independent
+/// of the SwiftUI environment-modifier chain that made state restoration
+/// itself unreliable (see `PaddockApp.init`'s own trade-off comment) --
+/// `NSWindow`'s own `setFrameAutosaveName`/`saveFrame(usingName:)` were tried
+/// first and empirically do NOT write anything under a custom name for this
+/// window (confirmed: the call sites ran, with a valid window/frame/name
+/// each time, and `defaults read` never showed the key; `isRestorable =
+/// false` first did not unblock it either) -- this window's frame keeps
+/// getting captured under SwiftUI's OWN type-encoded identifier
+/// (`NSPersistentUIManager`-driven) instead, no matter what name this code
+/// asks for. Plain `UserDefaults` read/write under an ordinary app-owned key
+/// sidesteps whatever internal AppKit/SwiftUI interaction is intercepting
+/// the classic autosave APIs, and is what `ApplePersistenceIgnoreState`
+/// itself already round-trips through in this exact process.
 final class PaddockAppDelegate: NSObject, NSApplicationDelegate {
+    private static let frameDefaultsKey = "paddock.mainWindowFrame"
+
+    private var frameObservers: [NSObjectProtocol] = []
+
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { false }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard let window = NSApp.windows.first else { return }
+        if let saved = UserDefaults.standard.string(forKey: Self.frameDefaultsKey) {
+            let frame = NSRectFromString(saved)
+            if frame.width > 0, frame.height > 0 {
+                window.setFrame(frame, display: true)
+            }
+        }
+        // Saved continuously (not only at quit), so a force-quit or crash
+        // still keeps the LAST live position/size rather than only
+        // whatever `applicationWillTerminate` last saw.
+        let center = NotificationCenter.default
+        frameObservers = [
+            center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak window] _ in
+                Self.saveFrame(of: window)
+            },
+            center.addObserver(forName: NSWindow.didMoveNotification, object: window, queue: .main) { [weak window] _ in
+                Self.saveFrame(of: window)
+            },
+        ]
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Self.saveFrame(of: NSApp.windows.first)
+    }
+
+    private static func saveFrame(of window: NSWindow?) {
+        guard let window else { return }
+        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: frameDefaultsKey)
+    }
 }
 
 struct PaddockApp: App {
@@ -36,6 +86,19 @@ struct PaddockApp: App {
         // late to preempt THIS specific legacy path (confirmed empirically:
         // neither stopped it). This is the equivalent of always launching
         // with `-ApplePersistenceIgnoreState YES`.
+        //
+        // The trade-off, stated plainly: full scene-CONTENT state
+        // restoration is off for good, traded for a launch that never opens
+        // zero windows. It also takes window FRAME persistence down with it
+        // -- SwiftUI saves "NSWindow Frame <the same type-encoded
+        // identifier>" as a side effect of the very restoration machinery
+        // this disables, so this line alone would silently reset the
+        // window to a default frame on every launch. `PaddockAppDelegate`
+        // restores that half itself, under a fixed literal `UserDefaults`
+        // key independent of the modifier-chain identity that made
+        // restoration itself unreliable -- see that type's own doc comment
+        // for why plain `UserDefaults` is what does this rather than
+        // `NSWindow`'s own `setFrameAutosaveName`/`saveFrame(usingName:)`.
         UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
         let socketPath = Self.resolveSocketPath()
         // A plain local, not `self.themeStore`: an escaping closure built
