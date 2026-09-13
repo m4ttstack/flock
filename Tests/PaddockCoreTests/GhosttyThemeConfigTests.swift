@@ -132,7 +132,8 @@ final class GhosttyThemeConfigTests: XCTestCase {
         )
         let text = GhosttyThemeConfig.configText(
             colors: colors,
-            commandArgv: ["/path/to/Paddock", "--bridge", "w1:p1", "--socket", "/tmp/a b.sock"]
+            commandArgv: ["/path/to/Paddock", "--bridge", "w1:p1", "--socket", "/tmp/a b.sock"],
+            fontFamily: "Menlo", fontSizePoints: 13
         )
         XCTAssertTrue(text.hasSuffix(
             "command = shell:'/path/to/Paddock' '--bridge' 'w1:p1' '--socket' '/tmp/a b.sock'\n"
@@ -148,10 +149,32 @@ final class GhosttyThemeConfigTests: XCTestCase {
             foreground: color(255, 255, 255),
             ansi: Array(repeating: color(0, 0, 0), count: 16)
         )
-        let text = GhosttyThemeConfig.configText(colors: colors, commandArgv: ["/path/to/Paddock"])
+        let text = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: ["/path/to/Paddock"], fontFamily: "Menlo", fontSizePoints: 13
+        )
         let lines = text.split(separator: "\n").map(String.init)
         XCTAssertTrue(lines.contains("window-padding-x = 0"), "missing window-padding-x = 0 in:\n\(text)")
         XCTAssertTrue(lines.contains("window-padding-y = 0"), "missing window-padding-y = 0 in:\n\(text)")
+    }
+
+    /// One truth for both the scratch (surface-creation) config and the live
+    /// text-size update path, since both route through this one function:
+    /// pinned per size (compact/regular/large's actual point values), with
+    /// regular (13pt) as the default paddock's `TerminalTextSize` starts at.
+    func testConfigTextIncludesFontFamilyAndSizeLinesPerSize() {
+        let colors = GhosttyThemeColors(
+            background: color(0, 0, 0),
+            foreground: color(255, 255, 255),
+            ansi: Array(repeating: color(0, 0, 0), count: 16)
+        )
+        for points in [11, 13, 15] {
+            let text = GhosttyThemeConfig.configText(
+                colors: colors, commandArgv: ["/path/to/Paddock"], fontFamily: "Menlo", fontSizePoints: points
+            )
+            let lines = text.split(separator: "\n").map(String.init)
+            XCTAssertTrue(lines.contains("font-family = Menlo"), "missing font-family line at \(points)pt in:\n\(text)")
+            XCTAssertTrue(lines.contains("font-size = \(points)"), "missing font-size = \(points) in:\n\(text)")
+        }
     }
 
     func testShellEscapedDoublesEmbeddedSingleQuote() {

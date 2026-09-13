@@ -17,16 +17,22 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     private let socketPath: String
     private let herdrBinaryOverride: String?
     private let themeColors: () -> GhosttyThemeColors
+    /// Read once, at surface creation, the same way `themeColors` is: a later
+    /// text-size change flows through `GhosttySession.updateAppearance`, not
+    /// back through a fresh `Launch`.
+    private let terminalTextSize: () -> TerminalTextSize
 
     init(
         host: GhosttyHost, socketPath: String,
         herdrBinaryOverride: String? = ProcessInfo.processInfo.environment["PADDOCK_HERDR_BIN"],
-        themeColors: @escaping () -> GhosttyThemeColors
+        themeColors: @escaping () -> GhosttyThemeColors,
+        terminalTextSize: @escaping () -> TerminalTextSize
     ) {
         self.host = host
         self.socketPath = socketPath
         self.herdrBinaryOverride = (herdrBinaryOverride?.isEmpty == false) ? herdrBinaryOverride : nil
         self.themeColors = themeColors
+        self.terminalTextSize = terminalTextSize
     }
 
     func makeSurface(
@@ -61,7 +67,10 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
             controlPipe: channel?.path,
             statusPipe: statusChannel?.path
         )
-        let session = host.makeSession(paneID: pane, configuration: .init(commandArgv: argv, themeColors: themeColors()))
+        let session = host.makeSession(
+            paneID: pane,
+            configuration: .init(commandArgv: argv, themeColors: themeColors(), textSize: terminalTextSize())
+        )
         session.onUserInput = onUserInput
         session.onScreenActivity = onScreenActivity
         session.controlChannel = channel

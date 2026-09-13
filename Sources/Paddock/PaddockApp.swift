@@ -4,6 +4,7 @@ import SwiftUI
 
 struct PaddockApp: App {
     @State private var themeStore = ThemeStore()
+    @State private var terminalTextSizeStore = TerminalTextSizeStore()
     @State private var toastCenter: ToastCenter
     @State private var herdrStore: HerdrStore
     @State private var viewModel: SessionViewModel
@@ -19,6 +20,8 @@ struct PaddockApp: App {
         // rather than reading it back off `self`.
         let themeStore = ThemeStore()
         _themeStore = State(initialValue: themeStore)
+        let terminalTextSizeStore = TerminalTextSizeStore()
+        _terminalTextSizeStore = State(initialValue: terminalTextSizeStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
         _herdrStore = State(initialValue: HerdrStore(socketPath: socketPath))
@@ -30,9 +33,11 @@ struct PaddockApp: App {
             toastCenter.show(CopiedToastMessage.make(for: text), kind: .copied, in: paneID)
         }
         let ghosttyFactory = ghosttyHost.map { host in
-            GhosttyControlSurfaceFactory(host: host, socketPath: socketPath) {
-                themeStore.active.ghosttyThemeColors()
-            }
+            GhosttyControlSurfaceFactory(
+                host: host, socketPath: socketPath,
+                themeColors: { themeStore.active.ghosttyThemeColors() },
+                terminalTextSize: { terminalTextSizeStore.active }
+            )
         }
         // One client, two roles: `HerdrClient` conforms to both
         // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
@@ -51,6 +56,7 @@ struct PaddockApp: App {
         WindowGroup("Paddock") {
             MainWindow(viewModel: viewModel, sessionLabel: sessionLabel)
                 .environment(themeStore)
+                .environment(terminalTextSizeStore)
                 .environment(toastCenter)
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {
@@ -64,6 +70,7 @@ struct PaddockApp: App {
         .commands {
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
+                TerminalTextSizeMenu(store: terminalTextSizeStore)
             }
         }
     }

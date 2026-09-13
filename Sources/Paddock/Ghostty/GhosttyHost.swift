@@ -152,9 +152,13 @@ final class GhosttyHost {
     /// so there is never a second `configureNextSurface` in flight while this
     /// one's scratch file is still being written or read.
     @discardableResult
-    func configureNextSurface(colors: GhosttyThemeColors, commandArgv: [String]) -> Bool {
+    func configureNextSurface(
+        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Int
+    ) -> Bool {
         guard let app, let baseConfig, !commandArgv.isEmpty else { return false }
-        let text = GhosttyThemeConfig.configText(colors: colors, commandArgv: commandArgv)
+        let text = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: commandArgv, fontFamily: fontFamily, fontSizePoints: fontSizePoints
+        )
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("paddock-surface-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")
         guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil,
@@ -188,9 +192,14 @@ final class GhosttyHost {
     /// here: `ghostty_surface_update_config` never re-runs a surface's
     /// command (see the call site's doc comment).
     @discardableResult
-    func updateLiveConfig(surface: ghostty_surface_t, colors: GhosttyThemeColors, commandArgv: [String]) -> Bool {
+    func updateLiveConfig(
+        surface: ghostty_surface_t, colors: GhosttyThemeColors, commandArgv: [String],
+        fontFamily: String, fontSizePoints: Int
+    ) -> Bool {
         guard let baseConfig, !commandArgv.isEmpty else { return false }
-        let text = GhosttyThemeConfig.configText(colors: colors, commandArgv: commandArgv)
+        let text = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: commandArgv, fontFamily: fontFamily, fontSizePoints: fontSizePoints
+        )
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("paddock-surface-update-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")
         guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil,

@@ -18,6 +18,11 @@ struct GhosttyPaneTerminalView: View {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
+    /// One truth for every ghostty surface's `font-size` and the history
+    /// overlay's own font, so the deep-history seam stays color-only. See
+    /// `historyLineSpacing`, which matches the overlay's row pitch to the
+    /// surface's real `cell_height_px` at this size.
+    let textSize: TerminalTextSize
     /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
     /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus
     /// ever moves to this pane at all, since only the header row has its
@@ -40,7 +45,7 @@ struct GhosttyPaneTerminalView: View {
     @State private var browserState = BrowserScrollState()
 
     init(
-        surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool,
+        surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, textSize: TerminalTextSize,
         onPrimaryClick: @escaping () -> Void = {},
         paneTerminal: PaneTerminal? = nil,
         historyDim: SwiftUI.Color = SwiftUI.Color(red: 0.34, green: 0.37, blue: 0.54)
@@ -48,6 +53,7 @@ struct GhosttyPaneTerminalView: View {
         self.surface = surface
         self.theme = theme
         self.isFocused = isFocused
+        self.textSize = textSize
         self.onPrimaryClick = onPrimaryClick
         self.paneTerminal = paneTerminal
         self.historyDim = historyDim
@@ -57,7 +63,7 @@ struct GhosttyPaneTerminalView: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             GhosttySurfaceRepresentable(
-                surface: surface, theme: theme, isFocused: isFocused,
+                surface: surface, theme: theme, isFocused: isFocused, textSize: textSize,
                 onPrimaryClick: onPrimaryClick,
                 paneTerminal: paneTerminal,
                 browserState: browserState,
@@ -68,7 +74,8 @@ struct GhosttyPaneTerminalView: View {
             if let paneTerminal, historyCapable, historyRevealed {
                 HistoryBrowseView(
                     paneTerminal: paneTerminal, ground: theme.terminalGround, ink: historyDim,
-                    liveInk: theme.terminalForeground, state: browserState
+                    liveInk: theme.terminalForeground, state: browserState,
+                    fontSize: CGFloat(textSize.points), lineSpacing: historyLineSpacing
                 )
                 .transition(.opacity)
             }
@@ -89,6 +96,45 @@ struct GhosttyPaneTerminalView: View {
             }
         }
     }
+
+    /// Extra spacing so the overlay's per-line pitch matches the surface's
+    /// real `cell_height_px` exactly -- `.lineSpacing` adds to a font's own
+    /// natural line height rather than replacing it, so this is the
+    /// difference between the two, never negative (a font whose natural line
+    /// height already exceeds the cell would go the other way, which ghostty
+    /// itself never produces at these three fixed sizes against `Menlo`, but
+    /// nothing here assumes that holds for some future size).
+    private var historyLineSpacing: CGFloat {
+        guard let cellHeight = cellHeightPoints else { return 0 }
+        return max(0, cellHeight - fontLineHeight(size: CGFloat(textSize.points)))
+    }
+
+    /// The surface's real cell height in points -- `surfaceGeometry()`'s
+    /// `cell_height_px` divided by the hosting window's backing scale, the
+    /// same conversion `GhosttySurfaceView.cellSizeInPoints()` does for mouse
+    /// forwarding. `nil` before the surface (or its window) exists, in which
+    /// case the overlay falls back to the font's own natural line height.
+    private var cellHeightPoints: CGFloat? {
+        guard let handle = surface as? GhosttySessionSurfaceHandle,
+              let geometry = handle.session.surfaceGeometry()
+        else { return nil }
+        let scale = handle.session.view?.window?.backingScaleFactor
+            ?? handle.session.view?.window?.screen?.backingScaleFactor
+            ?? 2
+        guard scale > 0 else { return nil }
+        return CGFloat(geometry.cellPixels.height) / scale
+    }
+}
+
+/// `Menlo`'s own metrics at `size`, the way a real line of `Menlo` text
+/// occupies vertical space with NO extra `.lineSpacing` applied -- the
+/// baseline `historyLineSpacing` adds on top of to reach the surface's real
+/// cell height. Falls back to a plain multiple of the point size only if
+/// `Menlo` itself cannot be loaded (never expected on macOS; see
+/// `TerminalFont`'s own doc comment for why it is pinned).
+private func fontLineHeight(size: CGFloat) -> CGFloat {
+    guard let font = NSFont(name: TerminalFont.face, size: size) else { return size * 1.2 }
+    return font.ascender - font.descender + font.leading
 }
 
 /// Hosts one `GhosttySurfaceView`, created once per surface identity
@@ -101,6 +147,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
+    let textSize: TerminalTextSize
     var onPrimaryClick: () -> Void = {}
     var paneTerminal: PaneTerminal?
     var browserState: BrowserScrollState?
@@ -109,6 +156,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 
     final class Coordinator {
         var lastAppliedThemeID: String?
+        var lastAppliedTextSize: TerminalTextSize?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -121,6 +169,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             return PlaceholderGhosttyHostView(background: theme.terminalGround)
         }
         context.coordinator.lastAppliedThemeID = theme.id
+        context.coordinator.lastAppliedTextSize = textSize
         let session = handle.session
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
@@ -138,9 +187,10 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let ghosttyView = nsView as? GhosttySurfaceView else { return }
-        if context.coordinator.lastAppliedThemeID != theme.id {
+        if context.coordinator.lastAppliedThemeID != theme.id || context.coordinator.lastAppliedTextSize != textSize {
             context.coordinator.lastAppliedThemeID = theme.id
-            ghosttyView.session.updateTheme(theme.ghosttyThemeColors())
+            context.coordinator.lastAppliedTextSize = textSize
+            ghosttyView.session.updateAppearance(theme.ghosttyThemeColors(), textSize: textSize)
         }
         ghosttyView.wantsFocus = isFocused
         ghosttyView.onPrimaryClick = onPrimaryClick
@@ -200,6 +250,12 @@ private struct HistoryBrowseView: View {
     /// (dim history vs. this) even as the theme changes.
     let liveInk: SwiftUI.Color
     let state: BrowserScrollState
+    /// The identical face/size the ghostty surface itself renders at (see
+    /// `TerminalFont`), and the per-line spacing that closes the gap between
+    /// `Menlo`'s own line height and the surface's real cell height -- the
+    /// history/live boundary is a color change only, never a glyph-size one.
+    let fontSize: CGFloat
+    let lineSpacing: CGFloat
 
     @State private var text = ""
     @State private var bufferText = ""
@@ -226,13 +282,15 @@ private struct HistoryBrowseView: View {
                     }
                     if !text.isEmpty {
                         Text(text)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.custom(TerminalFont.face, size: fontSize))
+                            .lineSpacing(lineSpacing)
                             .foregroundStyle(ink)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 11)
                     }
                     Text(bufferText.isEmpty ? " " : bufferText)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.custom(TerminalFont.face, size: fontSize))
+                        .lineSpacing(lineSpacing)
                         .foregroundStyle(liveInk)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 11)

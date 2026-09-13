@@ -61,13 +61,25 @@ public enum GhosttyThemeConfig {
     }
 
     /// The scratch `.ghostty` file text loaded before a surface is created:
-    /// the theme lines above, the padding lines, plus the one line that gets
-    /// a surface's real command past libghostty's silent drop of
-    /// `ghostty_surface_config_s`'s `command`/`env_vars` fields at this
+    /// the theme lines above, the font lines, the padding lines, plus the one
+    /// line that gets a surface's real command past libghostty's silent drop
+    /// of `ghostty_surface_config_s`'s `command`/`env_vars` fields at this
     /// vendored commit (see `GhosttyHost.configureNextSurface`, the call
     /// site). `shell:` is explicit rather than relying on the default, so a
     /// bridge argument containing a colon (a socket path, for instance) is
     /// never read as a `direct:`-style prefix.
+    ///
+    /// `font-family`/`font-size` are the SAME two lines
+    /// `GhosttyHost.updateLiveConfig` pushes for a live text-size change (both
+    /// routes go through this one function), so a surface's initial font and
+    /// a later resize always agree: one truth, never two config-text builders
+    /// to keep in sync. `font-family` takes a bare (unquoted) value: ghostty's
+    /// own config-line parser only strips a WRAPPING pair of `"` before
+    /// handing the value to `RepeatableString.parseCLI`
+    /// (`Vendor/ghostty/src/cli/args.zig`'s `LineIterator.next`), so an
+    /// unquoted family name with no embedded `"` round-trips unchanged either
+    /// way. `font-size` is ghostty's `f32` (`Config.zig`'s `@"font-size"`),
+    /// which parses a bare integer fine.
     ///
     /// `window-padding-x/y = 0` overrides libghostty's default 2px grid inset
     /// (`window-padding-x`/`-y` in `src/config/Config.zig`, scaled in
@@ -76,9 +88,13 @@ public enum GhosttyThemeConfig {
     /// the cell size from origin 0, so any padding would shift the leftmost
     /// and topmost slice of every cell onto the previous one; the pane chrome
     /// already provides the visual inset.
-    public static func configText(colors: GhosttyThemeColors, commandArgv: [String]) -> String {
+    public static func configText(
+        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Int
+    ) -> String {
         let command = commandArgv.map(\.shellEscaped).joined(separator: " ")
         return configText(colors: colors)
+            + "font-family = \(fontFamily)\n"
+            + "font-size = \(fontSizePoints)\n"
             + "window-padding-x = 0\n"
             + "window-padding-y = 0\n"
             + "command = shell:\(command)\n"

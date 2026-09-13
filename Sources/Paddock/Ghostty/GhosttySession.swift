@@ -21,6 +21,10 @@ final class GhosttySession {
         var themeColors: GhosttyThemeColors
         var workingDirectory: String?
         var fontSize: Float = 0
+        /// The terminal text size at creation time; travels with the launch
+        /// the same way `themeColors` does. A later change flows through
+        /// `updateAppearance`, not back through this struct.
+        var textSize: TerminalTextSize = .regular
     }
 
     /// The parts of the terminal's state this app reads back.
@@ -412,15 +416,24 @@ final class GhosttySession {
     /// `ghostty_surface_update_config` (ghostty's own live-reload entry
     /// point -- see `Surface.zig`'s `updateConfig`, which only touches
     /// rendering-affecting state and never re-runs the surface's command),
-    /// so a theme change repaints every focused pane without tearing its
-    /// bridge down. Ported from Herdglass's `TerminalSession.updateConfig`
+    /// so a theme OR text-size change repaints every focused pane without
+    /// tearing its bridge down. A font-size change here recomputes the
+    /// surface's cell size and, with it, its grid -- `Surface.zig`'s
+    /// `setFontSize` -> `setCellSize` resizes the surface's own pty, which is
+    /// what fires the bridge child's SIGWINCH and its own `terminal.resize`
+    /// send (`BridgeModeSwitcher.recordSize`); nothing here has to drive that
+    /// resize by hand. Ported from Herdglass's `TerminalSession.updateConfig`
     /// (BSL-1.1, attributed): push, then re-apply the light/dark scheme the
     /// same way `attach` does, since a config push does not imply one.
     @discardableResult
-    func updateTheme(_ colors: GhosttyThemeColors) -> Bool {
+    func updateAppearance(_ colors: GhosttyThemeColors, textSize: TerminalTextSize) -> Bool {
         configuration.themeColors = colors
+        configuration.textSize = textSize
         guard let surface else { return false }
-        guard host.updateLiveConfig(surface: surface, colors: colors, commandArgv: configuration.commandArgv) else {
+        guard host.updateLiveConfig(
+            surface: surface, colors: colors, commandArgv: configuration.commandArgv,
+            fontFamily: TerminalFont.face, fontSizePoints: textSize.points
+        ) else {
             return false
         }
         applyColorScheme(appearance: view?.effectiveAppearance)
@@ -525,7 +538,10 @@ final class GhosttySession {
         // doc comment for why the field alone does nothing). This has to run
         // before `ghostty_surface_new`, not after: the surface reads the
         // app's config once, at creation.
-        guard host.configureNextSurface(colors: configuration.themeColors, commandArgv: configuration.commandArgv) else { return }
+        guard host.configureNextSurface(
+            colors: configuration.themeColors, commandArgv: configuration.commandArgv,
+            fontFamily: TerminalFont.face, fontSizePoints: configuration.textSize.points
+        ) else { return }
 
         if let scheme = colorScheme(for: view.effectiveAppearance) {
             ghostty_app_set_color_scheme(app, scheme)

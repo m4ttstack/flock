@@ -29,6 +29,7 @@ struct PaneCellView: View {
     let rows: Int
 
     @Environment(ToastCenter.self) private var toastCenter
+    @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
 
     /// `ToastCenter.current` narrowed to this pane; every other pane's cell
@@ -152,6 +153,7 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
+                    textSize: terminalTextSizeStore.active,
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
                     historyDim: theme.overlay0
