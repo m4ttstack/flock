@@ -449,7 +449,7 @@ final class GhosttySession {
         }
     }
 
-    /// I2: the surface's child process going away (for any reason -- the
+    /// the surface's child process going away (for any reason -- the
     /// bridge exiting because the herdr binary could not be resolved, the
     /// observe child dying before its first repaint, a crash) must not leave
     /// a cold pane's status card up forever waiting for a `first_frame` line

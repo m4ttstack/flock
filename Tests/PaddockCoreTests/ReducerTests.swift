@@ -92,7 +92,7 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(model.layouts[tabBID], originalTabBLayout)
     }
 
-    /// M1: herdr's own `tab.close` emits only `TabClosed` -- no `PaneClosed`
+    /// herdr's own `tab.close` emits only `TabClosed` -- no `PaneClosed`
     /// per pane -- so `removeTab` has to prune `model.panes` itself, the
     /// same way `removeWorkspace` already does for a closed workspace.
     /// `w1:t2` (the fixture's second tab) owns exactly one pane, `w1:p3`.

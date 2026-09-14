@@ -89,7 +89,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         }
         let session = handle.session
         if let existingView = session.view {
-            // M3: unparked here, synchronously, rather than waiting for
+            // unparked here, synchronously, rather than waiting for
             // `SessionViewModel.attachPane`'s own chained `existing.unpark()`
             // to run -- that call is queued behind `paneWork` and can settle
             // AFTER this view is already back in the window, which would let

@@ -75,14 +75,14 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         session.onScreenActivity = onScreenActivity
         session.controlChannel = channel
         session.statusChannel = statusChannel
-        // I2: without a status channel at all, the bridge has no way to
+        // without a status channel at all, the bridge has no way to
         // ever tell this session about a first frame -- the card would
         // otherwise wait forever for a signal that structurally cannot
         // arrive. Reveal immediately rather than leave the pane stuck.
         if statusChannel == nil {
             session.markFirstFrameReceived()
         }
-        // I2: a bridge that never gets as far as painting anything (herdr
+        // a bridge that never gets as far as painting anything (herdr
         // binary unresolvable, the observe child dying before its first
         // repaint, any other startup failure that stops short of the
         // `handleCloseRequest` callback) must not leave the card up forever

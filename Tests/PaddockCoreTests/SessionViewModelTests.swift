@@ -757,7 +757,7 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(factory.makeSurfaceCalls.count, 14, "the evicted pane's reattach must create a NEW surface, not reuse the torn-down one")
     }
 
-    /// M2: a warm reattach that lands on the resolved-focused pane must arm
+    /// a warm reattach that lands on the resolved-focused pane must arm
     /// control, exactly like a cold attach does (`testAttachArmsControlOnly
     /// ForTheAlreadyFocusedPane`) -- otherwise a pane whose tab is switched
     /// back TO because it holds herdr's focus would sit warm in observe mode
@@ -782,7 +782,7 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(surface.currentMode, .control, "a warm reattach onto the resolved-focused pane must arm control")
     }
 
-    /// I3: a park and an attach for the SAME pane, both fired as independent,
+    /// a park and an attach for the SAME pane, both fired as independent,
     /// unawaited `Task { ... }` closures in the SAME main-actor turn -- the
     /// exact real shape of `PaneCellView.onDisappear`'s `Task { await
     /// viewModel.detachPane(...) }` racing a fresh `.task(id:)` firing

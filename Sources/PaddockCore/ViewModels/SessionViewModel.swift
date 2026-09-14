@@ -398,7 +398,7 @@ public final class SessionViewModel {
     }
 
     private func performAttach(pane: PaneID, cols: Int, rows: Int, factory: any GhosttyPaneFactory) async {
-        // I3: also removed here, inside the chain -- `attachPane`'s own
+        // also removed here, inside the chain -- `attachPane`'s own
         // synchronous removal (before this step even runs) closes the
         // common case, but a park enqueued for the SAME pane can still be
         // the step that actually appends to `parkedPanes`, and it may not
@@ -412,7 +412,7 @@ public final class SessionViewModel {
         if let existing = ghosttySurfaces[pane] {
             existing.unpark()
             existing.resize(cols: cols, rows: rows)
-            // M2: a warm reattach needs arming exactly like a cold one --
+            // a warm reattach needs arming exactly like a cold one --
             // the pane could easily be the resolved-focused one already (the
             // tab it belongs to is being switched back TO because it holds
             // focus), and without this it would sit warm in observe mode
