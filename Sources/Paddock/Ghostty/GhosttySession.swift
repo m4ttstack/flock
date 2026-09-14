@@ -449,7 +449,15 @@ final class GhosttySession {
         }
     }
 
+    /// I2: the surface's child process going away (for any reason -- the
+    /// bridge exiting because the herdr binary could not be resolved, the
+    /// observe child dying before its first repaint, a crash) must not leave
+    /// a cold pane's status card up forever waiting for a `first_frame` line
+    /// that will now never arrive. Latching here reveals whatever the
+    /// surface actually shows (even blank) instead; idempotent past the
+    /// first call, same as every other path into `markFirstFrameReceived()`.
     func handleCloseRequest(processAlive: Bool) {
+        markFirstFrameReceived()
         closeHandler?(processAlive)
     }
 

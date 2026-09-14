@@ -75,6 +75,26 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         session.onScreenActivity = onScreenActivity
         session.controlChannel = channel
         session.statusChannel = statusChannel
+        // I2: without a status channel at all, the bridge has no way to
+        // ever tell this session about a first frame -- the card would
+        // otherwise wait forever for a signal that structurally cannot
+        // arrive. Reveal immediately rather than leave the pane stuck.
+        if statusChannel == nil {
+            session.markFirstFrameReceived()
+        }
+        // I2: a bridge that never gets as far as painting anything (herdr
+        // binary unresolvable, the observe child dying before its first
+        // repaint, any other startup failure that stops short of the
+        // `handleCloseRequest` callback) must not leave the card up forever
+        // either -- whatever the surface shows once this fires (even a
+        // blank ground) is still strictly more informative than a status
+        // card frozen mid-attach. `markFirstFrameReceived()` is idempotent,
+        // so this is a no-op on the ordinary path where a real frame (or the
+        // close callback) already latched it well before 3s.
+        Task { @MainActor [weak session] in
+            try? await Task.sleep(for: .seconds(3))
+            session?.markFirstFrameReceived()
+        }
         // Read on the main queue and apply synchronously: a capture line's
         // effect lands in the order the bridge wrote it, so an app toggling
         // mouse mode off then on can never end up applied on->off.
@@ -123,13 +143,15 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     /// `GhosttySession.view` now holds its own view strongly, so a parked
     /// pane's surface survives its cell disappearing from SwiftUI -- breaks
     /// that retain cycle explicitly, by nilling `session.view` out. Without
-    /// this, `session` and its view would keep each other alive forever
-    /// once nothing outside the pair references either: `GhosttySurfaceView
+    /// this, `session` and its view would keep each other alive forever once
+    /// nothing outside the pair references either: `GhosttySurfaceView
     /// .session` is itself a strong reference back. Removing the view from
-    /// its superview first is defensive; SwiftUI has ordinarily already done
-    /// so by the time a pane's surface is torn down for real (the warm cap's
-    /// eviction, or herdr closing the pane), both of which only ever reach a
-    /// pane that is already parked -- long since removed from any window.
+    /// its superview first is defensive: it is a no-op for the warm cap's
+    /// own eviction (which only ever reaches an already-parked, already
+    /// windowless pane), but a pane herdr closes while still VISIBLE reaches
+    /// this same path too (`SessionViewModel.reconcileClosedPanes` does not
+    /// check parked-ness), and that pane's view is still very much in a
+    /// window at the moment this runs.
     func detach() async {
         session.view?.removeFromSuperview()
         session.view = nil
