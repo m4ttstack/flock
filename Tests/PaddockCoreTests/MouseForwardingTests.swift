@@ -56,9 +56,42 @@ final class MouseForwardingTests: XCTestCase {
                 decide(button: button, captureEnabled: false, mode: .control), .toSurface,
                 "capture off is today's behavior: libghostty owns the click")
         }
+    }
+
+    // MARK: - wheel routes through herdr when the app has not claimed the mouse
+
+    func testVerticalScrollWithCaptureOffRoutesToHerdrScroll() {
         XCTAssertEqual(
-            decide(kind: .scrollUp, button: nil, captureEnabled: false, mode: .control), .toSurface,
-            "wheel with capture off stays local scrollback")
+            decide(kind: .scrollUp, button: nil, captureEnabled: false, mode: .control, lines: 3),
+            .toHerdrScroll(direction: .up, lines: 3),
+            "wheel with capture off scrolls the real pane through herdr")
+        XCTAssertEqual(
+            decide(kind: .scrollDown, button: nil, captureEnabled: false, mode: .control, lines: 2),
+            .toHerdrScroll(direction: .down, lines: 2))
+    }
+
+    /// herdr's `terminal.scroll` has no horizontal direction, so a horizontal
+    /// wheel tick with capture off has nowhere to go.
+    func testHorizontalScrollWithCaptureOffDrops() {
+        XCTAssertEqual(decide(kind: .scrollLeft, button: nil, captureEnabled: false, mode: .control, lines: 3), .drop)
+        XCTAssertEqual(decide(kind: .scrollRight, button: nil, captureEnabled: false, mode: .control, lines: 3), .drop)
+    }
+
+    /// A tick that crossed no whole cell (the accumulator's own zero-step
+    /// case) must never send a herdr scroll command.
+    func testZeroLinesScrollWithCaptureOffDrops() {
+        XCTAssertEqual(decide(kind: .scrollUp, button: nil, captureEnabled: false, mode: .control, lines: 0), .drop)
+    }
+
+    /// Shift no longer has a special meaning for the wheel: capture off still
+    /// routes to herdr even with Shift held.
+    func testShiftHasNoEffectOnScrollDisposition() {
+        XCTAssertEqual(
+            decide(kind: .scrollUp, button: nil, captureEnabled: false, mode: .control, shiftHeld: true, lines: 4),
+            .toHerdrScroll(direction: .up, lines: 4))
+        guard case .toApp = decide(kind: .scrollUp, button: nil, captureEnabled: true, mode: .control, shiftHeld: true, lines: 1) else {
+            return XCTFail("Shift must not force .toSurface for a scroll kind under capture")
+        }
     }
 
     func testMissingCellSizeFallsBackToSurface() {

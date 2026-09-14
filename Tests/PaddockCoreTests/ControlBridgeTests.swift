@@ -169,13 +169,17 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(parsed?["type"] as? String, "terminal.input")
     }
 
-    /// Scroll must never cross the FIFO, even though it is otherwise a
-    /// well-formed `terminal.*` command.
-    func testParseForwardableControlCommandRejectsScroll() {
+    /// Scroll forwards to herdr like every other `terminal.*` command: it now
+    /// moves the pane's real, shared viewport, the intended effect on the
+    /// resolved-focused pane (see `PaneControlChannel.scroll`).
+    func testParseForwardableControlCommandAcceptsScroll() {
         let line = ControlBridge.encodeLine([
             "type": "terminal.scroll", "direction": "up", "lines": 5, "source": "wheel",
         ])!
-        XCTAssertNil(ControlBridge.parseForwardableControlCommand(line.dropLast()))
+        let parsed = ControlBridge.parseForwardableControlCommand(line.dropLast())
+        XCTAssertEqual(parsed?["type"] as? String, "terminal.scroll")
+        XCTAssertEqual(parsed?["direction"] as? String, "up")
+        XCTAssertEqual(parsed?["lines"] as? Int, 5)
     }
 
     /// Structured mouse events ride the same `terminal.*` filter that carries
@@ -342,7 +346,7 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
     }
 
-    func testControlPipeForwardsInputButDropsScroll() async throws {
+    func testControlPipeForwardsInputAndScrollButDropsGarbage() async throws {
         let control = Pipe()
         let herdrIn = Pipe()
         let io = BridgeIO(
@@ -364,16 +368,13 @@ final class ControlBridgeTests: XCTestCase {
         control.fileHandleForWriting.write(scrollLine)
         control.fileHandleForWriting.write(inputLine)
 
-        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        let forwarded = try await waitForNonEmptyReadOfAtLeast(herdrIn.fileHandleForReading.fileDescriptor, lines: 2)
         let lines = forwarded.split(separator: 0x0A)
-        XCTAssertEqual(lines.count, 1, "only the non-scroll command should have been forwarded")
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(lines[0])) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.input")
-
-        // Give a would-be second (scroll) line every chance to have arrived
-        // before declaring victory.
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0)
+        XCTAssertEqual(lines.count, 2, "the scroll and input commands both forward; only the malformed line is dropped")
+        let scrollObject = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(lines[0])) as? [String: Any])
+        XCTAssertEqual(scrollObject["type"] as? String, "terminal.scroll")
+        let inputObject = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(lines[1])) as? [String: Any])
+        XCTAssertEqual(inputObject["type"] as? String, "terminal.input")
     }
 
     func testStdinEncodesToTerminalInputThenReleaseOnEOF() async throws {
@@ -867,6 +868,22 @@ private func waitForNonEmptyRead(_ fd: Int32, timeout: Duration = .seconds(5)) a
     while true {
         let data = readAllAvailableForTest(fd)
         if !data.isEmpty { return data }
+        if ContinuousClock.now >= deadline { throw BridgeTimeoutError() }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+}
+
+/// Like `waitForNonEmptyRead`, but keeps accumulating across polls until at
+/// least `lines` newline-delimited records have arrived -- several `send()`
+/// calls from one control-pipe event handler invocation can each reach the
+/// reading end on their own schedule, so a single non-empty read is not
+/// enough to guarantee every expected line has landed yet.
+private func waitForNonEmptyReadOfAtLeast(_ fd: Int32, lines: Int, timeout: Duration = .seconds(5)) async throws -> Data {
+    let deadline = ContinuousClock.now + timeout
+    var accumulated = Data()
+    while true {
+        accumulated.append(readAllAvailableForTest(fd))
+        if accumulated.split(separator: 0x0A).count >= lines { return accumulated }
         if ContinuousClock.now >= deadline { throw BridgeTimeoutError() }
         try await Task.sleep(for: .milliseconds(20))
     }

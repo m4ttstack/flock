@@ -10,22 +10,36 @@ import Darwin
 ///
 /// Everything the surface writes to the bridge's stdin becomes
 /// `terminal.input`, which herdr hands straight to the program in the pane;
-/// scrolling cannot ride that path. But unlike Herdglass, this type has NO
-/// `scroll` API: herdr's pane scrollback is real, shared viewport state
-/// mutated on the one ghostty terminal core object every reader of the pane
-/// (a live TUI attach, an observe client, this bridge) shares -- there is no
-/// per-client scroll offset anywhere in herdr's model. Forwarding a
-/// `terminal.scroll` here would move the pane out from under whoever else is
-/// looking at it. Any in-surface scroll gesture must stay local to
-/// libghostty's own scrollback (fed by the same `terminal.frame` bytes the
-/// bridge already relays); `ControlBridge` additionally refuses to forward
-/// `terminal.scroll` even if some other caller wrote one to the FIFO
-/// directly, since the FIFO itself is plain text and not gated on this type.
-/// The channel stays for other control message types a future surface may
-/// need.
+/// scrolling cannot ride that path. herdr's pane scrollback is real, shared
+/// viewport state mutated on the one ghostty terminal core object every
+/// reader of the pane (a live TUI attach, an observe client, this bridge)
+/// shares -- there is no per-client scroll offset anywhere in herdr's model,
+/// so a `terminal.scroll` sent here moves the pane's REAL viewport, the way
+/// herdr's own TUI and Herdglass move it. `scroll(direction:lines:source:)`
+/// is the one place this type ever constructs one; the resolved-focused
+/// pane's wheel is the only caller (`GhosttySession.sendPaneScroll`), gated
+/// upstream by `MouseForwarding.decide` dropping every mouse event for an
+/// observe-mode (unfocused) pane before a scroll command could ever be built.
 public final class PaneControlChannel {
     /// Environment variable the bridge reads the FIFO path from.
     public static let environmentKey = "HERDR_TERM_CONTROL_PIPE"
+
+    /// Wire values for `terminal.scroll`'s `direction` field
+    /// (`src/client/terminal_sessions.rs`'s `TerminalControlScrollDirection`):
+    /// herdr only ever moves the shared viewport vertically.
+    public enum ScrollDirection: String, Equatable, Sendable {
+        case up
+        case down
+    }
+
+    /// Wire values for `terminal.scroll`'s `source` field. Paddock only ever
+    /// sends `.wheel` today; `.pageKey` is kept for a future keyboard
+    /// scroll-through-herdr affordance that would want the same command
+    /// shape.
+    public enum ScrollSource: String, Equatable, Sendable {
+        case wheel
+        case pageKey = "page_key"
+    }
 
     public let path: String
     private var fd: Int32 = -1
@@ -68,6 +82,21 @@ public final class PaneControlChannel {
     /// unfiltered regardless of which herdr verb is currently live.
     public func setMode(_ mode: PaneMode) {
         send(["type": "paddock.mode", "mode": mode.rawValue])
+    }
+
+    /// A `terminal.scroll` line: moves the pane's real, shared herdr
+    /// viewport by `lines`. `lines` must be positive -- herdr drops (and
+    /// this never even sends) a zero or negative line count -- since the
+    /// caller's `ScrollAccumulator` already turns a wheel event into whole,
+    /// signed cell steps and never invokes this for a zero-step tick.
+    public func scroll(direction: ScrollDirection, lines: Int, source: ScrollSource = .wheel) {
+        guard lines > 0 else { return }
+        send([
+            "type": "terminal.scroll",
+            "direction": direction.rawValue,
+            "lines": lines,
+            "source": source.rawValue,
+        ])
     }
 
     public func close() {

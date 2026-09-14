@@ -180,9 +180,7 @@ struct PaneCellView: View {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
                     textSize: terminalTextSizeStore.active,
-                    onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
-                    paneTerminal: viewModel.paneTerminal(for: pane, cols: cols, rows: rows),
-                    historyDim: theme.overlay0
+                    onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } }
                 )
                 // Routed through `pane.send_input`, never `ghosttySurface
                 // .typeText` straight into the PTY: a launcher click can

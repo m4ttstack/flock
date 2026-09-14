@@ -61,21 +61,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var rightButtonRoute: ButtonRoute?
     private var rightButtonDownDisposition: RightClickDisposition = .menu
     private var otherButtonRoutes: [Int: ButtonRoute] = [:]
-    /// Whole-cell wheel steps for the app under capture; reset by
-    /// `mouseCaptureDidEnd` so a momentum tail never emits after the app
-    /// stopped listening.
+    /// Whole-cell wheel steps, accumulated the same way whether the tick ends
+    /// up going to the app (under capture) or to herdr's real viewport
+    /// (capture off); reset by `mouseCaptureDidEnd` so a momentum tail never
+    /// emits after the app stopped listening.
     private var scrollAccumulator = ScrollAccumulator()
-
-    /// Wired by `GhosttySurfaceRepresentable` from the pane cell's own
-    /// `BrowserScrollState` and reveal/exit closures.
-    var onScrollPastTop: (() -> Void)?
-    var onScrollBackToLive: (() -> Void)?
-    var browserState: BrowserScrollState?
-    private var lastEdgeSignal = Date.distantPast
-    /// `nonisolated(unsafe)`, matching `windowObservers`/`globalObservers`
-    /// above: `deinit` is not actor-isolated, so the monitor cleanup there
-    /// needs to reach this property from a nonisolated context.
-    nonisolated(unsafe) private var scrollEdgeMonitor: Any?
 
     /// The surface is born at libghostty's own internal placeholder size
     /// (`ghostty_surface_config_s` has no size field), so the initial frame
@@ -100,7 +90,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         for observer in windowObservers + globalObservers {
             notificationCenter.removeObserver(observer)
         }
-        if let scrollEdgeMonitor { NSEvent.removeMonitor(scrollEdgeMonitor) }
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -117,17 +106,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         super.viewDidMoveToWindow()
         updateObservers()
         applyBackgroundColor()
-        if window == nil {
-            if let scrollEdgeMonitor { NSEvent.removeMonitor(scrollEdgeMonitor) }
-            scrollEdgeMonitor = nil
-            return
-        }
-        if scrollEdgeMonitor == nil {
-            scrollEdgeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                self?.handleScrollEdge(event)
-                return event
-            }
-        }
+        if window == nil { return }
         session.attach(to: self)
         renderIfNeeded()
         if wantsFocus, window?.firstResponder !== self {
@@ -270,7 +249,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func mouseMoved(with event: NSEvent) {
         switch mouseDecision(kind: .moved, button: nil, event: event) {
         case .toApp(let command): session.sendPaneMouse(command)
-        case .toSurface, .drop: session.sendMousePosition(event)
+        // `.toHerdrScroll` is unreachable for `.moved` (`decide` only ever
+        // returns it for a scroll kind), kept here only for exhaustiveness.
+        case .toSurface, .drop, .toHerdrScroll: session.sendMousePosition(event)
         }
     }
 
@@ -292,25 +273,26 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     /// Under capture a wheel gesture becomes whole-cell `terminal.mouse`
-    /// scroll lines for the pane's own program (never `terminal.scroll`,
-    /// which mutates the shared herdr viewport), one per cell crossed via
+    /// scroll lines for the pane's own program, one per cell crossed via
     /// `ScrollAccumulator`, mirroring libghostty's own report cadence.
-    /// Otherwise it stays local to libghostty's own scrollback, as it always
-    /// has, and any pending remainder is dropped.
+    /// Capture off routes the SAME per-cell steps to herdr's real,
+    /// shared viewport instead (`terminal.scroll`, vertical only -- herdr has
+    /// no horizontal wire form, so horizontal wheel motion with capture off
+    /// is simply dropped): libghostty holds no scrollback of its own any
+    /// more for this to fall back to, since herdr streams viewport repaints,
+    /// not a retainable scrollback. An observe-mode (unfocused) pane drops
+    /// the wheel entirely, same as every other mouse event.
     override func scrollWheel(with event: NSEvent) {
-        guard case .toApp = mouseDecision(kind: .scrollUp, button: nil, event: event),
-              let cell = cellSizeInPoints()
-        else {
+        guard let cell = cellSizeInPoints() else {
             scrollAccumulator.reset()
-            session.sendScrollWheel(event)
             return
         }
         let steps = scrollAccumulator.add(
             deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
             precise: event.hasPreciseScrollingDeltas, cellSize: cell
         )
-        emitScrollSteps(steps.y, positive: .scrollUp, negative: .scrollDown, event: event)
-        emitScrollSteps(steps.x, positive: .scrollLeft, negative: .scrollRight, event: event)
+        routeScrollSteps(steps.y, positive: .scrollUp, negative: .scrollDown, event: event)
+        routeScrollSteps(steps.x, positive: .scrollLeft, negative: .scrollRight, event: event)
     }
 
     /// Called by the session on a capture on -> off transition.
@@ -320,14 +302,26 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     // MARK: - Mouse forwarding helpers
 
-    private func emitScrollSteps(
+    /// Routes one axis's whole-cell step count for a wheel event: `.toApp`
+    /// replays the same `terminal.mouse` command once per cell crossed
+    /// (matching the prior per-tick cadence); `.toHerdrScroll` sends ONE
+    /// `terminal.scroll` line carrying the whole step count, since herdr's
+    /// viewport move is a single line-count command, not a per-cell repeat.
+    private func routeScrollSteps(
         _ steps: Int, positive: MouseForwarding.EventKind, negative: MouseForwarding.EventKind, event: NSEvent
     ) {
-        guard steps != 0, let command = mouseCommand(kind: steps > 0 ? positive : negative, button: nil, event: event) else {
-            return
-        }
-        for _ in 0..<abs(steps) {
-            session.sendPaneMouse(command)
+        guard steps != 0 else { return }
+        let kind = steps > 0 ? positive : negative
+        switch mouseDecision(kind: kind, button: nil, event: event, lines: abs(steps)) {
+        case .toHerdrScroll(let direction, let lines):
+            session.sendPaneScroll(direction: direction, lines: lines)
+        case .toApp:
+            guard let command = mouseCommand(kind: kind, button: nil, event: event) else { return }
+            for _ in 0..<abs(steps) {
+                session.sendPaneMouse(command)
+            }
+        case .toSurface, .drop:
+            break
         }
     }
 
@@ -360,7 +354,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             session.sendMousePosition(event)
             session.sendMouseButton(surfaceButton(button, appkitNumber: appkitNumber), pressed: true, event: event)
             return .surface
-        case .drop:
+        // Unreachable for `.down` (`decide` only ever returns this for a
+        // scroll kind), kept here only for exhaustiveness.
+        case .toHerdrScroll, .drop:
             return nil
         }
     }
@@ -434,44 +430,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         return MouseForwarding.CellSize(
             width: Double(geometry.cellPixels.width) / scale, height: Double(geometry.cellPixels.height) / scale
         )
-    }
-
-    /// Deep history reveals by intent: an up-scroll while
-    /// already at the very top signals past-the-top; a down-scroll while the
-    /// browser sits at its live end signals back-to-live. `scrollWheel`
-    /// above is never called at all once the browser overlay is topmost
-    /// (its own SwiftUI `ScrollView` wins the hit test then), so a LOCAL
-    /// event monitor -- observing before dispatch, added/removed alongside
-    /// the window in `viewDidMoveToWindow` -- is the only way to see the
-    /// gesture in both states; returning the event unmodified means
-    /// libghostty (or the overlay) still receives it untouched. libghostty
-    /// exposes no synchronous scroll-position read, only the
-    /// action-delivered `GHOSTTY_ACTION_SCROLLBAR` offset on `session.state`,
-    /// so "at top" can lag a wheel tick behind a fast flick -- a missed tick
-    /// only delays the reveal by one more tick of continued scrolling, never
-    /// triggers a wrong one.
-    private func handleScrollEdge(_ event: NSEvent) {
-        // Under capture the wheel is the app's, forwarded as a
-        // `terminal.mouse` scroll line; libghostty's own scrollback never
-        // moves, so a deep-history reveal here would fight the pane's program.
-        guard !session.mouseCaptureEnabled else { return }
-        guard event.window === window else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(point) else { return }
-        let deltaY = event.scrollingDeltaY
-        guard deltaY != 0, Date().timeIntervalSince(lastEdgeSignal) > 0.25 else { return }
-        let scrollingUp = deltaY > 0
-        if let browserState, browserState.browsing {
-            if !scrollingUp, browserState.atLiveEnd {
-                lastEdgeSignal = Date()
-                onScrollBackToLive?()
-            }
-            return
-        }
-        if scrollingUp, session.state.isAtScrollbackTop {
-            lastEdgeSignal = Date()
-            onScrollPastTop?()
-        }
     }
 
     // MARK: - Keyboard

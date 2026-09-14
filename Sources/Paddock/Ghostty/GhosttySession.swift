@@ -35,14 +35,6 @@ final class GhosttySession {
         fileprivate(set) var isMouseHidden = false
         /// The cell in pixels, which is how a wheel delta becomes a line count.
         fileprivate(set) var cellSize: (width: Int, height: Int)?
-        /// The scrollback viewport's offset from the top of libghostty's own
-        /// scrollback-plus-active area (`terminal.Scrollbar.offset`; 0 means
-        /// scrolled all the way up). Fed by `GHOSTTY_ACTION_SCROLLBAR`, which
-        /// fires whenever ghostty's own scroll position changes -- so, like
-        /// every other action-delivered field on this type, it can lag a
-        /// wheel tick or two behind a fast flick.
-        fileprivate(set) var scrollbackOffset: UInt64 = 0
-        var isAtScrollbackTop: Bool { scrollbackOffset == 0 }
     }
 
     let host: GhosttyHost
@@ -244,17 +236,6 @@ final class GhosttySession {
         ghostty_surface_mouse_pos(surface, -1, -1, translate(modifiers))
     }
 
-    /// The wheel stays entirely local to libghostty's own scrollback: unlike
-    /// keystrokes, a scroll gesture never becomes a `terminal.scroll` message
-    /// on the bridge's control channel (herdr's pane scrollback is real,
-    /// shared viewport state -- see `ControlBridge.parseForwardableControlCommand`
-    /// and `PaneControlChannel`'s doc comment), so there is no diversion hook
-    /// here the way Herdglass's `onScrollWheel` had one.
-    func sendScrollWheel(_ event: NSEvent) {
-        guard let surface else { return }
-        ghostty_surface_mouse_scroll(surface, event.scrollingDeltaX, event.scrollingDeltaY, translateScrollModifiers(event))
-    }
-
     /// Copies the selection with libghostty's own action rather than reading
     /// the cells back ourselves: only the action honours
     /// `clipboard-trim-trailing-spaces`, so only the action leaves behind the
@@ -268,31 +249,6 @@ final class GhosttySession {
     func hasSelection() -> Bool {
         guard let surface else { return false }
         return ghostty_surface_has_selection(surface)
-    }
-
-    /// The full retained screen (scrollback plus active area), trimmed of
-    /// trailing blank rows for display -- the deep-history browser's live
-    /// buffer text for a ghostty-rendered pane. Same call
-    /// (`ghostty_surface_read_text` over a whole-`GHOSTTY_POINT_SCREEN`
-    /// selection) ghostty's own macOS app uses for its "select all" content
-    /// cache. Zig's own doc comment on this entry point calls it "expensive"
-    /// and asks callers to throttle it; call sites here are reveal-time and
-    /// first-anchor-time only, never per scroll tick or per frame.
-    func retainedText() -> String {
-        var lines = readScreenRows()
-        while let last = lines.last, last.isEmpty { lines.removeLast() }
-        return lines.joined(separator: "\n")
-    }
-
-    /// Row count backing the deep-history anchor's `oldestFetchedRow` math
-    /// (`PaneTerminal.ensureInitialized`) -- counted from the SAME untrimmed
-    /// rows `retainedText()` reads, never independently, so the two can
-    /// never disagree about what "retained" means. Deliberately untrimmed
-    /// (unlike `retainedText()`): the anchor math is owed to how many rows
-    /// herdr's own `pane.get` total counts against, which includes trailing
-    /// blank rows.
-    func retainedRowCount() -> Int {
-        readScreenRows().count
     }
 
     /// The launcher-pristine contract's screen-activity half: called with
@@ -310,8 +266,9 @@ final class GhosttySession {
     /// content changed, please redraw" signal (see `handle`'s own case for
     /// it), which is what makes this an actual content-change hook rather
     /// than a blind timer -- counting non-empty rows is a full retained-
-    /// buffer scan (`retainedText()`'s own doc calls the underlying read
-    /// "expensive"), so it must never run once per render.
+    /// buffer scan (`readScreenRows`'s underlying `ghostty_surface_read_text`
+    /// call is documented "expensive" by libghostty itself), so it must
+    /// never run once per render.
     private func reportScreenActivityIfDue() {
         guard screenActivityStillWanted, let onScreenActivity else { return }
         let now = Date()
@@ -375,6 +332,16 @@ final class GhosttySession {
     /// paddock's libghostty is never in reporting mode.
     func sendPaneMouse(_ command: MouseForwarding.Command) {
         controlChannel?.send(command.json())
+    }
+
+    /// Moves the pane's real, shared herdr viewport: the wheel's destination
+    /// whenever the app has not claimed the mouse (see
+    /// `MouseForwarding.Decision.toHerdrScroll`). Only ever called for the
+    /// resolved-focused (control-mode) pane -- an observe-mode pane's wheel
+    /// is dropped upstream in `MouseForwarding.decide`, before this could be
+    /// reached.
+    func sendPaneScroll(direction: PaneControlChannel.ScrollDirection, lines: Int) {
+        controlChannel?.scroll(direction: direction, lines: lines)
     }
 
     /// The surface's live grid and cell, read from libghostty
@@ -485,8 +452,6 @@ final class GhosttySession {
                 width: Int(action.action.cell_size.width),
                 height: Int(action.action.cell_size.height)
             )
-        case GHOSTTY_ACTION_SCROLLBAR:
-            state.scrollbackOffset = action.action.scrollbar.offset
         case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
             let title = state.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let title, !title.isEmpty {
@@ -623,30 +588,6 @@ final class GhosttySession {
         if flags.contains(.command) { mods.insert(.command) }
         if flags.contains(.capsLock) { mods.insert(.capsLock) }
         return GhosttyKeyMods.translate(mods)
-    }
-
-    /// Scroll modifiers carry the momentum phase in the high bits, which is
-    /// how libghostty tells a flick from a drag.
-    private func translateScrollModifiers(_ event: NSEvent) -> ghostty_input_scroll_mods_t {
-        var value = ghostty_input_scroll_mods_t(translate(event.modifierFlags).rawValue)
-        switch event.momentumPhase {
-        case .began:
-            value |= ghostty_input_scroll_mods_t(GHOSTTY_MOUSE_MOMENTUM_BEGAN.rawValue << 16)
-        case .changed:
-            value |= ghostty_input_scroll_mods_t(GHOSTTY_MOUSE_MOMENTUM_CHANGED.rawValue << 16)
-        case .ended:
-            value |= ghostty_input_scroll_mods_t(GHOSTTY_MOUSE_MOMENTUM_ENDED.rawValue << 16)
-        case .cancelled:
-            value |= ghostty_input_scroll_mods_t(GHOSTTY_MOUSE_MOMENTUM_CANCELLED.rawValue << 16)
-        case .mayBegin:
-            value |= ghostty_input_scroll_mods_t(GHOSTTY_MOUSE_MOMENTUM_MAY_BEGIN.rawValue << 16)
-        default:
-            break
-        }
-        if event.hasPreciseScrollingDeltas {
-            value |= 1 << 24
-        }
-        return value
     }
 }
 

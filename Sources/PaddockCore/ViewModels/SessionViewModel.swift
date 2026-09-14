@@ -67,11 +67,6 @@ public final class SessionViewModel {
     // this back.
     private var pendingModeReconciliation: Task<Void, Never>?
 
-    // One gate for the whole session: the first unsupported
-    // `pane.selection.read` reply hides deep history for every pane, not
-    // just the one that discovered it.
-    private let historyCapabilityGate = HistoryCapabilityGate()
-    private var paneTerminals: [PaneID: PaneTerminal] = [:]
     private let paneLauncherRegistry = PaneLauncherRegistry()
 
     // `nil` only when no `layoutExportClient` was injected (a test double
@@ -449,19 +444,6 @@ public final class SessionViewModel {
         guard lastSentMode[pane] != mode else { return }
         lastSentMode[pane] = mode
         await surface.setMode(mode)
-    }
-
-    // MARK: - per-pane headless terminal (deep history + pristine-launcher screen check)
-
-    /// The shared deep-history helper for `pane`, created once and cached
-    /// for its lifetime.
-    public func paneTerminal(for pane: PaneRecord, cols: Int, rows: Int) -> PaneTerminal {
-        if let existing = paneTerminals[pane.paneID] { return existing }
-        let terminal = PaneTerminal(
-            cols: cols, paneID: pane.paneID, client: client, historyCapability: historyCapabilityGate
-        )
-        paneTerminals[pane.paneID] = terminal
-        return terminal
     }
 
     // MARK: - new-pane harness launcher

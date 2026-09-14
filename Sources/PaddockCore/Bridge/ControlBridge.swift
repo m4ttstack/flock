@@ -323,22 +323,21 @@ public enum ControlBridge {
     }
 
     /// `nil` for anything that is not a well-formed, forwardable `terminal.*`
-    /// control command read off the FIFO. `terminal.scroll` is excluded even
-    /// though it would otherwise be well-formed: unlike every other
-    /// `terminal.*` message, scroll mutates the pane's one shared viewport,
-    /// read by every other client of that pane, not a per-client offset;
-    /// forwarding it here would move the user's real pane out
-    /// from under them. This filter is the enforcement point; the FIFO itself
-    /// is plain text any process could write to, and `PaneControlChannel`
-    /// deliberately has no API that would construct a scroll command.
+    /// control command read off the FIFO. Every `terminal.*` type forwards
+    /// verbatim, `terminal.scroll` included: it mutates the pane's one
+    /// shared herdr viewport, but that is now the intended effect -- wheel
+    /// scroll moves the real pane the way herdr's own TUI and Herdglass
+    /// move it. The FIFO only ever carries one for the resolved-focused
+    /// pane in the first place: `MouseForwarding.decide` drops every mouse
+    /// event for an observe-mode (unfocused) pane before a `terminal.scroll`
+    /// could ever be built (see `PaneControlChannel.scroll`).
     /// `paddock.mode` lines never reach this function at all -- see
     /// `parseModeCommand` and `BridgeIO.startControlPipe`'s own dispatch.
     static func parseForwardableControlCommand(_ line: Data) -> [String: Any]? {
         guard
             let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
             let type = command["type"] as? String,
-            type.hasPrefix("terminal."),
-            type != "terminal.scroll"
+            type.hasPrefix("terminal.")
         else { return nil }
         return command
     }
@@ -508,7 +507,6 @@ final class BridgeModeSwitcher: @unchecked Sendable {
     }
 }
 
-/// Mirrors `PaneTerminal.swift`'s own private helper of the same name.
 private extension NSLock {
     func withLockHeld<T>(_ body: () -> T) -> T {
         lock()
@@ -742,11 +740,11 @@ final class BridgeIO: @unchecked Sendable {
 
     /// Commands the surface cannot express as keystrokes, plus the
     /// `paddock.mode` upgrade path. `paddock.mode` lines are intercepted
-    /// here and never reach `send`/herdr at all; everything else is
-    /// forwarded verbatim EXCEPT `terminal.scroll`, filtered by
-    /// `ControlBridge.parseForwardableControlCommand` -- see its doc
-    /// comment. Stays live in both modes: it is how a bridge born in
-    /// observe mode ever learns to switch to control.
+    /// here and never reach `send`/herdr at all; everything else, including
+    /// `terminal.scroll`, is forwarded verbatim -- see
+    /// `ControlBridge.parseForwardableControlCommand`'s doc comment. Stays
+    /// live in both modes: it is how a bridge born in observe mode ever
+    /// learns to switch to control.
     func startControlPipe(at path: String) {
         // O_RDWR mirrors the GUI side: neither end may ever see EOF just
         // because the other is idle.

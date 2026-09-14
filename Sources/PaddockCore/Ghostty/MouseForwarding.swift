@@ -5,15 +5,20 @@ import Foundation
 /// asked for mouse reporting -- no view, `NSEvent`, or libghostty call
 /// inside this type, so the whole truth table is testable with plain values.
 ///
-/// The three destinations:
+/// The four destinations:
 /// - `.toApp` carries a `terminal.mouse` command for the pane's own program,
 ///   sent over the control FIFO. Herdr encodes it for the pane's real mouse
 ///   mode; paddock's own libghostty never enters reporting mode, so the app
 ///   can only ever be reached this way, never through the surface.
-/// - `.toSurface` is today's local behavior: libghostty handles the click
-///   (text selection, local scrollback wheel).
-/// - `.drop` is neither -- an observe-mode (unfocused) pane has no input
-///   path at all.
+/// - `.toHerdrScroll` carries a `terminal.scroll` line for the pane's real,
+///   shared herdr viewport -- the wheel's only destination when the app has
+///   not claimed the mouse, since libghostty never holds any scrollback of
+///   its own to scroll locally (herdr streams viewport repaints, not a
+///   scrollback the surface could retain).
+/// - `.toSurface` is libghostty handling the event locally (text selection;
+///   never scrolling any more -- see `.toHerdrScroll` above).
+/// - `.drop` is none of those -- an observe-mode (unfocused) pane has no
+///   input path at all.
 public enum MouseForwarding {
     /// A pane-domain mouse event, renderer-agnostic. `other(n)` carries
     /// AppKit's own `buttonNumber` for buttons past middle; only left,
@@ -53,6 +58,26 @@ public enum MouseForwarding {
             switch self {
             case .down, .up, .drag: return true
             default: return false
+            }
+        }
+
+        var isScroll: Bool {
+            switch self {
+            case .scrollUp, .scrollDown, .scrollLeft, .scrollRight: return true
+            default: return false
+            }
+        }
+
+        /// `nil` for `.scrollLeft`/`.scrollRight`: herdr's `terminal.scroll`
+        /// only ever moves the viewport vertically (`terminal_sessions.rs`'s
+        /// `TerminalControlScrollDirection` has no horizontal case), so
+        /// horizontal wheel motion with capture off has nowhere to go and
+        /// `decide` drops it.
+        var herdrScrollDirection: PaneControlChannel.ScrollDirection? {
+            switch self {
+            case .scrollUp: return .up
+            case .scrollDown: return .down
+            default: return nil
             }
         }
     }
@@ -117,9 +142,10 @@ public enum MouseForwarding {
         }
 
         /// The NDJSON object `PaneControlChannel.send` writes. `terminal.`
-        /// namespaced so `ControlBridge.parseForwardableControlCommand`
-        /// forwards it to herdr verbatim; never `terminal.scroll`, which that
-        /// filter bans.
+        /// namespaced (always `terminal.mouse`, never `terminal.scroll` --
+        /// that wire shape is `PaneControlChannel.scroll`'s own) so
+        /// `ControlBridge.parseForwardableControlCommand` forwards it to
+        /// herdr verbatim.
         public func json() -> [String: Any] {
             var object: [String: Any] = [
                 "type": "terminal.mouse",
@@ -136,6 +162,8 @@ public enum MouseForwarding {
 
     public enum Decision: Equatable, Sendable {
         case toApp(Command)
+        /// `lines` is always positive -- see `decide`'s own scroll branch.
+        case toHerdrScroll(direction: PaneControlChannel.ScrollDirection, lines: Int)
         case toSurface
         case drop
     }
@@ -155,14 +183,19 @@ public enum MouseForwarding {
     /// The one truth table. In order:
     /// 1. observe mode -> `.drop` (no input path; the herdr observe client
     ///    has none either, and the bridge drops stdin in observe mode).
-    /// 2. Shift held -> `.toSurface`, even under capture: Shift is the
-    ///    terminal convention for "give me libghostty's selection, not the
-    ///    app's mouse."
-    /// 3. capture off -> `.toSurface`: today's behavior (selection, local
-    ///    scrollback wheel); the app is not listening.
-    /// 4. otherwise (control + capture on + no Shift): `.toApp`, unless the
-    ///    cell size is not known yet or the button has no wire name, in which
-    ///    case it falls back to `.toSurface` rather than fabricate a cell.
+    /// 2. A scroll kind with capture off -> `.toHerdrScroll` when the kind has
+    ///    a herdr wire direction (vertical only) and `lines` is positive,
+    ///    `.drop` otherwise (horizontal wheel motion, or an accumulator tick
+    ///    that crossed no whole cell). Never Shift-gated: wheel has no Shift
+    ///    branch, unlike a button event -- see case 3.
+    /// 3. A non-scroll kind: Shift held -> `.toSurface` even under capture
+    ///    (Shift is the terminal convention for "give me libghostty's
+    ///    selection, not the app's mouse"); capture off -> `.toSurface`
+    ///    (libghostty handles the click).
+    /// 4. otherwise (control + capture on, and for a non-scroll kind no
+    ///    Shift): `.toApp`, unless the cell size is not known yet or the
+    ///    button has no wire name, in which case it falls back to
+    ///    `.toSurface` rather than fabricate a cell.
     public static func decide(
         kind: EventKind,
         button: Button?,
@@ -176,8 +209,15 @@ public enum MouseForwarding {
         lines: Int
     ) -> Decision {
         if mode == .observe { return .drop }
-        if shiftHeld { return .toSurface }
-        guard captureEnabled else { return .toSurface }
+        if kind.isScroll {
+            guard captureEnabled else {
+                guard let direction = kind.herdrScrollDirection, lines > 0 else { return .drop }
+                return .toHerdrScroll(direction: direction, lines: lines)
+            }
+        } else {
+            if shiftHeld { return .toSurface }
+            guard captureEnabled else { return .toSurface }
+        }
         guard let command = command(
             kind: kind, button: button, modifiers: modifiers,
             point: point, cellSize: cellSize, grid: grid, lines: lines

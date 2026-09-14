@@ -1,9 +1,8 @@
 import Foundation
 import Observation
 
-/// The one terminal font face both renderers load: the ghostty surface (via
-/// `GhosttyThemeConfig`'s `font-family` config line) and the deep-history
-/// overlay (`Font.custom`/`NSFont`). "SF Mono" -- what SwiftUI's
+/// The terminal font face the ghostty surface loads (via
+/// `GhosttyThemeConfig`'s `font-family` config line). "SF Mono" -- what SwiftUI's
 /// `.system(design: .monospaced)` resolves to -- is NOT CoreText-discoverable
 /// by family name, even with Xcode.app installed: the file exists
 /// (`Xcode.app/Contents/SharedFrameworks/DVTUserInterfaceKit.framework/.../
@@ -21,11 +20,8 @@ public enum TerminalFont {
     public static let face = "Menlo"
 }
 
-/// One of three fixed terminal point sizes, applied globally to every pane:
-/// the ghostty config's `font-size` line and the history overlay's
-/// `Font.custom` size must always agree, since the deep-history browse
-/// boundary (`HistoryBrowseView`) is meant to be a color-only seam, never a
-/// glyph-size jump.
+/// One of three fixed terminal point sizes, applied globally to every pane
+/// via the ghostty config's `font-size` line.
 public enum TerminalTextSize: String, CaseIterable, Sendable {
     case compact
     case regular
