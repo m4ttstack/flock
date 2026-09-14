@@ -42,16 +42,6 @@ private struct TabPill: View {
             Text(tab.label)
                 .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? theme.chromeTextStrong : theme.chromeTextDim)
-            Text("\(tab.paneCount)")
-                .font(.system(size: 10))
-                .foregroundStyle(theme.overlay0)
-                .padding(.horizontal, isSelected ? 4 : 0)
-                .padding(.vertical, isSelected ? 1 : 0)
-                .background {
-                    if isSelected {
-                        RoundedRectangle(cornerRadius: 3).fill(theme.windowBg)
-                    }
-                }
             StatusDot(status: tab.agentStatus, theme: theme, size: 7)
         }
         .padding(.horizontal, 12)
