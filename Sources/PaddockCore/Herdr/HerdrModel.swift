@@ -269,19 +269,29 @@ public struct ExportedLayoutDescription: Decodable, Equatable, Sendable {
     }
 }
 
-/// A tab's geometry-relevant fingerprint: area, pane set, and split
-/// direction/ratio/rect, deliberately excluding focus and zoom so those
-/// alone never trigger a `layout.export` refetch. Equal signatures mean the
-/// coordinator's cached export (or its fallback flag) is still good for
-/// this tab.
+/// A tab's geometry-relevant fingerprint: area, each pane's placement, and
+/// split direction/ratio/rect, deliberately excluding focus and zoom so
+/// those alone never trigger a `layout.export` refetch. Placement is per
+/// pane (id plus rect), not the pane set: a `pane.swap` keeps the set and
+/// every split identical and only exchanges which pane occupies which
+/// rect, and the exported tree must be refetched for that. Equal
+/// signatures mean the coordinator's cached export (or its fallback flag)
+/// is still good for this tab.
 public struct LayoutTopologySignature: Equatable, Sendable {
+    private struct Placement: Equatable, Sendable {
+        let paneID: PaneID
+        let rect: CellRect
+    }
+
     private let area: CellRect
-    private let paneIDs: Set<PaneID>
+    private let placements: [Placement]
     private let splits: [SplitInfo]
 
     public init(layout: LayoutSnapshot) {
         area = layout.area
-        paneIDs = Set(layout.panes.map(\.paneID))
+        placements = layout.panes
+            .map { Placement(paneID: $0.paneID, rect: $0.rect) }
+            .sorted { $0.paneID.rawValue < $1.paneID.rawValue }
         splits = layout.splits
     }
 }

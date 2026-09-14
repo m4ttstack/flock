@@ -51,6 +51,42 @@ final class LayoutExportCoordinatorTests: XCTestCase {
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "layout.export" }.count, 1)
     }
 
+    /// A `pane.swap` leaves the pane set and every split untouched and only
+    /// exchanges which pane occupies which rect; the exported tree is stale
+    /// the moment that happens, so it must count as a topology change.
+    @MainActor
+    func testSwappedPanePlacementRefetchesTheTab() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        let tabA = TabID(rawValue: "w1:t1")
+        fake.respond(to: "layout.export", withResultJSON: layoutExportResultJSON(tabID: "w1:t1", focusedPaneID: "w1:p1", ratio: 0.5, firstPaneID: "w1:p1", secondPaneID: "w1:p2"))
+
+        let coordinator = LayoutExportCoordinator(client: HerdrClient(socketPath: fake.socketPath))
+        let rootSplit = SplitInfo(id: "s1", direction: .right, ratio: 0.5, rect: CellRect(x: 0, y: 0, width: 100, height: 50))
+        let left = CellRect(x: 0, y: 0, width: 50, height: 50)
+        let right = CellRect(x: 50, y: 0, width: 50, height: 50)
+        let before = singlePaneLayout(
+            tabID: tabA, paneID: PaneID(rawValue: "w1:p1"), splits: [rootSplit],
+            panes: [
+                PaneRect(paneID: PaneID(rawValue: "w1:p1"), focused: true, rect: left),
+                PaneRect(paneID: PaneID(rawValue: "w1:p2"), focused: false, rect: right),
+            ]
+        )
+        coordinator.refresh(tabIDsInOrder: [tabA], layouts: [tabA: before], selectedTabID: tabA)
+        await coordinator.waitForIdle()
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "layout.export" }.count, 1)
+
+        let swapped = singlePaneLayout(
+            tabID: tabA, paneID: PaneID(rawValue: "w1:p1"), splits: [rootSplit],
+            panes: [
+                PaneRect(paneID: PaneID(rawValue: "w1:p2"), focused: false, rect: left),
+                PaneRect(paneID: PaneID(rawValue: "w1:p1"), focused: true, rect: right),
+            ]
+        )
+        coordinator.refresh(tabIDsInOrder: [tabA], layouts: [tabA: swapped], selectedTabID: tabA)
+        await coordinator.waitForIdle()
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "layout.export" }.count, 2)
+    }
+
     @MainActor
     func testRatioOnlyChangeRefetchesOnlyThatTabNotOthers() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
