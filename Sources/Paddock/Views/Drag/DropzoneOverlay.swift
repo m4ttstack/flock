@@ -6,9 +6,11 @@ import SwiftUI
 /// (the same space `CanvasGeometry` produces) and cross-faded whole as the
 /// target moves, so nothing here ever animates a layout.
 ///
-/// The live drag state is read HERE rather than passed down from
-/// `PaneCanvas`: the target changes on every pointer move, and reading it in
-/// the canvas's own body would re-evaluate every pane cell that often.
+/// The live drag state is read HERE rather than passed down from `PaneCanvas`,
+/// which keeps the canvas's own body off the drag's update path, and the
+/// preview itself is recomputed only when its inputs change: the transform
+/// walks a split tree and runs a full layout pass, which must not happen once
+/// per pointer move.
 struct DropzoneOverlay: View {
     let theme: Theme
     let layout: LayoutSnapshot?
@@ -17,9 +19,24 @@ struct DropzoneOverlay: View {
     let dividerThickness: CGFloat
 
     @Environment(DragCoordinator.self) private var drag
+    @State private var preview: DropPreviewFrames?
+
+    /// Everything the preview is a function of. Equal inputs mean the cached
+    /// preview still stands, however many times this body is evaluated.
+    private struct Inputs: Equatable {
+        let target: DropTarget?
+        let subject: DragSubject?
+        let layout: LayoutSnapshot?
+        let exported: ExportedLayoutDescription?
+        let grid: CanvasGrid
+        let dividerThickness: CGFloat
+    }
 
     var body: some View {
-        let preview = preview
+        let inputs = Inputs(
+            target: drag.target, subject: drag.activeSubject, layout: layout,
+            exported: exported, grid: grid, dividerThickness: dividerThickness
+        )
         ZStack(alignment: .topLeading) {
             if let preview {
                 shapes(for: preview)
@@ -30,24 +47,26 @@ struct DropzoneOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .allowsHitTesting(false)
         .animation(.easeInOut(duration: DragVisuals.previewCrossfadeDuration), value: preview)
+        .onAppear { preview = Self.compute(inputs) }
+        .onChange(of: inputs) { _, new in preview = Self.compute(new) }
     }
 
-    private var preview: DropPreviewFrames? {
-        guard let layout else { return nil }
+    private static func compute(_ inputs: Inputs) -> DropPreviewFrames? {
+        guard let layout = inputs.layout else { return nil }
         return DropPreview.frames(
-            target: drag.target,
-            dragging: drag.activeSubject,
+            target: inputs.target,
+            dragging: inputs.subject,
             layout: layout,
-            exported: exported,
-            grid: grid,
-            dividerThickness: dividerThickness
+            exported: inputs.exported,
+            grid: inputs.grid,
+            dividerThickness: inputs.dividerThickness
         )
     }
 
     private func shapes(for preview: DropPreviewFrames) -> some View {
         ZStack(alignment: .topLeading) {
-            ForEach(Array(preview.others.enumerated()), id: \.offset) { _, frame in
-                outline(in: frame)
+            ForEach(Array(preview.others.enumerated()), id: \.offset) { _, box in
+                outline(in: box)
             }
             filled(in: preview.incoming)
         }
