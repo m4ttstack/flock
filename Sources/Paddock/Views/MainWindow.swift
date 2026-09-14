@@ -27,6 +27,7 @@ struct MainWindow: View {
                 VStack(spacing: 0) {
                     TabStrip(
                         theme: theme,
+                        workspace: viewModel.selectedWorkspaceID,
                         tabs: viewModel.tabsForSelectedWorkspace,
                         selectedTabID: viewModel.selectedTabID,
                         protocolVersion: HerdrClient.minimumProtocol,
@@ -37,6 +38,12 @@ struct MainWindow: View {
             }
         }
         .background(theme.windowBg)
+        // Names the one space every drag frame and drag point is expressed in
+        // -- see `DragSpace`. Applied before the overlays so they resolve it
+        // too, and so a rail/strip/canvas frame and a ghost position are
+        // directly comparable.
+        .coordinateSpace(.named(DragSpace.name))
+        .overlay { DragLayer() }
         .overlay { ToastHost() }
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)

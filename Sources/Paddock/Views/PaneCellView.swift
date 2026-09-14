@@ -47,8 +47,13 @@ struct PaneCellView: View {
 
     @Environment(ToastCenter.self) private var toastCenter
     @Environment(RearrangeMode.self) private var rearrangeMode
+    @Environment(DragCoordinator.self) private var drag
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
+    /// The terminal body's frame in the drag space: what turns the body's own
+    /// top-left point (AppKit) into a drag-space one.
+    @State private var bodyFrame: CGRect = .zero
+    @State private var isDraggingFromCell = false
 
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
     /// a warm (parked) pane's surface is already there, so it never renders
@@ -81,6 +86,10 @@ struct PaneCellView: View {
 
     var body: some View {
         cell
+            // The origin stays put and fades while its ghost is out, so the
+            // drop target is read against the layout the drag started from.
+            .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
+            .animation(.easeOut(duration: 0.12), value: drag.isDragging(pane: pane.paneID))
     }
 
     private var cell: some View {
@@ -88,6 +97,12 @@ struct PaneCellView: View {
             .padding(.top, Self.legendHalfHeight)
             .overlay(alignment: .topLeading) { legend }
             .overlay(alignment: .topTrailing) { statusChip }
+            // Covers the parts of the cell that are NOT the ghostty NSView
+            // (the status card, the insets around the surface); the body
+            // itself reports through `onBodyDrag`, since AppKit consumes the
+            // press before any SwiftUI gesture could see it. Armed only while
+            // rearranging: at rest those areas are not drag handles.
+            .simultaneousGesture(paneDrag, including: rearrangeMode.active ? .all : .subviews)
         // One task per pane identity, never keyed on the grid or focus: the
         // pane gets exactly one surface for its whole visible life, created
         // here on first visibility with the grid of that moment. A later box
@@ -106,6 +121,53 @@ struct PaneCellView: View {
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }
         }
+    }
+
+    // MARK: - Dragging this pane
+
+    /// The pane's own laid-out size, which the ghost is a scaled copy of.
+    /// Read from the canvas geometry the drag layer already holds; the body
+    /// frame is the fallback before the canvas has published one.
+    private var paneGhost: DragCoordinator.Ghost {
+        DragCoordinator.Ghost(
+            title: pane.terminalTitleStripped ?? pane.label ?? "shell",
+            symbol: "macwindow",
+            originSize: drag.canvas.paneFrames[pane.paneID]?.size ?? bodyFrame.size
+        )
+    }
+
+    /// The SwiftUI half of a pane grab, in the drag space directly.
+    private var paneDrag: some Gesture {
+        DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
+            .onChanged { value in
+                if !isDraggingFromCell {
+                    isDraggingFromCell = true
+                    drag.begin(.pane(pane.paneID), ghost: paneGhost, at: value.startLocation)
+                }
+                drag.move(to: value.location)
+            }
+            .onEnded { _ in
+                guard isDraggingFromCell else { return }
+                isDraggingFromCell = false
+                drag.end()
+            }
+    }
+
+    /// The AppKit half: the body reports in its own top-left space, and this
+    /// is the single place that becomes a drag-space point.
+    private func handleBodyDrag(_ event: PaneBodyDragEvent) {
+        switch event {
+        case .began(let point):
+            drag.begin(.pane(pane.paneID), ghost: paneGhost, at: inDragSpace(point))
+        case .moved(let point):
+            drag.move(to: inDragSpace(point))
+        case .ended:
+            drag.end()
+        }
+    }
+
+    private func inDragSpace(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: bodyFrame.minX + point.x, y: bodyFrame.minY + point.y)
     }
 
     /// Rows for both the card-mode SwiftUI `.contextMenu` and the ghostty
@@ -204,6 +266,10 @@ struct PaneCellView: View {
             guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
             Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
         }
+        // The legend is a drag handle at rest as well as in rearrange mode;
+        // simultaneous with the tap above, which the 4pt minimum keeps
+        // distinct from it.
+        .simultaneousGesture(paneDrag)
         .modifier(swiftUIPaneMenu)
         .accessibilityIdentifier("paddock.pane.legend.\(pane.paneID.rawValue)")
     }
@@ -248,8 +314,10 @@ struct PaneCellView: View {
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
                     fontSizePoints: fontSizePoints, rearrangeActive: rearrangeMode.active,
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
-                    menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) }
+                    menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) },
+                    onBodyDrag: handleBodyDrag
                 )
+                .reportsDragFrame { bodyFrame = $0 }
                 .opacity(ghosttySurface.hasFirstFrame ? 1 : 0)
                 if !ghosttySurface.hasFirstFrame {
                     cardContent

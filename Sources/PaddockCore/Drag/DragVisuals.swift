@@ -80,4 +80,21 @@ public enum ReshuffleOffset {
         if index >= insertIndex { displacement += extent }
         return displacement
     }
+
+    /// The main-axis distance an item occupies including the gap to its
+    /// neighbor: how far the list shifts when that item leaves or arrives.
+    /// Measured from the frames themselves, so no view's spacing constant has
+    /// to be mirrored here to stay correct.
+    public static func advance(ofItemAt index: Int, items: [CGRect], axis: InsertionBarGeometry.Axis) -> CGFloat {
+        guard items.indices.contains(index) else { return defaultExtent }
+        func leading(_ rect: CGRect) -> CGFloat { axis == .vertical ? rect.minX : rect.minY }
+        func trailing(_ rect: CGRect) -> CGFloat { axis == .vertical ? rect.maxX : rect.maxY }
+        if items.indices.contains(index + 1) {
+            return leading(items[index + 1]) - leading(items[index])
+        }
+        if items.indices.contains(index - 1) {
+            return trailing(items[index]) - trailing(items[index - 1])
+        }
+        return trailing(items[index]) - leading(items[index])
+    }
 }

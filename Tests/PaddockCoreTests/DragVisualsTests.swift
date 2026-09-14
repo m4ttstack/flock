@@ -70,6 +70,25 @@ final class DragVisualsTests: XCTestCase {
         }
     }
 
+    func testAdvanceMeasuresTheItemPlusTheGapToItsNeighbor() {
+        let pills = [
+            CGRect(x: 12, y: 7, width: 100, height: 28),
+            CGRect(x: 122, y: 7, width: 100, height: 28),
+            CGRect(x: 232, y: 7, width: 100, height: 28)
+        ]
+        XCTAssertEqual(ReshuffleOffset.advance(ofItemAt: 0, items: pills, axis: .vertical), 110)
+        XCTAssertEqual(ReshuffleOffset.advance(ofItemAt: 2, items: pills, axis: .vertical), 110)
+    }
+
+    func testAdvanceOfALoneItemIsItsOwnExtent() {
+        let only = [CGRect(x: 8, y: 40, width: 200, height: 30)]
+        XCTAssertEqual(ReshuffleOffset.advance(ofItemAt: 0, items: only, axis: .horizontal), 30)
+    }
+
+    func testAdvanceFallsBackForAnIndexThatIsNotThere() {
+        XCTAssertEqual(ReshuffleOffset.advance(ofItemAt: 3, items: [], axis: .vertical), ReshuffleOffset.defaultExtent)
+    }
+
     func testReshuffleMovesTheTailForwardWhenTheDraggedItemComesFromAnotherList() {
         let extent: CGFloat = 60
         XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 0, draggingIndex: nil, insertIndex: 1, extent: extent), 0)

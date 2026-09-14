@@ -1,12 +1,16 @@
 import PaddockCore
 import SwiftUI
 
-/// The 216px workspace source list. Read-only mirror + selection/jump only;
-/// stays untested until the e2e suite per the task brief.
+/// The 216px workspace source list. Read-only mirror, selection/jump, and the
+/// workspace end of the drag layer; stays untested until the e2e suite per the
+/// task brief.
 struct WorkspaceRail: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let onSelect: (WorkspaceID) -> Void
+
+    @Environment(DragCoordinator.self) private var drag
+    @State private var draggingWorkspace: WorkspaceID?
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
@@ -20,15 +24,22 @@ struct WorkspaceRail: View {
                 .padding(.top, 4)
                 .padding(.bottom, 8)
 
-            ForEach(workspaces, id: \.workspaceID) { workspace in
+            ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
                 WorkspaceRow(
                     theme: theme,
                     workspace: workspace,
                     paneCount: viewModel.paneCount(for: workspace.workspaceID),
-                    isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID
+                    isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
+                    displacement: drag.workspaceDisplacement(at: index),
+                    isGhosted: drag.isDragging(workspace: workspace.workspaceID)
                 )
+                // Outside the row, which offsets its own content: the frame
+                // published here is the row's resting place, which is what the
+                // insertion index is measured against.
+                .reportsDragFrame { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
                 .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
                 .onTapGesture { onSelect(workspace.workspaceID) }
+                .simultaneousGesture(rowDrag(workspace))
             }
 
             Spacer(minLength: 0)
@@ -40,6 +51,33 @@ struct WorkspaceRail: View {
         .overlay(alignment: .trailing) {
             Rectangle().fill(theme.separator).frame(width: 1)
         }
+        .reportsDragFrame { drag.railFrame = $0 }
+        .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
+        .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
+    }
+
+    private func rowDrag(_ workspace: WorkspaceRecord) -> some Gesture {
+        DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
+            .onChanged { value in
+                if draggingWorkspace != workspace.workspaceID {
+                    draggingWorkspace = workspace.workspaceID
+                    drag.begin(
+                        .workspace(workspace.workspaceID),
+                        ghost: DragCoordinator.Ghost(
+                            title: workspace.label,
+                            symbol: "square.grid.2x2",
+                            originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero
+                        ),
+                        at: value.startLocation
+                    )
+                }
+                drag.move(to: value.location)
+            }
+            .onEnded { _ in
+                guard draggingWorkspace == workspace.workspaceID else { return }
+                draggingWorkspace = nil
+                drag.end()
+            }
     }
 }
 
@@ -48,6 +86,10 @@ private struct WorkspaceRow: View {
     let workspace: WorkspaceRecord
     let paneCount: Int
     let isSelected: Bool
+    /// How far this row slides to open the insertion gap.
+    var displacement: CGFloat = 0
+    /// The row this drag started from, left in place and faded.
+    var isGhosted = false
 
     var body: some View {
         HStack(spacing: 9) {
@@ -76,5 +118,9 @@ private struct WorkspaceRow: View {
                 .strokeBorder(isSelected ? theme.accent.opacity(0.35) : Color.clear, lineWidth: 1)
         )
         .contentShape(Rectangle())
+        .opacity(isGhosted ? DragVisuals.originOpacity : 1)
+        .offset(y: displacement)
+        .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
+        .animation(.easeOut(duration: 0.12), value: isGhosted)
     }
 }

@@ -74,7 +74,8 @@ struct PaddockApp: App {
     @State private var herdrStore: HerdrStore
     @State private var viewModel: SessionViewModel
     @State private var undoJournal: UndoJournal
-    @State private var rearrangeMode = RearrangeMode()
+    @State private var rearrangeMode: RearrangeMode
+    @State private var dragCoordinator: DragCoordinator
 
     private let sessionLabel: String
 
@@ -152,7 +153,7 @@ struct PaddockApp: App {
         // command verbs and the layout-export coordinator share the same
         // actor rather than opening a second one.
         let herdrClient = HerdrClient(socketPath: socketPath)
-        _viewModel = State(initialValue: SessionViewModel(
+        let viewModel = SessionViewModel(
             client: herdrClient,
             ghosttyFactory: ghosttyFactory,
             layoutExportClient: herdrClient,
@@ -163,6 +164,24 @@ struct PaddockApp: App {
             // failure from `perform`/`closePane` -- so this gets the
             // neutral info glyph, never the undo journal's arrow.
             noticeSink: { message in toastCenter.show(message, kind: .info) }
+        )
+        _viewModel = State(initialValue: viewModel)
+        let rearrangeMode = RearrangeMode()
+        _rearrangeMode = State(initialValue: rearrangeMode)
+        _dragCoordinator = State(initialValue: DragCoordinator(
+            toasts: toastCenter,
+            rearrangeMode: rearrangeMode,
+            commit: { subject, target in await viewModel.perform(subject: subject, target: target) },
+            // Reveals the dwelled-on tab or workspace in place, which is a
+            // local selection only: a `*.focus` RPC mid-drag would move
+            // herdr's own focus for what is still just a hover.
+            springLoadAction: { target in
+                switch target {
+                case .tabThumbnail(let id): viewModel.select(tab: id)
+                case .workspaceThumbnail(let id): viewModel.select(workspace: id)
+                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail: break
+                }
+            }
         ))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
     }
@@ -175,6 +194,7 @@ struct PaddockApp: App {
                 .environment(toastCenter)
                 .environment(undoJournal)
                 .environment(rearrangeMode)
+                .environment(dragCoordinator)
                 .background(RearrangeControlMonitorHost(rearrangeMode: rearrangeMode))
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {

@@ -17,6 +17,7 @@ struct PaneCanvas: View {
     let layout: LayoutSnapshot?
 
     @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
+    @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
 
     private static let dividerThickness: CGFloat = 6
@@ -30,14 +31,9 @@ struct PaneCanvas: View {
             // began at the window's corner would still leave the surface on a
             // fractional device pixel.
             let grid = CanvasGrid(canvas: proxy.size, phase: proxy.frame(in: .global).origin, displayScale: scale)
+            let geometry = resolvedGeometry(grid: grid)
             ZStack(alignment: .topLeading) {
                 if let layout {
-                    let geometry = CanvasGeometry.resolved(
-                        layout: layout,
-                        exported: viewModel.exportedLayout(for: layout.tabID),
-                        grid: grid,
-                        dividerThickness: Self.dividerThickness
-                    )
                     ForEach(layout.panes, id: \.paneID) { paneRect in
                         if let pane = viewModel.model?.panes[paneRect.paneID],
                            let frame = geometry.paneFrames[paneRect.paneID] {
@@ -76,10 +72,43 @@ struct PaneCanvas: View {
                         .foregroundStyle(theme.overlay0)
                         .frame(width: proxy.size.width, height: proxy.size.height)
                 }
+                DropzoneOverlay(theme: theme, preview: dropPreview(grid: grid))
             }
+            // The canvas lays out in its own space and drop hit-testing works
+            // in the window's, so the frames are published translated by the
+            // canvas's own origin there, once, here.
+            .background { canvasReporter(geometry.offset(by: proxy.frame(in: DragSpace.coordinateSpace).origin)) }
         }
         .padding(10)
         .background(theme.windowBg)
+    }
+
+    private func resolvedGeometry(grid: CanvasGrid) -> CanvasGeometry {
+        guard let layout else { return .empty }
+        return CanvasGeometry.resolved(
+            layout: layout,
+            exported: viewModel.exportedLayout(for: layout.tabID),
+            grid: grid,
+            dividerThickness: Self.dividerThickness
+        )
+    }
+
+    private func dropPreview(grid: CanvasGrid) -> DropPreviewFrames? {
+        guard let layout else { return nil }
+        return DropPreview.frames(
+            target: drag.target,
+            dragging: drag.activeSubject,
+            layout: layout,
+            exported: viewModel.exportedLayout(for: layout.tabID),
+            grid: grid,
+            dividerThickness: Self.dividerThickness
+        )
+    }
+
+    private func canvasReporter(_ placed: CanvasGeometry) -> some View {
+        Color.clear
+            .onAppear { drag.canvas = placed }
+            .onChange(of: placed) { _, new in drag.canvas = new }
     }
 
     /// What is left of a box for the terminal itself, once the legend band and

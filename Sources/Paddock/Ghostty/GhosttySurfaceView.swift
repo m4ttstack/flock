@@ -24,6 +24,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// `nil` (a placeholder host view with no pane context) means no menu.
     var paneMenuProvider: (() -> NSMenu?)?
 
+    /// The pane body's end of the drag layer: a press this view decides is a
+    /// grab (see `PaneGrabRegion`) is reported here instead of reaching the
+    /// terminal, once it has travelled far enough to be a drag. The SwiftUI
+    /// wrapper owns everything past that; AppKit never touches drag state
+    /// itself.
+    var onBodyDrag: ((PaneBodyDragEvent) -> Void)?
+
     private var trackingArea: NSTrackingArea?
     private var markedText = NSMutableAttributedString()
     /// Collects what `interpretKeyEvents` produces during one `keyDown`, so
@@ -68,6 +75,16 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         case surface
     }
     private var leftButtonRoute: ButtonRoute?
+    /// A press that landed in the grab region and is waiting to become either
+    /// a drag or a plain click. Nothing has been routed anywhere yet: the
+    /// terminal must not see a down that turns out to be the start of a drag,
+    /// and an unfocused pane must not be focused by one either.
+    private struct PendingGrab {
+        let origin: CGPoint
+        let downEvent: NSEvent
+        var isDragging = false
+    }
+    private var pendingGrab: PendingGrab?
     private var rightButtonRoute: ButtonRoute?
     private var rightButtonDownDisposition: RightClickDisposition = .menu
     private var otherButtonRoutes: [Int: ButtonRoute] = [:]
@@ -185,6 +202,16 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// steals AppKit's first-responder status out from under whichever pane
     /// truly holds it right now.
     override func mouseDown(with event: NSEvent) {
+        // Checked before anything is routed: while rearranging, the whole
+        // pane is a drag surface, so an unfocused pane's first click starts a
+        // drag rather than firing `onPrimaryClick`'s real `pane.focus` RPC.
+        // At rest only the top band arms this, and the press still becomes an
+        // ordinary click if it never travels far enough (`mouseUp` below).
+        if PaneGrabRegion.armsDrag(at: topLeftPoint(event), in: topLeftBounds, rearrangeActive: rearrangeActive) {
+            pendingGrab = PendingGrab(origin: topLeftPoint(event), downEvent: event)
+            leftButtonRoute = nil
+            return
+        }
         guard wantsFocus else {
             leftButtonRoute = nil
             onPrimaryClick?()
@@ -201,8 +228,33 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if let grab = pendingGrab {
+            pendingGrab = nil
+            if grab.isDragging {
+                onBodyDrag?(.ended(topLeftPoint(event)))
+            } else {
+                performPlainClick(down: grab.downEvent, up: event)
+            }
+            return
+        }
         sendButtonUp(.left, event: event, route: leftButtonRoute)
         leftButtonRoute = nil
+    }
+
+    /// What a press in the grab region does when it never became a drag:
+    /// exactly what `mouseDown`/`mouseUp` would have done for that press,
+    /// replayed together now that the outcome is known. Rearrange mode
+    /// forwards nothing to the terminal at all, so there is nothing to replay
+    /// there.
+    private func performPlainClick(down: NSEvent, up: NSEvent) {
+        guard !rearrangeActive else { return }
+        guard wantsFocus else {
+            onPrimaryClick?()
+            return
+        }
+        requestWindowFirstResponder()
+        let route = sendButtonDown(.left, event: down)
+        sendButtonUp(.left, event: up, route: route)
     }
 
     /// Right-clicks land in the focused pane by default and Option summons the
@@ -296,6 +348,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// drag line, a surface-routed one stays a libghostty position update
     /// (that is how libghostty extends a selection).
     override func mouseDragged(with event: NSEvent) {
+        if var grab = pendingGrab {
+            let point = topLeftPoint(event)
+            if !grab.isDragging, DragThreshold.passed(from: grab.origin, to: point) {
+                grab.isDragging = true
+                pendingGrab = grab
+                onBodyDrag?(.began(grab.origin))
+            }
+            if grab.isDragging {
+                onBodyDrag?(.moved(point))
+            }
+            return
+        }
         sendDrag(.left, event: event, route: leftButtonRoute)
     }
 
@@ -458,6 +522,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private func forwardingPoint(_ event: NSEvent) -> MouseForwarding.Point {
         let point = convert(event.locationInWindow, from: nil)
         return MouseForwarding.Point(x: Double(point.x), y: Double(bounds.height - point.y))
+    }
+
+    /// The event's location in this view's own space with the origin flipped
+    /// to TOP-LEFT: the drag layer works in one top-left space throughout, so
+    /// AppKit's bottom-left origin stops here and never leaves this file.
+    private func topLeftPoint(_ event: NSEvent) -> CGPoint {
+        let point = convert(event.locationInWindow, from: nil)
+        return CGPoint(x: point.x, y: bounds.height - point.y)
+    }
+
+    private var topLeftBounds: CGRect {
+        CGRect(origin: .zero, size: bounds.size)
     }
 
     /// One cell in view POINTS: libghostty sizes the surface and reports its

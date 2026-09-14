@@ -112,6 +112,76 @@ final class DropPreviewTests: XCTestCase {
         XCTAssertEqual(DropPreview.incomingRect(in: frame, edge: .bottom), CGRect(x: 100, y: 150, width: 400, height: 100))
     }
 
+    // MARK: - Previewed frames
+
+    /// The same three panes as `root`, as a `LayoutSnapshot` (p1 left half,
+    /// p2 top right, p3 bottom right of an 80x40 cell area).
+    private var snapshot: LayoutSnapshot {
+        LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: Self.tabID, zoomed: false, area: Self.area,
+            focusedPaneID: Self.p1,
+            panes: [
+                PaneRect(paneID: Self.p1, focused: true, rect: CellRect(x: 0, y: 0, width: 40, height: 40)),
+                PaneRect(paneID: Self.p2, focused: false, rect: CellRect(x: 40, y: 0, width: 40, height: 20)),
+                PaneRect(paneID: Self.p3, focused: false, rect: CellRect(x: 40, y: 20, width: 40, height: 20))
+            ],
+            splits: []
+        )
+    }
+
+    private var exported: ExportedLayoutDescription {
+        ExportedLayoutDescription(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: Self.tabID, zoomed: false,
+            focusedPaneID: Self.p1, root: root
+        )
+    }
+
+    private var canvasGrid: CanvasGrid {
+        CanvasGrid(canvas: CGSize(width: 800, height: 400), displayScale: 2)
+    }
+
+    func testPreviewedFramesCoverEveryPaneWhenAnExportedTreeIsCached() throws {
+        let preview = try XCTUnwrap(DropPreview.frames(
+            target: .paneEdge(Self.p1, .left), dragging: .pane(Self.p3), layout: snapshot,
+            exported: exported, grid: canvasGrid, dividerThickness: 6
+        ))
+        XCTAssertEqual(preview.incoming.width, 200, accuracy: 1)
+        XCTAssertEqual(preview.others.count, 2)
+    }
+
+    /// No export cached for this tab: the incoming rect is still derived from
+    /// the target's own frame, and nothing else is guessed at.
+    func testPreviewedFramesFallBackToTheTargetHalfWithNoExportedTree() throws {
+        let preview = try XCTUnwrap(DropPreview.frames(
+            target: .paneEdge(Self.p2, .bottom), dragging: .pane(Self.p1), layout: snapshot,
+            exported: nil, grid: canvasGrid, dividerThickness: 6
+        ))
+        XCTAssertEqual(preview.incoming.minY, 100, accuracy: 1)
+        XCTAssertEqual(preview.incoming.height, 100, accuracy: 1)
+        XCTAssertTrue(preview.others.isEmpty)
+    }
+
+    func testPreviewedFramesAreNilForATabDrag() {
+        XCTAssertNil(DropPreview.frames(
+            target: .paneInterior(Self.p1), dragging: .tab(Self.tabID), layout: snapshot,
+            exported: exported, grid: canvasGrid, dividerThickness: 6
+        ))
+    }
+
+    func testPreviewedFramesAreNilWithNoTarget() {
+        XCTAssertNil(DropPreview.frames(
+            target: nil, dragging: .pane(Self.p1), layout: snapshot,
+            exported: exported, grid: canvasGrid, dividerThickness: 6
+        ))
+    }
+
+    func testPreviewedFramesAreNilForADropOntoItself() {
+        XCTAssertNil(DropPreview.frames(
+            target: .paneInterior(Self.p1), dragging: .pane(Self.p1), layout: snapshot,
+            exported: exported, grid: canvasGrid, dividerThickness: 6
+        ))
+    }
+
     // MARK: - Target rect
 
     private func surfaces() -> DropSurfaces {
