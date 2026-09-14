@@ -49,8 +49,8 @@ final class RearrangeModeMachineTests: XCTestCase {
         XCTAssertFalse(machine.active, "Option released with nothing else holding it active must go inactive")
     }
 
-    /// The row the brief calls out by name: a drag started under a held
-    /// Option must survive the key release until the drag itself ends.
+    /// A drag started under a held Option must survive the key release
+    /// until the drag itself ends.
     func testDragSurvivesOptionKeyRelease() {
         var machine = RearrangeModeMachine()
         machine.handle(.modifierDown)
@@ -171,6 +171,48 @@ final class RearrangeModeMachineTests: XCTestCase {
         XCTAssertTrue(machine.active)
     }
 
+    /// The ceiling is inclusive: a press of exactly 300ms is still a tap.
+    func testPressExactlyAtTapCeilingCountsAsATap() {
+        let clock = FakeClock()
+        var machine = RearrangeModeMachine(now: clock.now)
+        machine.handle(.modifierDown)
+        clock.advance(by: RearrangeModeMachine.tapCeiling)
+        machine.handle(.modifierUp)
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierDown)
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierUp)
+        XCTAssertTrue(machine.isToggled, "a press of exactly the tap ceiling must still count as a tap")
+    }
+
+    func testPressOneMillisecondPastTapCeilingNeverCountsAsATap() {
+        let clock = FakeClock()
+        var machine = RearrangeModeMachine(now: clock.now)
+        machine.handle(.modifierDown)
+        clock.advance(by: RearrangeModeMachine.tapCeiling + .milliseconds(1))
+        machine.handle(.modifierUp)
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierDown)
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierUp)
+        XCTAssertFalse(machine.isToggled, "one millisecond past the ceiling must never count as a tap")
+    }
+
+    /// The gap ceiling is inclusive too: a silence of exactly 400ms still
+    /// completes the double-tap.
+    func testGapExactlyAtTapGapCeilingStillCompletesTheDoubleTap() {
+        let clock = FakeClock()
+        var machine = RearrangeModeMachine(now: clock.now)
+        machine.handle(.modifierDown)
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierUp)
+        clock.advance(by: RearrangeModeMachine.tapGapCeiling)
+        machine.handle(.modifierDown)
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierUp)
+        XCTAssertTrue(machine.isToggled, "a gap of exactly the ceiling must still complete the double-tap")
+    }
+
     func testTapsTooFarApartDoNotToggle() {
         let clock = FakeClock()
         var machine = RearrangeModeMachine(now: clock.now)
@@ -184,9 +226,8 @@ final class RearrangeModeMachineTests: XCTestCase {
         XCTAssertFalse(machine.isToggled, "a gap over the ceiling must not complete a double-tap")
     }
 
-    /// "One slow press (a hold) plus a tap does not [toggle]," per the
-    /// ruling's own test list: a hold can never seed a pending tap, so the
-    /// following clean tap only starts a fresh (incomplete) sequence.
+    /// A hold can never seed a pending tap, so a clean tap following one
+    /// only starts a fresh (incomplete) sequence.
     func testHoldThenTapDoesNotToggle() {
         let clock = FakeClock()
         var machine = RearrangeModeMachine(now: clock.now)
@@ -230,6 +271,24 @@ final class RearrangeModeMachineTests: XCTestCase {
         clock.advance(by: .milliseconds(50))
         machine.handle(.modifierUp)
         XCTAssertFalse(machine.isToggled, "the interrupted press never became a pending tap, so this clean one only starts a fresh sequence")
+    }
+
+    /// Esc is a key event too: tapping it mid-hold (a no-op precedence-wise,
+    /// since nothing is sticky yet) must disqualify that press from ever
+    /// completing a tap, exactly like any other key or mouse event would.
+    func testEscMidPressDisqualifiesItFromEverBeingATap() {
+        let clock = FakeClock()
+        var machine = RearrangeModeMachine(now: clock.now)
+        machine.handle(.modifierDown)
+        machine.handle(.escPressed)
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierUp)
+        XCTAssertFalse(machine.isToggled, "a press esc interrupted can never be a tap, even if brief")
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierDown)
+        clock.advance(by: .milliseconds(50))
+        machine.handle(.modifierUp)
+        XCTAssertFalse(machine.isToggled, "the esc-interrupted press never became a pending tap, so this clean one only starts a fresh sequence")
     }
 
     func testHeldOptionWhileStickyOnDoesNotTurnItOffOnRelease() {
@@ -289,11 +348,11 @@ final class RearrangeModeMachineTests: XCTestCase {
         XCTAssertTrue(machine.active)
     }
 
-    /// The full narrative from the ruling: Esc during a sticky-mode drag
-    /// takes two presses to leave the mode. The first only ends the drag
-    /// (modeled as `.dragEnded`, the drag layer's own outcome, arriving
-    /// after its own Esc-triggered cancellation settles); only the second,
-    /// drag-free Esc actually exits sticky.
+    /// Esc during a sticky-mode drag takes two presses to leave the mode.
+    /// The first only ends the drag (modeled as `.dragEnded`, the drag
+    /// layer's own outcome, arriving after its own Esc-triggered
+    /// cancellation settles); only the second, drag-free Esc actually exits
+    /// sticky.
     func testEscTakesTwoPressesToLeaveStickyModeDuringADrag() {
         var machine = RearrangeModeMachine()
         machine.handle(.toggleOn)

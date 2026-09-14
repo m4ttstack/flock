@@ -238,8 +238,8 @@ transform/opacity only, interruptible springs.
   holding Option while sticky does not turn it off. Esc has a precedence
   rule: with a drag in flight it cancels the drag and leaves the mode
   alone, so leaving a sticky mode mid-drag takes two presses. A tap is an
-  Option press shorter than 300ms with no other key or mouse event in it,
-  and the two taps must fall within 400ms, which is what keeps
+  Option press 300ms or less with no other key or mouse event in it
+  (Esc included), and the two taps must fall within 400ms inclusive, which is what keeps
   Option-modified typing from ever entering the mode. A drag in progress
   finishes first. Control was
   chosen first and is UNUSABLE: Control+click is a secondary click on

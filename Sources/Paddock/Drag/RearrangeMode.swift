@@ -46,10 +46,9 @@ public final class RearrangeMode {
     /// `windowObservers` for the same pattern. `@ObservationIgnored` is what
     /// makes `nonisolated(unsafe)` legal here: the Observation macro forbids
     /// `nonisolated` on a mutable property it tracks. Watches Option itself
-    /// (`.flagsChanged`), Esc, and every other key/mouse-button event so the
-    /// machine's double-tap sequence can be cancelled by "anything else"
-    /// happening in between, per the ruling -- it never swallows an event
-    /// (always returns it unchanged), it only observes.
+    /// (`.flagsChanged`), Esc, and every other key/mouse-button event, since
+    /// any of those can cancel the machine's double-tap sequence -- it never
+    /// swallows an event (always returns it unchanged), it only observes.
     @ObservationIgnored nonisolated(unsafe) private var eventMonitor: Any?
     /// Become/resign-key and become/resign-active observers -- see `attach`.
     /// A `flagsChanged` edge is only ever delivered to a window that is key,

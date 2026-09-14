@@ -39,6 +39,10 @@ public struct RearrangeModeMachine {
         case toggleOff
         case dragBegan
         case dragEnded
+        /// Esc is itself a key event, so like `.otherInputOccurred` it
+        /// disqualifies whatever press is currently in progress from ever
+        /// counting as a tap and cancels a pending first-tap wait, in
+        /// addition to its own precedence effect on drag/sticky state below.
         case escPressed
         /// Any key or mouse event that is not the modifier itself and not
         /// Esc. Feeding this disqualifies whatever press is currently in
@@ -49,15 +53,18 @@ public struct RearrangeModeMachine {
         case otherInputOccurred
     }
 
-    /// A press strictly longer than this is a hold, never a tap, decided at
-    /// the moment its `.modifierUp` arrives (there is no mid-press timer;
-    /// the machine only ever sees discrete down/up events, so "outlives the
-    /// ceiling" is necessarily evaluated in arrears -- nothing observable
-    /// depends on catching it earlier, since a hold already activates the
-    /// mode immediately on `.modifierDown`, same as it always did).
+    /// A press of `tapCeiling` OR LESS is a tap candidate (inclusive: a
+    /// press of exactly 300ms still qualifies); anything longer is a hold,
+    /// never a tap. Decided at the moment its `.modifierUp` arrives (there
+    /// is no mid-press timer; the machine only ever sees discrete down/up
+    /// events, so "longer than the ceiling" is necessarily evaluated in
+    /// arrears -- nothing observable depends on catching it earlier, since a
+    /// hold already activates the mode immediately on `.modifierDown`, same
+    /// as it always did).
     public static let tapCeiling: Duration = .milliseconds(300)
-    /// The longest silence between one qualifying tap's release and the
-    /// next press that can still complete a double-tap.
+    /// The longest silence between one qualifying tap's release and the next
+    /// press that can still complete a double-tap, inclusive: a gap of
+    /// exactly 400ms still completes it.
     public static let tapGapCeiling: Duration = .milliseconds(400)
 
     public private(set) var active = false
@@ -112,18 +119,27 @@ public struct RearrangeModeMachine {
         case .dragEnded:
             dragInProgress = false
         case .escPressed:
-            pendingTapAt = nil
+            disqualifyCurrentPress()
             if !dragInProgress, isToggled {
                 isToggled = false
                 modifierHeld = false
             }
         case .otherInputOccurred:
-            pendingTapAt = nil
-            if pressStartedAt != nil {
-                pressWasClean = false
-            }
+            disqualifyCurrentPress()
         }
         active = dragInProgress ? true : (modifierHeld || isToggled)
+    }
+
+    /// Cancels a pending first-tap wait outright, and marks whatever press
+    /// is currently in progress (if any) as no longer eligible to become a
+    /// tap once it releases -- shared by `.escPressed` and
+    /// `.otherInputOccurred`, the two events that are not the modifier
+    /// itself but can still land inside or between taps.
+    private mutating func disqualifyCurrentPress() {
+        pendingTapAt = nil
+        if pressStartedAt != nil {
+            pressWasClean = false
+        }
     }
 
     /// A qualifying tap (clean, at or under `tapCeiling`) either completes a
