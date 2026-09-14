@@ -28,6 +28,7 @@ it is the seed of a full Mac-native alternate herdr controller.
 | herdr version | Assume upgraded herdr: target the protocol >= 22 surface (`pane.scroll`, `pane.selection.read` era). Startup does `ping`; below the floor, paddock shows "run `herdr update`" and exits gracefully |
 | Process | Spike-first: nothing lands in the implementation plan unvalidated. Fully automated interactive e2e tests are the completion bar |
 | UI process | Design canvas + reference PNGs signed off before any UI code |
+| Architecture process (ruled 2026-09-14) | Read Herdglass (`~/Documents/GitHub/Herdglass`) on the same concern BEFORE any architectural decision, state its answer, and justify every divergence. Paddock's renderer is a port of it; the one standing reason to diverge is that paddock coexists with Matt's herdr TUI while Herdglass replaces it |
 
 ## The herdr contract (verified 2026-09-10)
 
@@ -125,12 +126,13 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   panes. EVERY visible pane is one ghostty surface for its whole life
   (ruled 2026-09-12 at Checkpoint 2b, after a focus-swap hybrid produced
   font jumps, banner flashes, and cursor artifacts at every seam): the
-  bridge starts in observe mode (`herdr terminal session observe`, no
-  input path, view-local resize) and switches in place to control mode
-  (`terminal session control --takeover`) on paddock focus via a
-  paddock-namespaced FIFO command, back to observe on blur; the PTY,
-  surface, and scrollback survive the switch. Exactly one pane is in
-  control mode at a time. Right-click on any pane opens the herdr action
+  bridge holds a control-mode attach (`terminal session control
+  --takeover`) for its whole life (ruled 2026-09-14 with the sizing rule
+  below; the earlier observe-until-focused bridge, switched in place over
+  a paddock-namespaced FIFO command, left unfocused panes at herdr's size
+  and so re-wrapped a pane the moment it was focused). Input is written
+  only to the paddock-focused pane's surface; the others are attached but
+  silent. Right-click on any pane opens the herdr action
   menu; it reaches the terminal only when the pane's routing toggle is
   on. The exact libghostty commit is pinned (Herdglass-validated
   08450e21e5a3ad94b62d1e67f9eda554dfa1c971, vendored via zig submodule
@@ -152,19 +154,35 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   panes ignore the wheel until focused. The SwiftUI history overlay and its
   `pane.selection.read` chunk loading are removed; `pane.selection.read`
   remains available for a future search feature only.
-- **Sizing (ruled 2026-09-13 at Checkpoint 3): herdr owns every pane
-  size.** Paddock renders herdr's cell grid (the tab's `area` in cells)
-  at ONE uniform cell size, letterboxed inside the canvas, so every pane
-  box is exactly its herdr cell rect scaled; the ghostty surface behind
-  each box is sized to exactly that pane's cols x rows at that cell size;
-  the bridge never sends a `terminal.resize` that differs from the pane's
-  real herdr dims in control mode (a control client's resize changes the
-  real PTY, headless.rs `ClientResize`, and would fight the herdr TUI). The
-  Terminal Text setting (Compact/Regular/Large) is the MAXIMUM font size;
-  the fit shrinks below it only when the window cannot hold the grid at
-  that size. Panes never re-wrap on focus. A scroll indicator fed by
-  herdr's own scroll state (offset_from_bottom, `pane.scroll_changed`)
-  shows when a pane's viewport is above its tail.
+- **Sizing (ruled 2026-09-14, superseding the 2026-09-13 "herdr owns
+  sizes" rule): paddock owns every visible pane's size, the way
+  Herdglass does.** Every visible pane holds a control-mode attach
+  (`terminal session control <pane> --takeover`) for its whole life, and
+  each bridge resizes that pane's REAL runtime to its own surface grid
+  (herdr `headless.rs` `ClientResize` -> `TerminalAttach` ->
+  `runtime.resize`). Herdglass sizes panes exactly this way
+  (`Sources/HerdrClient/ControlBridge.swift`, `terminal.resize` from the
+  bridge PTY's winsize) and never touches a session area; paddock follows
+  it because no herdr verb lets a non-shell client set the area at all
+  (it is the foreground client's terminal size, else
+  `server.headless_cols/rows`), so the uniform-cell mirror could only ever
+  letterbox inside herdr's 120x40 default.
+
+  Consequences, all intended: the canvas fills the window, splits laid out
+  from `layout.export` ratios; growing the paddock window grows the real
+  panes; nothing re-wraps on focus, because focus no longer changes any
+  pane's size. Where paddock diverges from Herdglass is that Matt runs the
+  herdr TUI alongside, so the TUI reclaims its tab's geometry whenever it
+  is the foreground client (`resize_shell_tab_if_controller`,
+  `tab_geometry_controllers`) and reshapes the panes to the terminal.
+  Panes therefore reflow when the user moves between paddock and the TUI;
+  that is accepted (ruled by Matt: "herdr is really good at responding to
+  resizes"). The Terminal Text setting (Compact/Regular/Large) is the font
+  size outright, not a maximum; each pane's cols x rows is its box divided
+  by that font's cell metrics, with the remainder as padding inside the
+  box. A scroll indicator fed by herdr's own scroll state
+  (offset_from_bottom, `pane.scroll_changed`) shows when a pane's viewport
+  is above its tail.
 - **Tab following (ruled 2026-09-13):** paddock's selected tab follows
   herdr's focused tab whenever herdr's focus changes (a tab switch is a
   warm re-host of parked surfaces, so following is cheap); a
