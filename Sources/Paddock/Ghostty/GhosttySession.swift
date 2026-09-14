@@ -21,10 +21,9 @@ final class GhosttySession {
         var commandArgv: [String]
         var themeColors: GhosttyThemeColors
         var workingDirectory: String?
-        /// The effective terminal font size (points) at creation time, the
-        /// canvas's fit of the Terminal Text setting to the window; travels
-        /// with the launch the same way `themeColors` does. A later change
-        /// flows through `updateAppearance`, not back through this struct.
+        /// The Terminal Text size (points) at creation time; travels with
+        /// the launch the same way `themeColors` does. A later change flows
+        /// through `updateAppearance`, not back through this struct.
         var fontSizePoints: Double = Double(TerminalTextSize.regular.points)
     }
 
@@ -97,17 +96,15 @@ final class GhosttySession {
     /// enters reporting mode itself (its screen is a repaint of herdr's, not
     /// the raw DECSET), so this out-of-band flag is what tells the view
     /// whether a click belongs to the app (`.toApp` via the control FIFO) or
-    /// to libghostty's own selection. Reset to false whenever the pane drops
-    /// to observe mode, which never reports capture. `sgr_pixels` is not kept:
-    /// a control client never negotiates pixel mouse, so herdr always reports
-    /// it false.
+    /// to libghostty's own selection. `sgr_pixels` is not kept: a control
+    /// client never negotiates pixel mouse, so herdr always reports it false.
     private(set) var mouseCaptureEnabled = false
 
-    /// The grid herdr says this pane has (its layout cell rect), the size
-    /// the view lays the surface out at and the only size the bridge ever
-    /// tells herdr. Set through `setExpectedGrid` on attach and on every
-    /// layout change; `verifyExpectedGrid` checks the live surface against
-    /// it after each layout pass.
+    /// The grid paddock's pane box holds: the size the view lays the surface
+    /// out at and the only size the bridge ever tells herdr. Set through
+    /// `setExpectedGrid` on attach and on every box change;
+    /// `verifyExpectedGrid` checks the live surface against it after each
+    /// layout pass.
     private(set) var expectedGrid: (cols: Int, rows: Int)?
     private var lastVerifiedGrid: (cols: Int, rows: Int)?
 
@@ -160,9 +157,9 @@ final class GhosttySession {
         verifyExpectedGrid()
     }
 
-    /// Records herdr's dims for this pane and relays them to the bridge as
-    /// `paddock.dims` (the one size it ever sends herdr), skipping a repeat
-    /// of the dims already sent.
+    /// Records the grid paddock's box holds for this pane and relays it to
+    /// the bridge as `paddock.dims` (the one size it ever sends herdr),
+    /// skipping a repeat of the dims already sent.
     func setExpectedGrid(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         if let expectedGrid, expectedGrid.cols == cols, expectedGrid.rows == rows { return }
@@ -173,23 +170,17 @@ final class GhosttySession {
     }
 
     /// Runs whenever libghostty's live grid may have changed: logs, once per
-    /// (expected, actual) change, whether it equals herdr's dims (a mismatch
-    /// after the font has settled means the fit's cell metrics disagree with
-    /// the font libghostty loaded), and on reaching herdr's dims re-sends
-    /// them so herdr repaints the pane in full. The repaint matters because
-    /// herdr's own full frame for a dims change can land before the view has
-    /// laid the surface out at those dims, into the old grid; a resize to
-    /// the same dims is herdr's repaint request (`ClientResize` ->
-    /// `request_repaint`) and changes nothing else.
+    /// (expected, actual) change, whether it equals the grid paddock asked
+    /// herdr for. A mismatch after the font has settled means
+    /// `TerminalCellMetrics` disagrees with the cell libghostty actually
+    /// loaded, which is the one thing that can put the surface and the real
+    /// pane out of step.
     private func verifyExpectedGrid() {
         guard let expectedGrid, let geometry = surfaceGeometry() else { return }
         let actual = (geometry.grid.columns, geometry.grid.rows)
         if let lastVerifiedGrid, lastVerifiedGrid == actual { return }
         lastVerifiedGrid = actual
         let matches = actual == expectedGrid
-        if matches {
-            controlChannel?.setDims(cols: expectedGrid.cols, rows: expectedGrid.rows)
-        }
         Self.gridLog.log(
             level: matches ? .default : .error,
             "surface grid pane=\(self.paneID.rawValue, privacy: .public) cols=\(actual.0) rows=\(actual.1) expected=\(expectedGrid.cols)x\(expectedGrid.rows) cell=\(geometry.cellPixels.width)x\(geometry.cellPixels.height)px font=\(self.configuration.fontSizePoints) match=\(matches)"
@@ -367,21 +358,6 @@ final class GhosttySession {
         insertText(text)
     }
 
-    /// The live control/observe upgrade -- see `ControlBridge`'s own
-    /// mode-switch doc. A no-op if this session's factory never wired a
-    /// control channel (a test double, say): the bridge simply stays at
-    /// whatever mode it was born in. Dropping to observe resets capture to
-    /// false locally, without waiting for the bridge: an observe client never
-    /// receives a `MouseCapture` message, so nothing would ever clear a
-    /// stale-true flag otherwise, and a right click on the newly unfocused
-    /// pane would wrongly forward instead of showing the menu.
-    func setPaneMode(_ mode: PaneMode) {
-        if mode == .observe {
-            setMouseCapture(enabled: false)
-        }
-        controlChannel?.setMode(mode)
-    }
-
     /// Records the pane app's mouse-reporting state as reported by the bridge
     /// (called on the main actor from `statusChannel`'s reader). A true ->
     /// false transition tells the view to drop any pending wheel remainder:
@@ -398,9 +374,9 @@ final class GhosttySession {
 
     /// Called once, from `statusChannel`'s reader, when the bridge reports
     /// its first full-redraw frame. Idempotent past the first call --
-    /// `FirstFrameLatch.markReceived()` never flips back -- since a later
-    /// mode switch's fresh child sends its own initial full frame too, and
-    /// that must never re-show a pane's status card.
+    /// `FirstFrameLatch.markReceived()` never flips back -- since herdr sends
+    /// a fresh full frame after every resize, and that must never re-show a
+    /// pane's status card.
     func markFirstFrameReceived() {
         firstFrameLatch.markReceived()
     }
@@ -415,9 +391,8 @@ final class GhosttySession {
     /// Moves the pane's real, shared herdr viewport: the wheel's destination
     /// whenever the app has not claimed the mouse (see
     /// `MouseForwarding.Decision.toHerdrScroll`). Only ever called for the
-    /// resolved-focused (control-mode) pane -- an observe-mode pane's wheel
-    /// is dropped upstream in `MouseForwarding.decide`, before this could be
-    /// reached.
+    /// resolved-focused pane -- an unfocused pane's wheel is dropped upstream
+    /// in `MouseForwarding.decide`, before this could be reached.
     func sendPaneScroll(direction: PaneControlChannel.ScrollDirection, lines: Int) {
         controlChannel?.scroll(direction: direction, lines: lines)
     }
@@ -502,7 +477,7 @@ final class GhosttySession {
 
     /// the surface's child process going away (for any reason -- the
     /// bridge exiting because the herdr binary could not be resolved, the
-    /// observe child dying before its first repaint, a crash) must not leave
+    /// control child dying before its first repaint, a crash) must not leave
     /// a cold pane's status card up forever waiting for a `first_frame` line
     /// that will now never arrive. Latching here reveals whatever the
     /// surface actually shows (even blank) instead; idempotent past the

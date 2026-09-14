@@ -19,32 +19,30 @@ struct PaneCellView: View {
     /// half; the rest mirrors the artboards' text inset from the frame.
     static let contentInsets = EdgeInsets(top: 12, leading: 10, bottom: 8, trailing: 10)
 
-    /// Everything a cell's frame holds besides its surface, per axis, for a
-    /// given divider gutter: what `UniformCellLayout.fit` must reserve in
-    /// every pane box so the chrome never eats a terminal cell. Must agree
-    /// with `cell`/`box`'s padding and the canvas's gutter inset exactly.
-    static func chrome(dividerThickness: CGFloat) -> PaneChrome {
-        PaneChrome(
-            horizontal: dividerThickness + contentInsets.leading + contentInsets.trailing,
-            vertical: dividerThickness + legendHalfHeight + contentInsets.top + contentInsets.bottom
-        )
-    }
+    /// Everything a cell's box holds besides its surface, per axis: what the
+    /// canvas subtracts from a box before deriving the whole-cell grid, so the
+    /// chrome never eats a terminal cell. Must agree with `cell`/`box`'s own
+    /// padding exactly. Whole points on both axes, which is what keeps the
+    /// surface's origin on the device-pixel grid the box was snapped to.
+    static let chrome = CGSize(
+        width: contentInsets.leading + contentInsets.trailing,
+        height: legendHalfHeight + contentInsets.top + contentInsets.bottom
+    )
 
     let theme: Theme
     let viewModel: SessionViewModel
     let pane: PaneRecord
     let isFocused: Bool
     let lastLine: String?
-    /// The pane's real terminal cell size, straight from the layout
-    /// snapshot's `CellRect` -- never a pixel frame. A later change reaches
-    /// the surface through `SessionViewModel`'s own layout reconcile, not
-    /// through a reattach.
-    let cols: Int
-    let rows: Int
-    /// Exactly `cols x rows` cells of the fitted font: the surface's frame,
-    /// top-left in the box's content area, any remainder left as ground.
+    /// The whole-cell grid this pane's own box holds: what the surface is laid
+    /// out at and, through `SessionViewModel`, the size herdr is asked for. A
+    /// later change reaches the surface through the view model's coalesced
+    /// dims path, never through a reattach.
+    let grid: PTYSize
+    /// Exactly `grid.cols x grid.rows` cells: the surface's frame, top-left in
+    /// the box's content area, any remainder left as ground.
     let surfaceSize: CGSize
-    /// The fitted font size every pane shares, already debounced by the canvas.
+    /// The Terminal Text size every pane shares.
     let fontSizePoints: Double
 
     @Environment(ToastCenter.self) private var toastCenter
@@ -58,15 +56,14 @@ struct PaneCellView: View {
     /// that case.
     init(
         theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool,
-        lastLine: String?, cols: Int, rows: Int, surfaceSize: CGSize, fontSizePoints: Double
+        lastLine: String?, grid: PTYSize, surfaceSize: CGSize, fontSizePoints: Double
     ) {
         self.theme = theme
         self.viewModel = viewModel
         self.pane = pane
         self.isFocused = isFocused
         self.lastLine = lastLine
-        self.cols = cols
-        self.rows = rows
+        self.grid = grid
         self.surfaceSize = surfaceSize
         self.fontSizePoints = fontSizePoints
         _ghosttySurface = State(initialValue: viewModel.ghosttySurface(for: pane.paneID))
@@ -89,16 +86,20 @@ struct PaneCellView: View {
             .padding(.top, Self.legendHalfHeight)
             .overlay(alignment: .topLeading) { legend }
             .overlay(alignment: .topTrailing) { statusChip }
-        // One task per pane identity, never keyed on dims or focus: the pane
-        // gets exactly one surface for its whole visible life, created here
-        // on first visibility with the dims of that moment. A later layout
-        // change reaches the surface through `SessionViewModel`'s own
-        // reconcile (`updatePaneDims`), so nothing here ever restarts the
-        // attach. `attachPane` is chained through the view model's own
-        // `paneWork`, so this body always reads back the single surface for
-        // this pane whatever else was queued for it.
+        // One task per pane identity, never keyed on the grid or focus: the
+        // pane gets exactly one surface for its whole visible life, created
+        // here on first visibility with the grid of that moment. A later box
+        // change reaches the surface through `setPaneBoxDims` below, so
+        // nothing here ever restarts the attach. `attachPane` is chained
+        // through the view model's own `paneWork`, so this body always reads
+        // back the single surface for this pane whatever else was queued.
         .task(id: pane.paneID) {
-            ghosttySurface = await viewModel.attachPane(pane.paneID, cols: cols, rows: rows)
+            ghosttySurface = await viewModel.attachPane(pane.paneID, cols: grid.cols, rows: grid.rows)
+        }
+        // The box moved (a window resize, a split appearing, a divider drag):
+        // the view model records it and coalesces the send.
+        .onChange(of: grid) { _, new in
+            viewModel.setPaneBoxDims(pane.paneID, cols: new.cols, rows: new.rows)
         }
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }
@@ -115,10 +116,10 @@ struct PaneCellView: View {
 
     /// The framed terminal box. The content is pinned to exactly the
     /// surface's cols x rows cells, top-left in the box's content area (the
-    /// box itself fills the cell frame the canvas laid out on herdr's grid,
-    /// so any remainder is plain ground). Content is clipped to the rounded
-    /// frame and the focus halo is a real ring geometry (even-odd cutout) so
-    /// no accent fill can bleed into the interior.
+    /// box itself fills the frame the canvas laid out, so the sub-cell
+    /// remainder is plain ground). Content is clipped to the rounded frame
+    /// and the focus halo is a real ring geometry (even-odd cutout) so no
+    /// accent fill can bleed into the interior.
     private var box: some View {
         content
             .frame(width: surfaceSize.width, height: surfaceSize.height)
@@ -126,9 +127,13 @@ struct PaneCellView: View {
             .padding(Self.contentInsets)
             .background(theme.terminalGround)
             .clipShape(RoundedRectangle(cornerRadius: 9))
+            // The track spans the content area, so the two paddings are the
+            // box's own (asymmetric) content insets: a symmetric one would
+            // leave the thumb unable to reach the last row.
             .overlay(alignment: .trailing) {
                 PaneScrollIndicator(theme: theme, scroll: pane.scroll)
-                    .padding(.vertical, Self.contentInsets.top)
+                    .padding(.top, Self.contentInsets.top)
+                    .padding(.bottom, Self.contentInsets.bottom)
                     .padding(.trailing, 3)
             }
             .overlay(
@@ -217,16 +222,12 @@ struct PaneCellView: View {
                     cardContent
                         .transition(.opacity)
                 }
-                // Routed through `pane.send_input`, never `ghosttySurface
-                // .typeText` straight into the PTY: a launcher click can
-                // land on a pane that is NOT the resolved-focused one (split
-                // right, click back into the original pane, then click the
-                // overlay on the new pane), and that pane's bridge is in
-                // observe mode -- typeText's bytes would silently vanish
-                // into a PTY the bridge drops all stdin from. send_input is
-                // focus-independent, the same route the pane's own regular
-                // keystrokes never get to take once they land on an
-                // observe-mode pane.
+                // Routed through `pane.send_input`, never straight into the
+                // PTY: a launcher click can land on a pane that is NOT the
+                // resolved-focused one (split right, click back into the
+                // original pane, then click the overlay on the new pane), and
+                // only the focused pane holds AppKit key focus. send_input is
+                // focus-independent.
                 if viewModel.isPristineLauncherPane(pane.paneID) {
                     PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
                         Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }

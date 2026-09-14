@@ -34,12 +34,12 @@ public final class FirstFrameLatch {
 /// is `@unchecked Sendable` for that reason, never touched off `@MainActor`.
 @MainActor
 public protocol GhosttyPaneSurface: AnyObject, Sendable {
-    /// The pane's real herdr dims (its layout cell rect): sent on every warm
-    /// reattach and on every layout change that moves the rect. The real
-    /// conformance relays them to the bridge as `paddock.dims` and records
-    /// the grid the surface is expected to settle at; the surface's pixel
-    /// size itself is the view's business (`PaneCellView` sizes it to
-    /// exactly cols x rows cells).
+    /// The grid paddock's own pane box holds: sent on every warm reattach and
+    /// on every box change. The real conformance relays it to the bridge as
+    /// `paddock.dims`, which resizes the pane's real runtime, and records the
+    /// grid the surface is expected to settle at; the surface's pixel size
+    /// itself is the view's business (`PaneCellView` sizes it to exactly
+    /// cols x rows cells).
     func resize(cols: Int, rows: Int)
 
     /// Tears the surface down: frees the libghostty surface, which ends the
@@ -48,16 +48,7 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// something can, without changing this contract later.
     func detach() async
 
-    /// Switches the pane's bridge, live, between herdr's `control` and
-    /// `observe` session verbs -- the PTY, the surface, and libghostty's own
-    /// scrollback all stay exactly as they are; only which verb is behind
-    /// the bridge's pipes changes. `async` so a fake can hold it open in a
-    /// test the same way `detach()` can; the real conformance is a
-    /// synchronous FIFO write underneath.
-    func setMode(_ mode: PaneMode) async
-
-    /// Parks the surface: kept alive (with its bridge, in observe mode --
-    /// `SessionViewModel` sends that separately before calling this) rather
+    /// Parks the surface: kept alive, with its bridge still attached, rather
     /// than torn down, so a later `unpark()` shows the pane's CURRENT
     /// content instead of a freshly recreated surface. The real conformance
     /// marks the surface occluded so libghostty's renderer stops drawing a
@@ -77,7 +68,7 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// earlier life, so seeding `ghosttySurface` from the pool at a cell's
     /// `init` never re-shows the card for it.
     ///
-    /// What this actually latches is "the bridge wrote a full-redraw
+    /// What this latches is "the bridge wrote a full-redraw
     /// `terminal.frame`'s bytes to the PTY", not "libghostty has drawn them
     /// on screen" -- those are two different ticks (the surface's own render
     /// pass reads the PTY on its own schedule, a frame or two later). The

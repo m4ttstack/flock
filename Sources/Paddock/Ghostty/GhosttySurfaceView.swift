@@ -195,18 +195,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     /// Right-clicks land in the pane by default and Option summons the herdr
     /// action menu -- see `RightClickDisposition.decide` for the full rule:
-    /// a control-mode pane whose app has claimed the mouse forwards a plain
-    /// right-click to the pane; Option, a plain shell (capture off), or an
-    /// observe-mode pane all get the menu instead. The menu itself comes from
+    /// a pane whose app has claimed the mouse forwards a plain right-click to
+    /// the pane; Option or a plain shell (capture off) gets the menu instead.
+    /// Focus is not part of it: every pane holds a live control bridge, so the
+    /// rule is the same on all of them. The menu itself comes from
     /// `menu(for:)` below (built by `paneMenuProvider`), reached by handing
     /// the event back to the responder chain (`super`); libghostty's own
-    /// context menu is never shown here. `mode` is `wantsFocus`-derived
-    /// because the resolved-focused pane is the only one ever in `.control`.
+    /// context menu is never shown here.
     override func rightMouseDown(with event: NSEvent) {
         let disposition = RightClickDisposition.decide(
             optionHeld: event.modifierFlags.contains(.option),
-            captureEnabled: session.mouseCaptureEnabled,
-            mode: wantsFocus ? .control : .observe
+            captureEnabled: session.mouseCaptureEnabled
         )
         rightButtonDownDisposition = disposition
         switch disposition {
@@ -256,7 +255,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     /// Under capture the app owns the pointer, so motion becomes a
     /// `terminal.mouse` moved line (herdr drops it unless the app enabled
-    /// any-motion tracking). Otherwise, observe panes included, it stays a
+    /// any-motion tracking). Otherwise, unfocused panes included, it stays a
     /// libghostty position update: hover links and the pointer shape are
     /// local surface state, not pane input, so `.drop` still feeds them.
     override func mouseMoved(with event: NSEvent) {
@@ -293,8 +292,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// no horizontal wire form, so horizontal wheel motion with capture off
     /// is simply dropped): libghostty holds no scrollback of its own any
     /// more for this to fall back to, since herdr streams viewport repaints,
-    /// not a retainable scrollback. An observe-mode (unfocused) pane drops
-    /// the wheel entirely, same as every other mouse event.
+    /// not a retainable scrollback. An unfocused pane drops the wheel
+    /// entirely, same as every other mouse event.
     override func scrollWheel(with event: NSEvent) {
         guard let cell = cellSizeInPoints() else {
             scrollAccumulator.reset()
@@ -401,7 +400,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         MouseForwarding.decide(
             kind: kind, button: button, modifiers: crosstermModifiers(event.modifierFlags),
             point: forwardingPoint(event), cellSize: cellSizeInPoints(), grid: session.surfaceGeometry()?.grid,
-            captureEnabled: session.mouseCaptureEnabled, mode: wantsFocus ? .control : .observe,
+            captureEnabled: session.mouseCaptureEnabled, paneIsFocused: wantsFocus,
             shiftHeld: event.modifierFlags.contains(.shift), lines: lines
         )
     }
@@ -447,10 +446,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     // MARK: - Keyboard
 
-    /// Gated on `wantsFocus`, not just on AppKit first-responder status: the
-    /// view-layer half of the three independent unfocused-input guards (the
-    /// other two are the bridge dropping stdin in observe mode, and herdr
-    /// giving an observe client no input path at all). `requestWindowFirst
+    /// Gated on `wantsFocus`, not just on AppKit first-responder status: every
+    /// pane holds a live control bridge, so this gate is what keeps a
+    /// keystroke out of a pane the user is not in. `requestWindowFirst
     /// Responder` no longer runs for an unfocused pane, so this should be
     /// unreachable in practice -- kept as defense in depth against AppKit
     /// assigning first responder some other way (window activation, Tab
@@ -719,8 +717,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// may ever move real AppKit first-responder status onto a pane that is
     /// not the resolved-focused one, or the wrong pane's surface starts
     /// reporting itself focused (`becomeFirstResponder` -> `session.
-    /// setFocused(true)`) while still sitting on an observe-mode bridge that
-    /// drops every keystroke this then routes to it.
+    /// setFocused(true)`) and taking the keystrokes meant for the pane the
+    /// user is actually in.
     private func requestWindowFirstResponder() {
         guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
         guard let window else { return }

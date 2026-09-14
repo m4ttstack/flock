@@ -19,7 +19,7 @@ import Darwin
 /// is the one place this type ever constructs one; the resolved-focused
 /// pane's wheel is the only caller (`GhosttySession.sendPaneScroll`), gated
 /// upstream by `MouseForwarding.decide` dropping every mouse event for an
-/// observe-mode (unfocused) pane before a scroll command could ever be built.
+/// unfocused pane before a scroll command could ever be built.
 public final class PaneControlChannel {
     /// Environment variable the bridge reads the FIFO path from.
     public static let environmentKey = "HERDR_TERM_CONTROL_PIPE"
@@ -44,14 +44,13 @@ public final class PaneControlChannel {
     public let path: String
     private var fd: Int32 = -1
 
-    /// Returns nil when the FIFO cannot be made; the pane then has no way to
-    /// ever send `paddock.mode` -- its bridge is stuck in the observe mode
-    /// it was born in for the pane's whole life, so it can never become the
-    /// control-mode (typeable) pane. `GhosttyControlSurfaceFactory` logs
-    /// this failure rather than degrading silently, since it is a real,
-    /// user-visible loss (a pane that can never be focused for input), not
-    /// the merely-cosmetic scroll-forwarding gap this channel's own `send`
-    /// path guards elsewhere.
+    /// Returns nil when the FIFO cannot be made; the pane's bridge then never
+    /// hears a `paddock.dims` line, so it is stuck at the grid it was spawned
+    /// with for the pane's whole life and no window resize ever reaches it.
+    /// `GhosttyControlSurfaceFactory` logs this failure rather than degrading
+    /// silently, since it is a real, user-visible loss (a pane frozen at one
+    /// size, and no mouse or scroll forwarding either), not the
+    /// merely-cosmetic gap this channel's own `send` path guards elsewhere.
     public init?(directory: URL = FileManager.default.temporaryDirectory) {
         let name = "paddock-\(UUID().uuidString.prefix(8)).ctl"
         let url = directory.appendingPathComponent(name)
@@ -76,19 +75,12 @@ public final class PaneControlChannel {
         writeIgnoringBrokenPipe(fd, payload)
     }
 
-    /// The live control/observe upgrade: paddock-namespaced (`paddock.mode`,
-    /// never `terminal.*`) so `ControlBridge.parseForwardableControlCommand`
-    /// can never mistake it for a forwardable command, and so it survives
-    /// unfiltered regardless of which herdr verb is currently live.
-    public func setMode(_ mode: PaneMode) {
-        send(["type": "paddock.mode", "mode": mode.rawValue])
-    }
-
-    /// The pane's real herdr dims (its layout cell rect), paddock-namespaced
-    /// like `paddock.mode`: the bridge turns it into the one `terminal.resize`
-    /// it ever sends, so herdr is never told a size the surface happens to
-    /// have. Sent on every dims change the layout reports for an attached
-    /// pane.
+    /// The grid paddock's own pane box holds, paddock-namespaced
+    /// (`paddock.dims`, never `terminal.*`) so
+    /// `ControlBridge.parseForwardableControlCommand` can never mistake it for
+    /// a forwardable command. The bridge turns it into the one
+    /// `terminal.resize` it ever sends, which resizes the pane's real runtime:
+    /// this is the single path any size reaches herdr by.
     public func setDims(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         send(["type": "paddock.dims", "cols": cols, "rows": rows])

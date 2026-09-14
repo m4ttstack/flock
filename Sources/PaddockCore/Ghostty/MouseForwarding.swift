@@ -1,9 +1,10 @@
 import Foundation
 
 /// Where one mouse event on a pane's ghostty surface should go, decided
-/// PURELY from the event, the pane's mode, and whether the pane app has
-/// asked for mouse reporting -- no view, `NSEvent`, or libghostty call
-/// inside this type, so the whole truth table is testable with plain values.
+/// PURELY from the event, whether the pane is paddock's focused one, and
+/// whether the pane app has asked for mouse reporting -- no view, `NSEvent`,
+/// or libghostty call inside this type, so the whole truth table is testable
+/// with plain values.
 ///
 /// The four destinations:
 /// - `.toApp` carries a `terminal.mouse` command for the pane's own program,
@@ -17,8 +18,9 @@ import Foundation
 ///   scrollback the surface could retain).
 /// - `.toSurface` is libghostty handling the event locally (text selection;
 ///   never scrolling any more -- see `.toHerdrScroll` above).
-/// - `.drop` is none of those -- an observe-mode (unfocused) pane has no
-///   input path at all.
+/// - `.drop` is none of those: an unfocused pane forwards nothing. Its first
+///   primary click asks for focus instead (`GhosttySurfaceView.mouseDown`'s
+///   own `onPrimaryClick`), and never also lands in the pane.
 public enum MouseForwarding {
     /// A pane-domain mouse event, renderer-agnostic. `other(n)` carries
     /// AppKit's own `buttonNumber` for buttons past middle; only left,
@@ -181,8 +183,8 @@ public enum MouseForwarding {
     }
 
     /// The one truth table. In order:
-    /// 1. observe mode -> `.drop` (no input path; the herdr observe client
-    ///    has none either, and the bridge drops stdin in observe mode).
+    /// 1. an unfocused pane -> `.drop`. Its first primary click moves focus
+    ///    there and is not also forwarded.
     /// 2. A scroll kind with capture off -> `.toHerdrScroll` when the kind has
     ///    a herdr wire direction (vertical only) and `lines` is positive,
     ///    `.drop` otherwise (horizontal wheel motion, or an accumulator tick
@@ -192,7 +194,7 @@ public enum MouseForwarding {
     ///    (Shift is the terminal convention for "give me libghostty's
     ///    selection, not the app's mouse"); capture off -> `.toSurface`
     ///    (libghostty handles the click).
-    /// 4. otherwise (control + capture on, and for a non-scroll kind no
+    /// 4. otherwise (focused + capture on, and for a non-scroll kind no
     ///    Shift): `.toApp`, unless the cell size is not known yet or the
     ///    button has no wire name, in which case it falls back to
     ///    `.toSurface` rather than fabricate a cell.
@@ -204,11 +206,11 @@ public enum MouseForwarding {
         cellSize: CellSize?,
         grid: GridSize?,
         captureEnabled: Bool,
-        mode: PaneMode,
+        paneIsFocused: Bool,
         shiftHeld: Bool,
         lines: Int
     ) -> Decision {
-        if mode == .observe { return .drop }
+        guard paneIsFocused else { return .drop }
         if kind.isScroll {
             guard captureEnabled else {
                 guard let direction = kind.herdrScrollDirection, lines > 0 else { return .drop }

@@ -1,16 +1,16 @@
 import PaddockCore
 import SwiftUI
 
-/// The pane canvas for the selected tab: herdr's cell grid (the tab's
-/// `area`) rendered at ONE uniform cell size and letterboxed in the canvas,
-/// so every pane box is exactly its herdr cell rect scaled and every
-/// surface behind a box is exactly that pane's cols x rows at the fitted
-/// font. `UniformCellLayout.fit` picks the font: the Terminal Text setting
-/// is the maximum, shrunk only when the window cannot hold the grid at it.
-/// `CanvasGeometry.resolved` then reads herdr's own `layout.export` split
-/// tree when the view-model has one cached for this tab, falling back to
-/// rect derivation otherwise; each pane renders inset by half the 6px gutter
-/// so adjacent cells read as separated.
+/// The pane canvas for the selected tab: herdr's split geometry read as
+/// PROPORTIONS of the tab's cell area and stretched to fill the window, so
+/// the canvas is always full and paddock's own boxes decide how big each pane
+/// really is. Inside a box the surface is an exact whole-cell grid at the
+/// Terminal Text size, with the sub-cell remainder left as padding.
+///
+/// `CanvasGeometry.resolved` reads herdr's own `layout.export` split tree when
+/// the view-model has one cached for this tab, falling back to rect derivation
+/// otherwise; each pane is inset by half the 6px gutter so adjacent cells read
+/// as separated.
 struct PaneCanvas: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -18,27 +18,31 @@ struct PaneCanvas: View {
 
     @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
     @Environment(\.displayScale) private var displayScale
-    /// The font size actually pushed to the surfaces: follows the fit after
-    /// a short quiet period so a live window drag re-fonts every pane once,
-    /// together, rather than on every frame. The first fit applies at once.
-    @State private var appliedFontSize: Double?
 
     private static let dividerThickness: CGFloat = 6
 
     var body: some View {
         GeometryReader { proxy in
-            let fit: UniformCellFit? = layout.map { (snapshot: LayoutSnapshot) in fitGrid(of: snapshot, in: proxy.size) }
+            let scale = displayScale > 0 ? displayScale : 2
+            let fontSize = terminalTextSizeStore.points
+            let cell = TerminalCellMetrics.cell(fontSize: fontSize, scale: scale)
+            // The canvas's own window origin: a box snapped as if the canvas
+            // began at the window's corner would still leave the surface on a
+            // fractional device pixel.
+            let grid = CanvasGrid(canvas: proxy.size, phase: proxy.frame(in: .global).origin, displayScale: scale)
             ZStack(alignment: .topLeading) {
-                if let layout, let fit {
+                if let layout {
                     let geometry = CanvasGeometry.resolved(
                         layout: layout,
                         exported: viewModel.exportedLayout(for: layout.tabID),
-                        grid: fit.grid,
+                        grid: grid,
                         dividerThickness: Self.dividerThickness
                     )
                     ForEach(layout.panes, id: \.paneID) { paneRect in
                         if let pane = viewModel.model?.panes[paneRect.paneID],
                            let frame = geometry.paneFrames[paneRect.paneID] {
+                            let box = Self.boxFrame(in: frame)
+                            let fit = SurfaceGrid.fit(inner: Self.innerSize(of: box.size), cell: cell)
                             PaneCellView(
                                 theme: theme,
                                 viewModel: viewModel,
@@ -53,20 +57,16 @@ struct PaneCanvas: View {
                                 // paints the optimistic prediction instead).
                                 isFocused: pane.paneID == viewModel.resolvedFocusedPaneID,
                                 lastLine: viewModel.lastLine(for: pane),
-                                // The pane's real terminal cell size: the
-                                // layout's own `CellRect`, never `frame`
-                                // (that's a scaled pixel rect for on-screen
-                                // placement, not the dims contract).
-                                cols: paneRect.rect.width,
-                                rows: paneRect.rect.height,
-                                surfaceSize: fit.surfaceSize(cols: paneRect.rect.width, rows: paneRect.rect.height),
-                                fontSizePoints: appliedFontSize ?? fit.fontSize
+                                grid: PTYSize(cols: fit.cols, rows: fit.rows),
+                                surfaceSize: fit.size,
+                                fontSizePoints: fontSize
                             )
-                            .frame(
-                                width: max(0, frame.width - Self.dividerThickness),
-                                height: max(0, frame.height - Self.dividerThickness)
-                            )
-                            .position(x: frame.midX, y: frame.midY)
+                            // Placed by offset rather than `.position`, which
+                            // centers on a midpoint and so halves the box size:
+                            // this keeps the snapped origin exactly as
+                            // `CanvasGrid` produced it.
+                            .frame(width: box.width, height: box.height, alignment: .topLeading)
+                            .offset(x: box.minX, y: box.minY)
                             .accessibilityIdentifier("paddock.canvas.pane.\(pane.paneID.rawValue)")
                         }
                     }
@@ -77,33 +77,22 @@ struct PaneCanvas: View {
                         .frame(width: proxy.size.width, height: proxy.size.height)
                 }
             }
-            .task(id: fit?.fontSize) {
-                if let fontSize = fit?.fontSize { await applyFontSize(fontSize) }
-            }
         }
         .padding(10)
         .background(theme.windowBg)
     }
 
-    private func fitGrid(of layout: LayoutSnapshot, in canvas: CGSize) -> UniformCellFit {
-        let scale = displayScale > 0 ? displayScale : 2
-        return UniformCellLayout.fit(
-            area: layout.area,
-            panes: layout.panes.map(\.rect),
-            canvas: canvas,
-            chrome: PaneCellView.chrome(dividerThickness: Self.dividerThickness),
-            maxFontSize: Double(terminalTextSizeStore.active.points),
-            cellMetrics: { TerminalCellMetrics.cell(fontSize: $0, scale: scale) }
-        )
+    /// The pane's box inside its layout frame: inset by half the divider
+    /// gutter on every side, so two adjacent boxes leave a full gutter between
+    /// them. A whole-point inset keeps the snapped frame snapped.
+    private static func boxFrame(in frame: CGRect) -> CGRect {
+        frame.insetBy(dx: dividerThickness / 2, dy: dividerThickness / 2)
     }
 
-    /// Debounced by SwiftUI's own `.task(id:)` cancellation: a newer fit
-    /// cancels the sleep, so only the last of a burst is applied.
-    private func applyFontSize(_ fontSize: Double) async {
-        if appliedFontSize != nil {
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-        }
-        appliedFontSize = fontSize
-        terminalTextSizeStore.recordFit(fontSize)
+    /// What is left of a box for the terminal itself, once the legend band and
+    /// the content insets are taken out.
+    private static func innerSize(of box: CGSize) -> CGSize {
+        let chrome = PaneCellView.chrome
+        return CGSize(width: max(0, box.width - chrome.width), height: max(0, box.height - chrome.height))
     }
 }

@@ -10,9 +10,12 @@ import PaddockCore
 /// height from the font's `hhea` table (or OS/2 typo metrics when the font
 /// asks for them), each in pixels at `points * scale`, rounded to whole
 /// pixels, then returned in points. Reproducing the derivation is what lets
-/// the canvas size a surface to exactly cols x rows cells BEFORE the font is
-/// applied; `GhosttySession.verifyExpectedGrid` checks the live surface
-/// agrees afterwards.
+/// the canvas derive a pane's whole-cell grid, and size its surface to
+/// exactly that many cells, BEFORE the font is applied;
+/// `GhosttySession.verifyExpectedGrid` checks the live surface agrees
+/// afterwards. Rounding to whole pixels also makes every cell an exact
+/// multiple of 1/scale, so a grid of them never lands the surface's far edge
+/// on a fractional device pixel.
 enum TerminalCellMetrics {
     private struct Key: Hashable {
         let points: Double

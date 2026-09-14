@@ -79,8 +79,7 @@ public enum GhosttyThemeConfig {
     /// (`Vendor/ghostty/src/cli/args.zig`'s `LineIterator.next`), so an
     /// unquoted family name with no embedded `"` round-trips unchanged either
     /// way. `font-size` is ghostty's `f32` (`Config.zig`'s `@"font-size"`):
-    /// a whole size is written bare, a fractional one (the fit steps in half
-    /// points) as a plain decimal.
+    /// a whole size is written bare, a fractional one as a plain decimal.
     ///
     /// `window-padding-x/y = 0` overrides libghostty's default 2px grid inset
     /// (`window-padding-x`/`-y` in `src/config/Config.zig`, scaled in

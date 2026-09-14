@@ -137,7 +137,7 @@ struct PaddockApp: App {
             GhosttyControlSurfaceFactory(
                 host: host, socketPath: socketPath,
                 themeColors: { themeStore.active.ghosttyThemeColors() },
-                fontSizePoints: { terminalTextSizeStore.fittedPoints }
+                fontSizePoints: { terminalTextSizeStore.points }
             )
         }
         // Pane-scoped scroll state rides one subscription connection per

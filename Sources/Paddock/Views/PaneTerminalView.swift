@@ -14,7 +14,7 @@ struct GhosttyPaneTerminalView: View {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
-    /// The effective (fitted) font size every pane shares.
+    /// The Terminal Text size every pane shares.
     let fontSizePoints: Double
     /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
     /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus

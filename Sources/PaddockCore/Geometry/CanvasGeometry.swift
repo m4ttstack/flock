@@ -11,6 +11,59 @@ public struct DividerHandle: Equatable, Sendable {
     public let direction: SplitDirection
 }
 
+/// Where a tab's cell grid sits on the canvas: the tab's `area` stretched to
+/// fill the canvas, so the panes always tile it exactly.
+///
+/// Every frame's four edges are snapped to whole device pixels. `phase` is
+/// the canvas's own origin in the window, so a frame is snapped where it
+/// actually lands on screen rather than where it would land if the canvas
+/// began at the window's corner: libghostty composites a surface at the
+/// origin the box gives it, and a fractional device pixel there resamples
+/// every glyph in the pane.
+public struct CanvasGrid: Equatable, Sendable {
+    public let canvas: CGSize
+    public let phase: CGPoint
+    public let displayScale: CGFloat
+
+    public init(canvas: CGSize, phase: CGPoint = .zero, displayScale: CGFloat = 2) {
+        self.canvas = canvas
+        self.phase = phase
+        self.displayScale = displayScale > 0 ? displayScale : 1
+    }
+
+    /// `rect` (in herdr cells, relative to `area`) as a canvas frame. Both
+    /// EDGES of each axis are snapped, never the origin and the size
+    /// independently: adjacent panes share an edge, and snapping that shared
+    /// edge once is what keeps them abutting with no seam and no overlap.
+    public func frame(for rect: CellRect, area: CellRect) -> CGRect {
+        guard area.width > 0, area.height > 0 else { return .zero }
+        let left = snap(canvas.width * CGFloat(rect.x - area.x) / CGFloat(area.width), phase: phase.x)
+        let right = snap(canvas.width * CGFloat(rect.x - area.x + rect.width) / CGFloat(area.width), phase: phase.x)
+        let top = snap(canvas.height * CGFloat(rect.y - area.y) / CGFloat(area.height), phase: phase.y)
+        let bottom = snap(canvas.height * CGFloat(rect.y - area.y + rect.height) / CGFloat(area.height), phase: phase.y)
+        return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+    }
+
+    private func snap(_ value: CGFloat, phase: CGFloat) -> CGFloat {
+        ((value + phase) * displayScale).rounded() / displayScale - phase
+    }
+}
+
+/// The whole-cell terminal grid a pane box's content area can hold, and the
+/// exact size that grid occupies.
+public enum SurfaceGrid {
+    /// Floors both axes: the sub-cell remainder stays as padding inside the
+    /// box, so a partial cell is never rendered. Never below 1x1 -- herdr
+    /// clamps a pane to its own floor anyway, and a zero-dimension surface
+    /// has no meaning.
+    public static func fit(inner: CGSize, cell: CGSize) -> (cols: Int, rows: Int, size: CGSize) {
+        guard cell.width > 0, cell.height > 0 else { return (1, 1, .zero) }
+        let cols = max(1, Int((inner.width / cell.width).rounded(.down)))
+        let rows = max(1, Int((inner.height / cell.height).rounded(.down)))
+        return (cols, rows, CGSize(width: CGFloat(cols) * cell.width, height: CGFloat(rows) * cell.height))
+    }
+}
+
 public struct CanvasGeometry: Equatable, Sendable {
     public let paneFrames: [PaneID: CGRect]
     public let dividers: [DividerHandle]
@@ -19,9 +72,7 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// split tree) when it names this tab, and falls back to rect derivation
     /// otherwise -- an export the coordinator never fetched, or one that
     /// failed and got flagged for fallback, both read as `exported == nil`
-    /// or tab-mismatched here. `grid` is the uniform box cell and origin the
-    /// canvas fitted (`UniformCellLayout.fit`); every frame here is a whole
-    /// number of those cells from that origin.
+    /// or tab-mismatched here.
     public static func resolved(
         layout: LayoutSnapshot,
         exported: ExportedLayoutDescription?,
