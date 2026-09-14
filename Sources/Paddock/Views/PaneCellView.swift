@@ -32,6 +32,26 @@ struct PaneCellView: View {
     @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
 
+    /// Seeds `ghosttySurface` from the pool synchronously, at construction --
+    /// a warm (parked) pane's surface is already there, so it never renders
+    /// the status card even for one frame while `.task(id:)` catches up. A
+    /// cold pane's pool lookup is `nil`, same as the implicit default the
+    /// synthesized init would have given it, so this changes nothing for
+    /// that case.
+    init(
+        theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool,
+        lastLine: String?, cols: Int, rows: Int
+    ) {
+        self.theme = theme
+        self.viewModel = viewModel
+        self.pane = pane
+        self.isFocused = isFocused
+        self.lastLine = lastLine
+        self.cols = cols
+        self.rows = rows
+        _ghosttySurface = State(initialValue: viewModel.ghosttySurface(for: pane.paneID))
+    }
+
     /// `ToastCenter.current` narrowed to this pane; every other pane's cell
     /// narrows the same single slot to `nil`, so only the one pane a copy
     /// happened in ever shows the whisper.
@@ -173,6 +193,13 @@ struct PaneCellView: View {
         }
     }
 
+    /// `ghosttySurface` mounts as soon as it exists, whether or not its
+    /// bridge has painted a first frame yet -- libghostty needs a real
+    /// window to render into, so a cold attach's surface has to be in the
+    /// hierarchy (opacity 0, under the card) from the start, not swapped in
+    /// only once ready. `hasFirstFrame` then just crossfades which of the
+    /// two is the one actually visible; a warm (pool-seeded) surface starts
+    /// this already `true`, so its card never appears at all.
     @ViewBuilder
     private var content: some View {
         if let ghosttySurface {
@@ -182,6 +209,11 @@ struct PaneCellView: View {
                     textSize: terminalTextSizeStore.active,
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } }
                 )
+                .opacity(ghosttySurface.hasFirstFrame ? 1 : 0)
+                if !ghosttySurface.hasFirstFrame {
+                    cardContent
+                        .transition(.opacity)
+                }
                 // Routed through `pane.send_input`, never `ghosttySurface
                 // .typeText` straight into the PTY: a launcher click can
                 // land on a pane that is NOT the resolved-focused one (split
@@ -198,6 +230,7 @@ struct PaneCellView: View {
                     }
                 }
             }
+            .animation(.easeOut(duration: 0.15), value: ghosttySurface.hasFirstFrame)
             .overlay(alignment: .bottomTrailing) {
                 if let ownToast {
                     PaneCopiedToastPill(theme: theme, toast: ownToast)

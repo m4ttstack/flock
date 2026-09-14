@@ -1,4 +1,25 @@
 import Foundation
+import Observation
+
+/// Tracks whether a pane's surface has painted its first full frame -- the
+/// SwiftUI-observed latch a cold `PaneCellView` crossfades on. A separate,
+/// minimal `@Observable` type rather than making the whole, AppKit-only
+/// `GhosttySession` observable, so this is the only piece of surface state
+/// SwiftUI ever tracks. Flips once, monotonically: a warm (parked and
+/// reattached) surface already carries `true` from its earlier life, so a
+/// re-host never shows the card again.
+@MainActor
+@Observable
+public final class FirstFrameLatch {
+    public private(set) var received = false
+
+    public init() {}
+
+    public func markReceived() {
+        guard !received else { return }
+        received = true
+    }
+}
 
 /// One pane's live control-plane surface: a real libghostty surface whose PTY
 /// child is a herdr-aware bridge process (`ControlBridge`), attached to the
@@ -33,6 +54,28 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// test the same way `detach()` can; the real conformance is a
     /// synchronous FIFO write underneath.
     func setMode(_ mode: PaneMode) async
+
+    /// Parks the surface: kept alive (with its bridge, in observe mode --
+    /// `SessionViewModel` sends that separately before calling this) rather
+    /// than torn down, so a later `unpark()` shows the pane's CURRENT
+    /// content instead of a freshly recreated surface. The real conformance
+    /// marks the surface occluded so libghostty's renderer stops drawing a
+    /// pane nothing can see; the PTY keeps writing frames regardless, so the
+    /// surface is current whenever it is looked at again.
+    func park()
+
+    /// Reverses `park()`. Idempotent, the same as `resize`/`attach` are:
+    /// calling it on a surface that was never parked (an ordinary resize) is
+    /// a harmless no-op.
+    func unpark()
+
+    /// Whether the bridge has reported this surface's first full-frame paint,
+    /// ever, over the status FIFO's `paddock.first_frame` line. `PaneCellView`
+    /// reads this to decide whether a cold attach still shows the status card;
+    /// a warm (parked-then-reattached) surface already carries `true` from its
+    /// earlier life, so seeding `ghosttySurface` from the pool at a cell's
+    /// `init` never re-shows the card for it.
+    var hasFirstFrame: Bool { get }
 }
 
 /// Creates a `GhosttyPaneSurface` for one pane. Implemented in the app

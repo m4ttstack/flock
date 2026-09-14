@@ -302,6 +302,20 @@ public enum ControlBridge {
         ["type": "terminal.input", "bytes": bytes.base64EncodedString()]
     }
 
+    /// Whether a `terminal.frame` line is a full redraw (herdr's own `full`
+    /// field) rather than an incremental diff -- `false` for anything else,
+    /// malformed lines and non-frame types included, never an error case a
+    /// caller needs to distinguish. `startHerdrOutput` checks this on every
+    /// frame it decodes to know when the bridge's PAINT-once `paddock.
+    /// first_frame` status line is due.
+    static func frameIsFull(_ line: Data) -> Bool {
+        guard
+            let frame = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+            frame["type"] as? String == "terminal.frame"
+        else { return false }
+        return frame["full"] as? Bool ?? false
+    }
+
     /// A `paddock.mouse_capture` NDJSON line for a herdr `terminal.mouse_capture`
     /// line, or nil for anything else. This is how the bridge relays the one
     /// piece of pane state its `terminal.frame` stream drops (herdr's screen
@@ -633,6 +647,13 @@ final class BridgeIO: @unchecked Sendable {
     /// interleave bytes with -- or land after -- the current child's own.
     private let stdoutLock = NSLock()
     private var herdrOutputGeneration = 0
+    /// Latches true the first time a full-redraw `terminal.frame` is written
+    /// to the PTY, for this bridge process's WHOLE life -- never reset by a
+    /// later mode switch's own fresh child (which also sends its own initial
+    /// full frame), since the app only needs to know once, ever, that this
+    /// pane has real content. Guarded by `stdoutLock` alongside the frame
+    /// write it is decided next to.
+    private var firstFrameSent = false
     private var stdinSource: DispatchSourceRead?
     private var winchSource: DispatchSourceSignal?
     private var controlSource: DispatchSourceRead?
@@ -852,8 +873,16 @@ final class BridgeIO: @unchecked Sendable {
                     stdoutLock.lock()
                     let stillCurrent = herdrOutputGeneration == generation
                     if stillCurrent { writeIgnoringBrokenPipe(stdoutFD, bytes) }
+                    var firstFrameLine: Data?
+                    if stillCurrent, !firstFrameSent, statusFD >= 0, ControlBridge.frameIsFull(line) {
+                        firstFrameSent = true
+                        firstFrameLine = ControlBridge.encodeLine(["type": "paddock.first_frame"])
+                    }
                     stdoutLock.unlock()
                     if !stillCurrent { return }
+                    if let firstFrameLine {
+                        writeIgnoringBrokenPipe(statusFD, firstFrameLine)
+                    }
                     continue
                 }
                 // The pane app toggled mouse reporting: relay it to the app on

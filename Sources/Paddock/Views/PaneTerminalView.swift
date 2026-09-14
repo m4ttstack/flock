@@ -63,6 +63,14 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    /// Returns the session's EXISTING view when it already has one -- a
+    /// pane re-hosted after a park, whose surface (and view) survived the
+    /// tab switch that took it off screen -- rather than creating a second
+    /// one. SwiftUI then re-parents the same `NSView` instance into the new
+    /// hierarchy; `viewDidMoveToWindow` (already idempotent) re-syncs it,
+    /// and `GhosttySessionSurfaceHandle.unpark()` (called from
+    /// `SessionViewModel.attachPane`'s existing-surface branch) has already
+    /// told libghostty the surface is visible again.
     func makeNSView(context: Context) -> NSView {
         guard let handle = surface as? GhosttySessionSurfaceHandle else {
             // Only reachable if `SessionViewModel`'s injected factory is
@@ -73,6 +81,11 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         context.coordinator.lastAppliedThemeID = theme.id
         context.coordinator.lastAppliedTextSize = textSize
         let session = handle.session
+        if let existingView = session.view {
+            existingView.wantsFocus = isFocused
+            existingView.onPrimaryClick = onPrimaryClick
+            return existingView
+        }
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.onPrimaryClick = onPrimaryClick

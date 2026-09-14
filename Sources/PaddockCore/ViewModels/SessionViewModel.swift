@@ -48,6 +48,31 @@ public final class SessionViewModel {
     // always goes through `paneWork`, so a focus flip can never race a
     // resize or a teardown for that pane.
     private var ghosttySurfaces: [PaneID: any GhosttyPaneSurface] = [:]
+    /// Parked panes (detached from the visible set but kept warm), oldest
+    /// park first -- the eviction order `evictWarmPanesIfNeeded` reads once
+    /// the cap is exceeded. A pane leaves this list the moment it is
+    /// attached again (warm reuse), so only panes that are STILL parked
+    /// right now ever appear in it.
+    private var parkedPanes: [PaneID] = []
+    /// How many parked panes stay warm (a live surface, bridge and PTY each)
+    /// before the oldest is torn down for real. A ceiling on the price of
+    /// instant tab switching, not a cache that grows with the session --
+    /// mirrors Herdglass's own `maxWarmPanes`.
+    static let maxWarmPanes = 12
+    /// The in-flight (or most recently settled) closed-pane teardown
+    /// `Task`, so a test can await the exact settle point an `update(model:
+    /// connection:)` call produces instead of polling. Production never
+    /// reads this back.
+    private var pendingClosedPaneTeardown: Task<Void, Never>?
+    /// Every pane ID any `update(model:connection:)` snapshot has EVER
+    /// reported, accumulated across calls. `reconcileClosedPanes` only ever
+    /// tears a pane down as "closed" if it appears here -- i.e. herdr
+    /// genuinely reported it at some point -- never merely because the
+    /// current snapshot happens not to mention it. Production panes are
+    /// always drawn from the model in the first place, so this is always a
+    /// superset of anything attached in practice; it exists as a safety
+    /// valve against attaching a pane the model never described at all.
+    private var everKnownPaneIDs: Set<PaneID> = []
     // Which pane, if any, currently holds `.control` mode -- the ViewModel's
     // own record of what it last told a bridge, independent of
     // `resolvedFocusedPaneID` so a focus change can be diffed against it
@@ -127,6 +152,37 @@ public final class SessionViewModel {
         }
         refreshLayoutExports()
         reconcilePaneModeIfNeeded()
+        reconcileClosedPanes()
+    }
+
+    /// Any pane herdr no longer reports (closed, or the model went nil) has
+    /// nothing left to come back to, so its surface is torn down for real
+    /// regardless of the warm cap -- keeping it parked would only leak a
+    /// bridge and PTY nothing will ever reattach. Chained per-pane through
+    /// `paneWork` like every other surface operation (`teardownParkedPane`),
+    /// so this can never race an in-flight attach/park for the same pane.
+    private func reconcileClosedPanes() {
+        let known = Set((model?.panes ?? [:]).keys)
+        everKnownPaneIDs.formUnion(known)
+        let gone = ghosttySurfaces.keys.filter { everKnownPaneIDs.contains($0) && !known.contains($0) }
+        guard !gone.isEmpty else {
+            pendingClosedPaneTeardown = nil
+            return
+        }
+        pendingClosedPaneTeardown = Task { [weak self] in
+            guard let self else { return }
+            for pane in gone {
+                await self.teardownParkedPane(pane)
+            }
+        }
+    }
+
+    /// Lets a test await the exact closed-pane teardown a preceding
+    /// `update(model:connection:)` call kicked off, instead of polling; a
+    /// no-op (returns immediately) if none is pending. Production never
+    /// calls this.
+    public func waitForClosedPaneTeardown() async {
+        await pendingClosedPaneTeardown?.value
     }
 
     /// Kicks the coordinator's per-tab refresh off the same seam every other
@@ -264,20 +320,22 @@ public final class SessionViewModel {
         _ = try? await client.requestRaw(method, params)
     }
 
-    // MARK: - ghostty pane attach (every visible pane, one surface for its whole life)
+    // MARK: - ghostty pane attach (every visible pane, one surface for its whole life; parked when not visible)
 
-    /// Creates `pane`'s ghostty surface the first time, or resizes the
-    /// existing one -- never a second surface for a pane that already has
-    /// one. Chained through `paneWork` (see its own doc comment), so a
+    /// Creates `pane`'s ghostty surface the first time, unparks and resizes
+    /// a warm (previously parked) one, or just resizes an already-visible
+    /// one -- never a second surface for a pane that already has one, warm
+    /// or not. Chained through `paneWork` (see its own doc comment), so a
     /// resize racing a fresh attach for the same pane can never reach the
-    /// factory concurrently. Returns the surface (new or existing) so a
-    /// caller can hand it to `@State`, reading `ghosttySurface(for:)` back
-    /// out independently would depend on whether a dictionary mutation
-    /// buried inside a method call still registers as an `@Observable`
-    /// access, which this sidesteps entirely.
+    /// factory concurrently. Returns the surface (new, warm, or already
+    /// visible) so a caller can hand it to `@State`, reading `ghosttySurface
+    /// (for:)` back out independently would depend on whether a dictionary
+    /// mutation buried inside a method call still registers as an
+    /// `@Observable` access, which this sidesteps entirely.
     @discardableResult
     public func attachPane(_ pane: PaneID, cols: Int, rows: Int) async -> (any GhosttyPaneSurface)? {
         guard let ghosttyFactory, cols > 0, rows > 0 else { return nil }
+        parkedPanes.removeAll { $0 == pane }
         let previous = paneWork[pane]
         let task = Task { [weak self] in
             _ = await previous?.value
@@ -289,14 +347,21 @@ public final class SessionViewModel {
         return ghosttySurfaces[pane]
     }
 
-    /// Tears down `pane`'s ghostty surface -- called when the pane leaves
-    /// the visible set entirely (tab switch, split closed, window resize
-    /// dropping it off-screen). Chained through `paneWork` like `attachPane`.
+    /// PARKS `pane`'s ghostty surface -- called when the pane leaves the
+    /// visible set (tab switch, split closed, window resize dropping it off
+    /// screen). The surface itself is kept alive, its bridge dropped to
+    /// observe mode (still receiving frames), and marked occluded so
+    /// libghostty stops drawing a pane nothing can see; `attachPane` reuses
+    /// it, unparked, the moment the pane is visible again -- no flash, no
+    /// fresh bridge/PTY. Only the warm cap's own eviction, or herdr no
+    /// longer reporting this pane at all, tears a surface down for real (see
+    /// `evictWarmPanesIfNeeded`, `reconcileClosedPanes`). Chained through
+    /// `paneWork` like `attachPane`.
     public func detachPane(_ pane: PaneID) async {
         let previous = paneWork[pane]
         let task = Task { [weak self] in
             _ = await previous?.value
-            await self?.performDetach(pane: pane)
+            await self?.performPark(pane: pane)
         }
         paneWork[pane] = task
         await task.value
@@ -305,13 +370,17 @@ public final class SessionViewModel {
         }
     }
 
-    /// `pane`'s live ghostty surface, if it has one.
+    /// `pane`'s live ghostty surface, if it has one -- warm (parked) or
+    /// visible. `PaneCellView` reads this at `init` to seed its `@State`
+    /// synchronously, so a warm pane never renders the status card even for
+    /// one frame.
     public func ghosttySurface(for pane: PaneID) -> (any GhosttyPaneSurface)? {
         ghosttySurfaces[pane]
     }
 
     private func performAttach(pane: PaneID, cols: Int, rows: Int, factory: any GhosttyPaneFactory) async {
         if let existing = ghosttySurfaces[pane] {
+            existing.unpark()
             existing.resize(cols: cols, rows: rows)
             return
         }
@@ -342,9 +411,58 @@ public final class SessionViewModel {
         }
     }
 
-    private func performDetach(pane: PaneID) async {
+    /// Drops `pane`'s bridge to observe mode -- but only if it was actually
+    /// in control mode; a pane that was never focused (or was already
+    /// explicitly set to observe) gets no redundant real send, since the
+    /// bridge already defaults to observe on its own. Marks its surface
+    /// occluded and moves it to the back of the warm queue -- never removed
+    /// from `ghosttySurfaces`, which is the whole difference between this
+    /// and `performTeardown`. Evicts the warm cap's overflow afterward,
+    /// oldest park first.
+    private func performPark(pane: PaneID) async {
+        guard let surface = ghosttySurfaces[pane] else { return }
+        if lastSentMode[pane] == .control {
+            await sendModeIfChanged(.observe, to: pane, surface: surface)
+        }
+        surface.park()
+        parkedPanes.removeAll { $0 == pane }
+        parkedPanes.append(pane)
+        await evictWarmPanesIfNeeded()
+    }
+
+    /// Tears down whichever parked panes now exceed `maxWarmPanes`, oldest
+    /// park first -- each through `teardownParkedPane`, so an eviction can
+    /// never race an attach/park already in flight for that SAME pane.
+    private func evictWarmPanesIfNeeded() async {
+        guard parkedPanes.count > Self.maxWarmPanes else { return }
+        let overflow = parkedPanes.count - Self.maxWarmPanes
+        let stale = Array(parkedPanes.prefix(overflow))
+        parkedPanes.removeFirst(overflow)
+        for pane in stale {
+            await teardownParkedPane(pane)
+        }
+    }
+
+    /// Tears `pane`'s surface down for real: the warm cap's own eviction, or
+    /// herdr no longer reporting this pane at all (`reconcileClosedPanes`).
+    /// Chained through `paneWork` like every other per-pane operation.
+    private func teardownParkedPane(_ pane: PaneID) async {
+        let previous = paneWork[pane]
+        let task = Task { [weak self] in
+            _ = await previous?.value
+            await self?.performTeardown(pane: pane)
+        }
+        paneWork[pane] = task
+        await task.value
+    }
+
+    private func performTeardown(pane: PaneID) async {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
         lastSentMode.removeValue(forKey: pane)
+        parkedPanes.removeAll { $0 == pane }
+        if modeArmedPane == pane {
+            modeArmedPane = nil
+        }
         await surface.detach()
     }
 

@@ -78,7 +78,14 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         // Read on the main queue and apply synchronously: a capture line's
         // effect lands in the order the bridge wrote it, so an app toggling
         // mouse mode off then on can never end up applied on->off.
-        statusChannel?.start(queue: .main) { [weak session] enabled, _ in
+        statusChannel?.start(
+            queue: .main,
+            onFirstFrame: { [weak session] in
+                MainActor.assumeIsolated {
+                    session?.markFirstFrameReceived()
+                }
+            }
+        ) { [weak session] enabled, _ in
             MainActor.assumeIsolated {
                 session?.setMouseCapture(enabled: enabled)
             }
@@ -112,13 +119,33 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     /// `SessionViewModel` has one lifecycle contract for both renderers.
     func resize(cols: Int, rows: Int) {}
 
-    /// Drops paddock's only strong reference to the session. If nothing else
-    /// still holds one (the hosting `NSView` has already been torn down, or
-    /// never existed for this call), ARC frees it here, which frees the
-    /// libghostty surface and ends the bridge's PTY.
-    func detach() async {}
+    /// Drops paddock's only strong reference to the session, AND -- since
+    /// `GhosttySession.view` now holds its own view strongly, so a parked
+    /// pane's surface survives its cell disappearing from SwiftUI -- breaks
+    /// that retain cycle explicitly, by nilling `session.view` out. Without
+    /// this, `session` and its view would keep each other alive forever
+    /// once nothing outside the pair references either: `GhosttySurfaceView
+    /// .session` is itself a strong reference back. Removing the view from
+    /// its superview first is defensive; SwiftUI has ordinarily already done
+    /// so by the time a pane's surface is torn down for real (the warm cap's
+    /// eviction, or herdr closing the pane), both of which only ever reach a
+    /// pane that is already parked -- long since removed from any window.
+    func detach() async {
+        session.view?.removeFromSuperview()
+        session.view = nil
+    }
 
     func setMode(_ mode: PaneMode) async {
         session.setPaneMode(mode)
     }
+
+    func park() {
+        session.setOccluded(true)
+    }
+
+    func unpark() {
+        session.setOccluded(false)
+    }
+
+    var hasFirstFrame: Bool { session.hasFirstFrame }
 }

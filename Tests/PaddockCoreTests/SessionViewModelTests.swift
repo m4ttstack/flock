@@ -124,8 +124,14 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     let pane: PaneID
     private(set) var resizeCalls: [(cols: Int, rows: Int)] = []
     private(set) var detachCallCount = 0
+    private(set) var parkCallCount = 0
+    private(set) var unparkCallCount = 0
     private(set) var modeCalls: [PaneMode] = []
     private(set) var currentMode: PaneMode?
+    /// Test-driven, like a real bridge's status FIFO would flip it: starts
+    /// `false`, and a test flips it directly to simulate the bridge's
+    /// `paddock.first_frame` line landing.
+    var hasFirstFrame = false
     var sharedModeLog: ModeEventLog?
     private var holdModeEnabled = false
     private var pendingModeContinuations: [CheckedContinuation<Void, Never>] = []
@@ -140,6 +146,14 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
 
     func detach() async {
         detachCallCount += 1
+    }
+
+    func park() {
+        parkCallCount += 1
+    }
+
+    func unpark() {
+        unparkCallCount += 1
     }
 
     func holdMode() {
@@ -579,8 +593,13 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(surface.resizeCalls.map(\.rows), [30])
     }
 
+    // MARK: - warm surface pool (park, not teardown, across a tab switch)
+
+    /// The core of the pool: `detachPane` PARKS rather than tearing down --
+    /// the surface stays alive and reachable, never `detach()`-ed, and gets
+    /// told to park (observe mode, occluded).
     @MainActor
-    func testDetachTearsDownTheBridgeChild() async throws {
+    func testDetachParksTheSurfaceRatherThanTearingItDown() async throws {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
@@ -589,21 +608,144 @@ final class SessionViewModelTests: XCTestCase {
         let surface = try XCTUnwrap(factory.surfaces[pane])
         await viewModel.detachPane(pane)
 
-        XCTAssertEqual(surface.detachCallCount, 1)
-        XCTAssertNil(viewModel.ghosttySurface(for: pane), "the torn-down surface must not still be reachable")
+        XCTAssertEqual(surface.detachCallCount, 0, "a park must never tear the surface down")
+        XCTAssertEqual(surface.parkCallCount, 1)
+        XCTAssertNotNil(viewModel.ghosttySurface(for: pane), "a parked surface must still be reachable -- it is what makes a warm reattach possible")
     }
 
+    /// Reattaching a PARKED pane returns the SAME surface, with no second
+    /// `makeSurface` call -- the whole point of the pool: a tab switch back
+    /// re-hosts warm content instead of spawning a fresh bridge/PTY.
     @MainActor
-    func testReattachAfterDetachCreatesAFreshSurface() async {
+    func testReattachAfterParkReturnsTheSameSurfaceWithNoNewMakeSurfaceCall() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        let first = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        await viewModel.detachPane(pane)
+        let second = await viewModel.attachPane(pane, cols: 100, rows: 30)
+
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "a reattach after a park must never create a second surface")
+        XCTAssertTrue(first === second, "the same surface instance comes back")
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(surface.unparkCallCount, 1, "a warm reattach unparks the surface")
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100], "the reattach's own dims still resize it")
+    }
+
+    /// A pane parked while it was NOT the focused (control-mode) one must
+    /// never get a redundant `.observe` send -- the bridge already defaults
+    /// to observe, and `attachArmsControlOnlyForTheAlreadyFocusedPane`
+    /// already proves an unfocused attach touches mode not at all.
+    @MainActor
+    func testParkingAnAlreadyObservePaneSendsNoRedundantModeCall() async throws {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
         _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
         await viewModel.detachPane(pane)
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
 
-        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "a fresh attach after a real detach creates a NEW surface")
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(surface.modeCalls, [], "the pane was never focused, so parking it must not touch mode at all")
+    }
+
+    /// A pane parked while it WAS the focused (control-mode) one is dropped
+    /// to observe first.
+    @MainActor
+    func testParkingAControlModePaneSwitchesItToObserveFirst() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(surface.currentMode, .control)
+
+        await viewModel.detachPane(pane)
+
+        XCTAssertEqual(surface.currentMode, .observe, "a parked pane must be in observe mode")
+        XCTAssertEqual(surface.modeCalls, [.control, .observe])
+    }
+
+    /// The warm cap: parking a 13th pane (cap is 12) evicts the FIRST parked
+    /// one for real (`detach()`), leaving the rest -- including the newest --
+    /// warm and reachable.
+    @MainActor
+    func testExceedingTheWarmCapTearsDownTheOldestParkedPane() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let panes = (1...13).map { PaneID(rawValue: "w1:p\($0)") }
+
+        for pane in panes {
+            _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        }
+        for pane in panes {
+            await viewModel.detachPane(pane)
+        }
+
+        let oldest = try XCTUnwrap(factory.surfaces[panes[0]])
+        XCTAssertEqual(oldest.detachCallCount, 1, "the FIRST parked pane must be the one evicted once the cap is exceeded")
+        XCTAssertNil(viewModel.ghosttySurface(for: panes[0]), "the evicted pane's surface is no longer reachable")
+
+        for pane in panes.dropFirst() {
+            let surface = try XCTUnwrap(factory.surfaces[pane])
+            XCTAssertEqual(surface.detachCallCount, 0, "every pane but the oldest stays warm")
+            XCTAssertNotNil(viewModel.ghosttySurface(for: pane))
+        }
+    }
+
+    /// A pane herdr no longer reports (missing from a later `update`) is
+    /// torn down for real regardless of the warm cap -- it has nothing left
+    /// to come back to.
+    @MainActor
+    func testAPaneClosedInHerdrIsTornDownRegardlessOfWarmth() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let closingPane = PaneID(rawValue: "w1:p2")
+        var modelWithBothPanes = makeModel()
+        modelWithBothPanes.panes[closingPane] = PaneRecord(
+            paneID: closingPane, workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"),
+            focused: false, agentStatus: .unknown, revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp", scroll: nil
+        )
+        viewModel.update(model: modelWithBothPanes, connection: .live)
+
+        _ = await viewModel.attachPane(closingPane, cols: 80, rows: 24)
+        let surface = try XCTUnwrap(factory.surfaces[closingPane])
+        await viewModel.detachPane(closingPane)
+        XCTAssertEqual(surface.detachCallCount, 0, "parked, not torn down, until herdr stops reporting it")
+
+        // herdr closed the pane: the next snapshot still reports `w1:p1` but
+        // no longer this one.
+        viewModel.update(model: makeModel(), connection: .live)
+        await viewModel.waitForClosedPaneTeardown()
+
+        XCTAssertEqual(surface.detachCallCount, 1, "a pane herdr no longer reports must be torn down for real")
+        XCTAssertNil(viewModel.ghosttySurface(for: closingPane))
+    }
+
+    /// The seam `PaneCellView` reads for its card-to-surface crossfade: a
+    /// fake surface's `hasFirstFrame` flips exactly like the real bridge's
+    /// status FIFO would, and a warm reattach comes back with that flip
+    /// already reflected -- never reset, so a re-hosted pane never shows its
+    /// card again.
+    @MainActor
+    func testHasFirstFrameSurvivesAParkAndReattach() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertFalse(surface.hasFirstFrame, "a cold attach starts without a first frame -- the card shows")
+
+        surface.hasFirstFrame = true
+        await viewModel.detachPane(pane)
+        let reattached = await viewModel.attachPane(pane, cols: 80, rows: 24)
+
+        XCTAssertTrue(reattached === surface)
+        XCTAssertEqual(reattached?.hasFirstFrame, true, "a warm reattach's surface already carries its first frame -- the card never comes back")
     }
 
     /// A resize arriving while the FIRST-EVER attach for a pane is still

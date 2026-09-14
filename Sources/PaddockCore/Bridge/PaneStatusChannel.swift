@@ -50,17 +50,22 @@ public final class PaneStatusChannel {
 
     deinit { close() }
 
-    /// Starts reading `paddock.mouse_capture` lines off the FIFO on `queue`,
-    /// invoking `onCapture(enabled, sgrPixels)` for each, in arrival order.
-    /// The app passes `.main` so back-to-back capture lines (an app toggling
-    /// mouse mode off then on) apply in the order the bridge wrote them, with
-    /// no re-ordering hop in between. Guarded exactly like the bridge's own
-    /// FIFO reader: a short read is not EOF, non-JSON and non-matching lines
-    /// are skipped, and a single undecodable byte cannot stall the drain loop
-    /// (lines are split as `Data`, decoded per line). The fd is closed by the
-    /// source's cancel handler, never while an event handler may still be
-    /// reading it.
-    public func start(queue: DispatchQueue, onCapture: @escaping @Sendable (Bool, Bool) -> Void) {
+    /// Starts reading status lines off the FIFO on `queue`: `paddock.
+    /// mouse_capture` lines invoke `onCapture(enabled, sgrPixels)`, and the
+    /// one-shot `paddock.first_frame` line invokes `onFirstFrame`, both in
+    /// arrival order. The app passes `.main` so back-to-back capture lines
+    /// (an app toggling mouse mode off then on) apply in the order the
+    /// bridge wrote them, with no re-ordering hop in between. Guarded
+    /// exactly like the bridge's own FIFO reader: a short read is not EOF,
+    /// non-JSON and non-matching lines are skipped, and a single undecodable
+    /// byte cannot stall the drain loop (lines are split as `Data`, decoded
+    /// per line). The fd is closed by the source's cancel handler, never
+    /// while an event handler may still be reading it.
+    public func start(
+        queue: DispatchQueue,
+        onFirstFrame: @escaping @Sendable () -> Void = {},
+        onCapture: @escaping @Sendable (Bool, Bool) -> Void
+    ) {
         guard fd >= 0, source == nil else { return }
         let readFD = fd
         let source = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: queue)
@@ -70,8 +75,13 @@ public final class PaneStatusChannel {
             guard n > 0 else { return }
             buffer.append(Data(scratch.prefix(n)))
             while let line = buffer.popLine() {
-                guard let (enabled, sgrPixels) = PaneStatusChannel.parseMouseCapture(line) else { continue }
-                onCapture(enabled, sgrPixels)
+                if let (enabled, sgrPixels) = PaneStatusChannel.parseMouseCapture(line) {
+                    onCapture(enabled, sgrPixels)
+                    continue
+                }
+                if PaneStatusChannel.parseFirstFrame(line) {
+                    onFirstFrame()
+                }
             }
         }
         source.setCancelHandler { Foundation.close(readFD) }
@@ -89,6 +99,13 @@ public final class PaneStatusChannel {
         else { return nil }
         let sgrPixels = object["sgr_pixels"] as? Bool ?? false
         return (enabled, sgrPixels)
+    }
+
+    /// Whether a line is the bridge's one-shot `paddock.first_frame` status
+    /// line. Pure, so the parse is testable without a FIFO.
+    public static func parseFirstFrame(_ line: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }
+        return object["type"] as? String == "paddock.first_frame"
     }
 
     /// Once started, the fd belongs to the source's cancel handler (see

@@ -155,6 +155,26 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertNil(ControlBridge.decodeFrame(line.dropLast()))
     }
 
+    // MARK: - frameIsFull (the first-frame status-line gate)
+
+    func testFrameIsFullTrueWhenFullFieldTrue() {
+        let line = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": "aGk=", "full": true])!
+        XCTAssertTrue(ControlBridge.frameIsFull(line.dropLast()))
+    }
+
+    func testFrameIsFullFalseWhenFullFieldFalseOrMissing() {
+        let withFalse = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": "aGk=", "full": false])!
+        XCTAssertFalse(ControlBridge.frameIsFull(withFalse.dropLast()))
+        let withoutField = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": "aGk="])!
+        XCTAssertFalse(ControlBridge.frameIsFull(withoutField.dropLast()), "no `full` field at all must read as an incremental frame, never a crash")
+    }
+
+    func testFrameIsFullFalseForNonFrameTypeOrMalformedJSON() {
+        let closed = ControlBridge.encodeLine(["type": "terminal.closed", "full": true])!
+        XCTAssertFalse(ControlBridge.frameIsFull(closed.dropLast()))
+        XCTAssertFalse(ControlBridge.frameIsFull(Data("not json at all".utf8)))
+    }
+
     func testEncodeInputBase64RoundTrips() {
         let original = Data([0x00, 0x1B, 0x5B, 0x41, 0xFF])
         let object = ControlBridge.encodeInput(original)
@@ -320,6 +340,53 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(readAllAvailableForTest(statusCapture.fileHandleForReading.fileDescriptor).count, 0)
+    }
+
+    /// The bridge's one-shot first-frame signal: silent for an incremental
+    /// frame, fires exactly once on the first FULL frame, and never fires
+    /// again for a later full frame (a subsequent mode switch's own fresh
+    /// child sends its own initial full frame too, and that must not re-show
+    /// a pane's status card).
+    func testFirstFrameStatusLineEmittedOnceOnTheFirstFullFrameOnly() async throws {
+        let fromHerdr = Pipe()
+        let stdoutCapture = Pipe()
+        let statusCapture = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
+            statusFD: statusCapture.fileHandleForWriting.fileDescriptor,
+            onPeerGone: {}
+        )
+        io.startHerdrOutput(fromHerdr.fileHandleForReading)
+
+        let partial = ControlBridge.encodeLine([
+            "type": "terminal.frame", "bytes": Data("partial".utf8).base64EncodedString(), "full": false,
+        ])!
+        fromHerdr.fileHandleForWriting.write(partial)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(
+            readAllAvailableForTest(statusCapture.fileHandleForReading.fileDescriptor).count, 0,
+            "an incremental frame must never emit first_frame")
+
+        let full1 = ControlBridge.encodeLine([
+            "type": "terminal.frame", "bytes": Data("full1".utf8).base64EncodedString(), "full": true,
+        ])!
+        fromHerdr.fileHandleForWriting.write(full1)
+        let status = try await waitForNonEmptyRead(statusCapture.fileHandleForReading.fileDescriptor)
+        let lines = status.split(separator: 0x0A)
+        XCTAssertEqual(lines.count, 1, "exactly one status line for the first full frame")
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(lines[0])) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "paddock.first_frame")
+
+        let full2 = ControlBridge.encodeLine([
+            "type": "terminal.frame", "bytes": Data("full2".utf8).base64EncodedString(), "full": true,
+        ])!
+        fromHerdr.fileHandleForWriting.write(full2)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(
+            readAllAvailableForTest(statusCapture.fileHandleForReading.fileDescriptor).count, 0,
+            "first_frame must be emitted exactly once, ever, even across a later full frame")
     }
 
     func testHerdrOutputSkipsMalformedLineWithoutStoppingSubsequentFrames() async throws {

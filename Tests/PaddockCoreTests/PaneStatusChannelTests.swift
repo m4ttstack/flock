@@ -46,6 +46,35 @@ final class PaneStatusChannelTests: XCTestCase {
         XCTAssertEqual(parsed?.1, false)
     }
 
+    func testBridgeFirstFrameWriteReachesTheAppCallback() throws {
+        let channel = try XCTUnwrap(PaneStatusChannel())
+        defer { channel.close() }
+
+        let received = LockedBox<Int>(0)
+        channel.start(
+            queue: .global(qos: .userInteractive),
+            onFirstFrame: { received.mutate { $0 += 1 } }
+        ) { _, _ in }
+
+        let writerFD = open(channel.path, O_WRONLY | O_NONBLOCK)
+        XCTAssertGreaterThanOrEqual(writerFD, 0)
+        defer { close(writerFD) }
+        let line = try XCTUnwrap(ControlBridge.encodeLine(["type": "paddock.first_frame"]))
+        _ = line.withUnsafeBytes { write(writerFD, $0.baseAddress, $0.count) }
+
+        let deadline = ContinuousClock.now + .seconds(5)
+        while received.value == 0, ContinuousClock.now < deadline {
+            usleep(20_000)
+        }
+        XCTAssertEqual(received.value, 1)
+    }
+
+    func testParseFirstFrameAcceptsExactTypeAndRejectsOthers() {
+        XCTAssertTrue(PaneStatusChannel.parseFirstFrame(Data(#"{"type":"paddock.first_frame"}"#.utf8)))
+        XCTAssertFalse(PaneStatusChannel.parseFirstFrame(Data(#"{"type":"paddock.mouse_capture","enabled":true}"#.utf8)))
+        XCTAssertFalse(PaneStatusChannel.parseFirstFrame(Data("{not json".utf8)))
+    }
+
     func testParseMouseCaptureRejectsOtherLines() {
         XCTAssertNil(PaneStatusChannel.parseMouseCapture(Data(#"{"type":"terminal.frame","bytes":"AA=="}"#.utf8)))
         XCTAssertNil(PaneStatusChannel.parseMouseCapture(Data(#"{"type":"paddock.mouse_capture"}"#.utf8)))

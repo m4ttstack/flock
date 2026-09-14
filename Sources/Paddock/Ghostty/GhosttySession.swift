@@ -46,7 +46,26 @@ final class GhosttySession {
     private(set) var configuration: Launch
     /// Read from libghostty's own threads, which is why it is not actor isolated.
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
-    weak var view: GhosttySurfaceView?
+    /// The view currently hosting this session's surface, or `nil` before
+    /// the first attach. Strong, not weak: a parked pane's cell disappears
+    /// from SwiftUI's own hierarchy (its tab is no longer selected), and
+    /// only this reference then keeps the view -- and, through it, the live
+    /// libghostty surface -- alive across that, so a later re-host
+    /// (`GhosttySurfaceRepresentable.makeNSView` returning it again) shows
+    /// the pane's CURRENT content instead of a freshly recreated surface.
+    /// This creates a retain cycle with `GhosttySurfaceView.session` (also
+    /// strong) by design; `GhosttySessionSurfaceHandle.detach()` is what
+    /// breaks it, by nilling this out, on the only two paths that ever
+    /// really end a pane's surface for good (the warm cap's eviction, and a
+    /// pane herdr no longer reports).
+    var view: GhosttySurfaceView?
+    /// Latches true the first time the bridge reports (over the status
+    /// FIFO) that it wrote a full-redraw frame to the PTY. A separate
+    /// `@Observable` box, not a plain stored property, so `PaneCellView` can
+    /// track it through the type-erased `GhosttyPaneSurface` existential --
+    /// see `FirstFrameLatch`'s own doc comment.
+    let firstFrameLatch = FirstFrameLatch()
+    var hasFirstFrame: Bool { firstFrameLatch.received }
     /// The surface's process went away. `processAlive` is true when libghostty
     /// is asking to close rather than reporting a child that already exited.
     var closeHandler: ((Bool) -> Void)?
@@ -325,6 +344,15 @@ final class GhosttySession {
         if wasEnabled, !enabled {
             view?.mouseCaptureDidEnd()
         }
+    }
+
+    /// Called once, from `statusChannel`'s reader, when the bridge reports
+    /// its first full-redraw frame. Idempotent past the first call --
+    /// `FirstFrameLatch.markReceived()` never flips back -- since a later
+    /// mode switch's fresh child sends its own initial full frame too, and
+    /// that must never re-show a pane's status card.
+    func markFirstFrameReceived() {
+        firstFrameLatch.markReceived()
     }
 
     /// Sends one structured mouse event to the pane's own program over the
