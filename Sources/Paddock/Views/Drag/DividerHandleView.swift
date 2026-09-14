@@ -21,13 +21,13 @@ import SwiftUI
 struct DividerHandleView: View {
     let theme: Theme
     let divider: DividerHandle
-    let commit: ([Bool], Double) async -> Void
+    let commit: (TabID, [Bool], Double) async -> Void
     let onLiveRatioChange: (Double?) -> Void
 
     @State private var coordinator: DividerDragCoordinator
     @State private var isHovering = false
 
-    init(theme: Theme, divider: DividerHandle, commit: @escaping ([Bool], Double) async -> Void, onLiveRatioChange: @escaping (Double?) -> Void) {
+    init(theme: Theme, divider: DividerHandle, commit: @escaping (TabID, [Bool], Double) async -> Void, onLiveRatioChange: @escaping (Double?) -> Void) {
         self.theme = theme
         self.divider = divider
         self.commit = commit

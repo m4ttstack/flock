@@ -88,12 +88,47 @@ struct PaneCanvas: View {
                     ForEach(geometry.dividers, id: \.path) { divider in
                         DividerHandleView(
                             theme: theme, divider: divider,
-                            commit: { path, ratio in await viewModel.setSplitRatio(tab: layout.tabID, path: path, ratio: ratio) },
+                            commit: { tab, path, ratio in
+                                await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio)
+                                // Only now, not per pointer frame: the real
+                                // PTY resize this triggers was held back for
+                                // the whole drag (see `onLiveRatioChange`
+                                // below), and the committed layout reports
+                                // the SAME box the live preview already
+                                // settled on, so nothing else would ever
+                                // change value and send it.
+                                await viewModel.flushPaneBoxDimsAfterDividerDrag()
+                            },
                             onLiveRatioChange: { ratio in
+                                if ratio != nil {
+                                    viewModel.beginSuppressingPaneBoxDimsSends()
+                                } else {
+                                    // A no-op end, an Esc, or an abandon: the
+                                    // committed path above already flushed
+                                    // when there was one. This is a no-op
+                                    // send-wise, only ever lifting the
+                                    // suppression -- the reverted geometry's
+                                    // own box change (a DIFFERENT grid than
+                                    // whatever was last suppressed) reaches
+                                    // herdr through the ordinary
+                                    // `setPaneBoxDims` path on its own.
+                                    viewModel.resumePaneBoxDimsSends()
+                                }
                                 liveDividerOverride = ratio.map { (tabID: layout.tabID, path: divider.path, ratio: $0) }
                             }
                         )
                         .offset(x: divider.frame.minX, y: divider.frame.minY)
+                        // A tab switch must never reuse this divider's own
+                        // `DividerDragCoordinator` (and the `commit`
+                        // closure frozen inside it) across tabs: the root
+                        // divider's path is `[]` in every tab, so without
+                        // this the `ForEach`'s own `id: \.path` would treat
+                        // "the root divider" as the same view identity
+                        // across the switch. The op itself already carries
+                        // the correct tab regardless (see
+                        // `DividerDragCoordinator.commit`'s own doc
+                        // comment); this is defense in depth, not the fix.
+                        .id(divider.tabID)
                     }
                 }
             }

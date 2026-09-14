@@ -16,17 +16,27 @@ public enum DividerDragMath {
     /// tighter of `minRatio...maxRatio` and whatever keeps both children at
     /// or above herdr's per-pane cell floor (see `clamped(_:divider:)`).
     public static func ratio(atPointer pointer: CGPoint, divider: DividerHandle) -> Double {
+        clamped(rawRatio(atPointer: pointer, divider: divider), divider: divider)
+    }
+
+    /// The same translation, unclamped -- for sampling a divider's CURRENT
+    /// position (`DividerDragMachine.began`'s own `startRatio`), which may
+    /// already sit below whatever floor a later commit would enforce (herdr
+    /// itself never enforced one; only paddock's own clamp does, and only on
+    /// what it commits). Running the START sample through the full clamp
+    /// would snap the panes to the floor on a bare press, before the user
+    /// has moved anything at all. Every ratio this drag actually COMMITS
+    /// still goes through `ratio(atPointer:)`'s full clamp.
+    public static func rawRatio(atPointer pointer: CGPoint, divider: DividerHandle) -> Double {
         let region = divider.regionFrame
-        let raw: Double
         switch divider.direction {
         case .right:
             guard region.width > 0 else { return 0.5 }
-            raw = Double((pointer.x - region.minX) / region.width)
+            return Double((pointer.x - region.minX) / region.width)
         case .down:
             guard region.height > 0 else { return 0.5 }
-            raw = Double((pointer.y - region.minY) / region.height)
+            return Double((pointer.y - region.minY) / region.height)
         }
-        return clamped(raw, divider: divider)
     }
 
     /// The canvas-local coordinate `ratio` places `divider`'s own boundary
@@ -119,17 +129,21 @@ public struct DividerDragMachine: Equatable, Sendable {
     public var isDragging: Bool { gesture.state == .live }
 
     /// `startRatio` is derived from `divider`'s OWN current boundary
-    /// (`DividerDragMath.ratio` at its frame's own midpoint), never from
+    /// (`DividerDragMath.rawRatio` at its frame's own midpoint), never from
     /// wherever the press happened to land inside the gutter -- the two can
     /// differ by up to half the hit zone's width, which would otherwise
     /// make a one-point nudge issue no op at all (start already equals the
     /// first live sample) or an out-and-back drag issue a redundant one.
-    /// Returns whether the begin actually took effect (refused while
-    /// `.cancelledAwaitingRelease` or already dragging).
+    /// Unclamped: the divider's CURRENT position may already sit below
+    /// whatever floor a commit would enforce (nothing enforced one before
+    /// now), and running it through the full clamp would jump the panes on
+    /// a bare press, before any real movement. Returns whether the begin
+    /// actually took effect (refused while `.cancelledAwaitingRelease` or
+    /// already dragging).
     @discardableResult
     public mutating func began(_ divider: DividerHandle) -> Bool {
         guard gesture.handle(.begin) == .start else { return false }
-        let start = DividerDragMath.ratio(atPointer: CGPoint(x: divider.frame.midX, y: divider.frame.midY), divider: divider)
+        let start = DividerDragMath.rawRatio(atPointer: CGPoint(x: divider.frame.midX, y: divider.frame.midY), divider: divider)
         payload = Payload(divider: divider, startRatio: start, liveRatio: start)
         return true
     }

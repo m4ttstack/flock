@@ -98,6 +98,13 @@ public final class SessionViewModel {
     // whichever grid is newest by then, and every report inside that window
     // collapses into it.
     private var dimsFlushes: [PaneID: Task<Void, Never>] = [:]
+    // Held for the duration of a divider drag: `setPaneBoxDims` still
+    // records the box the live footprint preview lays out (so a pane
+    // attaching mid-drag gets the current grid), but schedules no send --
+    // a real PTY resize on every pointer frame, and a full reflow out and
+    // back on an Esc-cancelled drag, is exactly what the ratio's own
+    // publish-on-release rule exists to avoid.
+    private var suppressingPaneBoxDimsSends = false
     private let dimsCoalescingWindow: Duration
 
     private let paneLauncherRegistry = PaneLauncherRegistry()
@@ -196,7 +203,42 @@ public final class SessionViewModel {
         let size = PTYSize(cols: cols, rows: rows)
         guard paneBoxDims[pane] != size else { return }
         paneBoxDims[pane] = size
+        guard !suppressingPaneBoxDimsSends else { return }
         scheduleDimsFlush(for: pane)
+    }
+
+    /// Held for the duration of a divider drag (see `suppressingPaneBoxDimsSends`'s
+    /// own doc comment). Idempotent: a live drag calls this once per pointer
+    /// frame via `PaneCanvas`, alongside every `setPaneBoxDims` the moving
+    /// preview triggers.
+    public func beginSuppressingPaneBoxDimsSends() {
+        suppressingPaneBoxDimsSends = true
+    }
+
+    /// Lifts the suppression with no send of its own -- for a drag that
+    /// ends WITHOUT committing (Esc, abandoned, or a release with no net
+    /// ratio change): the preview's geometry reverts to the pre-drag layout
+    /// on its own, which reports a DIFFERENT grid than whatever was last
+    /// suppressed, so the ordinary `setPaneBoxDims` -> `scheduleDimsFlush`
+    /// path picks it up unprompted. An explicit flush here would instead
+    /// send the about-to-be-abandoned mid-drag size first -- the exact
+    /// out-and-back reflow this suppression exists to prevent.
+    public func resumePaneBoxDimsSends() {
+        suppressingPaneBoxDimsSends = false
+    }
+
+    /// Lifts the suppression and sends every pane's latest recorded box now
+    /// -- for a drag that DID commit: the committed layout reports the SAME
+    /// grid the live preview already settled on, so nothing would otherwise
+    /// change value and trigger another `setPaneBoxDims` call to send it.
+    public func flushPaneBoxDimsAfterDividerDrag() async {
+        suppressingPaneBoxDimsSends = false
+        // Snapshotted before the loop: an awaited `flushDims` yields the
+        // main actor, and another pane's own report could otherwise mutate
+        // `paneBoxDims` out from under a live iteration over it.
+        for pane in Array(paneBoxDims.keys) {
+            await flushDims(for: pane)
+        }
     }
 
     /// One pending flush per pane, never restarted by a later report: the
@@ -219,6 +261,7 @@ public final class SessionViewModel {
     /// (never attached, torn down) or a parked one is skipped: a parked pane's
     /// grid is applied by its next warm reattach, from the same record.
     private func flushDims(for pane: PaneID) async {
+        guard !suppressingPaneBoxDimsSends else { return }
         guard let size = paneBoxDims[pane], lastSentDims[pane] != size else { return }
         guard !parkedPanes.contains(pane), ghosttySurfaces[pane] != nil else { return }
         lastSentDims[pane] = size

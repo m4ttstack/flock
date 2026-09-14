@@ -680,6 +680,92 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(factory.surfaces[still]?.resizeCalls.count, 0)
     }
 
+    // MARK: - suppressing pane box dims sends (a divider drag's live footprint preview)
+
+    /// A live footprint preview reflows real pane boxes about ten times a
+    /// second; while suppressed, `setPaneBoxDims` must still RECORD the
+    /// newest box (so a pane attaching mid-drag gets it) but send nothing.
+    @MainActor
+    func testSuppressedPaneBoxDimsRecordsButNeverSends() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.beginSuppressingPaneBoxDimsSends()
+        viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
+        await viewModel.waitForPaneDimsReconciliation()
+
+        XCTAssertTrue(factory.surfaces[pane]?.resizeCalls.isEmpty ?? true, "a suppressed report must never reach the surface")
+    }
+
+    /// Lifting suppression with `resumePaneBoxDimsSends` issues no send of
+    /// its own: a drag that ends without committing (Esc, abandoned, a
+    /// no-op release) reverts the geometry, which reports a DIFFERENT box
+    /// through the ordinary `setPaneBoxDims` path on its own -- an explicit
+    /// flush here would instead send the about-to-be-abandoned mid-drag
+    /// size first, the exact out-and-back reflow suppression exists to
+    /// prevent.
+    @MainActor
+    func testResumePaneBoxDimsSendsIssuesNoSendOfItsOwn() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.beginSuppressingPaneBoxDimsSends()
+        viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
+        viewModel.resumePaneBoxDimsSends()
+        await viewModel.waitForPaneDimsReconciliation()
+
+        XCTAssertTrue(factory.surfaces[pane]?.resizeCalls.isEmpty ?? true, "resuming must not itself send the suppressed mid-drag size")
+
+        // A later, genuinely new report (the reverted geometry settling on
+        // a value distinct from both the pre-drag and the suppressed one)
+        // reaches the surface through the ordinary path.
+        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
+        await viewModel.waitForPaneDimsReconciliation()
+        XCTAssertEqual(factory.surfaces[pane]?.resizeCalls.map(\.cols), [45])
+    }
+
+    /// `flushPaneBoxDimsAfterDividerDrag` is the commit path: the committed
+    /// layout reports the SAME box the live preview already settled on, so
+    /// nothing would otherwise change value and trigger a send -- this is
+    /// what actually delivers the one real PTY resize a committed drag
+    /// needs.
+    @MainActor
+    func testFlushPaneBoxDimsAfterDividerDragSendsTheSuppressedValue() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.beginSuppressingPaneBoxDimsSends()
+        viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
+        await viewModel.flushPaneBoxDimsAfterDividerDrag()
+
+        XCTAssertEqual(factory.surfaces[pane]?.resizeCalls.map(\.cols), [30])
+    }
+
+    /// Several pointer-frame reports collapse into the one send the commit
+    /// flush issues -- suppression is not merely a delay, it is a real
+    /// coalescing of everything the drag reported into its final value.
+    @MainActor
+    func testSuppressedReportsCollapseToOneSendOnFlush() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.beginSuppressingPaneBoxDimsSends()
+        for cols in [55, 48, 41, 33] {
+            viewModel.setPaneBoxDims(pane, cols: cols, rows: 40)
+        }
+        await viewModel.flushPaneBoxDimsAfterDividerDrag()
+
+        XCTAssertEqual(factory.surfaces[pane]?.resizeCalls.map(\.cols), [33], "one send, carrying the newest suppressed grid")
+    }
+
     /// herdr's own layout rect is no longer a size source at all: paddock
     /// owns every pane's grid, so a `layout.updated` that moves a visible
     /// pane's cell rect must not resize anything by itself.

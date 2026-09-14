@@ -273,8 +273,47 @@ public struct CanvasGeometry: Equatable, Sendable {
         thickness: CGFloat,
         override: (path: [Bool], ratio: Double)?
     ) -> [DividerHandle] {
+        let paths = splitPaths(splits: splits, area: area)
+
+        return splits.compactMap { split in
+            guard let path = paths[split.id] else { return nil }
+            // Only the divider's own drawn position can honor the override
+            // here (see `init(layout:...)`'s own comment on why pane frames
+            // cannot).
+            let ratio = override?.path == path ? override!.ratio : Double(split.ratio)
+            let full = scale(split.rect)
+            return DividerHandle(
+                tabID: tabID,
+                path: path,
+                frame: dividerFrame(direction: split.direction, ratio: ratio, fullFrame: full, thickness: thickness),
+                direction: split.direction,
+                regionFrame: full,
+                cellExtent: split.direction == .right ? split.rect.width : split.rect.height
+            )
+        }
+    }
+
+    /// Resolves every split's own path by rect containment: the root is the
+    /// split spanning the full `area`; a split contained in a parent's
+    /// first-child region gets `false` appended to the parent's path, the
+    /// second-child region gets `true`. A split whose parent cannot be
+    /// resolved this way is dropped rather than guessed at. Bounded by
+    /// `splits.count` outer iterations (each pass that makes progress
+    /// resolves at least one more split), so this always terminates even
+    /// when a ratio rounds a child to zero cells and its rect collides with
+    /// the parent's own -- unlike a lookup repeated freshly at every level of
+    /// an unrelated recursion, which can re-match that same split forever
+    /// (see `HerdrStore`'s own use of this).
+    ///
+    /// Module-internal rather than `CanvasGeometry`'s own private detail:
+    /// `HerdrStore`'s `setSplitRatio` prediction resolves the identical tree
+    /// for the identical reason (walking a path against a flat `[SplitInfo]`
+    /// array has no other notion of parent/child), and the two must resolve
+    /// it the SAME way -- a caller commits a path this exact function
+    /// produced, so the store's own prediction has to recognize it.
+    static func splitPaths(splits: [SplitInfo], area: CellRect) -> [String: [Bool]] {
         guard let root = splits.first(where: { $0.rect == area }) ?? splits.max(by: { cellArea($0.rect) < cellArea($1.rect) }) else {
-            return []
+            return [:]
         }
 
         var paths: [String: [Bool]] = [root.id: []]
@@ -293,23 +332,7 @@ public struct CanvasGeometry: Equatable, Sendable {
                 madeProgress = true
             }
         }
-
-        return splits.compactMap { split in
-            guard let path = paths[split.id] else { return nil }
-            // Only the divider's own drawn position can honor the override
-            // here (see `init(layout:...)`'s own comment on why pane frames
-            // cannot).
-            let ratio = override?.path == path ? override!.ratio : Double(split.ratio)
-            let full = scale(split.rect)
-            return DividerHandle(
-                tabID: tabID,
-                path: path,
-                frame: dividerFrame(direction: split.direction, ratio: ratio, fullFrame: full, thickness: thickness),
-                direction: split.direction,
-                regionFrame: full,
-                cellExtent: split.direction == .right ? split.rect.width : split.rect.height
-            )
-        }
+        return paths
     }
 
     private static func dividerFrame(direction: SplitDirection, ratio: Double, fullFrame: CGRect, thickness: CGFloat) -> CGRect {

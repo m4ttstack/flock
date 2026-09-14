@@ -102,6 +102,24 @@ final class DividerDragMathTests: XCTestCase {
         XCTAssertEqual(low, 0.2, accuracy: 0.0001)
     }
 
+    /// `rawRatio` is what `began` samples a divider's CURRENT position with:
+    /// it must read the true, unclamped ratio even when that ratio sits
+    /// below what the cell floor would allow a COMMIT to land on -- a
+    /// divider can already be there from before this clamp existed, and
+    /// nothing has moved yet to justify snapping it.
+    func testRawRatioIsNotClampedByTheCellFloorOrThePlainRange() {
+        let region = CGRect(x: 0, y: 0, width: 600, height: 300)
+        // ratio 0.03: below both the plain 0.1 floor and, at cellExtent 20,
+        // the 0.2 cell-floor fraction `ratio(atPointer:)` would enforce.
+        let divider = makeDivider(region: region, direction: .right, ratio: 0.03, cellExtent: 20)
+
+        let raw = DividerDragMath.rawRatio(atPointer: CGPoint(x: divider.frame.midX, y: divider.frame.midY), divider: divider)
+        let clamped = DividerDragMath.ratio(atPointer: CGPoint(x: divider.frame.midX, y: divider.frame.midY), divider: divider)
+
+        XCTAssertEqual(raw, 0.03, accuracy: 0.001)
+        XCTAssertEqual(clamped, 0.2, accuracy: 0.001, "the clamped sibling still snaps -- proving the two genuinely differ, not that clamping was skipped everywhere")
+    }
+
     /// 6 cells wide can never seat two 4-cell-floor children at once (would
     /// need 8): the floor-aware range is empty, so the clamp falls back to
     /// the plain ratio clamp rather than producing a lower bound above the
@@ -182,8 +200,8 @@ final class DividerDragMachineTests: XCTestCase {
     private let tabID = TabID(rawValue: "w:t")
     private let region = CGRect(x: 0, y: 0, width: 600, height: 300)
 
-    private func divider(path: [Bool] = [true], ratio: Double = 0.5) -> DividerHandle {
-        makeDivider(tabID: tabID, path: path, region: region, direction: .right, ratio: ratio)
+    private func divider(path: [Bool] = [true], ratio: Double = 0.5, cellExtent: Int = 1000) -> DividerHandle {
+        makeDivider(tabID: tabID, path: path, region: region, direction: .right, ratio: ratio, cellExtent: cellExtent)
     }
 
     func testBeganDerivesStartRatioFromTheDividersOwnPositionNotAPressLocation() {
@@ -197,6 +215,23 @@ final class DividerDragMachineTests: XCTestCase {
         }
         XCTAssertEqual(startRatio, 0.62, accuracy: 0.001)
         XCTAssertEqual(liveRatio, 0.62, accuracy: 0.001)
+    }
+
+    /// A divider already sitting below the cell floor (reachable from
+    /// before this clamp existed) must not jump the moment it is pressed:
+    /// `began` samples its true current position, not the floor-clamped one
+    /// `moved`/`ended` would enforce on an actual commit.
+    func testBeganDoesNotSnapAStartRatioAlreadyBelowTheCellFloor() {
+        var machine = DividerDragMachine()
+        let d = divider(ratio: 0.03, cellExtent: 20)
+
+        XCTAssertTrue(machine.began(d))
+
+        guard case .dragging(_, let startRatio, let liveRatio) = machine.phase else {
+            return XCTFail("expected a dragging phase after began")
+        }
+        XCTAssertEqual(startRatio, 0.03, accuracy: 0.001)
+        XCTAssertEqual(liveRatio, 0.03, accuracy: 0.001)
     }
 
     func testReleaseIssuesExactlyOneOpWithTheDividersOwnPath() {

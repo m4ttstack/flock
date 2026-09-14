@@ -409,46 +409,57 @@ public final class HerdrStore {
     /// overlay matches the real `layout.updated` event exactly rather than
     /// approximating it and then having to jump. Descending to the target
     /// uses each ancestor's own EXISTING ratio; only the target split's own
-    /// children use the new one. Returns `nil` when `path` cannot be
-    /// resolved against `tab`'s own split tree (no layout for the tab, or a
-    /// path stale relative to it) -- a mispredicted layout is worse than
-    /// none, since the canvas would show something the real event then has
-    /// to correct anyway.
+    /// children use the new one.
+    ///
+    /// Both the target lookup and the reflow below resolve every split by
+    /// its PATH (`CanvasGeometry.splitPaths`, resolved once), never by
+    /// re-matching a rect fresh at each step: a ratio that rounds a child to
+    /// zero cells makes that child's rect identical to its own parent's
+    /// (`childRegions`, both branches derive their sizes from the SAME
+    /// parent extent), and a rect lookup repeated at every level of an
+    /// unbounded recursion would re-find that same split there forever --
+    /// reachable with nothing more exotic than a 2-row `.down` region at
+    /// ratio 0.1, which both herdr's own clamp and paddock's cell-floor
+    /// fallback permit. A path, resolved once, cannot re-match a shallower
+    /// split by coincidence; `nodePath` strictly grows by one element every
+    /// recursive call, so the walk is bounded by the tree's own depth
+    /// regardless.
+    ///
+    /// Returns `nil` when `path` cannot be resolved against `tab`'s own
+    /// split tree (no layout for the tab, or a path stale relative to it) --
+    /// a mispredicted layout is worse than none, since the canvas would show
+    /// something the real event then has to correct anyway.
     private static func predictedLayout(forSplitRatio ratio: Double, atPath path: [Bool], tab: TabID, model: SessionModel) -> LayoutSnapshot? {
         guard let layout = model.layouts[tab] else { return nil }
-        guard var current = layout.splits.first(where: { $0.rect == layout.area })
-            ?? layout.splits.max(by: { cellArea($0.rect) < cellArea($1.rect) })
-        else { return nil }
-        for branch in path {
-            let (first, second) = childRegions(of: current.rect, direction: current.direction, ratio: current.ratio)
-            let target = branch ? second : first
-            guard let next = layout.splits.first(where: { $0.rect == target }) else { return nil }
-            current = next
-        }
-        let targetID = current.id
+        let pathBySplitID = CanvasGeometry.splitPaths(splits: layout.splits, area: layout.area)
+        let splitByPath: [[Bool]: SplitInfo] = Dictionary(
+            uniqueKeysWithValues: layout.splits.compactMap { split in pathBySplitID[split.id].map { ($0, split) } }
+        )
+        guard let target = splitByPath[path] else { return nil }
+        let targetID = target.id
 
         var splitRects: [String: CellRect] = [:]
         var paneRects: [PaneID: CellRect] = [:]
-        // `original` identifies which split/pane occupies this branch (via
-        // the layout AS IT STOOD, matching `CanvasGeometry.dividerHandles`'s
-        // own containment lookup); `new` is where that same entity lands
+        // `originalRect` identifies which pane occupies a LEAF branch (via
+        // the layout AS IT STOOD); `newRect` is where that same entity lands
         // once the target's own ratio changes. The two only ever diverge
         // below the target -- everywhere else they stay equal, which is
         // exactly why an ancestor or an out-of-subtree sibling's rect never
-        // moves.
-        func reflow(original: CellRect, new: CellRect) {
-            if let split = layout.splits.first(where: { $0.rect == original }) {
-                splitRects[split.id] = new
+        // moves. Splits themselves are identified by `nodePath` against
+        // `splitByPath`, never by rect.
+        func reflow(nodePath: [Bool], originalRect: CellRect, newRect: CellRect) {
+            if let split = splitByPath[nodePath] {
+                splitRects[split.id] = newRect
                 let effectiveRatio = split.id == targetID ? ratio : split.ratio
-                let (originalFirst, originalSecond) = childRegions(of: original, direction: split.direction, ratio: split.ratio)
-                let (newFirst, newSecond) = childRegions(of: new, direction: split.direction, ratio: effectiveRatio)
-                reflow(original: originalFirst, new: newFirst)
-                reflow(original: originalSecond, new: newSecond)
-            } else if let pane = layout.panes.first(where: { $0.rect == original }) {
-                paneRects[pane.paneID] = new
+                let (originalFirst, originalSecond) = childRegions(of: originalRect, direction: split.direction, ratio: split.ratio)
+                let (newFirst, newSecond) = childRegions(of: newRect, direction: split.direction, ratio: effectiveRatio)
+                reflow(nodePath: nodePath + [false], originalRect: originalFirst, newRect: newFirst)
+                reflow(nodePath: nodePath + [true], originalRect: originalSecond, newRect: newSecond)
+            } else if let pane = layout.panes.first(where: { $0.rect == originalRect }) {
+                paneRects[pane.paneID] = newRect
             }
         }
-        reflow(original: current.rect, new: current.rect)
+        reflow(nodePath: path, originalRect: target.rect, newRect: target.rect)
 
         let newSplits = layout.splits.map { split -> SplitInfo in
             guard let newRect = splitRects[split.id] else { return split }
@@ -464,8 +475,6 @@ public final class HerdrStore {
             focusedPaneID: layout.focusedPaneID, panes: newPanes, splits: newSplits
         )
     }
-
-    private static func cellArea(_ rect: CellRect) -> Int { rect.width * rect.height }
 
     /// Duplicated from `CanvasGeometry`'s and `MutationEngine`'s own copies
     /// rather than shared -- the same three-line, dependency-free formula,

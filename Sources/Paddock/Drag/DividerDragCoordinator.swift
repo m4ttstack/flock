@@ -20,11 +20,19 @@ final class DividerDragCoordinator {
     private(set) var liveRatio: Double?
 
     private var machine = DividerDragMachine()
-    private let commit: ([Bool], Double) async -> Void
+    /// Takes the tab as a parameter rather than a value this closure
+    /// captures: the closure itself is frozen for this coordinator's whole
+    /// lifetime (constructed once, in `DividerHandleView`'s `@State`), but
+    /// `DividerHandleView`'s own view identity is reused across a tab
+    /// switch whenever a divider shares the same `path` in both tabs (the
+    /// root divider's path is always `[]`) -- so the truth has to come from
+    /// `machine.ended()`'s own op, sourced fresh from whichever `divider`
+    /// THIS gesture began with, never from a value baked in at construction.
+    private let commit: (TabID, [Bool], Double) async -> Void
     @ObservationIgnored nonisolated(unsafe) private var keyMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
 
-    init(commit: @escaping ([Bool], Double) async -> Void) {
+    init(commit: @escaping (TabID, [Bool], Double) async -> Void) {
         self.commit = commit
     }
 
@@ -57,12 +65,25 @@ final class DividerDragCoordinator {
         liveRatio = live
     }
 
+    /// A committed op holds `liveRatio` (and so the live footprint preview)
+    /// until `commit` itself resolves, rather than clearing it up front: the
+    /// optimistic overlay `commit` triggers lands synchronously inside that
+    /// same call, before its own network await, but clearing the override
+    /// FIRST would still fall back to the pre-drag model for however many
+    /// main-actor hops stand between here and that point -- a visible snap
+    /// back, then a second snap once the prediction lands. A non-committing
+    /// end (no op at all) has nothing to wait for, so it clears immediately.
     func ended() {
         removeMonitors()
         let op = machine.ended()
-        liveRatio = nil
-        guard case let .setSplitRatio(_, path, ratio)? = op else { return }
-        Task { await commit(path, ratio) }
+        guard case let .setSplitRatio(tab, path, ratio)? = op else {
+            liveRatio = nil
+            return
+        }
+        Task {
+            await commit(tab, path, ratio)
+            liveRatio = nil
+        }
     }
 
     private func cancel() {

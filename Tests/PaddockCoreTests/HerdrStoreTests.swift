@@ -57,6 +57,29 @@ private func splitLayoutSnapshotResultJSON() -> String {
     """#
 }
 
+/// One tab, one pane, one `.down` root split at ratio 0.1 over a 2-row
+/// area: `childRegions` rounds the first child to 0 rows, so the second
+/// child's rect is identical to the root's own -- the degenerate collision
+/// `predictedLayout`'s reflow must terminate against rather than re-match
+/// the same split forever.
+private func degenerateRootSplitSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":1,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":10,"height":2},"focused_pane_id":"w1:p1","panes":[{"pane_id":"w1:p1","focused":true,"rect":{"x":0,"y":0,"width":10,"height":2}}],"splits":[{"id":"root","direction":"down","ratio":0.1,"rect":{"x":0,"y":0,"width":10,"height":2}}]}]}}
+    """#
+}
+
+/// A `.down` root split, ALSO at the same degenerate ratio 0.1/2-row shape
+/// as above, but with a REAL nested `.right` split (not a pane) sitting in
+/// its degenerate second child -- so the nested split's own rect exactly
+/// equals the root's. `splits` lists `root` BEFORE `nested`, so a
+/// rect-matching descent (`.first(where:)`) would pick `root` again for
+/// ANY path naming `nested`; a path-keyed lookup must not.
+private func degenerateRootWithNestedSplitSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":2,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:left","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:right","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":10,"height":2},"focused_pane_id":"w1:left","panes":[{"pane_id":"w1:left","focused":true,"rect":{"x":0,"y":0,"width":5,"height":2}},{"pane_id":"w1:right","focused":false,"rect":{"x":5,"y":0,"width":5,"height":2}}],"splits":[{"id":"root","direction":"down","ratio":0.1,"rect":{"x":0,"y":0,"width":10,"height":2}},{"id":"nested","direction":"right","ratio":0.5,"rect":{"x":0,"y":0,"width":10,"height":2}}]}]}}
+    """#
+}
+
 private func threeWorkspaceSnapshotResultJSON() -> String {
     #"""
     {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":null,"workspaces":[{"workspace_id":"w1","label":"w1","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"w2","number":2,"active_tab_id":"w2:t1","agent_status":"unknown"},{"workspace_id":"w3","label":"w3","number":3,"active_tab_id":"w3:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w2:t1","workspace_id":"w2","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w3:t1","workspace_id":"w3","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"}],"panes":[],"layouts":[]}}
@@ -554,5 +577,65 @@ final class HerdrStoreTests: XCTestCase {
         guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
 
         XCTAssertEqual(store.model?.layouts[TabID(rawValue: "w1:t1")]?.splits.first(where: { $0.id == "s1" })?.ratio, 0.5, "an unresolvable path must leave the layout exactly as the snapshot reported it")
+    }
+
+    /// A ratio that rounds a child to zero cells makes that child's rect
+    /// identical to the split's own -- reachable through nothing more
+    /// exotic than a 2-row `.down` region at ratio 0.1, which both herdr's
+    /// clamp and the cell-floor fallback permit. Before the path-keyed
+    /// rewrite, `predictedLayout`'s reflow re-matched that same split
+    /// forever; this asserts the drag resolves at all (a hang or a crash
+    /// fails the test outright) and produces the correct reflowed rect.
+    @MainActor
+    func testExecuteSetSplitRatioTerminatesAndReflowsCorrectlyWhenARatioRoundsAChildToZeroCells() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: degenerateRootSplitSnapshotResultJSON())
+        fake.respond(to: "layout.set_split_ratio", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [], ratio: 0.5)], label: "Resize split")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        let layout = try XCTUnwrap(store.model?.layouts[TabID(rawValue: "w1:t1")])
+        XCTAssertEqual(layout.splits.first(where: { $0.id == "root" })?.ratio, 0.5)
+        // 2 rows at ratio 0.5 -> first child 1 row, second 1 row; the one
+        // pane occupies the degenerate second child, so it lands in the
+        // second row.
+        XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:p1") })?.rect, CellRect(x: 0, y: 1, width: 10, height: 1))
+    }
+
+    /// The same degenerate root, but the collision now sits in front of a
+    /// REAL nested split (not a pane) whose own rect happens to equal
+    /// root's. `splits` lists `root` before `nested`, so a rect-matching
+    /// descent picks whichever comes first in array order -- here, the
+    /// WRONG one. A path-keyed lookup must resolve to `nested` regardless
+    /// of array order, leaving `root`'s own ratio untouched.
+    @MainActor
+    func testExecuteSetSplitRatioDescendsToTheCorrectSplitDespiteADegenerateSiblingSharingItsRect() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: degenerateRootWithNestedSplitSnapshotResultJSON())
+        fake.respond(to: "layout.set_split_ratio", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true], ratio: 0.25)], label: "Resize split")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        let layout = try XCTUnwrap(store.model?.layouts[TabID(rawValue: "w1:t1")])
+        XCTAssertEqual(layout.splits.first(where: { $0.id == "root" })?.ratio, 0.1, "root must be untouched -- the drag targeted nested, not root")
+        XCTAssertEqual(layout.splits.first(where: { $0.id == "nested" })?.ratio, 0.25)
+        // 10 cols at ratio 0.25 -> round(2.5) = 3 (away from zero), so
+        // first child 3 cols, second 7.
+        XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:left") })?.rect, CellRect(x: 0, y: 0, width: 3, height: 2))
+        XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:right") })?.rect, CellRect(x: 3, y: 0, width: 7, height: 2))
     }
 }
