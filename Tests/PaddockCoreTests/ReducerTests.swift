@@ -92,6 +92,26 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(model.layouts[tabBID], originalTabBLayout)
     }
 
+    /// M1: herdr's own `tab.close` emits only `TabClosed` -- no `PaneClosed`
+    /// per pane -- so `removeTab` has to prune `model.panes` itself, the
+    /// same way `removeWorkspace` already does for a closed workspace.
+    /// `w1:t2` (the fixture's second tab) owns exactly one pane, `w1:p3`.
+    func testTabClosedPrunesItsOwnPanesToo() throws {
+        var model = try seededModel()
+        XCTAssertNotNil(model.panes[PaneID(rawValue: "w1:p3")])
+
+        apply(.tabClosed(TabID(rawValue: "w1:t2")), to: &model)
+
+        XCTAssertNil(model.panes[PaneID(rawValue: "w1:p3")], "a closed tab's own panes must not linger in the model")
+        XCTAssertNil(model.layouts[TabID(rawValue: "w1:t2")])
+        XCTAssertFalse(
+            model.tabs.values.contains { tabs in tabs.contains { $0.tabID == TabID(rawValue: "w1:t2") } },
+            "the closed tab itself must be gone too")
+        // Panes belonging to the OTHER (still-open) tab must be untouched.
+        XCTAssertNotNil(model.panes[PaneID(rawValue: "w1:p1")])
+        XCTAssertNotNil(model.panes[PaneID(rawValue: "w1:p2")])
+    }
+
     func testUnknownEventIsNoOp() throws {
         let before = try seededModel()
         var after = before

@@ -102,6 +102,13 @@ private func removeTab(_ tabID: TabID, from model: inout SessionModel) {
         model.tabs[workspaceID]?.removeAll { $0.tabID == tabID }
     }
     model.layouts.removeValue(forKey: tabID)
+    // M1: herdr's own `tab.close` emits only `TabClosed` -- no `PaneClosed`
+    // for each of its panes -- so without this a closed tab's panes linger
+    // in `model.panes` forever (and, downstream, their parked surfaces sit
+    // in `SessionViewModel`'s warm pool until LRU eviction gets around to
+    // them, rather than being torn down the moment the tab is actually
+    // gone). Mirrors `removeWorkspace`'s own pane prune below.
+    model.panes = model.panes.filter { $0.value.tabID != tabID }
 }
 
 private func removeWorkspace(_ workspaceID: WorkspaceID, from model: inout SessionModel) {
