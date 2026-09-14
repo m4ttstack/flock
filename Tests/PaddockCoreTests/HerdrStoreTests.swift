@@ -48,6 +48,15 @@ private func threeTabSnapshotResultJSON() -> String {
     """#
 }
 
+/// One tab with a real 20x10-cell root split (`.right`, ratio 0.5) over two
+/// panes, for the `setSplitRatio` prediction tests -- the only op whose
+/// prediction needs a real layout to reflow.
+private func splitLayoutSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":2,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:p2","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":10},"focused_pane_id":"w1:p1","panes":[{"pane_id":"w1:p1","focused":true,"rect":{"x":0,"y":0,"width":10,"height":10}},{"pane_id":"w1:p2","focused":false,"rect":{"x":10,"y":0,"width":10,"height":10}}],"splits":[{"id":"s1","direction":"right","ratio":0.5,"rect":{"x":0,"y":0,"width":20,"height":10}}]}]}}
+    """#
+}
+
 private func threeWorkspaceSnapshotResultJSON() -> String {
     #"""
     {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":null,"workspaces":[{"workspace_id":"w1","label":"w1","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"w2","number":2,"active_tab_id":"w2:t1","agent_status":"unknown"},{"workspace_id":"w3","label":"w3","number":3,"active_tab_id":"w3:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w2:t1","workspace_id":"w2","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w3:t1","workspace_id":"w3","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"}],"panes":[],"layouts":[]}}
@@ -488,5 +497,62 @@ final class HerdrStoreTests: XCTestCase {
             store.model?.workspaces.map(\.workspaceID),
             [WorkspaceID(rawValue: "w2"), WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3")]
         )
+    }
+
+    // MARK: - setSplitRatio prediction (the divider drag's own optimistic overlay)
+
+    /// Before this, `setSplitRatio` predicted nothing at all: the overlay
+    /// showed the pre-drag layout until `layout.updated` finally landed, so
+    /// a committed drag visibly jumped. The predicted layout must be showing
+    /// BEFORE the held `layout.set_split_ratio` response is even allowed to
+    /// answer, same shape as the pane-move overlay test above.
+    @MainActor
+    func testExecuteSetSplitRatioPublishesTheReflowedLayoutBeforeTheWireRoundTripCompletes() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: splitLayoutSnapshotResultJSON())
+        fake.respond(to: "layout.set_split_ratio", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let hold = fake.holdNext(method: "layout.set_split_ratio")
+        let plan = OpPlan(ops: [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [], ratio: 0.25)], label: "Resize split")
+        let task = Task { await store.execute(plan) }
+
+        try await waitUntil {
+            store.model?.layouts[TabID(rawValue: "w1:t1")]?.splits.first(where: { $0.id == "s1" })?.ratio == 0.25
+        }
+        let layout = try XCTUnwrap(store.model?.layouts[TabID(rawValue: "w1:t1")])
+        // 20 cells wide at ratio 0.25 -> first child 5 cells, second 15.
+        XCTAssertEqual(layout.panes.first { $0.paneID == PaneID(rawValue: "w1:p1") }?.rect, CellRect(x: 0, y: 0, width: 5, height: 10))
+        XCTAssertEqual(layout.panes.first { $0.paneID == PaneID(rawValue: "w1:p2") }?.rect, CellRect(x: 5, y: 0, width: 15, height: 10))
+
+        hold()
+        guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+    }
+
+    /// A path that does not resolve against the tab's own split tree (stale
+    /// relative to it, or naming a tab paddock has no layout for at all)
+    /// must predict nothing rather than publish a wrong reflow -- the real
+    /// `layout.updated` event is still the source of truth once it lands.
+    @MainActor
+    func testExecuteSetSplitRatioWithAnUnresolvablePathPredictsNothing() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: splitLayoutSnapshotResultJSON())
+        fake.respond(to: "layout.set_split_ratio", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true], ratio: 0.25)], label: "Resize split")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        XCTAssertEqual(store.model?.layouts[TabID(rawValue: "w1:t1")]?.splits.first(where: { $0.id == "s1" })?.ratio, 0.5, "an unresolvable path must leave the layout exactly as the snapshot reported it")
     }
 }

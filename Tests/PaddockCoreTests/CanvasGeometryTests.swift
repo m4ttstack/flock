@@ -363,4 +363,142 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertNotNil(resolveDropTarget(at: point, dragging: dragged, surfaces: surfaces(real)))
         XCTAssertNil(resolveDropTarget(at: point, dragging: dragged, surfaces: surfaces(.empty)))
     }
+
+    // MARK: - DividerHandle.regionFrame / cellExtent (what a divider drag measures against)
+
+    func testDividerRegionFrameIsTheSplitsOwnFullRegionAndCellExtentIsItsAlongAxisCellCount() throws {
+        let layout = threePaneLayout(nestedInSecondChild: true)
+        let size = CGSize(width: 200, height: 100)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size), dividerThickness: 6)
+
+        let root = try XCTUnwrap(geometry.dividers.first { $0.path == [] })
+        XCTAssertEqual(root.regionFrame, CGRect(x: 0, y: 0, width: 200, height: 100))
+        XCTAssertEqual(root.cellExtent, 100, "the root's own rect is the whole 100-column area")
+
+        let nested = try XCTUnwrap(geometry.dividers.first { $0.path == [true] })
+        XCTAssertEqual(nested.regionFrame, CGRect(x: 100, y: 0, width: 100, height: 100))
+        XCTAssertEqual(nested.cellExtent, 50, "the nested split's own rect is 50 rows tall (a `.down` split), not the area's 100 columns")
+    }
+
+    /// A root at ratio 0.25 (not the 0.5 every other fixture uses), with a
+    /// further split nested in its second child: proves a nested split's
+    /// `regionFrame` tracks the ANCESTOR's real ratio-derived boundary, not
+    /// a naive halfway split. A midpoint-bisecting derivation would place
+    /// the second child at x:100...200; the true one (0.25 of 200) places it
+    /// at x:50...200.
+    func testNestedRegionFrameTracksANonHalfAncestorRatio() throws {
+        let area = CellRect(x: 0, y: 0, width: 200, height: 100)
+        let root = SplitInfo(id: "root", direction: .right, ratio: 0.25, rect: area)
+        let secondChild = CellRect(x: 50, y: 0, width: 150, height: 100)
+        let nested = SplitInfo(id: "nested", direction: .down, ratio: 0.5, rect: secondChild)
+
+        let leftPane = PaneRect(paneID: PaneID(rawValue: "left"), focused: false, rect: CellRect(x: 0, y: 0, width: 50, height: 100))
+        let topRightPane = PaneRect(paneID: PaneID(rawValue: "topRight"), focused: false, rect: CellRect(x: 50, y: 0, width: 150, height: 50))
+        let bottomRightPane = PaneRect(paneID: PaneID(rawValue: "bottomRight"), focused: true, rect: CellRect(x: 50, y: 50, width: 150, height: 50))
+
+        let layout = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w"), tabID: TabID(rawValue: "w:t"), zoomed: false, area: area,
+            focusedPaneID: bottomRightPane.paneID, panes: [leftPane, topRightPane, bottomRightPane], splits: [nested, root]
+        )
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 200, height: 100), scale: 1), dividerThickness: 6)
+
+        let nestedHandle = try XCTUnwrap(geometry.dividers.first { $0.path == [true] })
+        XCTAssertEqual(nestedHandle.regionFrame, CGRect(x: 50, y: 0, width: 150, height: 100))
+    }
+
+    /// Same shape, a THIRD level: a split nested inside the second nested
+    /// split, proving `regionFrame` stays correct two levels deep, not only
+    /// at the first nesting. Built through the exported-tree constructor
+    /// (the primary render path): the rect-derivation fallback resolves
+    /// nesting by containment alone, which is ambiguous past two levels
+    /// when a split is processed before its own direct parent, a pre-existing
+    /// property of that fallback and not what this test is about.
+    func testThreeLevelNestedRegionFrameTracksEveryAncestorsOwnRatio() throws {
+        let area = CellRect(x: 0, y: 0, width: 200, height: 100)
+        let root = ExportedLayoutNode.split(
+            direction: .right, ratio: 0.25,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+            second: .split(
+                direction: .down, ratio: 0.2,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "top"))),
+                second: .split(
+                    direction: .right, ratio: 0.5,
+                    first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "deepLeft"))),
+                    second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "deepRight")))
+                )
+            )
+        )
+        let geometry = CanvasGeometry(
+            exportedRoot: root, area: area, tabID: TabID(rawValue: "w:t"),
+            grid: grid(filling: CGSize(width: 200, height: 100), scale: 1), dividerThickness: 6
+        )
+
+        let deepHandle = try XCTUnwrap(geometry.dividers.first { $0.path == [true, true] })
+        XCTAssertEqual(
+            deepHandle.regionFrame, CGRect(x: 50, y: 20, width: 150, height: 80),
+            "three levels deep, still the true ratio-derived region, not a halved guess"
+        )
+    }
+
+    // MARK: - liveRatioOverride (a divider drag's live footprint preview)
+
+    /// The exported-tree path derives BOTH pane frames and divider frames
+    /// from the same ratio, so overriding one split's ratio there moves the
+    /// panes on both sides live -- the property the divider drag's preview
+    /// depends on. Never true of the rect-derivation fallback (see its own
+    /// doc comment): herdr's literal pane rects cannot be recomputed from a
+    /// ratio at all.
+    func testLiveRatioOverrideMovesPaneFramesOnTheExportedTreePath() throws {
+        let area = CellRect(x: 0, y: 0, width: 200, height: 100)
+        let root = ExportedLayoutNode.split(
+            direction: .right, ratio: 0.5,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+            second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "right")))
+        )
+        let grid = grid(filling: CGSize(width: 200, height: 100), scale: 1)
+
+        let atRest = CanvasGeometry(exportedRoot: root, area: area, tabID: TabID(rawValue: "w:t"), grid: grid, dividerThickness: 6)
+        let left0 = try XCTUnwrap(atRest.paneFrames[PaneID(rawValue: "left")])
+        XCTAssertEqual(left0.width, 100, accuracy: 0.01)
+
+        let overridden = CanvasGeometry(
+            exportedRoot: root, area: area, tabID: TabID(rawValue: "w:t"), grid: grid, dividerThickness: 6,
+            liveRatioOverride: (path: [], ratio: 0.25)
+        )
+        let left1 = try XCTUnwrap(overridden.paneFrames[PaneID(rawValue: "left")])
+        let right1 = try XCTUnwrap(overridden.paneFrames[PaneID(rawValue: "right")])
+        XCTAssertEqual(left1.width, 50, accuracy: 0.01, "the pane must follow the live ratio, not stay at its pre-drag width")
+        XCTAssertEqual(right1.width, 150, accuracy: 0.01)
+        XCTAssertEqual(right1.minX, 50, accuracy: 0.01)
+    }
+
+    /// An override on a NESTED split moves only that split's own two
+    /// children; the sibling elsewhere in the tree, and the root split
+    /// itself, must be untouched.
+    func testLiveRatioOverrideOnANestedSplitLeavesTheRestOfTheTreeAlone() throws {
+        let area = CellRect(x: 0, y: 0, width: 200, height: 100)
+        let root = ExportedLayoutNode.split(
+            direction: .right, ratio: 0.5,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+            second: .split(
+                direction: .down, ratio: 0.5,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "topRight"))),
+                second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "bottomRight")))
+            )
+        )
+        let grid = grid(filling: CGSize(width: 200, height: 100), scale: 1)
+
+        let overridden = CanvasGeometry(
+            exportedRoot: root, area: area, tabID: TabID(rawValue: "w:t"), grid: grid, dividerThickness: 6,
+            liveRatioOverride: (path: [true], ratio: 0.25)
+        )
+
+        let left = try XCTUnwrap(overridden.paneFrames[PaneID(rawValue: "left")])
+        XCTAssertEqual(left.width, 100, accuracy: 0.01, "the root split is untouched by an override targeting its second child")
+
+        let topRight = try XCTUnwrap(overridden.paneFrames[PaneID(rawValue: "topRight")])
+        let bottomRight = try XCTUnwrap(overridden.paneFrames[PaneID(rawValue: "bottomRight")])
+        XCTAssertEqual(topRight.height, 25, accuracy: 0.01, "0.25 of the 100-tall second-child region")
+        XCTAssertEqual(bottomRight.height, 75, accuracy: 0.01)
+    }
 }

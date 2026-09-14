@@ -20,6 +20,14 @@ struct PaneCanvas: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
 
+    /// The active divider drag's own live ratio, if any, folded into
+    /// `resolvedGeometry` as an override so the panes on both sides of that
+    /// divider actually follow the drag -- the live footprint preview, not
+    /// only the divider's own accent line. Cleared the moment
+    /// `DividerHandleView` reports `nil` (drag ended, cancelled, or
+    /// abandoned).
+    @State private var liveDividerOverride: (tabID: TabID, path: [Bool], ratio: Double)?
+
     private static let dividerThickness: CGFloat = 6
 
     var body: some View {
@@ -76,13 +84,17 @@ struct PaneCanvas: View {
                     theme: theme, layout: layout, exported: layout.flatMap { viewModel.exportedLayout(for: $0.tabID) },
                     grid: grid, dividerThickness: Self.dividerThickness
                 )
-                ForEach(geometry.dividers, id: \.path) { divider in
-                    DividerHandleView(
-                        theme: theme, divider: divider, siblingDividers: geometry.dividers,
-                        canvasFrame: CGRect(origin: .zero, size: proxy.size),
-                        commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }
-                    )
-                    .offset(x: divider.frame.minX, y: divider.frame.minY)
+                if let layout {
+                    ForEach(geometry.dividers, id: \.path) { divider in
+                        DividerHandleView(
+                            theme: theme, divider: divider,
+                            commit: { path, ratio in await viewModel.setSplitRatio(tab: layout.tabID, path: path, ratio: ratio) },
+                            onLiveRatioChange: { ratio in
+                                liveDividerOverride = ratio.map { (tabID: layout.tabID, path: divider.path, ratio: $0) }
+                            }
+                        )
+                        .offset(x: divider.frame.minX, y: divider.frame.minY)
+                    }
                 }
             }
             // The canvas lays out in its own space and drop hit-testing works
@@ -96,11 +108,13 @@ struct PaneCanvas: View {
 
     private func resolvedGeometry(grid: CanvasGrid) -> CanvasGeometry {
         guard let layout else { return .empty }
+        let override = liveDividerOverride.flatMap { $0.tabID == layout.tabID ? (path: $0.path, ratio: $0.ratio) : nil }
         return CanvasGeometry.resolved(
             layout: layout,
             exported: viewModel.exportedLayout(for: layout.tabID),
             grid: grid,
-            dividerThickness: Self.dividerThickness
+            dividerThickness: Self.dividerThickness,
+            liveRatioOverride: override
         )
     }
 

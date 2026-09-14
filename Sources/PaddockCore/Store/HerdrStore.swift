@@ -296,10 +296,10 @@ public final class HerdrStore {
     /// the same `apply(_:to:)` reducers the live stream uses -- never a
     /// bespoke prediction path. An op this cannot express honestly (a move
     /// that creates a tab/workspace, whose real id is unknowable ahead of
-    /// the round trip; a swap or split-ratio change, whose effect lives only
-    /// in geometry this model does not carry) is simply skipped: the overlay
-    /// shows every change it safely can and leaves the rest to converge
-    /// normally when the real event arrives.
+    /// the round trip; a swap, whose effect lives only in geometry this
+    /// model does not carry) is simply skipped: the overlay shows every
+    /// change it safely can and leaves the rest to converge normally when
+    /// the real event arrives.
     ///
     /// A predicted `movePaneToTab` updates `model.panes`' record for the
     /// moved pane (its `tabID`/`workspaceID`), matching `Reducers.swift`'s
@@ -309,6 +309,13 @@ public final class HerdrStore {
     /// the real `layout.updated` event that follows; only pane/tab/workspace
     /// record state (tab strips, pane lists, sidebar membership) reflects
     /// the overlay on the same frame as the call.
+    ///
+    /// `setSplitRatio` is the one op whose WHOLE effect lives in the layout's
+    /// own geometry, so it is the one exception to that last rule: its
+    /// predicted event carries a rebuilt `LayoutSnapshot` with the target
+    /// split's ratio changed and every pane/split rect beneath it
+    /// recomputed, so the canvas shows the real post-drag arrangement
+    /// immediately rather than jumping to it once `layout.updated` lands.
     private static func predictedModel(applying plan: OpPlan, to model: SessionModel) -> SessionModel {
         var predicted = model
         for tabID in plan.needsUnzoom {
@@ -384,9 +391,97 @@ public final class HerdrStore {
             }
             return .layoutUpdated(Self.withZoomed(newZoomed, layout))
 
-        case .movePaneToNewTab, .movePaneToNewWorkspace, .swapPanes, .setSplitRatio,
+        case let .setSplitRatio(tab, path, ratio):
+            guard let newLayout = Self.predictedLayout(forSplitRatio: ratio, atPath: path, tab: tab, model: model) else { return nil }
+            return .layoutUpdated(newLayout)
+
+        case .movePaneToNewTab, .movePaneToNewWorkspace, .swapPanes,
              .closePane, .closeTab, .closeWorkspace:
             return nil
+        }
+    }
+
+    /// Rebuilds `tab`'s own `LayoutSnapshot` for a `setSplitRatio` at `path`:
+    /// the target split's `rect` never moves (it is still the same region,
+    /// just divided differently), but every rect BELOW it does, recomputed
+    /// with `childRegions` -- the identical cell-rounded derivation
+    /// `CanvasGeometry`'s exported-tree walk uses -- so the predicted
+    /// overlay matches the real `layout.updated` event exactly rather than
+    /// approximating it and then having to jump. Descending to the target
+    /// uses each ancestor's own EXISTING ratio; only the target split's own
+    /// children use the new one. Returns `nil` when `path` cannot be
+    /// resolved against `tab`'s own split tree (no layout for the tab, or a
+    /// path stale relative to it) -- a mispredicted layout is worse than
+    /// none, since the canvas would show something the real event then has
+    /// to correct anyway.
+    private static func predictedLayout(forSplitRatio ratio: Double, atPath path: [Bool], tab: TabID, model: SessionModel) -> LayoutSnapshot? {
+        guard let layout = model.layouts[tab] else { return nil }
+        guard var current = layout.splits.first(where: { $0.rect == layout.area })
+            ?? layout.splits.max(by: { cellArea($0.rect) < cellArea($1.rect) })
+        else { return nil }
+        for branch in path {
+            let (first, second) = childRegions(of: current.rect, direction: current.direction, ratio: current.ratio)
+            let target = branch ? second : first
+            guard let next = layout.splits.first(where: { $0.rect == target }) else { return nil }
+            current = next
+        }
+        let targetID = current.id
+
+        var splitRects: [String: CellRect] = [:]
+        var paneRects: [PaneID: CellRect] = [:]
+        // `original` identifies which split/pane occupies this branch (via
+        // the layout AS IT STOOD, matching `CanvasGeometry.dividerHandles`'s
+        // own containment lookup); `new` is where that same entity lands
+        // once the target's own ratio changes. The two only ever diverge
+        // below the target -- everywhere else they stay equal, which is
+        // exactly why an ancestor or an out-of-subtree sibling's rect never
+        // moves.
+        func reflow(original: CellRect, new: CellRect) {
+            if let split = layout.splits.first(where: { $0.rect == original }) {
+                splitRects[split.id] = new
+                let effectiveRatio = split.id == targetID ? ratio : split.ratio
+                let (originalFirst, originalSecond) = childRegions(of: original, direction: split.direction, ratio: split.ratio)
+                let (newFirst, newSecond) = childRegions(of: new, direction: split.direction, ratio: effectiveRatio)
+                reflow(original: originalFirst, new: newFirst)
+                reflow(original: originalSecond, new: newSecond)
+            } else if let pane = layout.panes.first(where: { $0.rect == original }) {
+                paneRects[pane.paneID] = new
+            }
+        }
+        reflow(original: current.rect, new: current.rect)
+
+        let newSplits = layout.splits.map { split -> SplitInfo in
+            guard let newRect = splitRects[split.id] else { return split }
+            let newRatio = split.id == targetID ? ratio : split.ratio
+            return SplitInfo(id: split.id, direction: split.direction, ratio: newRatio, rect: newRect)
+        }
+        let newPanes = layout.panes.map { pane -> PaneRect in
+            guard let newRect = paneRects[pane.paneID] else { return pane }
+            return PaneRect(paneID: pane.paneID, focused: pane.focused, rect: newRect)
+        }
+        return LayoutSnapshot(
+            workspaceID: layout.workspaceID, tabID: layout.tabID, zoomed: layout.zoomed, area: layout.area,
+            focusedPaneID: layout.focusedPaneID, panes: newPanes, splits: newSplits
+        )
+    }
+
+    private static func cellArea(_ rect: CellRect) -> Int { rect.width * rect.height }
+
+    /// Duplicated from `CanvasGeometry`'s and `MutationEngine`'s own copies
+    /// rather than shared -- the same three-line, dependency-free formula,
+    /// not a seam worth coupling three unrelated files over.
+    private static func childRegions(of rect: CellRect, direction: SplitDirection, ratio: Double) -> (first: CellRect, second: CellRect) {
+        switch direction {
+        case .right:
+            let firstWidth = Int((Double(rect.width) * ratio).rounded())
+            let first = CellRect(x: rect.x, y: rect.y, width: firstWidth, height: rect.height)
+            let second = CellRect(x: rect.x + firstWidth, y: rect.y, width: rect.width - firstWidth, height: rect.height)
+            return (first, second)
+        case .down:
+            let firstHeight = Int((Double(rect.height) * ratio).rounded())
+            let first = CellRect(x: rect.x, y: rect.y, width: rect.width, height: firstHeight)
+            let second = CellRect(x: rect.x, y: rect.y + firstHeight, width: rect.width, height: rect.height - firstHeight)
+            return (first, second)
         }
     }
 

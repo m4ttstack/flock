@@ -9,6 +9,20 @@ public struct DividerHandle: Equatable, Sendable {
     public let path: [Bool]
     public let frame: CGRect
     public let direction: SplitDirection
+    /// The full region this divider's own boundary moves within -- both
+    /// children's combined extent, before the gutter is carved out of it.
+    /// The same rect `dividerFrame`'s own `boundaryX`/`boundaryY` was
+    /// computed against, so a pointer-to-ratio translation measured against
+    /// this can never drift from wherever the two children actually render,
+    /// cell rounding included.
+    public let regionFrame: CGRect
+    /// The along-axis cell count of `regionFrame` -- columns for `.right`,
+    /// rows for `.down`. What a ratio must be weighed against to keep both
+    /// children at or above herdr's own per-pane floor (`rows.max(2)`,
+    /// `cols.max(4)` in `resize`): herdr enlarges an undersized pane
+    /// silently rather than rejecting the ratio that produced it, so
+    /// paddock has to keep the ratio honest on its own side.
+    public let cellExtent: Int
 }
 
 /// Where a tab's cell grid sits on the canvas: the tab's `area` stretched to
@@ -108,7 +122,10 @@ public struct CanvasGeometry: Equatable, Sendable {
         CanvasGeometry(
             paneFrames: paneFrames.mapValues { $0.offsetBy(dx: delta.x, dy: delta.y) },
             dividers: dividers.map {
-                DividerHandle(tabID: $0.tabID, path: $0.path, frame: $0.frame.offsetBy(dx: delta.x, dy: delta.y), direction: $0.direction)
+                DividerHandle(
+                    tabID: $0.tabID, path: $0.path, frame: $0.frame.offsetBy(dx: delta.x, dy: delta.y), direction: $0.direction,
+                    regionFrame: $0.regionFrame.offsetBy(dx: delta.x, dy: delta.y), cellExtent: $0.cellExtent
+                )
             }
         )
     }
@@ -117,20 +134,27 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// split tree) when it names this tab, and falls back to rect derivation
     /// otherwise -- an export the coordinator never fetched, or one that
     /// failed and got flagged for fallback, both read as `exported == nil`
-    /// or tab-mismatched here.
+    /// or tab-mismatched here. `liveRatioOverride` substitutes one split's
+    /// ratio during the walk, for a divider drag's own live preview -- see
+    /// `walk`'s own doc comment for why only the exported-tree path can
+    /// actually move pane frames from it.
     public static func resolved(
         layout: LayoutSnapshot,
         exported: ExportedLayoutDescription?,
         grid: CanvasGrid,
-        dividerThickness: CGFloat = 6
+        dividerThickness: CGFloat = 6,
+        liveRatioOverride: (path: [Bool], ratio: Double)? = nil
     ) -> CanvasGeometry {
         if let exported, exported.tabID == layout.tabID {
-            return CanvasGeometry(exportedRoot: exported.root, area: layout.area, tabID: layout.tabID, grid: grid, dividerThickness: dividerThickness)
+            return CanvasGeometry(
+                exportedRoot: exported.root, area: layout.area, tabID: layout.tabID, grid: grid,
+                dividerThickness: dividerThickness, liveRatioOverride: liveRatioOverride
+            )
         }
-        return CanvasGeometry(layout: layout, grid: grid, dividerThickness: dividerThickness)
+        return CanvasGeometry(layout: layout, grid: grid, dividerThickness: dividerThickness, liveRatioOverride: liveRatioOverride)
     }
 
-    public init(layout: LayoutSnapshot, grid: CanvasGrid, dividerThickness: CGFloat = 6) {
+    public init(layout: LayoutSnapshot, grid: CanvasGrid, dividerThickness: CGFloat = 6, liveRatioOverride: (path: [Bool], ratio: Double)? = nil) {
         let area = layout.area
         guard area.width > 0, area.height > 0 else {
             paneFrames = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneID, .zero) })
@@ -142,13 +166,19 @@ public struct CanvasGeometry: Equatable, Sendable {
             grid.frame(for: rect, area: area)
         }
 
+        // Pane rects here are herdr's own literal, already-resolved values
+        // (`PaneRect.rect`), never derived from a split's ratio -- so unlike
+        // the exported-tree walk below, `liveRatioOverride` cannot move a
+        // pane frame in this fallback path. Only the divider's own drawn
+        // position reflects it.
         paneFrames = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneID, scale($0.rect)) })
         dividers = CanvasGeometry.dividerHandles(
             splits: layout.splits,
             area: area,
             tabID: layout.tabID,
             scale: scale,
-            thickness: dividerThickness
+            thickness: dividerThickness,
+            override: liveRatioOverride
         )
     }
 
@@ -157,7 +187,10 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// parent/child order, so paths and regions fall out of a direct walk.
     /// `area` is the tab's cell-grid rect (from the tab's `LayoutSnapshot`,
     /// which `layout.export` does not itself carry).
-    public init(exportedRoot root: ExportedLayoutNode, area: CellRect, tabID: TabID, grid: CanvasGrid, dividerThickness: CGFloat = 6) {
+    public init(
+        exportedRoot root: ExportedLayoutNode, area: CellRect, tabID: TabID, grid: CanvasGrid, dividerThickness: CGFloat = 6,
+        liveRatioOverride: (path: [Bool], ratio: Double)? = nil
+    ) {
         guard area.width > 0, area.height > 0 else {
             paneFrames = [:]
             dividers = []
@@ -177,6 +210,7 @@ public struct CanvasGeometry: Equatable, Sendable {
             tabID: tabID,
             scale: scale,
             thickness: dividerThickness,
+            override: liveRatioOverride,
             paneFrames: &paneFrames,
             dividers: &dividers
         )
@@ -184,6 +218,13 @@ public struct CanvasGeometry: Equatable, Sendable {
         self.dividers = dividers
     }
 
+    /// `override` substitutes the ratio of the split whose own `path`
+    /// matches it -- every pane and divider beneath that split then falls
+    /// out of the SAME recursion with the new regions, which is what makes
+    /// this a true live footprint preview rather than a redrawn line: the
+    /// tree only carries ratios and parent/child order, never absolute
+    /// rects, so a changed ratio anywhere propagates to every descendant for
+    /// free.
     private static func walk(
         _ node: ExportedLayoutNode,
         rect: CellRect,
@@ -191,6 +232,7 @@ public struct CanvasGeometry: Equatable, Sendable {
         tabID: TabID,
         scale: (CellRect) -> CGRect,
         thickness: CGFloat,
+        override: (path: [Bool], ratio: Double)?,
         paneFrames: inout [PaneID: CGRect],
         dividers: inout [DividerHandle]
     ) {
@@ -198,16 +240,20 @@ public struct CanvasGeometry: Equatable, Sendable {
         case .pane(let pane):
             guard let paneID = pane.paneID else { return }
             paneFrames[paneID] = scale(rect)
-        case .split(let direction, let ratio, let first, let second):
+        case .split(let direction, let nodeRatio, let first, let second):
+            let ratio = override?.path == path ? override!.ratio : nodeRatio
             let (firstRegion, secondRegion) = childRegions(of: rect, direction: direction, ratio: ratio)
+            let full = scale(rect)
             dividers.append(DividerHandle(
                 tabID: tabID,
                 path: path,
-                frame: dividerFrame(direction: direction, ratio: ratio, fullFrame: scale(rect), thickness: thickness),
-                direction: direction
+                frame: dividerFrame(direction: direction, ratio: ratio, fullFrame: full, thickness: thickness),
+                direction: direction,
+                regionFrame: full,
+                cellExtent: direction == .right ? rect.width : rect.height
             ))
-            walk(first, rect: firstRegion, path: path + [false], tabID: tabID, scale: scale, thickness: thickness, paneFrames: &paneFrames, dividers: &dividers)
-            walk(second, rect: secondRegion, path: path + [true], tabID: tabID, scale: scale, thickness: thickness, paneFrames: &paneFrames, dividers: &dividers)
+            walk(first, rect: firstRegion, path: path + [false], tabID: tabID, scale: scale, thickness: thickness, override: override, paneFrames: &paneFrames, dividers: &dividers)
+            walk(second, rect: secondRegion, path: path + [true], tabID: tabID, scale: scale, thickness: thickness, override: override, paneFrames: &paneFrames, dividers: &dividers)
         }
     }
 
@@ -224,7 +270,8 @@ public struct CanvasGeometry: Equatable, Sendable {
         area: CellRect,
         tabID: TabID,
         scale: (CellRect) -> CGRect,
-        thickness: CGFloat
+        thickness: CGFloat,
+        override: (path: [Bool], ratio: Double)?
     ) -> [DividerHandle] {
         guard let root = splits.first(where: { $0.rect == area }) ?? splits.max(by: { cellArea($0.rect) < cellArea($1.rect) }) else {
             return []
@@ -249,12 +296,18 @@ public struct CanvasGeometry: Equatable, Sendable {
 
         return splits.compactMap { split in
             guard let path = paths[split.id] else { return nil }
+            // Only the divider's own drawn position can honor the override
+            // here (see `init(layout:...)`'s own comment on why pane frames
+            // cannot).
+            let ratio = override?.path == path ? override!.ratio : Double(split.ratio)
             let full = scale(split.rect)
             return DividerHandle(
                 tabID: tabID,
                 path: path,
-                frame: dividerFrame(direction: split.direction, ratio: Double(split.ratio), fullFrame: full, thickness: thickness),
-                direction: split.direction
+                frame: dividerFrame(direction: split.direction, ratio: ratio, fullFrame: full, thickness: thickness),
+                direction: split.direction,
+                regionFrame: full,
+                cellExtent: split.direction == .right ? split.rect.width : split.rect.height
             )
         }
     }

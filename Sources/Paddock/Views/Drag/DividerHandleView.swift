@@ -2,38 +2,36 @@ import AppKit
 import PaddockCore
 import SwiftUI
 
-/// One divider's hit zone and paint. Placed by the caller via `.frame` and
-/// `.offset` at `divider.frame`, the same convention `PaneCanvas` already
-/// uses for `PaneCellView` -- this view only fills whatever box it is given.
-/// Invisible at rest; a pip on hover; an accent line plus the live ratio
-/// while dragging.
+/// One divider's hit zone and paint. Placed by the caller via `.offset` at
+/// `divider.frame`'s origin, the same convention `PaneCanvas` already uses
+/// for `PaneCellView` -- this view sizes itself to `divider.frame`. Invisible
+/// at rest; a pip on hover; an accent line plus the live ratio while
+/// dragging.
 ///
 /// A divider drag is NOT routed through `DragCoordinator`/`DragController`:
 /// it resolves no drop target, has no ghost, and never spring-loads, so
 /// `DividerDragCoordinator` (this file's sibling) is its own small
 /// controller rather than a new `DragController.Phase` case built around
 /// machinery this gesture shares none of.
+///
+/// `onLiveRatioChange` reports this divider's own live ratio (`nil` when not
+/// dragging) up to `PaneCanvas`, which folds it into `CanvasGeometry` as a
+/// live override so the panes on both sides actually follow the drag rather
+/// than only the accent line moving.
 struct DividerHandleView: View {
     let theme: Theme
     let divider: DividerHandle
-    /// Every divider in this tab, canvas-local -- `DividerDragMath` walks
-    /// this to recover a nested split's own along-axis extent.
-    let siblingDividers: [DividerHandle]
-    /// The canvas's own bounds, same space as `divider.frame` and
-    /// `siblingDividers`.
-    let canvasFrame: CGRect
+    let commit: ([Bool], Double) async -> Void
+    let onLiveRatioChange: (Double?) -> Void
 
     @State private var coordinator: DividerDragCoordinator
     @State private var isHovering = false
 
-    init(
-        theme: Theme, divider: DividerHandle, siblingDividers: [DividerHandle], canvasFrame: CGRect,
-        commit: @escaping (TabID, [Bool], Double) async -> Void
-    ) {
+    init(theme: Theme, divider: DividerHandle, commit: @escaping ([Bool], Double) async -> Void, onLiveRatioChange: @escaping (Double?) -> Void) {
         self.theme = theme
         self.divider = divider
-        self.siblingDividers = siblingDividers
-        self.canvasFrame = canvasFrame
+        self.commit = commit
+        self.onLiveRatioChange = onLiveRatioChange
         _coordinator = State(initialValue: DividerDragCoordinator(commit: commit))
     }
 
@@ -54,6 +52,7 @@ struct DividerHandleView: View {
             (hovering ? (isVertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown) : NSCursor.arrow).set()
         }
         .gesture(dragGesture)
+        .onChange(of: coordinator.liveRatio) { _, new in onLiveRatioChange(new) }
         .accessibilityIdentifier("paddock.canvas.divider.\(pathLabel)")
     }
 
@@ -64,15 +63,20 @@ struct DividerHandleView: View {
     /// `.local` so `value.location` is relative to this view's own bounds
     /// (sized to `divider.frame`), which `divider.frame.origin` then
     /// translates back into the shared canvas-local space every geometry
-    /// input already lives in.
+    /// input already lives in. `began()` is called on every callback while
+    /// not yet dragging rather than gated on a separate flag: the machine's
+    /// own latch (`DragGestureMachine`, composed inside `DividerDragMachine`)
+    /// is what actually decides whether a begin takes effect, so a stray
+    /// re-arm attempt during `.cancelledAwaitingRelease` is already a no-op
+    /// there.
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .local)
             .onChanged { value in
-                let pointer = CGPoint(x: divider.frame.minX + value.location.x, y: divider.frame.minY + value.location.y)
                 if !coordinator.isDragging {
-                    coordinator.began(divider, at: pointer, dividers: siblingDividers, canvas: canvasFrame)
+                    coordinator.began(divider)
                 }
-                coordinator.moved(to: pointer, dividers: siblingDividers, canvas: canvasFrame)
+                let pointer = CGPoint(x: divider.frame.minX + value.location.x, y: divider.frame.minY + value.location.y)
+                coordinator.moved(to: pointer)
             }
             .onEnded { _ in coordinator.ended() }
     }
@@ -84,7 +88,7 @@ struct DividerHandleView: View {
     }
 
     private func liveLine(at ratio: Double) -> some View {
-        let boundary = DividerDragMath.boundary(forRatio: ratio, divider: divider, dividers: siblingDividers, canvas: canvasFrame)
+        let boundary = DividerDragMath.boundary(forRatio: ratio, divider: divider)
         let localOffset = isVertical ? boundary - divider.frame.midX : boundary - divider.frame.midY
 
         return ZStack {

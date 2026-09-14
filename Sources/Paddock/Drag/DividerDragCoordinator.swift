@@ -9,19 +9,22 @@ import PaddockCore
 /// shared machinery to widen `DragController`'s phase enum for.
 ///
 /// `DividerDragMachine` (`PaddockCore`) owns the pure begin/moved/ended/
-/// cancelled state and decides whether a real op comes out; this class is
-/// only the AppKit-facing shell around it -- the Esc monitor, and the async
-/// call into `commit` on release.
+/// cancelled/abandoned state, the pointer-to-ratio translation, and the
+/// Esc latch (composed from `DragGestureMachine`, the same latch the pane
+/// drags use); this class is only the AppKit-facing shell around it -- the
+/// Esc monitor, the resign-active observer, and the async call into
+/// `commit` on release.
 @MainActor
 @Observable
 final class DividerDragCoordinator {
     private(set) var liveRatio: Double?
 
     private var machine = DividerDragMachine()
-    private let commit: (TabID, [Bool], Double) async -> Void
+    private let commit: ([Bool], Double) async -> Void
     @ObservationIgnored nonisolated(unsafe) private var keyMonitor: Any?
+    @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
 
-    init(commit: @escaping (TabID, [Bool], Double) async -> Void) {
+    init(commit: @escaping ([Bool], Double) async -> Void) {
         self.commit = commit
     }
 
@@ -29,55 +32,79 @@ final class DividerDragCoordinator {
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
         }
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
+        }
     }
 
     var isDragging: Bool { machine.isDragging }
 
-    /// `pointer` and `canvas` are canvas-local, matching `divider.frame`'s
-    /// own space -- the same space `dividers` (every divider in this tab,
-    /// for nested-extent resolution) was built in.
-    func began(_ divider: DividerHandle, at pointer: CGPoint, dividers: [DividerHandle], canvas: CGRect) {
-        let start = DividerDragMath.ratio(atPointer: pointer, divider: divider, dividers: dividers, canvas: canvas)
-        machine.began(divider, startRatio: start)
+    /// `divider` alone is enough: `DividerDragMachine.began` derives the
+    /// start ratio from the divider's OWN current boundary, never from
+    /// wherever the press happened to land inside the gutter.
+    func began(_ divider: DividerHandle) {
+        guard machine.began(divider) else { return }
+        guard case .dragging(_, let start, _) = machine.phase else { return }
         liveRatio = start
-        installEscMonitor()
+        installMonitors()
     }
 
-    func moved(to pointer: CGPoint, dividers: [DividerHandle], canvas: CGRect) {
-        guard case .dragging(let divider, _, _) = machine.phase else { return }
-        let ratio = DividerDragMath.ratio(atPointer: pointer, divider: divider, dividers: dividers, canvas: canvas)
-        machine.moved(to: ratio)
-        liveRatio = ratio
+    /// `pointer` is canvas-local, matching `divider.regionFrame`'s own
+    /// space.
+    func moved(to pointer: CGPoint) {
+        machine.moved(to: pointer)
+        guard case .dragging(_, _, let live) = machine.phase else { return }
+        liveRatio = live
     }
 
     func ended() {
-        removeEscMonitor()
+        removeMonitors()
         let op = machine.ended()
         liveRatio = nil
-        guard case let .setSplitRatio(tab, path, ratio)? = op else { return }
-        Task { await commit(tab, path, ratio) }
+        guard case let .setSplitRatio(_, path, ratio)? = op else { return }
+        Task { await commit(path, ratio) }
     }
 
     private func cancel() {
-        removeEscMonitor()
         _ = machine.cancelled()
         liveRatio = nil
     }
 
-    private func installEscMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            guard let self else { return event }
-            guard Int(event.keyCode) == kVK_Escape else { return event }
-            self.cancel()
-            return nil
+    /// The app resigned active with the button still down: no `leftMouseUp`
+    /// is ever coming to this window. Same shape as `DragCoordinator.abandon()`
+    /// -- ends the gesture outright, issuing no commit.
+    private func abandon() {
+        removeMonitors()
+        machine.abandoned()
+        liveRatio = nil
+    }
+
+    private func installMonitors() {
+        if keyMonitor == nil {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+                guard let self else { return event }
+                guard Int(event.keyCode) == kVK_Escape else { return event }
+                self.cancel()
+                return nil
+            }
+        }
+        if resignObserver == nil {
+            resignObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.abandon() }
+            }
         }
     }
 
-    private func removeEscMonitor() {
+    private func removeMonitors() {
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
         }
         keyMonitor = nil
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
+        }
+        resignObserver = nil
     }
 }
