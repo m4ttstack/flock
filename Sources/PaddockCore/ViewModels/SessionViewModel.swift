@@ -47,6 +47,15 @@ public final class SessionViewModel {
     // leaves the visible set entirely. Attach/mode/detach for a given pane
     // always goes through `paneWork`, so a focus flip can never race a
     // resize or a teardown for that pane.
+    // `@ObservationIgnored`: `PaneCellView.init` reads this once (via
+    // `ghosttySurface(for:)`) to seed its own `@State`, and that read runs
+    // as part of `PaneCanvas.body` building its children -- without this,
+    // EVERY mutation of this dict (any pane's attach, park, or teardown)
+    // would invalidate the whole canvas's `body`, not just the one cell
+    // that actually changed. Nothing in any view's `body` needs to react to
+    // this dict changing after the fact; `@State`/`.task(id:)` already own
+    // that reactivity per cell.
+    @ObservationIgnored
     private var ghosttySurfaces: [PaneID: any GhosttyPaneSurface] = [:]
     /// Parked panes (detached from the visible set but kept warm), oldest
     /// park first -- the eviction order `evictWarmPanesIfNeeded` reads once
@@ -131,11 +140,19 @@ public final class SessionViewModel {
         return ProtocolMismatch(found: found, required: required)
     }
 
-    /// Called whenever `HerdrStore.model`/`connection` change. Selection only
-    /// ever fills in from nil, so a later update (an unrelated `layoutUpdated`,
-    /// or any event that leaves focus untouched) never resets a selection
-    /// already derived from herdr's focus or set by a user jump.
+    /// Called whenever `HerdrStore.model`/`connection` change. Workspace
+    /// selection only ever fills in from `nil`. Tab selection now MIRRORS
+    /// herdr's own focused tab live: a tab switch is a warm re-host (this
+    /// task's whole point), cheap enough that paddock's view can just follow
+    /// herdr's, the same way the rest of the session already does. Only an
+    /// actual CHANGE of herdr's focused tab moves the selection -- comparing
+    /// against the model's PREVIOUS `focusedTabID`, not against
+    /// `selectedTabID` itself, is what lets a paddock-initiated selection
+    /// that currently differs from herdr's last-known focus persist through
+    /// an unrelated update (a `layoutUpdated` that touches neither) instead
+    /// of being stomped back to whatever herdr already was focused on.
     public func update(model: SessionModel?, connection: ConnectionState) {
+        let previousFocusedTabID = self.model?.focusedTabID
         self.model = model
         connectionState = connection
         if selectedWorkspaceID == nil {
@@ -143,6 +160,8 @@ public final class SessionViewModel {
         }
         if selectedTabID == nil {
             selectedTabID = model?.focusedTabID
+        } else if let focusedTabID = model?.focusedTabID, focusedTabID != previousFocusedTabID {
+            selectedTabID = focusedTabID
         }
         // The echo caught up: the model now agrees with what the click
         // predicted, so the prediction can stand down and let the model's
@@ -159,7 +178,7 @@ public final class SessionViewModel {
     /// nothing left to come back to, so its surface is torn down for real
     /// regardless of the warm cap -- keeping it parked would only leak a
     /// bridge and PTY nothing will ever reattach. Chained per-pane through
-    /// `paneWork` like every other surface operation (`teardownParkedPane`),
+    /// `paneWork` like every other surface operation (`teardownSurface`),
     /// so this can never race an in-flight attach/park for the same pane.
     private func reconcileClosedPanes() {
         let known = Set((model?.panes ?? [:]).keys)
@@ -172,7 +191,7 @@ public final class SessionViewModel {
         pendingClosedPaneTeardown = Task { [weak self] in
             guard let self else { return }
             for pane in gone {
-                await self.teardownParkedPane(pane)
+                await self.teardownSurface(pane)
             }
         }
     }
@@ -379,9 +398,29 @@ public final class SessionViewModel {
     }
 
     private func performAttach(pane: PaneID, cols: Int, rows: Int, factory: any GhosttyPaneFactory) async {
+        // I3: also removed here, inside the chain -- `attachPane`'s own
+        // synchronous removal (before this step even runs) closes the
+        // common case, but a park enqueued for the SAME pane can still be
+        // the step that actually appends to `parkedPanes`, and it may not
+        // run until AFTER that synchronous removal already happened (both
+        // `detachPane`/`performPark` and this attach share `paneWork[pane]`,
+        // but the sync removal in `attachPane` is not itself part of that
+        // chain). Removing again here, on the chain, is what actually closes
+        // the race: whichever of park/attach for this pane runs LAST always
+        // leaves `parkedPanes` agreeing with reality.
+        parkedPanes.removeAll { $0 == pane }
         if let existing = ghosttySurfaces[pane] {
             existing.unpark()
             existing.resize(cols: cols, rows: rows)
+            // M2: a warm reattach needs arming exactly like a cold one --
+            // the pane could easily be the resolved-focused one already (the
+            // tab it belongs to is being switched back TO because it holds
+            // focus), and without this it would sit warm in observe mode
+            // until the next unrelated focus flip happened to reconcile it.
+            if resolvedFocusedPaneID == pane {
+                await sendModeIfChanged(.control, to: pane, surface: existing)
+                modeArmedPane = pane
+            }
             return
         }
         // Both closures are the launcher-pristine contract's ghostty half:
@@ -431,7 +470,7 @@ public final class SessionViewModel {
     }
 
     /// Tears down whichever parked panes now exceed `maxWarmPanes`, oldest
-    /// park first -- each through `teardownParkedPane`, so an eviction can
+    /// park first -- each through `teardownSurface`, so an eviction can
     /// never race an attach/park already in flight for that SAME pane.
     private func evictWarmPanesIfNeeded() async {
         guard parkedPanes.count > Self.maxWarmPanes else { return }
@@ -439,14 +478,14 @@ public final class SessionViewModel {
         let stale = Array(parkedPanes.prefix(overflow))
         parkedPanes.removeFirst(overflow)
         for pane in stale {
-            await teardownParkedPane(pane)
+            await teardownSurface(pane)
         }
     }
 
     /// Tears `pane`'s surface down for real: the warm cap's own eviction, or
     /// herdr no longer reporting this pane at all (`reconcileClosedPanes`).
     /// Chained through `paneWork` like every other per-pane operation.
-    private func teardownParkedPane(_ pane: PaneID) async {
+    private func teardownSurface(_ pane: PaneID) async {
         let previous = paneWork[pane]
         let task = Task { [weak self] in
             _ = await previous?.value

@@ -252,8 +252,15 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.update(model: makeModel(), connection: .live)
         XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w1"))
 
-        // An unrelated layout_updated leaves focus untouched; the selection
-        // (already derived from that focus) must not be reset or cleared.
+        // The user has since picked a DIFFERENT tab than herdr's own focus
+        // -- paddock's selection only ever follows herdr's focus on a
+        // CHANGE of it (see `testSelectionFollowsHerdrFocusedTabWhenItChanges`),
+        // never unconditionally, so this override must survive.
+        viewModel.select(tab: TabID(rawValue: "w1:t2"))
+
+        // An unrelated layout_updated leaves herdr's OWN focused tab
+        // untouched; the user's override must not be reset or clobbered
+        // back to it.
         var updated = makeModel()
         updated.layouts[TabID(rawValue: "w1:t1")] = LayoutSnapshot(
             workspaceID: WorkspaceID(rawValue: "w1"),
@@ -267,7 +274,28 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.update(model: updated, connection: .live)
 
         XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w1"))
+        XCTAssertEqual(
+            viewModel.selectedTabID, TabID(rawValue: "w1:t2"),
+            "herdr's own focused tab did not change, so the user's own selection must persist")
+    }
+
+    /// The ruling this task's live tab-switch check depends on: paddock's
+    /// selected tab now MIRRORS herdr's own focused tab live -- a tab switch
+    /// is a warm re-host now, cheap enough to always follow, the same way
+    /// the rest of the session already does. Only an actual CHANGE of
+    /// herdr's focused tab moves the selection (see the test above for the
+    /// complementary "no change, no move" half).
+    @MainActor
+    func testSelectionFollowsHerdrFocusedTabWhenItChanges() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: makeModel(focusedTabID: "w1:t1"), connection: .live)
         XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w1:t1"))
+
+        viewModel.update(model: makeModel(focusedTabID: "w1:t2"), connection: .live)
+
+        XCTAssertEqual(
+            viewModel.selectedTabID, TabID(rawValue: "w1:t2"),
+            "herdr's focused tab changed, so paddock's selection follows it")
     }
 
     @MainActor
@@ -669,11 +697,46 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(surface.modeCalls, [.control, .observe])
     }
 
-    /// The warm cap: parking a 13th pane (cap is 12) evicts the FIRST parked
-    /// one for real (`detach()`), leaving the rest -- including the newest --
-    /// warm and reachable.
+    /// The warm cap: parking a 13th pane (cap is 12) evicts the FIRST
+    /// PARKED one for real (`detach()`), leaving the rest -- including the
+    /// newest -- warm and reachable. Attached in ASCENDING order but parked
+    /// in the REVERSE (descending) order specifically so attach order and
+    /// park order disagree on which pane is "oldest": only park order may
+    /// decide eviction, never attach order.
     @MainActor
-    func testExceedingTheWarmCapTearsDownTheOldestParkedPane() async throws {
+    func testExceedingTheWarmCapTearsDownTheOldestParkedPaneNotTheOldestAttached() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let panes = (1...13).map { PaneID(rawValue: "w1:p\($0)") }
+
+        for pane in panes {
+            _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        }
+        for pane in panes.reversed() {
+            await viewModel.detachPane(pane)
+        }
+
+        let firstParked = panes[12] // w1:p13 -- attached LAST, but parked FIRST
+        let lastParked = panes[0] // w1:p1 -- attached FIRST, but parked LAST
+        let evicted = try XCTUnwrap(factory.surfaces[firstParked])
+        XCTAssertEqual(evicted.detachCallCount, 1, "the FIRST PARKED pane must be evicted, regardless of attach order")
+        XCTAssertNil(viewModel.ghosttySurface(for: firstParked))
+
+        let newest = try XCTUnwrap(factory.surfaces[lastParked])
+        XCTAssertEqual(newest.detachCallCount, 0, "the pane parked LAST -- even though it was attached FIRST -- must stay warm")
+        XCTAssertNotNil(viewModel.ghosttySurface(for: lastParked))
+
+        for pane in panes where pane != firstParked {
+            let surface = try XCTUnwrap(factory.surfaces[pane])
+            XCTAssertEqual(surface.detachCallCount, 0, "every pane but the first-parked one stays warm")
+        }
+    }
+
+    /// The evicted pane has nothing left in the pool: a later reattach under
+    /// the SAME id creates a brand new surface, never reuses the torn-down
+    /// one.
+    @MainActor
+    func testEvictedPaneReattachesColdWithANewSurface() async throws {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let panes = (1...13).map { PaneID(rawValue: "w1:p\($0)") }
@@ -684,16 +747,169 @@ final class SessionViewModelTests: XCTestCase {
         for pane in panes {
             await viewModel.detachPane(pane)
         }
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 13)
+        let evictedPane = panes[0]
+        XCTAssertNil(viewModel.ghosttySurface(for: evictedPane), "the oldest-parked pane was evicted")
 
-        let oldest = try XCTUnwrap(factory.surfaces[panes[0]])
-        XCTAssertEqual(oldest.detachCallCount, 1, "the FIRST parked pane must be the one evicted once the cap is exceeded")
-        XCTAssertNil(viewModel.ghosttySurface(for: panes[0]), "the evicted pane's surface is no longer reachable")
+        let reattached = await viewModel.attachPane(evictedPane, cols: 80, rows: 24)
 
-        for pane in panes.dropFirst() {
-            let surface = try XCTUnwrap(factory.surfaces[pane])
-            XCTAssertEqual(surface.detachCallCount, 0, "every pane but the oldest stays warm")
-            XCTAssertNotNil(viewModel.ghosttySurface(for: pane))
+        XCTAssertNotNil(reattached)
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 14, "the evicted pane's reattach must create a NEW surface, not reuse the torn-down one")
+    }
+
+    /// M2: a warm reattach that lands on the resolved-focused pane must arm
+    /// control, exactly like a cold attach does (`testAttachArmsControlOnly
+    /// ForTheAlreadyFocusedPane`) -- otherwise a pane whose tab is switched
+    /// back TO because it holds herdr's focus would sit warm in observe mode
+    /// until an unrelated focus flip happened to reconcile it.
+    @MainActor
+    func testWarmReattachArmsControlWhenThePaneIsResolvedFocused() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        await viewModel.detachPane(pane)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(surface.modeCalls, [], "never focused, so parking it touched mode not at all -- see testParkingAnAlreadyObservePaneSendsNoRedundantModeCall")
+
+        // herdr's focus (and so paddock's resolved focus) is now on this
+        // pane -- the tab it belongs to is being switched back to BECAUSE it
+        // holds focus, the realistic case this covers.
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+
+        XCTAssertEqual(surface.currentMode, .control, "a warm reattach onto the resolved-focused pane must arm control")
+    }
+
+    /// I3: a park and an attach for the SAME pane, both fired as independent,
+    /// unawaited `Task { ... }` closures in the SAME main-actor turn -- the
+    /// exact real shape of `PaneCellView.onDisappear`'s `Task { await
+    /// viewModel.detachPane(...) }` racing a fresh `.task(id:)` firing
+    /// `attachPane` for the same pane before the outgoing park has settled
+    /// (a fast tab-switch-back) -- must never leave the pane both VISIBLE
+    /// (attached) and still tracked as PARKED. That combination is exactly
+    /// what would let a later, unrelated eviction tear down a pane that is
+    /// actually on screen. This is deterministic, not a timing gamble: the
+    /// two calls share `paneWork[pane]`'s chain, so whichever of the two
+    /// underlying steps (`performPark`/`performAttach`) runs SECOND settles
+    /// the pane's true state -- the fix is that `performAttach` re-removes
+    /// from `parkedPanes` itself rather than trusting `attachPane`'s own
+    /// synchronous (pre-chain) removal, which can run before `performPark`
+    /// ever appends.
+    @MainActor
+    func testInterleavedParkAndAttachForTheSamePaneNeverLeavesItBothVisibleAndParked() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+
+        // Neither call is awaited before the next fires -- both `Task { }`
+        // closures are simply created back to back, exactly like the two
+        // independent SwiftUI-driven call sites do in production.
+        let parkTask = Task { await viewModel.detachPane(pane) }
+        let attachTask = Task { _ = await viewModel.attachPane(pane, cols: 80, rows: 24) }
+        await parkTask.value
+        await attachTask.value
+
+        // Whichever of the two settles last, the pane must end up NOT
+        // eligible for warm eviction while it is reachable/visible: prove
+        // it by parking 12 MORE panes afterward (the full warm cap) and
+        // confirming this one is never swept up as if it were still parked.
+        let otherPanes = (2...13).map { PaneID(rawValue: "w1:p\($0)") }
+        for other in otherPanes {
+            _ = await viewModel.attachPane(other, cols: 80, rows: 24)
         }
+        for other in otherPanes {
+            await viewModel.detachPane(other)
+        }
+
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(
+            surface.detachCallCount, 0,
+            "a pane left visible by the interleaving must never be torn down by an unrelated warm-cap eviction")
+        XCTAssertNotNil(viewModel.ghosttySurface(for: pane))
+    }
+
+    /// A pane re-keyed across workspaces (`.paneMoved` at the reducer level,
+    /// `PaneMovedPayload`) leaves its OLD id behind entirely -- from the
+    /// pool's perspective that is indistinguishable from herdr closing the
+    /// old id outright: it is torn down for real once it vanishes from the
+    /// model, and the NEW id, when it attaches, gets a brand new (cold)
+    /// surface -- the pool never conflates the two.
+    @MainActor
+    func testPaneReKeyedAcrossWorkspacesTearsDownTheOldIDAndAttachesTheNewIDCold() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let oldPane = PaneID(rawValue: "w1:p2")
+        var modelBefore = makeModel()
+        modelBefore.panes[oldPane] = PaneRecord(
+            paneID: oldPane, workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"),
+            focused: false, agentStatus: .unknown, revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp", scroll: nil
+        )
+        viewModel.update(model: modelBefore, connection: .live)
+
+        _ = await viewModel.attachPane(oldPane, cols: 80, rows: 24)
+        let oldSurface = try XCTUnwrap(factory.surfaces[oldPane])
+        await viewModel.detachPane(oldPane)
+        XCTAssertEqual(oldSurface.detachCallCount, 0, "parked, not torn down, yet")
+
+        // The pane re-keys to a new workspace/id -- the OLD id vanishes from
+        // the model entirely (it is never reported again under that id).
+        let newPane = PaneID(rawValue: "w2:p9")
+        var modelAfter = makeModel()
+        modelAfter.panes[newPane] = PaneRecord(
+            paneID: newPane, workspaceID: WorkspaceID(rawValue: "w2"), tabID: TabID(rawValue: "w2:t1"),
+            focused: false, agentStatus: .unknown, revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp", scroll: nil
+        )
+        viewModel.update(model: modelAfter, connection: .live)
+        await viewModel.waitForClosedPaneTeardown()
+
+        XCTAssertEqual(oldSurface.detachCallCount, 1, "the old id must be torn down for real once it vanishes from the model")
+        XCTAssertNil(viewModel.ghosttySurface(for: oldPane))
+
+        let newSurface = await viewModel.attachPane(newPane, cols: 80, rows: 24)
+        XCTAssertNotNil(newSurface)
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "the new id attaches cold -- a brand new surface, never reusing the old id's")
+    }
+
+    /// M1/pool integration: closing a whole TAB tears down every one of its
+    /// parked panes, not just an individually-closed pane -- the fixed
+    /// `removeTab` reducer drops every pane belonging to the closed tab from
+    /// `model.panes` in one shot, and the pool's own `reconcileClosedPanes`
+    /// (which does not care WHY a pane vanished) reacts identically either
+    /// way.
+    @MainActor
+    func testClosingATabTearsDownAllItsParkedPanes() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let paneA = PaneID(rawValue: "w1:p2")
+        let paneB = PaneID(rawValue: "w1:p3")
+        var modelWithTab = makeModel()
+        for pane in [paneA, paneB] {
+            modelWithTab.panes[pane] = PaneRecord(
+                paneID: pane, workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t2"),
+                focused: false, agentStatus: .unknown, revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp", scroll: nil
+            )
+        }
+        viewModel.update(model: modelWithTab, connection: .live)
+
+        _ = await viewModel.attachPane(paneA, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(paneB, cols: 80, rows: 24)
+        let surfaceA = try XCTUnwrap(factory.surfaces[paneA])
+        let surfaceB = try XCTUnwrap(factory.surfaces[paneB])
+        await viewModel.detachPane(paneA)
+        await viewModel.detachPane(paneB)
+
+        // The tab (w1:t2) closes: both its panes vanish from the model in
+        // one shot, the way the fixed `removeTab` reducer now behaves.
+        viewModel.update(model: makeModel(), connection: .live)
+        await viewModel.waitForClosedPaneTeardown()
+
+        XCTAssertEqual(surfaceA.detachCallCount, 1)
+        XCTAssertEqual(surfaceB.detachCallCount, 1)
+        XCTAssertNil(viewModel.ghosttySurface(for: paneA))
+        XCTAssertNil(viewModel.ghosttySurface(for: paneB))
     }
 
     /// A pane herdr no longer reports (missing from a later `update`) is
