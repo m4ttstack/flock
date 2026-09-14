@@ -33,6 +33,9 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
             removeWorkspace(closedWorkspaceID, from: &model)
         }
 
+    case .paneScrollChanged(let paneID, let scroll):
+        model.panes[paneID]?.scroll = scroll
+
     case .paneExited, .paneAgentStatusChanged:
         break
 

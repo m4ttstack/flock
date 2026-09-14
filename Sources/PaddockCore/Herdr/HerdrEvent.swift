@@ -20,6 +20,10 @@ public enum HerdrEvent: Sendable {
     case paneMoved(PaneMovedPayload)
     case paneExited(PaneID)
     case paneAgentStatusChanged(PaneID, AgentStatus)
+    /// Never arrives on the blanket subscription: it is pane-scoped, fed by
+    /// one `pane.scroll_changed` subscription per attached pane
+    /// (`PaneScrollSubscriber`) and decoded by `HerdrDecoder.scrollChanged`.
+    case paneScrollChanged(PaneID, ScrollInfo)
     case tabCreated(TabRecord)
     case tabClosed(TabID)
     case tabRenamed(TabID, String)
@@ -80,6 +84,29 @@ extension HerdrDecoder {
         }
         let data: EventPayload?
         let result: Ack?
+    }
+
+    /// The `{"event":"pane.scroll_changed","data":{...}}` frame a per-pane
+    /// subscription connection streams -- a `SubscriptionEventEnvelope`, not
+    /// the `EventEnvelope` shape `event(fromLine:)` reads (its `data` carries
+    /// no `type`). `nil` for the subscribe ack and for every other line.
+    public static func scrollChanged(fromLine line: Data) -> (paneID: PaneID, scroll: ScrollInfo)? {
+        struct Payload: Decodable {
+            let paneID: PaneID
+            let scroll: ScrollInfo
+            enum CodingKeys: String, CodingKey {
+                case paneID = "pane_id"
+                case scroll
+            }
+        }
+        struct Envelope: Decodable {
+            let event: String
+            let data: Payload
+        }
+        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line),
+              envelope.event == "pane.scroll_changed"
+        else { return nil }
+        return (envelope.data.paneID, envelope.data.scroll)
     }
 
     public static func event(fromLine line: Data) throws -> HerdrEvent {

@@ -62,10 +62,19 @@ public struct SplitInfo: Codable, Equatable, Sendable {
     public let rect: CellRect
 }
 
+/// herdr's own scroll state for one pane (`PaneScrollInfo`): how far the
+/// shared viewport sits above the tail, how far it could go, and how tall it
+/// is. `viewportRows` is the pane runtime's real row count.
 public struct ScrollInfo: Codable, Equatable, Sendable {
     public let offsetFromBottom: Int
     public let maxOffsetFromBottom: Int
     public let viewportRows: Int
+
+    public init(offsetFromBottom: Int, maxOffsetFromBottom: Int, viewportRows: Int) {
+        self.offsetFromBottom = offsetFromBottom
+        self.maxOffsetFromBottom = maxOffsetFromBottom
+        self.viewportRows = viewportRows
+    }
 
     enum CodingKeys: String, CodingKey {
         case offsetFromBottom = "offset_from_bottom"
@@ -84,7 +93,7 @@ public struct PaneRecord: Codable, Equatable, Sendable {
     public let terminalTitleStripped: String?
     public let label: String?
     public let cwd: String
-    public let scroll: ScrollInfo?
+    public var scroll: ScrollInfo?
 
     enum CodingKeys: String, CodingKey {
         case paneID = "pane_id"

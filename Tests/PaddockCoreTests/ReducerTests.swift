@@ -112,6 +112,26 @@ final class ReducerTests: XCTestCase {
         XCTAssertNotNil(model.panes[PaneID(rawValue: "w1:p2")])
     }
 
+    func testPaneScrollChangedReplacesThatPanesScrollOnly() throws {
+        var model = try seededModel()
+        let scrolled = ScrollInfo(offsetFromBottom: 12, maxOffsetFromBottom: 200, viewportRows: 23)
+        let untouched = model.panes[PaneID(rawValue: "w1:p2")]?.scroll
+
+        apply(.paneScrollChanged(PaneID(rawValue: "w1:p1"), scrolled), to: &model)
+
+        XCTAssertEqual(model.panes[PaneID(rawValue: "w1:p1")]?.scroll, scrolled)
+        XCTAssertEqual(model.panes[PaneID(rawValue: "w1:p2")]?.scroll, untouched)
+    }
+
+    func testPaneScrollChangedForAnUnknownPaneIsANoOp() throws {
+        let before = try seededModel()
+        var after = before
+
+        apply(.paneScrollChanged(PaneID(rawValue: "w9:p9"), ScrollInfo(offsetFromBottom: 1, maxOffsetFromBottom: 1, viewportRows: 1)), to: &after)
+
+        XCTAssertEqual(after, before)
+    }
+
     func testUnknownEventIsNoOp() throws {
         let before = try seededModel()
         var after = before

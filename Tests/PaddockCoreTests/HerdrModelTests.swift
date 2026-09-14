@@ -22,6 +22,24 @@ final class HerdrModelTests: XCTestCase {
         XCTAssertEqual(t, "pane.hologram")
     }
 
+    /// The per-pane `pane.scroll_changed` subscription frame is not an
+    /// `EventEnvelope` (`data` has no `type`), so it has its own decoder;
+    /// shape per herdr's `SubscriptionEventEnvelope`/`PaneScrollChangedEvent`.
+    func testScrollChangedSubscriptionLineDecodes() throws {
+        let line = Data(#"{"event":"pane.scroll_changed","data":{"pane_id":"w1:p2","workspace_id":"w1","scroll":{"offset_from_bottom":4,"max_offset_from_bottom":17442,"viewport_rows":56}}}"#.utf8)
+
+        let decoded = try XCTUnwrap(HerdrDecoder.scrollChanged(fromLine: line))
+
+        XCTAssertEqual(decoded.paneID, PaneID(rawValue: "w1:p2"))
+        XCTAssertEqual(decoded.scroll, ScrollInfo(offsetFromBottom: 4, maxOffsetFromBottom: 17442, viewportRows: 56))
+    }
+
+    func testScrollChangedDecoderIgnoresAcksAndOtherEvents() throws {
+        XCTAssertNil(HerdrDecoder.scrollChanged(fromLine: Data(#"{"id":"s","result":{"type":"subscription_started"}}"#.utf8)))
+        XCTAssertNil(HerdrDecoder.scrollChanged(fromLine: Data(#"{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p2","workspace_id":"w1","agent_status":"idle"}}"#.utf8)))
+        XCTAssertNil(HerdrDecoder.scrollChanged(fromLine: Data("{not json".utf8)))
+    }
+
     /// Payload captured from a live `layout.export` round trip against herdr
     /// 0.9.0 (a two-pane right split), pinning the decoder to the real wire
     /// shape rather than an assumed one.

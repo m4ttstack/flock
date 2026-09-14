@@ -510,6 +510,13 @@ public final class HerdrStore {
         }
     }
 
+    /// The pane-scoped scroll feed's entry point: one `pane.scroll_changed`
+    /// subscription per attached pane (`PaneScrollSubscriber`) lands here,
+    /// off the blanket subscription, and reduces like any live event.
+    public func applyScrollChanged(pane: PaneID, scroll: ScrollInfo) {
+        applyLiveEvent(.paneScrollChanged(pane, scroll))
+    }
+
     private func applyLiveEvent(_ event: HerdrEvent) {
         guard var current = model else { return }
         apply(event, to: &current)
