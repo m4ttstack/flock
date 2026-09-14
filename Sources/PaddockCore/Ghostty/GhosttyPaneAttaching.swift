@@ -75,6 +75,15 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// a warm (parked-then-reattached) surface already carries `true` from its
     /// earlier life, so seeding `ghosttySurface` from the pool at a cell's
     /// `init` never re-shows the card for it.
+    ///
+    /// What this actually latches is "the bridge wrote a full-redraw
+    /// `terminal.frame`'s bytes to the PTY", not "libghostty has drawn them
+    /// on screen" -- those are two different ticks (the surface's own render
+    /// pass reads the PTY on its own schedule, a frame or two later). The
+    /// 150ms crossfade (`PaneCellView.content`'s `.animation`) is what makes
+    /// that gap invisible: card and surface are both on screen, opacity
+    /// swapping, so the surface has already had time to draw by the time the
+    /// card has fully faded.
     var hasFirstFrame: Bool { get }
 }
 
