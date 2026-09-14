@@ -72,7 +72,10 @@ struct PaneCanvas: View {
                         .foregroundStyle(theme.overlay0)
                         .frame(width: proxy.size.width, height: proxy.size.height)
                 }
-                DropzoneOverlay(theme: theme, preview: dropPreview(grid: grid))
+                DropzoneOverlay(
+                    theme: theme, layout: layout, exported: layout.flatMap { viewModel.exportedLayout(for: $0.tabID) },
+                    grid: grid, dividerThickness: Self.dividerThickness
+                )
             }
             // The canvas lays out in its own space and drop hit-testing works
             // in the window's, so the frames are published translated by the
@@ -86,18 +89,6 @@ struct PaneCanvas: View {
     private func resolvedGeometry(grid: CanvasGrid) -> CanvasGeometry {
         guard let layout else { return .empty }
         return CanvasGeometry.resolved(
-            layout: layout,
-            exported: viewModel.exportedLayout(for: layout.tabID),
-            grid: grid,
-            dividerThickness: Self.dividerThickness
-        )
-    }
-
-    private func dropPreview(grid: CanvasGrid) -> DropPreviewFrames? {
-        guard let layout else { return nil }
-        return DropPreview.frames(
-            target: drag.target,
-            dragging: drag.activeSubject,
             layout: layout,
             exported: viewModel.exportedLayout(for: layout.tabID),
             grid: grid,

@@ -5,12 +5,21 @@ import SwiftUI
 /// lands, with the incoming pane's filled. Drawn in the canvas's own space
 /// (the same space `CanvasGeometry` produces) and cross-faded whole as the
 /// target moves, so nothing here ever animates a layout.
+///
+/// The live drag state is read HERE rather than passed down from
+/// `PaneCanvas`: the target changes on every pointer move, and reading it in
+/// the canvas's own body would re-evaluate every pane cell that often.
 struct DropzoneOverlay: View {
     let theme: Theme
-    let preview: DropPreviewFrames?
-    var dividerThickness: CGFloat = 6
+    let layout: LayoutSnapshot?
+    let exported: ExportedLayoutDescription?
+    let grid: CanvasGrid
+    let dividerThickness: CGFloat
+
+    @Environment(DragCoordinator.self) private var drag
 
     var body: some View {
+        let preview = preview
         ZStack(alignment: .topLeading) {
             if let preview {
                 shapes(for: preview)
@@ -21,6 +30,18 @@ struct DropzoneOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .allowsHitTesting(false)
         .animation(.easeInOut(duration: DragVisuals.previewCrossfadeDuration), value: preview)
+    }
+
+    private var preview: DropPreviewFrames? {
+        guard let layout else { return nil }
+        return DropPreview.frames(
+            target: drag.target,
+            dragging: drag.activeSubject,
+            layout: layout,
+            exported: exported,
+            grid: grid,
+            dividerThickness: dividerThickness
+        )
     }
 
     private func shapes(for preview: DropPreviewFrames) -> some View {

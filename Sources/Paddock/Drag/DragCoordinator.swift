@@ -45,9 +45,14 @@ final class DragCoordinator {
     /// `controller.phase` is already back to `.idle` while the spring runs,
     /// and the origin must stay faded until the ghost is gone.
     private(set) var activeSubject: DragSubject?
-    /// Non-nil only while the settle spring runs; the ghost is drawn here
-    /// instead of at the cursor, and the spring is what carries it there.
-    private(set) var settleTopLeft: CGPoint?
+    /// The ghost's own top-left, held as state rather than derived from
+    /// `controller.phase`: the phase is `.committing` for as long as the drop
+    /// takes to execute, and a ghost that vanished for that stretch and
+    /// reappeared at the destination would have no spring to ride.
+    private(set) var ghostTopLeft: CGPoint?
+    /// True only while the settle spring runs, which is the one stretch the
+    /// ghost's position is animated at all.
+    private(set) var isSettling = false
     private(set) var landingFlash: LandingFlash?
 
     // MARK: - Live surfaces, every frame in the drag space
@@ -146,14 +151,29 @@ final class DragCoordinator {
         workspaceOrder = order
     }
 
+    /// Frozen while that list is showing an insertion gap: the index is
+    /// measured against where the items REST, so a reshuffled item must never
+    /// be able to report its shifted position back in and move the very gap
+    /// that shifted it. Neither reorder target is spring-load eligible, so
+    /// nothing else can change either list while one is frozen.
     func setTabFrame(_ frame: CGRect, for id: TabID) {
-        guard tabFrameByID[id] != frame else { return }
+        guard !isReorderingTabs, tabFrameByID[id] != frame else { return }
         tabFrameByID[id] = frame
     }
 
     func setWorkspaceFrame(_ frame: CGRect, for id: WorkspaceID) {
-        guard workspaceFrameByID[id] != frame else { return }
+        guard !isReorderingWorkspaces, workspaceFrameByID[id] != frame else { return }
         workspaceFrameByID[id] = frame
+    }
+
+    private var isReorderingTabs: Bool {
+        if case .tabStrip? = target { return true }
+        return false
+    }
+
+    private var isReorderingWorkspaces: Bool {
+        if case .workspaceRail? = target { return true }
+        return false
     }
 
     var surfaces: DropSurfaces? {
@@ -174,8 +194,9 @@ final class DragCoordinator {
 
     func begin(_ subject: DragSubject, ghost: Ghost, at point: CGPoint) {
         settleTask?.cancel()
-        settleTopLeft = nil
+        isSettling = false
         grabPoint = point
+        ghostTopLeft = DragVisuals.ghostTopLeft(forCursor: point)
         activeSubject = subject
         self.ghost = ghost
         controller.began(subject, at: point)
@@ -187,6 +208,7 @@ final class DragCoordinator {
     }
 
     func move(to point: CGPoint) {
+        ghostTopLeft = DragVisuals.ghostTopLeft(forCursor: point)
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
     }
@@ -239,7 +261,8 @@ final class DragCoordinator {
     }
 
     private func settle(to topLeft: CGPoint) {
-        settleTopLeft = topLeft
+        isSettling = true
+        ghostTopLeft = topLeft
         settleTask?.cancel()
         settleTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(DragVisuals.settleDuration))
@@ -251,7 +274,8 @@ final class DragCoordinator {
     private func clearGhost() {
         ghost = nil
         activeSubject = nil
-        settleTopLeft = nil
+        ghostTopLeft = nil
+        isSettling = false
     }
 
     private func flash(_ rect: CGRect) {
@@ -308,14 +332,6 @@ final class DragCoordinator {
     func isDragging(pane: PaneID) -> Bool { activeSubject == .pane(pane) }
     func isDragging(tab: TabID) -> Bool { activeSubject == .tab(tab) }
     func isDragging(workspace: WorkspaceID) -> Bool { activeSubject == .workspace(workspace) }
-
-    var isSettling: Bool { settleTopLeft != nil }
-
-    var ghostTopLeft: CGPoint? {
-        if let settleTopLeft { return settleTopLeft }
-        guard case .dragging(_, let point, _) = controller.phase else { return nil }
-        return DragVisuals.ghostTopLeft(forCursor: point)
-    }
 
     var insertionMark: InsertionMark? {
         switch target {
