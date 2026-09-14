@@ -152,6 +152,14 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   panes ignore the wheel until focused. The SwiftUI history overlay and its
   `pane.selection.read` chunk loading are removed; `pane.selection.read`
   remains available for a future search feature only.
+- **Tab following (ruled 2026-09-13):** paddock's selected tab follows
+  herdr's focused tab whenever herdr's focus changes (a tab switch is a
+  warm re-host of parked surfaces, so following is cheap); a
+  paddock-initiated selection persists until herdr's focus next changes.
+  Pane surfaces are parked, not destroyed, when their tab leaves the
+  screen (LRU cap 12), so returning to a tab shows current content
+  without a flash; cold attaches show the status card until the first
+  full frame, then crossfade.
 - **Attach policy:** streams for visible + selected panes with an LRU cap
   (target ~30, spike-validated); detached panes show status cards (title,
   label, cwd, agent badge, last line from snapshot data). Frame updates
