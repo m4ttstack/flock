@@ -48,37 +48,64 @@ public enum DragThreshold {
     }
 }
 
-/// Which presses on a pane body arm a drag: any of them while rearrange mode
-/// is active, otherwise only the band along the body's top edge (the legend
-/// is its own view and carries its own gesture).
+/// Where a pane can be grabbed.
 ///
-/// `point` and `bounds` are in the body's own space with a TOP-LEFT origin;
-/// an AppKit caller flips before calling, never after.
+/// At rest the handle is the cell's top chrome: the legend line plus the inset
+/// above the terminal surface. That band is chrome the cell already spends, so
+/// it costs no terminal rows and the terminal's first line stays selectable
+/// text. The body itself is the terminal's until rearrange mode is active, at
+/// which point the whole pane is a drag surface.
 public enum PaneGrabRegion {
-    public static let topBandHeight: CGFloat = 12
+    /// From the cell's own top edge down to the first terminal row: half the
+    /// legend's height (the part above the box) plus the box's top inset.
+    /// Derived from the cell's real metrics rather than fixed, so the band and
+    /// the surface cannot drift apart.
+    public static func topChromeHeight(legendHalfHeight: CGFloat, contentInsetTop: CGFloat) -> CGFloat {
+        legendHalfHeight + contentInsetTop
+    }
 
-    public static func armsDrag(at point: CGPoint, in bounds: CGRect, rearrangeActive: Bool) -> Bool {
-        guard bounds.contains(point) else { return false }
-        if rearrangeActive { return true }
-        return point.y - bounds.minY <= topBandHeight
+    /// Whether a press in the pane BODY arms a drag. `point` and `bounds` are
+    /// in the body's own space with a TOP-LEFT origin; an AppKit caller flips
+    /// before calling, never after.
+    public static func bodyArmsDrag(at point: CGPoint, in bounds: CGRect, rearrangeActive: Bool) -> Bool {
+        rearrangeActive && bounds.contains(point)
     }
 }
 
 /// How far a strip/rail item slides while a reorder drag is in flight: the
-/// dragged item leaves a hole behind it and the insertion point opens one
-/// ahead of it, so the two cancel outside the moved range and only the items
-/// actually between the old and new position move at all.
+/// standard reorder shift, previewing the WHOLE post-drop arrangement.
+///
+/// Each item between the origin and the insertion point moves one slot toward
+/// the origin, and the origin takes the one slot they vacate. Items outside
+/// that range do not move. The origin moving is what keeps the preview an
+/// arrangement rather than an overlap: it stays in the list at
+/// `DragVisuals.originOpacity`, so an origin pinned to its old slot would have
+/// the neighbour that slides into that slot drawn straight on top of it.
 public enum ReshuffleOffset {
     /// What a cross-list drag (a tab from another workspace) opens, having no
     /// item of its own in this list to take the extent from.
     public static let defaultExtent: CGFloat = 56
 
     public static func displacement(forItemAt index: Int, draggingIndex: Int?, insertIndex: Int, extent: CGFloat) -> CGFloat {
-        guard index != draggingIndex else { return 0 }
-        var displacement: CGFloat = 0
-        if let draggingIndex, index > draggingIndex { displacement -= extent }
-        if index >= insertIndex { displacement += extent }
-        return displacement
+        // Nothing of this list is moving, so the gap is simply opened at the
+        // insertion point for the arriving item.
+        guard let draggingIndex else {
+            return index >= insertIndex ? extent : 0
+        }
+        // `insertIndex` counts gaps, so a gap past the origin names a
+        // destination one slot lower once the origin itself has moved out of
+        // the way.
+        let destination = insertIndex > draggingIndex ? insertIndex - 1 : insertIndex
+        if index == draggingIndex {
+            return CGFloat(destination - draggingIndex) * extent
+        }
+        if index > draggingIndex, index <= destination {
+            return -extent
+        }
+        if index < draggingIndex, index >= destination {
+            return extent
+        }
+        return 0
     }
 
     /// The main-axis distance an item occupies including the gap to its

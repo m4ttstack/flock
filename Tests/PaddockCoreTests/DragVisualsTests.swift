@@ -32,41 +32,75 @@ final class DragVisualsTests: XCTestCase {
         XCTAssertTrue(DragThreshold.passed(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 6)))
     }
 
-    func testGrabRegionTakesTheTopBandAtRest() {
-        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
-        XCTAssertTrue(PaneGrabRegion.armsDrag(at: CGPoint(x: 200, y: 4), in: bounds, rearrangeActive: false))
-        XCTAssertTrue(PaneGrabRegion.armsDrag(at: CGPoint(x: 200, y: 12), in: bounds, rearrangeActive: false))
+    func testTopChromeHeightIsTheLegendPlusTheBoxInset() {
+        XCTAssertEqual(PaneGrabRegion.topChromeHeight(legendHalfHeight: 8, contentInsetTop: 12), 20)
     }
 
-    func testGrabRegionLeavesTheBodyToTheTerminalAtRest() {
+    func testPaneBodyIsTheTerminalsAtRest() {
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
-        XCTAssertFalse(PaneGrabRegion.armsDrag(at: CGPoint(x: 200, y: 13), in: bounds, rearrangeActive: false))
-        XCTAssertFalse(PaneGrabRegion.armsDrag(at: CGPoint(x: 200, y: 290), in: bounds, rearrangeActive: false))
+        XCTAssertFalse(PaneGrabRegion.bodyArmsDrag(at: CGPoint(x: 200, y: 1), in: bounds, rearrangeActive: false))
+        XCTAssertFalse(PaneGrabRegion.bodyArmsDrag(at: CGPoint(x: 200, y: 290), in: bounds, rearrangeActive: false))
     }
 
-    func testGrabRegionTakesTheWholePaneWhileRearranging() {
+    func testPaneBodyIsAllDragSurfaceWhileRearranging() {
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
-        XCTAssertTrue(PaneGrabRegion.armsDrag(at: CGPoint(x: 200, y: 290), in: bounds, rearrangeActive: true))
+        XCTAssertTrue(PaneGrabRegion.bodyArmsDrag(at: CGPoint(x: 200, y: 290), in: bounds, rearrangeActive: true))
     }
 
-    func testGrabRegionIgnoresAPointOutsideTheBody() {
-        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
-        XCTAssertFalse(PaneGrabRegion.armsDrag(at: CGPoint(x: 410, y: 2), in: bounds, rearrangeActive: true))
+    /// A body whose own space does not start at zero: the point still has to
+    /// be inside it.
+    func testPaneBodyIgnoresAPointOutsideItsBounds() {
+        let bounds = CGRect(x: 40, y: 20, width: 400, height: 300)
+        XCTAssertTrue(PaneGrabRegion.bodyArmsDrag(at: CGPoint(x: 60, y: 40), in: bounds, rearrangeActive: true))
+        XCTAssertFalse(PaneGrabRegion.bodyArmsDrag(at: CGPoint(x: 20, y: 10), in: bounds, rearrangeActive: true))
+        XCTAssertFalse(PaneGrabRegion.bodyArmsDrag(at: CGPoint(x: 460, y: 40), in: bounds, rearrangeActive: true))
     }
 
-    /// Three items, the first dragged into the last gap: only the two it
-    /// passes actually move, and it moves none of itself.
-    func testReshuffleMovesOnlyTheItemsBetweenOldAndNewPosition() {
-        let extent: CGFloat = 60
-        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 0, draggingIndex: 0, insertIndex: 2, extent: extent), 0)
-        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 1, draggingIndex: 0, insertIndex: 2, extent: extent), -60)
+    /// Three items, the first dragged into the gap before the last: the
+    /// preview is the whole arrangement, so the neighbour it passes slides
+    /// back one slot and the origin takes the slot that neighbour vacated.
+    /// Nothing is drawn twice in one place.
+    func testForwardDragPreviewsTheWholeArrangement() {
+        let extent: CGFloat = 110
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 0, draggingIndex: 0, insertIndex: 2, extent: extent), 110)
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 1, draggingIndex: 0, insertIndex: 2, extent: extent), -110)
         XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 2, draggingIndex: 0, insertIndex: 2, extent: extent), 0)
     }
 
+    func testForwardDragToTheEndMovesEveryItemItPasses() {
+        let extent: CGFloat = 110
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 0, draggingIndex: 0, insertIndex: 3, extent: extent), 220)
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 1, draggingIndex: 0, insertIndex: 3, extent: extent), -110)
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 2, draggingIndex: 0, insertIndex: 3, extent: extent), -110)
+    }
+
+    /// The last item dragged to the front: the two it passes each slide
+    /// forward one slot and it travels back over both.
+    func testBackwardDragPreviewsTheWholeArrangement() {
+        let extent: CGFloat = 110
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 0, draggingIndex: 2, insertIndex: 0, extent: extent), 110)
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 1, draggingIndex: 2, insertIndex: 0, extent: extent), 110)
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 2, draggingIndex: 2, insertIndex: 0, extent: extent), -220)
+    }
+
+    func testBackwardDragOfOnePlaceSwapsTwoItems() {
+        let extent: CGFloat = 110
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 0, draggingIndex: 1, insertIndex: 0, extent: extent), 110)
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 1, draggingIndex: 1, insertIndex: 0, extent: extent), -110)
+        XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 2, draggingIndex: 1, insertIndex: 0, extent: extent), 0)
+    }
+
+    /// Both gaps either side of the dragged item name its own place.
     func testReshuffleMovesNothingWhenTheInsertIndexIsTheItemsOwnPlace() {
-        let extent: CGFloat = 60
-        for index in 0..<3 {
-            XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: index, draggingIndex: 0, insertIndex: 0, extent: extent), 0)
+        let extent: CGFloat = 110
+        for insertIndex in [1, 2] {
+            for index in 0..<3 {
+                XCTAssertEqual(
+                    ReshuffleOffset.displacement(forItemAt: index, draggingIndex: 1, insertIndex: insertIndex, extent: extent),
+                    0,
+                    "index \(index) at insertIndex \(insertIndex)"
+                )
+            }
         }
     }
 

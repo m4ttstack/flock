@@ -24,12 +24,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// `nil` (a placeholder host view with no pane context) means no menu.
     var paneMenuProvider: (() -> NSMenu?)?
 
-    /// The pane body's end of the drag layer: a press this view decides is a
-    /// grab (see `PaneGrabRegion`) is reported here instead of reaching the
-    /// terminal, once it has travelled far enough to be a drag. The SwiftUI
-    /// wrapper owns everything past that; AppKit never touches drag state
-    /// itself.
-    var onBodyDrag: ((PaneBodyDragEvent) -> Void)?
+    /// The pane body's end of the drag layer, called once per drag with the
+    /// press point in this view's own TOP-LEFT space. Everything after that
+    /// belongs to `DragCoordinator`, which drives the drag off window-level
+    /// monitors: the body reports the start and nothing else, so a drag
+    /// survives this view being torn down mid-gesture.
+    var onBodyDragBegan: ((CGPoint) -> Void)?
 
     private var trackingArea: NSTrackingArea?
     private var markedText = NSMutableAttributedString()
@@ -75,13 +75,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         case surface
     }
     private var leftButtonRoute: ButtonRoute?
-    /// A press that landed in the grab region and is waiting to become either
-    /// a drag or a plain click. Nothing has been routed anywhere yet: the
-    /// terminal must not see a down that turns out to be the start of a drag,
-    /// and an unfocused pane must not be focused by one either.
+    /// A press the body took as its own. Only rearrange mode produces one, and
+    /// nothing is routed anywhere for it: no terminal input, and no
+    /// `onPrimaryClick` for an unfocused pane either.
     private struct PendingGrab {
         let origin: CGPoint
-        let downEvent: NSEvent
         var isDragging = false
     }
     private var pendingGrab: PendingGrab?
@@ -204,11 +202,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     override func mouseDown(with event: NSEvent) {
         // Checked before anything is routed: while rearranging, the whole
         // pane is a drag surface, so an unfocused pane's first click starts a
-        // drag rather than firing `onPrimaryClick`'s real `pane.focus` RPC.
-        // At rest only the top band arms this, and the press still becomes an
-        // ordinary click if it never travels far enough (`mouseUp` below).
-        if PaneGrabRegion.armsDrag(at: topLeftPoint(event), in: topLeftBounds, rearrangeActive: rearrangeActive) {
-            pendingGrab = PendingGrab(origin: topLeftPoint(event), downEvent: event)
+        // drag rather than firing `onPrimaryClick`'s real `pane.focus` RPC. At
+        // rest the body is the terminal's, down to its first line: the drag
+        // handle there is the cell's own top chrome, which is SwiftUI.
+        if PaneGrabRegion.bodyArmsDrag(at: topLeftPoint(event), in: topLeftBounds, rearrangeActive: rearrangeActive) {
+            pendingGrab = PendingGrab(origin: topLeftPoint(event))
             leftButtonRoute = nil
             return
         }
@@ -228,33 +226,16 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if let grab = pendingGrab {
+        // A grab that never travelled far enough is simply nothing: rearrange
+        // mode routes no mouse event to the terminal or the app, so there is
+        // no click to replay. The drag itself, if it started, is ended by the
+        // coordinator's own monitor, not here.
+        if pendingGrab != nil {
             pendingGrab = nil
-            if grab.isDragging {
-                onBodyDrag?(.ended(topLeftPoint(event)))
-            } else {
-                performPlainClick(down: grab.downEvent, up: event)
-            }
             return
         }
         sendButtonUp(.left, event: event, route: leftButtonRoute)
         leftButtonRoute = nil
-    }
-
-    /// What a press in the grab region does when it never became a drag:
-    /// exactly what `mouseDown`/`mouseUp` would have done for that press,
-    /// replayed together now that the outcome is known. Rearrange mode
-    /// forwards nothing to the terminal at all, so there is nothing to replay
-    /// there.
-    private func performPlainClick(down: NSEvent, up: NSEvent) {
-        guard !rearrangeActive else { return }
-        guard wantsFocus else {
-            onPrimaryClick?()
-            return
-        }
-        requestWindowFirstResponder()
-        let route = sendButtonDown(.left, event: down)
-        sendButtonUp(.left, event: up, route: route)
     }
 
     /// Right-clicks land in the focused pane by default and Option summons the
@@ -349,14 +330,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// (that is how libghostty extends a selection).
     override func mouseDragged(with event: NSEvent) {
         if var grab = pendingGrab {
-            let point = topLeftPoint(event)
-            if !grab.isDragging, DragThreshold.passed(from: grab.origin, to: point) {
+            if !grab.isDragging, DragThreshold.passed(from: grab.origin, to: topLeftPoint(event)) {
                 grab.isDragging = true
                 pendingGrab = grab
-                onBodyDrag?(.began(grab.origin))
-            }
-            if grab.isDragging {
-                onBodyDrag?(.moved(point))
+                onBodyDragBegan?(grab.origin)
             }
             return
         }

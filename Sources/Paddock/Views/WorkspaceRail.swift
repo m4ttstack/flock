@@ -10,7 +10,6 @@ struct WorkspaceRail: View {
     let onSelect: (WorkspaceID) -> Void
 
     @Environment(DragCoordinator.self) private var drag
-    @State private var draggingWorkspace: WorkspaceID?
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
@@ -56,27 +55,21 @@ struct WorkspaceRail: View {
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
     }
 
+    /// Starts the drag and nothing else: `DragCoordinator` drives it from
+    /// there, off window-level monitors, so no per-row latch can be left
+    /// behind by a rail that is rebuilt mid-drag.
     private func rowDrag(_ workspace: WorkspaceRecord) -> some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
-                if draggingWorkspace != workspace.workspaceID {
-                    draggingWorkspace = workspace.workspaceID
-                    drag.begin(
-                        .workspace(workspace.workspaceID),
-                        ghost: DragCoordinator.Ghost(
-                            title: workspace.label,
-                            symbol: "square.grid.2x2",
-                            originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero
-                        ),
-                        at: value.startLocation
-                    )
-                }
-                drag.move(to: value.location)
-            }
-            .onEnded { _ in
-                guard draggingWorkspace == workspace.workspaceID else { return }
-                draggingWorkspace = nil
-                drag.end()
+                drag.beginIfIdle(
+                    .workspace(workspace.workspaceID),
+                    ghost: DragCoordinator.Ghost(
+                        title: workspace.label,
+                        symbol: "square.grid.2x2",
+                        originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero
+                    ),
+                    at: value.startLocation
+                )
             }
     }
 }

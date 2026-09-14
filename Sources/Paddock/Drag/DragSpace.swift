@@ -14,6 +14,25 @@ enum DragSpace {
     static var coordinateSpace: CoordinateSpace { .named(name) }
 }
 
+/// An `NSView` laid out at exactly the drag space's frame, handed to the
+/// coordinator so a raw AppKit event location can be converted into drag space
+/// by asking AppKit rather than by assuming where the SwiftUI root sits inside
+/// the window. Applied as the background of the very view that names the
+/// space, so the two frames are the same rect by construction.
+struct DragSpaceAnchor: NSViewRepresentable {
+    let coordinator: DragCoordinator
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        coordinator.spaceAnchor = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        coordinator.spaceAnchor = nsView
+    }
+}
+
 private struct DragFrameReporter: ViewModifier {
     let report: (CGRect) -> Void
 

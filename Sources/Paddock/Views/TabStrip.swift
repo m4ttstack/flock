@@ -13,7 +13,6 @@ struct TabStrip: View {
     let onSelect: (TabID) -> Void
 
     @Environment(DragCoordinator.self) private var drag
-    @State private var draggingTab: TabID?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -60,27 +59,21 @@ struct TabStrip: View {
         drag.setTabOrder(tabs.map(\.tabID))
     }
 
+    /// Starts the drag and nothing else: `DragCoordinator` drives it from
+    /// there, off window-level monitors, so no per-pill latch can be left
+    /// behind by a strip that is rebuilt mid-drag.
     private func pillDrag(_ tab: TabRecord) -> some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
-                if draggingTab != tab.tabID {
-                    draggingTab = tab.tabID
-                    drag.begin(
-                        .tab(tab.tabID),
-                        ghost: DragCoordinator.Ghost(
-                            title: tab.label,
-                            symbol: "rectangle.stack",
-                            originSize: drag.tabFrames.first { $0.id == tab.tabID }?.frame.size ?? .zero
-                        ),
-                        at: value.startLocation
-                    )
-                }
-                drag.move(to: value.location)
-            }
-            .onEnded { _ in
-                guard draggingTab == tab.tabID else { return }
-                draggingTab = nil
-                drag.end()
+                drag.beginIfIdle(
+                    .tab(tab.tabID),
+                    ghost: DragCoordinator.Ghost(
+                        title: tab.label,
+                        symbol: "rectangle.stack",
+                        originSize: drag.tabFrames.first { $0.id == tab.tabID }?.frame.size ?? .zero
+                    ),
+                    at: value.startLocation
+                )
             }
     }
 }

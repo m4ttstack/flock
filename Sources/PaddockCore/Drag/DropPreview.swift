@@ -8,6 +8,10 @@ public struct DropPreviewFrames: Hashable, Sendable {
     /// equal whatever order the tree walk produced them in. Empty when no
     /// exported tree was available and only the incoming rect could be
     /// derived.
+    ///
+    /// Both fields are the rects to DRAW: already inset by the pane-box
+    /// gutter, so a previewed rect lands exactly where the cell that takes it
+    /// will, and no caller insets a second time.
     public let others: [CGRect]
 
     public init(incoming: CGRect, others: [CGRect]) {
@@ -36,6 +40,9 @@ public enum DropPreview {
         dividerThickness: CGFloat
     ) -> DropPreviewFrames? {
         guard let target, case .pane(let paneID)? = subject else { return nil }
+        func box(_ frame: CGRect) -> CGRect {
+            PaneBox.frame(in: frame, dividerThickness: dividerThickness)
+        }
         if let exported, exported.tabID == layout.tabID,
            let previewRoot = root(exported.root, dropping: paneID, onto: target) {
             let geometry = CanvasGeometry(
@@ -45,7 +52,7 @@ public enum DropPreview {
             guard let incoming = geometry.paneFrames[paneID] else { return nil }
             let others = geometry.paneFrames.filter { $0.key != paneID }.values
                 .sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
-            return DropPreviewFrames(incoming: incoming, others: Array(others))
+            return DropPreviewFrames(incoming: box(incoming), others: others.map(box))
         }
         let current = CanvasGeometry.resolved(
             layout: layout, exported: exported, grid: grid, dividerThickness: dividerThickness
@@ -53,10 +60,10 @@ public enum DropPreview {
         switch target {
         case .paneEdge(let targetPane, let edge):
             guard targetPane != paneID, let frame = current.paneFrames[targetPane] else { return nil }
-            return DropPreviewFrames(incoming: incomingRect(in: frame, edge: edge), others: [])
+            return DropPreviewFrames(incoming: box(incomingRect(in: frame, edge: edge)), others: [])
         case .paneInterior(let targetPane):
             guard targetPane != paneID, let frame = current.paneFrames[targetPane] else { return nil }
-            return DropPreviewFrames(incoming: frame, others: [])
+            return DropPreviewFrames(incoming: box(frame), others: [])
         case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
             return nil
         }
@@ -174,9 +181,22 @@ public enum DropPreview {
     }
 }
 
-/// The on-screen region a drop would land in: what flashes for 700ms once the
-/// drop commits, and where the ghost settles to. `nil` when the surfaces do
-/// not carry a frame for the target (a tab or workspace that is not on screen).
+/// The region a committed drop should FLASH, which is not every region a drop
+/// can land in: an insertion bar marks a gap that stops meaning anything the
+/// moment the items close over it, so lighting it for 700ms would leave a
+/// sliver burning at a position the new arrangement has already moved past.
+public func dropFlashRect(for target: DropTarget, surfaces: DropSurfaces) -> CGRect? {
+    switch target {
+    case .tabStrip, .workspaceRail:
+        return nil
+    case .paneEdge, .paneInterior, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
+        return dropTargetRect(for: target, surfaces: surfaces)
+    }
+}
+
+/// The on-screen region a drop would land in: where the ghost settles to.
+/// `nil` when the surfaces do not carry a frame for the target (a tab or
+/// workspace that is not on screen).
 public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CGRect? {
     switch target {
     case .paneInterior(let pane):

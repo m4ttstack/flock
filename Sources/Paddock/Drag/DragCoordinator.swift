@@ -4,18 +4,31 @@ import Observation
 import PaddockCore
 import SwiftUI
 
-/// What the commit seam last returned, so the visual layer can tell a real
-/// landing from a plan that was legitimately a no-op: both leave
-/// `DragController.phase` at `.idle`, and only one of them earns a flash.
+/// What the commit seam returned, tagged with the drag that asked. Two things
+/// need it: `.committed` and `.noOp` both leave `DragController.phase` at
+/// `.idle` and only one of them earns a flash, and a slow commit can resolve
+/// after a second drag has already started.
 @MainActor
 final class DragOutcomeRelay {
-    var last: DragOutcome?
+    struct Record {
+        let generation: Int
+        let outcome: DragOutcome
+    }
+
+    var generation = 0
+    var last: Record?
 }
 
 /// The one place the drag gestures, the live layout, and `DragController`
-/// meet: gestures report points in the drag space, the surfaces they hit-test
-/// against are assembled from the frames each view publishes, and everything
-/// the overlays draw is derived here rather than in a SwiftUI body.
+/// meet.
+///
+/// A drag in flight belongs to this object, not to the view it started from.
+/// The views only ever START a drag; move, end, cancel and every piece of
+/// teardown run off window-level event monitors here. That is what makes a
+/// spring-load reveal survivable: revealing another tab destroys the pane
+/// cell the drag began on, and a gesture that owned its own lifecycle would
+/// be torn down with no end event, stranding the ghost, the monitors, and the
+/// rearrange hold for the rest of the session.
 @MainActor
 @Observable
 final class DragCoordinator {
@@ -38,17 +51,35 @@ final class DragCoordinator {
         let dot: CGRect
     }
 
+    private enum Gesture {
+        case idle
+        /// The monitors own move and end.
+        case live
+        /// Esc landed while the button was still down. The drag is already
+        /// torn down; nothing moves and no new drag starts until the button
+        /// comes up, so the ghost stops dead instead of trailing the cursor
+        /// through its own settle spring.
+        case cancelledAwaitingRelease
+    }
+
     let controller: DragController
 
     private(set) var ghost: Ghost?
-    /// The subject for as long as its ghost is on screen, settle included --
+    /// The subject for as long as its ghost is on screen, settle included:
     /// `controller.phase` is already back to `.idle` while the spring runs,
     /// and the origin must stay faded until the ghost is gone.
     private(set) var activeSubject: DragSubject?
-    /// The ghost's own top-left, held as state rather than derived from
-    /// `controller.phase`: the phase is `.committing` for as long as the drop
-    /// takes to execute, and a ghost that vanished for that stretch and
-    /// reappeared at the destination would have no spring to ride.
+    /// The resolved target, stored rather than read back off
+    /// `controller.phase`. The phase is reassigned on every pointer move
+    /// because it carries the ghost position, so a view that read the target
+    /// through it would re-evaluate per move even when the target had not
+    /// changed. Writing it only on a real change is what keeps the dropzone
+    /// preview's tree transform and layout pass off the move path.
+    private(set) var target: DropTarget?
+    /// The ghost's own top-left, held as state rather than derived from the
+    /// phase: the phase is `.committing` for as long as the drop takes to
+    /// execute, and a ghost derived from it would vanish for that stretch and
+    /// reappear at the destination with no spring to ride.
     private(set) var ghostTopLeft: CGPoint?
     /// True only while the settle spring runs, which is the one stretch the
     /// ghost's position is animated at all.
@@ -67,7 +98,8 @@ final class DragCoordinator {
 
     /// Neither zone is a button: each is the free run its chrome already has,
     /// so they move with the items rather than being published separately and
-    /// going stale behind them.
+    /// going stale behind them. Which subjects may use them is
+    /// `resolveDropTarget`'s decision, not this one's.
     var newTabZone: CGRect? {
         guard let stripFrame else { return nil }
         return DropZones.trailing(
@@ -89,20 +121,31 @@ final class DragCoordinator {
     private var tabFrameByID: [TabID: CGRect] = [:]
     private var workspaceFrameByID: [WorkspaceID: CGRect] = [:]
 
+    /// An `NSView` laid out at exactly the drag space's own frame, so a raw
+    /// AppKit event location becomes a drag-space point without this file
+    /// assuming anything about where the SwiftUI root sits in the window.
+    @ObservationIgnored weak var spaceAnchor: NSView?
+
     @ObservationIgnored private let toasts: ToastCenter
     @ObservationIgnored private let rearrangeMode: RearrangeMode
     @ObservationIgnored private let outcomes = DragOutcomeRelay()
+    @ObservationIgnored private var gesture: Gesture = .idle
+    /// Bumped by every `begin` and `cancel`, so a commit that resolves after
+    /// the gesture it belongs to is over cannot flash a stale rect or settle
+    /// the ghost a later gesture is holding.
+    @ObservationIgnored private var generation = 0
     /// Where the gesture started, for the cancel spring-back.
     @ObservationIgnored private var grabPoint: CGPoint = .zero
     /// Whether this drag is the one holding rearrange mode open. Only a drag
     /// that STARTED in rearrange mode does: the hold exists so releasing
-    /// Control mid-drag does not repaint the panes, and a legend drag at rest
+    /// Control mid-drag does not repaint the panes, and a chrome drag at rest
     /// has no rearrange paint to hold on to in the first place.
     @ObservationIgnored private var holdsRearrangeOpen = false
     /// Read from `deinit`, which runs outside actor isolation for a
     /// `@MainActor` class -- the same pattern `RearrangeMode` uses for its own
     /// event monitor.
-    @ObservationIgnored nonisolated(unsafe) private var keyMonitor: Any?
+    @ObservationIgnored nonisolated(unsafe) private var eventMonitor: Any?
+    @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
 
@@ -118,7 +161,7 @@ final class DragCoordinator {
         controller = DragController(
             commit: { subject, target in
                 let outcome = await commit(subject, target)
-                outcomes.last = outcome
+                outcomes.last = DragOutcomeRelay.Record(generation: outcomes.generation, outcome: outcome)
                 return outcome
             },
             springLoadAction: springLoadAction
@@ -126,8 +169,11 @@ final class DragCoordinator {
     }
 
     deinit {
-        if let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
         }
     }
 
@@ -192,7 +238,15 @@ final class DragCoordinator {
 
     // MARK: - Gesture lifecycle
 
-    func begin(_ subject: DragSubject, ghost: Ghost, at point: CGPoint) {
+    /// The only entry point a view has. A second caller for the same press
+    /// (the pane body's AppKit path and a SwiftUI gesture both seeing it, say)
+    /// finds the gesture already live and does nothing, so no view needs a
+    /// latch of its own to remember what it started.
+    func beginIfIdle(_ subject: DragSubject, ghost: Ghost, at point: CGPoint) {
+        guard case .idle = gesture else { return }
+        gesture = .live
+        generation += 1
+        outcomes.generation = generation
         settleTask?.cancel()
         isSettling = false
         grabPoint = point
@@ -200,44 +254,92 @@ final class DragCoordinator {
         activeSubject = subject
         self.ghost = ghost
         controller.began(subject, at: point)
+        target = nil
         holdsRearrangeOpen = rearrangeMode.active
         if holdsRearrangeOpen {
             rearrangeMode.dragBegan()
         }
-        installKeyMonitor()
+        installMonitors()
     }
 
-    func move(to point: CGPoint) {
+    private func move(to point: CGPoint) {
+        guard case .live = gesture else { return }
         ghostTopLeft = DragVisuals.ghostTopLeft(forCursor: point)
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
+        let resolved: DropTarget?
+        if case .dragging(_, _, let current) = controller.phase {
+            resolved = current
+        } else {
+            resolved = nil
+        }
+        if target != resolved {
+            target = resolved
+        }
     }
 
-    func end() {
-        removeKeyMonitor()
-        releaseRearrangeHold()
-        guard case .dragging(_, _, let target) = controller.phase else {
+    private func end() {
+        let landingTarget = target
+        teardown()
+        guard case .dragging = controller.phase else {
             settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
             return
         }
-        let landing = target.flatMap { resolved in surfaces.flatMap { dropTargetRect(for: resolved, surfaces: $0) } }
-        outcomes.last = nil
+        let surfaces = surfaces
+        let settleRect = landingTarget.flatMap { resolved in surfaces.flatMap { dropTargetRect(for: resolved, surfaces: $0) } }
+        let flashRect = landingTarget.flatMap { resolved in surfaces.flatMap { dropFlashRect(for: resolved, surfaces: $0) } }
+        let started = generation
         Task { [weak self] in
             await self?.controller.ended()
-            self?.finish(landing: landing)
+            guard let self, self.generation == started else { return }
+            self.finish(settleRect: settleRect, flashRect: flashRect, generation: started)
         }
     }
 
-    func cancel() {
-        removeKeyMonitor()
-        releaseRearrangeHold()
+    /// Esc. The drag is over immediately, but the button is still down, so the
+    /// monitors stay installed to catch the release that returns this to idle.
+    private func cancel() {
+        generation += 1
+        teardown(keepingMonitors: true)
+        gesture = .cancelledAwaitingRelease
         controller.cancelled()
         settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
     }
 
+    /// The app went away with the button still down, so no `leftMouseUp` is
+    /// ever coming to this window. Same teardown as Esc, but the gesture ends
+    /// outright rather than waiting for a release that will not arrive.
+    private func abandon() {
+        if case .idle = gesture { return }
+        generation += 1
+        teardown()
+        controller.cancelled()
+        settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
+    }
+
+    private func release() {
+        switch gesture {
+        case .live:
+            end()
+        case .cancelledAwaitingRelease, .idle:
+            gesture = .idle
+            removeMonitors()
+        }
+    }
+
+    /// Everything that must stop the moment a drag stops, whatever ended it.
+    private func teardown(keepingMonitors: Bool = false) {
+        if !keepingMonitors {
+            gesture = .idle
+            removeMonitors()
+        }
+        target = nil
+        releaseRearrangeHold()
+    }
+
     /// Settles the phase back to rest and sends the ghost where the outcome
     /// says it belongs: into the landing zone it actually reached, or home.
-    private func finish(landing: CGRect?) {
+    private func finish(settleRect: CGRect?, flashRect: CGRect?, generation: Int) {
         if case .rejected(let reason) = controller.phase {
             report(reason)
             // The only public way back to `.idle` from `.rejected`, and it
@@ -246,12 +348,14 @@ final class DragCoordinator {
             settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
             return
         }
-        guard outcomes.last == .committed, let landing else {
+        guard outcomes.last?.generation == generation, outcomes.last?.outcome == .committed else {
             settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
             return
         }
-        flash(landing)
-        settle(to: landing.origin)
+        if let flashRect {
+            flash(flashRect)
+        }
+        settle(to: settleRect?.origin ?? DragVisuals.ghostTopLeft(forCursor: grabPoint))
     }
 
     private func releaseRearrangeHold() {
@@ -297,37 +401,68 @@ final class DragCoordinator {
         toasts.show(reason, kind: .info)
     }
 
-    // MARK: - Esc and Space, for the length of the drag only
+    // MARK: - The drag's own event monitors
 
-    private func installKeyMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            switch Int(event.keyCode) {
-            case kVK_Escape:
-                self.cancel()
-                return nil
-            case kVK_Space:
-                self.controller.forceSpringLoad()
-                return nil
-            default:
-                return event
+    /// Installed for the length of the drag and no longer. Mouse events are
+    /// passed through rather than swallowed, so AppKit's and SwiftUI's own
+    /// state machines still close out normally; the views simply do not act
+    /// on them.
+    private func installMonitors() {
+        if eventMonitor == nil {
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+                guard let self else { return event }
+                switch event.type {
+                case .keyDown:
+                    switch Int(event.keyCode) {
+                    case kVK_Escape:
+                        self.cancel()
+                        return nil
+                    case kVK_Space:
+                        self.controller.forceSpringLoad()
+                        return nil
+                    default:
+                        return event
+                    }
+                case .leftMouseDragged:
+                    if let point = self.dragSpacePoint(event) {
+                        self.move(to: point)
+                    }
+                    return event
+                case .leftMouseUp:
+                    self.release()
+                    return event
+                default:
+                    return event
+                }
+            }
+        }
+        if resignObserver == nil {
+            resignObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.abandon() }
             }
         }
     }
 
-    private func removeKeyMonitor() {
-        guard let keyMonitor else { return }
-        NSEvent.removeMonitor(keyMonitor)
-        self.keyMonitor = nil
+    private func removeMonitors() {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+        eventMonitor = nil
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
+        }
+        resignObserver = nil
+    }
+
+    private func dragSpacePoint(_ event: NSEvent) -> CGPoint? {
+        guard let anchor = spaceAnchor, anchor.window === event.window else { return nil }
+        let local = anchor.convert(event.locationInWindow, from: nil)
+        return CGPoint(x: local.x, y: anchor.bounds.height - local.y)
     }
 
     // MARK: - What the overlays draw
-
-    var target: DropTarget? {
-        guard case .dragging(_, _, let target) = controller.phase else { return nil }
-        return target
-    }
 
     func isDragging(pane: PaneID) -> Bool { activeSubject == .pane(pane) }
     func isDragging(tab: TabID) -> Bool { activeSubject == .tab(tab) }

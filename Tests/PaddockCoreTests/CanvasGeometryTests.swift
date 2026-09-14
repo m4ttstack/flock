@@ -343,8 +343,24 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(moved.dividers.first?.frame, geometry.dividers.first?.frame.offsetBy(dx: 216, dy: 86))
     }
 
-    func testEmptyGeometryHasNothingToHitTest() {
-        XCTAssertTrue(CanvasGeometry.empty.paneFrames.isEmpty)
-        XCTAssertTrue(CanvasGeometry.empty.dividers.isEmpty)
+    /// `.empty` exists so a window with no selected tab still has something to
+    /// hit-test against, so it is checked through the resolver rather than by
+    /// restating its own definition: the same point that finds a pane on a
+    /// real canvas finds nothing on this one.
+    func testEmptyGeometryResolvesNoCanvasTarget() throws {
+        let layout = try layout(splitCount: 1)
+        let real = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 600, height: 300)))
+        let point = CGPoint(x: 150, y: 150)
+
+        func surfaces(_ canvas: CanvasGeometry) -> DropSurfaces {
+            DropSurfaces(
+                canvas: canvas, stripWorkspace: WorkspaceID(rawValue: "w1"),
+                tabFrames: [], workspaceFrames: [], newTabZone: nil, newWorkspaceZone: nil
+            )
+        }
+
+        let dragged = DragSubject.pane(PaneID(rawValue: "w1:p2"))
+        XCTAssertNotNil(resolveDropTarget(at: point, dragging: dragged, surfaces: surfaces(real)))
+        XCTAssertNil(resolveDropTarget(at: point, dragging: dragged, surfaces: surfaces(.empty)))
     }
 }

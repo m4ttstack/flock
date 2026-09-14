@@ -53,23 +53,17 @@ struct DropzoneOverlay: View {
         }
     }
 
-    /// Inset the same way a real pane cell is, so a previewed rect sits
-    /// exactly where the cell that lands there will.
-    private func box(_ frame: CGRect) -> CGRect {
-        PaneBox.frame(in: frame, dividerThickness: dividerThickness)
-    }
-
-    private func outline(in frame: CGRect) -> some View {
-        let box = box(frame)
-        return RoundedRectangle(cornerRadius: 9)
+    /// `DropPreviewFrames` already carries the pane-box inset, so these are
+    /// drawn exactly as given.
+    private func outline(in box: CGRect) -> some View {
+        RoundedRectangle(cornerRadius: 9)
             .strokeBorder(theme.overlay0, lineWidth: 1)
             .frame(width: box.width, height: box.height)
             .offset(x: box.minX, y: box.minY)
     }
 
-    private func filled(in frame: CGRect) -> some View {
-        let box = box(frame)
-        return RoundedRectangle(cornerRadius: 9)
+    private func filled(in box: CGRect) -> some View {
+        RoundedRectangle(cornerRadius: 9)
             .fill(theme.accent.opacity(0.18))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent, lineWidth: 2))
             .frame(width: box.width, height: box.height)

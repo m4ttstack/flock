@@ -145,7 +145,9 @@ final class DropPreviewTests: XCTestCase {
             target: .paneEdge(Self.p1, .left), dragging: .pane(Self.p3), layout: snapshot,
             exported: exported, grid: canvasGrid, dividerThickness: 6
         ))
-        XCTAssertEqual(preview.incoming.width, 200, accuracy: 1)
+        // 200pt half of the 800pt canvas, less the pane box's own gutter.
+        XCTAssertEqual(preview.incoming.width, 194, accuracy: 1)
+        XCTAssertEqual(preview.incoming.minX, 3, accuracy: 1)
         XCTAssertEqual(preview.others.count, 2)
     }
 
@@ -156,8 +158,9 @@ final class DropPreviewTests: XCTestCase {
             target: .paneEdge(Self.p2, .bottom), dragging: .pane(Self.p1), layout: snapshot,
             exported: nil, grid: canvasGrid, dividerThickness: 6
         ))
-        XCTAssertEqual(preview.incoming.minY, 100, accuracy: 1)
-        XCTAssertEqual(preview.incoming.height, 100, accuracy: 1)
+        // The bottom half of p2's 400pt column, inset by the gutter ONCE.
+        XCTAssertEqual(preview.incoming.minY, 103, accuracy: 1)
+        XCTAssertEqual(preview.incoming.height, 94, accuracy: 1)
         XCTAssertTrue(preview.others.isEmpty)
     }
 
@@ -178,6 +181,43 @@ final class DropPreviewTests: XCTestCase {
     func testPreviewedFramesAreNilForADropOntoItself() {
         XCTAssertNil(DropPreview.frames(
             target: .paneInterior(Self.p1), dragging: .pane(Self.p1), layout: snapshot,
+            exported: exported, grid: canvasGrid, dividerThickness: 6
+        ))
+    }
+
+    func testPreviewedFramesFallBackToTheWholeTargetForAnInteriorDrop() throws {
+        let preview = try XCTUnwrap(DropPreview.frames(
+            target: .paneInterior(Self.p2), dragging: .pane(Self.p1), layout: snapshot,
+            exported: nil, grid: canvasGrid, dividerThickness: 6
+        ))
+        XCTAssertEqual(preview.incoming.minX, 403, accuracy: 1)
+        XCTAssertEqual(preview.incoming.width, 394, accuracy: 1)
+        XCTAssertTrue(preview.others.isEmpty)
+    }
+
+    /// An export cached for a DIFFERENT tab is not this tab's tree, so the
+    /// fallback runs rather than a layout from the wrong tab being drawn.
+    func testAnExportForAnotherTabIsIgnored() throws {
+        let other = ExportedLayoutDescription(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t9"), zoomed: false,
+            focusedPaneID: Self.p1, root: root
+        )
+        let preview = try XCTUnwrap(DropPreview.frames(
+            target: .paneInterior(Self.p2), dragging: .pane(Self.p1), layout: snapshot,
+            exported: other, grid: canvasGrid, dividerThickness: 6
+        ))
+        XCTAssertTrue(preview.others.isEmpty)
+    }
+
+    /// A degenerate cell area lays nothing out, so the transformed tree yields
+    /// no frame for the incoming pane and there is nothing to preview.
+    func testPreviewedFramesAreNilWhenTheTransformedTreeLaysOutNothing() {
+        let degenerate = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: Self.tabID, zoomed: false,
+            area: CellRect(x: 0, y: 0, width: 0, height: 40), focusedPaneID: Self.p1, panes: [], splits: []
+        )
+        XCTAssertNil(DropPreview.frames(
+            target: .paneEdge(Self.p1, .left), dragging: .pane(Self.p3), layout: degenerate,
             exported: exported, grid: canvasGrid, dividerThickness: 6
         ))
     }
@@ -231,5 +271,29 @@ final class DropPreviewTests: XCTestCase {
 
     func testTargetRectIsNilForSomethingNotOnScreen() {
         XCTAssertNil(dropTargetRect(for: .tabThumbnail(TabID(rawValue: "w9:t9")), surfaces: surfaces()))
+    }
+
+    // MARK: - Flash rect
+
+    func testAnInsertionBarHasNoFlashRegion() {
+        XCTAssertNil(dropFlashRect(for: .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 1), surfaces: surfaces()))
+        XCTAssertNil(dropFlashRect(for: .workspaceRail(insertIndex: 1), surfaces: surfaces()))
+    }
+
+    func testEveryOtherTargetFlashesWhereItLands() throws {
+        for target in [
+            DropTarget.paneInterior(Self.p1),
+            .paneEdge(Self.p2, .right),
+            .tabThumbnail(Self.tabID),
+            .workspaceThumbnail(WorkspaceID(rawValue: "w1")),
+            .newTab(WorkspaceID(rawValue: "w1")),
+            .newWorkspace
+        ] {
+            XCTAssertEqual(
+                dropFlashRect(for: target, surfaces: surfaces()),
+                dropTargetRect(for: target, surfaces: surfaces()),
+                "\(target)"
+            )
+        }
     }
 }

@@ -7,6 +7,7 @@ import SwiftUI
 /// hardcodes a chrome hex.
 struct MainWindow: View {
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(DragCoordinator.self) private var dragCoordinator
     let viewModel: SessionViewModel
     let sessionLabel: String
 
@@ -43,6 +44,9 @@ struct MainWindow: View {
         // too, and so a rail/strip/canvas frame and a ghost position are
         // directly comparable.
         .coordinateSpace(.named(DragSpace.name))
+        // Laid out at the named space's own frame, which is what lets a raw
+        // AppKit event location be converted into it.
+        .background(DragSpaceAnchor(coordinator: dragCoordinator))
         .overlay { DragLayer() }
         .overlay { ToastHost() }
         .frame(minWidth: 900, minHeight: 560)

@@ -53,7 +53,6 @@ struct PaneCellView: View {
     /// The terminal body's frame in the drag space: what turns the body's own
     /// top-left point (AppKit) into a drag-space one.
     @State private var bodyFrame: CGRect = .zero
-    @State private var isDraggingFromCell = false
 
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
     /// a warm (parked) pane's surface is already there, so it never renders
@@ -95,14 +94,12 @@ struct PaneCellView: View {
     private var cell: some View {
         box
             .padding(.top, Self.legendHalfHeight)
+            // Under the legend and the chip, so both keep their own gestures,
+            // and strictly above the terminal surface, so this never overlaps
+            // the NSView.
+            .overlay(alignment: .top) { chromeGrabBand }
             .overlay(alignment: .topLeading) { legend }
             .overlay(alignment: .topTrailing) { statusChip }
-            // Covers the parts of the cell that are NOT the ghostty NSView
-            // (the status card, the insets around the surface); the body
-            // itself reports through `onBodyDrag`, since AppKit consumes the
-            // press before any SwiftUI gesture could see it. Armed only while
-            // rearranging: at rest those areas are not drag handles.
-            .simultaneousGesture(paneDrag, including: rearrangeMode.active ? .all : .subviews)
         // One task per pane identity, never keyed on the grid or focus: the
         // pane gets exactly one surface for its whole visible life, created
         // here on first visibility with the grid of that moment. A later box
@@ -136,38 +133,37 @@ struct PaneCellView: View {
         )
     }
 
-    /// The SwiftUI half of a pane grab, in the drag space directly.
+    /// The at-rest drag handle: the cell's top chrome, which is the legend
+    /// line plus the inset above the terminal surface. It is chrome the cell
+    /// already spends, so the handle costs no terminal rows and the first
+    /// terminal line stays selectable text.
+    private var chromeGrabBand: some View {
+        Color.clear
+            .frame(height: PaneGrabRegion.topChromeHeight(
+                legendHalfHeight: Self.legendHalfHeight, contentInsetTop: Self.contentInsets.top
+            ))
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .gesture(paneDrag)
+    }
+
+    /// Starts a pane drag and nothing else: `DragCoordinator` drives it from
+    /// there, so this view being torn down mid-drag (a spring-load reveal
+    /// swapping the canvas out) cannot strand the gesture.
     private var paneDrag: some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
-                if !isDraggingFromCell {
-                    isDraggingFromCell = true
-                    drag.begin(.pane(pane.paneID), ghost: paneGhost, at: value.startLocation)
-                }
-                drag.move(to: value.location)
-            }
-            .onEnded { _ in
-                guard isDraggingFromCell else { return }
-                isDraggingFromCell = false
-                drag.end()
+                drag.beginIfIdle(.pane(pane.paneID), ghost: paneGhost, at: value.startLocation)
             }
     }
 
     /// The AppKit half: the body reports in its own top-left space, and this
     /// is the single place that becomes a drag-space point.
-    private func handleBodyDrag(_ event: PaneBodyDragEvent) {
-        switch event {
-        case .began(let point):
-            drag.begin(.pane(pane.paneID), ghost: paneGhost, at: inDragSpace(point))
-        case .moved(let point):
-            drag.move(to: inDragSpace(point))
-        case .ended:
-            drag.end()
-        }
-    }
-
-    private func inDragSpace(_ point: CGPoint) -> CGPoint {
-        CGPoint(x: bodyFrame.minX + point.x, y: bodyFrame.minY + point.y)
+    private func handleBodyDragBegan(_ point: CGPoint) {
+        drag.beginIfIdle(
+            .pane(pane.paneID), ghost: paneGhost,
+            at: CGPoint(x: bodyFrame.minX + point.x, y: bodyFrame.minY + point.y)
+        )
     }
 
     /// Rows for both the card-mode SwiftUI `.contextMenu` and the ghostty
@@ -285,6 +281,9 @@ struct PaneCellView: View {
                 .background(RoundedRectangle(cornerRadius: 4).fill(statusColor.opacity(0.14)))
                 .legendBacking(above: theme.windowBg, below: theme.terminalGround, halfHeight: Self.legendHalfHeight)
                 .padding(.trailing, 12)
+                // Decorative, so it yields its part of the chrome band to the
+                // drag handle underneath it.
+                .allowsHitTesting(false)
         }
     }
 
@@ -315,7 +314,7 @@ struct PaneCellView: View {
                     fontSizePoints: fontSizePoints, rearrangeActive: rearrangeMode.active,
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) },
-                    onBodyDrag: handleBodyDrag
+                    onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }
                 .opacity(ghosttySurface.hasFirstFrame ? 1 : 0)
@@ -347,7 +346,12 @@ struct PaneCellView: View {
             }
             .animation(.easeOut(duration: 0.15), value: ownToast)
         } else {
+            // The only branch with no `GhosttySurfaceView` in it, so this is
+            // the one place a cell-wide drag gesture cannot overlap the
+            // NSView's own press handling.
             cardContent
+                .contentShape(Rectangle())
+                .simultaneousGesture(paneDrag, including: rearrangeMode.active ? .all : .subviews)
                 .modifier(swiftUIPaneMenu)
         }
     }

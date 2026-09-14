@@ -32,14 +32,15 @@ struct GhosttyPaneTerminalView: View {
     let menuProvider: () -> NSMenu?
     /// A grab that became a drag in the pane body, with its point in the
     /// body's own top-left space -- the caller adds the body's own origin to
-    /// reach the drag space.
-    let onBodyDrag: (PaneBodyDragEvent) -> Void
+    /// reach the drag space. Called once, at the start; the drag itself
+    /// belongs to `DragCoordinator` from then on.
+    let onBodyDragBegan: (CGPoint) -> Void
 
     init(
         surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, fontSizePoints: Double,
         rearrangeActive: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
-        onBodyDrag: @escaping (PaneBodyDragEvent) -> Void = { _ in }
+        onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
         self.surface = surface
         self.theme = theme
@@ -48,14 +49,14 @@ struct GhosttyPaneTerminalView: View {
         self.rearrangeActive = rearrangeActive
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
-        self.onBodyDrag = onBodyDrag
+        self.onBodyDragBegan = onBodyDragBegan
     }
 
     var body: some View {
         GhosttySurfaceRepresentable(
             surface: surface, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
             rearrangeActive: rearrangeActive, onPrimaryClick: onPrimaryClick, menuProvider: menuProvider,
-            onBodyDrag: onBodyDrag
+            onBodyDragBegan: onBodyDragBegan
         )
     }
 }
@@ -74,7 +75,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     var rearrangeActive: Bool = false
     var onPrimaryClick: () -> Void = {}
     var menuProvider: () -> NSMenu? = { nil }
-    var onBodyDrag: (PaneBodyDragEvent) -> Void = { _ in }
+    var onBodyDragBegan: (CGPoint) -> Void = { _ in }
 
     final class Coordinator {
         var lastAppliedThemeID: String?
@@ -129,7 +130,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             existingView.rearrangeActive = rearrangeActive
             existingView.onPrimaryClick = onPrimaryClick
             existingView.paneMenuProvider = menuProvider
-            existingView.onBodyDrag = onBodyDrag
+            existingView.onBodyDragBegan = onBodyDragBegan
             return existingView
         }
         context.coordinator.lastAppliedThemeID = theme.id
@@ -139,7 +140,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         view.rearrangeActive = rearrangeActive
         view.onPrimaryClick = onPrimaryClick
         view.paneMenuProvider = menuProvider
-        view.onBodyDrag = onBodyDrag
+        view.onBodyDragBegan = onBodyDragBegan
         return view
     }
 
@@ -161,7 +162,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         // Rebuilt every pass for the same reason as the menu provider: the
         // closure has to read the CURRENT pane frame when a drag actually
         // starts, not the one this view was first made with.
-        ghosttyView.onBodyDrag = onBodyDrag
+        ghosttyView.onBodyDragBegan = onBodyDragBegan
         // Mirrors real AppKit first-responder status: becoming the
         // resolved-focused pane grabs real AppKit key focus immediately,
         // with no extra click needed first. The PRIMARY grab happens in

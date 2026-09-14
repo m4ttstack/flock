@@ -59,6 +59,38 @@ final class InsertionBarGeometryTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(bar.minX, tight.minX)
     }
 
+    /// The other half of the clamp: an item that ends flush with the
+    /// container leaves no room for the end gap the bar would otherwise sit
+    /// in.
+    func testBarIsClampedAtTheTrailingEdgeToo() {
+        let tight = CGRect(x: 0, y: 0, width: 200, height: 42)
+        let items = [CGRect(x: 100, y: 7, width: 100, height: 28)]
+        let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: items, container: tight, axis: .vertical)
+        XCTAssertEqual(bar.midX, tight.maxX - InsertionBarGeometry.thickness / 2, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(bar.maxX, tight.maxX)
+    }
+
+    /// Gaps of 30 then 10: the end gaps take the SMALLEST measured gap, not
+    /// the first one and not an average, so a strip with one wide gap does not
+    /// push the leading bar clear off the first pill.
+    func testEndGapsUseTheSmallestMeasuredGap() {
+        let uneven = [
+            CGRect(x: 12, y: 7, width: 100, height: 28),
+            CGRect(x: 142, y: 7, width: 100, height: 28),
+            CGRect(x: 252, y: 7, width: 100, height: 28)
+        ]
+        XCTAssertEqual(
+            InsertionBarGeometry.bar(atInsertIndex: 0, items: uneven, container: strip, axis: .vertical).midX, 7, accuracy: 0.001
+        )
+        XCTAssertEqual(
+            InsertionBarGeometry.bar(atInsertIndex: 3, items: uneven, container: strip, axis: .vertical).midX, 357, accuracy: 0.001
+        )
+        // The gap the index actually names is still its own midpoint.
+        XCTAssertEqual(
+            InsertionBarGeometry.bar(atInsertIndex: 2, items: uneven, container: strip, axis: .vertical).midX, 247, accuracy: 0.001
+        )
+    }
+
     func testRailBarIsHorizontalAndSitsBetweenTwoRows() {
         let bar = InsertionBarGeometry.bar(atInsertIndex: 2, items: rows, container: rail, axis: .horizontal)
         XCTAssertEqual(bar.midY, 103, accuracy: 0.001)
