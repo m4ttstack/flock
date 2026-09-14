@@ -95,11 +95,18 @@ struct PaneCellView: View {
         box
             .padding(.top, Self.legendHalfHeight)
             // Under the legend and the chip, so both keep their own gestures,
-            // and strictly above the terminal surface, so this never overlaps
-            // the NSView.
+            // and strictly above the terminal surface, so this is the at-rest
+            // handle without taking a single terminal row.
             .overlay(alignment: .top) { chromeGrabBand }
             .overlay(alignment: .topLeading) { legend }
             .overlay(alignment: .topTrailing) { statusChip }
+            // While rearranging a drag starts from ANY point on the pane,
+            // gutters and sub-cell remainder included, which no subview of the
+            // cell covers. Arming this as well as the body's own AppKit path
+            // cannot start two drags: both call `beginIfIdle` and
+            // `DragGestureMachine` starts a drag from `.idle` only.
+            .contentShape(Rectangle())
+            .simultaneousGesture(paneDrag, including: rearrangeMode.active ? .all : .subviews)
         // One task per pane identity, never keyed on the grid or focus: the
         // pane gets exactly one surface for its whole visible life, created
         // here on first visibility with the grid of that moment. A later box
@@ -150,6 +157,11 @@ struct PaneCellView: View {
     /// Starts a pane drag and nothing else: `DragCoordinator` drives it from
     /// there, so this view being torn down mid-drag (a spring-load reveal
     /// swapping the canvas out) cannot strand the gesture.
+    ///
+    /// `startLocation` is the PRESS point, not the current one, which is what
+    /// makes this arm agree with the AppKit path: both hand over where the
+    /// press landed, so the ghost and the cancel spring-back are the same
+    /// whichever of them got there first.
     private var paneDrag: some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
@@ -157,8 +169,8 @@ struct PaneCellView: View {
             }
     }
 
-    /// The AppKit half: the body reports in its own top-left space, and this
-    /// is the single place that becomes a drag-space point.
+    /// The AppKit half: the body reports the PRESS point in its own top-left
+    /// space, and this is the single place that becomes a drag-space point.
     private func handleBodyDragBegan(_ point: CGPoint) {
         drag.beginIfIdle(
             .pane(pane.paneID), ghost: paneGhost,
@@ -346,12 +358,7 @@ struct PaneCellView: View {
             }
             .animation(.easeOut(duration: 0.15), value: ownToast)
         } else {
-            // The only branch with no `GhosttySurfaceView` in it, so this is
-            // the one place a cell-wide drag gesture cannot overlap the
-            // NSView's own press handling.
             cardContent
-                .contentShape(Rectangle())
-                .simultaneousGesture(paneDrag, including: rearrangeMode.active ? .all : .subviews)
                 .modifier(swiftUIPaneMenu)
         }
     }

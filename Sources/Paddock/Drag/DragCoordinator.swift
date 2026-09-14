@@ -51,17 +51,6 @@ final class DragCoordinator {
         let dot: CGRect
     }
 
-    private enum Gesture {
-        case idle
-        /// The monitors own move and end.
-        case live
-        /// Esc landed while the button was still down. The drag is already
-        /// torn down; nothing moves and no new drag starts until the button
-        /// comes up, so the ghost stops dead instead of trailing the cursor
-        /// through its own settle spring.
-        case cancelledAwaitingRelease
-    }
-
     let controller: DragController
 
     private(set) var ghost: Ghost?
@@ -129,7 +118,10 @@ final class DragCoordinator {
     @ObservationIgnored private let toasts: ToastCenter
     @ObservationIgnored private let rearrangeMode: RearrangeMode
     @ObservationIgnored private let outcomes = DragOutcomeRelay()
-    @ObservationIgnored private var gesture: Gesture = .idle
+    /// Which life the current gesture is in, and the gate that makes a second
+    /// arm for one press a no-op. Pure, so its truth table is tested in
+    /// `DragGestureMachineTests` rather than argued about here.
+    @ObservationIgnored private var machine = DragGestureMachine()
     /// Bumped by every `begin` and `cancel`, so a commit that resolves after
     /// the gesture it belongs to is over cannot flash a stale rect or settle
     /// the ghost a later gesture is holding.
@@ -160,8 +152,13 @@ final class DragCoordinator {
         let outcomes = self.outcomes
         controller = DragController(
             commit: { subject, target in
+                // Sampled BEFORE the await, which is the whole point of the
+                // relay: a slow commit can resolve after a later drag has
+                // already bumped the counter, and reading it on the way out
+                // would tag the reply with that later drag's number.
+                let issuedBy = outcomes.generation
                 let outcome = await commit(subject, target)
-                outcomes.last = DragOutcomeRelay.Record(generation: outcomes.generation, outcome: outcome)
+                outcomes.last = DragOutcomeRelay.Record(generation: issuedBy, outcome: outcome)
                 return outcome
             },
             springLoadAction: springLoadAction
@@ -243,8 +240,7 @@ final class DragCoordinator {
     /// finds the gesture already live and does nothing, so no view needs a
     /// latch of its own to remember what it started.
     func beginIfIdle(_ subject: DragSubject, ghost: Ghost, at point: CGPoint) {
-        guard case .idle = gesture else { return }
-        gesture = .live
+        guard machine.handle(.begin) == .start else { return }
         generation += 1
         outcomes.generation = generation
         settleTask?.cancel()
@@ -263,7 +259,7 @@ final class DragCoordinator {
     }
 
     private func move(to point: CGPoint) {
-        guard case .live = gesture else { return }
+        guard machine.tracksMotion else { return }
         ghostTopLeft = DragVisuals.ghostTopLeft(forCursor: point)
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
@@ -299,9 +295,9 @@ final class DragCoordinator {
     /// Esc. The drag is over immediately, but the button is still down, so the
     /// monitors stay installed to catch the release that returns this to idle.
     private func cancel() {
+        guard machine.handle(.cancel) == .cancel else { return }
         generation += 1
         teardown(keepingMonitors: true)
-        gesture = .cancelledAwaitingRelease
         controller.cancelled()
         settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
     }
@@ -310,7 +306,10 @@ final class DragCoordinator {
     /// ever coming to this window. Same teardown as Esc, but the gesture ends
     /// outright rather than waiting for a release that will not arrive.
     private func abandon() {
-        if case .idle = gesture { return }
+        guard machine.handle(.abandon) == .cancel else {
+            removeMonitors()
+            return
+        }
         generation += 1
         teardown()
         controller.cancelled()
@@ -318,19 +317,16 @@ final class DragCoordinator {
     }
 
     private func release() {
-        switch gesture {
-        case .live:
-            end()
-        case .cancelledAwaitingRelease, .idle:
-            gesture = .idle
+        guard machine.handle(.release) == .end else {
             removeMonitors()
+            return
         }
+        end()
     }
 
     /// Everything that must stop the moment a drag stops, whatever ended it.
     private func teardown(keepingMonitors: Bool = false) {
         if !keepingMonitors {
-            gesture = .idle
             removeMonitors()
         }
         target = nil
