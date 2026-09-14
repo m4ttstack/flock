@@ -229,12 +229,19 @@ transform/opacity only, interruptible springs.
 - **Grabbing a pane (two coexisting ways):** (1) at rest, the legend plus a
   ~12px invisible band along the pane's top edge is the drag handle; a grip
   glyph fades in on hover. (2) REARRANGE MODE: entered momentarily by
-  holding Option, or stickily via a View-menu toggle (both routes share one
-  state); while active every pane repaints (terminal content dims, border
+  holding Option, stickily by DOUBLE-TAPPING Option, or stickily via a
+  View-menu toggle (all three routes share one state; ruled 2026-09-14); while active every pane repaints (terminal content dims, border
   switches to the accent color, a centered grip glyph appears, hover lifts
   the pane a hair) and a drag can start from ANY point on a pane, with mouse
-  events no longer forwarded to the terminal. Releasing Option (or
-  toggling off) exits; a drag in progress finishes first. Control was
+  events no longer forwarded to the terminal. Releasing Option exits the momentary route; a sticky
+  route is left by Esc, another double-tap, or the menu toggle, and
+  holding Option while sticky does not turn it off. Esc has a precedence
+  rule: with a drag in flight it cancels the drag and leaves the mode
+  alone, so leaving a sticky mode mid-drag takes two presses. A tap is an
+  Option press shorter than 300ms with no other key or mouse event in it,
+  and the two taps must fall within 400ms, which is what keeps
+  Option-modified typing from ever entering the mode. A drag in progress
+  finishes first. Control was
   chosen first and is UNUSABLE: Control+click is a secondary click on
   macOS, so a press with Control held arrives as `rightMouseDown` and a
   drag can never begin. Option is the replacement (ruled 2026-09-14);
