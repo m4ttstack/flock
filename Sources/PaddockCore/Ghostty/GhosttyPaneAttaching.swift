@@ -34,11 +34,12 @@ public final class FirstFrameLatch {
 /// is `@unchecked Sendable` for that reason, never touched off `@MainActor`.
 @MainActor
 public protocol GhosttyPaneSurface: AnyObject, Sendable {
-    /// Called on every attach for a pane that already has a surface (a
-    /// layout-cell dims change, most often). A real surface's actual size
-    /// comes from its NSView's own pixel layout, never from this call --
-    /// see the concrete conformance's doc comment for why the call still
-    /// exists on this protocol rather than being dropped.
+    /// The pane's real herdr dims (its layout cell rect): sent on every warm
+    /// reattach and on every layout change that moves the rect. The real
+    /// conformance relays them to the bridge as `paddock.dims` and records
+    /// the grid the surface is expected to settle at; the surface's pixel
+    /// size itself is the view's business (`PaneCellView` sizes it to
+    /// exactly cols x rows cells).
     func resize(cols: Int, rows: Int)
 
     /// Tears the surface down: frees the libghostty surface, which ends the

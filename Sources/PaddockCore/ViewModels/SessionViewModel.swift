@@ -100,8 +100,17 @@ public final class SessionViewModel {
     // polling -- `waitForPaneModeReconciliation()`. Production never reads
     // this back.
     private var pendingModeReconciliation: Task<Void, Never>?
+    // The in-flight (or most recently settled) dims-reconcile `Task`, the
+    // test seam behind `waitForPaneDimsReconciliation()`; production never
+    // reads it back.
+    private var pendingDimsReconciliation: Task<Void, Never>?
 
     private let paneLauncherRegistry = PaneLauncherRegistry()
+    // Armed per visible pane on attach, disarmed on park and teardown, so a
+    // pane's scroll feed lives exactly as long as something can show it.
+    // `nil` when nothing was injected (a bare test double); the indicator
+    // then only ever sees the snapshot's own scroll state.
+    private let paneScrollSubscriber: (any PaneScrollSubscribing)?
 
     // `nil` only when no `layoutExportClient` was injected (a test double
     // that only implements `HerdrCommandClient`, say); every pane canvas
@@ -123,6 +132,7 @@ public final class SessionViewModel {
         layoutExportClient: (any LayoutExportClient)? = nil,
         planExecutor: (any PlanExecuting)? = nil,
         undoJournal: UndoJournal? = nil,
+        paneScrollSubscriber: (any PaneScrollSubscribing)? = nil,
         noticeSink: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.client = client
@@ -130,6 +140,7 @@ public final class SessionViewModel {
         self.layoutExportCoordinator = layoutExportClient.map { LayoutExportCoordinator(client: $0) }
         self.planExecutor = planExecutor
         self.undoJournal = undoJournal
+        self.paneScrollSubscriber = paneScrollSubscriber
         self.noticeSink = noticeSink
     }
 
@@ -153,6 +164,7 @@ public final class SessionViewModel {
     /// of being stomped back to whatever herdr already was focused on.
     public func update(model: SessionModel?, connection: ConnectionState) {
         let previousFocusedTabID = self.model?.focusedTabID
+        let previousRects = Self.paneRects(in: self.model)
         self.model = model
         connectionState = connection
         if selectedWorkspaceID == nil {
@@ -171,7 +183,63 @@ public final class SessionViewModel {
         }
         refreshLayoutExports()
         reconcilePaneModeIfNeeded()
+        reconcilePaneDims(previousRects: previousRects)
         reconcileClosedPanes()
+    }
+
+    /// Every pane's cell rect across every layout the model carries.
+    private static func paneRects(in model: SessionModel?) -> [PaneID: CellRect] {
+        guard let model else { return [:] }
+        var rects: [PaneID: CellRect] = [:]
+        for layout in model.layouts.values {
+            for pane in layout.panes {
+                rects[pane.paneID] = pane.rect
+            }
+        }
+        return rects
+    }
+
+    /// herdr's layout moved a visible pane's cell rect: its surface is told
+    /// the new dims in place (the bridge turns them into the one
+    /// `terminal.resize` it ever sends), never reattached. Parked panes are
+    /// skipped; their next warm reattach carries the dims of that moment.
+    private func reconcilePaneDims(previousRects: [PaneID: CellRect]) {
+        let rects = Self.paneRects(in: model)
+        let changed = ghosttySurfaces.keys.filter { pane in
+            !parkedPanes.contains(pane) && rects[pane] != nil && rects[pane] != previousRects[pane]
+        }
+        guard !changed.isEmpty else {
+            pendingDimsReconciliation = nil
+            return
+        }
+        pendingDimsReconciliation = Task { [weak self] in
+            guard let self else { return }
+            for pane in changed {
+                guard let rect = rects[pane] else { continue }
+                await self.updatePaneDims(pane, cols: rect.width, rows: rect.height)
+            }
+        }
+    }
+
+    /// Lets a test await the dims reconcile a preceding `update(model:
+    /// connection:)` call kicked off; a no-op if none is pending.
+    public func waitForPaneDimsReconciliation() async {
+        await pendingDimsReconciliation?.value
+    }
+
+    /// Sends `pane`'s real herdr dims to its surface, chained through
+    /// `paneWork` like every other per-pane request. A pane with no surface
+    /// (never attached, or torn down) is a no-op.
+    public func updatePaneDims(_ pane: PaneID, cols: Int, rows: Int) async {
+        guard cols > 0, rows > 0 else { return }
+        let previous = paneWork[pane]
+        let task = Task { [weak self] in
+            _ = await previous?.value
+            guard let self, let surface = self.ghosttySurfaces[pane] else { return }
+            surface.resize(cols: cols, rows: rows)
+        }
+        paneWork[pane] = task
+        await task.value
     }
 
     /// Any pane herdr no longer reports (closed, or the model went nil) has
@@ -412,6 +480,7 @@ public final class SessionViewModel {
         if let existing = ghosttySurfaces[pane] {
             existing.unpark()
             existing.resize(cols: cols, rows: rows)
+            paneScrollSubscriber?.subscribe(pane: pane)
             // a warm reattach needs arming exactly like a cold one --
             // the pane could easily be the resolved-focused one already (the
             // tab it belongs to is being switched back TO because it holds
@@ -439,6 +508,7 @@ public final class SessionViewModel {
             }
         )
         ghosttySurfaces[pane] = surface
+        paneScrollSubscriber?.subscribe(pane: pane)
         // A bridge is always born in observe mode (`ControlBridge.run`); only
         // the currently resolved-focused pane needs telling to switch --
         // every other pane simply stays at its default. Read the CURRENT
@@ -464,6 +534,7 @@ public final class SessionViewModel {
             await sendModeIfChanged(.observe, to: pane, surface: surface)
         }
         surface.park()
+        paneScrollSubscriber?.unsubscribe(pane: pane)
         parkedPanes.removeAll { $0 == pane }
         parkedPanes.append(pane)
         await evictWarmPanesIfNeeded()
@@ -497,6 +568,7 @@ public final class SessionViewModel {
 
     private func performTeardown(pane: PaneID) async {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
+        paneScrollSubscriber?.unsubscribe(pane: pane)
         lastSentMode.removeValue(forKey: pane)
         parkedPanes.removeAll { $0 == pane }
         if modeArmedPane == pane {

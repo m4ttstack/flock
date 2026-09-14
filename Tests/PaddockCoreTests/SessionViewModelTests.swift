@@ -219,6 +219,32 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     }
 }
 
+/// Records which panes' scroll feeds `SessionViewModel` arms and disarms.
+@MainActor
+private final class FakePaneScrollSubscriber: PaneScrollSubscribing {
+    private(set) var subscribed: [PaneID] = []
+    private(set) var unsubscribed: [PaneID] = []
+
+    func subscribe(pane: PaneID) { subscribed.append(pane) }
+    func unsubscribe(pane: PaneID) { unsubscribed.append(pane) }
+}
+
+/// `makeModel` plus one layout for `w1:t1` placing `w1:p1` at `rect` inside
+/// a 120x40 area, so a test can move the pane's cell rect between updates.
+private func makeModel(paneRect rect: CellRect) -> SessionModel {
+    var model = makeModel()
+    model.layouts[TabID(rawValue: "w1:t1")] = LayoutSnapshot(
+        workspaceID: WorkspaceID(rawValue: "w1"),
+        tabID: TabID(rawValue: "w1:t1"),
+        zoomed: false,
+        area: CellRect(x: 0, y: 0, width: 120, height: 40),
+        focusedPaneID: PaneID(rawValue: "w1:p1"),
+        panes: [PaneRect(paneID: PaneID(rawValue: "w1:p1"), focused: true, rect: rect)],
+        splits: []
+    )
+    return model
+}
+
 private func stringParam(_ params: [String: JSONValue], _ key: String) -> String? {
     guard case .string(let value)? = params[key] else { return nil }
     return value
@@ -599,14 +625,9 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(first === second, "the same surface instance is handed back across a resize")
     }
 
-    /// Pins the seam contract, not a claim about real ghostty behavior:
     /// `SessionViewModel` forwards a dims change to the existing surface's
-    /// `resize(cols:rows:)` unconditionally. Production's own conformance
-    /// (`GhosttySessionSurfaceHandle.resize`) deliberately ignores the call --
-    /// a real surface's size is pixel-layout-driven, never cols/rows-driven
-    /// (see that method's own doc comment) -- so this only proves the
-    /// ViewModel-to-surface forwarding, not that resizing does anything
-    /// visible in production.
+    /// `resize(cols:rows:)`; production's conformance turns that into the
+    /// pane's `paddock.dims` line, the one size herdr is ever told.
     @MainActor
     func testAttachForwardsResizeCallToTheExistingSurface() async throws {
         let factory = FakeGhosttyPaneFactory()
@@ -619,6 +640,102 @@ final class SessionViewModelTests: XCTestCase {
         let surface = try XCTUnwrap(factory.surfaces[pane])
         XCTAssertEqual(surface.resizeCalls.map(\.cols), [100])
         XCTAssertEqual(surface.resizeCalls.map(\.rows), [30])
+    }
+
+    // MARK: - herdr's dims follow the layout (never a reattach)
+
+    /// A `layout.updated` that moves a visible pane's cell rect reaches the
+    /// pane's surface as a dims change through `resize(cols:rows:)`: no
+    /// second surface, no park, no teardown.
+    @MainActor
+    func testLayoutRectChangeThroughUpdateResizesTheAttachedSurfaceWithoutReattach() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 60, height: 40)), connection: .live)
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 30, height: 40)), connection: .live)
+        await viewModel.waitForPaneDimsReconciliation()
+
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [30])
+        XCTAssertEqual(surface.resizeCalls.map(\.rows), [40])
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1)
+        XCTAssertEqual(surface.parkCallCount, 0)
+        XCTAssertEqual(surface.detachCallCount, 0)
+    }
+
+    @MainActor
+    func testUnchangedLayoutRectThroughUpdateSendsNoDims() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 60, height: 40)), connection: .live)
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 60, height: 40)), connection: .live)
+        await viewModel.waitForPaneDimsReconciliation()
+
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertTrue(surface.resizeCalls.isEmpty)
+    }
+
+    /// A parked pane's dims are re-sent by its next warm reattach, not by
+    /// every layout change while it sits in the pool.
+    @MainActor
+    func testLayoutRectChangeForAParkedPaneWaitsForTheReattach() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 60, height: 40)), connection: .live)
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+        await viewModel.detachPane(pane)
+
+        viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 30, height: 40)), connection: .live)
+        await viewModel.waitForPaneDimsReconciliation()
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertTrue(surface.resizeCalls.isEmpty, "a parked pane gets no dims while parked")
+
+        _ = await viewModel.attachPane(pane, cols: 30, rows: 40)
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [30])
+    }
+
+    // MARK: - per-pane scroll feed (armed while visible only)
+
+    @MainActor
+    func testAttachArmsTheScrollFeedAndParkDisarmsIt() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let scroll = FakePaneScrollSubscriber()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, paneScrollSubscriber: scroll)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        XCTAssertEqual(scroll.subscribed, [pane])
+        XCTAssertTrue(scroll.unsubscribed.isEmpty)
+
+        await viewModel.detachPane(pane)
+        XCTAssertEqual(scroll.unsubscribed, [pane])
+
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        XCTAssertEqual(scroll.subscribed, [pane, pane], "a warm reattach re-arms the feed")
+    }
+
+    @MainActor
+    func testAPaneHerdrClosesHasItsScrollFeedDisarmed() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let scroll = FakePaneScrollSubscriber()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, paneScrollSubscriber: scroll)
+        let pane = PaneID(rawValue: "w1:p1")
+        viewModel.update(model: makeModel(), connection: .live)
+        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+
+        var closed = makeModel()
+        closed.panes.removeValue(forKey: pane)
+        viewModel.update(model: closed, connection: .live)
+        await viewModel.waitForClosedPaneTeardown()
+
+        XCTAssertEqual(scroll.unsubscribed, [pane])
     }
 
     // MARK: - warm surface pool (park, not teardown, across a tab switch)
