@@ -1199,6 +1199,29 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testPerformWithNoPlanExecutorReturnsNotAttemptedWithoutTouchingAnything() async {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .paneInterior(PaneID(rawValue: "w1:p1")))
+
+        XCTAssertEqual(outcome, .notAttempted)
+    }
+
+    @MainActor
+    func testPerformWithNoModelYetReturnsNotAttemptedWithoutTouchingTheExecutor() async {
+        let executor = FakePlanExecutor()
+        let notices = NoticeRecorder()
+        let journal = UndoJournal(executor: executor, model: { nil }, notify: { notices.record($0) })
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .paneInterior(PaneID(rawValue: "w1:p1")))
+
+        XCTAssertEqual(outcome, .notAttempted)
+        XCTAssertTrue(executor.executedPlans.isEmpty)
+        XCTAssertTrue(notices.messages.isEmpty)
+    }
+
+    @MainActor
     func testPerformRoutesASuccessfulPlanToTheJournal() async {
         let executor = FakePlanExecutor()
         let notices = NoticeRecorder()

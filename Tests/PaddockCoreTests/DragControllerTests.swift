@@ -13,37 +13,61 @@ private final class FakeClock {
     }
 }
 
+/// Polls `condition` via cooperative yields, never a real timer, until it is
+/// true or `maxYields` is exhausted. Bounds a wait for something that runs
+/// from `DragController`'s own fire-and-forget `Task`s (spring load actions,
+/// and `commit` itself) so a regression that stops it running fails fast
+/// instead of hanging the suite for XCTest's default 600 seconds.
+@MainActor
+private func poll(maxYields: Int = 10_000, until condition: () -> Bool) async {
+    var yields = 0
+    while !condition(), yields < maxYields {
+        await Task.yield()
+        yields += 1
+    }
+}
+
+/// `hold()`/`release()` suspend `commit` on a continuation the test controls,
+/// so a test can drive the controller into `.committing` and keep it there
+/// deterministically instead of racing the commit's own completion.
 @MainActor
 private final class CommitSpy {
     private(set) var calls: [(subject: DragSubject, target: DropTarget)] = []
     var result: DragOutcome = .committed
 
+    private var holdEnabled = false
+    private var holdContinuation: CheckedContinuation<Void, Never>?
+
+    func hold() { holdEnabled = true }
+
+    func release() {
+        holdContinuation?.resume()
+        holdContinuation = nil
+    }
+
     func commit(_ subject: DragSubject, _ target: DropTarget) async -> DragOutcome {
         calls.append((subject, target))
+        if holdEnabled {
+            await withCheckedContinuation { holdContinuation = $0 }
+        }
         return result
+    }
+
+    func waitForCall(count: Int) async {
+        await poll { self.calls.count >= count }
     }
 }
 
-/// `fire` runs from `DragController`'s own unstructured `Task { ... }`, off
-/// the calling test's synchronous stack -- `waitForFire(count:)` is what
-/// gives a test a deterministic point to resume at once that task has
-/// actually landed, instead of racing it with a bare assertion.
 @MainActor
 private final class SpringLoadSpy {
     private(set) var fired: [DropTarget] = []
-    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func fire(_ target: DropTarget) async {
         fired.append(target)
-        let pending = waiters
-        waiters.removeAll()
-        for waiter in pending { waiter.resume() }
     }
 
     func waitForFire(count: Int) async {
-        while fired.count < count {
-            await withCheckedContinuation { waiters.append($0) }
-        }
+        await poll { self.fired.count >= count }
     }
 }
 
@@ -120,6 +144,39 @@ final class DragControllerTests: XCTestCase {
         XCTAssertEqual(controller.phase, .idle)
     }
 
+    func testMovedIsIgnoredWhileCommitting() async {
+        let commit = CommitSpy()
+        commit.hold()
+        let controller = makeController(commit: commit, springLoad: SpringLoadSpy(), clock: FakeClock())
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+
+        let endedTask = Task { await controller.ended() }
+        await commit.waitForCall(count: 1)
+        XCTAssertEqual(controller.phase, .committing)
+
+        controller.moved(to: Self.paneInteriorPoint, surfaces: surfaces())
+
+        XCTAssertEqual(controller.phase, .committing, "a commit already captured its target; a later move must not change it")
+
+        commit.release()
+        await endedTask.value
+    }
+
+    func testMovedIsIgnoredWhileRejected() async {
+        let commit = CommitSpy()
+        commit.result = .rejected("Can't move there")
+        let controller = makeController(commit: commit, springLoad: SpringLoadSpy(), clock: FakeClock())
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        await controller.ended()
+        XCTAssertEqual(controller.phase, .rejected(reason: "Can't move there"))
+
+        controller.moved(to: Self.paneInteriorPoint, surfaces: surfaces())
+
+        XCTAssertEqual(controller.phase, .rejected(reason: "Can't move there"))
+    }
+
     // MARK: - spring load arming
 
     func testMovedOverTabThumbnailArmsSpringLoadWithA500msDeadline() {
@@ -187,6 +244,23 @@ final class DragControllerTests: XCTestCase {
         XCTAssertEqual(controller.springLoad?.deadline, originalDeadline)
     }
 
+    func testBeganResetsASpringLoadThatHadAlreadyFiredFromThePreviousDrag() async {
+        let springLoad = SpringLoadSpy()
+        let controller = makeController(commit: CommitSpy(), springLoad: springLoad, clock: FakeClock())
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        controller.forceSpringLoad()
+        await springLoad.waitForFire(count: 1)
+        XCTAssertEqual(springLoad.fired.count, 1)
+
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        controller.forceSpringLoad()
+        await springLoad.waitForFire(count: 2)
+
+        XCTAssertEqual(springLoad.fired.count, 2, "the second drag's dwell over the same target must fire its own Space press")
+    }
+
     // MARK: - spring load firing
 
     func testSpringLoadFiresOnTheNextMovedCallOnceTheDeadlinePasses() async {
@@ -218,6 +292,10 @@ final class DragControllerTests: XCTestCase {
 
         clock.advance(by: .milliseconds(500))
         controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        // Waits for a fire that a correct controller will never produce, so
+        // this genuinely gives a regression the chance to land before the
+        // assertion below runs -- see `poll`'s doc comment.
+        await springLoad.waitForFire(count: 2)
 
         XCTAssertEqual(springLoad.fired.count, 1)
     }
@@ -263,18 +341,44 @@ final class DragControllerTests: XCTestCase {
         controller.forceSpringLoad()
         await springLoad.waitForFire(count: 1)
         controller.forceSpringLoad()
+        // Waits for a second fire a correct controller will never produce.
+        await springLoad.waitForFire(count: 2)
 
         XCTAssertEqual(springLoad.fired.count, 1)
     }
 
-    func testForceSpringLoadWithNothingArmedDoesNothing() {
+    func testForceSpringLoadWithNothingArmedDoesNothing() async {
         let springLoad = SpringLoadSpy()
         let controller = makeController(commit: CommitSpy(), springLoad: springLoad, clock: FakeClock())
         controller.began(.pane(Self.paneID), at: .zero)
 
         controller.forceSpringLoad()
+        await springLoad.waitForFire(count: 1)
 
         XCTAssertTrue(springLoad.fired.isEmpty)
+    }
+
+    func testForceSpringLoadDoesNothingWhileCommittingEvenThoughSpringLoadIsStillArmed() async {
+        let commit = CommitSpy()
+        commit.hold()
+        let springLoad = SpringLoadSpy()
+        let controller = makeController(commit: commit, springLoad: springLoad, clock: FakeClock())
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        XCTAssertNotNil(controller.springLoad)
+
+        let endedTask = Task { await controller.ended() }
+        await commit.waitForCall(count: 1)
+        XCTAssertEqual(controller.phase, .committing)
+        XCTAssertNotNil(controller.springLoad, "not cleared until the commit resolves")
+
+        controller.forceSpringLoad()
+        await springLoad.waitForFire(count: 1)
+
+        XCTAssertTrue(springLoad.fired.isEmpty, "a reveal action with no drag on screen would be observable nonsense")
+
+        commit.release()
+        await endedTask.value
     }
 
     // MARK: - ended
@@ -298,6 +402,7 @@ final class DragControllerTests: XCTestCase {
         let controller = makeController(commit: commit, springLoad: SpringLoadSpy(), clock: FakeClock())
         controller.began(.pane(Self.paneID), at: .zero)
         controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        XCTAssertNotNil(controller.springLoad)
 
         await controller.ended()
 
@@ -305,11 +410,24 @@ final class DragControllerTests: XCTestCase {
         XCTAssertEqual(commit.calls.first?.subject, .pane(Self.paneID))
         XCTAssertEqual(commit.calls.first?.target, .tabThumbnail(Self.tabID))
         XCTAssertEqual(controller.phase, .idle)
+        XCTAssertNil(controller.springLoad, "idle must never carry an armed spring load")
     }
 
     func testEndedWithANoOpOutcomeReturnsToIdleWithoutRejection() async {
         let commit = CommitSpy()
         commit.result = .noOp
+        let controller = makeController(commit: commit, springLoad: SpringLoadSpy(), clock: FakeClock())
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+
+        await controller.ended()
+
+        XCTAssertEqual(controller.phase, .idle)
+    }
+
+    func testEndedWithANotAttemptedOutcomeReturnsToIdleWithoutRejection() async {
+        let commit = CommitSpy()
+        commit.result = .notAttempted
         let controller = makeController(commit: commit, springLoad: SpringLoadSpy(), clock: FakeClock())
         controller.began(.pane(Self.paneID), at: .zero)
         controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
@@ -341,6 +459,48 @@ final class DragControllerTests: XCTestCase {
         XCTAssertTrue(commit.calls.isEmpty)
     }
 
+    // MARK: - re-entrancy: a stale ended() completion must not clobber a later phase
+
+    func testCancelDuringAnInFlightCommitDiscardsTheStaleRejectedWriteOnResume() async {
+        let commit = CommitSpy()
+        commit.hold()
+        commit.result = .rejected("Can't move there")
+        let controller = makeController(commit: commit, springLoad: SpringLoadSpy(), clock: FakeClock())
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+
+        let endedTask = Task { await controller.ended() }
+        await commit.waitForCall(count: 1)
+
+        controller.cancelled()
+        commit.release()
+        await endedTask.value
+
+        XCTAssertEqual(controller.phase, .idle, "a commit resolving after cancel must not reopen a rejection banner")
+    }
+
+    func testANewDragStartedWhileAnEarlierCommitIsInFlightSurvivesThatCommitsLateWrite() async {
+        let commit = CommitSpy()
+        commit.hold()
+        let controller = makeController(commit: commit, springLoad: SpringLoadSpy(), clock: FakeClock())
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+
+        let endedTask = Task { await controller.ended() }
+        await commit.waitForCall(count: 1)
+
+        let secondStart = CGPoint(x: 1, y: 1)
+        controller.began(.pane(Self.paneID), at: secondStart)
+        commit.release()
+        await endedTask.value
+
+        XCTAssertEqual(
+            controller.phase,
+            .dragging(.pane(Self.paneID), ghostPosition: secondStart, target: nil),
+            "the first gesture's late commit must not clobber the second gesture already in flight"
+        )
+    }
+
     // MARK: - cancelled
 
     func testCancelledFromDraggingReturnsToIdleAndIssuesNoCommits() {
@@ -370,13 +530,27 @@ final class DragControllerTests: XCTestCase {
         XCTAssertEqual(controller.phase, .idle)
     }
 
-    func testCancelledFromCommittingReturnsToIdle() {
-        let controller = makeController(commit: CommitSpy(), springLoad: SpringLoadSpy(), clock: FakeClock())
+    /// Also the one spot in this file that genuinely reaches `.committing`:
+    /// a held commit is what makes that phase observable rather than
+    /// assumed, and deleting `phase = .committing` in `ended()` fails the
+    /// first assertion below rather than passing vacuously.
+    func testCancelledFromCommittingReturnsToIdle() async {
+        let commit = CommitSpy()
+        commit.hold()
+        let controller = makeController(commit: commit, springLoad: SpringLoadSpy(), clock: FakeClock())
         controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+
+        let endedTask = Task { await controller.ended() }
+        await commit.waitForCall(count: 1)
+        XCTAssertEqual(controller.phase, .committing)
 
         controller.cancelled()
 
         XCTAssertEqual(controller.phase, .idle)
+
+        commit.release()
+        await endedTask.value
     }
 
     // MARK: - began after rejected

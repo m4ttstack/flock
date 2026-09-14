@@ -2,12 +2,17 @@ import CoreGraphics
 import Observation
 
 /// What committing a drag gesture's plan produced, mirroring
-/// `SessionViewModel.perform(subject:target:)`'s three outcomes so
-/// `DragController` can drive its own phase from the same vocabulary the
-/// view model already reports through `noticeSink`.
+/// `SessionViewModel.perform(subject:target:)`'s outcomes so `DragController`
+/// can drive its own phase from the same vocabulary the view model already
+/// reports through `noticeSink`. `.notAttempted` is distinct from `.noOp`:
+/// both spring the phase back to `.idle` silently, but `.noOp` means the plan
+/// was legitimately a no-op (a pane dropped on itself) while `.notAttempted`
+/// means the commit seam never had a model or executor to plan against at
+/// all.
 public enum DragOutcome: Equatable, Sendable {
     case committed
     case noOp
+    case notAttempted
     case rejected(String)
 }
 
@@ -48,6 +53,16 @@ public final class DragController {
     /// its own. Only leaving the target and returning clears both.
     private var springLoadFired = false
 
+    /// Bumped by `began()` and `cancelled()`, the two entry points that can
+    /// start a new gesture (or definitively end one) while a previous
+    /// `ended()` is still suspended on `commit`. `ended()` captures this
+    /// before awaiting and only writes `phase` on resume if it is still
+    /// current -- a commit that resolves after the gesture it belongs to was
+    /// cancelled, or after a new gesture has already begun, still runs and
+    /// still gets journaled by the executor; only its now-stale phase write
+    /// is dropped.
+    private var generation = 0
+
     private let commit: DragCommit
     private let springLoadAction: SpringLoadAction
     private let now: @MainActor () -> ContinuousClock.Instant
@@ -63,9 +78,9 @@ public final class DragController {
     }
 
     public func began(_ subject: DragSubject, at point: CGPoint) {
+        generation += 1
         phase = .dragging(subject, ghostPosition: point, target: nil)
-        springLoad = nil
-        springLoadFired = false
+        clearSpringLoad()
     }
 
     public func moved(to point: CGPoint, surfaces: DropSurfaces) {
@@ -77,46 +92,60 @@ public final class DragController {
     }
 
     /// Space: fires the pending dwell immediately, once, without waiting for
-    /// its deadline.
+    /// its deadline. Guarded to `.dragging` because `springLoad` itself can
+    /// still be armed and unfired while `.committing` (it is only cleared
+    /// once the commit resolves), and firing a reveal action with no drag on
+    /// screen to receive it would be observable nonsense.
     public func forceSpringLoad() {
+        guard case .dragging = phase else { return }
         guard let armed = springLoad, !springLoadFired else { return }
         fire(armed.target)
     }
 
     /// Resolves the current target's plan through `commit` and settles the
-    /// phase from its `DragOutcome`. A nil target (never resolved to
-    /// anything droppable) and a `.noOp` outcome both spring back to `.idle`
-    /// silently -- `commit` is never called for the former since there is
-    /// nothing to plan.
+    /// phase from its `DragOutcome`, guarded by `generation` (see its doc
+    /// comment) against a `began()`/`cancelled()` that ran while this was
+    /// suspended. A nil target (never resolved to anything droppable) never
+    /// reaches `commit` at all. Every non-stale path clears `springLoad` too
+    /// -- otherwise a spring load armed just before the drop would still
+    /// read as armed once the gesture that armed it is over, which
+    /// `forceSpringLoad()`'s own `.dragging` guard cannot catch once `phase`
+    /// itself has moved past `.dragging`.
     public func ended() async {
         guard case .dragging(let subject, _, let target) = phase else { return }
         guard let target else {
             phase = .idle
+            clearSpringLoad()
             return
         }
+        let startedGeneration = generation
         phase = .committing
-        switch await commit(subject, target) {
-        case .committed, .noOp:
+        let outcome = await commit(subject, target)
+        guard generation == startedGeneration else { return }
+        switch outcome {
+        case .committed, .noOp, .notAttempted:
             phase = .idle
         case .rejected(let reason):
             phase = .rejected(reason: reason)
         }
+        clearSpringLoad()
     }
 
-    /// Returns to `.idle` from any phase, including `.committing` (its
-    /// result, once it lands, is simply discarded rather than reopening a
-    /// gesture the user already abandoned) -- Esc always wins and issues no
-    /// commit.
+    /// Returns to `.idle` from any phase and issues no commit of its own.
+    /// Bumps `generation`, so a commit already dispatched by an in-flight
+    /// `ended()` still runs to completion and still gets journaled -- only
+    /// its phase write on resume is discarded once it sees the generation
+    /// has moved on, rather than reopening a gesture the user already
+    /// abandoned.
     public func cancelled() {
+        generation += 1
         phase = .idle
-        springLoad = nil
-        springLoadFired = false
+        clearSpringLoad()
     }
 
     private func updateSpringLoad(for target: DropTarget?) {
         guard let target, Self.springLoadEligible(target) else {
-            springLoad = nil
-            springLoadFired = false
+            clearSpringLoad()
             return
         }
         if let current = springLoad, current.target == target {
@@ -135,6 +164,11 @@ public final class DragController {
         springLoadFired = true
         let action = springLoadAction
         Task { await action(target) }
+    }
+
+    private func clearSpringLoad() {
+        springLoad = nil
+        springLoadFired = false
     }
 
     private static func springLoadEligible(_ target: DropTarget) -> Bool {

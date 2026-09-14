@@ -681,16 +681,20 @@ public final class SessionViewModel {
     /// `planExecutor`, and records the outcome in `undoJournal`. `.noOp`
     /// (e.g. a pane dropped onto its own tab) is silently ignored -- the
     /// menu already excludes the pane's own tab, so this is a defensive
-    /// no-op rather than a path real menu selections take. When an
-    /// `undoJournal` is injected, this runs through its shared chain so it
-    /// can never interleave with an in-flight `undo`/`redo` (a `record` call
-    /// racing an in-flight `undo`'s own stack mutation would otherwise be
-    /// able to wipe the redo stack mid-step).
+    /// no-op rather than a path real menu selections take. `.notAttempted`
+    /// covers the three guards below that never even reach the planner (no
+    /// executor, no model, or the view model deallocated while queued behind
+    /// an in-flight undo/redo) -- distinct from `.noOp` because nothing was
+    /// planned at all, though callers today treat both identically (a silent
+    /// spring-back). When an `undoJournal` is injected, this runs through its
+    /// shared chain so it can never interleave with an in-flight `undo`/`redo`
+    /// (a `record` call racing an in-flight `undo`'s own stack mutation would
+    /// otherwise be able to wipe the redo stack mid-step).
     @discardableResult
     public func perform(subject: DragSubject, target: DropTarget) async -> DragOutcome {
-        guard planExecutor != nil else { return .noOp }
+        guard planExecutor != nil else { return .notAttempted }
         guard let undoJournal else {
-            guard let model, let planExecutor else { return .noOp }
+            guard let model, let planExecutor else { return .notAttempted }
             return await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: noticeSink) { _ in }
         }
         // Reads `model` fresh once this closure actually runs, not at the
@@ -698,7 +702,7 @@ public final class SessionViewModel {
         // undo/redo, the model can move on while this waits its turn, and
         // planning against a snapshot captured before the wait would plan
         // against a tab/workspace arrangement that no longer holds.
-        var outcome = DragOutcome.noOp
+        var outcome = DragOutcome.notAttempted
         await undoJournal.runExclusively { [weak self] in
             guard let self, let model = self.model, let planExecutor = self.planExecutor else { return }
             outcome = await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: self.noticeSink, record: undoJournal.record)
