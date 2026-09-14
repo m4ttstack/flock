@@ -40,6 +40,91 @@ final class PaneScrollSubscriberTests: XCTestCase {
         XCTAssertEqual(received.entries.first?.scroll, ScrollInfo(offsetFromBottom: 7, maxOffsetFromBottom: 90, viewportRows: 40))
     }
 
+    /// herdr seeds its own `last_scroll` from a subscribe-time probe and emits
+    /// only on a CHANGE, so a pane scrolled back while paddock was not
+    /// watching it would show no indicator until something moved again. The
+    /// feed reads the current state itself when it arms.
+    @MainActor
+    func testArmingTheFeedProbesPaneGetAndRelaysTheCurrentScroll() async throws {
+        let fake = FakeHerdrServer()
+        try fake.start()
+        defer { fake.stop() }
+        fake.respond(
+            to: "pane.get",
+            withResultJSON: #"{"pane":{"pane_id":"w1:p2","scroll":{"offset_from_bottom":12,"max_offset_from_bottom":80,"viewport_rows":30}}}"#)
+        let received = ScrollLog()
+        let subscriber = HerdrPaneScrollSubscriber(socketPath: fake.socketPath) { pane, scroll in
+            received.append(pane, scroll)
+        }
+
+        subscriber.subscribe(pane: PaneID(rawValue: "w1:p2"))
+        try await waitUntil { !received.entries.isEmpty }
+
+        let probe = try XCTUnwrap(fake.receivedRequests.first { $0.method == "pane.get" })
+        XCTAssertTrue(probe.paramsJSON.contains(#""pane_id":"w1:p2""#), probe.paramsJSON)
+        XCTAssertEqual(received.entries.first?.pane, PaneID(rawValue: "w1:p2"))
+        XCTAssertEqual(
+            received.entries.first?.scroll,
+            ScrollInfo(offsetFromBottom: 12, maxOffsetFromBottom: 80, viewportRows: 30))
+    }
+
+    /// The probe rides its own connection: herdr answers one request per
+    /// connection and treats any further inbound byte on a subscription as a
+    /// disconnect, so a probe sent down the feed's own socket would kill it.
+    @MainActor
+    func testTheProbeDoesNotDisturbTheSubscriptionStream() async throws {
+        let fake = FakeHerdrServer()
+        try fake.start()
+        defer { fake.stop() }
+        fake.respond(
+            to: "pane.get",
+            withResultJSON: #"{"pane":{"pane_id":"w1:p2","scroll":{"offset_from_bottom":12,"max_offset_from_bottom":80,"viewport_rows":30}}}"#)
+        let received = ScrollLog()
+        let subscriber = HerdrPaneScrollSubscriber(socketPath: fake.socketPath) { pane, scroll in
+            received.append(pane, scroll)
+        }
+        subscriber.subscribe(pane: PaneID(rawValue: "w1:p2"))
+        try await waitUntil { !received.entries.isEmpty }
+
+        fake.pushEventLine(#"{"event":"pane.scroll_changed","data":{"pane_id":"w1:p2","workspace_id":"w1","scroll":{"offset_from_bottom":3,"max_offset_from_bottom":80,"viewport_rows":30}}}"#)
+        try await waitUntil { received.entries.count >= 2 }
+
+        XCTAssertEqual(
+            received.entries.last?.scroll,
+            ScrollInfo(offsetFromBottom: 3, maxOffsetFromBottom: 80, viewportRows: 30))
+    }
+
+    /// A pane herdr reports without scroll state seeds nothing; the indicator
+    /// keeps whatever the snapshot already said.
+    @MainActor
+    func testAProbeWithNoScrollStateSeedsNothing() async throws {
+        let fake = FakeHerdrServer()
+        try fake.start()
+        defer { fake.stop() }
+        fake.respond(to: "pane.get", withResultJSON: #"{"pane":{"pane_id":"w1:p2"}}"#)
+        let received = ScrollLog()
+        let subscriber = HerdrPaneScrollSubscriber(socketPath: fake.socketPath) { pane, scroll in
+            received.append(pane, scroll)
+        }
+
+        subscriber.subscribe(pane: PaneID(rawValue: "w1:p2"))
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "pane.get" } }
+        try await Task.sleep(for: .milliseconds(120))
+
+        XCTAssertTrue(received.entries.isEmpty)
+    }
+
+    func testScrollProbeDecoderReadsResultPaneAndRejectsOtherShapes() throws {
+        let decoded = try XCTUnwrap(HerdrDecoder.scrollProbe(
+            fromLine: Data(#"{"id":"x","result":{"pane":{"pane_id":"w1:p2","scroll":{"offset_from_bottom":7,"max_offset_from_bottom":90,"viewport_rows":40}}}}"#.utf8)))
+        XCTAssertEqual(decoded.paneID, PaneID(rawValue: "w1:p2"))
+        XCTAssertEqual(decoded.scroll, ScrollInfo(offsetFromBottom: 7, maxOffsetFromBottom: 90, viewportRows: 40))
+
+        XCTAssertNil(HerdrDecoder.scrollProbe(
+            fromLine: Data(#"{"id":"x","error":{"code":"not_found","message":"gone"}}"#.utf8)))
+        XCTAssertNil(HerdrDecoder.scrollProbe(fromLine: Data("{not json".utf8)))
+    }
+
     @MainActor
     func testSubscribeIsIdempotentPerPane() async throws {
         let fake = FakeHerdrServer()

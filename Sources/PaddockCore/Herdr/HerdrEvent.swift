@@ -109,6 +109,29 @@ extension HerdrDecoder {
         return (envelope.data.paneID, envelope.data.scroll)
     }
 
+    /// The scroll state in a `pane.get` response (`result.pane`), which is how
+    /// the per-pane feed seeds itself: herdr's own `pane.scroll_changed`
+    /// subscription probes at subscribe time and then emits only on a CHANGE,
+    /// so nothing would ever report a pane that was already scrolled back.
+    /// `nil` for an error response, a pane with no scroll state, and anything
+    /// else.
+    public static func scrollProbe(fromLine line: Data) -> (paneID: PaneID, scroll: ScrollInfo)? {
+        struct Pane: Decodable {
+            let paneID: PaneID
+            let scroll: ScrollInfo?
+            enum CodingKeys: String, CodingKey {
+                case paneID = "pane_id"
+                case scroll
+            }
+        }
+        struct Result: Decodable { let pane: Pane }
+        struct Envelope: Decodable { let result: Result }
+        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line),
+              let scroll = envelope.result.pane.scroll
+        else { return nil }
+        return (envelope.result.pane.paneID, scroll)
+    }
+
     public static func event(fromLine line: Data) throws -> HerdrEvent {
         let envelope = try JSONDecoder().decode(EventEnvelope.self, from: line)
         // Request/response acks (e.g. the subscribe confirmation) carry no
