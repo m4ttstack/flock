@@ -19,6 +19,13 @@ struct GhosttyPaneTerminalView: View {
     /// `RearrangeMode.active`: while true, `GhosttySurfaceView` forwards no
     /// mouse event to the terminal.
     let rearrangeActive: Bool
+    /// `DragCoordinator.isPaneDragInFlight`: while true the cursor is
+    /// closed-hand everywhere, not just over this pane.
+    let paneDragInProgress: Bool
+    /// `SessionViewModel.isPristineLauncherPane`: while true this pane's
+    /// surface claims no mouse point at all, so `PaneLauncherOverlay`'s
+    /// button row (drawn above it in SwiftUI) receives clicks and hover.
+    let isPristineLauncherPane: Bool
     /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
     /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus
     /// ever moves to this pane at all, since only the header row has its
@@ -38,7 +45,7 @@ struct GhosttyPaneTerminalView: View {
 
     init(
         surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, fontSizePoints: Double,
-        rearrangeActive: Bool = false,
+        rearrangeActive: Bool = false, paneDragInProgress: Bool = false, isPristineLauncherPane: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
@@ -47,6 +54,8 @@ struct GhosttyPaneTerminalView: View {
         self.isFocused = isFocused
         self.fontSizePoints = fontSizePoints
         self.rearrangeActive = rearrangeActive
+        self.paneDragInProgress = paneDragInProgress
+        self.isPristineLauncherPane = isPristineLauncherPane
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
         self.onBodyDragBegan = onBodyDragBegan
@@ -55,8 +64,9 @@ struct GhosttyPaneTerminalView: View {
     var body: some View {
         GhosttySurfaceRepresentable(
             surface: surface, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
-            rearrangeActive: rearrangeActive, onPrimaryClick: onPrimaryClick, menuProvider: menuProvider,
-            onBodyDragBegan: onBodyDragBegan
+            rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress,
+            isPristineLauncherPane: isPristineLauncherPane, onPrimaryClick: onPrimaryClick,
+            menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
         )
     }
 }
@@ -73,6 +83,8 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let isFocused: Bool
     let fontSizePoints: Double
     var rearrangeActive: Bool = false
+    var paneDragInProgress: Bool = false
+    var isPristineLauncherPane: Bool = false
     var onPrimaryClick: () -> Void = {}
     var menuProvider: () -> NSMenu? = { nil }
     var onBodyDragBegan: (CGPoint) -> Void = { _ in }
@@ -128,6 +140,8 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             context.coordinator.lastAppliedFontSize = fontSizePoints
             existingView.wantsFocus = isFocused
             existingView.rearrangeActive = rearrangeActive
+            existingView.paneDragInProgress = paneDragInProgress
+            existingView.isPristineLauncherPane = isPristineLauncherPane
             existingView.onPrimaryClick = onPrimaryClick
             existingView.paneMenuProvider = menuProvider
             existingView.onBodyDragBegan = onBodyDragBegan
@@ -138,6 +152,8 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.rearrangeActive = rearrangeActive
+        view.paneDragInProgress = paneDragInProgress
+        view.isPristineLauncherPane = isPristineLauncherPane
         view.onPrimaryClick = onPrimaryClick
         view.paneMenuProvider = menuProvider
         view.onBodyDragBegan = onBodyDragBegan
@@ -153,6 +169,8 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         }
         ghosttyView.wantsFocus = isFocused
         ghosttyView.rearrangeActive = rearrangeActive
+        ghosttyView.paneDragInProgress = paneDragInProgress
+        ghosttyView.isPristineLauncherPane = isPristineLauncherPane
         ghosttyView.onPrimaryClick = onPrimaryClick
         // Rebuilt every `updateNSView` (never applied only once at
         // `makeNSView`): the closure itself is stable in shape but must read

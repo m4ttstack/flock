@@ -649,4 +649,18 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(topRight.height, 25, accuracy: 0.01, "0.25 of the 100-tall second-child region")
         XCTAssertEqual(bottomRight.height, 75, accuracy: 0.01)
     }
+
+    func testARightSplitDividerIsAVerticalLine() {
+        let divider = DividerHandle(
+            tabID: TabID(rawValue: "w:t"), path: [], frame: .zero, direction: .right, regionFrame: .zero, cellExtent: 0
+        )
+        XCTAssertTrue(divider.isVerticalLine)
+    }
+
+    func testADownSplitDividerIsNotAVerticalLine() {
+        let divider = DividerHandle(
+            tabID: TabID(rawValue: "w:t"), path: [], frame: .zero, direction: .down, regionFrame: .zero, cellExtent: 0
+        )
+        XCTAssertFalse(divider.isVerticalLine)
+    }
 }

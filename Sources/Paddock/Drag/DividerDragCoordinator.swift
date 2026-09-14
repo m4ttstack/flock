@@ -73,6 +73,12 @@ final class DividerDragCoordinator {
     @ObservationIgnored nonisolated(unsafe) private var keyMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var releaseMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
+    /// Guards the resize-cursor push below against a double pop: `ended()`
+    /// pops it itself (a committed resize never reaches `teardown()`, so it
+    /// cannot live there alone), and `cancel()`/`abandon()` each pop once
+    /// before their own `teardown()` call -- this flag is what keeps a
+    /// release that follows a cancel from popping a second time.
+    private var hasPushedCursor = false
 
     init(viewModel: SessionViewModel) {
         self.viewModel = viewModel
@@ -112,6 +118,8 @@ final class DividerDragCoordinator {
         guard case .dragging(_, let start, _) = machine.phase else { return }
         liveOverride = (divider.tabID, divider.path, start)
         viewModel.beginSuppressingPaneBoxDimsSends()
+        (divider.isVerticalLine ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push()
+        hasPushedCursor = true
         installMonitors()
     }
 
@@ -151,6 +159,13 @@ final class DividerDragCoordinator {
     func ended() {
         guard machine.phase != .idle else { return }
         removeMonitors()
+        // Popped here, unconditionally, rather than inside `teardown()`: a
+        // COMMITTED resize (the branch below) never calls `teardown()` at
+        // all (see its own doc comment), so that is the one path this pop
+        // would otherwise miss. The duration this cursor covers is the drag
+        // itself (press to release), not however long the async commit
+        // afterward takes.
+        popCursorIfPushed()
         let op = machine.ended()
         guard case let .setSplitRatio(tab, path, ratio)? = op else {
             teardown()
@@ -189,6 +204,7 @@ final class DividerDragCoordinator {
     private func cancel() {
         generation += 1
         _ = machine.cancelled()
+        popCursorIfPushed()
         teardown()
     }
 
@@ -199,7 +215,14 @@ final class DividerDragCoordinator {
         generation += 1
         removeMonitors()
         machine.abandoned()
+        popCursorIfPushed()
         teardown()
+    }
+
+    private func popCursorIfPushed() {
+        guard hasPushedCursor else { return }
+        hasPushedCursor = false
+        NSCursor.pop()
     }
 
     /// Shared by every non-committing exit (a no-op release, Esc, abandon):

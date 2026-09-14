@@ -25,6 +25,14 @@ public struct DividerHandle: Equatable, Sendable {
     public let cellExtent: Int
 }
 
+extension DividerHandle {
+    /// Whether this divider paints (and resizes) as a vertical line -- a
+    /// left/right split, dragged horizontally -- rather than a horizontal
+    /// one. What its own paint geometry, live-ratio offset, and resize
+    /// cursor all key off, so no caller restates `direction == .right`.
+    public var isVerticalLine: Bool { direction == .right }
+}
+
 /// Where a tab's cell grid sits on the canvas: the tab's `area` stretched to
 /// fill the canvas, so the panes always tile it exactly.
 ///

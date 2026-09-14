@@ -40,6 +40,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var isRendering = false
     private var observedWindow: NSWindow?
     private var cursorHidden = false
+    /// The last shape libghostty itself asked for, independent of whatever
+    /// `cursorUpdate(with:)` is currently painting over it -- what restores
+    /// the terminal's own cursor once rearrange mode ends, with no new
+    /// libghostty callback required to re-derive it.
+    private var lastLibghosttyCursor: NSCursor?
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var globalObservers: [NSObjectProtocol] = []
     /// Whether this view should grab real AppKit key focus as soon as it has
@@ -58,8 +63,28 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// While true, `mouseDecision` forces every `MouseForwarding` result to
     /// `.drop` and `rightMouseDown` forces `RightClickDisposition` to
     /// `.suppressed`: the whole pane is a drag surface, so no mouse event
-    /// reaches the app or libghostty's own surface.
-    var rearrangeActive = false
+    /// reaches the app or libghostty's own surface. The `didSet` is what
+    /// makes the open-hand cursor track the mode the instant it flips even
+    /// with the pointer stationary: `invalidateCursorRects` re-asks
+    /// `cursorUpdate(with:)` for the CURRENT pointer location, which a real
+    /// mouse-moved event would otherwise be the only way to trigger.
+    var rearrangeActive = false {
+        didSet {
+            guard rearrangeActive != oldValue, let window else { return }
+            window.invalidateCursorRects(for: self)
+        }
+    }
+    /// Set by `GhosttySurfaceRepresentable` from
+    /// `DragCoordinator.isPaneDragInFlight`. The closed-hand cursor for the
+    /// drag itself comes from that coordinator's own `NSCursor.push`/`pop`,
+    /// which holds regardless of pointer motion; this only stops a stray
+    /// `cursorUpdate` (AppKit's cursor-rect events are unreliable but not
+    /// impossible while a mouse button is held) from painting over it.
+    var paneDragInProgress = false
+    /// Set by `GhosttySurfaceRepresentable` from
+    /// `SessionViewModel.isPristineLauncherPane`. While true this view
+    /// claims no point at all -- see `hitTest(_:)`.
+    var isPristineLauncherPane = false
     /// Where the matching mouse-DOWN actually sent a button, read back by the
     /// UP so it always replays the SAME destination -- never re-derived from
     /// `wantsFocus`/capture at up-time, which can have changed in between (a
@@ -122,6 +147,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// `PaneLauncherOverlay` draws its button row in SwiftUI ABOVE this real
+    /// `NSView`, and AppKit hit-testing hands a click to the frontmost NSView
+    /// SUBVIEW under the point regardless of what SwiftUI painted over it --
+    /// so without this, a pristine pane's surface eats every click a
+    /// launcher button was meant to receive. Returning `nil` here makes the
+    /// containing hosting view fall through to its own SwiftUI content for
+    /// this whole view's bounds, buttons and the space around them alike.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isPristineLauncherPane ? nil : super.hitTest(point)
+    }
+
     /// The surface is created here rather than at init: libghostty builds a
     /// `CVDisplayLink` from the view's screen, so there has to be a window
     /// first. `attach` is idempotent, so a nil surface (no window/screen yet,
@@ -146,7 +182,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved, .cursorUpdate],
             owner: self
         )
         addTrackingArea(area)
@@ -671,28 +707,58 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     func applyCursor(for shape: ghostty_action_mouse_shape_e) {
+        let cursor: NSCursor
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_TEXT,
              GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
-            NSCursor.iBeam.set()
+            cursor = .iBeam
         case GHOSTTY_MOUSE_SHAPE_POINTER:
-            NSCursor.pointingHand.set()
+            cursor = .pointingHand
         case GHOSTTY_MOUSE_SHAPE_CROSSHAIR:
-            NSCursor.crosshair.set()
+            cursor = .crosshair
         case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED,
              GHOSTTY_MOUSE_SHAPE_NO_DROP:
-            NSCursor.operationNotAllowed.set()
+            cursor = .operationNotAllowed
         case GHOSTTY_MOUSE_SHAPE_COL_RESIZE,
              GHOSTTY_MOUSE_SHAPE_EW_RESIZE:
-            NSCursor.resizeLeftRight.set()
+            cursor = .resizeLeftRight
         case GHOSTTY_MOUSE_SHAPE_ROW_RESIZE,
              GHOSTTY_MOUSE_SHAPE_NS_RESIZE:
-            NSCursor.resizeUpDown.set()
+            cursor = .resizeUpDown
         case GHOSTTY_MOUSE_SHAPE_GRAB,
              GHOSTTY_MOUSE_SHAPE_GRABBING:
-            NSCursor.openHand.set()
+            cursor = .openHand
         default:
-            NSCursor.arrow.set()
+            cursor = .arrow
+        }
+        lastLibghosttyCursor = cursor
+        // Rearrange mode and an in-flight pane drag both own the cursor for
+        // as long as they last (the whole body reads as a grab handle, or a
+        // drag already forced closed-hand everywhere); a stray libghostty
+        // shape callback painting over either would fight them. `mouseMoved`
+        // already withholds `sendMousePosition` during rearrange, so this
+        // guard mostly matters for a shape callback that fires from
+        // something other than pointer motion.
+        guard !rearrangeActive, !paneDragInProgress else { return }
+        cursor.set()
+    }
+
+    /// Fires on entering this view's tracking area, and again for the
+    /// CURRENT pointer position whenever `invalidateCursorRects(for:)` runs
+    /// -- the seam `rearrangeActive`'s `didSet` uses so the cursor updates
+    /// the instant the mode toggles, without needing the pointer to move.
+    override func cursorUpdate(with event: NSEvent) {
+        switch PaneCursor.forPaneBody(rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress) {
+        case .closedHand:
+            // `DragCoordinator` already pushed the closed-hand cursor for
+            // the whole app; this callback owns no push of its own; setting
+            // it again here would just repaint over that push with nothing
+            // to pop it back off.
+            break
+        case .openHand:
+            NSCursor.openHand.set()
+        case .passthrough:
+            (lastLibghosttyCursor ?? NSCursor.arrow).set()
         }
     }
 

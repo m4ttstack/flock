@@ -22,9 +22,10 @@ struct DividerHandleView: View {
     let divider: DividerHandle
 
     @Environment(DividerDragCoordinator.self) private var dividerDrag
+    @Environment(DragCoordinator.self) private var drag
     @State private var isHovering = false
 
-    private var isVertical: Bool { divider.direction == .right }
+    private var isVertical: Bool { divider.isVerticalLine }
 
     /// This divider's own live ratio, or `nil` when it is not the one
     /// `dividerDrag` is currently tracking -- another divider's drag (or
@@ -46,6 +47,11 @@ struct DividerHandleView: View {
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovering = hovering
+            // A pane drag already owns the cursor for its whole duration
+            // (`DragCoordinator`'s own push); the pointer can pass over this
+            // gutter mid-drag without landing a divider drag of its own, and
+            // must not repaint the closed hand away underneath it.
+            guard !drag.isPaneDragInFlight else { return }
             (hovering ? (isVertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown) : NSCursor.arrow).set()
         }
         .gesture(dragGesture)

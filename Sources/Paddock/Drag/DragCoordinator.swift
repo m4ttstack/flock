@@ -74,6 +74,12 @@ final class DragCoordinator {
     /// ghost's position is animated at all.
     private(set) var isSettling = false
     private(set) var landingFlash: LandingFlash?
+    /// True from a PANE drag's own start (past the movement threshold, never
+    /// for a tab/workspace drag) until its teardown, settle animation
+    /// excluded -- exactly the span the closed-hand cursor covers. A
+    /// dedicated flag rather than `activeSubject != nil`: that stays set
+    /// through the settle spring, which is no longer "in flight."
+    private(set) var isPaneDragInFlight = false
 
     // MARK: - Live surfaces, every frame in the drag space
 
@@ -251,6 +257,16 @@ final class DragCoordinator {
         self.ghost = ghost
         controller.began(subject, at: point)
         target = nil
+        // Global, not per-view: a per-view cursor rect would have to be
+        // re-entered to repaint, and the pointer is usually over some OTHER
+        // pane by the time this matters -- `push` forces the image
+        // regardless of what is under the pointer, for as long as this drag
+        // lasts. Only a pane drag gets it; a tab/workspace drag keeps
+        // whatever cursor it already had.
+        if case .pane = subject {
+            isPaneDragInFlight = true
+            NSCursor.closedHand.push()
+        }
         holdsRearrangeOpen = rearrangeMode.active
         if holdsRearrangeOpen {
             rearrangeMode.dragBegan()
@@ -331,6 +347,14 @@ final class DragCoordinator {
         }
         target = nil
         releaseRearrangeHold()
+        // The one choke point every exit path (`end`, `cancel`, `abandon`)
+        // runs through, so the pop is always paired with the push above --
+        // never duplicated per exit path, which is how a stray unbalanced
+        // pop or a stuck closed-hand cursor would sneak in.
+        if isPaneDragInFlight {
+            isPaneDragInFlight = false
+            NSCursor.pop()
+        }
     }
 
     /// Settles the phase back to rest and sends the ghost where the outcome

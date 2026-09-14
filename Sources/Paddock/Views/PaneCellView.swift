@@ -152,6 +152,14 @@ struct PaneCellView: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .gesture(paneDrag)
+            .onHover { hovering in
+                // A pane drag already owns the cursor for its whole
+                // duration (`DragCoordinator`'s own push); this band's own
+                // exit -- the pointer leaving toward wherever the drag is
+                // going -- must not repaint the closed hand away.
+                guard !drag.isPaneDragInFlight else { return }
+                (hovering ? NSCursor.openHand : NSCursor.arrow).set()
+            }
     }
 
     /// Starts a pane drag and nothing else: `DragCoordinator` drives it from
@@ -324,6 +332,8 @@ struct PaneCellView: View {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
                     fontSizePoints: fontSizePoints, rearrangeActive: rearrangeMode.active,
+                    paneDragInProgress: drag.isPaneDragInFlight,
+                    isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) },
                     onBodyDragBegan: handleBodyDragBegan
@@ -345,6 +355,22 @@ struct PaneCellView: View {
                         Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }
                     }
                 }
+            }
+            // While the launcher shows, the surface below claims no point at
+            // all (`GhosttySurfaceView.hitTest`), which also removes ITS own
+            // click-to-focus for the body OUTSIDE the button row -- this is
+            // that route's SwiftUI equivalent, pristine-only so an ordinary
+            // live pane keeps going through the AppKit path exactly as
+            // before. Checked fresh per tap, not cached: the launcher can
+            // hide (a keystroke, real output) between this view updating and
+            // the next click landing. Guarded the same way `legend`'s own
+            // tap is, so a right-click still opens the pane menu rather than
+            // also firing a focus jump.
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+                guard !isFocused, viewModel.isPristineLauncherPane(pane.paneID) else { return }
+                Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
             }
             .animation(.easeOut(duration: 0.15), value: ghosttySurface.hasFirstFrame)
             .overlay(alignment: .bottomTrailing) {
