@@ -318,10 +318,10 @@ final class DropResolverTests: XCTestCase {
         )
     }
 
-    func testNewWorkspaceZoneResolvesForTabSubject() throws {
+    func testNewWorkspaceZoneResolvesForPaneSubject() throws {
         let surfaces = surfaces(canvas: try canvas())
         let point = CGPoint(x: 630, y: 70)
-        XCTAssertEqual(resolveDropTarget(at: point, dragging: .tab(TabID(rawValue: "t0")), surfaces: surfaces), .newWorkspace)
+        XCTAssertEqual(resolveDropTarget(at: point, dragging: .pane(Self.p1), surfaces: surfaces), .newWorkspace)
     }
 
     // MARK: - Zones are subject-scoped
@@ -372,11 +372,36 @@ final class DropResolverTests: XCTestCase {
         )
     }
 
-    func testTabOverTheRailsFreeRunMakesANewWorkspace() throws {
-        XCTAssertEqual(
-            resolveDropTarget(at: Self.inNewWorkspaceZone, dragging: .tab(TabID(rawValue: "t0")), surfaces: zonedSurfaces(canvas: try canvas())),
-            .newWorkspace
+    /// A tab has no verb for a workspace that does not exist yet, and none for
+    /// a position in the workspace ORDER either, so the rail's free run is
+    /// nothing to it: the drop springs back silently instead of reporting a
+    /// move it was never going to make.
+    func testTabOverTheRailsFreeRunResolvesToNothing() throws {
+        XCTAssertNil(
+            resolveDropTarget(
+                at: Self.inNewWorkspaceZone, dragging: .tab(TabID(rawValue: "t0")), surfaces: zonedSurfaces(canvas: try canvas())
+            )
         )
+    }
+
+    /// A rail ITEM still takes a tab: that pair is a real migration.
+    func testTabOverARailItemIsStillTheWorkspaceThumbnail() throws {
+        XCTAssertEqual(
+            resolveDropTarget(
+                at: CGPoint(x: -70, y: 150), dragging: .tab(TabID(rawValue: "t0")), surfaces: zonedSurfaces(canvas: try canvas())
+            ),
+            .workspaceThumbnail(WorkspaceID(rawValue: "w1"))
+        )
+    }
+
+    /// Splitting and swapping are things a pane does to a pane. A tab over the
+    /// canvas resolves to nothing rather than to a canvas target no plan can
+    /// serve.
+    func testTabOverTheCanvasResolvesToNothing() throws {
+        let surfaces = surfaces(canvas: try canvas(), newTabZone: nil, newWorkspaceZone: nil)
+        for point in [CGPoint(x: 15, y: 150), CGPoint(x: 150, y: 150)] {
+            XCTAssertNil(resolveDropTarget(at: point, dragging: .tab(TabID(rawValue: "t0")), surfaces: surfaces), "\(point)")
+        }
     }
 
     /// Below the last row means "move it to the bottom", never "make a new

@@ -72,15 +72,15 @@ public enum PaneGrabRegion {
     }
 }
 
-/// How far a strip/rail item slides while a reorder drag is in flight: the
-/// standard reorder shift, previewing the WHOLE post-drop arrangement.
+/// How far a strip/rail item slides while a reorder drag is in flight.
 ///
-/// Each item between the origin and the insertion point moves one slot toward
-/// the origin, and the origin takes the one slot they vacate. Items outside
-/// that range do not move. The origin moving is what keeps the preview an
-/// arrangement rather than an overlap: it stays in the list at
-/// `DragVisuals.originOpacity`, so an origin pinned to its old slot would have
-/// the neighbour that slides into that slot drawn straight on top of it.
+/// The invariant: a reorder previews the COMPLETE post-drop arrangement,
+/// origin included, so exactly one item occupies each slot and nothing is ever
+/// drawn on top of anything else. Each item between the origin and the
+/// insertion point moves one slot toward the origin; the origin takes the one
+/// slot they vacate; items outside that range do not move. The origin has to
+/// move like the rest because it is still IN the list, drawn at
+/// `DragVisuals.originOpacity` rather than lifted out of it.
 public enum ReshuffleOffset {
     /// What a cross-list drag (a tab from another workspace) opens, having no
     /// item of its own in this list to take the extent from.

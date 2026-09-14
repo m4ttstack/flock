@@ -395,4 +395,75 @@ final class GesturePlannerTests: XCTestCase {
         default: XCTFail("expected .invalidCombination, got \(result)")
         }
     }
+
+    // MARK: - Every target the resolver can produce has a plan
+
+    /// The standing invariant between the two pure layers: a subject that
+    /// reaches a surface with no verb for it must resolve to `nil` and spring
+    /// back silently, never to a target that then fails planning and reaches
+    /// the user as "Can't move there".
+    ///
+    /// The pair set is SWEPT out of `resolveDropTarget` rather than listed
+    /// here, so a future resolver that starts producing a new pair fails this
+    /// without anyone remembering to add it.
+    func testEveryPairTheResolverCanProduceHasAPlan() {
+        let model = twoTabModel()
+        let surfaces = everySurface()
+        let subjects: [DragSubject] = [
+            .pane(PaneID(rawValue: "w1:p1")),
+            .tab(TabID(rawValue: "w1:t1")),
+            .workspace(WorkspaceID(rawValue: "w1"))
+        ]
+
+        var produced: [(DragSubject, DropTarget)] = []
+        for subject in subjects {
+            for x in stride(from: -230.0, through: 680.0, by: 10.0) {
+                for y in stride(from: -10.0, through: 650.0, by: 10.0) {
+                    guard let target = resolveDropTarget(at: CGPoint(x: x, y: y), dragging: subject, surfaces: surfaces) else { continue }
+                    guard !produced.contains(where: { $0.0 == subject && $0.1 == target }) else { continue }
+                    produced.append((subject, target))
+                }
+            }
+        }
+
+        // Guards against a sweep that silently covers nothing: every one of
+        // the resolver's eight target cases is reachable from these surfaces.
+        XCTAssertGreaterThanOrEqual(produced.count, 8, "the sweep produced almost nothing, so it proves almost nothing")
+
+        for (subject, target) in produced {
+            if case .failure(.invalidCombination) = plan(dragging: subject, onto: target, model: model) {
+                XCTFail("resolver produces \(subject) onto \(target), which GesturePlanner has no case for")
+            }
+        }
+    }
+
+    /// Canvas, strip, rail and both free runs at once, with ids the model
+    /// knows, so the sweep can reach every tier.
+    private func everySurface() -> DropSurfaces {
+        let canvas = CanvasGeometry(
+            layout: layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24), focused: true), paneRect("w1:p2", rect(40, 0, 40, 24))]
+            ),
+            grid: CanvasGrid(canvas: CGSize(width: 600, height: 300))
+        )
+        let stripFrame = CGRect(x: 0, y: 300, width: 600, height: 40)
+        let railFrame = CGRect(x: -216, y: 0, width: 216, height: 600)
+        return DropSurfaces(
+            canvas: canvas,
+            stripWorkspace: WorkspaceID(rawValue: "w1"),
+            tabFrames: [
+                TabItemFrame(id: TabID(rawValue: "w1:t1"), frame: CGRect(x: 12, y: 306, width: 100, height: 28)),
+                TabItemFrame(id: TabID(rawValue: "w1:t2"), frame: CGRect(x: 122, y: 306, width: 100, height: 28))
+            ],
+            workspaceFrames: [
+                WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: -208, y: 40, width: 200, height: 30)),
+                WorkspaceItemFrame(id: WorkspaceID(rawValue: "w2"), frame: CGRect(x: -208, y: 72, width: 200, height: 30))
+            ],
+            stripFrame: stripFrame,
+            railFrame: railFrame,
+            newTabZone: DropZones.trailing(in: stripFrame, itemsEndingAt: 222, before: 520),
+            newWorkspaceZone: DropZones.below(in: railFrame, itemsEndingAt: 102)
+        )
+    }
 }
