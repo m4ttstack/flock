@@ -160,12 +160,24 @@ final class DividerDragCoordinator {
         Task {
             await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio)
             guard self.generation == started else {
-                // A later drag already owns suppression and the override --
-                // touching either here would send ITS still-uncommitted
-                // grid, or blow away ITS live preview. This commit's own
-                // panes are not lost: `flushOwed` carries the obligation to
-                // whichever teardown runs next.
-                self.flushOwed = true
+                // A later drag started before this resolved. If it is
+                // STILL live, touching suppression or the override here
+                // would send ITS still-uncommitted grid, or blow away ITS
+                // live preview -- `flushOwed` carries this commit's own
+                // obligation to whichever teardown runs next. But if that
+                // later drag has ALREADY ended by now (its own `began`
+                // bumped `generation`, then it finished before THIS task
+                // got here), no future teardown is coming to ever consume
+                // the flag -- nothing is currently suppressing, so this
+                // commit's panes would otherwise sit stranded until some
+                // UNRELATED later drag happened to end. Flush directly
+                // instead of setting `flushOwed` in that case.
+                if self.machine.phase == .idle {
+                    self.flushOwed = false
+                    await self.viewModel.flushPaneBoxDimsAfterDividerDrag()
+                } else {
+                    self.flushOwed = true
+                }
                 return
             }
             self.liveOverride = nil

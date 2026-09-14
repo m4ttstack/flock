@@ -348,8 +348,18 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// them.
     private static func pathsFromSplitIDs(_ splits: [SplitInfo]) -> [String: [Bool]]? {
         var paths: [String: [Bool]] = [:]
+        var seenPaths: Set<[Bool]> = []
         for split in splits {
             guard let path = pathFromSplitID(split.id) else { return nil }
+            // Unreachable against a real herdr snapshot (its own ids are
+            // unique by construction), but two DIFFERENT split ids parsing
+            // to the SAME path means this snapshot's id scheme is not
+            // trustworthy for this purpose after all -- decline the whole
+            // primary path rather than let two splits collide once a
+            // caller (`HerdrStore.predictedLayout`) turns paths into
+            // dictionary keys, the same "decline over guess" this file's
+            // structural fallback already practices.
+            guard seenPaths.insert(path).inserted else { return nil }
             paths[split.id] = path
         }
         return paths

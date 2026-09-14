@@ -115,6 +115,17 @@ public final class SessionViewModel {
     // forever.
     private var suppressedFlushRetries: [PaneID: Int] = [:]
     private static let maxSuppressedFlushRetries = 50
+    // Every pane whose own retry budget above ran out while STILL
+    // suppressed: at the default 100ms coalescing window that is only
+    // ~5 seconds, well inside how long a real divider drag can be held
+    // before ending WITHOUT committing (Esc, or a release with no net
+    // move) -- exactly the strand `suppressedFlushRetries` itself exists to
+    // prevent, just on a longer clock. `resumePaneBoxDimsSends` re-arms
+    // every pane recorded here, since that is precisely the path a
+    // non-committing end takes and the one `flushPaneBoxDimsAfterDividerDrag`
+    // does not need this for (it already flushes every currently-tracked
+    // pane directly, gave-up or not).
+    private var stalledSuppressedPanes: Set<PaneID> = []
     private let dimsCoalescingWindow: Duration
 
     private let paneLauncherRegistry = PaneLauncherRegistry()
@@ -235,6 +246,7 @@ public final class SessionViewModel {
     /// out-and-back reflow this suppression exists to prevent.
     public func resumePaneBoxDimsSends() {
         suppressingPaneBoxDimsSends = false
+        reviveStalledPaneFlushes()
     }
 
     /// Lifts the suppression and sends every pane's latest recorded box now
@@ -248,6 +260,20 @@ public final class SessionViewModel {
         // `paneBoxDims` out from under a live iteration over it.
         for pane in Array(paneBoxDims.keys) {
             await flushDims(for: pane)
+        }
+    }
+
+    /// Re-arms every pane whose own suppressed-flush retry budget ran out
+    /// mid-drag: `scheduleDimsFlush` starts each one's own fresh
+    /// coalescing window, which -- suppression now lifted -- succeeds on
+    /// its own next firing without needing to know why it gave up in the
+    /// first place.
+    private func reviveStalledPaneFlushes() {
+        guard !stalledSuppressedPanes.isEmpty else { return }
+        let panes = stalledSuppressedPanes
+        stalledSuppressedPanes.removeAll()
+        for pane in panes {
+            scheduleDimsFlush(for: pane)
         }
     }
 
@@ -284,6 +310,7 @@ public final class SessionViewModel {
             let retries = (suppressedFlushRetries[pane] ?? 0) + 1
             guard retries <= Self.maxSuppressedFlushRetries else {
                 suppressedFlushRetries[pane] = nil
+                stalledSuppressedPanes.insert(pane)
                 return
             }
             suppressedFlushRetries[pane] = retries
@@ -291,6 +318,7 @@ public final class SessionViewModel {
             return
         }
         suppressedFlushRetries[pane] = nil
+        stalledSuppressedPanes.remove(pane)
         guard let size = paneBoxDims[pane], lastSentDims[pane] != size else { return }
         guard !parkedPanes.contains(pane), ghosttySurfaces[pane] != nil else { return }
         lastSentDims[pane] = size
@@ -633,6 +661,7 @@ public final class SessionViewModel {
         paneBoxDims.removeValue(forKey: pane)
         dimsFlushes.removeValue(forKey: pane)?.cancel()
         suppressedFlushRetries.removeValue(forKey: pane)
+        stalledSuppressedPanes.remove(pane)
         parkedPanes.removeAll { $0 == pane }
         await surface.detach()
     }
@@ -762,12 +791,35 @@ public final class SessionViewModel {
     public func setSplitRatio(tab: TabID, path: [Bool], ratio: Double) async {
         guard let planExecutor else { return }
         guard let undoJournal else {
+            guard splitExists(tab: tab, path: path) else { return }
             await Self.setSplitRatio(tab: tab, path: path, ratio: ratio, executor: planExecutor, notify: noticeSink) { _ in }
             return
         }
-        await undoJournal.runExclusively { [noticeSink] in
+        // Re-checked HERE, not by the caller before this was even queued:
+        // a divider drag's own `ended()` can be reached from a release
+        // monitor independent of whatever view started it (see
+        // `DividerDragCoordinator`), so the path it captured at `began()`
+        // may no longer name a real split by the time this actually runs --
+        // herdr reshaped the tab mid-drag (a remote resize, another client
+        // closing a pane), or this call sat behind an in-flight undo/redo
+        // for long enough that it did. Committing anyway would land the
+        // ratio on whatever split now occupies that path, plus an undo
+        // entry naming it -- silently declining is the same choice
+        // `HerdrStore.predictedLayout` already makes for its own optimistic
+        // preview of this same op.
+        await undoJournal.runExclusively { [weak self, noticeSink] in
+            guard let self, self.splitExists(tab: tab, path: path) else { return }
             await Self.setSplitRatio(tab: tab, path: path, ratio: ratio, executor: planExecutor, notify: noticeSink, record: undoJournal.record)
         }
+    }
+
+    /// Whether `path` currently resolves to a real split in `tab`'s own
+    /// layout, via the identical resolution `CanvasGeometry` and
+    /// `HerdrStore.predictedLayout` already use (`splitPaths`, id-parsed
+    /// first, structural fallback second) -- never re-derived a third way.
+    private func splitExists(tab: TabID, path: [Bool]) -> Bool {
+        guard let layout = model?.layouts[tab] else { return false }
+        return CanvasGeometry.splitPaths(splits: layout.splits, area: layout.area).values.contains(path)
     }
 
     private static func setSplitRatio(

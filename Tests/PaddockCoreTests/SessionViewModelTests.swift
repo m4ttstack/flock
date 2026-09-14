@@ -201,6 +201,29 @@ private func makeModel(paneRect rect: CellRect) -> SessionModel {
     return model
 }
 
+/// `makeModel` plus a layout for `w1:t1` with a root `.right` split (path
+/// `[]`) over a 20x10 area and a nested `.down` split occupying the root's
+/// own second child (path `[true]`) -- realistic herdr-shaped ids, so
+/// `CanvasGeometry.splitPaths`'s id-parsed primary path resolves it the same
+/// way production data would.
+private func makeModelWithNestedSplit() -> SessionModel {
+    var model = makeModel()
+    let area = CellRect(x: 0, y: 0, width: 20, height: 10)
+    model.layouts[TabID(rawValue: "w1:t1")] = LayoutSnapshot(
+        workspaceID: WorkspaceID(rawValue: "w1"),
+        tabID: TabID(rawValue: "w1:t1"),
+        zoomed: false,
+        area: area,
+        focusedPaneID: PaneID(rawValue: "w1:p1"),
+        panes: [PaneRect(paneID: PaneID(rawValue: "w1:p1"), focused: true, rect: CellRect(x: 0, y: 0, width: 10, height: 10))],
+        splits: [
+            SplitInfo(id: "split_0_root", direction: .right, ratio: 0.5, rect: area),
+            SplitInfo(id: "split_1_1", direction: .down, ratio: 0.5, rect: CellRect(x: 10, y: 0, width: 10, height: 10)),
+        ]
+    )
+    return model
+}
+
 private func stringParam(_ params: [String: JSONValue], _ key: String) -> String? {
     guard case .string(let value)? = params[key] else { return nil }
     return value
@@ -739,12 +762,13 @@ final class SessionViewModelTests: XCTestCase {
 
     /// The re-arm above must not spin forever if suppression never lifts (a
     /// bug elsewhere leaving it stranded, say): bounded to a fixed retry
-    /// count, so a pane's own stale report is eventually dropped rather than
-    /// scheduling a fresh task every coalescing window without end. A short
+    /// count, so a pane's own stale report stops rescheduling ITSELF rather
+    /// than a fresh task every coalescing window without end. A short
     /// coalescing window keeps the bound reachable inside a normal test
-    /// timeout.
+    /// timeout. Giving up is not the same as dropping the report forever,
+    /// though -- see the next test for the other half.
     @MainActor
-    func testASuppressedFlushGivesUpAfterBoundedRetriesRatherThanSpinningForever() async throws {
+    func testASuppressedFlushGivesUpRetryingAfterBoundedAttemptsWhileStillSuppressed() async throws {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(1))
         let pane = PaneID(rawValue: "w1:p1")
@@ -753,15 +777,40 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
         viewModel.beginSuppressingPaneBoxDimsSends()
         // Long enough for the retry bound (50 retries at ~1ms each) to be
-        // exhausted while suppression is STILL active -- the report must be
-        // dropped here, not merely still pending.
+        // exhausted while suppression is STILL active.
         try? await Task.sleep(for: .milliseconds(500))
+
+        // Nothing left rescheduling itself: a wait for "any pending flush"
+        // returns immediately rather than catching a task still in flight.
+        await viewModel.waitForPaneDimsReconciliation()
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertTrue(surface.resizeCalls.isEmpty, "still suppressed -- the bound stops retrying, it does not send anyway")
+    }
+
+    /// The other half: a pane whose retry budget ran out mid-drag is not
+    /// stranded forever the way round 3's original bug left it -- ending the
+    /// drag WITHOUT committing (Esc, or a release with no net move) still
+    /// delivers it, exactly the strand this round closes. Held past the
+    /// bound on purpose, then resumed via the non-committing exit path
+    /// (`resumePaneBoxDimsSends`, not the commit path's own flush).
+    @MainActor
+    func testAStalledSuppressedFlushIsRevivedByResumePaneBoxDimsSends() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(1))
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
+        viewModel.beginSuppressingPaneBoxDimsSends()
+        try? await Task.sleep(for: .milliseconds(500))
+        await viewModel.waitForPaneDimsReconciliation()
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertTrue(surface.resizeCalls.isEmpty, "precondition: the retry budget is exhausted before resuming")
 
         viewModel.resumePaneBoxDimsSends()
         await viewModel.waitForPaneDimsReconciliation()
 
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertTrue(surface.resizeCalls.isEmpty, "the retry bound gave up on the stale report before suppression ever lifted")
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [45], "a drag held longer than the retry bound must not lose a pane outside its own subtree")
     }
 
     /// Lifting suppression with `resumePaneBoxDimsSends` issues no send of
@@ -1353,13 +1402,32 @@ final class SessionViewModelTests: XCTestCase {
     func testSetSplitRatioRoutesThroughThePlanExecutorAndRecordsInTheJournal() async {
         let executor = FakePlanExecutor()
         let notices = NoticeRecorder()
-        let journal = UndoJournal(executor: executor, model: { makeModel() }, notify: { notices.record($0) })
+        let model = makeModelWithNestedSplit()
+        let journal = UndoJournal(executor: executor, model: { model }, notify: { notices.record($0) })
         let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+        viewModel.update(model: model, connection: .live)
 
         await viewModel.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true], ratio: 0.62)
 
         XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true], ratio: 0.62)], label: "Resize split")])
         XCTAssertTrue(journal.canUndo)
+    }
+
+    @MainActor
+    func testSetSplitRatioDeclinesWhenNoDividerExistsAtThatPathAnymore() async {
+        let executor = FakePlanExecutor()
+        let notices = NoticeRecorder()
+        let model = makeModelWithNestedSplit()
+        let journal = UndoJournal(executor: executor, model: { model }, notify: { notices.record($0) })
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+        viewModel.update(model: model, connection: .live)
+
+        // A path the seeded layout's own split tree does not resolve --
+        // herdr reshaped the tab mid-drag, say.
+        await viewModel.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true, true], ratio: 0.62)
+
+        XCTAssertTrue(executor.executedPlans.isEmpty, "no op reaches the executor for a split that no longer exists")
+        XCTAssertFalse(journal.canUndo)
     }
 
     @MainActor
