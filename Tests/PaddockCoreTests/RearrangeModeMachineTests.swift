@@ -79,4 +79,43 @@ final class RearrangeModeMachineTests: XCTestCase {
         machine.handle(.controlUp)
         XCTAssertTrue(machine.isToggled, "isToggled must not be disturbed by Control's own up/down")
     }
+
+    // MARK: - RearrangeMode's ambient sync (become/resign-key, become/resign-active)
+
+    /// `RearrangeMode.attach` re-syncs from `NSEvent.modifierFlags` -- the
+    /// ambient state, not a `.flagsChanged` edge -- whenever the window
+    /// becomes key. A window that becomes key with Control already held (no
+    /// down-transition ever crossed it) feeds the SAME `.controlDown` event
+    /// the machine already understands; this pins that the machine treats an
+    /// ambient sync identically to a real edge.
+    func testAmbientControlHeldSyncedOnBecomeKeyActivates() {
+        var machine = RearrangeModeMachine()
+        XCTAssertFalse(machine.active, "nothing has happened yet")
+        machine.handle(.controlDown)
+        XCTAssertTrue(machine.active, "an ambient sync reading Control down must activate, same as a real edge")
+    }
+
+    /// `RearrangeMode`'s resign-key/resign-active observers force
+    /// `.controlUp` regardless of whether a real key-up was ever delivered to
+    /// this window (it may have happened on another app entirely). With
+    /// nothing else holding it active, that forced release must deactivate.
+    func testForcedControlUpOnResignClearsAHeldOnlyActivation() {
+        var machine = RearrangeModeMachine()
+        machine.handle(.controlDown)
+        XCTAssertTrue(machine.active)
+        // Forced by resign-key/resign-active, not a real `.flagsChanged` up.
+        machine.handle(.controlUp)
+        XCTAssertFalse(machine.active, "a forced release must deactivate a held-only activation")
+    }
+
+    /// The same forced release must not disturb the sticky toggle: resigning
+    /// key while the View-menu toggle is on stays active.
+    func testForcedControlUpOnResignDoesNotDisturbTheStickyToggle() {
+        var machine = RearrangeModeMachine()
+        machine.handle(.controlDown)
+        machine.handle(.toggleOn)
+        machine.handle(.controlUp)
+        XCTAssertTrue(machine.active, "the sticky toggle survives a forced resign release")
+        XCTAssertTrue(machine.isToggled)
+    }
 }

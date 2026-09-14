@@ -33,6 +33,13 @@ public final class RearrangeMode {
     /// makes `nonisolated(unsafe)` legal here: the Observation macro forbids
     /// `nonisolated` on a mutable property it tracks.
     @ObservationIgnored nonisolated(unsafe) private var controlMonitor: Any?
+    /// Become/resign-key and become/resign-active observers -- see `attach`.
+    /// A `flagsChanged` edge is only ever delivered to a window that is key,
+    /// so an edge-triggered monitor alone strands `controlHeld` whenever
+    /// Control changes state off-window (another app, or this window not yet
+    /// key): these observers re-sync from `NSEvent.modifierFlags` (the
+    /// ambient state, not an edge) at every point that gap can occur.
+    @ObservationIgnored nonisolated(unsafe) private var lifecycleObservers: [NSObjectProtocol] = []
     @ObservationIgnored private weak var monitoredWindow: NSWindow?
 
     public init() {}
@@ -41,13 +48,18 @@ public final class RearrangeMode {
         if let controlMonitor {
             NSEvent.removeMonitor(controlMonitor)
         }
+        let center = NotificationCenter.default
+        for observer in lifecycleObservers {
+            center.removeObserver(observer)
+        }
     }
 
-    /// Installs the Control-key monitor for `window`; a repeat call for the
-    /// SAME window is a no-op, and any earlier monitor is torn down first.
-    /// A LOCAL monitor already never fires while another app is frontmost;
-    /// the `event.window === window` check inside narrows it further to the
-    /// one window this instance is scoped to.
+    /// Installs the Control-key monitor for `window`, plus the window/app
+    /// activation observers that keep it honest across a resign; a repeat
+    /// call for the SAME window is a no-op, and any earlier monitor/observers
+    /// are torn down first. A LOCAL monitor already never fires while another
+    /// app is frontmost; the `event.window === window` check inside narrows
+    /// it further to the one window this instance is scoped to.
     public func attach(to window: NSWindow) {
         guard monitoredWindow !== window else { return }
         detach()
@@ -57,6 +69,29 @@ public final class RearrangeMode {
             self.setControlHeld(event.modifierFlags.contains(.control))
             return event
         }
+        let center = NotificationCenter.default
+        lifecycleObservers = [
+            center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
+                self?.syncAmbientControlHeld()
+            },
+            center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+                self?.setControlHeld(false)
+            },
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.syncAmbientControlHeld()
+            },
+            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.setControlHeld(false)
+            },
+        ]
+        // The host view can mount after `window` is already key (the common
+        // case at launch: `RearrangeControlMonitorHost` attaches async), so
+        // a became-key notification for THIS activation may already have
+        // fired before the observer above existed -- sync once, here, for
+        // that case.
+        if window.isKeyWindow {
+            syncAmbientControlHeld()
+        }
     }
 
     public func detach() {
@@ -64,6 +99,11 @@ public final class RearrangeMode {
             NSEvent.removeMonitor(controlMonitor)
         }
         controlMonitor = nil
+        let center = NotificationCenter.default
+        for observer in lifecycleObservers {
+            center.removeObserver(observer)
+        }
+        lifecycleObservers = []
         monitoredWindow = nil
     }
 
@@ -76,6 +116,10 @@ public final class RearrangeMode {
 
     private func setControlHeld(_ held: Bool) {
         apply(held ? .controlDown : .controlUp)
+    }
+
+    private func syncAmbientControlHeld() {
+        setControlHeld(NSEvent.modifierFlags.contains(.control))
     }
 
     private func apply(_ event: RearrangeModeMachine.Event) {

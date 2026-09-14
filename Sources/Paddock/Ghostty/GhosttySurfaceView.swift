@@ -190,7 +190,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             onPrimaryClick?()
             return
         }
-        requestWindowFirstResponder()
+        // Gated here, not inside `requestWindowFirstResponder` itself: that
+        // helper also backs `requestFocus()`'s non-mouse callers (a
+        // resolved-focus change following the view, `viewDidMoveToWindow`),
+        // which must keep working during rearrange.
+        if !rearrangeActive {
+            requestWindowFirstResponder()
+        }
         leftButtonRoute = sendButtonDown(.left, event: event)
     }
 
@@ -250,7 +256,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     override func otherMouseDown(with event: NSEvent) {
         guard wantsFocus else { return }
-        requestWindowFirstResponder()
+        if !rearrangeActive {
+            requestWindowFirstResponder()
+        }
         let number = Int(event.buttonNumber)
         otherButtonRoutes[number] = sendButtonDown(otherButton(number), event: event, appkitNumber: number)
     }
@@ -268,8 +276,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// `terminal.mouse` moved line (herdr drops it unless the app enabled
     /// any-motion tracking). Otherwise, unfocused panes included, it stays a
     /// libghostty position update: hover links and the pointer shape are
-    /// local surface state, not pane input, so `.drop` still feeds them.
+    /// local surface state, not pane input, so `.drop` still feeds them --
+    /// EXCEPT while rearranging, where `.drop` means something stronger
+    /// (nothing reaches the terminal, full stop), so that case is checked
+    /// first and separately rather than folded into the existing `.drop`
+    /// branch below.
     override func mouseMoved(with event: NSEvent) {
+        guard !rearrangeActive else { return }
         switch mouseDecision(kind: .moved, button: nil, event: event) {
         case .toApp(let command): session.sendPaneMouse(command)
         // `.toHerdrScroll` is unreachable for `.moved` (`decide` only ever
@@ -348,7 +361,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
     }
 
+    /// `route` is already `nil` under rearrange (the DOWN that would have set
+    /// it went `.drop`), but the `.surface, nil` branch below exists for the
+    /// ordinary unfocused-pane case too and still calls `sendMousePosition` --
+    /// so rearrange is checked explicitly here rather than folded into that
+    /// fallback, the same reasoning as `mouseMoved`.
     private func sendDrag(_ button: MouseForwarding.Button, event: NSEvent, route: ButtonRoute?) {
+        guard !rearrangeActive else { return }
         switch route {
         case .app:
             if let command = mouseCommand(kind: .drag, button: button, event: event) {
