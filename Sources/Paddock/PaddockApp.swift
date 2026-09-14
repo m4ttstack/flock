@@ -198,7 +198,7 @@ struct PaddockApp: App {
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)
                 .environment(dividerDragCoordinator)
-                .background(RearrangeControlMonitorHost(rearrangeMode: rearrangeMode))
+                .background(RearrangeOptionMonitorHost(rearrangeMode: rearrangeMode))
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
@@ -216,7 +216,7 @@ struct PaddockApp: App {
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(store: terminalTextSizeStore)
                 // No key equivalent: the momentary route into rearrange mode
-                // is a held Control, not a shortcut on this item.
+                // is a held Option, not a shortcut on this item.
                 Button {
                     rearrangeMode.toggle()
                 } label: {
