@@ -78,8 +78,9 @@ public enum GhosttyThemeConfig {
     /// handing the value to `RepeatableString.parseCLI`
     /// (`Vendor/ghostty/src/cli/args.zig`'s `LineIterator.next`), so an
     /// unquoted family name with no embedded `"` round-trips unchanged either
-    /// way. `font-size` is ghostty's `f32` (`Config.zig`'s `@"font-size"`),
-    /// which parses a bare integer fine.
+    /// way. `font-size` is ghostty's `f32` (`Config.zig`'s `@"font-size"`):
+    /// a whole size is written bare, a fractional one (the fit steps in half
+    /// points) as a plain decimal.
     ///
     /// `window-padding-x/y = 0` overrides libghostty's default 2px grid inset
     /// (`window-padding-x`/`-y` in `src/config/Config.zig`, scaled in
@@ -89,15 +90,22 @@ public enum GhosttyThemeConfig {
     /// and topmost slice of every cell onto the previous one; the pane chrome
     /// already provides the visual inset.
     public static func configText(
-        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Int
+        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Double
     ) -> String {
         let command = commandArgv.map(\.shellEscaped).joined(separator: " ")
         return configText(colors: colors)
             + "font-family = \(fontFamily)\n"
-            + "font-size = \(fontSizePoints)\n"
+            + "font-size = \(fontSizeText(fontSizePoints))\n"
             + "window-padding-x = 0\n"
             + "window-padding-y = 0\n"
             + "command = shell:\(command)\n"
+    }
+
+    static func fontSizeText(_ points: Double) -> String {
+        if points == points.rounded(), let whole = Int(exactly: points.rounded()) {
+            return String(whole)
+        }
+        return String(points)
     }
 }
 

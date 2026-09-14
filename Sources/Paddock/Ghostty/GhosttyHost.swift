@@ -153,7 +153,7 @@ final class GhosttyHost {
     /// one's scratch file is still being written or read.
     @discardableResult
     func configureNextSurface(
-        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Int
+        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Double
     ) -> Bool {
         guard let app, let baseConfig, !commandArgv.isEmpty else { return false }
         let text = GhosttyThemeConfig.configText(
@@ -194,7 +194,7 @@ final class GhosttyHost {
     @discardableResult
     func updateLiveConfig(
         surface: ghostty_surface_t, colors: GhosttyThemeColors, commandArgv: [String],
-        fontFamily: String, fontSizePoints: Int
+        fontFamily: String, fontSizePoints: Double
     ) -> Bool {
         guard let baseConfig, !commandArgv.isEmpty else { return false }
         let text = GhosttyThemeConfig.configText(

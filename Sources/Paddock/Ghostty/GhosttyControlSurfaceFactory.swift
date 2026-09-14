@@ -17,22 +17,22 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     private let socketPath: String
     private let herdrBinaryOverride: String?
     private let themeColors: () -> GhosttyThemeColors
-    /// Read once, at surface creation, the same way `themeColors` is: a later
-    /// text-size change flows through `GhosttySession.updateAppearance`, not
-    /// back through a fresh `Launch`.
-    private let terminalTextSize: () -> TerminalTextSize
+    /// The effective (fitted) font size, read once at surface creation the
+    /// same way `themeColors` is: a later change flows through
+    /// `GhosttySession.updateAppearance`, not back through a fresh `Launch`.
+    private let fontSizePoints: () -> Double
 
     init(
         host: GhosttyHost, socketPath: String,
         herdrBinaryOverride: String? = ProcessInfo.processInfo.environment["PADDOCK_HERDR_BIN"],
         themeColors: @escaping () -> GhosttyThemeColors,
-        terminalTextSize: @escaping () -> TerminalTextSize
+        fontSizePoints: @escaping () -> Double
     ) {
         self.host = host
         self.socketPath = socketPath
         self.herdrBinaryOverride = (herdrBinaryOverride?.isEmpty == false) ? herdrBinaryOverride : nil
         self.themeColors = themeColors
-        self.terminalTextSize = terminalTextSize
+        self.fontSizePoints = fontSizePoints
     }
 
     func makeSurface(
@@ -69,12 +69,13 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         )
         let session = host.makeSession(
             paneID: pane,
-            configuration: .init(commandArgv: argv, themeColors: themeColors(), textSize: terminalTextSize())
+            configuration: .init(commandArgv: argv, themeColors: themeColors(), fontSizePoints: fontSizePoints())
         )
         session.onUserInput = onUserInput
         session.onScreenActivity = onScreenActivity
         session.controlChannel = channel
         session.statusChannel = statusChannel
+        session.setExpectedGrid(cols: cols, rows: rows)
         // without a status channel at all, the bridge has no way to
         // ever tell this session about a first frame -- the card would
         // otherwise wait forever for a signal that structurally cannot
@@ -131,13 +132,13 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
         self.session = session
     }
 
-    /// A no-op by design: a real surface's size is driven by its NSView's
-    /// own pixel layout (`GhosttySurfaceView.layout()` -> `session.resize(to:)`),
-    /// never by the layout-cell cols/rows this seam is handed -- see
-    /// `GhosttyPaneSurface.resize`'s doc comment. The call still reaches
-    /// here (rather than being dropped from the protocol) so
-    /// `SessionViewModel` has one lifecycle contract for both renderers.
-    func resize(cols: Int, rows: Int) {}
+    /// herdr's dims for the pane: recorded as the grid the surface must
+    /// settle at and relayed to the bridge as `paddock.dims`. The surface's
+    /// pixel size itself still comes from its NSView's layout, which
+    /// `PaneCellView` sizes to exactly these cols x rows cells.
+    func resize(cols: Int, rows: Int) {
+        session.setExpectedGrid(cols: cols, rows: rows)
+    }
 
     /// Drops paddock's only strong reference to the session, AND -- since
     /// `GhosttySession.view` now holds its own view strongly, so a parked

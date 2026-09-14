@@ -18,19 +18,36 @@ struct PaneCellView: View {
     /// Terminal content insets inside the box. Top clears the legend's lower
     /// half; the rest mirrors the artboards' text inset from the frame.
     static let contentInsets = EdgeInsets(top: 12, leading: 10, bottom: 8, trailing: 10)
+
+    /// Everything a cell's frame holds besides its surface, per axis, for a
+    /// given divider gutter: what `UniformCellLayout.fit` must reserve in
+    /// every pane box so the chrome never eats a terminal cell. Must agree
+    /// with `cell`/`box`'s padding and the canvas's gutter inset exactly.
+    static func chrome(dividerThickness: CGFloat) -> PaneChrome {
+        PaneChrome(
+            horizontal: dividerThickness + contentInsets.leading + contentInsets.trailing,
+            vertical: dividerThickness + legendHalfHeight + contentInsets.top + contentInsets.bottom
+        )
+    }
+
     let theme: Theme
     let viewModel: SessionViewModel
     let pane: PaneRecord
     let isFocused: Bool
     let lastLine: String?
     /// The pane's real terminal cell size, straight from the layout
-    /// snapshot's `CellRect` -- never a pixel frame. Resizing this reattaches
-    /// the live stream and resizes the terminal view in place.
+    /// snapshot's `CellRect` -- never a pixel frame. A later change reaches
+    /// the surface through `SessionViewModel`'s own layout reconcile, not
+    /// through a reattach.
     let cols: Int
     let rows: Int
+    /// Exactly `cols x rows` cells of the fitted font: the surface's frame,
+    /// top-left in the box's content area, any remainder left as ground.
+    let surfaceSize: CGSize
+    /// The fitted font size every pane shares, already debounced by the canvas.
+    let fontSizePoints: Double
 
     @Environment(ToastCenter.self) private var toastCenter
-    @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
 
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
@@ -41,7 +58,7 @@ struct PaneCellView: View {
     /// that case.
     init(
         theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool,
-        lastLine: String?, cols: Int, rows: Int
+        lastLine: String?, cols: Int, rows: Int, surfaceSize: CGSize, fontSizePoints: Double
     ) {
         self.theme = theme
         self.viewModel = viewModel
@@ -50,6 +67,8 @@ struct PaneCellView: View {
         self.lastLine = lastLine
         self.cols = cols
         self.rows = rows
+        self.surfaceSize = surfaceSize
+        self.fontSizePoints = fontSizePoints
         _ghosttySurface = State(initialValue: viewModel.ghosttySurface(for: pane.paneID))
     }
 
@@ -70,19 +89,15 @@ struct PaneCellView: View {
             .padding(.top, Self.legendHalfHeight)
             .overlay(alignment: .topLeading) { legend }
             .overlay(alignment: .topTrailing) { statusChip }
-        // One task per (pane, dims) identity, never keyed on focus: the pane
+        // One task per pane identity, never keyed on dims or focus: the pane
         // gets exactly one surface for its whole visible life, created here
-        // on first visibility and resized in place on every later dims
-        // change. SwiftUI's `.task(id:)` cancellation is cooperative, so a
-        // superseded task body (a fast resize while an earlier attach for
-        // this pane is still settling) is not actually stopped -- it keeps
-        // running to completion, sharing this view's unsynchronized
-        // `ghosttySurface` `@State` with whatever fresh task body replaced
-        // it. `attachPane` is itself chained through the view model's own
-        // `paneWork`, so a stale body's call always resolves against
-        // whatever the fresher body already did, never clobbering it: both
-        // ultimately read back the SAME (single) surface for this pane.
-        .task(id: AttachDims(paneID: pane.paneID, cols: cols, rows: rows)) {
+        // on first visibility with the dims of that moment. A later layout
+        // change reaches the surface through `SessionViewModel`'s own
+        // reconcile (`updatePaneDims`), so nothing here ever restarts the
+        // attach. `attachPane` is chained through the view model's own
+        // `paneWork`, so this body always reads back the single surface for
+        // this pane whatever else was queued for it.
+        .task(id: pane.paneID) {
             ghosttySurface = await viewModel.attachPane(pane.paneID, cols: cols, rows: rows)
         }
         .onDisappear {
@@ -98,14 +113,24 @@ struct PaneCellView: View {
         return PaneMenuModel.entries(for: pane.paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID)
     }
 
-    /// The framed terminal box. Content is clipped to the rounded frame and
-    /// the focus halo is a real ring geometry (even-odd cutout) so no accent
-    /// fill can bleed into the interior.
+    /// The framed terminal box. The content is pinned to exactly the
+    /// surface's cols x rows cells, top-left in the box's content area (the
+    /// box itself fills the cell frame the canvas laid out on herdr's grid,
+    /// so any remainder is plain ground). Content is clipped to the rounded
+    /// frame and the focus halo is a real ring geometry (even-odd cutout) so
+    /// no accent fill can bleed into the interior.
     private var box: some View {
         content
+            .frame(width: surfaceSize.width, height: surfaceSize.height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(Self.contentInsets)
             .background(theme.terminalGround)
             .clipShape(RoundedRectangle(cornerRadius: 9))
+            .overlay(alignment: .trailing) {
+                PaneScrollIndicator(theme: theme, scroll: pane.scroll)
+                    .padding(.vertical, Self.contentInsets.top)
+                    .padding(.trailing, 3)
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 9)
                     .strokeBorder(isFocused ? theme.accent : theme.separator, lineWidth: isFocused ? 2 : 1)
@@ -183,7 +208,7 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
-                    textSize: terminalTextSizeStore.active,
+                    fontSizePoints: fontSizePoints,
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) }
                 )
@@ -291,12 +316,6 @@ struct PaneCellView: View {
         guard let last = pane.cwd.split(separator: "/").last else { return pane.cwd }
         return "~/\(last)"
     }
-}
-
-private struct AttachDims: Equatable {
-    let paneID: PaneID
-    let cols: Int
-    let rows: Int
 }
 
 /// The pane menu as SwiftUI rows, applied wherever the cell is SwiftUI

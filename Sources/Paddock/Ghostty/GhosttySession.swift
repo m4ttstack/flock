@@ -2,6 +2,7 @@
 import AppKit
 import Carbon
 import GhosttyKit
+import os
 import PaddockCore
 
 /// One libghostty surface, and everything that has to be told about it: size,
@@ -20,11 +21,11 @@ final class GhosttySession {
         var commandArgv: [String]
         var themeColors: GhosttyThemeColors
         var workingDirectory: String?
-        var fontSize: Float = 0
-        /// The terminal text size at creation time; travels with the launch
-        /// the same way `themeColors` does. A later change flows through
-        /// `updateAppearance`, not back through this struct.
-        var textSize: TerminalTextSize = .regular
+        /// The effective terminal font size (points) at creation time, the
+        /// canvas's fit of the Terminal Text setting to the window; travels
+        /// with the launch the same way `themeColors` does. A later change
+        /// flows through `updateAppearance`, not back through this struct.
+        var fontSizePoints: Double = Double(TerminalTextSize.regular.points)
     }
 
     /// The parts of the terminal's state this app reads back.
@@ -102,6 +103,14 @@ final class GhosttySession {
     /// it false.
     private(set) var mouseCaptureEnabled = false
 
+    /// The grid herdr says this pane has (its layout cell rect), the size
+    /// the view lays the surface out at and the only size the bridge ever
+    /// tells herdr. Set through `setExpectedGrid` on attach and on every
+    /// layout change; `verifyExpectedGrid` checks the live surface against
+    /// it after each layout pass.
+    private(set) var expectedGrid: (cols: Int, rows: Int)?
+    private var lastVerifiedGrid: (cols: Int, rows: Int)?
+
     init(host: GhosttyHost, paneID: PaneID, configuration: Launch) {
         self.host = host
         self.paneID = paneID
@@ -140,13 +149,45 @@ final class GhosttySession {
 
     /// `ghostty_surface_config_s` has no size field: a new surface is always
     /// born at libghostty's own internal placeholder size, so every attach
-    /// (first or not) resizes to the view's real bounds unconditionally.
+    /// (first or not) resizes to the view's real bounds unconditionally. The
+    /// bounds are `PaneCellView`'s exact cols x rows cells, so the grid this
+    /// produces is herdr's grid; `verifyExpectedGrid` confirms that.
     func resize(to size: CGSize) {
         guard let surface else { return }
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return }
         ghostty_surface_set_size(surface, UInt32(ceil(size.width * scale)), UInt32(ceil(size.height * scale)))
         ghostty_surface_refresh(surface)
+        verifyExpectedGrid()
     }
+
+    /// Records herdr's dims for this pane and relays them to the bridge as
+    /// `paddock.dims` (the one size it ever sends herdr), skipping a repeat
+    /// of the dims already sent.
+    func setExpectedGrid(cols: Int, rows: Int) {
+        guard cols > 0, rows > 0 else { return }
+        if let expectedGrid, expectedGrid.cols == cols, expectedGrid.rows == rows { return }
+        expectedGrid = (cols, rows)
+        lastVerifiedGrid = nil
+        controlChannel?.setDims(cols: cols, rows: rows)
+        verifyExpectedGrid()
+    }
+
+    /// Logs, once per (expected, actual) change, whether libghostty's live
+    /// grid equals herdr's dims; a mismatch after the font has settled means
+    /// the fit's cell metrics disagree with the font libghostty loaded.
+    private func verifyExpectedGrid() {
+        guard let expectedGrid, let geometry = surfaceGeometry() else { return }
+        let actual = (geometry.grid.columns, geometry.grid.rows)
+        if let lastVerifiedGrid, lastVerifiedGrid == actual { return }
+        lastVerifiedGrid = actual
+        let matches = actual == expectedGrid
+        Self.gridLog.log(
+            level: matches ? .info : .error,
+            "surface grid pane=\(self.paneID.rawValue, privacy: .public) cols=\(actual.0) rows=\(actual.1) expected=\(expectedGrid.cols)x\(expectedGrid.rows) cell=\(geometry.cellPixels.width)x\(geometry.cellPixels.height)px font=\(self.configuration.fontSizePoints) match=\(matches)"
+        )
+    }
+
+    private static let gridLog = Logger(subsystem: "dev.mattstack.paddock", category: "grid")
 
     func updateContentScale() {
         guard let surface else { return }
@@ -411,28 +452,29 @@ final class GhosttySession {
     /// `ghostty_surface_update_config` (ghostty's own live-reload entry
     /// point -- see `Surface.zig`'s `updateConfig`, which only touches
     /// rendering-affecting state and never re-runs the surface's command),
-    /// so a theme OR text-size change repaints every focused pane without
-    /// tearing its bridge down. A font-size change here recomputes the
-    /// surface's cell size and, with it, its grid -- `Surface.zig`'s
-    /// `setFontSize` -> `setCellSize` resizes the surface's own pty, which is
-    /// what fires the bridge child's SIGWINCH and its own `terminal.resize`
-    /// send (`BridgeModeSwitcher.recordSize`); nothing here has to drive that
-    /// resize by hand. Ported from Herdglass's `TerminalSession.updateConfig`
+    /// so a theme OR font-size change repaints every pane without tearing
+    /// its bridge down. A font-size change recomputes the surface's cell
+    /// size and, with it, its grid from the view's unchanged pixel size
+    /// (`Surface.zig`'s `setFontSize` -> `setCellSize`); the bridge ignores
+    /// the resulting PTY winsize change, since herdr only ever hears the
+    /// pane's real dims. Ported from Herdglass's `TerminalSession.updateConfig`
     /// (BSL-1.1, attributed): push, then re-apply the light/dark scheme the
     /// same way `attach` does, since a config push does not imply one.
     @discardableResult
-    func updateAppearance(_ colors: GhosttyThemeColors, textSize: TerminalTextSize) -> Bool {
+    func updateAppearance(_ colors: GhosttyThemeColors, fontSizePoints: Double) -> Bool {
         configuration.themeColors = colors
-        configuration.textSize = textSize
+        configuration.fontSizePoints = fontSizePoints
         guard let surface else { return false }
         guard host.updateLiveConfig(
             surface: surface, colors: colors, commandArgv: configuration.commandArgv,
-            fontFamily: TerminalFont.face, fontSizePoints: textSize.points
+            fontFamily: TerminalFont.face, fontSizePoints: fontSizePoints
         ) else {
             return false
         }
+        lastVerifiedGrid = nil
         applyColorScheme(appearance: view?.effectiveAppearance)
         requestRender()
+        verifyExpectedGrid()
         return true
     }
 
@@ -541,7 +583,7 @@ final class GhosttySession {
         // app's config once, at creation.
         guard host.configureNextSurface(
             colors: configuration.themeColors, commandArgv: configuration.commandArgv,
-            fontFamily: TerminalFont.face, fontSizePoints: configuration.textSize.points
+            fontFamily: TerminalFont.face, fontSizePoints: configuration.fontSizePoints
         ) else { return }
 
         if let scheme = colorScheme(for: view.effectiveAppearance) {
@@ -553,7 +595,6 @@ final class GhosttySession {
         config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(view).toOpaque()))
         config.userdata = Unmanaged.passUnretained(self).toOpaque()
         config.scale_factor = Double(scale)
-        config.font_size = configuration.fontSize
         config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
 
         configuration.workingDirectory.withOptionalCString { workingDirectory in

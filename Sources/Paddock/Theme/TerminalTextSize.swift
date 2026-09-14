@@ -20,8 +20,11 @@ public enum TerminalFont {
     public static let face = "Menlo"
 }
 
-/// One of three fixed terminal point sizes, applied globally to every pane
-/// via the ghostty config's `font-size` line.
+/// One of three fixed terminal point sizes: the MAXIMUM font size every pane
+/// renders at. The canvas fits herdr's whole cell grid into the window and
+/// shrinks below this only when the grid cannot fit at it
+/// (`UniformCellLayout.fit`); the size actually applied is
+/// `TerminalTextSizeStore.fittedPoints`.
 public enum TerminalTextSize: String, CaseIterable, Sendable {
     case compact
     case regular
@@ -54,17 +57,30 @@ public final class TerminalTextSizeStore {
     public static let defaultsKey = "paddock.terminalTextSize"
 
     public private(set) var active: TerminalTextSize
+    /// The font size the canvas last fitted and applied to every surface:
+    /// `min(active.points, fit)`. New surfaces are born at this size so they
+    /// match the panes already on screen. Starts at the setting itself until
+    /// the first fit lands.
+    public private(set) var fittedPoints: Double
 
     private let userDefaults: UserDefaults
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         let storedID = userDefaults.string(forKey: Self.defaultsKey)
-        active = storedID.flatMap(TerminalTextSize.init(rawValue:)) ?? .regular
+        let stored = storedID.flatMap(TerminalTextSize.init(rawValue:)) ?? .regular
+        active = stored
+        fittedPoints = Double(stored.points)
     }
 
     public func select(_ size: TerminalTextSize) {
         active = size
+        fittedPoints = min(fittedPoints, Double(size.points))
         userDefaults.set(size.rawValue, forKey: Self.defaultsKey)
+    }
+
+    public func recordFit(_ points: Double) {
+        guard fittedPoints != points else { return }
+        fittedPoints = points
     }
 }

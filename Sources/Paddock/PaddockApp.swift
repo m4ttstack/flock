@@ -137,8 +137,14 @@ struct PaddockApp: App {
             GhosttyControlSurfaceFactory(
                 host: host, socketPath: socketPath,
                 themeColors: { themeStore.active.ghosttyThemeColors() },
-                terminalTextSize: { terminalTextSizeStore.active }
+                fontSizePoints: { terminalTextSizeStore.fittedPoints }
             )
+        }
+        // Pane-scoped scroll state rides one subscription connection per
+        // visible pane, never the store's blanket subscription; it lands in
+        // the same model the blanket feed reduces into.
+        let paneScrollSubscriber = HerdrPaneScrollSubscriber(socketPath: socketPath) { pane, scroll in
+            herdrStore.applyScrollChanged(pane: pane, scroll: scroll)
         }
         // One client, two roles: `HerdrClient` conforms to both
         // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
@@ -151,6 +157,7 @@ struct PaddockApp: App {
             layoutExportClient: herdrClient,
             planExecutor: herdrStore,
             undoJournal: undoJournal,
+            paneScrollSubscriber: paneScrollSubscriber,
             // Not an undo/redo notice -- an invalid move or a plan/herdr
             // failure from `perform`/`closePane` -- so this gets the
             // neutral info glyph, never the undo journal's arrow.

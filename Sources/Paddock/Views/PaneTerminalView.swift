@@ -14,7 +14,8 @@ struct GhosttyPaneTerminalView: View {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
-    let textSize: TerminalTextSize
+    /// The effective (fitted) font size every pane shares.
+    let fontSizePoints: Double
     /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
     /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus
     /// ever moves to this pane at all, since only the header row has its
@@ -28,20 +29,20 @@ struct GhosttyPaneTerminalView: View {
     let menuProvider: () -> NSMenu?
 
     init(
-        surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, textSize: TerminalTextSize,
+        surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, fontSizePoints: Double,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil }
     ) {
         self.surface = surface
         self.theme = theme
         self.isFocused = isFocused
-        self.textSize = textSize
+        self.fontSizePoints = fontSizePoints
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
     }
 
     var body: some View {
         GhosttySurfaceRepresentable(
-            surface: surface, theme: theme, isFocused: isFocused, textSize: textSize,
+            surface: surface, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
             onPrimaryClick: onPrimaryClick, menuProvider: menuProvider
         )
     }
@@ -57,13 +58,13 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let surface: any GhosttyPaneSurface
     let theme: Theme
     let isFocused: Bool
-    let textSize: TerminalTextSize
+    let fontSizePoints: Double
     var onPrimaryClick: () -> Void = {}
     var menuProvider: () -> NSMenu? = { nil }
 
     final class Coordinator {
         var lastAppliedThemeID: String?
-        var lastAppliedTextSize: TerminalTextSize?
+        var lastAppliedFontSize: Double?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -77,11 +78,11 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     /// A fresh `Coordinator` accompanies this call (SwiftUI made a brand new
     /// `GhosttySurfaceRepresentable` identity for the reappearing tab), so
     /// its `lastApplied*` start `nil` regardless of branch -- unconditionally
-    /// stamping them to the CURRENT `theme`/`textSize` here would tell
+    /// stamping them to the CURRENT `theme`/`fontSizePoints` here would tell
     /// `updateNSView` "already applied" even when the re-hosted session's own
     /// last-applied appearance (`session.configuration`, kept current by
     /// every `updateAppearance` call) is stale from before the park -- a
-    /// theme or text-size change made on another tab while this pane was
+    /// theme or font-size change made on another tab while this pane was
     /// parked would then never repaint it. So the re-host branch compares
     /// against the session's OWN record and applies immediately when it
     /// differs, before ever touching the coordinator.
@@ -105,18 +106,18 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             // once the chained one does run is a harmless no-op.
             handle.unpark()
             let incomingColors = theme.ghosttyThemeColors()
-            if session.configuration.themeColors != incomingColors || session.configuration.textSize != textSize {
-                session.updateAppearance(incomingColors, textSize: textSize)
+            if session.configuration.themeColors != incomingColors || session.configuration.fontSizePoints != fontSizePoints {
+                session.updateAppearance(incomingColors, fontSizePoints: fontSizePoints)
             }
             context.coordinator.lastAppliedThemeID = theme.id
-            context.coordinator.lastAppliedTextSize = textSize
+            context.coordinator.lastAppliedFontSize = fontSizePoints
             existingView.wantsFocus = isFocused
             existingView.onPrimaryClick = onPrimaryClick
             existingView.paneMenuProvider = menuProvider
             return existingView
         }
         context.coordinator.lastAppliedThemeID = theme.id
-        context.coordinator.lastAppliedTextSize = textSize
+        context.coordinator.lastAppliedFontSize = fontSizePoints
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.onPrimaryClick = onPrimaryClick
@@ -126,10 +127,10 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let ghosttyView = nsView as? GhosttySurfaceView else { return }
-        if context.coordinator.lastAppliedThemeID != theme.id || context.coordinator.lastAppliedTextSize != textSize {
+        if context.coordinator.lastAppliedThemeID != theme.id || context.coordinator.lastAppliedFontSize != fontSizePoints {
             context.coordinator.lastAppliedThemeID = theme.id
-            context.coordinator.lastAppliedTextSize = textSize
-            ghosttyView.session.updateAppearance(theme.ghosttyThemeColors(), textSize: textSize)
+            context.coordinator.lastAppliedFontSize = fontSizePoints
+            ghosttyView.session.updateAppearance(theme.ghosttyThemeColors(), fontSizePoints: fontSizePoints)
         }
         ghosttyView.wantsFocus = isFocused
         ghosttyView.onPrimaryClick = onPrimaryClick

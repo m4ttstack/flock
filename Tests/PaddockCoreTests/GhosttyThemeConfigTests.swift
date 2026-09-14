@@ -133,7 +133,7 @@ final class GhosttyThemeConfigTests: XCTestCase {
         let text = GhosttyThemeConfig.configText(
             colors: colors,
             commandArgv: ["/path/to/Paddock", "--bridge", "w1:p1", "--socket", "/tmp/a b.sock"],
-            fontFamily: "Menlo", fontSizePoints: 13
+            fontFamily: "Menlo", fontSizePoints: 13.0
         )
         XCTAssertTrue(text.hasSuffix(
             "command = shell:'/path/to/Paddock' '--bridge' 'w1:p1' '--socket' '/tmp/a b.sock'\n"
@@ -150,7 +150,7 @@ final class GhosttyThemeConfigTests: XCTestCase {
             ansi: Array(repeating: color(0, 0, 0), count: 16)
         )
         let text = GhosttyThemeConfig.configText(
-            colors: colors, commandArgv: ["/path/to/Paddock"], fontFamily: "Menlo", fontSizePoints: 13
+            colors: colors, commandArgv: ["/path/to/Paddock"], fontFamily: "Menlo", fontSizePoints: 13.0
         )
         let lines = text.split(separator: "\n").map(String.init)
         XCTAssertTrue(lines.contains("window-padding-x = 0"), "missing window-padding-x = 0 in:\n\(text)")
@@ -167,14 +167,29 @@ final class GhosttyThemeConfigTests: XCTestCase {
             foreground: color(255, 255, 255),
             ansi: Array(repeating: color(0, 0, 0), count: 16)
         )
-        for points in [11, 13, 15] {
+        for points in [11.0, 13.0, 15.0] {
             let text = GhosttyThemeConfig.configText(
                 colors: colors, commandArgv: ["/path/to/Paddock"], fontFamily: "Menlo", fontSizePoints: points
             )
             let lines = text.split(separator: "\n").map(String.init)
             XCTAssertTrue(lines.contains("font-family = Menlo"), "missing font-family line at \(points)pt in:\n\(text)")
-            XCTAssertTrue(lines.contains("font-size = \(points)"), "missing font-size = \(points) in:\n\(text)")
+            XCTAssertTrue(lines.contains("font-size = \(Int(points))"), "missing font-size = \(Int(points)) in:\n\(text)")
         }
+    }
+
+    /// The fit steps in half points; ghostty's `font-size` is an `f32`, so a
+    /// half-point size goes out as a plain decimal and a whole one stays a
+    /// bare integer.
+    func testConfigTextWritesHalfPointFontSizesAsDecimals() {
+        let colors = GhosttyThemeColors(
+            background: color(0, 0, 0),
+            foreground: color(255, 255, 255),
+            ansi: Array(repeating: color(0, 0, 0), count: 16)
+        )
+        let text = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: ["/path/to/Paddock"], fontFamily: "Menlo", fontSizePoints: 12.5
+        )
+        XCTAssertTrue(text.split(separator: "\n").contains("font-size = 12.5"), text)
     }
 
     func testShellEscapedDoublesEmbeddedSingleQuote() {
