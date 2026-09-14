@@ -172,12 +172,14 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   from `layout.export` ratios; growing the paddock window grows the real
   panes; nothing re-wraps on focus, because focus no longer changes any
   pane's size. Where paddock diverges from Herdglass is that Matt runs the
-  herdr TUI alongside, so the TUI reclaims its tab's geometry whenever it
-  is the foreground client (`resize_shell_tab_if_controller`,
-  `tab_geometry_controllers`) and reshapes the panes to the terminal.
-  Panes therefore reflow when the user moves between paddock and the TUI;
-  that is accepted (ruled by Matt: "herdr is really good at responding to
-  resizes"). The Terminal Text setting (Compact/Regular/Large) is the font
+  herdr TUI alongside, and that costs less than the ruling assumed:
+  `attach_terminal_client` takes a `direct_attach_resize_lock` per
+  attached terminal and the TUI skips its own resize for a locked pane,
+  so while paddock is open it HOLDS every visible pane's size and the TUI
+  does not take it back. The TUI shows those panes at paddock's dims
+  inside its own layout (clipped or short wherever the two disagree)
+  until paddock detaches. Reflow on switching was accepted anyway (ruled
+  by Matt: "herdr is really good at responding to resizes"). The Terminal Text setting (Compact/Regular/Large) is the font
   size outright, not a maximum; each pane's cols x rows is its box divided
   by that font's cell metrics, with the remainder as padding inside the
   box. A scroll indicator fed by herdr's own scroll state
