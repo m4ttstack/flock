@@ -20,6 +20,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// changes, so it has to be seen outside libghostty as well.
     var onPrimaryClick: (() -> Void)?
 
+    /// Builds the pane's right-click menu on demand, read by `menu(for:)`.
+    /// `nil` (a placeholder host view with no pane context) means no menu.
+    var paneMenuProvider: (() -> NSMenu?)?
+
     private var trackingArea: NSTrackingArea?
     private var markedText = NSMutableAttributedString()
     /// Collects what `interpretKeyEvents` produces during one `keyDown`, so
@@ -193,10 +197,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// action menu -- see `RightClickDisposition.decide` for the full rule:
     /// a control-mode pane whose app has claimed the mouse forwards a plain
     /// right-click to the pane; Option, a plain shell (capture off), or an
-    /// observe-mode pane all get the menu instead. The menu is
-    /// presented by SwiftUI's `.contextMenu` on `PaneCellView`, reached by
-    /// handing the event back to the responder chain (`super`); libghostty's
-    /// own context menu is never shown here. `mode` is `wantsFocus`-derived
+    /// observe-mode pane all get the menu instead. The menu itself comes from
+    /// `menu(for:)` below (built by `paneMenuProvider`), reached by handing
+    /// the event back to the responder chain (`super`); libghostty's own
+    /// context menu is never shown here. `mode` is `wantsFocus`-derived
     /// because the resolved-focused pane is the only one ever in `.control`.
     override func rightMouseDown(with event: NSEvent) {
         let disposition = RightClickDisposition.decide(
@@ -223,6 +227,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             sendButtonUp(.right, event: event, route: rightButtonRoute)
         }
         rightButtonRoute = nil
+    }
+
+    /// Supplies the `.menu`-disposition right-click's `NSMenu`: AppKit calls
+    /// this itself once `rightMouseDown`'s `super` call reaches the
+    /// responder-chain context-menu machinery. Every pane is this view, so
+    /// without this override AppKit gets `nil` here (the `NSView` default)
+    /// and no menu, and no `.contextMenu`, ever appears.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        paneMenuProvider?()
     }
 
     override func otherMouseDown(with event: NSEvent) {

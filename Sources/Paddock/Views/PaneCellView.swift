@@ -87,47 +87,14 @@ struct PaneCellView: View {
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }
         }
-        .contextMenu {
-            Button("Split Right") {
-                Task { await viewModel.splitRight(from: pane.paneID) }
-            }
-            .accessibilityIdentifier("paddock.pane.menu.splitRight")
-            Button("Split Down") {
-                Task { await viewModel.splitDown(from: pane.paneID) }
-            }
-            .accessibilityIdentifier("paddock.pane.menu.splitDown")
-            Divider()
-            Menu("Move to...") {
-                ForEach(moveToEntries, id: \.accessibilityIdentifier) { entry in
-                    Button(entry.label) {
-                        Task { await viewModel.perform(subject: .pane(pane.paneID), target: entry.target) }
-                    }
-                    .accessibilityIdentifier(entry.accessibilityIdentifier)
-                }
-            }
-            .accessibilityIdentifier("paddock.pane.menu.moveTo")
-            if let swapTarget {
-                Button("Swap with Focused Pane") {
-                    Task { await viewModel.perform(subject: .pane(pane.paneID), target: swapTarget) }
-                }
-                .accessibilityIdentifier("paddock.pane.menu.swap")
-            }
-            Divider()
-            Button("Close Pane") {
-                Task { await viewModel.closePane(pane.paneID) }
-            }
-            .accessibilityIdentifier("paddock.pane.menu.closePane")
-        }
     }
 
-    private var moveToEntries: [MoveToEntry] {
+    /// Rows for both the card-mode SwiftUI `.contextMenu` and the ghostty
+    /// branch's real `NSMenu` (`PaneMenuBuilder`) -- the same rows, so the
+    /// two can never drift.
+    private var paneMenuEntries: [PaneMenuEntry] {
         guard let model = viewModel.model else { return [] }
-        return MoveToMenu.entries(for: pane.paneID, model: model)
-    }
-
-    private var swapTarget: DropTarget? {
-        guard let model = viewModel.model else { return nil }
-        return MoveToMenu.swapTarget(for: pane.paneID, focusedPane: viewModel.resolvedFocusedPaneID, model: model)
+        return PaneMenuModel.entries(for: pane.paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID)
     }
 
     /// The framed terminal box. Content is clipped to the rounded frame and
@@ -207,7 +174,8 @@ struct PaneCellView: View {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
                     textSize: terminalTextSizeStore.active,
-                    onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } }
+                    onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
+                    menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) }
                 )
                 .opacity(ghosttySurface.hasFirstFrame ? 1 : 0)
                 if !ghosttySurface.hasFirstFrame {
@@ -243,7 +211,33 @@ struct PaneCellView: View {
             .animation(.easeOut(duration: 0.15), value: ownToast)
         } else {
             cardContent
+                .contextMenu {
+                    ForEach(paneMenuEntries, id: \.accessibilityIdentifier) { entry in
+                        if let submenu = entry.submenu {
+                            Menu(entry.label) {
+                                ForEach(submenu, id: \.accessibilityIdentifier) { subEntry in
+                                    paneMenuButton(subEntry)
+                                }
+                            }
+                            .accessibilityIdentifier(entry.accessibilityIdentifier)
+                        } else {
+                            paneMenuButton(entry)
+                        }
+                    }
+                }
         }
+    }
+
+    /// One leaf row (never a submenu parent) for the card-mode `.contextMenu`
+    /// -- the ghostty branch's real `NSMenu` builds the equivalent row itself,
+    /// in `PaneMenuBuilder`.
+    private func paneMenuButton(_ entry: PaneMenuEntry) -> some View {
+        Button(entry.label) {
+            guard let action = entry.action else { return }
+            Task { await action.perform(paneID: pane.paneID, on: viewModel) }
+        }
+        .disabled(!entry.enabled)
+        .accessibilityIdentifier(entry.accessibilityIdentifier)
     }
 
     /// Vertical anatomy per the reference (glyph, cwd, chip when present,

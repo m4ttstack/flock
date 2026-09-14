@@ -23,22 +23,26 @@ struct GhosttyPaneTerminalView: View {
     /// every click into a pane the user is already working in would serve
     /// no purpose (see `GhosttySurfaceView.mouseDown`'s own gate).
     let onPrimaryClick: () -> Void
+    /// Builds this pane's right-click `NSMenu` on demand -- see
+    /// `GhosttySurfaceView.menu(for:)`, the only place it is actually called.
+    let menuProvider: () -> NSMenu?
 
     init(
         surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, textSize: TerminalTextSize,
-        onPrimaryClick: @escaping () -> Void = {}
+        onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil }
     ) {
         self.surface = surface
         self.theme = theme
         self.isFocused = isFocused
         self.textSize = textSize
         self.onPrimaryClick = onPrimaryClick
+        self.menuProvider = menuProvider
     }
 
     var body: some View {
         GhosttySurfaceRepresentable(
             surface: surface, theme: theme, isFocused: isFocused, textSize: textSize,
-            onPrimaryClick: onPrimaryClick
+            onPrimaryClick: onPrimaryClick, menuProvider: menuProvider
         )
     }
 }
@@ -55,6 +59,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let isFocused: Bool
     let textSize: TerminalTextSize
     var onPrimaryClick: () -> Void = {}
+    var menuProvider: () -> NSMenu? = { nil }
 
     final class Coordinator {
         var lastAppliedThemeID: String?
@@ -107,6 +112,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             context.coordinator.lastAppliedTextSize = textSize
             existingView.wantsFocus = isFocused
             existingView.onPrimaryClick = onPrimaryClick
+            existingView.paneMenuProvider = menuProvider
             return existingView
         }
         context.coordinator.lastAppliedThemeID = theme.id
@@ -114,6 +120,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.onPrimaryClick = onPrimaryClick
+        view.paneMenuProvider = menuProvider
         return view
     }
 
@@ -126,6 +133,11 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         }
         ghosttyView.wantsFocus = isFocused
         ghosttyView.onPrimaryClick = onPrimaryClick
+        // Rebuilt every `updateNSView` (never applied only once at
+        // `makeNSView`): the closure itself is stable in shape but must read
+        // the CURRENT view model/pane, since `paneMenuProvider` is only ever
+        // called later, at the moment of a real right-click.
+        ghosttyView.paneMenuProvider = menuProvider
         // Mirrors real AppKit first-responder status: becoming the
         // resolved-focused pane grabs real AppKit key focus immediately,
         // with no extra click needed first. The PRIMARY grab happens in
