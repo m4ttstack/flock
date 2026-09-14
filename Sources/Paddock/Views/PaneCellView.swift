@@ -1,3 +1,4 @@
+import AppKit
 import PaddockCore
 import SwiftUI
 
@@ -132,6 +133,15 @@ struct PaneCellView: View {
         }
         .legendBacking(above: theme.windowBg, below: theme.terminalGround, halfHeight: Self.legendHalfHeight)
         .padding(.leading, 12)
+        .contentShape(Rectangle())
+        // SwiftUI's tap gesture on macOS fires for the secondary button as
+        // well, so the click is checked before it may act as a focus click;
+        // the right-click falls through to the context menu below.
+        .onTapGesture {
+            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+            Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
+        }
+        .modifier(swiftUIPaneMenu)
         .accessibilityIdentifier("paddock.pane.legend.\(pane.paneID.rawValue)")
     }
 
@@ -211,26 +221,24 @@ struct PaneCellView: View {
             .animation(.easeOut(duration: 0.15), value: ownToast)
         } else {
             cardContent
-                .contextMenu {
-                    ForEach(paneMenuEntries, id: \.accessibilityIdentifier) { entry in
-                        if let submenu = entry.submenu {
-                            Menu(entry.label) {
-                                ForEach(submenu, id: \.accessibilityIdentifier) { subEntry in
-                                    paneMenuButton(subEntry)
-                                }
-                            }
-                            .accessibilityIdentifier(entry.accessibilityIdentifier)
-                        } else {
-                            paneMenuButton(entry)
-                        }
-                    }
-                }
+                .modifier(swiftUIPaneMenu)
         }
     }
 
-    /// One leaf row (never a submenu parent) for the card-mode `.contextMenu`
-    /// -- the ghostty branch's real `NSMenu` builds the equivalent row itself,
-    /// in `PaneMenuBuilder`.
+    /// The SwiftUI rendering of the pane menu, for the parts of the cell
+    /// that are not the ghostty NSView (the card and the legend). The
+    /// ghostty body supplies the same rows as a real `NSMenu` through
+    /// `PaneMenuBuilder`; SwiftUI's `.contextMenu` can never reach an
+    /// AppKit subview's right-click.
+    private var swiftUIPaneMenu: PaneMenuModifier<AnyView> {
+        PaneMenuModifier(entries: paneMenuEntries) { entry in
+            AnyView(paneMenuButton(entry))
+        }
+    }
+
+    /// One leaf row (never a submenu parent) for the SwiftUI menu -- the
+    /// ghostty branch's real `NSMenu` builds the equivalent row itself, in
+    /// `PaneMenuBuilder`.
     private func paneMenuButton(_ entry: PaneMenuEntry) -> some View {
         Button(entry.label) {
             guard let action = entry.action else { return }
@@ -289,6 +297,45 @@ private struct AttachDims: Equatable {
     let paneID: PaneID
     let cols: Int
     let rows: Int
+}
+
+/// The pane menu as SwiftUI rows, applied wherever the cell is SwiftUI
+/// rather than the ghostty NSView. Submenu parents render as `Menu`, leaves
+/// through `leaf`.
+private struct PaneMenuModifier<Leaf: View>: ViewModifier {
+    let entries: [PaneMenuEntry]
+    let leaf: (PaneMenuEntry) -> Leaf
+
+    func body(content: Content) -> some View {
+        content.contextMenu {
+            ForEach(entries, id: \.accessibilityIdentifier) { entry in
+                if let submenu = entry.submenu {
+                    Menu(entry.label) {
+                        ForEach(submenu, id: \.accessibilityIdentifier) { subEntry in
+                            leaf(subEntry)
+                        }
+                    }
+                    .accessibilityIdentifier(entry.accessibilityIdentifier)
+                } else {
+                    leaf(entry)
+                }
+            }
+        }
+    }
+}
+
+private extension NSEvent {
+    static func isSecondaryButtonEvent(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        switch event.type {
+        case .rightMouseDown, .rightMouseUp, .rightMouseDragged:
+            return true
+        case .leftMouseDown, .leftMouseUp:
+            return event.modifierFlags.contains(.control)
+        default:
+            return false
+        }
+    }
 }
 
 private extension View {

@@ -54,9 +54,6 @@ struct PaneCanvas: View {
                             )
                             .position(x: frame.midX, y: frame.midY)
                             .accessibilityIdentifier("paddock.canvas.pane.\(pane.paneID.rawValue)")
-                            .onTapGesture {
-                                Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
-                            }
                         }
                     }
                 } else {
