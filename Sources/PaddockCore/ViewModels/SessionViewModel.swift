@@ -676,6 +676,40 @@ public final class SessionViewModel {
         }
     }
 
+    /// Commits one divider drag's final ratio. Routed through `planExecutor`
+    /// as a single-op `OpPlan`, same as `closePane`, so it lands in the undo
+    /// journal for free -- `MutationEngine`'s own `simpleInverse` already
+    /// knows `setSplitRatio`'s inverse (the prior ratio, read off the model
+    /// before this ran). Never goes through `plan(dragging:onto:model:)`: a
+    /// divider is not a `DragSubject`, so widening that planner's subject
+    /// model for one gesture that resolves no drop target would be a net
+    /// increase in surface for no shared behavior. Silently does nothing
+    /// with no executor injected -- a divider drag with nowhere to send its
+    /// op is the same "no seam configured" case `closePane` falls back on.
+    public func setSplitRatio(tab: TabID, path: [Bool], ratio: Double) async {
+        guard let planExecutor else { return }
+        guard let undoJournal else {
+            await Self.setSplitRatio(tab: tab, path: path, ratio: ratio, executor: planExecutor, notify: noticeSink) { _ in }
+            return
+        }
+        await undoJournal.runExclusively { [noticeSink] in
+            await Self.setSplitRatio(tab: tab, path: path, ratio: ratio, executor: planExecutor, notify: noticeSink, record: undoJournal.record)
+        }
+    }
+
+    private static func setSplitRatio(
+        tab: TabID, path: [Bool], ratio: Double, executor: any PlanExecuting,
+        notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void
+    ) async {
+        let result = await executor.execute(OpPlan(ops: [.setSplitRatio(tab: tab, path: path, ratio: ratio)], label: "Resize split"))
+        switch result {
+        case .success(let executed):
+            record(executed)
+        case .failure(let failure):
+            notify("Resize split failed: \(failure.message)")
+        }
+    }
+
     /// Runs one context-menu move/swap command: plans `subject` onto
     /// `target` against the live model, executes the resulting plan through
     /// `planExecutor`, and records the outcome in `undoJournal`. `.noOp`

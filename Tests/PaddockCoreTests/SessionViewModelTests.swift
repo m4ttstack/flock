@@ -1199,6 +1199,30 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testSetSplitRatioRoutesThroughThePlanExecutorAndRecordsInTheJournal() async {
+        let executor = FakePlanExecutor()
+        let notices = NoticeRecorder()
+        let journal = UndoJournal(executor: executor, model: { makeModel() }, notify: { notices.record($0) })
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+
+        await viewModel.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true], ratio: 0.62)
+
+        XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true], ratio: 0.62)], label: "Resize split")])
+        XCTAssertTrue(journal.canUndo)
+    }
+
+    @MainActor
+    func testSetSplitRatioWithNoPlanExecutorSendsNoWireTraffic() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client)
+
+        await viewModel.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [], ratio: 0.5)
+
+        let calls = await client.calls
+        XCTAssertTrue(calls.isEmpty)
+    }
+
+    @MainActor
     func testPerformWithNoPlanExecutorReturnsNotAttemptedWithoutTouchingAnything() async {
         let viewModel = SessionViewModel(client: RecordingCommandClient())
 
