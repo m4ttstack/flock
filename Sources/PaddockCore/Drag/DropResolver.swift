@@ -80,15 +80,8 @@ public let edgeBandFraction: CGFloat = 0.20
 /// to a lower tier once a higher one contains it, since that would let (say)
 /// a pane frame sitting under the rail leak a `.paneEdge` result.
 public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
-    let isWorkspace = if case .workspace = dragging { true } else { false }
-
-    if !isWorkspace {
-        if let newTabZone = surfaces.newTabZone, newTabZone.contains(point) {
-            return .newTab(surfaces.stripWorkspace)
-        }
-        if let newWorkspaceZone = surfaces.newWorkspaceZone, newWorkspaceZone.contains(point) {
-            return .newWorkspace
-        }
+    if let zone = resolveZone(at: point, dragging: dragging, surfaces: surfaces) {
+        return zone
     }
 
     if let railBounds = surfaces.railFrame ?? unionRect(surfaces.workspaceFrames.map(\.frame)), railBounds.contains(point) {
@@ -99,10 +92,38 @@ public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces
         return resolveStrip(at: point, dragging: dragging, surfaces: surfaces)
     }
 
+    let isWorkspace = if case .workspace = dragging { true } else { false }
     if !isWorkspace, let hit = surfaces.canvas.paneFrames.first(where: { $0.value.contains(point) }) {
         return resolveCanvas(at: point, paneID: hit.key, frame: hit.value)
     }
 
+    return nil
+}
+
+/// The create-new zones, which only some subjects may use.
+///
+/// A subject that may not falls THROUGH to the strip or rail the zone sits
+/// inside, where the same free run reads as the end insertion index instead: a
+/// tab dragged past the last pill means "move it to the end", not "make a new
+/// tab", and a workspace dragged below the last row means "move it to the
+/// bottom". Scoping this here rather than by withholding the zone keeps one
+/// zone rect serving every subject correctly.
+private func resolveZone(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
+    switch dragging {
+    case .pane:
+        if let newTabZone = surfaces.newTabZone, newTabZone.contains(point) {
+            return .newTab(surfaces.stripWorkspace)
+        }
+        if let newWorkspaceZone = surfaces.newWorkspaceZone, newWorkspaceZone.contains(point) {
+            return .newWorkspace
+        }
+    case .tab:
+        if let newWorkspaceZone = surfaces.newWorkspaceZone, newWorkspaceZone.contains(point) {
+            return .newWorkspace
+        }
+    case .workspace:
+        break
+    }
     return nil
 }
 

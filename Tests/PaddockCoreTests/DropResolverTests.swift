@@ -324,6 +324,72 @@ final class DropResolverTests: XCTestCase {
         XCTAssertEqual(resolveDropTarget(at: point, dragging: .tab(TabID(rawValue: "t0")), surfaces: surfaces), .newWorkspace)
     }
 
+    // MARK: - Zones are subject-scoped
+
+    /// The real geometry: each zone is the free run INSIDE its own chrome, so
+    /// a subject the zone does not serve lands on that chrome instead.
+    private func zonedSurfaces(canvas: CanvasGeometry) -> DropSurfaces {
+        surfaces(
+            canvas: canvas,
+            stripFrame: CGRect(x: 0, y: 300, width: 600, height: 40),
+            railFrame: CGRect(x: -100, y: 0, width: 60, height: 600),
+            newTabZone: CGRect(x: 300, y: 300, width: 250, height: 40),
+            newWorkspaceZone: CGRect(x: -100, y: 300, width: 60, height: 300)
+        )
+    }
+
+    private static let inNewTabZone = CGPoint(x: 400, y: 320)
+    private static let inNewWorkspaceZone = CGPoint(x: -70, y: 400)
+
+    func testPaneOverTheStripsFreeRunMakesANewTab() throws {
+        XCTAssertEqual(
+            resolveDropTarget(at: Self.inNewTabZone, dragging: .pane(Self.p1), surfaces: zonedSurfaces(canvas: try canvas())),
+            .newTab(WorkspaceID(rawValue: "w1"))
+        )
+    }
+
+    /// Past the last pill means "move it to the end", never "make a new tab":
+    /// the strip owns the same free run for a tab subject.
+    func testTabOverTheStripsFreeRunIsTheEndInsertIndex() throws {
+        XCTAssertEqual(
+            resolveDropTarget(at: Self.inNewTabZone, dragging: .tab(TabID(rawValue: "t0")), surfaces: zonedSurfaces(canvas: try canvas())),
+            .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 3)
+        )
+    }
+
+    func testWorkspaceOverTheStripsFreeRunResolvesToNothing() throws {
+        XCTAssertNil(
+            resolveDropTarget(
+                at: Self.inNewTabZone, dragging: .workspace(WorkspaceID(rawValue: "w0")), surfaces: zonedSurfaces(canvas: try canvas())
+            )
+        )
+    }
+
+    func testPaneOverTheRailsFreeRunMakesANewWorkspace() throws {
+        XCTAssertEqual(
+            resolveDropTarget(at: Self.inNewWorkspaceZone, dragging: .pane(Self.p1), surfaces: zonedSurfaces(canvas: try canvas())),
+            .newWorkspace
+        )
+    }
+
+    func testTabOverTheRailsFreeRunMakesANewWorkspace() throws {
+        XCTAssertEqual(
+            resolveDropTarget(at: Self.inNewWorkspaceZone, dragging: .tab(TabID(rawValue: "t0")), surfaces: zonedSurfaces(canvas: try canvas())),
+            .newWorkspace
+        )
+    }
+
+    /// Below the last row means "move it to the bottom", never "make a new
+    /// workspace": the rail owns the same free run for a workspace subject.
+    func testWorkspaceOverTheRailsFreeRunIsTheEndInsertIndex() throws {
+        XCTAssertEqual(
+            resolveDropTarget(
+                at: Self.inNewWorkspaceZone, dragging: .workspace(WorkspaceID(rawValue: "w0")), surfaces: zonedSurfaces(canvas: try canvas())
+            ),
+            .workspaceRail(insertIndex: 3)
+        )
+    }
+
     // MARK: - Precedence when surfaces overlap
 
     func testZoneTakesPrecedenceOverOverlappingRail() throws {
