@@ -67,10 +67,19 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     /// pane re-hosted after a park, whose surface (and view) survived the
     /// tab switch that took it off screen -- rather than creating a second
     /// one. SwiftUI then re-parents the same `NSView` instance into the new
-    /// hierarchy; `viewDidMoveToWindow` (already idempotent) re-syncs it,
-    /// and `GhosttySessionSurfaceHandle.unpark()` (called from
-    /// `SessionViewModel.attachPane`'s existing-surface branch) has already
-    /// told libghostty the surface is visible again.
+    /// hierarchy; `viewDidMoveToWindow` (already idempotent) re-syncs it.
+    ///
+    /// A fresh `Coordinator` accompanies this call (SwiftUI made a brand new
+    /// `GhosttySurfaceRepresentable` identity for the reappearing tab), so
+    /// its `lastApplied*` start `nil` regardless of branch -- unconditionally
+    /// stamping them to the CURRENT `theme`/`textSize` here would tell
+    /// `updateNSView` "already applied" even when the re-hosted session's own
+    /// last-applied appearance (`session.configuration`, kept current by
+    /// every `updateAppearance` call) is stale from before the park -- a
+    /// theme or text-size change made on another tab while this pane was
+    /// parked would then never repaint it. So the re-host branch compares
+    /// against the session's OWN record and applies immediately when it
+    /// differs, before ever touching the coordinator.
     func makeNSView(context: Context) -> NSView {
         guard let handle = surface as? GhosttySessionSurfaceHandle else {
             // Only reachable if `SessionViewModel`'s injected factory is
@@ -78,14 +87,30 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             // double, say) -- production always gets the real handle back.
             return PlaceholderGhosttyHostView(background: theme.terminalGround)
         }
-        context.coordinator.lastAppliedThemeID = theme.id
-        context.coordinator.lastAppliedTextSize = textSize
         let session = handle.session
         if let existingView = session.view {
+            // M3: unparked here, synchronously, rather than waiting for
+            // `SessionViewModel.attachPane`'s own chained `existing.unpark()`
+            // to run -- that call is queued behind `paneWork` and can settle
+            // AFTER this view is already back in the window, which would let
+            // one `ghostty_surface_draw` land while the surface still
+            // believes it is occluded (`GhosttySurfaceView.layout()` ->
+            // `requestRender()` fires from `viewDidMoveToWindow` before the
+            // chained unpark ever runs). Idempotent, so calling it again
+            // once the chained one does run is a harmless no-op.
+            handle.unpark()
+            let incomingColors = theme.ghosttyThemeColors()
+            if session.configuration.themeColors != incomingColors || session.configuration.textSize != textSize {
+                session.updateAppearance(incomingColors, textSize: textSize)
+            }
+            context.coordinator.lastAppliedThemeID = theme.id
+            context.coordinator.lastAppliedTextSize = textSize
             existingView.wantsFocus = isFocused
             existingView.onPrimaryClick = onPrimaryClick
             return existingView
         }
+        context.coordinator.lastAppliedThemeID = theme.id
+        context.coordinator.lastAppliedTextSize = textSize
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.onPrimaryClick = onPrimaryClick
