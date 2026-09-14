@@ -152,6 +152,19 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   panes ignore the wheel until focused. The SwiftUI history overlay and its
   `pane.selection.read` chunk loading are removed; `pane.selection.read`
   remains available for a future search feature only.
+- **Sizing (ruled 2026-09-13 at Checkpoint 3): herdr owns every pane
+  size.** Paddock renders herdr's cell grid (the tab's `area` in cells)
+  at ONE uniform cell size, letterboxed inside the canvas, so every pane
+  box is exactly its herdr cell rect scaled; the ghostty surface behind
+  each box is sized to exactly that pane's cols x rows at that cell size;
+  the bridge never sends a `terminal.resize` that differs from the pane's
+  real herdr dims in control mode (a control client's resize changes the
+  real PTY, headless.rs `ClientResize`, and would fight the herdr TUI). The
+  Terminal Text setting (Compact/Regular/Large) is the MAXIMUM font size;
+  the fit shrinks below it only when the window cannot hold the grid at
+  that size. Panes never re-wrap on focus. A scroll indicator fed by
+  herdr's own scroll state (offset_from_bottom, `pane.scroll_changed`)
+  shows when a pane's viewport is above its tail.
 - **Tab following (ruled 2026-09-13):** paddock's selected tab follows
   herdr's focused tab whenever herdr's focus changes (a tab switch is a
   warm re-host of parked surfaces, so following is cheap); a
