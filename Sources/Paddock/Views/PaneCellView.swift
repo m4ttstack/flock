@@ -359,6 +359,10 @@ struct PaneCellView: View {
             .animation(.easeOut(duration: 0.15), value: ownToast)
         } else {
             cardContent
+                // The card is spacers and text over no background, so
+                // without a shape the menu answers only where a glyph
+                // actually landed.
+                .contentShape(Rectangle())
                 .modifier(swiftUIPaneMenu)
         }
     }
