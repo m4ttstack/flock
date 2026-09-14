@@ -193,19 +193,19 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         leftButtonRoute = nil
     }
 
-    /// Right-clicks land in the pane by default and Option summons the herdr
-    /// action menu -- see `RightClickDisposition.decide` for the full rule:
-    /// a pane whose app has claimed the mouse forwards a plain right-click to
-    /// the pane; Option or a plain shell (capture off) gets the menu instead.
-    /// Focus is not part of it: every pane holds a live control bridge, so the
-    /// rule is the same on all of them. The menu itself comes from
-    /// `menu(for:)` below (built by `paneMenuProvider`), reached by handing
-    /// the event back to the responder chain (`super`); libghostty's own
-    /// context menu is never shown here.
+    /// Right-clicks land in the focused pane by default and Option summons the
+    /// herdr action menu -- see `RightClickDisposition.decide` for the full
+    /// rule: the focused pane whose app has claimed the mouse forwards a plain
+    /// right-click to the pane; Option, a plain shell (capture off), or any
+    /// pane that is not paddock's focused one gets the menu instead. The menu
+    /// itself comes from `menu(for:)` below (built by `paneMenuProvider`),
+    /// reached by handing the event back to the responder chain (`super`);
+    /// libghostty's own context menu is never shown here.
     override func rightMouseDown(with event: NSEvent) {
         let disposition = RightClickDisposition.decide(
             optionHeld: event.modifierFlags.contains(.option),
-            captureEnabled: session.mouseCaptureEnabled
+            captureEnabled: session.mouseCaptureEnabled,
+            paneIsFocused: wantsFocus
         )
         rightButtonDownDisposition = disposition
         switch disposition {
@@ -496,7 +496,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         session.copySelection()
     }
 
+    /// Gated on the same disposition as `keyDown`: a paste is input for the
+    /// pane's program exactly like a keystroke is, and AppKit can route
+    /// Cmd+V here through a first responder this view did not ask for.
     @objc func paste(_ sender: Any?) {
+        guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         session.paste(text)
     }

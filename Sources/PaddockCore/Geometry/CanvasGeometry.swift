@@ -52,15 +52,39 @@ public struct CanvasGrid: Equatable, Sendable {
 /// The whole-cell terminal grid a pane box's content area can hold, and the
 /// exact size that grid occupies.
 public enum SurfaceGrid {
+    /// herdr's own floor for a pane (`rows.max(2)`, `cols.max(4)` in
+    /// `src/pane.rs`). Paddock must never lay a surface out at, or ask for, a
+    /// grid smaller than this: herdr would silently give the real pane the
+    /// floor instead, leaving the surface rendering a grid the pane does not
+    /// have and `MouseForwarding`'s cell clamp reading the wrong one.
+    public static let minimumCols = 4
+    public static let minimumRows = 2
+
     /// Floors both axes: the sub-cell remainder stays as padding inside the
-    /// box, so a partial cell is never rendered. Never below 1x1 -- herdr
-    /// clamps a pane to its own floor anyway, and a zero-dimension surface
-    /// has no meaning.
+    /// box, so a partial cell is never rendered.
     public static func fit(inner: CGSize, cell: CGSize) -> (cols: Int, rows: Int, size: CGSize) {
-        guard cell.width > 0, cell.height > 0 else { return (1, 1, .zero) }
-        let cols = max(1, Int((inner.width / cell.width).rounded(.down)))
-        let rows = max(1, Int((inner.height / cell.height).rounded(.down)))
+        guard cell.width > 0, cell.height > 0 else { return (minimumCols, minimumRows, .zero) }
+        let cols = max(minimumCols, Int((inner.width / cell.width).rounded(.down)))
+        let rows = max(minimumRows, Int((inner.height / cell.height).rounded(.down)))
         return (cols, rows, CGSize(width: CGFloat(cols) * cell.width, height: CGFloat(rows) * cell.height))
+    }
+}
+
+/// One pane's box inside the layout frame the canvas gave it.
+public enum PaneBox {
+    /// Inset by half the divider gutter on every side, so two adjacent boxes
+    /// leave a full gutter between them. The size is clamped at zero: a frame
+    /// narrower or shorter than the gutter (enough splits in a small window,
+    /// or a transient zero-size layout pass) would otherwise hand SwiftUI a
+    /// negative frame. A whole-point gutter keeps the snapped origin snapped.
+    public static func frame(in frame: CGRect, dividerThickness: CGFloat) -> CGRect {
+        let inset = dividerThickness / 2
+        return CGRect(
+            x: frame.minX + inset,
+            y: frame.minY + inset,
+            width: max(0, frame.width - dividerThickness),
+            height: max(0, frame.height - dividerThickness)
+        )
     }
 }
 

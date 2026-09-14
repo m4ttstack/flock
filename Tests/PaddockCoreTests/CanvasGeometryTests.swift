@@ -262,12 +262,22 @@ final class CanvasGeometryTests: XCTestCase {
         }
     }
 
-    func testAThirdScaleSnapsToThirdsNotHalves() throws {
-        let layout = try layout(splitCount: 1)
-        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 1000, height: 500), scale: 3))
+    /// A canvas 1001pt wide over a 100-cell area puts the shared edge at
+    /// 500.5pt, which is a whole HALF pixel and not a whole third: the raw
+    /// value passes a scale-2 check and fails a scale-3 one, so it can tell
+    /// snapping-to-thirds apart from snapping-to-halves and from no snapping
+    /// at all.
+    func testAThirdScaleSnapsToThirdsNotHalvesOrNothing() throws {
+        let layout = threePaneLayout(nestedInSecondChild: true)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 1001, height: 613), scale: 3))
 
-        let left = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p1")])
-        XCTAssertEqual(left.maxX * 3, (left.maxX * 3).rounded(), accuracy: 0.0001)
+        let left = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "other")])
+        XCTAssertNotEqual(
+            left.maxX, 500.5, accuracy: 0.0001,
+            "the raw proportional edge is not on a third, so it must have moved")
+        XCTAssertEqual(
+            left.maxX * 3, (left.maxX * 3).rounded(), accuracy: 0.0001,
+            "the snapped edge sits on a whole third of a point")
     }
 
     // MARK: - SurfaceGrid (whole cells only, the remainder left as padding)
@@ -280,17 +290,42 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(fit.size, CGSize(width: 100, height: 60), "the sub-cell remainder is never rendered")
     }
 
-    func testSurfaceGridNeverGoesBelowOneCell() {
+    /// herdr clamps a pane to 4x2 whatever it is asked for, so a smaller grid
+    /// would leave the surface rendering cols/rows the real pane does not have
+    /// and the mouse cell clamp reading the wrong grid.
+    func testSurfaceGridNeverGoesBelowHerdrsOwnFloor() {
         let fit = SurfaceGrid.fit(inner: CGSize(width: 3, height: 2), cell: CGSize(width: 10, height: 20))
 
-        XCTAssertEqual(fit.cols, 1)
-        XCTAssertEqual(fit.rows, 1)
-        XCTAssertEqual(fit.size, CGSize(width: 10, height: 20))
+        XCTAssertEqual(fit.cols, SurfaceGrid.minimumCols)
+        XCTAssertEqual(fit.rows, SurfaceGrid.minimumRows)
+        XCTAssertEqual(fit.cols, 4)
+        XCTAssertEqual(fit.rows, 2)
+        XCTAssertEqual(fit.size, CGSize(width: 40, height: 40), "the surface covers the grid herdr will actually apply")
     }
 
-    func testSurfaceGridWithNoMeasuredCellYieldsNoSurface() {
+    func testSurfaceGridWithNoMeasuredCellYieldsNoSurfaceAtTheFloor() {
         let fit = SurfaceGrid.fit(inner: CGSize(width: 100, height: 100), cell: .zero)
 
         XCTAssertEqual(fit.size, .zero)
+        XCTAssertEqual(fit.cols, SurfaceGrid.minimumCols)
+        XCTAssertEqual(fit.rows, SurfaceGrid.minimumRows)
+    }
+
+    // MARK: - PaneBox (the gutter inset, never a negative frame)
+
+    func testPaneBoxInsetsByHalfTheGutterOnEverySide() {
+        let box = PaneBox.frame(in: CGRect(x: 100, y: 40, width: 300, height: 200), dividerThickness: 6)
+
+        XCTAssertEqual(box, CGRect(x: 103, y: 43, width: 294, height: 194))
+    }
+
+    /// Enough splits in a small window (or a transient zero-size layout pass)
+    /// yields a frame narrower than the gutter; SwiftUI rejects a negative
+    /// frame, so the box collapses to empty instead.
+    func testPaneBoxNeverProducesANegativeSize() {
+        let box = PaneBox.frame(in: CGRect(x: 10, y: 10, width: 4, height: 1), dividerThickness: 6)
+
+        XCTAssertEqual(box.width, 0)
+        XCTAssertEqual(box.height, 0)
     }
 }

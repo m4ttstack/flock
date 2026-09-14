@@ -41,7 +41,7 @@ struct PaneCanvas: View {
                     ForEach(layout.panes, id: \.paneID) { paneRect in
                         if let pane = viewModel.model?.panes[paneRect.paneID],
                            let frame = geometry.paneFrames[paneRect.paneID] {
-                            let box = Self.boxFrame(in: frame)
+                            let box = PaneBox.frame(in: frame, dividerThickness: Self.dividerThickness)
                             let fit = SurfaceGrid.fit(inner: Self.innerSize(of: box.size), cell: cell)
                             PaneCellView(
                                 theme: theme,
@@ -80,13 +80,6 @@ struct PaneCanvas: View {
         }
         .padding(10)
         .background(theme.windowBg)
-    }
-
-    /// The pane's box inside its layout frame: inset by half the divider
-    /// gutter on every side, so two adjacent boxes leave a full gutter between
-    /// them. A whole-point inset keeps the snapped frame snapped.
-    private static func boxFrame(in frame: CGRect) -> CGRect {
-        frame.insetBy(dx: dividerThickness / 2, dy: dividerThickness / 2)
     }
 
     /// What is left of a box for the terminal itself, once the legend band and

@@ -593,12 +593,24 @@ public final class SessionViewModel {
         launcherRegistryVersion += 1
     }
 
-    /// Sends `<binary>\n` to `pane` in one `send_input` call (the overlay's
-    /// click contract) and hides the launcher for that pane immediately,
-    /// same as a real keystroke would.
+    /// Sends `binary` to `pane` and submits it in one `send_input` call (the
+    /// overlay's click contract), then hides the launcher for that pane
+    /// immediately, same as a real keystroke would.
+    ///
+    /// The Enter rides `keys`, never a newline inside `text`: herdr wraps a
+    /// non-empty `text` in a bracketed-paste sequence whenever the pane's
+    /// program enabled it (a shell at a prompt does), and a newline inside
+    /// that bracket reaches the line editor as a literal newline rather than
+    /// accept-line, so the harness name would be typed and never run.
+    /// `keys` is encoded outside the bracket.
     public func launchHarness(_ binary: String, in pane: PaneID) async {
         _ = try? await client.requestRaw(
-            "pane.send_input", ["pane_id": .string(pane.rawValue), "text": .string(binary + "\n")]
+            "pane.send_input",
+            [
+                "pane_id": .string(pane.rawValue),
+                "text": .string(binary),
+                "keys": .array([.string("Enter")]),
+            ]
         )
         recordLauncherKeystroke(pane)
     }

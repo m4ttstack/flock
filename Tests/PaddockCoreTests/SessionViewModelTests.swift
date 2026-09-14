@@ -206,6 +206,14 @@ private func stringParam(_ params: [String: JSONValue], _ key: String) -> String
     return value
 }
 
+private func stringArrayParam(_ params: [String: JSONValue], _ key: String) -> [String]? {
+    guard case .array(let values)? = params[key] else { return nil }
+    return values.compactMap { element in
+        guard case .string(let value) = element else { return nil }
+        return value
+    }
+}
+
 private func makeModel(
     focusedWorkspaceID: String = "w1",
     focusedTabID: String = "w1:t1",
@@ -506,8 +514,13 @@ final class SessionViewModelTests: XCTestCase {
         )
     }
 
+    /// The Enter must ride `keys`, never a newline inside `text`: herdr wraps
+    /// a non-empty `text` in a bracketed-paste sequence whenever the pane's
+    /// program enabled it, and a newline inside that bracket is a literal
+    /// newline in the line editor, so the harness name would be typed and
+    /// never run.
     @MainActor
-    func testLaunchHarnessSendsBinaryAndNewlineAsOneTextCallAndHidesTheLauncher() async {
+    func testLaunchHarnessSubmitsWithAnEnterKeyNotANewlineInsideTheText() async throws {
         let client = StubSplitCommandClient(newPaneID: "w1:p2")
         let viewModel = SessionViewModel(client: client)
         await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
@@ -517,8 +530,9 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.launchHarness("claude", in: newPane)
 
         let calls = await client.calls
-        let sendCall = try? XCTUnwrap(calls.last { $0.method == "pane.send_input" })
-        XCTAssertEqual(stringParam(sendCall?.params ?? [:], "text"), "claude\n")
+        let sendCall = try XCTUnwrap(calls.last { $0.method == "pane.send_input" })
+        XCTAssertEqual(stringParam(sendCall.params, "text"), "claude")
+        XCTAssertEqual(stringArrayParam(sendCall.params, "keys"), ["Enter"])
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "launching hides the overlay like a real keystroke would")
     }
 
@@ -545,7 +559,7 @@ final class SessionViewModelTests: XCTestCase {
         let calls = await client.calls
         let sendCall = try XCTUnwrap(calls.last { $0.method == "pane.send_input" })
         XCTAssertEqual(
-            stringParam(sendCall.params, "text"), "claude\n",
+            stringParam(sendCall.params, "text"), "claude",
             "the command reaches the pane over pane.send_input, focus-independent")
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane))
     }

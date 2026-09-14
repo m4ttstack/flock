@@ -578,22 +578,53 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertTrue(sent.isEmpty, "a resize racing the teardown must be dropped; got: \(sent)")
     }
 
+    /// The child outlives the assertion window by seconds, so a `terminate()`
+    /// that did nothing would still be running when this checks -- the test
+    /// measures the kill, not elapsed time.
     func testTerminateEndsTheChildAndIsIdempotent() {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", "sleep 5"]
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        try? proc.run()
+        let proc = spawnTestChild(script: "sleep 30")
         guard proc.isRunning else { return XCTFail("failed to spawn the test child") }
+        defer { if proc.isRunning { kill(proc.processIdentifier, SIGKILL) } }
         let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
         let owner = BridgeChildOwner(process: proc, size: PTYSize(cols: 30, rows: 40), io: io)
 
         owner.terminate()
         owner.terminate()
-        proc.waitUntilExit()
 
-        XCTAssertFalse(proc.isRunning)
+        XCTAssertFalse(
+            waitForExit(proc, timeout: 2), "the child must be gone well before its own 30s lifetime")
+    }
+
+    /// The peer-gone path has to reap a child that ignores SIGTERM: leaving
+    /// one alive parks `ControlBridge.run` in `waitUntilExit()` forever,
+    /// holding the pane's attach owner and its resize lock. `/bin/sh` stands
+    /// in for the wedged child; SIGKILL only reaches THIS process, never the
+    /// `sleep` it spawned, so that orphan is kept short enough to exit on its
+    /// own well inside a test run.
+    func testTerminateEscalatesToSIGKILLForAChildThatIgnoresSIGTERM() {
+        let proc = spawnTestChild(script: "trap '' TERM; sleep 5")
+        guard proc.isRunning else { return XCTFail("failed to spawn the test child") }
+        defer { if proc.isRunning { kill(proc.processIdentifier, SIGKILL) } }
+        // The shell installs the trap as its first statement, so a SIGTERM
+        // delivered before that runs kills the child on the default
+        // disposition. Wait for the trap, then prove the child really does
+        // survive SIGTERM -- otherwise the assertion below passes without
+        // SIGKILL ever mattering.
+        usleep(300_000)
+        proc.terminate()
+        XCTAssertTrue(
+            waitForExit(proc, timeout: 0.3),
+            "the child must ignore SIGTERM, or this proves nothing about the escalation")
+
+        terminateWithBoundedEscalation(proc, timeout: 0.2)
+
+        // Waited for, not read instantly: SIGKILL is delivered synchronously
+        // but `Process.isRunning` only clears once Foundation reaps the child.
+        // The window is still far inside the child's own 5s lifetime, so a
+        // missing SIGKILL leaves it running here.
+        XCTAssertFalse(
+            waitForExit(proc, timeout: 1.5),
+            "SIGTERM was ignored, so the SIGKILL fallback must have ended it")
     }
 
     // MARK: - startHerdrOutput: per-call buffer + generation
@@ -677,6 +708,29 @@ private final class LockedBox<T>: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         body(&stored)
     }
+}
+
+// MARK: - child-process helpers
+
+private func spawnTestChild(script: String) -> Process {
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+    proc.arguments = ["-c", script]
+    proc.standardOutput = FileHandle.nullDevice
+    proc.standardError = FileHandle.nullDevice
+    try? proc.run()
+    return proc
+}
+
+/// Whether `process` was still running when `timeout` ran out. Polls rather
+/// than `waitUntilExit()`, which would block for the child's whole lifetime
+/// and turn "it was killed" into "it eventually exited on its own".
+private func waitForExit(_ process: Process, timeout: TimeInterval) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while process.isRunning, Date() < deadline {
+        usleep(10_000)
+    }
+    return process.isRunning
 }
 
 // MARK: - polling helpers

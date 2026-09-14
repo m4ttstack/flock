@@ -368,17 +368,32 @@ final class BridgeChildOwner: @unchecked Sendable {
         io.send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows])
     }
 
-    /// `isRunning` is false for a process that was never launched, which is
-    /// what makes this safe to call from a test that never spawned one --
-    /// `Process.terminate()` raises on an unlaunched task.
+    /// `Process.terminate()` raises on a task that was never launched, so the
+    /// `isRunning` check is what keeps this callable before a spawn.
     func terminate() {
         lock.lock()
         defer { lock.unlock() }
         guard !peerGone else { return }
         peerGone = true
-        if process.isRunning {
-            process.terminate()
-        }
+        guard process.isRunning else { return }
+        terminateWithBoundedEscalation(process)
+    }
+}
+
+/// SIGTERM, then a bounded synchronous wait, then SIGKILL if the child is
+/// still alive. A herdr child that ignores SIGTERM would otherwise leave
+/// `ControlBridge.run` blocked in `waitUntilExit()` forever, holding the
+/// pane's attach-owner entry and its resize lock against every other client.
+/// Blocks whichever DispatchSource queue delivered the peer-gone event, never
+/// the main actor.
+func terminateWithBoundedEscalation(_ process: Process, timeout: TimeInterval = 0.3) {
+    process.terminate()
+    let deadline = Date().addingTimeInterval(timeout)
+    while process.isRunning, Date() < deadline {
+        usleep(10_000)
+    }
+    if process.isRunning {
+        kill(process.processIdentifier, SIGKILL)
     }
 }
 
