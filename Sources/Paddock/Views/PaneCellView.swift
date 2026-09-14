@@ -46,7 +46,9 @@ struct PaneCellView: View {
     let fontSizePoints: Double
 
     @Environment(ToastCenter.self) private var toastCenter
+    @Environment(RearrangeMode.self) private var rearrangeMode
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
+    @State private var isHoveringWhileRearranging = false
 
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
     /// a warm (parked) pane's surface is already there, so it never renders
@@ -136,17 +138,48 @@ struct PaneCellView: View {
                     .padding(.bottom, Self.contentInsets.bottom)
                     .padding(.trailing, 3)
             }
+            .overlay {
+                if rearrangeMode.active {
+                    rearrangePaint
+                }
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 9)
-                    .strokeBorder(isFocused ? theme.accent : theme.separator, lineWidth: isFocused ? 2 : 1)
+                    .strokeBorder(borderColor, lineWidth: borderWidth)
             )
             .background {
-                if isFocused {
+                if isFocused, !rearrangeMode.active {
                     HaloRing(cornerRadius: 9, thickness: 3)
                         .fill(theme.accent.opacity(0.18), style: FillStyle(eoFill: true))
                         .padding(-3)
                 }
             }
+            .scaleEffect(rearrangeMode.active && isHoveringWhileRearranging ? 1.02 : 1)
+            .onHover { isHoveringWhileRearranging = $0 }
+            .animation(.easeOut(duration: 0.12), value: rearrangeMode.active)
+            .animation(.easeOut(duration: 0.12), value: isHoveringWhileRearranging)
+    }
+
+    private var borderColor: Color {
+        rearrangeMode.active || isFocused ? theme.accent : theme.separator
+    }
+
+    private var borderWidth: CGFloat {
+        rearrangeMode.active || isFocused ? 2 : 1
+    }
+
+    /// Rearrange mode's repaint, per the spec's "Grabbing a pane" bullet:
+    /// terminal content dims under a scrim and a centered grip glyph appears.
+    /// `allowsHitTesting(false)` so the scrim never steals the click a drag
+    /// gesture needs from anywhere on the pane.
+    private var rearrangePaint: some View {
+        ZStack {
+            theme.surfaceDim.opacity(0.62)
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(theme.accent)
+        }
+        .allowsHitTesting(false)
     }
 
     /// Dot + title inlaid on the box's top edge. The two-tone backing paints
@@ -213,7 +246,7 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, theme: theme, isFocused: isFocused,
-                    fontSizePoints: fontSizePoints,
+                    fontSizePoints: fontSizePoints, rearrangeActive: rearrangeMode.active,
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) }
                 )

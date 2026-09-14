@@ -47,6 +47,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// about this representable's inputs changes again after that to trigger
     /// a second `updateNSView` call).
     var wantsFocus = false
+    /// Set by `GhosttySurfaceRepresentable` from `RearrangeMode.active`.
+    /// While true, `mouseDecision` forces every `MouseForwarding` result to
+    /// `.drop` and `rightMouseDown` forces `RightClickDisposition` to
+    /// `.suppressed`: the whole pane is a drag surface, so no mouse event
+    /// reaches the app or libghostty's own surface.
+    var rearrangeActive = false
     /// Where the matching mouse-DOWN actually sent a button, read back by the
     /// UP so it always replays the SAME destination -- never re-derived from
     /// `wantsFocus`/capture at up-time, which can have changed in between (a
@@ -205,7 +211,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         let disposition = RightClickDisposition.decide(
             optionHeld: event.modifierFlags.contains(.option),
             captureEnabled: session.mouseCaptureEnabled,
-            paneIsFocused: wantsFocus
+            paneIsFocused: wantsFocus,
+            rearrangeActive: rearrangeActive
         )
         rightButtonDownDisposition = disposition
         switch disposition {
@@ -215,6 +222,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         case .forwardToPane:
             requestWindowFirstResponder()
             rightButtonRoute = sendButtonDown(.right, event: event)
+        case .suppressed:
+            rightButtonRoute = nil
         }
     }
 
@@ -224,6 +233,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             super.rightMouseUp(with: event)
         case .forwardToPane:
             sendButtonUp(.right, event: event, route: rightButtonRoute)
+        case .suppressed:
+            break
         }
         rightButtonRoute = nil
     }
@@ -401,7 +412,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             kind: kind, button: button, modifiers: crosstermModifiers(event.modifierFlags),
             point: forwardingPoint(event), cellSize: cellSizeInPoints(), grid: session.surfaceGeometry()?.grid,
             captureEnabled: session.mouseCaptureEnabled, paneIsFocused: wantsFocus,
-            shiftHeld: event.modifierFlags.contains(.shift), lines: lines
+            shiftHeld: event.modifierFlags.contains(.shift), lines: lines, rearrangeActive: rearrangeActive
         )
     }
 

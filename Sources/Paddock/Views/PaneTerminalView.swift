@@ -16,6 +16,9 @@ struct GhosttyPaneTerminalView: View {
     let isFocused: Bool
     /// The Terminal Text size every pane shares.
     let fontSizePoints: Double
+    /// `RearrangeMode.active`: while true, `GhosttySurfaceView` forwards no
+    /// mouse event to the terminal.
+    let rearrangeActive: Bool
     /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
     /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus
     /// ever moves to this pane at all, since only the header row has its
@@ -30,12 +33,14 @@ struct GhosttyPaneTerminalView: View {
 
     init(
         surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, fontSizePoints: Double,
+        rearrangeActive: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil }
     ) {
         self.surface = surface
         self.theme = theme
         self.isFocused = isFocused
         self.fontSizePoints = fontSizePoints
+        self.rearrangeActive = rearrangeActive
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
     }
@@ -43,7 +48,7 @@ struct GhosttyPaneTerminalView: View {
     var body: some View {
         GhosttySurfaceRepresentable(
             surface: surface, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
-            onPrimaryClick: onPrimaryClick, menuProvider: menuProvider
+            rearrangeActive: rearrangeActive, onPrimaryClick: onPrimaryClick, menuProvider: menuProvider
         )
     }
 }
@@ -59,6 +64,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let theme: Theme
     let isFocused: Bool
     let fontSizePoints: Double
+    var rearrangeActive: Bool = false
     var onPrimaryClick: () -> Void = {}
     var menuProvider: () -> NSMenu? = { nil }
 
@@ -112,6 +118,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             context.coordinator.lastAppliedThemeID = theme.id
             context.coordinator.lastAppliedFontSize = fontSizePoints
             existingView.wantsFocus = isFocused
+            existingView.rearrangeActive = rearrangeActive
             existingView.onPrimaryClick = onPrimaryClick
             existingView.paneMenuProvider = menuProvider
             return existingView
@@ -120,6 +127,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         context.coordinator.lastAppliedFontSize = fontSizePoints
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
+        view.rearrangeActive = rearrangeActive
         view.onPrimaryClick = onPrimaryClick
         view.paneMenuProvider = menuProvider
         return view
@@ -133,6 +141,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             ghosttyView.session.updateAppearance(theme.ghosttyThemeColors(), fontSizePoints: fontSizePoints)
         }
         ghosttyView.wantsFocus = isFocused
+        ghosttyView.rearrangeActive = rearrangeActive
         ghosttyView.onPrimaryClick = onPrimaryClick
         // Rebuilt every `updateNSView` (never applied only once at
         // `makeNSView`): the closure itself is stable in shape but must read

@@ -13,13 +13,40 @@ final class MouseForwardingTests: XCTestCase {
         captureEnabled: Bool,
         paneIsFocused: Bool,
         shiftHeld: Bool = false,
-        lines: Int = 1
+        lines: Int = 1,
+        rearrangeActive: Bool = false
     ) -> MouseForwarding.Decision {
         MouseForwarding.decide(
             kind: kind, button: button, modifiers: modifiers,
             point: point, cellSize: cellSize ?? cell, grid: nil,
-            captureEnabled: captureEnabled, paneIsFocused: paneIsFocused, shiftHeld: shiftHeld, lines: lines
+            captureEnabled: captureEnabled, paneIsFocused: paneIsFocused, shiftHeld: shiftHeld, lines: lines,
+            rearrangeActive: rearrangeActive
         )
+    }
+
+    // MARK: - Rearrange mode overrides everything
+
+    /// Rearrange mode wins over every other input: focused or not, capture on
+    /// or off, Shift held or not, a button event or the wheel -- the whole
+    /// pane is a drag surface, so nothing reaches the app or the surface.
+    func testRearrangeActiveAlwaysDropsRegardlessOfOtherState() {
+        for focused in [false, true] {
+            for capture in [false, true] {
+                for shift in [false, true] {
+                    for kind: MouseForwarding.EventKind in [.down, .up, .drag, .moved, .scrollUp, .scrollDown] {
+                        let button: MouseForwarding.Button? = kind.wireRequiresButtonForTest ? .left : nil
+                        XCTAssertEqual(
+                            decide(
+                                kind: kind, button: button, captureEnabled: capture, paneIsFocused: focused,
+                                shiftHeld: shift, lines: 3, rearrangeActive: true
+                            ),
+                            .drop,
+                            "rearrange mode must drop \(kind) (focused=\(focused) capture=\(capture) shift=\(shift))"
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - The truth table

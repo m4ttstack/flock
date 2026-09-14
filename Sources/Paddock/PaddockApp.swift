@@ -74,6 +74,7 @@ struct PaddockApp: App {
     @State private var herdrStore: HerdrStore
     @State private var viewModel: SessionViewModel
     @State private var undoJournal: UndoJournal
+    @State private var rearrangeMode = RearrangeMode()
 
     private let sessionLabel: String
 
@@ -173,6 +174,8 @@ struct PaddockApp: App {
                 .environment(terminalTextSizeStore)
                 .environment(toastCenter)
                 .environment(undoJournal)
+                .environment(rearrangeMode)
+                .background(RearrangeControlMonitorHost(rearrangeMode: rearrangeMode))
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
@@ -189,6 +192,18 @@ struct PaddockApp: App {
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(store: terminalTextSizeStore)
+                // No key equivalent: the momentary route into rearrange mode
+                // is a held Control, not a shortcut on this item.
+                Button {
+                    rearrangeMode.toggle()
+                } label: {
+                    if rearrangeMode.isToggled {
+                        Label("Rearrange Mode", systemImage: "checkmark")
+                    } else {
+                        Text("Rearrange Mode")
+                    }
+                }
+                .accessibilityIdentifier("paddock.view.rearrangeMode")
             }
             CommandGroup(replacing: .undoRedo) {
                 Button(undoJournal.undoLabel.map { "Undo \($0)" } ?? "Undo") {

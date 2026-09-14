@@ -15,8 +15,13 @@ public enum RightClickDisposition: Equatable, Sendable {
     /// `terminal.mouse` line on the control FIFO (capture is on whenever this
     /// is returned).
     case forwardToPane
+    /// Neither the menu nor the pane: rearrange mode owns the whole pane as a
+    /// drag surface, so a right-click there does nothing on its own -- it is
+    /// drag input like any other point on the pane.
+    case suppressed
 
     /// The rule:
+    /// - Rearrange mode active: always `.suppressed`, before anything else.
     /// - Not paddock's focused pane: always `.menu`. herdr reports mouse
     ///   capture to every attached pane, focused or not, so capture alone
     ///   cannot decide this; `MouseForwarding` drops every event for an
@@ -33,7 +38,10 @@ public enum RightClickDisposition: Equatable, Sendable {
     /// Right-clicks land in the pane by default (focused, capture on) and
     /// Option summons the menu -- the inverse of a persistent per-pane toggle,
     /// which this replaces.
-    public static func decide(optionHeld: Bool, captureEnabled: Bool, paneIsFocused: Bool) -> RightClickDisposition {
+    public static func decide(
+        optionHeld: Bool, captureEnabled: Bool, paneIsFocused: Bool, rearrangeActive: Bool = false
+    ) -> RightClickDisposition {
+        guard !rearrangeActive else { return .suppressed }
         guard paneIsFocused, !optionHeld, captureEnabled else { return .menu }
         return .forwardToPane
     }

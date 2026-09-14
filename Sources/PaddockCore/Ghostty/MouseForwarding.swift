@@ -183,6 +183,9 @@ public enum MouseForwarding {
     }
 
     /// The one truth table. In order:
+    /// 0. rearrange mode active -> `.drop`, before anything else: the whole
+    ///    pane is a drag surface then, so no event -- app or surface bound --
+    ///    ever reaches the terminal.
     /// 1. an unfocused pane -> `.drop`. Its first primary click moves focus
     ///    there and is not also forwarded.
     /// 2. A scroll kind with capture off -> `.toHerdrScroll` when the kind has
@@ -208,8 +211,10 @@ public enum MouseForwarding {
         captureEnabled: Bool,
         paneIsFocused: Bool,
         shiftHeld: Bool,
-        lines: Int
+        lines: Int,
+        rearrangeActive: Bool = false
     ) -> Decision {
+        guard !rearrangeActive else { return .drop }
         guard paneIsFocused else { return .drop }
         if kind.isScroll {
             guard captureEnabled else {

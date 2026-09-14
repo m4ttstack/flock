@@ -30,6 +30,27 @@ final class RightClickDispositionTests: XCTestCase {
             .menu)
     }
 
+    // MARK: - Rearrange mode: neither the menu nor the pane
+
+    /// Rearrange mode wins over every other input -- focus, Option, capture
+    /// -- so a right-click during rearrange never opens the herdr menu and
+    /// never reaches the pane app either.
+    func testRearrangeActiveIsAlwaysSuppressed() {
+        for option in [false, true] {
+            for capture in [false, true] {
+                for focused in [false, true] {
+                    XCTAssertEqual(
+                        RightClickDisposition.decide(
+                            optionHeld: option, captureEnabled: capture, paneIsFocused: focused, rearrangeActive: true
+                        ),
+                        .suppressed,
+                        "rearrange mode must suppress the right-click (option=\(option) capture=\(capture) focused=\(focused))"
+                    )
+                }
+            }
+        }
+    }
+
     // MARK: - Any other pane: always the menu, forwarding never happens
 
     /// herdr reports mouse capture to EVERY attached pane, so a background
