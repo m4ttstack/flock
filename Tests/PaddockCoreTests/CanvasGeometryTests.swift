@@ -3,6 +3,15 @@ import CoreGraphics
 @testable import PaddockCore
 
 final class CanvasGeometryTests: XCTestCase {
+    /// The proportional grid these fixtures were written against: the area
+    /// stretched to fill `size`, origin at the canvas corner.
+    private func grid(filling size: CGSize, area: CellRect) -> CanvasGrid {
+        CanvasGrid(
+            origin: .zero,
+            cell: CGSize(width: size.width / CGFloat(area.width), height: size.height / CGFloat(area.height))
+        )
+    }
+
     private func layout(splitCount: Int) throws -> LayoutSnapshot {
         let snapshot = try HerdrDecoder.snapshot(fromResponseLine: try fixture("snapshot.json"))
         return try XCTUnwrap(snapshot.layouts.first { $0.splits.count == splitCount })
@@ -11,7 +20,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testTwoPaneSplitScalesProportionally() throws {
         let layout = try layout(splitCount: 1)
         let size = CGSize(width: 600, height: 300)
-        let geometry = CanvasGeometry(layout: layout, in: size)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area))
 
         let left = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p1")])
         let right = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p2")])
@@ -31,7 +40,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testDividerHandleSitsOnSplitBoundary() throws {
         let layout = try layout(splitCount: 1)
         let size = CGSize(width: 600, height: 300)
-        let geometry = CanvasGeometry(layout: layout, in: size, dividerThickness: 6)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area), dividerThickness: 6)
 
         let divider = try XCTUnwrap(geometry.dividers.first)
         XCTAssertEqual(geometry.dividers.count, 1)
@@ -45,7 +54,7 @@ final class CanvasGeometryTests: XCTestCase {
 
     func testSinglePaneHasNoDividers() throws {
         let layout = try layout(splitCount: 0)
-        let geometry = CanvasGeometry(layout: layout, in: CGSize(width: 400, height: 200))
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 400, height: 200), area: layout.area))
 
         XCTAssertTrue(geometry.dividers.isEmpty)
         XCTAssertEqual(geometry.paneFrames.count, 1)
@@ -93,7 +102,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testNestedSplitInSecondChildRegionGetsTruePath() throws {
         let layout = threePaneLayout(nestedInSecondChild: true)
         let size = CGSize(width: 200, height: 100)
-        let geometry = CanvasGeometry(layout: layout, in: size, dividerThickness: 6)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area), dividerThickness: 6)
 
         XCTAssertEqual(geometry.dividers.count, 2)
 
@@ -133,7 +142,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testNestedSplitInFirstChildRegionGetsFalsePath() throws {
         let layout = threePaneLayout(nestedInSecondChild: false)
         let size = CGSize(width: 200, height: 100)
-        let geometry = CanvasGeometry(layout: layout, in: size, dividerThickness: 6)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area), dividerThickness: 6)
 
         XCTAssertEqual(geometry.dividers.count, 2)
 
@@ -157,7 +166,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testExportedTreeMapsToSameDividerPathsAsRectDerivation() throws {
         let layout = threePaneLayout(nestedInSecondChild: true)
         let size = CGSize(width: 200, height: 100)
-        let rectDerived = CanvasGeometry(layout: layout, in: size, dividerThickness: 6)
+        let rectDerived = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area), dividerThickness: 6)
 
         let exportedRoot = ExportedLayoutNode.split(
             direction: .right,
@@ -174,7 +183,7 @@ final class CanvasGeometryTests: XCTestCase {
             exportedRoot: exportedRoot,
             area: layout.area,
             tabID: layout.tabID,
-            in: size,
+            grid: grid(filling: size, area: layout.area),
             dividerThickness: 6
         )
 
@@ -202,7 +211,7 @@ final class CanvasGeometryTests: XCTestCase {
             splits: []
         )
 
-        let geometry = CanvasGeometry(layout: degenerate, in: CGSize(width: 400, height: 200))
+        let geometry = CanvasGeometry(layout: degenerate, grid: CanvasGrid(origin: .zero, cell: .zero))
 
         XCTAssertEqual(geometry.paneFrames[PaneID(rawValue: "w:p1")], .zero)
         XCTAssertTrue(geometry.dividers.isEmpty)

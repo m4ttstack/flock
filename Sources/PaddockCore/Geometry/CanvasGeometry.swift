@@ -19,20 +19,22 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// split tree) when it names this tab, and falls back to rect derivation
     /// otherwise -- an export the coordinator never fetched, or one that
     /// failed and got flagged for fallback, both read as `exported == nil`
-    /// or tab-mismatched here.
+    /// or tab-mismatched here. `grid` is the uniform box cell and origin the
+    /// canvas fitted (`UniformCellLayout.fit`); every frame here is a whole
+    /// number of those cells from that origin.
     public static func resolved(
         layout: LayoutSnapshot,
         exported: ExportedLayoutDescription?,
-        in size: CGSize,
+        grid: CanvasGrid,
         dividerThickness: CGFloat = 6
     ) -> CanvasGeometry {
         if let exported, exported.tabID == layout.tabID {
-            return CanvasGeometry(exportedRoot: exported.root, area: layout.area, tabID: layout.tabID, in: size, dividerThickness: dividerThickness)
+            return CanvasGeometry(exportedRoot: exported.root, area: layout.area, tabID: layout.tabID, grid: grid, dividerThickness: dividerThickness)
         }
-        return CanvasGeometry(layout: layout, in: size, dividerThickness: dividerThickness)
+        return CanvasGeometry(layout: layout, grid: grid, dividerThickness: dividerThickness)
     }
 
-    public init(layout: LayoutSnapshot, in size: CGSize, dividerThickness: CGFloat = 6) {
+    public init(layout: LayoutSnapshot, grid: CanvasGrid, dividerThickness: CGFloat = 6) {
         let area = layout.area
         guard area.width > 0, area.height > 0 else {
             paneFrames = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneID, .zero) })
@@ -40,15 +42,8 @@ public struct CanvasGeometry: Equatable, Sendable {
             return
         }
 
-        let scaleX = size.width / CGFloat(area.width)
-        let scaleY = size.height / CGFloat(area.height)
         func scale(_ rect: CellRect) -> CGRect {
-            CGRect(
-                x: CGFloat(rect.x - area.x) * scaleX,
-                y: CGFloat(rect.y - area.y) * scaleY,
-                width: CGFloat(rect.width) * scaleX,
-                height: CGFloat(rect.height) * scaleY
-            )
+            grid.frame(for: rect, area: area)
         }
 
         paneFrames = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneID, scale($0.rect)) })
@@ -66,22 +61,15 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// parent/child order, so paths and regions fall out of a direct walk.
     /// `area` is the tab's cell-grid rect (from the tab's `LayoutSnapshot`,
     /// which `layout.export` does not itself carry).
-    public init(exportedRoot root: ExportedLayoutNode, area: CellRect, tabID: TabID, in size: CGSize, dividerThickness: CGFloat = 6) {
+    public init(exportedRoot root: ExportedLayoutNode, area: CellRect, tabID: TabID, grid: CanvasGrid, dividerThickness: CGFloat = 6) {
         guard area.width > 0, area.height > 0 else {
             paneFrames = [:]
             dividers = []
             return
         }
 
-        let scaleX = size.width / CGFloat(area.width)
-        let scaleY = size.height / CGFloat(area.height)
         func scale(_ rect: CellRect) -> CGRect {
-            CGRect(
-                x: CGFloat(rect.x - area.x) * scaleX,
-                y: CGFloat(rect.y - area.y) * scaleY,
-                width: CGFloat(rect.width) * scaleX,
-                height: CGFloat(rect.height) * scaleY
-            )
+            grid.frame(for: rect, area: area)
         }
 
         var paneFrames: [PaneID: CGRect] = [:]
