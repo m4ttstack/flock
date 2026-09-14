@@ -76,6 +76,14 @@ struct PaneCanvas: View {
                     theme: theme, layout: layout, exported: layout.flatMap { viewModel.exportedLayout(for: $0.tabID) },
                     grid: grid, dividerThickness: Self.dividerThickness
                 )
+                ForEach(geometry.dividers, id: \.path) { divider in
+                    DividerHandleView(
+                        theme: theme, divider: divider, siblingDividers: geometry.dividers,
+                        canvasFrame: CGRect(origin: .zero, size: proxy.size),
+                        commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }
+                    )
+                    .offset(x: divider.frame.minX, y: divider.frame.minY)
+                }
             }
             // The canvas lays out in its own space and drop hit-testing works
             // in the window's, so the frames are published translated by the
