@@ -89,6 +89,11 @@ final class DragCoordinator {
     @ObservationIgnored private let outcomes = DragOutcomeRelay()
     /// Where the gesture started, for the cancel spring-back.
     @ObservationIgnored private var grabPoint: CGPoint = .zero
+    /// Whether this drag is the one holding rearrange mode open. Only a drag
+    /// that STARTED in rearrange mode does: the hold exists so releasing
+    /// Control mid-drag does not repaint the panes, and a legend drag at rest
+    /// has no rearrange paint to hold on to in the first place.
+    @ObservationIgnored private var holdsRearrangeOpen = false
     /// Read from `deinit`, which runs outside actor isolation for a
     /// `@MainActor` class -- the same pattern `RearrangeMode` uses for its own
     /// event monitor.
@@ -174,10 +179,10 @@ final class DragCoordinator {
         activeSubject = subject
         self.ghost = ghost
         controller.began(subject, at: point)
-        // Rearrange mode holds itself open for the length of the drag, so
-        // releasing Control mid-drag does not repaint the panes out from
-        // under the gesture.
-        rearrangeMode.dragBegan()
+        holdsRearrangeOpen = rearrangeMode.active
+        if holdsRearrangeOpen {
+            rearrangeMode.dragBegan()
+        }
         installKeyMonitor()
     }
 
@@ -188,7 +193,7 @@ final class DragCoordinator {
 
     func end() {
         removeKeyMonitor()
-        rearrangeMode.dragEnded()
+        releaseRearrangeHold()
         guard case .dragging(_, _, let target) = controller.phase else {
             settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
             return
@@ -203,7 +208,7 @@ final class DragCoordinator {
 
     func cancel() {
         removeKeyMonitor()
-        rearrangeMode.dragEnded()
+        releaseRearrangeHold()
         controller.cancelled()
         settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
     }
@@ -225,6 +230,12 @@ final class DragCoordinator {
         }
         flash(landing)
         settle(to: landing.origin)
+    }
+
+    private func releaseRearrangeHold() {
+        guard holdsRearrangeOpen else { return }
+        holdsRearrangeOpen = false
+        rearrangeMode.dragEnded()
     }
 
     private func settle(to topLeft: CGPoint) {
