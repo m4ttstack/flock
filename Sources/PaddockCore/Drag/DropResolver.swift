@@ -28,11 +28,20 @@ public struct WorkspaceItemFrame: Equatable, Sendable {
 /// `stripWorkspace` is the workspace `tabFrames` belongs to: `DropTarget`'s
 /// `.tabStrip`/`.newTab` cases carry a workspace id that the frames
 /// themselves (plain `CGRect`s) cannot supply.
+///
+/// `stripFrame`/`railFrame` name the strip/rail's own on-screen region
+/// directly. When nil, the region is the union of `tabFrames`/
+/// `workspaceFrames`, which is `nil` itself for an empty list -- so an
+/// explicit frame is what lets a strip or rail with zero items still
+/// resolve a same-kind drag to insert index 0 inside its own area, instead
+/// of that area going unrecognized entirely.
 public struct DropSurfaces: Equatable, Sendable {
     public let canvas: CanvasGeometry
     public let stripWorkspace: WorkspaceID
     public let tabFrames: [TabItemFrame]
     public let workspaceFrames: [WorkspaceItemFrame]
+    public let stripFrame: CGRect?
+    public let railFrame: CGRect?
     public let newTabZone: CGRect?
     public let newWorkspaceZone: CGRect?
 
@@ -41,6 +50,8 @@ public struct DropSurfaces: Equatable, Sendable {
         stripWorkspace: WorkspaceID,
         tabFrames: [TabItemFrame],
         workspaceFrames: [WorkspaceItemFrame],
+        stripFrame: CGRect? = nil,
+        railFrame: CGRect? = nil,
         newTabZone: CGRect?,
         newWorkspaceZone: CGRect?
     ) {
@@ -48,6 +59,8 @@ public struct DropSurfaces: Equatable, Sendable {
         self.stripWorkspace = stripWorkspace
         self.tabFrames = tabFrames
         self.workspaceFrames = workspaceFrames
+        self.stripFrame = stripFrame
+        self.railFrame = railFrame
         self.newTabZone = newTabZone
         self.newWorkspaceZone = newWorkspaceZone
     }
@@ -78,11 +91,11 @@ public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces
         }
     }
 
-    if let railBounds = unionRect(surfaces.workspaceFrames.map(\.frame)), railBounds.contains(point) {
+    if let railBounds = surfaces.railFrame ?? unionRect(surfaces.workspaceFrames.map(\.frame)), railBounds.contains(point) {
         return resolveRail(at: point, dragging: dragging, surfaces: surfaces)
     }
 
-    if let stripBounds = unionRect(surfaces.tabFrames.map(\.frame)), stripBounds.contains(point) {
+    if let stripBounds = surfaces.stripFrame ?? unionRect(surfaces.tabFrames.map(\.frame)), stripBounds.contains(point) {
         return resolveStrip(at: point, dragging: dragging, surfaces: surfaces)
     }
 

@@ -17,6 +17,7 @@ final class DropResolverTests: XCTestCase {
     ]
     private static let defaultNewTabZone = CGRect(x: 610, y: 0, width: 50, height: 40)
     private static let defaultNewWorkspaceZone = CGRect(x: 610, y: 50, width: 50, height: 40)
+    private static let wide = PaneID(rawValue: "w1:wide")
 
     /// The two-pane 600x300 split fixture: `p1` fills x[0,300], `p2` fills
     /// x[300,600], both spanning the full y[0,300] height.
@@ -48,10 +49,30 @@ final class DropResolverTests: XCTestCase {
         return CanvasGeometry(layout: layout, grid: CanvasGrid(canvas: CGSize(width: 600, height: 300)))
     }
 
+    /// A single 400x100 pane: unlike every other fixture's square 300x300
+    /// panes, its x and y edge bands differ (80 vs 20), so a test against it
+    /// can tell `bandX`/`bandY` apart rather than passing on either value.
+    private func nonSquareCanvas() -> CanvasGeometry {
+        let layout = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"),
+            tabID: TabID(rawValue: "w1:wide"),
+            zoomed: false,
+            area: CellRect(x: 0, y: 0, width: 40, height: 10),
+            focusedPaneID: nil,
+            panes: [
+                PaneRect(paneID: Self.wide, focused: false, rect: CellRect(x: 0, y: 0, width: 40, height: 10))
+            ],
+            splits: []
+        )
+        return CanvasGeometry(layout: layout, grid: CanvasGrid(canvas: CGSize(width: 400, height: 100)))
+    }
+
     private func surfaces(
         canvas: CanvasGeometry,
         tabFrames: [TabItemFrame] = DropResolverTests.strip,
         workspaceFrames: [WorkspaceItemFrame] = DropResolverTests.rail,
+        stripFrame: CGRect? = nil,
+        railFrame: CGRect? = nil,
         newTabZone: CGRect? = DropResolverTests.defaultNewTabZone,
         newWorkspaceZone: CGRect? = DropResolverTests.defaultNewWorkspaceZone
     ) -> DropSurfaces {
@@ -60,12 +81,14 @@ final class DropResolverTests: XCTestCase {
             stripWorkspace: WorkspaceID(rawValue: "w1"),
             tabFrames: tabFrames,
             workspaceFrames: workspaceFrames,
+            stripFrame: stripFrame,
+            railFrame: railFrame,
             newTabZone: newTabZone,
             newWorkspaceZone: newWorkspaceZone
         )
     }
 
-    // MARK: - Pane edge band / interior (table-driven per the brief)
+    // MARK: - Pane edge band and interior
 
     func testPaneEdgeLeftBand() throws {
         let surfaces = surfaces(canvas: try canvas())
@@ -97,6 +120,21 @@ final class DropResolverTests: XCTestCase {
         let surfaces = surfaces(canvas: try canvas())
         let point = CGPoint(x: 0.05 * 300, y: 0.05 * 300)
         XCTAssertEqual(resolveDropTarget(at: point, dragging: .pane(Self.p2), surfaces: surfaces), .paneEdge(Self.p1, .left))
+    }
+
+    func testBoundaryDistanceEqualsBandDepthResolvesToEdge() throws {
+        let surfaces = surfaces(canvas: try canvas())
+        let point = CGPoint(x: 60, y: 150) // distance to the left edge is exactly the 20% band depth (60 on a 300-wide pane)
+        XCTAssertEqual(resolveDropTarget(at: point, dragging: .pane(Self.p2), surfaces: surfaces), .paneEdge(Self.p1, .left))
+    }
+
+    func testNonSquarePaneBandsAreComputedPerAxis() throws {
+        let surfaces = surfaces(canvas: nonSquareCanvas(), tabFrames: [], workspaceFrames: [], newTabZone: nil, newWorkspaceZone: nil)
+        // x=200 is far outside the 80pt x band either way. y=50 is outside the true 20pt y band but
+        // inside what an 80pt (width-derived) y band would wrongly allow, so this pins bandY to the
+        // pane's own height rather than a value shared with bandX.
+        let point = CGPoint(x: 200, y: 50)
+        XCTAssertEqual(resolveDropTarget(at: point, dragging: .pane(Self.p2), surfaces: surfaces), .paneInterior(Self.wide))
     }
 
     func testDividerPointResolvesNil() throws {
@@ -165,6 +203,34 @@ final class DropResolverTests: XCTestCase {
         )
     }
 
+    func testTabSubjectLeftOfFirstItemResolvesIndexZero() throws {
+        let surfaces = surfaces(canvas: try canvas())
+        let point = CGPoint(x: 10, y: 320) // inside t0's own body, left of every item center
+        XCTAssertEqual(
+            resolveDropTarget(at: point, dragging: .tab(TabID(rawValue: "t9")), surfaces: surfaces),
+            .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0)
+        )
+    }
+
+    func testTabSubjectRightOfLastItemResolvesIndexEqualToCount() throws {
+        let surfaces = surfaces(canvas: try canvas())
+        let point = CGPoint(x: 290, y: 320) // inside t2's own body, right of every item center
+        XCTAssertEqual(
+            resolveDropTarget(at: point, dragging: .tab(TabID(rawValue: "t9")), surfaces: surfaces),
+            .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 3)
+        )
+    }
+
+    func testTabSubjectOverEmptyStripResolvesIndexZero() throws {
+        let stripFrame = CGRect(x: 0, y: 300, width: 300, height: 40)
+        let surfaces = surfaces(canvas: try canvas(), tabFrames: [], stripFrame: stripFrame)
+        let point = CGPoint(x: 150, y: 320)
+        XCTAssertEqual(
+            resolveDropTarget(at: point, dragging: .tab(TabID(rawValue: "t9")), surfaces: surfaces),
+            .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0)
+        )
+    }
+
     func testTabSubjectOverRailItemBodyYieldsWorkspaceThumbnail() throws {
         let surfaces = surfaces(canvas: try canvas())
         let point = CGPoint(x: -70, y: 150) // inside w1's rail frame
@@ -213,6 +279,34 @@ final class DropResolverTests: XCTestCase {
         )
     }
 
+    func testWorkspaceSubjectAboveFirstItemResolvesIndexZero() throws {
+        let surfaces = surfaces(canvas: try canvas())
+        let point = CGPoint(x: -70, y: 10) // inside w0's own body, above every item center
+        XCTAssertEqual(
+            resolveDropTarget(at: point, dragging: .workspace(WorkspaceID(rawValue: "w9")), surfaces: surfaces),
+            .workspaceRail(insertIndex: 0)
+        )
+    }
+
+    func testWorkspaceSubjectBelowLastItemResolvesIndexEqualToCount() throws {
+        let surfaces = surfaces(canvas: try canvas())
+        let point = CGPoint(x: -70, y: 290) // inside w2's own body, below every item center
+        XCTAssertEqual(
+            resolveDropTarget(at: point, dragging: .workspace(WorkspaceID(rawValue: "w9")), surfaces: surfaces),
+            .workspaceRail(insertIndex: 3)
+        )
+    }
+
+    func testWorkspaceSubjectOverEmptyRailResolvesIndexZero() throws {
+        let railFrame = CGRect(x: -100, y: 0, width: 60, height: 300)
+        let surfaces = surfaces(canvas: try canvas(), workspaceFrames: [], railFrame: railFrame)
+        let point = CGPoint(x: -70, y: 150)
+        XCTAssertEqual(
+            resolveDropTarget(at: point, dragging: .workspace(WorkspaceID(rawValue: "w9")), surfaces: surfaces),
+            .workspaceRail(insertIndex: 0)
+        )
+    }
+
     // MARK: - Zones
 
     func testNewTabZoneResolvesForPaneSubject() throws {
@@ -248,6 +342,26 @@ final class DropResolverTests: XCTestCase {
         let point = CGPoint(x: 25, y: 25) // inside both the rail item and p1's edge band
         XCTAssertEqual(
             resolveDropTarget(at: point, dragging: .pane(Self.p1), surfaces: surfaces),
+            .workspaceThumbnail(WorkspaceID(rawValue: "w0"))
+        )
+    }
+
+    func testRailTakesPrecedenceOverOverlappingStrip() throws {
+        let overlap = CGRect(x: 1000, y: 1000, width: 50, height: 50)
+        let overlappingRail = [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w0"), frame: overlap)]
+        let overlappingStrip = [TabItemFrame(id: TabID(rawValue: "t0"), frame: overlap)]
+        let surfaces = surfaces(
+            canvas: try canvas(),
+            tabFrames: overlappingStrip,
+            workspaceFrames: overlappingRail,
+            newTabZone: nil,
+            newWorkspaceZone: nil
+        )
+        let point = CGPoint(x: 1025, y: 1025) // inside both the rail item and the strip item
+        // A TAB subject over its own-kind strip would resolve to `.tabStrip`, not `.workspaceThumbnail`,
+        // so this result only holds if the rail tier is checked before the strip tier.
+        XCTAssertEqual(
+            resolveDropTarget(at: point, dragging: .tab(TabID(rawValue: "t9")), surfaces: surfaces),
             .workspaceThumbnail(WorkspaceID(rawValue: "w0"))
         )
     }
