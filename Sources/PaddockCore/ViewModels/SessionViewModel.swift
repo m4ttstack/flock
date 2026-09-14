@@ -686,40 +686,46 @@ public final class SessionViewModel {
     /// can never interleave with an in-flight `undo`/`redo` (a `record` call
     /// racing an in-flight `undo`'s own stack mutation would otherwise be
     /// able to wipe the redo stack mid-step).
-    public func perform(subject: DragSubject, target: DropTarget) async {
-        guard planExecutor != nil else { return }
+    @discardableResult
+    public func perform(subject: DragSubject, target: DropTarget) async -> DragOutcome {
+        guard planExecutor != nil else { return .noOp }
         guard let undoJournal else {
-            guard let model, let planExecutor else { return }
-            await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: noticeSink) { _ in }
-            return
+            guard let model, let planExecutor else { return .noOp }
+            return await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: noticeSink) { _ in }
         }
         // Reads `model` fresh once this closure actually runs, not at the
         // moment `perform` was called: queued behind an in-flight
         // undo/redo, the model can move on while this waits its turn, and
         // planning against a snapshot captured before the wait would plan
         // against a tab/workspace arrangement that no longer holds.
+        var outcome = DragOutcome.noOp
         await undoJournal.runExclusively { [weak self] in
             guard let self, let model = self.model, let planExecutor = self.planExecutor else { return }
-            await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: self.noticeSink, record: undoJournal.record)
+            outcome = await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: self.noticeSink, record: undoJournal.record)
         }
+        return outcome
     }
 
     private static func perform(
         subject: DragSubject, target: DropTarget, model: SessionModel,
         executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void
-    ) async {
+    ) async -> DragOutcome {
         switch plan(dragging: subject, onto: target, model: model) {
         case .failure(.noOp):
-            return
+            return .noOp
         case .failure(.invalidCombination):
             notify("Can't move there")
+            return .rejected("Can't move there")
         case .success(let opPlan):
             let result = await executor.execute(opPlan)
             switch result {
             case .success(let executed):
                 record(executed)
+                return .committed
             case .failure(let failure):
-                notify("\(opPlan.label) failed: \(failure.message)")
+                let message = "\(opPlan.label) failed: \(failure.message)"
+                notify(message)
+                return .rejected(message)
             }
         }
     }

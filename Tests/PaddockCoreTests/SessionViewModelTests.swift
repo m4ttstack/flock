@@ -1211,12 +1211,29 @@ final class SessionViewModelTests: XCTestCase {
         ))
         viewModel.update(model: model, connection: .live)
 
-        await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
 
         XCTAssertEqual(executor.executedPlans.map(\.label), ["Move pane into tab"])
         XCTAssertTrue(journal.canUndo)
         XCTAssertEqual(journal.undoLabel, "Move pane into tab")
         XCTAssertTrue(notices.messages.isEmpty)
+        XCTAssertEqual(outcome, .committed)
+    }
+
+    @MainActor
+    func testPerformRoutesANoOpPlanBackWithoutTouchingTheExecutorOrTheNoticeSink() async {
+        let executor = FakePlanExecutor()
+        let notices = NoticeRecorder()
+        let journal = UndoJournal(executor: executor, model: { makeModel() }, notify: { notices.record($0) })
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
+        viewModel.update(model: makeModel(), connection: .live)
+
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .paneInterior(PaneID(rawValue: "w1:p1")))
+
+        XCTAssertTrue(executor.executedPlans.isEmpty)
+        XCTAssertFalse(journal.canUndo)
+        XCTAssertTrue(notices.messages.isEmpty)
+        XCTAssertEqual(outcome, .noOp)
     }
 
     @MainActor
@@ -1227,11 +1244,12 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor, undoJournal: journal, noticeSink: { notices.record($0) })
         viewModel.update(model: makeModel(), connection: .live)
 
-        await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .workspaceRail(insertIndex: 0))
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .workspaceRail(insertIndex: 0))
 
         XCTAssertTrue(executor.executedPlans.isEmpty)
         XCTAssertFalse(journal.canUndo)
         XCTAssertEqual(notices.messages, ["Can't move there"])
+        XCTAssertEqual(outcome, .rejected("Can't move there"))
     }
 
     @MainActor
@@ -1251,10 +1269,11 @@ final class SessionViewModelTests: XCTestCase {
         ))
         viewModel.update(model: model, connection: .live)
 
-        await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
 
         XCTAssertFalse(journal.canUndo)
         XCTAssertEqual(notices.messages, ["Move pane into tab failed: boom happened"])
+        XCTAssertEqual(outcome, .rejected("Move pane into tab failed: boom happened"))
     }
 
     @MainActor
