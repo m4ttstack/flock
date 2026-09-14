@@ -737,6 +737,33 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(surface.resizeCalls.map(\.cols), [45], "the pre-drag report must still land once suppression lifts")
     }
 
+    /// The re-arm above must not spin forever if suppression never lifts (a
+    /// bug elsewhere leaving it stranded, say): bounded to a fixed retry
+    /// count, so a pane's own stale report is eventually dropped rather than
+    /// scheduling a fresh task every coalescing window without end. A short
+    /// coalescing window keeps the bound reachable inside a normal test
+    /// timeout.
+    @MainActor
+    func testASuppressedFlushGivesUpAfterBoundedRetriesRatherThanSpinningForever() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(1))
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
+        viewModel.beginSuppressingPaneBoxDimsSends()
+        // Long enough for the retry bound (50 retries at ~1ms each) to be
+        // exhausted while suppression is STILL active -- the report must be
+        // dropped here, not merely still pending.
+        try? await Task.sleep(for: .milliseconds(500))
+
+        viewModel.resumePaneBoxDimsSends()
+        await viewModel.waitForPaneDimsReconciliation()
+
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertTrue(surface.resizeCalls.isEmpty, "the retry bound gave up on the stale report before suppression ever lifted")
+    }
+
     /// Lifting suppression with `resumePaneBoxDimsSends` issues no send of
     /// its own: a drag that ends without committing (Esc, abandoned, a
     /// no-op release) reverts the geometry, which reports a DIFFERENT box

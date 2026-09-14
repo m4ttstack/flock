@@ -72,7 +72,7 @@ struct DividerHandleView: View {
                     dividerDrag.began(divider)
                 }
                 let pointer = CGPoint(x: divider.frame.minX + value.location.x, y: divider.frame.minY + value.location.y)
-                dividerDrag.moved(to: pointer)
+                dividerDrag.moved(to: pointer, for: divider)
             }
             .onEnded { _ in dividerDrag.ended() }
     }

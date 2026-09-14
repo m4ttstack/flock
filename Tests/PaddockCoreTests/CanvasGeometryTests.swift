@@ -475,6 +475,95 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(deepHandle.regionFrame, CGRect(x: 10, y: 10, width: 10, height: 10), "the deepest split, not the root it also sits inside of")
     }
 
+    /// Two `.down` splits sharing the same 2-row rect, each at ratio 0.1 --
+    /// each one's degenerate second child (`childRegions` rounds the first
+    /// to 0 rows) equals the OTHER'S rect exactly, so a bound that only
+    /// excludes a split's own id (not a full `visited` set) lets A resolve
+    /// to B resolve to A resolve to B forever. A run of this test that
+    /// completes at all IS the primary assertion; the fixture-shaped ids
+    /// ("root"/"nested") force the structural fallback rather than the
+    /// id-parsed primary path, so this exercises the walk's own bound
+    /// directly.
+    func testTwoMutuallyDegenerateSplitsDoNotRecurseForever() {
+        let area = CellRect(x: 0, y: 0, width: 10, height: 2)
+        let root = SplitInfo(id: "root", direction: .down, ratio: 0.1, rect: area)
+        let nested = SplitInfo(id: "nested", direction: .down, ratio: 0.1, rect: area)
+
+        let paths = CanvasGeometry.splitPaths(splits: [root, nested], area: area)
+
+        XCTAssertEqual(paths.count, 2, "both splits resolve, neither dropped nor looping")
+        XCTAssertEqual(Set(paths.values), [[], [true]], "one is the root, the other its distinct second child")
+    }
+
+    // MARK: - splitPaths: herdr's own id as the primary path source
+
+    /// herdr's own `split_path_id` shape (`split_<idx>_<digits>`, `1` for a
+    /// second-child branch): when every split's id matches it, the id IS
+    /// the path, with no tree walk at all. Deliberately shaped so the
+    /// geometrically correct answer (the second-child region, computed
+    /// independently by `childRegions`) and the id-parsed answer can be
+    /// checked against EACH OTHER -- this is what pins the polarity: a `0`
+    /// meaning second-child instead of `1` would make this fail, not just
+    /// assert what the parser already believes.
+    func testSplitIDsAreParsedAsThePrimaryPathSourceAndThePolarityMatchesTheGeometry() throws {
+        let area = CellRect(x: 0, y: 0, width: 20, height: 10)
+        let root = SplitInfo(id: "split_0_root", direction: .right, ratio: 0.5, rect: area)
+        let rightHalf = CellRect(x: 10, y: 0, width: 10, height: 10)
+        let nested = SplitInfo(id: "split_1_1", direction: .down, ratio: 0.5, rect: rightHalf)
+        let bottomOfRightHalf = CellRect(x: 10, y: 5, width: 10, height: 5)
+        let deep = SplitInfo(id: "split_2_11", direction: .right, ratio: 0.5, rect: bottomOfRightHalf)
+
+        let paths = CanvasGeometry.splitPaths(splits: [root, nested, deep], area: area)
+
+        XCTAssertEqual(paths["split_0_root"], [])
+        XCTAssertEqual(paths["split_1_1"], [true])
+        XCTAssertEqual(paths["split_2_11"], [true, true])
+
+        // The geometry independently agrees: `nested`'s rect IS root's own
+        // second child, and `deep`'s rect IS `nested`'s own second child --
+        // the same regions `childRegions` computes from ratio alone, with
+        // no reference to any id at all.
+        let (rootFirst, rootSecond) = CanvasGeometryTests.childRegions(of: area, direction: .right, ratio: 0.5)
+        XCTAssertEqual(nested.rect, rootSecond)
+        XCTAssertNotEqual(nested.rect, rootFirst)
+        let (nestedFirst, nestedSecond) = CanvasGeometryTests.childRegions(of: rightHalf, direction: .down, ratio: 0.5)
+        XCTAssertEqual(deep.rect, nestedSecond)
+        XCTAssertNotEqual(deep.rect, nestedFirst)
+    }
+
+    /// A mix of herdr-shaped and fixture-literal ids must fall back to the
+    /// structural derivation entirely, not resolve the herdr-shaped ones by
+    /// parsing and guess at the rest -- a partial parse gives no reason to
+    /// trust the id scheme means the same thing for every split.
+    func testAnyUnparseableIDFallsBackToStructuralDerivationForEverySplit() {
+        let area = CellRect(x: 0, y: 0, width: 20, height: 10)
+        let root = SplitInfo(id: "split_0_root", direction: .right, ratio: 0.5, rect: area)
+        let rightHalf = CellRect(x: 10, y: 0, width: 10, height: 10)
+        let nested = SplitInfo(id: "custom-id-not-herdr-shaped", direction: .down, ratio: 0.5, rect: rightHalf)
+
+        let paths = CanvasGeometry.splitPaths(splits: [root, nested], area: area)
+
+        XCTAssertEqual(paths["split_0_root"], [], "still resolved, via the structural fallback this time")
+        XCTAssertEqual(paths["custom-id-not-herdr-shaped"], [true])
+    }
+
+    private static func childRegions(of rect: CellRect, direction: SplitDirection, ratio: Double) -> (first: CellRect, second: CellRect) {
+        switch direction {
+        case .right:
+            let firstWidth = Int((Double(rect.width) * ratio).rounded())
+            return (
+                CellRect(x: rect.x, y: rect.y, width: firstWidth, height: rect.height),
+                CellRect(x: rect.x + firstWidth, y: rect.y, width: rect.width - firstWidth, height: rect.height)
+            )
+        case .down:
+            let firstHeight = Int((Double(rect.height) * ratio).rounded())
+            return (
+                CellRect(x: rect.x, y: rect.y, width: rect.width, height: firstHeight),
+                CellRect(x: rect.x, y: rect.y + firstHeight, width: rect.width, height: rect.height - firstHeight)
+            )
+        }
+    }
+
     // MARK: - liveRatioOverride (a divider drag's live footprint preview)
 
     /// The exported-tree path derives BOTH pane frames and divider frames

@@ -293,46 +293,103 @@ public struct CanvasGeometry: Equatable, Sendable {
         }
     }
 
-    /// Resolves every split's own path STRUCTURALLY: the root is the split
-    /// spanning the full `area`; from there, each split's own two children
-    /// are found by computing THAT split's own child regions (`childRegions`,
-    /// its own direction/ratio/rect) and matching each one against a split
-    /// whose rect equals it exactly, recursing only into a split matched
-    /// this way. A split whose parent cannot be resolved this way is
-    /// dropped rather than guessed at.
+    /// Resolves every split's own path. Primary source: herdr puts the path
+    /// on the wire itself, in the split's own `id` (`split_path_id` in
+    /// `herdr/src/app/api/panes.rs`) -- `split_<idx>_root` for the root
+    /// (empty path), `split_<idx>_<digits>` otherwise, `<digits>` being
+    /// exactly the `[Bool]` path with no separator, `1` for a `true`
+    /// (second-child) branch and `0` for `false`. `pathFromSplitID` parses
+    /// this; polarity is pinned against `set_ratio_at`
+    /// (`herdr/src/layout.rs`), which descends into `second` when
+    /// `path[0]` and `first` otherwise -- the identical convention this
+    /// module already uses for `path + [true]`/`path + [false]`
+    /// (`walk`/`childRegions`), confirmed by a real-geometry test, not
+    /// merely asserted. If EVERY split's id parses this way (true of any
+    /// real herdr snapshot, whose ids all come from the same function),
+    /// this is the whole answer: no tree walk, so nothing to bound.
     ///
-    /// Deliberately NOT "does some already-resolved split's region contain
-    /// this rect": containment is transitive, so a grandchild's rect sits
-    /// inside its GRANDPARENT's own child region too, and herdr emits
-    /// splits pre-order (root first), so a scan over every resolved split
-    /// finds the grandparent before the true parent ever gets a chance --
-    /// this collided two different splits onto the same path and crashed
-    /// the one caller (`HerdrStore`) that turned paths into dictionary
-    /// keys. Matching only a split's OWN direct children against its OWN
-    /// computed regions cannot make this mistake: a grandchild's rect is
-    /// never compared against anything but its true parent's two children,
-    /// however many further ancestors also happen to contain it. Excluding
-    /// `split.id` from its own child match additionally prevents the
-    /// degenerate case (a ratio that rounds one child to zero cells, so the
-    /// OTHER child's rect equals the split's own) from recursing into
-    /// itself forever; every other call strictly extends `path` by one
-    /// element, so the walk is bounded by the tree's own depth regardless.
+    /// Fallback, for anything whose ids do not all parse (a fixture using
+    /// its own literal ids, say): descend from the root, matching each
+    /// split's OWN two computed child regions (`childRegions`, its own
+    /// direction/ratio/rect) against a split whose rect equals one exactly,
+    /// recursing only into a match. Deliberately NOT "does some
+    /// already-resolved split's region contain this rect": containment is
+    /// transitive, so a grandchild's rect sits inside its GRANDPARENT's own
+    /// child region too, and a scan over every resolved split can find the
+    /// grandparent before the true parent ever gets a chance, colliding two
+    /// different splits onto the same path. A `visited` set bounds the walk
+    /// regardless of how the tree is shaped: a ratio that rounds one child
+    /// to zero cells makes the OTHER child's rect equal the parent's own,
+    /// and with two such splits pointing at each other's rect (both
+    /// degenerate, each one row short of the other), a bound keyed only on
+    /// "not myself" still lets A resolve to B resolve to A resolve to B
+    /// forever -- `visited` catches every step back to ANY split already on
+    /// the path, not only the immediately previous one, so the walk is
+    /// bounded by the tree's total split count regardless of cycle length.
+    /// A split whose parent cannot be resolved this way is dropped rather
+    /// than guessed at.
     ///
     /// Module-internal rather than `CanvasGeometry`'s own private detail:
     /// `HerdrStore`'s `setSplitRatio` prediction resolves the identical tree
-    /// for the identical reason (walking a path against a flat `[SplitInfo]`
-    /// array has no other notion of parent/child), and the two must resolve
-    /// it the SAME way -- a caller commits a path this exact function
-    /// produced, so the store's own prediction has to recognize it.
+    /// for the identical reason, and the two must resolve it the SAME way
+    /// -- a caller commits a path this exact function produced, so the
+    /// store's own prediction has to recognize it.
     static func splitPaths(splits: [SplitInfo], area: CellRect) -> [String: [Bool]] {
+        if let fromIDs = pathsFromSplitIDs(splits) {
+            return fromIDs
+        }
+        return structuralSplitPaths(splits: splits, area: area)
+    }
+
+    /// `nil` the moment any split's id does not match herdr's own
+    /// `split_path_id` shape -- a partial parse is not trustworthy, since a
+    /// caller-supplied id scheme that coincidentally matches for SOME
+    /// splits gives no reason to believe it means the same thing for all of
+    /// them.
+    private static func pathsFromSplitIDs(_ splits: [SplitInfo]) -> [String: [Bool]]? {
+        var paths: [String: [Bool]] = [:]
+        for split in splits {
+            guard let path = pathFromSplitID(split.id) else { return nil }
+            paths[split.id] = path
+        }
+        return paths
+    }
+
+    private static func pathFromSplitID(_ id: String) -> [Bool]? {
+        let parts = id.split(separator: "_", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "split", !parts[1].isEmpty else { return nil }
+        if parts[2] == "root" { return [] }
+        guard !parts[2].isEmpty else { return nil }
+        var path: [Bool] = []
+        path.reserveCapacity(parts[2].count)
+        for character in parts[2] {
+            switch character {
+            case "0": path.append(false)
+            case "1": path.append(true)
+            default: return nil
+            }
+        }
+        return path
+    }
+
+    private static func structuralSplitPaths(splits: [SplitInfo], area: CellRect) -> [String: [Bool]] {
         guard let root = splits.first(where: { $0.rect == area }) ?? splits.max(by: { cellArea($0.rect) < cellArea($1.rect) }) else {
             return [:]
         }
 
         var paths: [String: [Bool]] = [:]
+        var visited: Set<String> = []
         func descend(_ split: SplitInfo, path: [Bool]) {
+            guard !visited.contains(split.id) else { return }
+            visited.insert(split.id)
             paths[split.id] = path
             let (first, second) = childRegions(of: split.rect, direction: split.direction, ratio: split.ratio)
+            // Excluding `split.id` itself is what lets a degenerate split
+            // (one child rounds to zero cells, so the OTHER child's rect
+            // equals this split's own) find its true distinct sibling there
+            // instead of matching itself -- `visited` alone would just stop
+            // one step later, having silently dropped that sibling instead
+            // of resolving it.
             if let firstChild = splits.first(where: { $0.id != split.id && $0.rect == first }) {
                 descend(firstChild, path: path + [false])
             }

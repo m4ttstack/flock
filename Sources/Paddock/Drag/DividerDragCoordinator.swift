@@ -23,11 +23,22 @@ import PaddockCore
 /// suppression or the override change, and every one of them is reachable
 /// with no view required to still exist.
 ///
+/// The view may still START a drag; it must never be the only thing that
+/// can END one. A `.leftMouseUp` window monitor (mirroring
+/// `DragCoordinator.installMonitors`) ends the gesture even if
+/// `DividerHandleView`'s own `DragGesture.onEnded` never fires -- herdr's
+/// own `layout.updated` removing the dragged split, or the tab closing,
+/// tears the view down mid-drag with no SwiftUI callback of its own to
+/// carry that news. `ended()` itself guards on `machine.phase != .idle`
+/// (see its own doc comment for why the machine's own latch alone is not
+/// enough here), so the view's callback and the monitor can both fire for
+/// the same release with no double-commit.
+///
 /// `DividerDragMachine` (`PaddockCore`) owns the pure begin/moved/ended/
 /// cancelled/abandoned state, the pointer-to-ratio translation, and the
 /// Esc latch (composed from `DragGestureMachine`, the same latch the pane
 /// drags use); this class is the AppKit-facing shell around it -- the Esc
-/// monitor, the resign-active observer, the async call into
+/// and release monitors, the resign-active observer, the async call into
 /// `viewModel.setSplitRatio` on release, and the pane-box-dims suppression
 /// that ride alongside it.
 @MainActor
@@ -51,7 +62,16 @@ final class DividerDragCoordinator {
     /// action, same as `DragCoordinator`'s own commit outliving a
     /// superseding gesture.
     private var generation = 0
+    /// Set when a stale commit's own flush was skipped because a later
+    /// drag already owned suppression at the time it resolved -- that
+    /// commit's panes are otherwise never sent again (nothing else changes
+    /// their `paneBoxDims` once the drag that moved them is over). The
+    /// NEXT teardown of whichever drag currently owns suppression honors it
+    /// by flushing instead of merely resuming, sweeping up the stale
+    /// commit's panes along with its own.
+    private var flushOwed = false
     @ObservationIgnored nonisolated(unsafe) private var keyMonitor: Any?
+    @ObservationIgnored nonisolated(unsafe) private var releaseMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
 
     init(viewModel: SessionViewModel) {
@@ -62,8 +82,22 @@ final class DividerDragCoordinator {
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
         }
+        if let releaseMonitor {
+            NSEvent.removeMonitor(releaseMonitor)
+        }
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
+        }
+        // Best-effort: this coordinator is session-scoped, so in practice
+        // `deinit` only runs at app shutdown, where whether this lands
+        // barely matters -- but a stray mid-drag deallocation must not
+        // leave suppression stranded either, and `deinit` cannot touch
+        // `@MainActor` state directly (it runs outside isolation even for
+        // a `@MainActor` class). Captured locally rather than via `self`,
+        // which `deinit` may not close over into an escaping task.
+        let viewModel = self.viewModel
+        Task { @MainActor in
+            await viewModel.flushPaneBoxDimsAfterDividerDrag()
         }
     }
 
@@ -82,10 +116,15 @@ final class DividerDragCoordinator {
     }
 
     /// `pointer` is canvas-local, matching `divider.regionFrame`'s own
-    /// space.
-    func moved(to pointer: CGPoint) {
+    /// space. `divider` is the CALLER's own -- with one coordinator shared
+    /// by every `DividerHandleView`, a stray report from a divider that is
+    /// NOT the one currently dragging must never have its pointer measured
+    /// against the dragging divider's `regionFrame`, which would produce a
+    /// wrong ratio for a divider that never asked to move at all.
+    func moved(to pointer: CGPoint, for divider: DividerHandle) {
+        guard case .dragging(let dragging, _, _) = machine.phase, dragging.tabID == divider.tabID, dragging.path == divider.path else { return }
         machine.moved(to: pointer)
-        guard case .dragging(let divider, _, let live) = machine.phase else { return }
+        guard case .dragging(_, _, let live) = machine.phase else { return }
         liveOverride = (divider.tabID, divider.path, live)
     }
 
@@ -98,7 +137,19 @@ final class DividerDragCoordinator {
     /// between here and that point -- a visible snap back, then a second
     /// snap once the prediction lands. A non-committing end (no op at all)
     /// has nothing to wait for, so it tears down immediately.
+    ///
+    /// Reachable twice for the SAME release (the view's own `onEnded` and
+    /// the release monitor both observe it, and both are kept rather than
+    /// having the monitor consume the event, so AppKit's own state machines
+    /// still close out normally). The `machine.phase != .idle` guard is
+    /// what makes the second call a true no-op rather than merely a
+    /// harmless-looking one: without it, a redundant call after a REAL
+    /// commit's own `ended()` already started would run `teardown()` and
+    /// clear `liveOverride`/resume suppression immediately, undoing the
+    /// "hold until the commit resolves" behavior above for a commit that is
+    /// still in flight.
     func ended() {
+        guard machine.phase != .idle else { return }
         removeMonitors()
         let op = machine.ended()
         guard case let .setSplitRatio(tab, path, ratio)? = op else {
@@ -108,12 +159,17 @@ final class DividerDragCoordinator {
         let started = generation
         Task {
             await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio)
-            // A later drag may already own the session's suppression and
-            // override by the time this resolves -- flushing or clearing
-            // here would send THAT drag's still-uncommitted grid, or blow
-            // away its live preview, rather than this one's.
-            guard self.generation == started else { return }
+            guard self.generation == started else {
+                // A later drag already owns suppression and the override --
+                // touching either here would send ITS still-uncommitted
+                // grid, or blow away ITS live preview. This commit's own
+                // panes are not lost: `flushOwed` carries the obligation to
+                // whichever teardown runs next.
+                self.flushOwed = true
+                return
+            }
             self.liveOverride = nil
+            self.flushOwed = false
             await self.viewModel.flushPaneBoxDimsAfterDividerDrag()
         }
     }
@@ -135,15 +191,23 @@ final class DividerDragCoordinator {
     }
 
     /// Shared by every non-committing exit (a no-op release, Esc, abandon):
-    /// clears the preview and lifts suppression with no flush of its own --
-    /// the reverted geometry reports a DIFFERENT box than whatever was last
-    /// suppressed, which the ordinary `setPaneBoxDims` path picks up and
-    /// sends on its own. An explicit flush here would instead send the
-    /// about-to-be-abandoned mid-drag size first, the exact out-and-back
-    /// reflow suppression exists to prevent.
+    /// clears the preview, and either lifts suppression with no send of its
+    /// own -- the reverted geometry reports a DIFFERENT box than whatever
+    /// was last suppressed, which the ordinary `setPaneBoxDims` path picks
+    /// up and sends on its own, so an explicit flush here would instead
+    /// send the about-to-be-abandoned mid-drag size first -- or, when an
+    /// EARLIER drag's own commit left a flush owed, performs that flush
+    /// now: this drag is over, so its own subtree's mid-drag values are no
+    /// longer being protected either, and the earlier commit's panes have
+    /// no other path left to ever reach herdr again.
     private func teardown() {
         liveOverride = nil
-        viewModel.resumePaneBoxDimsSends()
+        if flushOwed {
+            flushOwed = false
+            Task { await viewModel.flushPaneBoxDimsAfterDividerDrag() }
+        } else {
+            viewModel.resumePaneBoxDimsSends()
+        }
     }
 
     private func installMonitors() {
@@ -153,6 +217,12 @@ final class DividerDragCoordinator {
                 guard Int(event.keyCode) == kVK_Escape else { return event }
                 self.cancel()
                 return nil
+            }
+        }
+        if releaseMonitor == nil {
+            releaseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
+                self?.ended()
+                return event
             }
         }
         if resignObserver == nil {
@@ -169,6 +239,10 @@ final class DividerDragCoordinator {
             NSEvent.removeMonitor(keyMonitor)
         }
         keyMonitor = nil
+        if let releaseMonitor {
+            NSEvent.removeMonitor(releaseMonitor)
+        }
+        releaseMonitor = nil
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
         }

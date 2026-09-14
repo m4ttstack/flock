@@ -105,6 +105,16 @@ public final class SessionViewModel {
     // back on an Esc-cancelled drag, is exactly what the ratio's own
     // publish-on-release rule exists to avoid.
     private var suppressingPaneBoxDimsSends = false
+    // How many times each pane's own flush has re-armed itself against
+    // `suppressingPaneBoxDimsSends` in a row. Bounds a pane whose report
+    // predates a drag to a fixed number of retries rather than spinning a
+    // fresh task every coalescing window for as long as suppression stays
+    // set -- a real drag ends in seconds, but a stranded suppression flag
+    // (a bug elsewhere, not something this file can rule out on its own)
+    // must not turn one stale report into a task that reschedules itself
+    // forever.
+    private var suppressedFlushRetries: [PaneID: Int] = [:]
+    private static let maxSuppressedFlushRetries = 50
     private let dimsCoalescingWindow: Duration
 
     private let paneLauncherRegistry = PaneLauncherRegistry()
@@ -271,9 +281,16 @@ public final class SessionViewModel {
         // suppression lifts, and the size it was already owed would be
         // silently dropped for the rest of the session.
         guard !suppressingPaneBoxDimsSends else {
+            let retries = (suppressedFlushRetries[pane] ?? 0) + 1
+            guard retries <= Self.maxSuppressedFlushRetries else {
+                suppressedFlushRetries[pane] = nil
+                return
+            }
+            suppressedFlushRetries[pane] = retries
             scheduleDimsFlush(for: pane)
             return
         }
+        suppressedFlushRetries[pane] = nil
         guard let size = paneBoxDims[pane], lastSentDims[pane] != size else { return }
         guard !parkedPanes.contains(pane), ghosttySurfaces[pane] != nil else { return }
         lastSentDims[pane] = size
@@ -615,6 +632,7 @@ public final class SessionViewModel {
         lastSentDims.removeValue(forKey: pane)
         paneBoxDims.removeValue(forKey: pane)
         dimsFlushes.removeValue(forKey: pane)?.cancel()
+        suppressedFlushRetries.removeValue(forKey: pane)
         parkedPanes.removeAll { $0 == pane }
         await surface.detach()
     }

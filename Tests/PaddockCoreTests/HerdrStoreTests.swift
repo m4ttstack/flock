@@ -87,6 +87,18 @@ private func degenerateRootWithNestedSplitSnapshotResultJSON() -> String {
 /// and `deep` to `[true]` (both sit inside `root`'s own second-child region
 /// too, not only their true direct parent's), which a `Dictionary
 /// (uniqueKeysWithValues:)` built from it then traps on.
+/// Two `.down` splits sharing the SAME 2-row rect, each at ratio 0.1 --
+/// each one's degenerate second child (`childRegions` rounds the first to 0
+/// rows) equals the OTHER split's rect exactly, so a bound that only
+/// excludes a split's own id (not a full `visited` set) lets `predictedLayout`
+/// resolve `root` to `nested` to `root` to `nested` forever. Reached from
+/// every commit's own path resolution, not only the render fallback.
+private func mutuallyDegenerateSplitsSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":1,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":10,"height":2},"focused_pane_id":"w1:p1","panes":[{"pane_id":"w1:p1","focused":true,"rect":{"x":0,"y":0,"width":10,"height":2}}],"splits":[{"id":"root","direction":"down","ratio":0.1,"rect":{"x":0,"y":0,"width":10,"height":2}},{"id":"nested","direction":"down","ratio":0.1,"rect":{"x":0,"y":0,"width":10,"height":2}}]}]}}
+    """#
+}
+
 private func threeLevelMixedDirectionNestSnapshotResultJSON() -> String {
     #"""
     {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:left","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":4,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:left","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:top","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:deepLeft","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:deepRight","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":20},"focused_pane_id":"w1:left","panes":[{"pane_id":"w1:left","focused":true,"rect":{"x":0,"y":0,"width":10,"height":20}},{"pane_id":"w1:top","focused":false,"rect":{"x":10,"y":0,"width":10,"height":10}},{"pane_id":"w1:deepLeft","focused":false,"rect":{"x":10,"y":10,"width":5,"height":10}},{"pane_id":"w1:deepRight","focused":false,"rect":{"x":15,"y":10,"width":5,"height":10}}],"splits":[{"id":"root","direction":"right","ratio":0.5,"rect":{"x":0,"y":0,"width":20,"height":20}},{"id":"nested","direction":"down","ratio":0.5,"rect":{"x":10,"y":0,"width":10,"height":20}},{"id":"deep","direction":"right","ratio":0.5,"rect":{"x":10,"y":10,"width":10,"height":10}}]}]}}
@@ -620,6 +632,34 @@ final class HerdrStoreTests: XCTestCase {
         // pane occupies the degenerate second child, so it lands in the
         // second row.
         XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:p1") })?.rect, CellRect(x: 0, y: 1, width: 10, height: 1))
+    }
+
+    /// Two splits mutually degenerate into each other's rect: excluding
+    /// only a split's own id from its child match (the round-3 fix) is not
+    /// enough to bound this -- `root` resolves to `nested`'s rect, `nested`
+    /// resolves to `root`'s rect, forever. A run of this test that
+    /// completes at all (rather than stack-overflowing the process) IS the
+    /// primary assertion.
+    @MainActor
+    func testExecuteSetSplitRatioOnMutuallyDegenerateSplitsDoesNotRecurseForever() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: mutuallyDegenerateSplitsSnapshotResultJSON())
+        fake.respond(to: "layout.set_split_ratio", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [], ratio: 0.5)], label: "Resize split")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        // Whichever split the resolver treats as "root" (both share the
+        // same rect), exactly one of the two ends up at the new ratio.
+        let layout = try XCTUnwrap(store.model?.layouts[TabID(rawValue: "w1:t1")])
+        let ratios = layout.splits.map(\.ratio)
+        XCTAssertTrue(ratios.contains(0.5), "the targeted split resolved and committed")
     }
 
     /// The same degenerate root, but the collision now sits in front of a
