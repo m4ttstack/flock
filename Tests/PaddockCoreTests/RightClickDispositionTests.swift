@@ -1,45 +1,30 @@
 import XCTest
 @testable import PaddockCore
 
+/// Right-clicks land in the pane by default; Option summons the herdr menu.
+/// Every pane is attached, so focus never enters this decision.
 final class RightClickDispositionTests: XCTestCase {
-    // Right-clicks land in the pane by default; Option summons the herdr menu.
-
-    // MARK: - Control mode
-
-    func testControlModeCaptureOnPlainRightClickForwardsToPane() {
+    func testCaptureOnPlainRightClickForwardsToPane() {
         XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: false, captureEnabled: true, mode: .control),
+            RightClickDisposition.decide(optionHeld: false, captureEnabled: true),
             .forwardToPane,
             "the pane app claimed the mouse, so a plain right-click is its click")
     }
 
-    func testControlModeCaptureOnWithOptionShowsTheMenu() {
+    func testCaptureOnWithOptionShowsTheMenu() {
         XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: true, captureEnabled: true, mode: .control),
+            RightClickDisposition.decide(optionHeld: true, captureEnabled: true),
             .menu,
             "Option is the deliberate gesture for the herdr action menu")
     }
 
-    func testControlModeCaptureOffShowsTheMenu() {
+    func testCaptureOffShowsTheMenu() {
         XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: false, captureEnabled: false, mode: .control),
+            RightClickDisposition.decide(optionHeld: false, captureEnabled: false),
             .menu,
             "nothing is listening in a plain shell, so fall through to the menu")
         XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: true, captureEnabled: false, mode: .control),
+            RightClickDisposition.decide(optionHeld: true, captureEnabled: false),
             .menu)
-    }
-
-    // MARK: - Observe mode: always the menu, forwarding never happens
-
-    func testObserveModeAlwaysShowsTheMenu() {
-        for option in [false, true] {
-            for capture in [false, true] {
-                XCTAssertEqual(
-                    RightClickDisposition.decide(optionHeld: option, captureEnabled: capture, mode: .observe),
-                    .menu,
-                    "the herdr menu works on any pane; an unfocused pane has no input path (option=\(option) capture=\(capture))")
-            }
-        }
     }
 }

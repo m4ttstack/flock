@@ -3,13 +3,8 @@ import CoreGraphics
 @testable import PaddockCore
 
 final class CanvasGeometryTests: XCTestCase {
-    /// The proportional grid these fixtures were written against: the area
-    /// stretched to fill `size`, origin at the canvas corner.
-    private func grid(filling size: CGSize, area: CellRect) -> CanvasGrid {
-        CanvasGrid(
-            origin: .zero,
-            cell: CGSize(width: size.width / CGFloat(area.width), height: size.height / CGFloat(area.height))
-        )
+    private func grid(filling size: CGSize, scale: CGFloat = 2, phase: CGPoint = .zero) -> CanvasGrid {
+        CanvasGrid(canvas: size, phase: phase, displayScale: scale)
     }
 
     private func layout(splitCount: Int) throws -> LayoutSnapshot {
@@ -20,7 +15,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testTwoPaneSplitScalesProportionally() throws {
         let layout = try layout(splitCount: 1)
         let size = CGSize(width: 600, height: 300)
-        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area))
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size))
 
         let left = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p1")])
         let right = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p2")])
@@ -40,7 +35,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testDividerHandleSitsOnSplitBoundary() throws {
         let layout = try layout(splitCount: 1)
         let size = CGSize(width: 600, height: 300)
-        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area), dividerThickness: 6)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size), dividerThickness: 6)
 
         let divider = try XCTUnwrap(geometry.dividers.first)
         XCTAssertEqual(geometry.dividers.count, 1)
@@ -54,7 +49,7 @@ final class CanvasGeometryTests: XCTestCase {
 
     func testSinglePaneHasNoDividers() throws {
         let layout = try layout(splitCount: 0)
-        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 400, height: 200), area: layout.area))
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 400, height: 200)))
 
         XCTAssertTrue(geometry.dividers.isEmpty)
         XCTAssertEqual(geometry.paneFrames.count, 1)
@@ -102,7 +97,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testNestedSplitInSecondChildRegionGetsTruePath() throws {
         let layout = threePaneLayout(nestedInSecondChild: true)
         let size = CGSize(width: 200, height: 100)
-        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area), dividerThickness: 6)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size), dividerThickness: 6)
 
         XCTAssertEqual(geometry.dividers.count, 2)
 
@@ -142,7 +137,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testNestedSplitInFirstChildRegionGetsFalsePath() throws {
         let layout = threePaneLayout(nestedInSecondChild: false)
         let size = CGSize(width: 200, height: 100)
-        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area), dividerThickness: 6)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size), dividerThickness: 6)
 
         XCTAssertEqual(geometry.dividers.count, 2)
 
@@ -166,7 +161,7 @@ final class CanvasGeometryTests: XCTestCase {
     func testExportedTreeMapsToSameDividerPathsAsRectDerivation() throws {
         let layout = threePaneLayout(nestedInSecondChild: true)
         let size = CGSize(width: 200, height: 100)
-        let rectDerived = CanvasGeometry(layout: layout, grid: grid(filling: size, area: layout.area), dividerThickness: 6)
+        let rectDerived = CanvasGeometry(layout: layout, grid: grid(filling: size), dividerThickness: 6)
 
         let exportedRoot = ExportedLayoutNode.split(
             direction: .right,
@@ -183,7 +178,7 @@ final class CanvasGeometryTests: XCTestCase {
             exportedRoot: exportedRoot,
             area: layout.area,
             tabID: layout.tabID,
-            grid: grid(filling: size, area: layout.area),
+            grid: grid(filling: size),
             dividerThickness: 6
         )
 
@@ -211,9 +206,91 @@ final class CanvasGeometryTests: XCTestCase {
             splits: []
         )
 
-        let geometry = CanvasGeometry(layout: degenerate, grid: CanvasGrid(origin: .zero, cell: .zero))
+        let geometry = CanvasGeometry(layout: degenerate, grid: grid(filling: .zero))
 
         XCTAssertEqual(geometry.paneFrames[PaneID(rawValue: "w:p1")], .zero)
         XCTAssertTrue(geometry.dividers.isEmpty)
+    }
+
+    // MARK: - the canvas is filled, and every edge lands on a device pixel
+
+    func testPaneFramesTileTheWholeCanvasWithNoGapOrOverlap() throws {
+        let layout = threePaneLayout(nestedInSecondChild: true)
+        // Deliberately indivisible by the 100x50 cell area, at a retina
+        // scale: the rounding this forces is where a gap or an overlap would
+        // come from.
+        let size = CGSize(width: 977, height: 613)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, scale: 2))
+
+        let frames = try ["other", "top", "bottom"].map { name in
+            try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: name)])
+        }
+        let covered = frames.reduce(into: 0 as CGFloat) { $0 += $1.width * $1.height }
+        XCTAssertEqual(covered, size.width * size.height, accuracy: 0.001, "the panes cover the canvas exactly")
+        XCTAssertEqual(frames.map(\.minX).min(), 0)
+        XCTAssertEqual(frames.map(\.minY).min(), 0)
+        XCTAssertEqual(frames.map(\.maxX).max(), size.width)
+        XCTAssertEqual(frames.map(\.maxY).max(), size.height)
+        for (index, frame) in frames.enumerated() {
+            for other in frames[(index + 1)...] {
+                XCTAssertFalse(frame.intersects(other), "\(frame) overlaps \(other)")
+            }
+        }
+    }
+
+    func testEveryFrameEdgeLandsOnAWholeDevicePixelAtTheCanvasPhase() {
+        let layout = threePaneLayout(nestedInSecondChild: true)
+        let size = CGSize(width: 977, height: 613)
+        // The canvas does not itself begin on a whole device pixel, so a
+        // frame snapped as if it did would still leave the surface on a
+        // fractional one.
+        let phase = CGPoint(x: 64.25, y: 30.75)
+        let scale: CGFloat = 2
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: size, scale: scale, phase: phase))
+
+        for (pane, frame) in geometry.paneFrames {
+            let edges = [
+                ("minX", frame.minX + phase.x), ("maxX", frame.maxX + phase.x),
+                ("minY", frame.minY + phase.y), ("maxY", frame.maxY + phase.y),
+            ]
+            for (axis, value) in edges {
+                let pixels = value * scale
+                XCTAssertEqual(
+                    pixels, pixels.rounded(), accuracy: 0.0001,
+                    "\(pane.rawValue) \(axis) sits at \(value)pt, a fractional device pixel")
+            }
+        }
+    }
+
+    func testAThirdScaleSnapsToThirdsNotHalves() throws {
+        let layout = try layout(splitCount: 1)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 1000, height: 500), scale: 3))
+
+        let left = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p1")])
+        XCTAssertEqual(left.maxX * 3, (left.maxX * 3).rounded(), accuracy: 0.0001)
+    }
+
+    // MARK: - SurfaceGrid (whole cells only, the remainder left as padding)
+
+    func testSurfaceGridFloorsToWholeCellsAndSizesToThem() {
+        let fit = SurfaceGrid.fit(inner: CGSize(width: 103, height: 61), cell: CGSize(width: 10, height: 20))
+
+        XCTAssertEqual(fit.cols, 10)
+        XCTAssertEqual(fit.rows, 3)
+        XCTAssertEqual(fit.size, CGSize(width: 100, height: 60), "the sub-cell remainder is never rendered")
+    }
+
+    func testSurfaceGridNeverGoesBelowOneCell() {
+        let fit = SurfaceGrid.fit(inner: CGSize(width: 3, height: 2), cell: CGSize(width: 10, height: 20))
+
+        XCTAssertEqual(fit.cols, 1)
+        XCTAssertEqual(fit.rows, 1)
+        XCTAssertEqual(fit.size, CGSize(width: 10, height: 20))
+    }
+
+    func testSurfaceGridWithNoMeasuredCellYieldsNoSurface() {
+        let fit = SurfaceGrid.fit(inner: CGSize(width: 100, height: 100), cell: .zero)
+
+        XCTAssertEqual(fit.size, .zero)
     }
 }

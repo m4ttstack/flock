@@ -11,11 +11,11 @@ private struct BridgeTimeoutError: Error {}
 /// Never touches `ControlBridge.run()` directly: it calls `exit()` on every
 /// path, which would kill the test process. Everything here targets the
 /// pieces `run()` is built from -- `BridgeOptions`, the pure NDJSON
-/// encode/decode/filter functions, and `BridgeIO` wired to plain anonymous
-/// pipes standing in for the PTY and for herdr's own pipes -- so the real
-/// process-spawning integration is left to the manual smoke test (brief
-/// Step 5), and everything that can be exercised without a real herdr child
-/// is exercised here.
+/// encode/decode/filter functions, `BridgeChildOwner`, and `BridgeIO` wired
+/// to plain anonymous pipes standing in for the PTY and for herdr's own
+/// pipes -- so the real process-spawning integration is left to the manual
+/// smoke test (brief Step 5), and everything that can be exercised without a
+/// real herdr child is exercised here.
 final class ControlBridgeTests: XCTestCase {
     // MARK: - BridgeOptions
 
@@ -103,7 +103,7 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(written, ControlBridge.startupClearScreen)
     }
 
-    // MARK: - parseDimsCommand (paddock.dims: the pane's real herdr dims)
+    // MARK: - parseDimsCommand (paddock.dims: the pane's box grid)
 
     func testParseDimsCommandAcceptsPositiveDims() {
         let line = ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40])!
@@ -117,17 +117,13 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertNil(ControlBridge.parseDimsCommand(Data("{not json".utf8)))
     }
 
-    // MARK: - childArgv (mode-switching bridge)
+    // MARK: - childArgv (one control child, for the bridge's whole life)
 
-    func testChildArgvObserveModeHasNoTakeoverFlag() {
-        let argv = ControlBridge.childArgv(mode: .observe, target: "w1:p1", cols: 120, rows: 40)
-        XCTAssertEqual(argv, ["terminal", "session", "observe", "w1:p1", "--cols", "120", "--rows", "40"])
-    }
-
-    func testChildArgvControlModeIncludesTakeover() {
-        let argv = ControlBridge.childArgv(mode: .control, target: "w1:p1", cols: 120, rows: 40)
+    func testChildArgvIsAlwaysAControlTakeoverAtTheGivenDims() {
+        let argv = ControlBridge.childArgv(target: "w1:p1", cols: 120, rows: 40)
         XCTAssertEqual(
             argv, ["terminal", "session", "control", "w1:p1", "--takeover", "--cols", "120", "--rows", "40"])
+        XCTAssertFalse(argv.contains("observe"), "no observe path remains: every pane is attached")
     }
 
     // MARK: - decodeFrame / encodeInput / parseForwardableControlCommand
@@ -185,9 +181,8 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(parsed?["type"] as? String, "terminal.input")
     }
 
-    /// Scroll forwards to herdr like every other `terminal.*` command: it now
-    /// moves the pane's real, shared viewport, the intended effect on the
-    /// resolved-focused pane (see `PaneControlChannel.scroll`).
+    /// Scroll forwards to herdr like every other `terminal.*` command: it
+    /// moves the pane's real, shared viewport (see `PaneControlChannel.scroll`).
     func testParseForwardableControlCommandAcceptsScroll() {
         let line = ControlBridge.encodeLine([
             "type": "terminal.scroll", "direction": "up", "lines": 5, "source": "wheel",
@@ -199,7 +194,7 @@ final class ControlBridgeTests: XCTestCase {
     }
 
     /// Structured mouse events ride the same `terminal.*` filter that carries
-    /// input and resize; only `terminal.scroll` is singled out and banned.
+    /// input and scroll.
     func testParseForwardableControlCommandAcceptsMouse() {
         let line = ControlBridge.encodeLine([
             "type": "terminal.mouse", "kind": "down", "button": "left",
@@ -239,31 +234,6 @@ final class ControlBridgeTests: XCTestCase {
 
     func testParseForwardableControlCommandRejectsMalformedJSON() {
         XCTAssertNil(ControlBridge.parseForwardableControlCommand(Data("{not json".utf8)))
-    }
-
-    // MARK: - parseModeCommand
-
-    func testParseModeCommandAcceptsControlAndObserve() {
-        let controlLine = ControlBridge.encodeLine(["type": "paddock.mode", "mode": "control"])!
-        XCTAssertEqual(ControlBridge.parseModeCommand(controlLine.dropLast()), .control)
-        let observeLine = ControlBridge.encodeLine(["type": "paddock.mode", "mode": "observe"])!
-        XCTAssertEqual(ControlBridge.parseModeCommand(observeLine.dropLast()), .observe)
-    }
-
-    /// An unknown mode value is ignored (`nil`), not a crash -- see the
-    /// control-pipe test below for proof this does not kill the loop.
-    func testParseModeCommandRejectsUnknownMode() {
-        let line = ControlBridge.encodeLine(["type": "paddock.mode", "mode": "bogus"])!
-        XCTAssertNil(ControlBridge.parseModeCommand(line.dropLast()))
-    }
-
-    func testParseModeCommandRejectsNonModeType() {
-        let line = ControlBridge.encodeLine(["type": "terminal.input", "bytes": "aGk="])!
-        XCTAssertNil(ControlBridge.parseModeCommand(line.dropLast()))
-    }
-
-    func testParseModeCommandRejectsMalformedJSON() {
-        XCTAssertNil(ControlBridge.parseModeCommand(Data("{not json".utf8)))
     }
 
     // MARK: - BridgeIO over anonymous pipes (fake control peer, no real herdr child)
@@ -339,10 +309,9 @@ final class ControlBridgeTests: XCTestCase {
     }
 
     /// The bridge's one-shot first-frame signal: silent for an incremental
-    /// frame, fires exactly once on the first FULL frame, and never fires
-    /// again for a later full frame (a subsequent mode switch's own fresh
-    /// child sends its own initial full frame too, and that must not re-show
-    /// a pane's status card).
+    /// frame, fires exactly once on the first FULL frame, and never again for
+    /// a later full frame (herdr repaints in full on every resize, and that
+    /// must not re-show a pane's status card).
     func testFirstFrameStatusLineEmittedOnceOnTheFirstFullFrameOnly() async throws {
         let fromHerdr = Pipe()
         let stdoutCapture = Pipe()
@@ -447,7 +416,6 @@ final class ControlBridgeTests: XCTestCase {
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: stdinStandIn.fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            mode: .control,
             onPeerGone: {}
         )
         io.startStdin()
@@ -478,112 +446,11 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0)
     }
 
-    // MARK: - mode-gated stdin (observe mode has no input path)
-
-    /// Observe mode is the bridge's own default and the pane's unfocused
-    /// steady state: bytes off the PTY are read (so it never blocks) but
-    /// never written to the herdr child.
-    func testStdinBytesInObserveModeAreDiscardedNotForwarded() async throws {
-        let stdinStandIn = Pipe()
-        let herdrIn = Pipe()
-        let io = BridgeIO(
-            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            stdinFD: stdinStandIn.fileHandleForReading.fileDescriptor,
-            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            mode: .observe,
-            onPeerGone: {}
-        )
-        io.startStdin()
-
-        stdinStandIn.fileHandleForWriting.write(Data("echo hi\r".utf8))
-        // Give a would-be forward every chance to have arrived before
-        // declaring victory.
-        try await Task.sleep(for: .milliseconds(150))
-        XCTAssertEqual(readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0)
-    }
-
-    /// `setMode(.control)` flips the gate live, matching a real mode switch:
-    /// bytes typed before the switch are dropped, bytes typed after are
-    /// forwarded.
-    func testSetModeToControlStartsForwardingStdin() async throws {
-        let stdinStandIn = Pipe()
-        let herdrIn = Pipe()
-        let io = BridgeIO(
-            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            stdinFD: stdinStandIn.fileHandleForReading.fileDescriptor,
-            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            mode: .observe,
-            onPeerGone: {}
-        )
-        io.startStdin()
-        io.setMode(.control)
-
-        let typed = Data("hi\r".utf8)
-        stdinStandIn.fileHandleForWriting.write(typed)
-        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: forwarded.split(separator: 0x0A)[0]) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.input")
-    }
-
-    // MARK: - control pipe: paddock.mode never forwarded, unknown mode ignored
-
-    func testModeCommandLineIsNeverForwardedToHerdrButFiresTheCallback() async throws {
-        let control = Pipe()
-        let herdrIn = Pipe()
-        let io = BridgeIO(
-            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
-            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
-        )
-        let receivedModes = LockedBox<[PaneMode]>([])
-        io.onModeCommand = { mode in receivedModes.mutate { $0.append(mode) } }
-        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
-
-        let modeLine = ControlBridge.encodeLine(["type": "paddock.mode", "mode": "control"])!
-        let inputLine = ControlBridge.encodeLine(["type": "terminal.input", "bytes": "aGk="])!
-        control.fileHandleForWriting.write(modeLine)
-        control.fileHandleForWriting.write(inputLine)
-
-        // The mode line's own effect: the callback fires, never a forwarded
-        // herdr line for it.
-        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
-        let lines = forwarded.split(separator: 0x0A)
-        XCTAssertEqual(lines.count, 1, "only the terminal.input line is ever forwarded")
-        XCTAssertEqual(receivedModes.value, [.control])
-    }
-
-    /// An unknown mode does not kill the control-pipe loop: the line after
-    /// it still parses and forwards normally.
-    func testUnknownModeIsIgnoredWithoutKillingTheControlLoop() async throws {
-        let control = Pipe()
-        let herdrIn = Pipe()
-        let io = BridgeIO(
-            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
-            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
-        )
-        let receivedModes = LockedBox<[PaneMode]>([])
-        io.onModeCommand = { mode in receivedModes.mutate { $0.append(mode) } }
-        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
-
-        let bogusModeLine = ControlBridge.encodeLine(["type": "paddock.mode", "mode": "bogus"])!
-        let inputLine = ControlBridge.encodeLine(["type": "terminal.input", "bytes": "aGk="])!
-        control.fileHandleForWriting.write(bogusModeLine)
-        control.fileHandleForWriting.write(inputLine)
-
-        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: forwarded.split(separator: 0x0A)[0]) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.input", "the line after an unknown mode must still parse and forward")
-        XCTAssertTrue(receivedModes.value.isEmpty, "an unrecognized mode never reaches the callback")
-    }
-
     // MARK: - control pipe: paddock.dims drives the resize, SIGWINCH never does
 
-    /// A `paddock.dims` line is intercepted like `paddock.mode`: it fires
-    /// the dims callback and is never forwarded to herdr as-is; a
-    /// `terminal.input` line after it still forwards.
+    /// A `paddock.dims` line is intercepted: it fires the dims callback and is
+    /// never forwarded to herdr as-is; a `terminal.input` line after it still
+    /// forwards.
     func testDimsCommandLineFiresTheCallbackAndIsNeverForwardedVerbatim() async throws {
         let control = Pipe()
         let herdrIn = Pipe()
@@ -610,94 +477,54 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(receivedDims.value, [PTYSize(cols: 30, rows: 40)])
     }
 
+    func testSeveralDimsLinesInOneReadCollapseToTheLastOne() async throws {
+        let control = Pipe()
+        let io = BridgeIO(herdrInFD: Pipe().fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        let seen = LockedBox<[PTYSize]>([])
+        io.onDimsCommand = { size in seen.mutate { $0.append(size) } }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        let burst = [
+            ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40])!,
+            ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 40])!,
+            ControlBridge.encodeLine(["type": "paddock.dims", "cols": 90, "rows": 20])!,
+        ].reduce(Data()) { $0 + $1 }
+        control.fileHandleForWriting.write(burst)
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertEqual(
+            seen.value, [PTYSize(cols: 90, rows: 20)],
+            "three dims lines in one read must collapse to a single request for the LAST one")
+    }
+
     /// Wired the way `ControlBridge.run` wires it: a dims line reaches the
-    /// switcher, which sends `terminal.resize` with exactly those dims to a
-    /// control-mode child.
-    func testDimsCommandSendsTerminalResizeWithTheRealDimsInControlMode() async throws {
+    /// child owner, which sends `terminal.resize` with exactly those dims.
+    func testDimsCommandSendsTerminalResizeWithExactlyThoseDims() async throws {
         let control = Pipe()
         let herdrIn = Pipe()
         let io = BridgeIO(
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            mode: .control,
             onPeerGone: {}
         )
-        let initial = BridgeChild(
-            mode: .control, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            fromHerdrHandle: Pipe().fileHandleForReading)
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
-            spawnChild: { _, _ in XCTFail("a control child is resized, never respawned"); return nil },
-            terminateChild: { _ in }
-        )
-        io.onDimsCommand = { size in switcher.recordSize(size) }
+        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
+        io.onDimsCommand = { size in owner.recordSize(size) }
         io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
 
-        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 40])!)
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 41])!)
 
         let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: forwarded.split(separator: 0x0A)[0]) as? [String: Any])
         XCTAssertEqual(object["type"] as? String, "terminal.resize")
         XCTAssertEqual(object["cols"] as? Int, 60)
-        XCTAssertEqual(object["rows"] as? Int, 40)
-    }
-
-    /// herdr's observe verb never reads its stdin, so its view size is fixed
-    /// at the `--cols/--rows` it was spawned with: a dims change replaces the
-    /// child with a fresh observe child at the new size instead of writing a
-    /// resize nothing would ever read.
-    func testDimsChangeInObserveModeRespawnsTheChildAtTheNewSizeAndSendsNothing() {
-        let herdrIn = Pipe()
-        let io = BridgeIO(herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
-        let spawned = LockedBox<[(PaneMode, PTYSize)]>([])
-        let terminated = LockedBox<Int>(0)
-        let initial = BridgeChild(
-            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            fromHerdrHandle: Pipe().fileHandleForReading)
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
-            spawnChild: { mode, size in
-                spawned.mutate { $0.append((mode, size)) }
-                return BridgeChild(
-                    mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-                    fromHerdrHandle: Pipe().fileHandleForReading)
-            },
-            terminateChild: { _ in terminated.mutate { $0 += 1 } }
-        )
-
-        switcher.recordSize(PTYSize(cols: 60, rows: 40))
-
-        XCTAssertEqual(spawned.value.count, 1)
-        XCTAssertEqual(spawned.value.first?.0, .observe, "the replacement speaks the same verb")
-        XCTAssertEqual(spawned.value.first?.1, PTYSize(cols: 60, rows: 40))
-        XCTAssertEqual(terminated.value, 1)
-        XCTAssertEqual(switcher.currentMode, .observe)
-        let sent = String(decoding: readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor), as: UTF8.self)
-        XCTAssertFalse(sent.contains("terminal.resize"), "an observe child never reads stdin; got: \(sent)")
-    }
-
-    func testUnchangedDimsInObserveModeDoNotRespawn() {
-        let herdrIn = Pipe()
-        let io = BridgeIO(herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
-        let initial = BridgeChild(
-            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            fromHerdrHandle: Pipe().fileHandleForReading)
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
-            spawnChild: { _, _ in XCTFail("the size did not change"); return nil },
-            terminateChild: { _ in XCTFail("the size did not change") }
-        )
-
-        switcher.recordSize(PTYSize(cols: 30, rows: 40))
-
-        XCTAssertEqual(switcher.currentMode, .observe)
+        XCTAssertEqual(object["rows"] as? Int, 41)
     }
 
     /// The surface's own PTY size (what SIGWINCH reports) is never herdr's
-    /// business: a control-mode bridge with a fully wired `BridgeIO` sends
-    /// nothing at all when the signal lands.
-    func testSIGWINCHInControlModeSendsNoResize() async throws {
+    /// business: a fully wired `BridgeIO` sends nothing at all when the signal
+    /// lands.
+    func testSIGWINCHSendsNoResize() async throws {
         let herdrIn = Pipe()
         // Held for the whole test: a released write end would read as the
         // PTY going away and send `terminal.release`, which is not a resize
@@ -707,18 +534,10 @@ final class ControlBridgeTests: XCTestCase {
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: stdinStandIn.fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            mode: .control,
             onPeerGone: {}
         )
-        let initial = BridgeChild(
-            mode: .control, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            fromHerdrHandle: Pipe().fileHandleForReading)
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
-            spawnChild: { _, _ in nil },
-            terminateChild: { _ in }
-        )
-        io.onDimsCommand = { size in switcher.recordSize(size) }
+        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
+        io.onDimsCommand = { size in owner.recordSize(size) }
         io.startStdin()
         io.startControlPipe(fd: Pipe().fileHandleForReading.fileDescriptor, closeOnCancel: false)
 
@@ -731,187 +550,60 @@ final class ControlBridgeTests: XCTestCase {
         withExtendedLifetime(stdinStandIn) {}
     }
 
-    // MARK: - BridgeModeSwitcher (mode switch tears down old child, spawns the other verb)
+    // MARK: - BridgeChildOwner (one child, resized in place, terminated once)
 
-    func testRequestSwitchTerminatesOldChildAndSpawnsOtherVerbAtLatestSize() {
-        let spawnedModes = LockedBox<[(PaneMode, PTYSize)]>([])
-        let terminatedModes = LockedBox<[PaneMode]>([])
+    func testUnchangedDimsSendNoResize() {
         let herdrIn = Pipe()
-        let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
+        let io = BridgeIO(herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
 
-        func fakeChild(mode: PaneMode) -> BridgeChild {
-            BridgeChild(
-                mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-                fromHerdrHandle: Pipe().fileHandleForReading)
-        }
+        owner.recordSize(PTYSize(cols: 30, rows: 40))
 
-        let initial = fakeChild(mode: .observe)
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
-            spawnChild: { mode, size in
-                spawnedModes.mutate { $0.append((mode, size)) }
-                return fakeChild(mode: mode)
-            },
-            terminateChild: { child in terminatedModes.mutate { $0.append(child.mode) } }
-        )
-
-        switcher.recordSize(PTYSize(cols: 120, rows: 40))
-        switcher.requestSwitch(to: .control)
-
-        // Two spawns: the dims change respawns the observe child at the new
-        // size (an observe child has no input path), then the switch
-        // replaces it with the control verb at that same size.
-        XCTAssertEqual(terminatedModes.value, [.observe, .observe], "each OLD child is terminated before its replacement spawns")
-        XCTAssertEqual(spawnedModes.value.map(\.0), [.observe, .control])
-        XCTAssertEqual(spawnedModes.value.last?.1, PTYSize(cols: 120, rows: 40), "spawned at the LATEST known size, not the size the switcher was created with")
-        XCTAssertEqual(switcher.currentMode, .control)
+        let sent = String(decoding: readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor), as: UTF8.self)
+        XCTAssertTrue(sent.isEmpty, "the child already runs at these dims; got: \(sent)")
     }
 
-    func testRequestSwitchToTheSameModeIsANoOp() {
-        let spawnCount = LockedBox<Int>(0)
+    /// The PTY going away (the GUI tore the pane's surface down) latches the
+    /// owner: a dims line still queued behind that teardown must not reach a
+    /// child that is already being killed.
+    func testAResizeAfterThePeerIsGoneSendsNothing() {
         let herdrIn = Pipe()
-        let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
-        let initial = BridgeChild(
-            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            fromHerdrHandle: Pipe().fileHandleForReading)
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
-            spawnChild: { mode, _ in
-                spawnCount.mutate { $0 += 1 }
-                return BridgeChild(
-                    mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-                    fromHerdrHandle: Pipe().fileHandleForReading)
-            },
-            terminateChild: { _ in XCTFail("must not terminate anything for a same-mode request") }
-        )
+        let io = BridgeIO(herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
 
-        switcher.requestSwitch(to: .observe)
+        owner.terminate()
+        owner.recordSize(PTYSize(cols: 60, rows: 40))
 
-        XCTAssertEqual(spawnCount.value, 0)
-        XCTAssertEqual(switcher.currentMode, .observe)
+        let sent = String(decoding: readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor), as: UTF8.self)
+        XCTAssertTrue(sent.isEmpty, "a resize racing the teardown must be dropped; got: \(sent)")
     }
 
-    /// A bounded, real-process exercise of the escalation timing itself
-    /// (SIGTERM, wait, SIGKILL fallback), independent of any herdr binary:
-    /// `/bin/sh` stands in for a wedged child that ignores SIGTERM. SIGKILL
-    /// only reaches THIS process, not a `sleep` child it might spawn, so the
-    /// sleep itself is kept short (2s, not the original 30s) -- if
-    /// `terminateWithBoundedEscalation` ever failed to kill the parent, the
-    /// orphaned sleep still exits on its own well within the test run.
-    func testTerminateWithBoundedEscalationKillsAProcessThatIgnoresSIGTERM() {
+    func testTerminateEndsTheChildAndIsIdempotent() {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", "trap '' TERM; sleep 2"]
+        proc.arguments = ["-c", "sleep 5"]
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         try? proc.run()
         guard proc.isRunning else { return XCTFail("failed to spawn the test child") }
-
-        terminateWithBoundedEscalation(proc, timeout: 0.2)
-
-        XCTAssertFalse(proc.isRunning, "SIGKILL fallback must have ended the process")
-    }
-
-    // MARK: - BridgeModeSwitcher: peer-gone race
-
-    /// The race `terminateCurrent` and `requestSwitch` must never leave a
-    /// window for: the bridge's own PTY goes away (the GUI tore the pane's
-    /// surface down) at the same moment a queued `paddock.mode` line would
-    /// otherwise spawn a replacement child -- one nothing would ever go on
-    /// to kill, since the stdin source that would have noticed another
-    /// PTY-EOF is already cancelled. `terminateCurrent` must win this and
-    /// leave `requestSwitch` a no-op.
-    func testTerminateCurrentPreventsALaterRequestSwitchFromSpawning() {
-        let spawnCount = LockedBox<Int>(0)
-        let terminatedModes = LockedBox<[PaneMode]>([])
-        let herdrIn = Pipe()
         let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
-        let initial = BridgeChild(
-            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            fromHerdrHandle: Pipe().fileHandleForReading)
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
-            spawnChild: { mode, _ in
-                spawnCount.mutate { $0 += 1 }
-                return BridgeChild(
-                    mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-                    fromHerdrHandle: Pipe().fileHandleForReading)
-            },
-            terminateChild: { child in terminatedModes.mutate { $0.append(child.mode) } }
-        )
+        let owner = BridgeChildOwner(process: proc, size: PTYSize(cols: 30, rows: 40), io: io)
 
-        switcher.terminateCurrent()
-        switcher.requestSwitch(to: .control)
+        owner.terminate()
+        owner.terminate()
+        proc.waitUntilExit()
 
-        XCTAssertEqual(terminatedModes.value, [.observe], "only the original terminate may run")
-        XCTAssertEqual(spawnCount.value, 0, "a mode request arriving after the peer is gone must never spawn a replacement")
+        XCTAssertFalse(proc.isRunning)
     }
 
-    /// The genuinely concurrent ordering: `terminateCurrent` arrives while a
-    /// switch is parked mid-flight (inside `spawnChild`, after the old child
-    /// is already gone but before the new one is installed as `current`).
-    /// Without holding its own lock across the whole operation,
-    /// `terminateCurrent` could read the stale `current` here, terminate it
-    /// (a no-op double-kill of the already-dead old child), and return --
-    /// leaving nothing to ever terminate the switch's own new child once it
-    /// finishes installing. `terminateCurrent` must instead block until the
-    /// switch settles, then terminate whichever child is ACTUALLY current.
-    func testTerminateCurrentDuringAnInFlightSwitchWaitsThenKillsWhicheverChildEndsUpCurrent() {
-        let herdrIn = Pipe()
-        let spawnEntered = DispatchSemaphore(value: 0)
-        let releaseSpawn = DispatchSemaphore(value: 0)
-        let terminatedModes = LockedBox<[PaneMode]>([])
-        let initial = BridgeChild(
-            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            fromHerdrHandle: Pipe().fileHandleForReading)
-        let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
-            spawnChild: { mode, _ in
-                spawnEntered.signal()
-                releaseSpawn.wait()
-                return BridgeChild(
-                    mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-                    fromHerdrHandle: Pipe().fileHandleForReading)
-            },
-            terminateChild: { child in terminatedModes.mutate { $0.append(child.mode) } }
-        )
+    // MARK: - startHerdrOutput: per-call buffer + generation
 
-        let switchDone = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            switcher.requestSwitch(to: .control)
-            switchDone.signal()
-        }
-        XCTAssertEqual(spawnEntered.wait(timeout: .now() + 2), .success)
-
-        let terminateDone = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            switcher.terminateCurrent()
-            terminateDone.signal()
-        }
-        usleep(50_000)
-        XCTAssertEqual(
-            terminateDone.wait(timeout: .now()), .timedOut,
-            "terminateCurrent must queue behind the in-flight switch, not slip past it and read a stale current")
-
-        releaseSpawn.signal()
-        XCTAssertEqual(switchDone.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(terminateDone.wait(timeout: .now() + 2), .success)
-
-        XCTAssertEqual(
-            terminatedModes.value, [.observe, .control],
-            "the switch's own old-child terminate, then terminateCurrent on whichever child is ACTUALLY current (the new control child) -- never orphaned")
-    }
-
-    // MARK: - startHerdrOutput: per-child buffer + generation
-
-    /// A mode switch's new child must never inherit a byte the OLD child's
+    /// A later `startHerdrOutput` never inherits a byte the previous handle's
     /// own line buffer was still holding: herdr flushes at 8KB chunk
-    /// boundaries, so a partial (no trailing newline) line is a real state
-    /// to be caught mid-switch. Gluing it onto the new child's own first
-    /// line (always a full-frame repaint) would fail to decode and lose
-    /// that repaint.
-    func testRewireHerdrChildNeverGluesOldPartialLineOntoNewChildsFirstLine() async throws {
+    /// boundaries, so a partial (no trailing newline) line is a real state to
+    /// be caught in. Gluing it onto the next handle's first line would fail to
+    /// decode and lose that frame.
+    func testANewHerdrOutputNeverGluesTheOldPartialLineOntoItsFirstLine() async throws {
         let stdoutCapture = Pipe()
         let oldOut = Pipe()
         let newOut = Pipe()
@@ -920,33 +612,26 @@ final class ControlBridgeTests: XCTestCase {
             stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor, onPeerGone: {})
         io.startHerdrOutput(oldOut.fileHandleForReading)
 
-        // The old child writes a PARTIAL line (no trailing newline) --
-        // exactly the mid-line state a mode switch can catch a real herdr
-        // child in.
         oldOut.fileHandleForWriting.write(Data(#"{"type":"terminal.frame","#.utf8))
         try await Task.sleep(for: .milliseconds(50))
 
-        // The mode switch: `BridgeModeSwitcher` always detaches the old
-        // handle's readability handler before rewiring; mirrored here.
         oldOut.fileHandleForReading.readabilityHandler = nil
-        io.rewireHerdrChild(inFD: Pipe().fileHandleForWriting.fileDescriptor, output: newOut.fileHandleForReading)
+        io.startHerdrOutput(newOut.fileHandleForReading)
 
         let payload = Data("FULL REPAINT".utf8)
         let fullFrame = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": payload.base64EncodedString()])!
         newOut.fileHandleForWriting.write(fullFrame)
 
         let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
-        XCTAssertEqual(decoded, payload, "the new child's own full-frame line must decode cleanly, never glued to the old child's partial line")
+        XCTAssertEqual(decoded, payload, "the new handle's own line must decode cleanly, never glued to the old partial line")
     }
 
-    /// Simulates the harder race directly: the OLD child's handle is left
-    /// armed (standing in for an invocation of it already in flight when
-    /// the generation advances) and still writes a well-formed frame AFTER
-    /// the rewire. That write must never reach `stdoutFD` -- the generation
-    /// check inside `startHerdrOutput`'s closure is the only thing that can
-    /// catch this, since nothing else distinguishes an old-generation write
-    /// from a new one once both handles are technically live.
-    func testStaleGenerationWriteAfterRewireNeverReachesStdout() async throws {
+    /// The harder race, driven directly: the OLD handle is left armed
+    /// (standing in for an invocation of it already in flight when the
+    /// generation advances) and still writes a well-formed frame afterward.
+    /// That write must never reach `stdoutFD` -- the generation check inside
+    /// `startHerdrOutput`'s closure is the only thing that can catch it.
+    func testStaleGenerationWriteNeverReachesStdout() async throws {
         let stdoutCapture = Pipe()
         let oldOut = Pipe()
         let newOut = Pipe()
@@ -954,8 +639,7 @@ final class ControlBridgeTests: XCTestCase {
             herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
             stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor, onPeerGone: {})
         io.startHerdrOutput(oldOut.fileHandleForReading)
-
-        io.rewireHerdrChild(inFD: Pipe().fileHandleForWriting.fileDescriptor, output: newOut.fileHandleForReading)
+        io.startHerdrOutput(newOut.fileHandleForReading)
 
         let stalePayload = Data("STALE".utf8)
         let staleFrame = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": stalePayload.base64EncodedString()])!
@@ -963,96 +647,13 @@ final class ControlBridgeTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(
             readAllAvailableForTest(stdoutCapture.fileHandleForReading.fileDescriptor).count, 0,
-            "a write on the SUPERSEDED child's handle must never reach stdout once a newer generation exists")
+            "a write on the SUPERSEDED handle must never reach stdout once a newer generation exists")
 
         let freshPayload = Data("FRESH".utf8)
         let freshFrame = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": freshPayload.base64EncodedString()])!
         newOut.fileHandleForWriting.write(freshFrame)
         let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
-        XCTAssertEqual(decoded, freshPayload, "the new (current-generation) child's own frame must still decode normally")
-    }
-
-    // MARK: - recordSize: a resize arriving mid-switch reaches the NEW child
-
-    /// A resize that lands while `requestSwitch` is mid-kill (the switch
-    /// holds `BridgeModeSwitcher`'s own lock for its whole duration) must
-    /// queue behind it, never slip past and apply to a child the switch is
-    /// about to replace. The spawn necessarily used whatever size was
-    /// latest BEFORE the resize landed; the resize must still reach the
-    /// FRESHLY SPAWNED child once `recordSize` finally runs.
-    func testResizeArrivingMidSwitchReachesTheNewChild() throws {
-        let oldIn = Pipe()
-        let newIn = Pipe()
-        let io = BridgeIO(herdrInFD: oldIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
-        let initial = BridgeChild(
-            mode: .observe, process: Process(), toHerdrFD: oldIn.fileHandleForWriting.fileDescriptor,
-            fromHerdrHandle: Pipe().fileHandleForReading)
-        let terminateEntered = DispatchSemaphore(value: 0)
-        let releaseTerminate = DispatchSemaphore(value: 0)
-        let spawnedAt = LockedBox<PTYSize?>(nil)
-        let switcher = BridgeModeSwitcher(
-            initial: initial, size: PTYSize(cols: 80, rows: 24), io: io,
-            spawnChild: { mode, size in
-                spawnedAt.mutate { $0 = size }
-                return BridgeChild(
-                    mode: mode, process: Process(), toHerdrFD: newIn.fileHandleForWriting.fileDescriptor,
-                    fromHerdrHandle: Pipe().fileHandleForReading)
-            },
-            terminateChild: { _ in
-                terminateEntered.signal()
-                releaseTerminate.wait()
-            }
-        )
-
-        let switchDone = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            switcher.requestSwitch(to: .control)
-            switchDone.signal()
-        }
-        XCTAssertEqual(terminateEntered.wait(timeout: .now() + 2), .success)
-
-        // The resize lands while the switch holds the lock (kill in progress).
-        let resizeDone = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            switcher.recordSize(PTYSize(cols: 132, rows: 50))
-            resizeDone.signal()
-        }
-        usleep(50_000)
-        XCTAssertEqual(
-            resizeDone.wait(timeout: .now()), .timedOut,
-            "recordSize must queue behind the in-flight switch, not slip past it")
-
-        releaseTerminate.signal()
-        XCTAssertEqual(switchDone.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(resizeDone.wait(timeout: .now() + 2), .success)
-
-        XCTAssertEqual(spawnedAt.value, PTYSize(cols: 80, rows: 24), "the spawn necessarily used the stale size")
-        let received = readAllAvailableForTest(newIn.fileHandleForReading.fileDescriptor)
-        let line = String(decoding: received, as: UTF8.self)
-        XCTAssertTrue(
-            line.contains("\"terminal.resize\"") && line.contains("132") && line.contains("50"),
-            "the NEW child must receive the up-to-date resize; got: \(line)")
-    }
-
-    // MARK: - startControlPipe: several mode lines in one read collapse to the last
-
-    func testSeveralModeLinesInOneReadCollapseToTheLastOne() async throws {
-        let control = Pipe()
-        let io = BridgeIO(herdrInFD: Pipe().fileHandleForWriting.fileDescriptor, onPeerGone: {})
-        let seen = LockedBox<[PaneMode]>([])
-        io.onModeCommand = { mode in seen.mutate { $0.append(mode) } }
-        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
-
-        let burst = [
-            ControlBridge.encodeLine(["type": "paddock.mode", "mode": "control"])!,
-            ControlBridge.encodeLine(["type": "paddock.mode", "mode": "observe"])!,
-            ControlBridge.encodeLine(["type": "paddock.mode", "mode": "control"])!,
-            ControlBridge.encodeLine(["type": "paddock.mode", "mode": "observe"])!,
-        ].reduce(Data()) { $0 + $1 }
-        control.fileHandleForWriting.write(burst)
-        try await Task.sleep(for: .milliseconds(150))
-
-        XCTAssertEqual(seen.value, [.observe], "four mode lines in one read must collapse to a single request for the LAST one")
+        XCTAssertEqual(decoded, freshPayload, "the current-generation handle's own frame must still decode normally")
     }
 }
 
