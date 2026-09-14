@@ -229,15 +229,21 @@ transform/opacity only, interruptible springs.
 - **Grabbing a pane (two coexisting ways):** (1) at rest, the legend plus a
   ~12px invisible band along the pane's top edge is the drag handle; a grip
   glyph fades in on hover. (2) REARRANGE MODE: entered momentarily by
-  holding Control, or stickily via a View-menu toggle (both routes share one
+  holding Option, or stickily via a View-menu toggle (both routes share one
   state); while active every pane repaints (terminal content dims, border
   switches to the accent color, a centered grip glyph appears, hover lifts
   the pane a hair) and a drag can start from ANY point on a pane, with mouse
-  events no longer forwarded to the terminal. Releasing Control (or
+  events no longer forwarded to the terminal. Releasing Option (or
   toggling off) exits; a drag in progress finishes first. Control was
-  chosen over Command (Cmd-click routes to the terminal for link opening,
-  Cmd+drag moves background windows) and Option (the herdr-menu right-click
-  gesture).
+  chosen first and is UNUSABLE: Control+click is a secondary click on
+  macOS, so a press with Control held arrives as `rightMouseDown` and a
+  drag can never begin. Option is the replacement (ruled 2026-09-14);
+  Option+right-click is already the herdr-menu gesture, so Option reads as
+  paddock's own layer rather than the terminal's, and Option+drag's usual
+  rectangular-selection meaning cannot apply because no mouse event
+  reaches the terminal while rearrange is active. Command stays rejected
+  (Cmd-click routes to the terminal for link opening, Cmd+drag moves
+  background windows).
 - **Pane drop semantics (VS Code model):** interior of a target pane = swap
   (same tab) or move-onto (cross tab); outer 20% edge band = directional
   split drop with live overlay preview of the resulting rects.
