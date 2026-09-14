@@ -293,17 +293,30 @@ public struct CanvasGeometry: Equatable, Sendable {
         }
     }
 
-    /// Resolves every split's own path by rect containment: the root is the
-    /// split spanning the full `area`; a split contained in a parent's
-    /// first-child region gets `false` appended to the parent's path, the
-    /// second-child region gets `true`. A split whose parent cannot be
-    /// resolved this way is dropped rather than guessed at. Bounded by
-    /// `splits.count` outer iterations (each pass that makes progress
-    /// resolves at least one more split), so this always terminates even
-    /// when a ratio rounds a child to zero cells and its rect collides with
-    /// the parent's own -- unlike a lookup repeated freshly at every level of
-    /// an unrelated recursion, which can re-match that same split forever
-    /// (see `HerdrStore`'s own use of this).
+    /// Resolves every split's own path STRUCTURALLY: the root is the split
+    /// spanning the full `area`; from there, each split's own two children
+    /// are found by computing THAT split's own child regions (`childRegions`,
+    /// its own direction/ratio/rect) and matching each one against a split
+    /// whose rect equals it exactly, recursing only into a split matched
+    /// this way. A split whose parent cannot be resolved this way is
+    /// dropped rather than guessed at.
+    ///
+    /// Deliberately NOT "does some already-resolved split's region contain
+    /// this rect": containment is transitive, so a grandchild's rect sits
+    /// inside its GRANDPARENT's own child region too, and herdr emits
+    /// splits pre-order (root first), so a scan over every resolved split
+    /// finds the grandparent before the true parent ever gets a chance --
+    /// this collided two different splits onto the same path and crashed
+    /// the one caller (`HerdrStore`) that turned paths into dictionary
+    /// keys. Matching only a split's OWN direct children against its OWN
+    /// computed regions cannot make this mistake: a grandchild's rect is
+    /// never compared against anything but its true parent's two children,
+    /// however many further ancestors also happen to contain it. Excluding
+    /// `split.id` from its own child match additionally prevents the
+    /// degenerate case (a ratio that rounds one child to zero cells, so the
+    /// OTHER child's rect equals the split's own) from recursing into
+    /// itself forever; every other call strictly extends `path` by one
+    /// element, so the walk is bounded by the tree's own depth regardless.
     ///
     /// Module-internal rather than `CanvasGeometry`'s own private detail:
     /// `HerdrStore`'s `setSplitRatio` prediction resolves the identical tree
@@ -316,22 +329,18 @@ public struct CanvasGeometry: Equatable, Sendable {
             return [:]
         }
 
-        var paths: [String: [Bool]] = [root.id: []]
-        var remaining = splits.filter { $0.id != root.id }
-        var madeProgress = true
-        while madeProgress && !remaining.isEmpty {
-            madeProgress = false
-            for split in remaining {
-                guard let parent = splits.first(where: { candidate in
-                    paths[candidate.id] != nil
-                        && (contains(candidate.firstChildRegion, split.rect) || contains(candidate.secondChildRegion, split.rect))
-                }), let parentPath = paths[parent.id] else { continue }
-                let branch = contains(parent.secondChildRegion, split.rect)
-                paths[split.id] = parentPath + [branch]
-                remaining.removeAll { $0.id == split.id }
-                madeProgress = true
+        var paths: [String: [Bool]] = [:]
+        func descend(_ split: SplitInfo, path: [Bool]) {
+            paths[split.id] = path
+            let (first, second) = childRegions(of: split.rect, direction: split.direction, ratio: split.ratio)
+            if let firstChild = splits.first(where: { $0.id != split.id && $0.rect == first }) {
+                descend(firstChild, path: path + [false])
+            }
+            if let secondChild = splits.first(where: { $0.id != split.id && $0.rect == second }) {
+                descend(secondChild, path: path + [true])
             }
         }
+        descend(root, path: [])
         return paths
     }
 
@@ -365,20 +374,4 @@ public struct CanvasGeometry: Equatable, Sendable {
     }
 
     private static func cellArea(_ rect: CellRect) -> Int { rect.width * rect.height }
-
-    private static func contains(_ region: CellRect, _ rect: CellRect) -> Bool {
-        rect.x >= region.x && rect.y >= region.y
-            && rect.x + rect.width <= region.x + region.width
-            && rect.y + rect.height <= region.y + region.height
-    }
-}
-
-private extension SplitInfo {
-    var firstChildRegion: CellRect {
-        CanvasGeometry.childRegions(of: rect, direction: direction, ratio: Double(ratio)).first
-    }
-
-    var secondChildRegion: CellRect {
-        CanvasGeometry.childRegions(of: rect, direction: direction, ratio: Double(ratio)).second
-    }
 }

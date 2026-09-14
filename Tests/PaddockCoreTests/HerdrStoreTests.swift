@@ -80,6 +80,19 @@ private func degenerateRootWithNestedSplitSnapshotResultJSON() -> String {
     """#
 }
 
+/// Split right, split down in the right half, split right in the bottom
+/// half: three levels, mixed directions, `splits` listed pre-order
+/// root-first (herdr's own emission order) -- the reviewer's own crash
+/// reproduction. Containment-based path resolution resolves BOTH `nested`
+/// and `deep` to `[true]` (both sit inside `root`'s own second-child region
+/// too, not only their true direct parent's), which a `Dictionary
+/// (uniqueKeysWithValues:)` built from it then traps on.
+private func threeLevelMixedDirectionNestSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:left","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":4,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:left","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:top","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:deepLeft","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:deepRight","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":20},"focused_pane_id":"w1:left","panes":[{"pane_id":"w1:left","focused":true,"rect":{"x":0,"y":0,"width":10,"height":20}},{"pane_id":"w1:top","focused":false,"rect":{"x":10,"y":0,"width":10,"height":10}},{"pane_id":"w1:deepLeft","focused":false,"rect":{"x":10,"y":10,"width":5,"height":10}},{"pane_id":"w1:deepRight","focused":false,"rect":{"x":15,"y":10,"width":5,"height":10}}],"splits":[{"id":"root","direction":"right","ratio":0.5,"rect":{"x":0,"y":0,"width":20,"height":20}},{"id":"nested","direction":"down","ratio":0.5,"rect":{"x":10,"y":0,"width":10,"height":20}},{"id":"deep","direction":"right","ratio":0.5,"rect":{"x":10,"y":10,"width":10,"height":10}}]}]}}
+    """#
+}
+
 private func threeWorkspaceSnapshotResultJSON() -> String {
     #"""
     {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":null,"workspaces":[{"workspace_id":"w1","label":"w1","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"w2","number":2,"active_tab_id":"w2:t1","agent_status":"unknown"},{"workspace_id":"w3","label":"w3","number":3,"active_tab_id":"w3:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w2:t1","workspace_id":"w2","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w3:t1","workspace_id":"w3","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"}],"panes":[],"layouts":[]}}
@@ -637,5 +650,39 @@ final class HerdrStoreTests: XCTestCase {
         // first child 3 cols, second 7.
         XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:left") })?.rect, CellRect(x: 0, y: 0, width: 3, height: 2))
         XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:right") })?.rect, CellRect(x: 3, y: 0, width: 7, height: 2))
+    }
+
+    /// The reviewer's own crash reproduction, run end to end: three levels,
+    /// mixed directions, `splits` in herdr's own pre-order. Before the
+    /// structural rewrite this trapped inside `predictedLayout` (a
+    /// `Dictionary(uniqueKeysWithValues:)` built from two splits both
+    /// resolved to `[true]`) -- a stack-overflow-free run of this test IS
+    /// the primary assertion; the ratio/rect checks confirm it also
+    /// resolved to the CORRECT split, not merely survived.
+    @MainActor
+    func testExecuteSetSplitRatioOnAThreeLevelMixedDirectionNestDoesNotCrashAndTargetsTheDeepestSplit() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: threeLevelMixedDirectionNestSnapshotResultJSON())
+        fake.respond(to: "layout.set_split_ratio", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true, true], ratio: 0.25)], label: "Resize split")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        let layout = try XCTUnwrap(store.model?.layouts[TabID(rawValue: "w1:t1")])
+        XCTAssertEqual(layout.splits.first(where: { $0.id == "root" })?.ratio, 0.5, "root untouched")
+        XCTAssertEqual(layout.splits.first(where: { $0.id == "nested" })?.ratio, 0.5, "the middle split untouched")
+        XCTAssertEqual(layout.splits.first(where: { $0.id == "deep" })?.ratio, 0.25, "the deepest split is the one that actually resized")
+        // 10 cols at ratio 0.25 -> round(2.5) = 3 (away from zero).
+        XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:deepLeft") })?.rect, CellRect(x: 10, y: 10, width: 3, height: 10))
+        XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:deepRight") })?.rect, CellRect(x: 13, y: 10, width: 7, height: 10))
+        // Untouched branches keep their own pre-drag rects exactly.
+        XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:left") })?.rect, CellRect(x: 0, y: 0, width: 10, height: 20))
+        XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:top") })?.rect, CellRect(x: 10, y: 0, width: 10, height: 10))
     }
 }

@@ -18,15 +18,8 @@ struct PaneCanvas: View {
 
     @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
     @Environment(DragCoordinator.self) private var drag
+    @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(\.displayScale) private var displayScale
-
-    /// The active divider drag's own live ratio, if any, folded into
-    /// `resolvedGeometry` as an override so the panes on both sides of that
-    /// divider actually follow the drag -- the live footprint preview, not
-    /// only the divider's own accent line. Cleared the moment
-    /// `DividerHandleView` reports `nil` (drag ended, cancelled, or
-    /// abandoned).
-    @State private var liveDividerOverride: (tabID: TabID, path: [Bool], ratio: Double)?
 
     private static let dividerThickness: CGFloat = 6
 
@@ -84,51 +77,10 @@ struct PaneCanvas: View {
                     theme: theme, layout: layout, exported: layout.flatMap { viewModel.exportedLayout(for: $0.tabID) },
                     grid: grid, dividerThickness: Self.dividerThickness
                 )
-                if let layout {
+                if layout != nil {
                     ForEach(geometry.dividers, id: \.path) { divider in
-                        DividerHandleView(
-                            theme: theme, divider: divider,
-                            commit: { tab, path, ratio in
-                                await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio)
-                                // Only now, not per pointer frame: the real
-                                // PTY resize this triggers was held back for
-                                // the whole drag (see `onLiveRatioChange`
-                                // below), and the committed layout reports
-                                // the SAME box the live preview already
-                                // settled on, so nothing else would ever
-                                // change value and send it.
-                                await viewModel.flushPaneBoxDimsAfterDividerDrag()
-                            },
-                            onLiveRatioChange: { ratio in
-                                if ratio != nil {
-                                    viewModel.beginSuppressingPaneBoxDimsSends()
-                                } else {
-                                    // A no-op end, an Esc, or an abandon: the
-                                    // committed path above already flushed
-                                    // when there was one. This is a no-op
-                                    // send-wise, only ever lifting the
-                                    // suppression -- the reverted geometry's
-                                    // own box change (a DIFFERENT grid than
-                                    // whatever was last suppressed) reaches
-                                    // herdr through the ordinary
-                                    // `setPaneBoxDims` path on its own.
-                                    viewModel.resumePaneBoxDimsSends()
-                                }
-                                liveDividerOverride = ratio.map { (tabID: layout.tabID, path: divider.path, ratio: $0) }
-                            }
-                        )
-                        .offset(x: divider.frame.minX, y: divider.frame.minY)
-                        // A tab switch must never reuse this divider's own
-                        // `DividerDragCoordinator` (and the `commit`
-                        // closure frozen inside it) across tabs: the root
-                        // divider's path is `[]` in every tab, so without
-                        // this the `ForEach`'s own `id: \.path` would treat
-                        // "the root divider" as the same view identity
-                        // across the switch. The op itself already carries
-                        // the correct tab regardless (see
-                        // `DividerDragCoordinator.commit`'s own doc
-                        // comment); this is defense in depth, not the fix.
-                        .id(divider.tabID)
+                        DividerHandleView(theme: theme, divider: divider)
+                            .offset(x: divider.frame.minX, y: divider.frame.minY)
                     }
                 }
             }
@@ -143,7 +95,7 @@ struct PaneCanvas: View {
 
     private func resolvedGeometry(grid: CanvasGrid) -> CanvasGeometry {
         guard let layout else { return .empty }
-        let override = liveDividerOverride.flatMap { $0.tabID == layout.tabID ? (path: $0.path, ratio: $0.ratio) : nil }
+        let override = dividerDrag.liveOverride.flatMap { $0.tabID == layout.tabID ? (path: $0.path, ratio: $0.ratio) : nil }
         return CanvasGeometry.resolved(
             layout: layout,
             exported: viewModel.exportedLayout(for: layout.tabID),

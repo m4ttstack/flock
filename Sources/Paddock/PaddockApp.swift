@@ -76,6 +76,7 @@ struct PaddockApp: App {
     @State private var undoJournal: UndoJournal
     @State private var rearrangeMode: RearrangeMode
     @State private var dragCoordinator: DragCoordinator
+    @State private var dividerDragCoordinator: DividerDragCoordinator
 
     private let sessionLabel: String
 
@@ -183,6 +184,7 @@ struct PaddockApp: App {
                 }
             }
         ))
+        _dividerDragCoordinator = State(initialValue: DividerDragCoordinator(viewModel: viewModel))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
     }
 
@@ -195,6 +197,7 @@ struct PaddockApp: App {
                 .environment(undoJournal)
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)
+                .environment(dividerDragCoordinator)
                 .background(RearrangeControlMonitorHost(rearrangeMode: rearrangeMode))
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {

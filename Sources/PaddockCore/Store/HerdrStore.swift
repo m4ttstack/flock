@@ -432,9 +432,19 @@ public final class HerdrStore {
     private static func predictedLayout(forSplitRatio ratio: Double, atPath path: [Bool], tab: TabID, model: SessionModel) -> LayoutSnapshot? {
         guard let layout = model.layouts[tab] else { return nil }
         let pathBySplitID = CanvasGeometry.splitPaths(splits: layout.splits, area: layout.area)
-        let splitByPath: [[Bool]: SplitInfo] = Dictionary(
-            uniqueKeysWithValues: layout.splits.compactMap { split in pathBySplitID[split.id].map { ($0, split) } }
-        )
+        // Never `Dictionary(uniqueKeysWithValues:)`: derived data, built
+        // from a caller-supplied path resolution this function does not
+        // control the invariants of -- a trap on unverified input is worse
+        // than declining the prediction. `CanvasGeometry.splitPaths`'s own
+        // structural derivation should never produce two splits at the same
+        // path, but "should never" is exactly the wrong thing to trust with
+        // a fatal initializer; a genuine collision here declines instead.
+        var splitByPath: [[Bool]: SplitInfo] = [:]
+        for split in layout.splits {
+            guard let splitPath = pathBySplitID[split.id] else { continue }
+            guard splitByPath[splitPath] == nil else { return nil }
+            splitByPath[splitPath] = split
+        }
         guard let target = splitByPath[path] else { return nil }
         let targetID = target.id
 

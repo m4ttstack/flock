@@ -261,7 +261,19 @@ public final class SessionViewModel {
     /// (never attached, torn down) or a parked one is skipped: a parked pane's
     /// grid is applied by its next warm reattach, from the same record.
     private func flushDims(for pane: PaneID) async {
-        guard !suppressingPaneBoxDimsSends else { return }
+        // A flush that was already scheduled before a divider drag began
+        // (an unrelated window resize, say) lands its own timer mid-drag
+        // and finds itself suppressed -- `scheduleDimsFlush`'s own task
+        // already cleared `dimsFlushes[pane]` just before calling this, so
+        // without re-arming here, nothing would ever ask again: that pane
+        // is outside the dragged subtree, so nothing else touches its
+        // `paneBoxDims` to trigger a fresh `setPaneBoxDims` call once
+        // suppression lifts, and the size it was already owed would be
+        // silently dropped for the rest of the session.
+        guard !suppressingPaneBoxDimsSends else {
+            scheduleDimsFlush(for: pane)
+            return
+        }
         guard let size = paneBoxDims[pane], lastSentDims[pane] != size else { return }
         guard !parkedPanes.contains(pane), ghosttySurfaces[pane] != nil else { return }
         lastSentDims[pane] = size

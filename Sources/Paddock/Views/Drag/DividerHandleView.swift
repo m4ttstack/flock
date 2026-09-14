@@ -12,34 +12,31 @@ import SwiftUI
 /// it resolves no drop target, has no ghost, and never spring-loads, so
 /// `DividerDragCoordinator` (this file's sibling) is its own small
 /// controller rather than a new `DragController.Phase` case built around
-/// machinery this gesture shares none of.
-///
-/// `onLiveRatioChange` reports this divider's own live ratio (`nil` when not
-/// dragging) up to `PaneCanvas`, which folds it into `CanvasGeometry` as a
-/// live override so the panes on both sides actually follow the drag rather
-/// than only the accent line moving.
+/// machinery this gesture shares none of. It is read from the environment,
+/// not owned here: this view is only ever the thing that STARTS a drag,
+/// never the only thing that can end one -- see `DividerDragCoordinator`'s
+/// own doc comment for what went wrong when a per-divider `@State` instance
+/// used to own it instead.
 struct DividerHandleView: View {
     let theme: Theme
     let divider: DividerHandle
-    let commit: (TabID, [Bool], Double) async -> Void
-    let onLiveRatioChange: (Double?) -> Void
 
-    @State private var coordinator: DividerDragCoordinator
+    @Environment(DividerDragCoordinator.self) private var dividerDrag
     @State private var isHovering = false
-
-    init(theme: Theme, divider: DividerHandle, commit: @escaping (TabID, [Bool], Double) async -> Void, onLiveRatioChange: @escaping (Double?) -> Void) {
-        self.theme = theme
-        self.divider = divider
-        self.commit = commit
-        self.onLiveRatioChange = onLiveRatioChange
-        _coordinator = State(initialValue: DividerDragCoordinator(commit: commit))
-    }
 
     private var isVertical: Bool { divider.direction == .right }
 
+    /// This divider's own live ratio, or `nil` when it is not the one
+    /// `dividerDrag` is currently tracking -- another divider's drag (or
+    /// none) must never paint THIS one's accent line.
+    private var liveRatio: Double? {
+        guard let live = dividerDrag.liveOverride, live.tabID == divider.tabID, live.path == divider.path else { return nil }
+        return live.ratio
+    }
+
     var body: some View {
         ZStack {
-            if let liveRatio = coordinator.liveRatio {
+            if let liveRatio {
                 liveLine(at: liveRatio)
             } else if isHovering {
                 pip
@@ -52,7 +49,6 @@ struct DividerHandleView: View {
             (hovering ? (isVertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown) : NSCursor.arrow).set()
         }
         .gesture(dragGesture)
-        .onChange(of: coordinator.liveRatio) { _, new in onLiveRatioChange(new) }
         .accessibilityIdentifier("paddock.canvas.divider.\(pathLabel)")
     }
 
@@ -72,13 +68,13 @@ struct DividerHandleView: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .local)
             .onChanged { value in
-                if !coordinator.isDragging {
-                    coordinator.began(divider)
+                if !dividerDrag.isDragging {
+                    dividerDrag.began(divider)
                 }
                 let pointer = CGPoint(x: divider.frame.minX + value.location.x, y: divider.frame.minY + value.location.y)
-                coordinator.moved(to: pointer)
+                dividerDrag.moved(to: pointer)
             }
-            .onEnded { _ in coordinator.ended() }
+            .onEnded { _ in dividerDrag.ended() }
     }
 
     private var pip: some View {

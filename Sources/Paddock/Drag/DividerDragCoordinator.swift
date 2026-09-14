@@ -3,37 +3,59 @@ import Carbon.HIToolbox
 import Observation
 import PaddockCore
 
-/// Owns one divider's own drag gesture, kept apart from `DragController`
-/// (see `DividerHandleView`'s own doc comment for why): a divider resolves no
-/// drop target, carries no ghost, and never spring-loads, so there is no
-/// shared machinery to widen `DragController`'s phase enum for.
+/// Owns EVERY divider's drag gesture for the whole session, kept apart from
+/// `DragController` (see `DividerHandleView`'s own doc comment for why): a
+/// divider resolves no drop target, carries no ghost, and never
+/// spring-loads, so there is no shared machinery to widen `DragController`'s
+/// phase enum for.
+///
+/// Session-scoped and environment-injected, exactly like `DragCoordinator`
+/// -- constructed once in `PaddockApp.init`, never per-divider `@State`.
+/// That choice is a correctness requirement, not a style preference: a
+/// per-divider coordinator can be torn down mid-drag (a tab switch with the
+/// button still down, a `layout.updated` that removes the divider, the tab
+/// closing) while nothing but that SAME view's own `.onChange` ever resumed
+/// pane box dims sends or cleared the live footprint override. A torn-down
+/// view firing no further events is normal SwiftUI; a coordinator living
+/// inside it taking the session's send-suppression and geometry override
+/// down with it is not. Living here instead, the coordinator's own
+/// `began`/`moved`/`ended`/`cancelled`/`abandoned` are the only ways
+/// suppression or the override change, and every one of them is reachable
+/// with no view required to still exist.
 ///
 /// `DividerDragMachine` (`PaddockCore`) owns the pure begin/moved/ended/
 /// cancelled/abandoned state, the pointer-to-ratio translation, and the
 /// Esc latch (composed from `DragGestureMachine`, the same latch the pane
-/// drags use); this class is only the AppKit-facing shell around it -- the
-/// Esc monitor, the resign-active observer, and the async call into
-/// `commit` on release.
+/// drags use); this class is the AppKit-facing shell around it -- the Esc
+/// monitor, the resign-active observer, the async call into
+/// `viewModel.setSplitRatio` on release, and the pane-box-dims suppression
+/// that ride alongside it.
 @MainActor
 @Observable
 final class DividerDragCoordinator {
-    private(set) var liveRatio: Double?
+    /// The live footprint preview's own input to `CanvasGeometry`: the tab,
+    /// path and ratio of whichever divider is currently being dragged, or
+    /// `nil` at rest. `PaneCanvas` reads this directly (no per-row callback)
+    /// and `DividerHandleView` compares its own `divider` against it to
+    /// decide whether IT is the one drawing the accent line.
+    private(set) var liveOverride: (tabID: TabID, path: [Bool], ratio: Double)?
 
     private var machine = DividerDragMachine()
-    /// Takes the tab as a parameter rather than a value this closure
-    /// captures: the closure itself is frozen for this coordinator's whole
-    /// lifetime (constructed once, in `DividerHandleView`'s `@State`), but
-    /// `DividerHandleView`'s own view identity is reused across a tab
-    /// switch whenever a divider shares the same `path` in both tabs (the
-    /// root divider's path is always `[]`) -- so the truth has to come from
-    /// `machine.ended()`'s own op, sourced fresh from whichever `divider`
-    /// THIS gesture began with, never from a value baked in at construction.
-    private let commit: (TabID, [Bool], Double) async -> Void
+    private let viewModel: SessionViewModel
+    /// Bumped by every `began` and by `cancel`/`abandon`, so a commit's own
+    /// pane-box-dims flush and override clear -- both async, resolving after
+    /// the machine has already gone back to idle -- can tell whether they
+    /// still belong to the CURRENT drag before touching shared state. The
+    /// mutation itself (`setSplitRatio`, and its own undo-journal entry)
+    /// always runs regardless: it is the user's real, already-decided
+    /// action, same as `DragCoordinator`'s own commit outliving a
+    /// superseding gesture.
+    private var generation = 0
     @ObservationIgnored nonisolated(unsafe) private var keyMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
 
-    init(commit: @escaping (TabID, [Bool], Double) async -> Void) {
-        self.commit = commit
+    init(viewModel: SessionViewModel) {
+        self.viewModel = viewModel
     }
 
     deinit {
@@ -52,8 +74,10 @@ final class DividerDragCoordinator {
     /// wherever the press happened to land inside the gutter.
     func began(_ divider: DividerHandle) {
         guard machine.began(divider) else { return }
+        generation += 1
         guard case .dragging(_, let start, _) = machine.phase else { return }
-        liveRatio = start
+        liveOverride = (divider.tabID, divider.path, start)
+        viewModel.beginSuppressingPaneBoxDimsSends()
         installMonitors()
     }
 
@@ -61,43 +85,65 @@ final class DividerDragCoordinator {
     /// space.
     func moved(to pointer: CGPoint) {
         machine.moved(to: pointer)
-        guard case .dragging(_, _, let live) = machine.phase else { return }
-        liveRatio = live
+        guard case .dragging(let divider, _, let live) = machine.phase else { return }
+        liveOverride = (divider.tabID, divider.path, live)
     }
 
-    /// A committed op holds `liveRatio` (and so the live footprint preview)
-    /// until `commit` itself resolves, rather than clearing it up front: the
-    /// optimistic overlay `commit` triggers lands synchronously inside that
-    /// same call, before its own network await, but clearing the override
-    /// FIRST would still fall back to the pre-drag model for however many
-    /// main-actor hops stand between here and that point -- a visible snap
-    /// back, then a second snap once the prediction lands. A non-committing
-    /// end (no op at all) has nothing to wait for, so it clears immediately.
+    /// A committed op holds `liveOverride` (and so the live footprint
+    /// preview) and the pane-box-dims suppression until `setSplitRatio`
+    /// itself resolves, rather than clearing them up front: the optimistic
+    /// overlay it triggers lands synchronously inside that same call,
+    /// before its own network await, but clearing first would still fall
+    /// back to the pre-drag layout for however many main-actor hops stand
+    /// between here and that point -- a visible snap back, then a second
+    /// snap once the prediction lands. A non-committing end (no op at all)
+    /// has nothing to wait for, so it tears down immediately.
     func ended() {
         removeMonitors()
         let op = machine.ended()
         guard case let .setSplitRatio(tab, path, ratio)? = op else {
-            liveRatio = nil
+            teardown()
             return
         }
+        let started = generation
         Task {
-            await commit(tab, path, ratio)
-            liveRatio = nil
+            await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio)
+            // A later drag may already own the session's suppression and
+            // override by the time this resolves -- flushing or clearing
+            // here would send THAT drag's still-uncommitted grid, or blow
+            // away its live preview, rather than this one's.
+            guard self.generation == started else { return }
+            self.liveOverride = nil
+            await self.viewModel.flushPaneBoxDimsAfterDividerDrag()
         }
     }
 
     private func cancel() {
+        generation += 1
         _ = machine.cancelled()
-        liveRatio = nil
+        teardown()
     }
 
     /// The app resigned active with the button still down: no `leftMouseUp`
     /// is ever coming to this window. Same shape as `DragCoordinator.abandon()`
     /// -- ends the gesture outright, issuing no commit.
     private func abandon() {
+        generation += 1
         removeMonitors()
         machine.abandoned()
-        liveRatio = nil
+        teardown()
+    }
+
+    /// Shared by every non-committing exit (a no-op release, Esc, abandon):
+    /// clears the preview and lifts suppression with no flush of its own --
+    /// the reverted geometry reports a DIFFERENT box than whatever was last
+    /// suppressed, which the ordinary `setPaneBoxDims` path picks up and
+    /// sends on its own. An explicit flush here would instead send the
+    /// about-to-be-abandoned mid-drag size first, the exact out-and-back
+    /// reflow suppression exists to prevent.
+    private func teardown() {
+        liveOverride = nil
+        viewModel.resumePaneBoxDimsSends()
     }
 
     private func installMonitors() {

@@ -409,10 +409,7 @@ final class CanvasGeometryTests: XCTestCase {
     /// Same shape, a THIRD level: a split nested inside the second nested
     /// split, proving `regionFrame` stays correct two levels deep, not only
     /// at the first nesting. Built through the exported-tree constructor
-    /// (the primary render path): the rect-derivation fallback resolves
-    /// nesting by containment alone, which is ambiguous past two levels
-    /// when a split is processed before its own direct parent, a pre-existing
-    /// property of that fallback and not what this test is about.
+    /// (the primary render path).
     func testThreeLevelNestedRegionFrameTracksEveryAncestorsOwnRatio() throws {
         let area = CellRect(x: 0, y: 0, width: 200, height: 100)
         let root = ExportedLayoutNode.split(
@@ -438,6 +435,44 @@ final class CanvasGeometryTests: XCTestCase {
             deepHandle.regionFrame, CGRect(x: 50, y: 20, width: 150, height: 80),
             "three levels deep, still the true ratio-derived region, not a halved guess"
         )
+    }
+
+    /// `splitPaths`'s own structural derivation, exercised through the
+    /// rect-derivation fallback: split right, split down in the right half,
+    /// split right in the bottom half -- three levels, mixed directions,
+    /// `splits` deliberately listed pre-order root-first (herdr's own
+    /// emission order). Containment alone resolves the deepest split's
+    /// path to `[true]`, colliding with the middle split's own -- both sit
+    /// inside the ROOT's second-child region too, not only their true
+    /// direct parent's. A structural, direct-children-only match must not
+    /// make that mistake.
+    func testThreeLevelMixedDirectionNestResolvesDistinctPathsThroughRectDerivation() throws {
+        let area = CellRect(x: 0, y: 0, width: 20, height: 20)
+        let root = SplitInfo(id: "root", direction: .right, ratio: 0.5, rect: area)
+        let rightHalf = CellRect(x: 10, y: 0, width: 10, height: 20)
+        let nested = SplitInfo(id: "nested", direction: .down, ratio: 0.5, rect: rightHalf)
+        let bottomOfRightHalf = CellRect(x: 10, y: 10, width: 10, height: 10)
+        let deep = SplitInfo(id: "deep", direction: .right, ratio: 0.5, rect: bottomOfRightHalf)
+
+        let leftPane = PaneRect(paneID: PaneID(rawValue: "left"), focused: false, rect: CellRect(x: 0, y: 0, width: 10, height: 20))
+        let topPane = PaneRect(paneID: PaneID(rawValue: "top"), focused: false, rect: CellRect(x: 10, y: 0, width: 10, height: 10))
+        let deepLeftPane = PaneRect(paneID: PaneID(rawValue: "deepLeft"), focused: false, rect: CellRect(x: 10, y: 10, width: 5, height: 10))
+        let deepRightPane = PaneRect(paneID: PaneID(rawValue: "deepRight"), focused: true, rect: CellRect(x: 15, y: 10, width: 5, height: 10))
+
+        let layout = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w"), tabID: TabID(rawValue: "w:t"), zoomed: false, area: area,
+            focusedPaneID: deepRightPane.paneID, panes: [leftPane, topPane, deepLeftPane, deepRightPane],
+            splits: [root, nested, deep]
+        )
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 20, height: 20), scale: 1), dividerThickness: 2)
+
+        XCTAssertEqual(geometry.dividers.count, 3)
+        let rootHandle = try XCTUnwrap(geometry.dividers.first { $0.path == [] })
+        let nestedHandle = try XCTUnwrap(geometry.dividers.first { $0.path == [true] })
+        let deepHandle = try XCTUnwrap(geometry.dividers.first { $0.path == [true, true] })
+        XCTAssertEqual(rootHandle.regionFrame, CGRect(x: 0, y: 0, width: 20, height: 20))
+        XCTAssertEqual(nestedHandle.regionFrame, CGRect(x: 10, y: 0, width: 10, height: 20))
+        XCTAssertEqual(deepHandle.regionFrame, CGRect(x: 10, y: 10, width: 10, height: 10), "the deepest split, not the root it also sits inside of")
     }
 
     // MARK: - liveRatioOverride (a divider drag's live footprint preview)

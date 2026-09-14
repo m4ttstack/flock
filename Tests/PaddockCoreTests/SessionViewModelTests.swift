@@ -686,7 +686,7 @@ final class SessionViewModelTests: XCTestCase {
     /// second; while suppressed, `setPaneBoxDims` must still RECORD the
     /// newest box (so a pane attaching mid-drag gets it) but send nothing.
     @MainActor
-    func testSuppressedPaneBoxDimsRecordsButNeverSends() async throws {
+    func testSuppressedPaneBoxDimsRecordsButNeverSendsWhileSuppressed() async throws {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
         let pane = PaneID(rawValue: "w1:p1")
@@ -696,7 +696,45 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
         await viewModel.waitForPaneDimsReconciliation()
 
-        XCTAssertTrue(factory.surfaces[pane]?.resizeCalls.isEmpty ?? true, "a suppressed report must never reach the surface")
+        let surface = try XCTUnwrap(factory.surfaces[pane], "attachPane must have created a surface")
+        XCTAssertTrue(surface.resizeCalls.isEmpty, "a suppressed report must never reach the surface while still suppressed")
+
+        // The recording half: the report was held, not dropped. Flushing
+        // afterward delivers exactly the suppressed value, never the
+        // pre-drag one -- proof the earlier `setPaneBoxDims` actually
+        // recorded it rather than the silence above being indistinguishable
+        // from "never happened at all".
+        await viewModel.flushPaneBoxDimsAfterDividerDrag()
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [30], "the suppressed report was recorded, not dropped")
+    }
+
+    /// A flush already scheduled BEFORE the drag began (an unrelated window
+    /// resize, outside the dragged subtree) must not be silently dropped
+    /// when its own timer happens to land mid-drag: `flushDims` re-arms
+    /// itself on the suppression guard rather than just returning, so the
+    /// report still lands once suppression lifts even though nothing else
+    /// ever calls `setPaneBoxDims` again for this pane during the drag.
+    @MainActor
+    func testAFlushPendingBeforeSuppressionBeginsStillDeliversOnceResumed() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+
+        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
+        viewModel.beginSuppressingPaneBoxDimsSends()
+        // Long enough for the pre-drag flush's own 20ms timer to land while
+        // still suppressed, proving the re-arm path (not just fast timing)
+        // is what eventually delivers it.
+        try? await Task.sleep(for: .milliseconds(60))
+
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertTrue(surface.resizeCalls.isEmpty, "still suppressed -- nothing sent yet")
+
+        viewModel.resumePaneBoxDimsSends()
+        await viewModel.waitForPaneDimsReconciliation()
+
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [45], "the pre-drag report must still land once suppression lifts")
     }
 
     /// Lifting suppression with `resumePaneBoxDimsSends` issues no send of
