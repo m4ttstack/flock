@@ -139,10 +139,19 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   `.superpowers/sdd/2026-09-10-paddock/herdglass-study.md`.
 - **Backfill:** one `pane.read` (`recent`, `format: ansi`, <= 1000 lines,
   alt-screen cap above) seeds history at attach.
-- **Deep history:** `pane.selection.read` chunks (plain text) render as a
-  "history" region above the live buffer on demand. `pane.scroll` is NOT used
-  for paddock-local scrolling (it yanks the user's real viewport); it exists
-  only behind an explicit "scroll herdr's view" affordance if ever wanted.
+- **Scrollback (ruled 2026-09-13 at Checkpoint 3, replacing the deep
+  history overlay):** paddock's libghostty holds no scrollback of its own
+  because herdr streams viewport repaints, so the wheel on the focused
+  (control-mode) pane is sent to herdr as `terminal.scroll {direction,
+  lines, source: wheel}` through the bridge's control FIFO, exactly as
+  herdr's own TUI and Herdglass do; herdr scrolls the pane's viewport and
+  the scrolled content streams back with full color. The earlier rule that
+  paddock-local scrolling must never move the real viewport belonged to
+  the passive-mirror design; paddock is a controller now, and scrolling a
+  pane in paddock is the user scrolling that pane. Unfocused (observe-mode)
+  panes ignore the wheel until focused. The SwiftUI history overlay and its
+  `pane.selection.read` chunk loading are removed; `pane.selection.read`
+  remains available for a future search feature only.
 - **Attach policy:** streams for visible + selected panes with an LRU cap
   (target ~30, spike-validated); detached panes show status cards (title,
   label, cwd, agent badge, last line from snapshot data). Frame updates
