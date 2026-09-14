@@ -172,17 +172,26 @@ final class GhosttySession {
         verifyExpectedGrid()
     }
 
-    /// Logs, once per (expected, actual) change, whether libghostty's live
-    /// grid equals herdr's dims; a mismatch after the font has settled means
-    /// the fit's cell metrics disagree with the font libghostty loaded.
+    /// Runs whenever libghostty's live grid may have changed: logs, once per
+    /// (expected, actual) change, whether it equals herdr's dims (a mismatch
+    /// after the font has settled means the fit's cell metrics disagree with
+    /// the font libghostty loaded), and on reaching herdr's dims re-sends
+    /// them so herdr repaints the pane in full. The repaint matters because
+    /// herdr's own full frame for a dims change can land before the view has
+    /// laid the surface out at those dims, into the old grid; a resize to
+    /// the same dims is herdr's repaint request (`ClientResize` ->
+    /// `request_repaint`) and changes nothing else.
     private func verifyExpectedGrid() {
         guard let expectedGrid, let geometry = surfaceGeometry() else { return }
         let actual = (geometry.grid.columns, geometry.grid.rows)
         if let lastVerifiedGrid, lastVerifiedGrid == actual { return }
         lastVerifiedGrid = actual
         let matches = actual == expectedGrid
+        if matches {
+            controlChannel?.setDims(cols: expectedGrid.cols, rows: expectedGrid.rows)
+        }
         Self.gridLog.log(
-            level: matches ? .info : .error,
+            level: matches ? .default : .error,
             "surface grid pane=\(self.paneID.rawValue, privacy: .public) cols=\(actual.0) rows=\(actual.1) expected=\(expectedGrid.cols)x\(expectedGrid.rows) cell=\(geometry.cellPixels.width)x\(geometry.cellPixels.height)px font=\(self.configuration.fontSizePoints) match=\(matches)"
         )
     }

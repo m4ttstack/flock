@@ -611,38 +611,87 @@ final class ControlBridgeTests: XCTestCase {
     }
 
     /// Wired the way `ControlBridge.run` wires it: a dims line reaches the
-    /// switcher, which sends `terminal.resize` with exactly those dims to
-    /// the live child, in control mode and in observe mode alike.
-    func testDimsCommandSendsTerminalResizeWithTheRealDimsInBothModes() async throws {
-        for mode in [PaneMode.control, .observe] {
-            let control = Pipe()
-            let herdrIn = Pipe()
-            let io = BridgeIO(
-                herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-                stdinFD: Pipe().fileHandleForReading.fileDescriptor,
-                stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-                mode: mode,
-                onPeerGone: {}
-            )
-            let initial = BridgeChild(
-                mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
-                fromHerdrHandle: Pipe().fileHandleForReading)
-            let switcher = BridgeModeSwitcher(
-                initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
-                spawnChild: { _, _ in nil },
-                terminateChild: { _ in }
-            )
-            io.onDimsCommand = { size in switcher.recordSize(size) }
-            io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+    /// switcher, which sends `terminal.resize` with exactly those dims to a
+    /// control-mode child.
+    func testDimsCommandSendsTerminalResizeWithTheRealDimsInControlMode() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            mode: .control,
+            onPeerGone: {}
+        )
+        let initial = BridgeChild(
+            mode: .control, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            fromHerdrHandle: Pipe().fileHandleForReading)
+        let switcher = BridgeModeSwitcher(
+            initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
+            spawnChild: { _, _ in XCTFail("a control child is resized, never respawned"); return nil },
+            terminateChild: { _ in }
+        )
+        io.onDimsCommand = { size in switcher.recordSize(size) }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
 
-            control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 40])!)
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 40])!)
 
-            let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
-            let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: forwarded.split(separator: 0x0A)[0]) as? [String: Any])
-            XCTAssertEqual(object["type"] as? String, "terminal.resize", "mode \(mode)")
-            XCTAssertEqual(object["cols"] as? Int, 60, "mode \(mode)")
-            XCTAssertEqual(object["rows"] as? Int, 40, "mode \(mode)")
-        }
+        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: forwarded.split(separator: 0x0A)[0]) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "terminal.resize")
+        XCTAssertEqual(object["cols"] as? Int, 60)
+        XCTAssertEqual(object["rows"] as? Int, 40)
+    }
+
+    /// herdr's observe verb never reads its stdin, so its view size is fixed
+    /// at the `--cols/--rows` it was spawned with: a dims change replaces the
+    /// child with a fresh observe child at the new size instead of writing a
+    /// resize nothing would ever read.
+    func testDimsChangeInObserveModeRespawnsTheChildAtTheNewSizeAndSendsNothing() {
+        let herdrIn = Pipe()
+        let io = BridgeIO(herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        let spawned = LockedBox<[(PaneMode, PTYSize)]>([])
+        let terminated = LockedBox<Int>(0)
+        let initial = BridgeChild(
+            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            fromHerdrHandle: Pipe().fileHandleForReading)
+        let switcher = BridgeModeSwitcher(
+            initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
+            spawnChild: { mode, size in
+                spawned.mutate { $0.append((mode, size)) }
+                return BridgeChild(
+                    mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+                    fromHerdrHandle: Pipe().fileHandleForReading)
+            },
+            terminateChild: { _ in terminated.mutate { $0 += 1 } }
+        )
+
+        switcher.recordSize(PTYSize(cols: 60, rows: 40))
+
+        XCTAssertEqual(spawned.value.count, 1)
+        XCTAssertEqual(spawned.value.first?.0, .observe, "the replacement speaks the same verb")
+        XCTAssertEqual(spawned.value.first?.1, PTYSize(cols: 60, rows: 40))
+        XCTAssertEqual(terminated.value, 1)
+        XCTAssertEqual(switcher.currentMode, .observe)
+        let sent = String(decoding: readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor), as: UTF8.self)
+        XCTAssertFalse(sent.contains("terminal.resize"), "an observe child never reads stdin; got: \(sent)")
+    }
+
+    func testUnchangedDimsInObserveModeDoNotRespawn() {
+        let herdrIn = Pipe()
+        let io = BridgeIO(herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+        let initial = BridgeChild(
+            mode: .observe, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            fromHerdrHandle: Pipe().fileHandleForReading)
+        let switcher = BridgeModeSwitcher(
+            initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
+            spawnChild: { _, _ in XCTFail("the size did not change"); return nil },
+            terminateChild: { _ in XCTFail("the size did not change") }
+        )
+
+        switcher.recordSize(PTYSize(cols: 30, rows: 40))
+
+        XCTAssertEqual(switcher.currentMode, .observe)
     }
 
     /// The surface's own PTY size (what SIGWINCH reports) is never herdr's
@@ -709,10 +758,12 @@ final class ControlBridgeTests: XCTestCase {
         switcher.recordSize(PTYSize(cols: 120, rows: 40))
         switcher.requestSwitch(to: .control)
 
-        XCTAssertEqual(terminatedModes.value, [.observe], "the OLD child is terminated before the new one spawns")
-        XCTAssertEqual(spawnedModes.value.count, 1)
-        XCTAssertEqual(spawnedModes.value.first?.0, .control, "the replacement is the OTHER verb")
-        XCTAssertEqual(spawnedModes.value.first?.1, PTYSize(cols: 120, rows: 40), "spawned at the LATEST known size, not the size the switcher was created with")
+        // Two spawns: the dims change respawns the observe child at the new
+        // size (an observe child has no input path), then the switch
+        // replaces it with the control verb at that same size.
+        XCTAssertEqual(terminatedModes.value, [.observe, .observe], "each OLD child is terminated before its replacement spawns")
+        XCTAssertEqual(spawnedModes.value.map(\.0), [.observe, .control])
+        XCTAssertEqual(spawnedModes.value.last?.1, PTYSize(cols: 120, rows: 40), "spawned at the LATEST known size, not the size the switcher was created with")
         XCTAssertEqual(switcher.currentMode, .control)
     }
 

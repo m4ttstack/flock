@@ -452,28 +452,58 @@ final class BridgeModeSwitcher: @unchecked Sendable {
     var currentProcess: Process { lock.withLockHeld { current.process } }
     var currentMode: PaneMode { lock.withLockHeld { current.mode } }
 
-    /// Updates the size the NEXT mode switch will spawn its replacement
-    /// child at -- the latest `paddock.dims` the app sent, not the size the
-    /// bridge itself was started with -- and immediately re-sends a
-    /// `terminal.resize` for it to whichever child is CURRENTLY live. The
-    /// re-send matters exactly when a resize races a mode switch: the WRITE
-    /// to `latestSize` takes this switcher's OWN `lock` (the same one
-    /// `requestSwitch` holds for its whole kill + spawn + rewire, up to the
-    /// escalation timeout), so a resize arriving mid-switch queues behind
-    /// it there and only updates `latestSize` once the switch has fully
-    /// settled. The SEND after that (`io.send`, which takes `BridgeIO`'s own
-    /// `writeLock`, a different lock entirely) then strictly follows: by
-    /// the time it runs, any switch that was in flight has already rewired
-    /// `io` to the new child, so the send always reaches whichever child is
+    /// Applies the pane's real herdr dims (the latest `paddock.dims`) to
+    /// whichever child is live, and records them as the size the NEXT mode
+    /// switch spawns its replacement child at.
+    ///
+    /// How they are applied depends on the verb: a CONTROL child reads
+    /// NDJSON commands off its stdin, so it gets a `terminal.resize`; an
+    /// OBSERVE child has no input path at all (herdr's observe verb never
+    /// reads stdin -- its view size is fixed at the `--cols/--rows` it was
+    /// spawned with), so the only way to change its size is to respawn it,
+    /// which costs nothing but a fresh full frame for a pane that by
+    /// definition is not the focused one.
+    ///
+    /// The WRITE to `latestSize` takes this switcher's OWN `lock` (the same
+    /// one `requestSwitch` holds for its whole kill + spawn + rewire, up to
+    /// the escalation timeout), so a dims change arriving mid-switch queues
+    /// behind it there and only lands once the switch has fully settled. The
+    /// control-mode send after that (`io.send`, which takes `BridgeIO`'s own
+    /// `writeLock`, a different lock entirely) then strictly follows: by the
+    /// time it runs, any switch that was in flight has already rewired `io`
+    /// to the new child, so the send always reaches whichever child is
     /// current -- the freshly spawned one, if a switch just raced this,
     /// which necessarily spawned from whatever size `requestSwitch` had
     /// captured BEFORE this update landed and would otherwise never learn
     /// of it.
     func recordSize(_ size: PTYSize) {
         lock.lock()
+        guard !peerGone else {
+            lock.unlock()
+            return
+        }
+        let changed = latestSize != size
         latestSize = size
+        if current.mode == .observe {
+            if changed {
+                respawnCurrentLocked(at: size)
+            }
+            lock.unlock()
+            return
+        }
         lock.unlock()
         io.send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows])
+    }
+
+    /// Replaces the live child with a fresh one of the SAME verb at `size`.
+    /// Callers hold `lock`.
+    private func respawnCurrentLocked(at size: PTYSize) {
+        let mode = current.mode
+        terminateChild(current)
+        guard let next = spawnChild(mode, size) else { return }
+        current = next
+        io.rewireHerdrChild(inFD: next.toHerdrFD, output: next.fromHerdrHandle)
+        io.setMode(mode)
     }
 
     /// Terminates the live child outright (the GUI tore the pane's surface
