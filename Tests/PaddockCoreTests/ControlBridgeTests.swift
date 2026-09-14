@@ -103,22 +103,18 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(written, ControlBridge.startupClearScreen)
     }
 
-    // MARK: - startupResize
+    // MARK: - parseDimsCommand (paddock.dims: the pane's real herdr dims)
 
-    func testStartupResizeNilWhenUnchanged() {
-        let size = PTYSize(cols: 80, rows: 24)
-        XCTAssertNil(ControlBridge.startupResize(spawned: size, current: size))
+    func testParseDimsCommandAcceptsPositiveDims() {
+        let line = ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40])!
+        XCTAssertEqual(ControlBridge.parseDimsCommand(line), PTYSize(cols: 30, rows: 40))
     }
 
-    func testStartupResizeReturnsCurrentWhenChanged() {
-        let spawned = PTYSize(cols: 80, rows: 24)
-        let current = PTYSize(cols: 120, rows: 40)
-        XCTAssertEqual(ControlBridge.startupResize(spawned: spawned, current: current), current)
-    }
-
-    func testStartupResizeNilWhenCurrentIsZero() {
-        let spawned = PTYSize(cols: 80, rows: 24)
-        XCTAssertNil(ControlBridge.startupResize(spawned: spawned, current: PTYSize(cols: 0, rows: 0)))
+    func testParseDimsCommandRejectsNonPositiveMissingOrOtherTypes() {
+        XCTAssertNil(ControlBridge.parseDimsCommand(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 0, "rows": 40])!))
+        XCTAssertNil(ControlBridge.parseDimsCommand(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30])!))
+        XCTAssertNil(ControlBridge.parseDimsCommand(ControlBridge.encodeLine(["type": "terminal.resize", "cols": 30, "rows": 40])!))
+        XCTAssertNil(ControlBridge.parseDimsCommand(Data("{not json".utf8)))
     }
 
     // MARK: - childArgv (mode-switching bridge)
@@ -581,6 +577,109 @@ final class ControlBridgeTests: XCTestCase {
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: forwarded.split(separator: 0x0A)[0]) as? [String: Any])
         XCTAssertEqual(object["type"] as? String, "terminal.input", "the line after an unknown mode must still parse and forward")
         XCTAssertTrue(receivedModes.value.isEmpty, "an unrecognized mode never reaches the callback")
+    }
+
+    // MARK: - control pipe: paddock.dims drives the resize, SIGWINCH never does
+
+    /// A `paddock.dims` line is intercepted like `paddock.mode`: it fires
+    /// the dims callback and is never forwarded to herdr as-is; a
+    /// `terminal.input` line after it still forwards.
+    func testDimsCommandLineFiresTheCallbackAndIsNeverForwardedVerbatim() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            onPeerGone: {}
+        )
+        let receivedDims = LockedBox<[PTYSize]>([])
+        io.onDimsCommand = { size in receivedDims.mutate { $0.append(size) } }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        let dimsLine = ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40])!
+        let inputLine = ControlBridge.encodeLine(["type": "terminal.input", "bytes": "aGk="])!
+        control.fileHandleForWriting.write(dimsLine)
+        control.fileHandleForWriting.write(inputLine)
+
+        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        let lines = forwarded.split(separator: 0x0A)
+        XCTAssertEqual(lines.count, 1, "only the terminal.input line is forwarded verbatim")
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(lines[0])) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "terminal.input")
+        XCTAssertEqual(receivedDims.value, [PTYSize(cols: 30, rows: 40)])
+    }
+
+    /// Wired the way `ControlBridge.run` wires it: a dims line reaches the
+    /// switcher, which sends `terminal.resize` with exactly those dims to
+    /// the live child, in control mode and in observe mode alike.
+    func testDimsCommandSendsTerminalResizeWithTheRealDimsInBothModes() async throws {
+        for mode in [PaneMode.control, .observe] {
+            let control = Pipe()
+            let herdrIn = Pipe()
+            let io = BridgeIO(
+                herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+                stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+                stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+                mode: mode,
+                onPeerGone: {}
+            )
+            let initial = BridgeChild(
+                mode: mode, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+                fromHerdrHandle: Pipe().fileHandleForReading)
+            let switcher = BridgeModeSwitcher(
+                initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
+                spawnChild: { _, _ in nil },
+                terminateChild: { _ in }
+            )
+            io.onDimsCommand = { size in switcher.recordSize(size) }
+            io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+            control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 40])!)
+
+            let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+            let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: forwarded.split(separator: 0x0A)[0]) as? [String: Any])
+            XCTAssertEqual(object["type"] as? String, "terminal.resize", "mode \(mode)")
+            XCTAssertEqual(object["cols"] as? Int, 60, "mode \(mode)")
+            XCTAssertEqual(object["rows"] as? Int, 40, "mode \(mode)")
+        }
+    }
+
+    /// The surface's own PTY size (what SIGWINCH reports) is never herdr's
+    /// business: a control-mode bridge with a fully wired `BridgeIO` sends
+    /// nothing at all when the signal lands.
+    func testSIGWINCHInControlModeSendsNoResize() async throws {
+        let herdrIn = Pipe()
+        // Held for the whole test: a released write end would read as the
+        // PTY going away and send `terminal.release`, which is not a resize
+        // but would muddy the assertion below.
+        let stdinStandIn = Pipe()
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: stdinStandIn.fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            mode: .control,
+            onPeerGone: {}
+        )
+        let initial = BridgeChild(
+            mode: .control, process: Process(), toHerdrFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            fromHerdrHandle: Pipe().fileHandleForReading)
+        let switcher = BridgeModeSwitcher(
+            initial: initial, size: PTYSize(cols: 30, rows: 40), io: io,
+            spawnChild: { _, _ in nil },
+            terminateChild: { _ in }
+        )
+        io.onDimsCommand = { size in switcher.recordSize(size) }
+        io.startStdin()
+        io.startControlPipe(fd: Pipe().fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        kill(getpid(), SIGWINCH)
+        try await Task.sleep(for: .milliseconds(150))
+
+        let sent = String(decoding: readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor), as: UTF8.self)
+        XCTAssertFalse(sent.contains("terminal.resize"), "SIGWINCH must never become a terminal.resize; got: \(sent)")
+        XCTAssertTrue(sent.isEmpty, "nothing at all is owed to herdr for a PTY winsize change; got: \(sent)")
+        withExtendedLifetime(stdinStandIn) {}
     }
 
     // MARK: - BridgeModeSwitcher (mode switch tears down old child, spawns the other verb)

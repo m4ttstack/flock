@@ -47,6 +47,24 @@ final class PaneControlChannelTests: XCTestCase {
         XCTAssertEqual(object["source"] as? String, "wheel")
     }
 
+    /// The pane's real herdr dims, paddock-namespaced so the bridge intercepts
+    /// the line instead of forwarding it.
+    func testSetDimsFramesAPaddockDimsLine() throws {
+        let channel = try XCTUnwrap(PaneControlChannel())
+        defer { channel.close() }
+        let readerFD = open(channel.path, O_RDONLY | O_NONBLOCK)
+        XCTAssertGreaterThanOrEqual(readerFD, 0)
+        defer { close(readerFD) }
+
+        channel.setDims(cols: 30, rows: 40)
+
+        let line = try waitForNonEmptyReadFromFIFO(readerFD)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: line.split(separator: 0x0A)[0]) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "paddock.dims")
+        XCTAssertEqual(object["cols"] as? Int, 30)
+        XCTAssertEqual(object["rows"] as? Int, 40)
+    }
+
     /// herdr drops (`terminal_sessions.rs`: "terminal.scroll lines must be
     /// greater than 0") any non-positive line count -- this type must never
     /// even send one.

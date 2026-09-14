@@ -173,6 +173,10 @@ public enum ControlBridge {
         }
 
         let cookedTerminal = enterRawMode()
+        // The pane's real herdr dims come from argv (and later from
+        // `paddock.dims` lines), never from this PTY's own winsize: the
+        // surface behind it is sized to match herdr, not the other way
+        // round. The ioctl fallback only covers a bare `--bridge` run.
         var size = PTYSize(cols: options.cols ?? 0, rows: options.rows ?? 0)
         if size.cols <= 0 || size.rows <= 0 {
             let ioctlSize = currentWinSize(fd: STDIN_FILENO)
@@ -228,7 +232,7 @@ public enum ControlBridge {
             onPeerGone: { switcherBox.value?.terminateCurrent() }
         )
         io.onModeCommand = { mode in switcherBox.value?.requestSwitch(to: mode) }
-        io.onSizeChanged = { newSize in switcherBox.value?.recordSize(newSize) }
+        io.onDimsCommand = { newSize in switcherBox.value?.recordSize(newSize) }
 
         let switcher = BridgeModeSwitcher(
             initial: initialChild, size: size, io: io,
@@ -241,18 +245,6 @@ public enum ControlBridge {
         switcherBox.value = switcher
 
         io.startStdin()
-        io.startWinch()
-        // Read the size again now that the signal source exists, because the
-        // one resize a pane cannot afford to miss is the one that lands here.
-        // libghostty creates every surface at its own placeholder size and
-        // only reports the real one once the surface's view has been laid
-        // out, so a SIGWINCH delivered before the source is armed is gone for
-        // good (SIGWINCH's default disposition discards it). A change earlier
-        // than this read is caught by the read, a change later than it by
-        // the source.
-        if let resize = startupResize(spawned: size, current: currentWinSize(fd: STDIN_FILENO)) {
-            switcher.recordSize(resize)
-        }
         io.startHerdrOutput(initialChild.fromHerdrHandle)
         if let controlPipe = options.controlPipe {
             io.startControlPipe(at: controlPipe)
@@ -273,14 +265,6 @@ public enum ControlBridge {
         if var cookedTerminal { tcsetattr(STDIN_FILENO, TCSAFLUSH, &cookedTerminal) }
         let status = switcher.currentProcess.terminationStatus
         exit(status == 0 ? 0 : max(Int32(status), 1))
-    }
-
-    /// The resize a starting bridge owes herdr, or nil when the PTY still has
-    /// the size herdr was spawned with. See the call site for why a bridge is
-    /// born owing one.
-    public static func startupResize(spawned: PTYSize, current: PTYSize) -> PTYSize? {
-        guard current.cols > 0, current.rows > 0, current != spawned else { return nil }
-        return current
     }
 
     /// `nil` for anything that is not a well-formed `terminal.frame` line.
@@ -371,6 +355,20 @@ public enum ControlBridge {
         return PaneMode(rawValue: mode)
     }
 
+    /// `nil` for anything that is not a well-formed `paddock.dims` command
+    /// with positive `cols` and `rows`: the pane's real herdr dims, the only
+    /// size the bridge ever sends as `terminal.resize`. Paddock-namespaced
+    /// like `paddock.mode`, for the same reason.
+    static func parseDimsCommand(_ line: Data) -> PTYSize? {
+        guard
+            let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+            command["type"] as? String == "paddock.dims",
+            let cols = command["cols"] as? Int, cols > 0,
+            let rows = command["rows"] as? Int, rows > 0
+        else { return nil }
+        return PTYSize(cols: cols, rows: rows)
+    }
+
     /// The NDJSON line for one control-channel object, or nil if it cannot
     /// be encoded.
     static func encodeLine(_ object: [String: Any]) -> Data? {
@@ -455,7 +453,7 @@ final class BridgeModeSwitcher: @unchecked Sendable {
     var currentMode: PaneMode { lock.withLockHeld { current.mode } }
 
     /// Updates the size the NEXT mode switch will spawn its replacement
-    /// child at -- the latest SIGWINCH-observed size, not the size the
+    /// child at -- the latest `paddock.dims` the app sent, not the size the
     /// bridge itself was started with -- and immediately re-sends a
     /// `terminal.resize` for it to whichever child is CURRENTLY live. The
     /// re-send matters exactly when a resize races a mode switch: the WRITE
@@ -619,15 +617,19 @@ private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
 /// after init. `herdrInFD`/`closed`/`mode` are read and written only inside
 /// `writeLock`. `herdrOutputGeneration` and every write to `stdoutFD` are
 /// guarded by `stdoutLock` (see `startHerdrOutput`'s own doc for why a
-/// separate lock from `writeLock` is needed). `stdinSource`/`winchSource`/
-/// `controlSource` are each written exactly once, by `startStdin`/
-/// `startWinch`/`startControlPipe`, all called synchronously from
-/// `ControlBridge.run` before any of the sources are resumed and so before
-/// any of their event handlers can run; `close()` only ever runs after
-/// `run`'s wait loop, i.e. strictly after every `start*` call has returned.
-/// `onModeCommand`/`onSizeChanged` are set once, synchronously, before
-/// `startControlPipe`/`startWinch` resume their sources, matching that same
-/// invariant.
+/// separate lock from `writeLock` is needed). `stdinSource`/`controlSource`
+/// are each written exactly once, by `startStdin`/`startControlPipe`, both
+/// called synchronously from `ControlBridge.run` before any of the sources
+/// are resumed and so before any of their event handlers can run; `close()`
+/// only ever runs after `run`'s wait loop, i.e. strictly after every
+/// `start*` call has returned. `onModeCommand`/`onDimsCommand` are set once,
+/// synchronously, before `startControlPipe` resumes its source, matching
+/// that same invariant.
+///
+/// There is deliberately no SIGWINCH source: the PTY's own winsize is the
+/// surface's business, and a surface is sized to herdr's grid rather than
+/// herdr being resized to the surface. The only `terminal.resize` this
+/// bridge ever sends carries the dims the app declared over `paddock.dims`.
 final class BridgeIO: @unchecked Sendable {
     private var herdrInFD: Int32
     private let stdinFD: Int32
@@ -655,7 +657,6 @@ final class BridgeIO: @unchecked Sendable {
     /// write it is decided next to.
     private var firstFrameSent = false
     private var stdinSource: DispatchSourceRead?
-    private var winchSource: DispatchSourceSignal?
     private var controlSource: DispatchSourceRead?
     private var closed = false
     private var mode: PaneMode
@@ -665,9 +666,11 @@ final class BridgeIO: @unchecked Sendable {
     /// Never invoked for anything else; a `paddock.mode` line is never
     /// forwarded to herdr regardless of whether this is set.
     var onModeCommand: ((PaneMode) -> Void)?
-    /// Fired on every SIGWINCH-observed size change, so `BridgeModeSwitcher`
-    /// always spawns a replacement child at the pane's real current size.
-    var onSizeChanged: ((PTYSize) -> Void)?
+    /// Fired when a `paddock.dims` line arrives on the control pipe: the
+    /// pane's real herdr dims, wired to `BridgeModeSwitcher.recordSize` so
+    /// the live child is resized to them and a later replacement child
+    /// spawns at them.
+    var onDimsCommand: ((PTYSize) -> Void)?
 
     init(
         herdrInFD: Int32, stdinFD: Int32 = STDIN_FILENO, stdoutFD: Int32 = STDOUT_FILENO,
@@ -686,7 +689,6 @@ final class BridgeIO: @unchecked Sendable {
         closed = true
         writeLock.unlock()
         stdinSource?.cancel()
-        winchSource?.cancel()
         controlSource?.cancel()
     }
 
@@ -760,12 +762,12 @@ final class BridgeIO: @unchecked Sendable {
     }
 
     /// Commands the surface cannot express as keystrokes, plus the
-    /// `paddock.mode` upgrade path. `paddock.mode` lines are intercepted
-    /// here and never reach `send`/herdr at all; everything else, including
-    /// `terminal.scroll`, is forwarded verbatim -- see
-    /// `ControlBridge.parseForwardableControlCommand`'s doc comment. Stays
-    /// live in both modes: it is how a bridge born in observe mode ever
-    /// learns to switch to control.
+    /// `paddock.mode` upgrade path and the `paddock.dims` size path. Both
+    /// paddock lines are intercepted here and never reach `send`/herdr as
+    /// they are; everything else, including `terminal.scroll`, is forwarded
+    /// verbatim -- see `ControlBridge.parseForwardableControlCommand`'s doc
+    /// comment. Stays live in both modes: it is how a bridge born in observe
+    /// mode ever learns to switch to control.
     func startControlPipe(at path: String) {
         // O_RDWR mirrors the GUI side: neither end may ever see EOF just
         // because the other is idle.
@@ -788,9 +790,14 @@ final class BridgeIO: @unchecked Sendable {
             guard n > 0 else { return }
             commands.append(Data(buffer.prefix(n)))
             var latestMode: PaneMode?
+            var latestDims: PTYSize?
             while let line = commands.popLine() {
                 if let requestedMode = ControlBridge.parseModeCommand(line) {
                     latestMode = requestedMode
+                    continue
+                }
+                if let dims = ControlBridge.parseDimsCommand(line) {
+                    latestDims = dims
                     continue
                 }
                 guard let command = ControlBridge.parseForwardableControlCommand(line) else { continue }
@@ -800,7 +807,11 @@ final class BridgeIO: @unchecked Sendable {
             // read (a fast focus flip-flop landing before the bridge gets a
             // scheduler turn) collapse into ONE kill+spawn for whichever
             // mode was requested LAST -- the ones in between are already
-            // stale before a mode switch could even start.
+            // stale before a mode switch could even start. Dims are recorded
+            // BEFORE the switch so a replacement child spawns at the newest.
+            if let latestDims {
+                onDimsCommand?(latestDims)
+            }
             if let latestMode {
                 onModeCommand?(latestMode)
             }
@@ -812,28 +823,6 @@ final class BridgeIO: @unchecked Sendable {
         }
         source.resume()
         controlSource = source
-    }
-
-    func startWinch() {
-        let fd = stdinFD
-        signal(SIGWINCH, SIG_IGN)
-        let winch = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: .global(qos: .userInteractive))
-        winch.setEventHandler { [self] in
-            let ws = currentWinSize(fd: fd)
-            guard ws.cols > 0, ws.rows > 0 else { return }
-            // `onSizeChanged` (wired to `BridgeModeSwitcher.recordSize`) is
-            // the ONLY sender: it records the size, THEN sends
-            // `terminal.resize` to whichever child is CURRENTLY live --
-            // sending directly here first let a resize that raced a mode
-            // switch reach the OLD, dying child and get lost, since
-            // recording landed only after the switch's own spawn had
-            // already captured a stale size. In BOTH modes the resize still
-            // reaches herdr: an observe client's resize is view-local
-            // there, a control client's resizes the real pane.
-            onSizeChanged?(PTYSize(cols: ws.cols, rows: ws.rows))
-        }
-        winch.resume()
-        winchSource = winch
     }
 
     /// A fresh `BridgeLineBuffer`, scoped to this ONE child, per call: a

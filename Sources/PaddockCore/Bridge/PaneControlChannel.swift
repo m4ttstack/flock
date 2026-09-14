@@ -84,6 +84,16 @@ public final class PaneControlChannel {
         send(["type": "paddock.mode", "mode": mode.rawValue])
     }
 
+    /// The pane's real herdr dims (its layout cell rect), paddock-namespaced
+    /// like `paddock.mode`: the bridge turns it into the one `terminal.resize`
+    /// it ever sends, so herdr is never told a size the surface happens to
+    /// have. Sent on every dims change the layout reports for an attached
+    /// pane.
+    public func setDims(cols: Int, rows: Int) {
+        guard cols > 0, rows > 0 else { return }
+        send(["type": "paddock.dims", "cols": cols, "rows": rows])
+    }
+
     /// A `terminal.scroll` line: moves the pane's real, shared herdr
     /// viewport by `lines`. `lines` must be positive -- herdr drops (and
     /// this never even sends) a zero or negative line count -- since the
