@@ -328,4 +328,23 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(box.width, 0)
         XCTAssertEqual(box.height, 0)
     }
+
+    // MARK: - Translating into an outer space (drop hit-testing)
+
+    func testOffsetMovesEveryPaneFrameAndDivider() throws {
+        let layout = try layout(splitCount: 1)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 600, height: 300)))
+        let moved = geometry.offset(by: CGPoint(x: 216, y: 86))
+
+        let before = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p1")])
+        let after = try XCTUnwrap(moved.paneFrames[PaneID(rawValue: "w1:p1")])
+        XCTAssertEqual(after, before.offsetBy(dx: 216, dy: 86))
+        XCTAssertEqual(moved.dividers.count, geometry.dividers.count)
+        XCTAssertEqual(moved.dividers.first?.frame, geometry.dividers.first?.frame.offsetBy(dx: 216, dy: 86))
+    }
+
+    func testEmptyGeometryHasNothingToHitTest() {
+        XCTAssertTrue(CanvasGeometry.empty.paneFrames.isEmpty)
+        XCTAssertTrue(CanvasGeometry.empty.dividers.isEmpty)
+    }
 }

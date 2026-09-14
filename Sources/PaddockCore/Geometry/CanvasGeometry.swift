@@ -92,6 +92,27 @@ public struct CanvasGeometry: Equatable, Sendable {
     public let paneFrames: [PaneID: CGRect]
     public let dividers: [DividerHandle]
 
+    /// No panes and no dividers: what hit-testing resolves against when no
+    /// tab is selected, so a drag still has surfaces to ask.
+    public static let empty = CanvasGeometry(paneFrames: [:], dividers: [])
+
+    private init(paneFrames: [PaneID: CGRect], dividers: [DividerHandle]) {
+        self.paneFrames = paneFrames
+        self.dividers = dividers
+    }
+
+    /// The same geometry translated into an outer space: the canvas lays its
+    /// frames out in its own local space, and drop hit-testing works in the
+    /// window's, so `delta` is the canvas's own origin there.
+    public func offset(by delta: CGPoint) -> CanvasGeometry {
+        CanvasGeometry(
+            paneFrames: paneFrames.mapValues { $0.offsetBy(dx: delta.x, dy: delta.y) },
+            dividers: dividers.map {
+                DividerHandle(tabID: $0.tabID, path: $0.path, frame: $0.frame.offsetBy(dx: delta.x, dy: delta.y), direction: $0.direction)
+            }
+        )
+    }
+
     /// The render path's single entry point: reads `exported` (herdr's own
     /// split tree) when it names this tab, and falls back to rect derivation
     /// otherwise -- an export the coordinator never fetched, or one that
