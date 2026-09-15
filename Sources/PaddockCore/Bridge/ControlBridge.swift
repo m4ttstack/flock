@@ -129,6 +129,16 @@ public enum ControlBridge {
         ]
     }
 
+    /// The size herdr's child is spawned at: the PTY's, the grid libghostty
+    /// parses frames into. 80x24 covers only an axis the PTY reports as zero,
+    /// which happens only with no tty behind the bridge.
+    static func spawnSize(ptyWinsize: PTYSize) -> PTYSize {
+        PTYSize(
+            cols: ptyWinsize.cols > 0 ? ptyWinsize.cols : 80,
+            rows: ptyWinsize.rows > 0 ? ptyWinsize.rows : 24
+        )
+    }
+
     public static func run(arguments: [String] = Array(CommandLine.arguments.dropFirst())) {
         signal(SIGPIPE, SIG_IGN)
         // Before anything else touches stdout, including `setvbuf` below:
@@ -149,11 +159,7 @@ public enum ControlBridge {
         }
 
         let cookedTerminal = enterRawMode()
-        // herdr starts at the PTY's size, the grid libghostty parses frames
-        // into; 80x24 only covers a run with no tty behind it.
-        var size = currentWinSize(fd: STDIN_FILENO)
-        if size.cols <= 0 { size.cols = 80 }
-        if size.rows <= 0 { size.rows = 24 }
+        let size = spawnSize(ptyWinsize: currentWinSize(fd: STDIN_FILENO))
 
         let proc = Process()
         proc.executableURL = executableURL
@@ -193,11 +199,7 @@ public enum ControlBridge {
         )
 
         io.startStdin()
-        io.startWinch()
-        // A SIGWINCH delivered before the source was armed is gone, and a new
-        // surface's PTY is resized a moment after this process forks, so the
-        // size is read once more now that nothing later can be missed.
-        io.relayPTYSize()
+        io.startPTYSizeRelay()
         io.startHerdrOutput(fromHerdr.fileHandleForReading)
         if let controlPipe = options.controlPipe {
             io.startControlPipe(at: controlPipe)
@@ -259,7 +261,7 @@ public enum ControlBridge {
     /// place: `MouseForwarding.decide` drops every mouse event for an
     /// unfocused pane before a `terminal.scroll` could ever be built (see
     /// `PaneControlChannel.scroll`). `terminal.resize` is refused: a size
-    /// reaches herdr only from the PTY itself (`BridgeIO.startWinch`).
+    /// reaches herdr only from the PTY itself (`BridgeIO.startPTYSizeRelay`).
     static func parseForwardableControlCommand(_ line: Data) -> [String: Any]? {
         guard
             let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
@@ -290,7 +292,7 @@ struct HerdrFrame: Equatable, Sendable {
 /// Which PTY winsizes become a `terminal.resize`: every readable size herdr
 /// was not already given, starting from the size its child was spawned at.
 /// Pure, so the dedupe and the startup read are testable without a signal.
-struct PTYResizeRelay: Equatable, Sendable {
+struct PTYResizeRelay: Sendable {
     private(set) var herdrSize: PTYSize?
 
     init(spawned: PTYSize?) {
@@ -443,8 +445,8 @@ private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
 /// called synchronously from `ControlBridge.run` before any of the sources
 /// are resumed and so before any of their event handlers can run; `close()`
 /// only ever runs after `run`'s wait, i.e. strictly after every `start*` call
-/// has returned. `winchSource` is written once, by `startWinch`, under the
-/// same invariant. `resizeRelay` is read and written only inside
+/// has returned. `winchSource` is written once, by `startPTYSizeRelay`,
+/// under the same invariant. `resizeRelay` is read and written only inside
 /// `resizeLock`, which is held across the resize it emits.
 final class BridgeIO: @unchecked Sendable {
     private var herdrInFD: Int32
@@ -505,10 +507,14 @@ final class BridgeIO: @unchecked Sendable {
     }
 
     /// libghostty sets the PTY winsize only when it applies a new grid to its
-    /// terminal, so a resize sent from here reaches herdr after the surface
-    /// can take the full frame herdr answers it with. A size sent any earlier
-    /// lands that frame in the old grid.
-    func startWinch() {
+    /// terminal, so a resize sent from SIGWINCH reaches herdr after the
+    /// surface can take the full frame herdr answers it with. A size sent any
+    /// earlier lands that frame in the old grid.
+    ///
+    /// The read after arming must follow it: a SIGWINCH delivered before the
+    /// source exists is lost, and a new surface's PTY is resized a moment
+    /// after the bridge forks.
+    func startPTYSizeRelay() {
         signal(SIGWINCH, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: .global(qos: .userInteractive))
         source.setEventHandler { [weak self] in
@@ -516,10 +522,11 @@ final class BridgeIO: @unchecked Sendable {
         }
         source.resume()
         winchSource = source
+        relayPTYSize()
     }
 
     /// Sends herdr the PTY's current size unless herdr already has it.
-    func relayPTYSize() {
+    private func relayPTYSize() {
         resizeLock.lock()
         defer { resizeLock.unlock() }
         guard let size = resizeRelay.relay(ptySize()) else { return }
@@ -552,7 +559,7 @@ final class BridgeIO: @unchecked Sendable {
     }
 
     /// Commands the surface cannot express as keystrokes, forwarded verbatim
-    /// -- see `ControlBridge.parseForwardableControlCommand`'s doc comment.
+    /// (see `ControlBridge.parseForwardableControlCommand`).
     func startControlPipe(at path: String) {
         // O_RDWR mirrors the GUI side: neither end may ever see EOF just
         // because the other is idle.

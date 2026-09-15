@@ -439,7 +439,14 @@ final class ControlBridgeTests: XCTestCase {
 
     // MARK: - resize: only the PTY's own size, only from SIGWINCH or the startup read
 
-    func testSIGWINCHSendsThePTYWinsize() async throws {
+    func testSpawnSizeIsThePTYSizeWheneverThePTYReportsOne() {
+        XCTAssertEqual(ControlBridge.spawnSize(ptyWinsize: PTYSize(cols: 60, rows: 41)), PTYSize(cols: 60, rows: 41))
+        XCTAssertEqual(ControlBridge.spawnSize(ptyWinsize: PTYSize(cols: 0, rows: 0)), PTYSize(cols: 80, rows: 24))
+        XCTAssertEqual(ControlBridge.spawnSize(ptyWinsize: PTYSize(cols: 60, rows: 0)), PTYSize(cols: 60, rows: 24))
+    }
+
+    /// No signal is raised: the read after arming is what sends it.
+    func testStartingTheRelaySendsAPTYSizeThatLeftTheSpawnSize() async throws {
         let herdrIn = Pipe()
         let io = BridgeIO(
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
@@ -448,8 +455,50 @@ final class ControlBridgeTests: XCTestCase {
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 60, rows: 41) },
             onPeerGone: {}
         )
-        io.startWinch()
+        defer { io.close() }
 
+        io.startPTYSizeRelay()
+
+        try await Task.sleep(for: .milliseconds(100))
+        let lines = readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
+        XCTAssertEqual(lines.count, 1)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "terminal.resize")
+        XCTAssertEqual(object["cols"] as? Int, 60)
+        XCTAssertEqual(object["rows"] as? Int, 41)
+    }
+
+    func testStartingTheRelayAtTheSpawnSizeSendsNothing() async throws {
+        let herdrIn = Pipe()
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
+            onPeerGone: {}
+        )
+        defer { io.close() }
+
+        io.startPTYSizeRelay()
+
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0)
+    }
+
+    func testSIGWINCHSendsThePTYWinsize() async throws {
+        let herdrIn = Pipe()
+        let winsize = LockedBox(PTYSize(cols: 30, rows: 40))
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
+            onPeerGone: {}
+        )
+        defer { io.close() }
+        io.startPTYSizeRelay()
+
+        winsize.mutate { $0 = PTYSize(cols: 60, rows: 41) }
         kill(getpid(), SIGWINCH)
 
         let lines = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
@@ -470,7 +519,8 @@ final class ControlBridgeTests: XCTestCase {
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
             onPeerGone: {}
         )
-        io.startWinch()
+        defer { io.close() }
+        io.startPTYSizeRelay()
 
         kill(getpid(), SIGWINCH)
         try await Task.sleep(for: .milliseconds(150))
@@ -490,32 +540,8 @@ final class ControlBridgeTests: XCTestCase {
             "a repeat of the size herdr already has sends nothing")
     }
 
-    func testTheStartupReadSendsOnlyWhenThePTYLeftTheSpawnSize() throws {
-        let moved = Pipe()
-        BridgeIO(
-            herdrInFD: moved.fileHandleForWriting.fileDescriptor,
-            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 60, rows: 41) },
-            onPeerGone: {}
-        ).relayPTYSize()
-        let lines = readAllAvailableForTest(moved.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
-        XCTAssertEqual(lines.count, 1)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.resize")
-        XCTAssertEqual(object["cols"] as? Int, 60)
-        XCTAssertEqual(object["rows"] as? Int, 41)
-
-        let still = Pipe()
-        BridgeIO(
-            herdrInFD: still.fileHandleForWriting.fileDescriptor,
-            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
-            onPeerGone: {}
-        ).relayPTYSize()
-        XCTAssertEqual(readAllAvailableForTest(still.fileHandleForReading.fileDescriptor).count, 0)
-    }
-
-    /// The app has no way left to put a size in front of herdr: neither a
-    /// `terminal.resize` nor a legacy `paddock.dims` line on the control FIFO
-    /// reaches it, while ordinary input still does.
+    /// A size on the control FIFO never reaches herdr, whether as
+    /// `terminal.resize` or as a `paddock.dims` line; input still does.
     func testTheControlPipeCarriesNoSizeToHerdr() async throws {
         let control = Pipe()
         let herdrIn = Pipe()
