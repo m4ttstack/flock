@@ -268,7 +268,7 @@ struct PaneCellView: View {
         // distinct from it.
         .simultaneousGesture(paneDrag)
         .modifier(swiftUIPaneMenu)
-        .accessibilityIdentifier("paddock.pane.legend.\(pane.paneID.rawValue)")
+        .accessibilityIdentifier("paddock.pane.title.\(pane.paneID.rawValue)")
     }
 
     @ViewBuilder
@@ -289,14 +289,9 @@ struct PaneCellView: View {
     }
 
     /// Status chips only accompany the active states (working/blocked/done);
-    /// idle and unknown are dot-only per the pane-states reference.
+    /// an idle or unknown pane shows no status in its title row.
     private var statusColor: Color? {
-        switch pane.agentStatus {
-        case .working: theme.yellow
-        case .blocked: theme.red
-        case .done: theme.teal
-        case .idle, .unknown: nil
-        }
+        theme.agentStatusColor(pane.agentStatus)
     }
 
     /// `ghosttySurface` mounts as soon as it exists, whether or not its

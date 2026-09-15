@@ -88,12 +88,11 @@ private struct WorkspaceRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Present on every row so names stay aligned; only the selected
-            // row shows it.
+            // Present on every row so names stay aligned, clear when there is
+            // nothing to mark.
             RoundedRectangle(cornerRadius: 1)
-                .fill(theme.accent)
+                .fill(indicatorColor ?? .clear)
                 .frame(width: 2, height: 12)
-                .opacity(isSelected ? 1 : 0)
             Text(workspace.label)
                 .font(.system(size: 11, weight: isSelected ? .medium : .regular))
                 .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
@@ -118,5 +117,12 @@ private struct WorkspaceRow: View {
         .offset(y: displacement)
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
         .animation(.easeOut(duration: 0.12), value: isGhosted)
+    }
+
+    /// The selected row keeps the accent: its tabs already show their own
+    /// status dots. Any other row carries its workspace's aggregate status,
+    /// the one signal for an agent that needs attention elsewhere.
+    private var indicatorColor: Color? {
+        isSelected ? theme.accent : theme.agentStatusColor(workspace.agentStatus)
     }
 }

@@ -67,7 +67,7 @@ on a capture rather than trusting the arithmetic.
 | Title bar | 20pt tall; window buttons 12pt, vertically centered; title 9pt medium, centered |
 | Sidebar | 150pt wide, padding 10 vertical / 8 horizontal, 1pt row gap, 1pt rule on its right edge |
 | WORKSPACES heading | 8pt semibold, letter spacing 1, 6pt below it before the first row |
-| Workspace row | padding 4 / 8, gap 6, corner radius 2; 2x12pt indicator bar (accent when selected, clear otherwise) keeps names aligned; name 11pt (medium when selected); count 9pt, right-aligned |
+| Workspace row | padding 4 / 8, gap 6, corner radius 2; 2x12pt indicator bar keeps names aligned: accent when selected; on other rows the workspace's agent status in the tab dot colors (blocked red, done teal, working yellow, most urgent first), clear when idle or unknown; name 11pt (medium when selected); count 9pt, right-aligned |
 | Tab strip | 28pt tall, padding 0 / 8, 2pt gap between tabs, tabs bottom-aligned, 1pt rule under the strip |
 | Tab | 78pt wide, 22pt tall, square corners, padding 0 / 9, gap 5; label 11pt (medium when selected), left-anchored; 5pt status dot after the label |
 | Selected tab | selection fill, 2pt accent underline at the bottom; unselected tabs have no underline slot at all |

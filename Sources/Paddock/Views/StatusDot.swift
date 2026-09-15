@@ -1,9 +1,22 @@
 import PaddockCore
 import SwiftUI
 
-/// An agent status dot: the resting label color while the agent is idle or
-/// unknown, and herdr's status hue while it is working (yellow), blocked (red)
-/// or done (teal).
+extension Theme {
+    /// herdr's status hue for an active agent: working yellow, blocked red,
+    /// done teal. `nil` while idle or unknown, which every status mark shows
+    /// in its own resting way.
+    func agentStatusColor(_ status: AgentStatus) -> Color? {
+        switch status {
+        case .working: yellow
+        case .blocked: red
+        case .done: teal
+        case .idle, .unknown: nil
+        }
+    }
+}
+
+/// An agent status dot: its status hue while the agent is active, the resting
+/// label color while it is idle or unknown.
 struct StatusDot: View {
     let status: AgentStatus
     let theme: Theme
@@ -11,16 +24,7 @@ struct StatusDot: View {
 
     var body: some View {
         Circle()
-            .fill(color)
+            .fill(theme.agentStatusColor(status) ?? theme.textLabel)
             .frame(width: size, height: size)
-    }
-
-    private var color: Color {
-        switch status {
-        case .working: theme.yellow
-        case .blocked: theme.red
-        case .done: theme.teal
-        case .idle, .unknown: theme.textLabel
-        }
     }
 }
