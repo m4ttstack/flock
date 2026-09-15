@@ -27,6 +27,9 @@ final class PaddockAppDelegate: NSObject, NSApplicationDelegate {
 
     private var frameObservers: [NSObjectProtocol] = []
 
+    /// Its action is set by `PaddockApp` once its view model exists.
+    let liveResizeEnded = MainActorCallback()
+
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { false }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -53,6 +56,9 @@ final class PaddockAppDelegate: NSObject, NSApplicationDelegate {
             center.addObserver(forName: NSWindow.didMoveNotification, object: window, queue: .main) { [weak window] _ in
                 Self.saveFrame(of: window)
             },
+            center.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: window, queue: .main) { [liveResizeEnded] _ in
+                MainActor.assumeIsolated { liveResizeEnded.action?() }
+            },
         ]
     }
 
@@ -64,6 +70,14 @@ final class PaddockAppDelegate: NSObject, NSApplicationDelegate {
         guard let window else { return }
         UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: frameDefaultsKey)
     }
+}
+
+/// A main-actor callback that a nonisolated observer can hold and fire.
+@MainActor
+final class MainActorCallback {
+    var action: (@MainActor () -> Void)?
+
+    nonisolated init() {}
 }
 
 struct PaddockApp: App {
@@ -184,7 +198,11 @@ struct PaddockApp: App {
                 }
             }
         ))
-        _dividerDragCoordinator = State(initialValue: DividerDragCoordinator(viewModel: viewModel))
+        let dividerDragSession = DividerDragSession(
+            commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) },
+            settle: { LayoutPass.after { viewModel.settlePaneDims() } }
+        )
+        _dividerDragCoordinator = State(initialValue: DividerDragCoordinator(session: dividerDragSession))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
     }
 
@@ -200,6 +218,11 @@ struct PaddockApp: App {
                 .environment(dividerDragCoordinator)
                 .background(RearrangeOptionMonitorHost(rearrangeMode: rearrangeMode))
                 .task { await herdrStore.start() }
+                .onAppear {
+                    appDelegate.liveResizeEnded.action = { [viewModel] in
+                        LayoutPass.after { viewModel.settlePaneDims() }
+                    }
+                }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
                 }
