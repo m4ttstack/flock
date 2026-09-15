@@ -120,6 +120,12 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
         resizeCalls.append((cols, rows))
     }
 
+    private(set) var repaintCalls: [(cols: Int, rows: Int)] = []
+
+    func repaint(cols: Int, rows: Int) {
+        repaintCalls.append((cols, rows))
+    }
+
     func detach() async {
         detachCallCount += 1
     }
@@ -819,6 +825,73 @@ final class SessionViewModelTests: XCTestCase {
 
         _ = await viewModel.attachPane(pane, cols: 30, rows: 40)
         XCTAssertEqual(surface.resizeCalls.map(\.cols), [30])
+    }
+
+    // MARK: - settle repaint (a resize gesture ended)
+
+    @MainActor
+    func testSettleRepaintsEachVisiblePaneAtItsCurrentGridOnceEvenWhenUnchanged() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let moved = PaneID(rawValue: "w1:p1")
+        let still = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(moved, cols: 60, rows: 40)
+        _ = await viewModel.attachPane(still, cols: 59, rows: 40)
+        viewModel.setPaneBoxDims(moved, cols: 45, rows: 40)
+
+        viewModel.settlePaneDims()
+
+        let movedSurface = try XCTUnwrap(factory.surfaces[moved])
+        let stillSurface = try XCTUnwrap(factory.surfaces[still])
+        XCTAssertEqual(movedSurface.repaintCalls.map(\.cols), [45])
+        XCTAssertEqual(stillSurface.repaintCalls.map(\.cols), [59], "an unchanged grid is re-sent all the same")
+        XCTAssertEqual(stillSurface.repaintCalls.map(\.rows), [40])
+        XCTAssertEqual(stillSurface.resizeCalls.count, 0)
+    }
+
+    @MainActor
+    func testTheOrdinaryPathStillDropsAnUnchangedGridAroundASettle() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+
+        viewModel.setPaneBoxDims(pane, cols: 60, rows: 40)
+        viewModel.settlePaneDims()
+        viewModel.setPaneBoxDims(pane, cols: 60, rows: 40)
+
+        XCTAssertTrue(surface.resizeCalls.isEmpty)
+        XCTAssertEqual(surface.repaintCalls.count, 1)
+
+        viewModel.setPaneBoxDims(pane, cols: 50, rows: 40)
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [50])
+    }
+
+    @MainActor
+    func testSettleSkipsParkedStillAttachingAndUnattachedPanes() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let parked = PaneID(rawValue: "w1:p1")
+        let attaching = PaneID(rawValue: "w1:p2")
+        let unattached = PaneID(rawValue: "w1:p3")
+        _ = await viewModel.attachPane(parked, cols: 60, rows: 40)
+        await viewModel.detachPane(parked)
+        factory.hold()
+        let attachTask = Task { await viewModel.attachPane(attaching, cols: 40, rows: 40) }
+        for _ in 0..<1_000 where factory.makeSurfaceCalls.count < 2 {
+            await Task.yield()
+        }
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "precondition: the second attach is suspended inside makeSurface")
+        viewModel.setPaneBoxDims(unattached, cols: 30, rows: 40)
+
+        viewModel.settlePaneDims()
+        factory.releaseNext()
+        _ = await attachTask.value
+
+        XCTAssertEqual(factory.surfaces[parked]?.repaintCalls.count, 0)
+        XCTAssertEqual(factory.surfaces[attaching]?.repaintCalls.count, 0)
+        XCTAssertNil(factory.surfaces[unattached])
     }
 
     // MARK: - per-pane scroll feed (armed while visible only)

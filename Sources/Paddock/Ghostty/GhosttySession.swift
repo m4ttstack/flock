@@ -159,13 +159,14 @@ final class GhosttySession {
 
     /// Records the grid paddock's box holds for this pane and relays it to
     /// the bridge as `paddock.dims` (the one size it ever sends herdr),
-    /// skipping a repeat of the dims already sent.
-    func setExpectedGrid(cols: Int, rows: Int) {
+    /// skipping a repeat of the dims already sent unless `repaint` asks for a
+    /// full frame at them.
+    func setExpectedGrid(cols: Int, rows: Int, repaint: Bool = false) {
         guard cols > 0, rows > 0 else { return }
-        if let expectedGrid, expectedGrid.cols == cols, expectedGrid.rows == rows { return }
+        if !repaint, let expectedGrid, expectedGrid.cols == cols, expectedGrid.rows == rows { return }
         expectedGrid = (cols, rows)
         lastVerifiedGrid = nil
-        controlChannel?.setDims(cols: cols, rows: rows)
+        controlChannel?.setDims(cols: cols, rows: rows, repaint: repaint)
         verifyExpectedGrid()
     }
 
