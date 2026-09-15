@@ -39,14 +39,15 @@ public struct WorkspaceSelection: Equatable, Sendable {
     /// `current` is herdr's selected workspace, which already draws the fill,
     /// so the Cmd+click that starts a selection takes it along. Once a
     /// selection exists, Cmd+click toggles only the row clicked, `current`
-    /// included.
-    public mutating func click(_ id: WorkspaceID, commandHeld: Bool, current: WorkspaceID?) -> ClickEffect {
+    /// included. `current` can outlive its workspace, so it is taken along
+    /// only while `order`, the rail as it stands, still lists it.
+    public mutating func click(_ id: WorkspaceID, commandHeld: Bool, current: WorkspaceID?, order: [WorkspaceID]) -> ClickEffect {
         isRailEngaged = true
         guard commandHeld else {
             ids.removeAll()
             return .jump(id)
         }
-        if ids.isEmpty, let current, current != id {
+        if ids.isEmpty, let current, current != id, order.contains(current) {
             ids = [current, id]
             return .toggled
         }

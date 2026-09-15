@@ -12,9 +12,9 @@ final class WorkspaceSelectionTests: XCTestCase {
     /// it: the press on each row reaches the monitor before the tap toggles it.
     private func twoSelectedByCommandClick() -> WorkspaceSelection {
         var selection = WorkspaceSelection()
-        _ = selection.click(w1, commandHeld: true, current: nil)
+        _ = selection.click(w1, commandHeld: true, current: nil, order: order)
         selection.pointerPressed(onRailRow: true)
-        _ = selection.click(w3, commandHeld: true, current: nil)
+        _ = selection.click(w3, commandHeld: true, current: nil, order: order)
         return selection
     }
 
@@ -22,22 +22,22 @@ final class WorkspaceSelectionTests: XCTestCase {
 
     func testPlainClickJumpsAndLeavesNothingSelected() {
         var selection = WorkspaceSelection()
-        XCTAssertEqual(selection.click(w2, commandHeld: false, current: w1), .jump(w2))
+        XCTAssertEqual(selection.click(w2, commandHeld: false, current: w1, order: order), .jump(w2))
         XCTAssertTrue(selection.isEmpty)
     }
 
     func testCommandClickTogglesWithoutJumping() {
         var selection = WorkspaceSelection()
-        XCTAssertEqual(selection.click(w1, commandHeld: true, current: nil), .toggled)
-        XCTAssertEqual(selection.click(w3, commandHeld: true, current: nil), .toggled)
+        XCTAssertEqual(selection.click(w1, commandHeld: true, current: nil, order: order), .toggled)
+        XCTAssertEqual(selection.click(w3, commandHeld: true, current: nil, order: order), .toggled)
         XCTAssertEqual(selection.ids, [w1, w3])
-        XCTAssertEqual(selection.click(w1, commandHeld: true, current: nil), .toggled)
+        XCTAssertEqual(selection.click(w1, commandHeld: true, current: nil, order: order), .toggled)
         XCTAssertEqual(selection.ids, [w3])
     }
 
     func testPlainClickClearsAnExistingSelectionAndStillJumps() {
         var selection = WorkspaceSelection(ids: [w1, w3])
-        XCTAssertEqual(selection.click(w3, commandHeld: false, current: w1), .jump(w3))
+        XCTAssertEqual(selection.click(w3, commandHeld: false, current: w1, order: order), .jump(w3))
         XCTAssertTrue(selection.isEmpty)
     }
 
@@ -46,28 +46,39 @@ final class WorkspaceSelectionTests: XCTestCase {
     /// On w1, Cmd+click w2: w1 already shows the fill, so it is selected too.
     func testTheCommandClickThatStartsASelectionAlsoSelectsTheCurrentRow() {
         var selection = WorkspaceSelection()
-        XCTAssertEqual(selection.click(w2, commandHeld: true, current: w1), .toggled)
+        XCTAssertEqual(selection.click(w2, commandHeld: true, current: w1, order: order), .toggled)
         XCTAssertEqual(selection.ids, [w1, w2])
     }
 
     func testCommandClickingTheCurrentRowWithNothingSelectedSelectsOnlyIt() {
         var selection = WorkspaceSelection()
-        _ = selection.click(w1, commandHeld: true, current: w1)
+        _ = selection.click(w1, commandHeld: true, current: w1, order: order)
         XCTAssertEqual(selection.ids, [w1])
     }
 
     func testWithNoCurrentRowTheStartingCommandClickSelectsOnlyTheClickedRow() {
         var selection = WorkspaceSelection()
-        _ = selection.click(w2, commandHeld: true, current: nil)
+        _ = selection.click(w2, commandHeld: true, current: nil, order: order)
         XCTAssertEqual(selection.ids, [w2])
+    }
+
+    /// herdr's selected workspace was closed and the rail no longer lists it,
+    /// but the view model still names it: it must not ride into the block.
+    func testACurrentRowTheRailNoLongerListsIsNotSeeded() {
+        var selection = WorkspaceSelection()
+        let closed = WorkspaceID(rawValue: "w9")
+        _ = selection.click(w2, commandHeld: true, current: closed, order: order)
+        XCTAssertEqual(selection.ids, [w2])
+        _ = selection.click(w3, commandHeld: true, current: closed, order: order)
+        XCTAssertEqual(selection.dragSubject(pressing: w2, order: order), .workspaces([w2, w3]))
     }
 
     func testTheSeededCurrentRowTogglesOutAndIsNotSeededAgain() {
         var selection = WorkspaceSelection()
-        _ = selection.click(w2, commandHeld: true, current: w1)
-        _ = selection.click(w1, commandHeld: true, current: w1)
+        _ = selection.click(w2, commandHeld: true, current: w1, order: order)
+        _ = selection.click(w1, commandHeld: true, current: w1, order: order)
         XCTAssertEqual(selection.ids, [w2])
-        _ = selection.click(w3, commandHeld: true, current: w1)
+        _ = selection.click(w3, commandHeld: true, current: w1, order: order)
         XCTAssertEqual(selection.ids, [w2, w3], "a selection that already exists is never seeded again")
     }
 
@@ -75,8 +86,8 @@ final class WorkspaceSelectionTests: XCTestCase {
     /// whichever of them the drag starts on.
     func testDraggingFromTheSeededCurrentRowCarriesTheWholeBlockInRailOrder() {
         var selection = WorkspaceSelection()
-        _ = selection.click(w3, commandHeld: true, current: w1)
-        _ = selection.click(w2, commandHeld: true, current: w1)
+        _ = selection.click(w3, commandHeld: true, current: w1, order: order)
+        _ = selection.click(w2, commandHeld: true, current: w1, order: order)
         XCTAssertEqual(selection.dragSubject(pressing: w1, order: order), .workspaces([w1, w2, w3]))
         XCTAssertEqual(selection.dragSubject(pressing: w3, order: order), .workspaces([w1, w2, w3]))
     }

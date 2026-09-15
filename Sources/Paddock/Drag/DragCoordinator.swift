@@ -655,7 +655,7 @@ final class DragCoordinator {
 
     /// True when the click is a plain one whose jump the caller should run.
     func clickWorkspace(_ id: WorkspaceID, commandHeld: Bool, current: WorkspaceID?) -> Bool {
-        updateSelection { $0.click(id, commandHeld: commandHeld, current: current) } == .jump(id)
+        updateSelection { $0.click(id, commandHeld: commandHeld, current: current, order: workspaceOrder) } == .jump(id)
     }
 
     func showsWorkspaceFill(_ id: WorkspaceID, isCurrent: Bool) -> Bool {
