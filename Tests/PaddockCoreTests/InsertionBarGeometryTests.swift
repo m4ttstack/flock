@@ -41,7 +41,9 @@ final class InsertionBarGeometryTests: XCTestCase {
 
     func testBarSpansTheTabsCrossExtentNotTheWholeStrip() {
         let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: tabs, container: strip, axis: .vertical)
-        XCTAssertEqual(bar.minY, 3, accuracy: 0.001)
+        // The overhang reaches y 3, but the leading end stays half a dot
+        // inside the strip.
+        XCTAssertEqual(bar.minY, 5, accuracy: 0.001)
         XCTAssertEqual(bar.maxY, 39, accuracy: 0.001)
     }
 
