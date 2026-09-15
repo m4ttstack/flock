@@ -39,8 +39,9 @@ public struct WorkspaceItemFrame: Equatable, Sendable {
 /// `stripViewport`/`railViewport` are the scroll views' visible frames. Item
 /// frames are on screen but can lie outside them once the list scrolls, under
 /// the readout or past an edge, so only a point inside the viewport may hit
-/// an item as a thumbnail. Insert indices still count every item, visible or
-/// not, since a hidden item is still before or after the gap.
+/// an item as a thumbnail. An insert index counts hidden items too, but a
+/// point beyond the viewport counts as at its edge: an item the user cannot
+/// see must never be passed by a point sitting over the readout.
 public struct DropSurfaces: Equatable, Sendable {
     public let canvas: CanvasGeometry
     public let stripWorkspace: WorkspaceID
@@ -149,7 +150,8 @@ private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: Dro
         return .workspaceThumbnail(hit.id)
     case .workspace, .workspaces:
         let centers = surfaces.workspaceFrames.map(\.frame.midY)
-        return .workspaceRail(insertIndex: insertIndex(of: point.y, centers: centers))
+        let y = clamp(point.y, to: surfaces.railViewport.map { ($0.minY, $0.maxY) })
+        return .workspaceRail(insertIndex: insertIndex(of: y, centers: centers))
     }
 }
 
@@ -162,7 +164,8 @@ private func resolveStrip(at point: CGPoint, dragging: DragSubject, surfaces: Dr
         return .tabThumbnail(hit.id)
     case .tab:
         let centers = surfaces.tabFrames.map(\.frame.midX)
-        return .tabStrip(workspace: surfaces.stripWorkspace, insertIndex: insertIndex(of: point.x, centers: centers))
+        let x = clamp(point.x, to: surfaces.stripViewport.map { ($0.minX, $0.maxX) })
+        return .tabStrip(workspace: surfaces.stripWorkspace, insertIndex: insertIndex(of: x, centers: centers))
     case .workspace, .workspaces:
         return nil
     }
@@ -178,6 +181,11 @@ private func resolveCanvas(at point: CGPoint, paneID: PaneID, frame: CGRect) -> 
 /// lands in the gap on either side of it rather than "on" that item.
 private func insertIndex(of point: CGFloat, centers: [CGFloat]) -> Int {
     centers.filter { $0 < point }.count
+}
+
+private func clamp(_ value: CGFloat, to range: (low: CGFloat, high: CGFloat)?) -> CGFloat {
+    guard let range else { return value }
+    return min(max(value, range.low), range.high)
 }
 
 private func unionRect(_ rects: [CGRect]) -> CGRect? {

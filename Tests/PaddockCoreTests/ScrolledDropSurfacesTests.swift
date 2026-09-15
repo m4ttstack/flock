@@ -62,14 +62,28 @@ final class ScrolledDropSurfacesTests: XCTestCase {
         )
     }
 
-    func testAPaneOverARowBelowTheRailViewportHitsNothingButAReorderStillCountsIt() {
+    func testAPaneOverARowBelowTheRailViewportHitsNothing() {
         let belowViewport = CGPoint(x: -100, y: 240)
         XCTAssertEqual(resolveDropTarget(at: belowViewport, dragging: pane, surfaces: surfaces(clipped: false)), .workspaceThumbnail(WorkspaceID(rawValue: "w3")))
         XCTAssertNil(resolveDropTarget(at: belowViewport, dragging: pane, surfaces: surfaces(clipped: true)))
-        XCTAssertEqual(
-            resolveDropTarget(at: belowViewport, dragging: .workspace(WorkspaceID(rawValue: "w0")), surfaces: surfaces(clipped: true)),
-            .workspaceRail(insertIndex: 3)
-        )
+    }
+
+    /// Below the viewport, past w3's center at 240: unclipped that passes
+    /// w3, which the user cannot see.
+    func testARailReorderBelowTheViewportNeverPassesTheHiddenRow() {
+        let belowViewport = CGPoint(x: -100, y: 265)
+        let subject = DragSubject.workspace(WorkspaceID(rawValue: "w0"))
+        XCTAssertEqual(resolveDropTarget(at: belowViewport, dragging: subject, surfaces: surfaces(clipped: false)), .workspaceRail(insertIndex: 4))
+        XCTAssertEqual(resolveDropTarget(at: belowViewport, dragging: subject, surfaces: surfaces(clipped: true)), .workspaceRail(insertIndex: 3))
+    }
+
+    /// Over the readout, past t4's center at 300: unclipped that passes t4,
+    /// half of which is under the readout.
+    func testATabReorderOverTheReadoutNeverPassesATabHiddenUnderIt() {
+        let overReadout = CGPoint(x: 440, y: 320)
+        let subject = DragSubject.tab(TabID(rawValue: "t1"))
+        XCTAssertEqual(resolveDropTarget(at: overReadout, dragging: subject, surfaces: surfaces(clipped: false)), .tabStrip(workspace: WorkspaceID(rawValue: "w0"), insertIndex: 5))
+        XCTAssertEqual(resolveDropTarget(at: overReadout, dragging: subject, surfaces: surfaces(clipped: true)), .tabStrip(workspace: WorkspaceID(rawValue: "w0"), insertIndex: 4))
     }
 
     /// The bar for a gap past the visible run is pinned inside the viewport
