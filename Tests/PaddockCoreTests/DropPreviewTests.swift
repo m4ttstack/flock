@@ -140,7 +140,7 @@ final class DropPreviewTests: XCTestCase {
         CanvasGrid(canvas: CGSize(width: 800, height: 400), displayScale: 2)
     }
 
-    func testPreviewedFramesCoverEveryPaneWhenAnExportedTreeIsCached() throws {
+    func testPreviewedIncomingRectIsTheDroppedPanesNewHalf() throws {
         let preview = try XCTUnwrap(DropPreview.frames(
             target: .paneEdge(Self.p1, .left), dragging: .pane(Self.p3), layout: snapshot,
             exported: exported, grid: canvasGrid, dividerThickness: 6
@@ -148,7 +148,6 @@ final class DropPreviewTests: XCTestCase {
         // 200pt half of the 800pt canvas, less the pane box's own gutter.
         XCTAssertEqual(preview.incoming.width, 194, accuracy: 1)
         XCTAssertEqual(preview.incoming.minX, 3, accuracy: 1)
-        XCTAssertEqual(preview.others.count, 2)
     }
 
     /// No export cached for this tab: the incoming rect is still derived from
@@ -161,7 +160,6 @@ final class DropPreviewTests: XCTestCase {
         // The bottom half of p2's 400pt column, inset by the gutter ONCE.
         XCTAssertEqual(preview.incoming.minY, 103, accuracy: 1)
         XCTAssertEqual(preview.incoming.height, 94, accuracy: 1)
-        XCTAssertTrue(preview.others.isEmpty)
     }
 
     func testPreviewedFramesAreNilForATabDrag() {
@@ -192,7 +190,6 @@ final class DropPreviewTests: XCTestCase {
         ))
         XCTAssertEqual(preview.incoming.minX, 403, accuracy: 1)
         XCTAssertEqual(preview.incoming.width, 394, accuracy: 1)
-        XCTAssertTrue(preview.others.isEmpty)
     }
 
     /// An export cached for a DIFFERENT tab is not this tab's tree, so the
@@ -206,7 +203,6 @@ final class DropPreviewTests: XCTestCase {
             target: .paneInterior(Self.p2), dragging: .pane(Self.p1), layout: snapshot,
             exported: other, grid: canvasGrid, dividerThickness: 6
         ))
-        XCTAssertTrue(preview.others.isEmpty)
     }
 
     /// A degenerate cell area lays nothing out, so the transformed tree yields

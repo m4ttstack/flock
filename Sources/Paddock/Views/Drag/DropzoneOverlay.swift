@@ -63,22 +63,13 @@ struct DropzoneOverlay: View {
         )
     }
 
+    /// Only the incoming rect is drawn. Outlining where every other pane
+    /// lands puts a second rounded rect a few points from each pane's own
+    /// border, which reads as a rendering fault rather than as a preview.
     private func shapes(for preview: DropPreviewFrames) -> some View {
         ZStack(alignment: .topLeading) {
-            ForEach(Array(preview.others.enumerated()), id: \.offset) { _, box in
-                outline(in: box)
-            }
             filled(in: preview.incoming)
         }
-    }
-
-    /// `DropPreviewFrames` already carries the pane-box inset, so these are
-    /// drawn exactly as given.
-    private func outline(in box: CGRect) -> some View {
-        RoundedRectangle(cornerRadius: 9)
-            .strokeBorder(theme.overlay0, lineWidth: 1)
-            .frame(width: box.width, height: box.height)
-            .offset(x: box.minX, y: box.minY)
     }
 
     private func filled(in box: CGRect) -> some View {

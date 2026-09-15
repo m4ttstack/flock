@@ -4,19 +4,9 @@ import CoreGraphics
 /// other pane's as the drop would leave it.
 public struct DropPreviewFrames: Hashable, Sendable {
     public let incoming: CGRect
-    /// Ordered top-to-bottom then left-to-right, so two equal layouts compare
-    /// equal whatever order the tree walk produced them in. Empty when no
-    /// exported tree was available and only the incoming rect could be
-    /// derived.
-    ///
-    /// Both fields are the rects to DRAW: already inset by the pane-box
-    /// gutter, so a previewed rect lands exactly where the cell that takes it
-    /// will, and no caller insets a second time.
-    public let others: [CGRect]
 
-    public init(incoming: CGRect, others: [CGRect]) {
+    public init(incoming: CGRect) {
         self.incoming = incoming
-        self.others = others
     }
 }
 
@@ -30,7 +20,7 @@ public enum DropPreview {
     ///
     /// The full post-drop layout needs herdr's own split tree; without one
     /// cached for this tab the incoming rect is still derived from the target
-    /// frame alone, and `others` is empty rather than guessed at.
+    /// frame alone.
     public static func frames(
         target: DropTarget?,
         dragging subject: DragSubject?,
@@ -50,9 +40,7 @@ public enum DropPreview {
                 grid: grid, dividerThickness: dividerThickness
             )
             guard let incoming = geometry.paneFrames[paneID] else { return nil }
-            let others = geometry.paneFrames.filter { $0.key != paneID }.values
-                .sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
-            return DropPreviewFrames(incoming: box(incoming), others: others.map(box))
+            return DropPreviewFrames(incoming: box(incoming))
         }
         let current = CanvasGeometry.resolved(
             layout: layout, exported: exported, grid: grid, dividerThickness: dividerThickness
@@ -60,10 +48,10 @@ public enum DropPreview {
         switch target {
         case .paneEdge(let targetPane, let edge):
             guard targetPane != paneID, let frame = current.paneFrames[targetPane] else { return nil }
-            return DropPreviewFrames(incoming: box(incomingRect(in: frame, edge: edge)), others: [])
+            return DropPreviewFrames(incoming: box(incomingRect(in: frame, edge: edge)))
         case .paneInterior(let targetPane):
             guard targetPane != paneID, let frame = current.paneFrames[targetPane] else { return nil }
-            return DropPreviewFrames(incoming: box(frame), others: [])
+            return DropPreviewFrames(incoming: box(frame))
         case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
             return nil
         }
