@@ -99,6 +99,14 @@ public struct CanvasGrid: Equatable, Sendable {
         return CGRect(x: left, y: top, width: right - left, height: bottom - top)
     }
 
+    /// One horizontal value snapped the way `frame(for:area:)` snaps an edge,
+    /// for a boundary a divider drag holds BETWEEN two cells: it has no cell
+    /// rect to be derived from, and an unsnapped one resamples every glyph in
+    /// the pane beside it.
+    public func snappedX(_ value: CGFloat) -> CGFloat { snap(value, phase: phase.x) }
+
+    public func snappedY(_ value: CGFloat) -> CGFloat { snap(value, phase: phase.y) }
+
     private func snap(_ value: CGFloat, phase: CGFloat) -> CGFloat {
         ((value + phase) * displayScale).rounded() / displayScale - phase
     }
@@ -282,15 +290,37 @@ public struct CanvasGeometry: Equatable, Sendable {
             rect: area,
             path: [],
             tabID: tabID,
+            grid: grid,
             scale: scale,
             thickness: dividerThickness,
             override: liveRatioOverride,
             splitRatios: splitRatios,
+            live: nil,
             paneFrames: &paneFrames,
             dividers: &dividers
         )
         self.paneFrames = paneFrames
         self.dividers = dividers
+    }
+
+    /// A subtree's exact point rect while the dragged split above it holds a
+    /// boundary between two cells, paired with the cell region that rect
+    /// stands for. Descendants are placed proportionally inside it rather
+    /// than through the canvas's own absolute cell map, which rounds every
+    /// boundary to a whole cell and so would put them back where the drag
+    /// just moved them from.
+    private struct LiveSplitRegion {
+        let cells: CellRect
+        let frame: CGRect
+
+        func place(_ rect: CellRect, grid: CanvasGrid) -> CGRect {
+            guard cells.width > 0, cells.height > 0 else { return .zero }
+            let left = grid.snappedX(frame.minX + frame.width * CGFloat(rect.x - cells.x) / CGFloat(cells.width))
+            let right = grid.snappedX(frame.minX + frame.width * CGFloat(rect.x - cells.x + rect.width) / CGFloat(cells.width))
+            let top = grid.snappedY(frame.minY + frame.height * CGFloat(rect.y - cells.y) / CGFloat(cells.height))
+            let bottom = grid.snappedY(frame.minY + frame.height * CGFloat(rect.y - cells.y + rect.height) / CGFloat(cells.height))
+            return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        }
     }
 
     /// `override` substitutes the ratio of the split whose own `path`
@@ -300,36 +330,96 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// tree only carries ratios and parent/child order, never absolute
     /// rects, so a changed ratio anywhere propagates to every descendant for
     /// free. Without an override, `splitRatios` outranks the tree's own ratio.
+    ///
+    /// The overridden split's own boundary is placed at the exact ratio, in
+    /// points, not at the cell edge `childRegions` rounds it to: herdr's tab
+    /// grid is coarser than a terminal cell, so a boundary snapped to it
+    /// crosses the screen in visible jumps while the pointer moves smoothly.
+    /// The whole-cell step the pane still owes is the SURFACE's
+    /// (`SurfaceGrid.fit`), which takes it inside a box that has already
+    /// followed the pointer. Every other split keeps the cell grid, so the
+    /// at-rest layout is untouched.
     private static func walk(
         _ node: ExportedLayoutNode,
         rect: CellRect,
         path: [Bool],
         tabID: TabID,
+        grid: CanvasGrid,
         scale: (CellRect) -> CGRect,
         thickness: CGFloat,
         override: (path: [Bool], ratio: Double)?,
         splitRatios: [[Bool]: Double],
+        live: LiveSplitRegion?,
         paneFrames: inout [PaneID: CGRect],
         dividers: inout [DividerHandle]
     ) {
+        func place(_ rect: CellRect) -> CGRect {
+            live?.place(rect, grid: grid) ?? scale(rect)
+        }
+
         switch node {
         case .pane(let pane):
             guard let paneID = pane.paneID else { return }
-            paneFrames[paneID] = scale(rect)
+            paneFrames[paneID] = place(rect)
         case .split(let direction, let nodeRatio, let first, let second):
-            let ratio = override?.path == path ? override!.ratio : (splitRatios[path] ?? nodeRatio)
+            let dragged = override?.path == path
+            let ratio = dragged ? override!.ratio : (splitRatios[path] ?? nodeRatio)
             let (firstRegion, secondRegion) = childRegions(of: rect, direction: direction, ratio: ratio)
-            let full = scale(rect)
+            let full = place(rect)
+            let firstFrame = dragged
+                ? liveFirstChildFrame(in: full, direction: direction, ratio: ratio, grid: grid)
+                : place(firstRegion)
             dividers.append(DividerHandle(
                 tabID: tabID,
                 path: path,
-                frame: dividerFrame(direction: direction, firstChild: scale(firstRegion), fullFrame: full, thickness: thickness),
+                frame: dividerFrame(direction: direction, firstChild: firstFrame, fullFrame: full, thickness: thickness),
                 direction: direction,
                 regionFrame: full,
                 cellExtent: direction == .right ? rect.width : rect.height
             ))
-            walk(first, rect: firstRegion, path: path + [false], tabID: tabID, scale: scale, thickness: thickness, override: override, splitRatios: splitRatios, paneFrames: &paneFrames, dividers: &dividers)
-            walk(second, rect: secondRegion, path: path + [true], tabID: tabID, scale: scale, thickness: thickness, override: override, splitRatios: splitRatios, paneFrames: &paneFrames, dividers: &dividers)
+            let firstLive: LiveSplitRegion?
+            let secondLive: LiveSplitRegion?
+            if dragged {
+                firstLive = LiveSplitRegion(cells: firstRegion, frame: firstFrame)
+                secondLive = LiveSplitRegion(
+                    cells: secondRegion,
+                    frame: liveSecondChildFrame(in: full, after: firstFrame, direction: direction)
+                )
+            } else if live != nil {
+                firstLive = LiveSplitRegion(cells: firstRegion, frame: firstFrame)
+                secondLive = LiveSplitRegion(cells: secondRegion, frame: place(secondRegion))
+            } else {
+                firstLive = nil
+                secondLive = nil
+            }
+            walk(first, rect: firstRegion, path: path + [false], tabID: tabID, grid: grid, scale: scale, thickness: thickness, override: override, splitRatios: splitRatios, live: firstLive, paneFrames: &paneFrames, dividers: &dividers)
+            walk(second, rect: secondRegion, path: path + [true], tabID: tabID, grid: grid, scale: scale, thickness: thickness, override: override, splitRatios: splitRatios, live: secondLive, paneFrames: &paneFrames, dividers: &dividers)
+        }
+    }
+
+    /// The dragged split's first child, ending exactly where `ratio` places
+    /// the boundary in `full` rather than at the cell edge that ratio rounds
+    /// to. Inverse of `DividerDragMath.boundary(forRatio:divider:)` against
+    /// the same `regionFrame`, so the drawn gutter sits under the pointer.
+    private static func liveFirstChildFrame(in full: CGRect, direction: SplitDirection, ratio: Double, grid: CanvasGrid) -> CGRect {
+        switch direction {
+        case .right:
+            let boundary = grid.snappedX(full.minX + CGFloat(ratio) * full.width)
+            return CGRect(x: full.minX, y: full.minY, width: boundary - full.minX, height: full.height)
+        case .down:
+            let boundary = grid.snappedY(full.minY + CGFloat(ratio) * full.height)
+            return CGRect(x: full.minX, y: full.minY, width: full.width, height: boundary - full.minY)
+        }
+    }
+
+    /// Everything of `full` the first child did not take, read off the first
+    /// child's own far edge so the two abut with no seam at any ratio.
+    private static func liveSecondChildFrame(in full: CGRect, after first: CGRect, direction: SplitDirection) -> CGRect {
+        switch direction {
+        case .right:
+            return CGRect(x: first.maxX, y: full.minY, width: full.maxX - first.maxX, height: full.height)
+        case .down:
+            return CGRect(x: full.minX, y: first.maxY, width: full.width, height: full.maxY - first.maxY)
         }
     }
 

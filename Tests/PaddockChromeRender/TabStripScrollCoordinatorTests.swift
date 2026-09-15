@@ -95,6 +95,42 @@ final class TabStripScrollCoordinatorTests: XCTestCase {
         XCTAssertTrue(revealedTo.isEmpty)
     }
 
+    /// The grid opened over a reveal that was still waiting for its frame. The
+    /// strip observes no selection change while the grid is up, so once it
+    /// closes this queued reveal would be the only one left to fire, for a tab
+    /// the selection may have moved off.
+    func testARevealStillWaitingForItsFrameIsDroppedWhenTheGridOpens() {
+        let drag = makeCoordinator()
+        var revealedTo: [CGFloat] = []
+        drag.stripRevealScroller = { revealedTo.append($0) }
+        drag.setTabOrder([Self.first, Self.created])
+
+        drag.revealTab(Self.created)
+        drag.toggleGrid()
+        drag.toggleGrid()
+        drag.setTabFrame(CGRect(x: 800, y: 0, width: 100, height: 28), for: Self.created)
+
+        XCTAssertTrue(revealedTo.isEmpty)
+    }
+
+    /// The strip's order is its own workspace's tabs, so switching away and
+    /// back replaces it wholesale. A reveal queued before the switch belongs
+    /// to a selection that is over, and must not fire for the tab that comes
+    /// back under the same id.
+    func testARevealStillWaitingForItsFrameIsDroppedWhenItsTabLeavesTheStrip() {
+        let drag = makeCoordinator()
+        var revealedTo: [CGFloat] = []
+        drag.stripRevealScroller = { revealedTo.append($0) }
+        drag.setTabOrder([Self.first, Self.created])
+
+        drag.revealTab(Self.created)
+        drag.setTabOrder([TabID(rawValue: "w2:t1")])
+        drag.setTabOrder([Self.first, Self.created])
+        drag.setTabFrame(CGRect(x: 800, y: 0, width: 100, height: 28), for: Self.created)
+
+        XCTAssertTrue(revealedTo.isEmpty)
+    }
+
     /// A tab is selected in the same update pass that inserts it, so its frame
     /// has not been reported yet. The reveal has to survive until it is.
     func testARevealAskedForBeforeTheTabHasAFrameIsRetriedWhenItArrives() {

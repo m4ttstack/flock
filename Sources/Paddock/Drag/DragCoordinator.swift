@@ -314,8 +314,14 @@ final class DragCoordinator {
         workspaceItems.onScreen.map { WorkspaceItemFrame(id: $0.id, frame: $0.frame) }
     }
 
+    /// A tab that has left the strip can never report the frame its queued
+    /// reveal is waiting for, so the reveal dies with it rather than sitting
+    /// in the field until some later tab of the same id inherits it.
     func setTabOrder(_ order: [TabID]) {
         writeIfChanged(\.tabItems) { $0.setOrder(order) }
+        if let pendingReveal, !order.contains(pendingReveal) {
+            self.pendingReveal = nil
+        }
         retryPendingReveal()
     }
 
@@ -1008,6 +1014,14 @@ final class DragCoordinator {
     @discardableResult
     func updateGrid<Result>(_ change: (inout AllWorkspacesGridState) -> Result) -> Result {
         let result = change(&grid)
+        // The strip is unmounted under a shown grid, so it observes no
+        // selection change while one is up and never asks for the reveal that
+        // matches whatever is selected when it closes. A reveal queued before
+        // the grid opened would be the only one left to fire, for a tab the
+        // selection has moved off.
+        if grid.isShown {
+            pendingReveal = nil
+        }
         if isGridShown != grid.isShown {
             isGridShown = grid.isShown
         }

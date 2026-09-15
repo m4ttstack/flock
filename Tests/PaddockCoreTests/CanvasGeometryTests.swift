@@ -708,6 +708,139 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(bottomRight.height, 75, accuracy: 0.01)
     }
 
+    // MARK: - The dragged split's boundary is continuous
+
+    /// A 12-cell area on a 1200pt canvas: one herdr cell is 100pt wide, so a
+    /// boundary rounded to the cell grid lands up to half a cell -- 50pt --
+    /// from where the pointer is. 0.29 rounds to 3 cells (300pt); the live
+    /// preview has to put it at 348.
+    private func wideCellTree() -> (root: ExportedLayoutNode, area: CellRect, grid: CanvasGrid) {
+        (
+            .split(
+                direction: .right, ratio: 0.5,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+                second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "right")))
+            ),
+            CellRect(x: 0, y: 0, width: 12, height: 4),
+            grid(filling: CGSize(width: 1200, height: 400), scale: 1)
+        )
+    }
+
+    func testTheDraggedSplitsBoxesFollowTheRatioRatherThanTheCellGrid() throws {
+        let tree = wideCellTree()
+
+        let geometry = CanvasGeometry(
+            exportedRoot: tree.root, area: tree.area, tabID: TabID(rawValue: "w:t"), grid: tree.grid, dividerThickness: 6,
+            liveRatioOverride: (path: [], ratio: 0.29)
+        )
+
+        let left = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "left")])
+        let right = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "right")])
+        XCTAssertEqual(left.width, 348, accuracy: 0.01, "0.29 of 1200pt, not the 300pt the 3-cell rounding gives")
+        XCTAssertEqual(right.minX, 348, accuracy: 0.01)
+        XCTAssertEqual(right.maxX, 1200, accuracy: 0.01, "the two boxes still tile the region exactly")
+        XCTAssertEqual(try XCTUnwrap(geometry.dividers.first).frame.midX, 348, accuracy: 0.01)
+    }
+
+    /// Two ratios inside the SAME cell: 12 * 0.26 and 12 * 0.28 both round to
+    /// 3 cells, so on the cell grid neither moves anything. The whole point of
+    /// the live preview is that both move the box.
+    func testASubCellRatioChangeStillMovesTheDraggedBoundary() throws {
+        let tree = wideCellTree()
+
+        func boundary(_ ratio: Double) throws -> CGFloat {
+            let geometry = CanvasGeometry(
+                exportedRoot: tree.root, area: tree.area, tabID: TabID(rawValue: "w:t"), grid: tree.grid, dividerThickness: 6,
+                liveRatioOverride: (path: [], ratio: ratio)
+            )
+            return try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "left")]).width
+        }
+
+        XCTAssertEqual(try boundary(0.26), 312, accuracy: 0.01)
+        XCTAssertEqual(try boundary(0.28), 336, accuracy: 0.01)
+    }
+
+    /// Only the dragged split leaves the cell grid. A ratio carried by the
+    /// tree itself is still rounded to whole cells, so nothing about the
+    /// at-rest layout moves.
+    func testASplitThatIsNotBeingDraggedKeepsTheCellGrid() throws {
+        let tree = wideCellTree()
+        let root = ExportedLayoutNode.split(
+            direction: .right, ratio: 0.29,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+            second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "right")))
+        )
+
+        let geometry = CanvasGeometry(
+            exportedRoot: root, area: tree.area, tabID: TabID(rawValue: "w:t"), grid: tree.grid, dividerThickness: 6
+        )
+
+        XCTAssertEqual(try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "left")]).width, 300, accuracy: 0.01)
+    }
+
+    /// The dragged split's descendants ride the region the drag moved, so a
+    /// nested split's own children fill it exactly -- and the ancestor above
+    /// the dragged one keeps its cell edge.
+    func testADraggedSplitCarriesItsDescendantsAndLeavesItsAncestorAlone() throws {
+        let tree = wideCellTree()
+        let root = ExportedLayoutNode.split(
+            direction: .right, ratio: 0.29,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+            second: .split(
+                direction: .down, ratio: 0.5,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "topRight"))),
+                second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "bottomRight")))
+            )
+        )
+
+        let geometry = CanvasGeometry(
+            exportedRoot: root, area: tree.area, tabID: TabID(rawValue: "w:t"), grid: tree.grid, dividerThickness: 6,
+            liveRatioOverride: (path: [true], ratio: 0.3)
+        )
+
+        XCTAssertEqual(
+            try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "left")]).width, 300, accuracy: 0.01,
+            "the root is not the dragged split, so its boundary stays on the cell grid"
+        )
+        let topRight = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "topRight")])
+        let bottomRight = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "bottomRight")])
+        XCTAssertEqual(topRight.height, 120, accuracy: 0.01, "0.3 of the 400pt region, not the 100pt a 1-cell rounding gives")
+        XCTAssertEqual(bottomRight.minY, 120, accuracy: 0.01)
+        XCTAssertEqual(topRight.minX, 300, accuracy: 0.01)
+        XCTAssertEqual(topRight.width, 900, accuracy: 0.01)
+    }
+
+    /// A pane two levels under the dragged split still fills the region the
+    /// drag moved: the exact rect is handed down the recursion, not
+    /// recomputed from the cell map that put it back on the grid.
+    func testAGrandchildOfTheDraggedSplitRidesTheMovedRegion() throws {
+        let tree = wideCellTree()
+        let root = ExportedLayoutNode.split(
+            direction: .right, ratio: 0.5,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+            second: .split(
+                direction: .down, ratio: 0.5,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "topRight"))),
+                second: .split(
+                    direction: .right, ratio: 0.5,
+                    first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "bottomLeft"))),
+                    second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "bottomRight")))
+                )
+            )
+        )
+
+        let geometry = CanvasGeometry(
+            exportedRoot: root, area: tree.area, tabID: TabID(rawValue: "w:t"), grid: tree.grid, dividerThickness: 6,
+            liveRatioOverride: (path: [], ratio: 0.29)
+        )
+
+        let bottomLeft = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "bottomLeft")])
+        let bottomRight = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "bottomRight")])
+        XCTAssertEqual(bottomLeft.minX, 348, accuracy: 0.01)
+        XCTAssertEqual(bottomRight.maxX, 1200, accuracy: 0.01)
+        XCTAssertEqual(bottomLeft.maxX, bottomRight.minX, accuracy: 0.01, "no seam between two grandchildren")
+    }
+
     /// The cached export lags the layout snapshot by a round trip, and a
     /// committed divider drag lands in the snapshot first (the store's
     /// prediction, then herdr's own event). The canvas must follow the
