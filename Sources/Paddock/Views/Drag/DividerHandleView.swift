@@ -113,17 +113,17 @@ struct DividerHandleView: View {
             // Clear of the handle so the percentage never covers what the
             // pointer is holding.
             ratioLabel(ratio)
-                .offset(y: isVertical ? -(handleLength / 2 + 14) : -16)
+                .offset(y: isVertical ? -(handleLength / 2 + ChromeMetrics.RatioLabel.clearanceAlongHandle) : -ChromeMetrics.RatioLabel.clearanceAboveHandle)
         }
     }
 
     private func ratioLabel(_ ratio: Double) -> some View {
         Text("\(Int((ratio * 100).rounded()))%")
-            .font(.system(size: 10, weight: .semibold))
+            .font(ChromeType.ratioLabel)
             .foregroundStyle(theme.textStrong)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).fill(theme.chrome))
+            .padding(.horizontal, ChromeMetrics.RatioLabel.horizontalPadding)
+            .padding(.vertical, ChromeMetrics.RatioLabel.verticalPadding)
+            .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.chrome))
             .fixedSize()
     }
 }

@@ -90,20 +90,20 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The system title bar is taller than the chrome's, so the top of each
-    /// tab lies inside it. A press there must stay with the tab: some view of
-    /// ours at that point opts out of moving the window. The chrome title bar
-    /// must keep moving the window, so nothing of ours opts out there.
-    func testTabTopEdgeInsideTheSystemTitleBarDoesNotMoveTheWindow() async throws {
+    /// The system title bar is taller than the chrome's, so the top of the tab
+    /// strip lies inside it. A press there must stay with the strip: some view
+    /// of ours at that point opts out of moving the window. The chrome title
+    /// bar must keep moving the window, so nothing of ours opts out there.
+    func testTabStripTopInsideTheSystemTitleBarDoesNotMoveTheWindow() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
         let systemTitleBarHeight = window.frame.height - window.contentLayoutRect.maxY
-        let tabTop = ChromeMetrics.titleBarHeight + ChromeMetrics.tabStripHeight - 22
-        XCTAssertGreaterThan(systemTitleBarHeight, tabTop, "the system title bar no longer reaches the tabs, so this test exercises nothing")
+        let stripTop = ChromeMetrics.TitleBar.height
+        XCTAssertGreaterThan(systemTitleBarHeight, stripTop + 1, "the system title bar no longer reaches the tab strip, so this test exercises nothing")
 
-        let tabTopEdge = CGPoint(x: 200, y: tabTop + 1)
-        XCTAssertTrue(contentViews(at: tabTopEdge, in: window).contains { !$0.mouseDownCanMoveWindow })
+        let stripTopEdge = CGPoint(x: 260, y: stripTop + 1)
+        XCTAssertTrue(contentViews(at: stripTopEdge, in: window).contains { !$0.mouseDownCanMoveWindow })
         for titlePoint in [CGPoint(x: 450, y: 10), CGPoint(x: 250, y: 10), CGPoint(x: 800, y: 3)] {
             XCTAssertFalse(contentViews(at: titlePoint, in: window).contains { !$0.mouseDownCanMoveWindow }, "\(titlePoint)")
         }
@@ -148,30 +148,33 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// Points are top-left, in the 900x560 window. Indicator samples sit on
-    /// each row's 2x12 bar: the selected row is accent, the others take the
-    /// fixture's workspace status.
+    /// each row's 3x15 bar: the selected row is accent, the others take the
+    /// fixture's workspace status. Rows start at y 61 on a 28pt pitch; tabs
+    /// start at x 203 on a 103pt pitch, 28 tall on a strip spanning y 26 to 62.
     private func assertSamples(_ image: NSBitmapImageRep, theme: Theme) {
         let roles = theme.palette.chromeRoles
         let palette = theme.palette
         let samples: [(String, CGPoint, RGB)] = [
-            ("indicator/selected", CGPoint(x: 17, y: 59), roles.accent),
-            ("indicator/blocked", CGPoint(x: 17, y: 81), palette.red),
-            ("indicator/working", CGPoint(x: 17, y: 103), palette.yellow),
-            ("indicator/done", CGPoint(x: 17, y: 125), palette.teal),
-            ("indicator/idle", CGPoint(x: 17, y: 147), roles.chrome),
+            ("indicator/selected", CGPoint(x: 21, y: 74), roles.accent),
+            ("indicator/blocked", CGPoint(x: 21, y: 102), palette.red),
+            ("indicator/working", CGPoint(x: 21, y: 130), palette.yellow),
+            ("indicator/done", CGPoint(x: 21, y: 158), palette.teal),
+            ("indicator/idle", CGPoint(x: 21, y: 186), roles.chrome),
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
-            ("chrome/strip", CGPoint(x: 600, y: 30), roles.chrome),
+            ("chrome/strip", CGPoint(x: 700, y: 30), roles.chrome),
             ("chrome/rail", CGPoint(x: 75, y: 400), roles.chrome),
-            ("rule/rail", CGPoint(x: 150.25, y: 400), roles.rule),
-            ("selection/row", CGPoint(x: 100, y: 52), roles.selection),
-            ("tabRest", CGPoint(x: 232, y: 30), roles.tabRest),
-            ("selection/tab", CGPoint(x: 392, y: 30), roles.selection),
-            ("accent/underline", CGPoint(x: 392, y: 47.25), roles.accent),
-            ("rule/strip", CGPoint(x: 600, y: 48.25), roles.rule),
-            ("canvas/margin", CGPoint(x: 153, y: 400), roles.canvas),
-            ("paneBorder", CGPoint(x: 156.25, y: 400), roles.paneBorder),
+            ("rule/rail", CGPoint(x: 192.25, y: 400), roles.rule),
+            ("selection/row", CGPoint(x: 100, y: 64), roles.selection),
+            ("tabRest", CGPoint(x: 253, y: 40), roles.tabRest),
+            ("selection/tab", CGPoint(x: 459, y: 40), roles.selection),
+            ("accent/underline", CGPoint(x: 459, y: 61.25), roles.accent),
+            ("rule/strip", CGPoint(x: 700, y: 62.25), roles.rule),
+            ("canvas/margin", CGPoint(x: 196, y: 400), roles.canvas),
+            ("paneBorder", CGPoint(x: 199.25, y: 400), roles.paneBorder),
             ("pane", CGPoint(x: 300, y: 400), roles.pane),
-            ("accent/focused", CGPoint(x: 894.25, y: 400), roles.accent),
+            ("canvas/gutter", CGPoint(x: 546, y: 400), roles.canvas),
+            ("accent/focusedLeading", CGPoint(x: 551.25, y: 400), roles.accent),
+            ("accent/focused", CGPoint(x: 893.25, y: 400), roles.accent),
         ]
         for (name, point, expected) in samples {
             XCTAssertEqual(hex(image, point), expected.hex, "\(theme.id) \(name) at \(point)")
@@ -184,7 +187,7 @@ final class ChromeRenderTests: XCTestCase {
         for button in buttons {
             let inWindow = button.convert(button.bounds, to: nil)
             let centerFromTop = window.frame.height - inWindow.midY
-            XCTAssertEqual(centerFromTop, ChromeMetrics.titleBarHeight / 2, accuracy: 0.5, "\(button.frame)", file: file, line: line)
+            XCTAssertEqual(centerFromTop, ChromeMetrics.TitleBar.height / 2, accuracy: 0.5, "\(button.frame)", file: file, line: line)
         }
     }
 

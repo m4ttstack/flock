@@ -15,13 +15,13 @@ struct WorkspaceRail: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
                 Text("WORKSPACES")
-                    .font(.system(size: 8, weight: .semibold))
-                    .tracking(1)
+                    .font(ChromeType.railHeading)
+                    .tracking(ChromeType.railHeadingTracking)
                     .foregroundStyle(theme.textLabel)
                 Spacer()
-                    .frame(height: 6)
+                    .frame(height: ChromeMetrics.Rail.headingGap)
 
                 ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
                     WorkspaceRow(
@@ -43,9 +43,9 @@ struct WorkspaceRail: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 8)
-            .frame(width: ChromeMetrics.railWidth)
+            .padding(.vertical, ChromeMetrics.Rail.verticalPadding)
+            .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+            .frame(width: ChromeMetrics.Rail.width)
             .frame(maxHeight: .infinity, alignment: .top)
             Rectangle()
                 .fill(theme.rule)
@@ -87,28 +87,28 @@ private struct WorkspaceRow: View {
     var isGhosted = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: ChromeMetrics.WorkspaceRow.spacing) {
             // Present on every row so names stay aligned, clear when there is
             // nothing to mark.
-            RoundedRectangle(cornerRadius: 1)
+            RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.indicatorSize.width / 2)
                 .fill(indicatorColor ?? .clear)
-                .frame(width: 2, height: 12)
+                .frame(width: ChromeMetrics.WorkspaceRow.indicatorSize.width, height: ChromeMetrics.WorkspaceRow.indicatorSize.height)
             Text(workspace.label)
-                .font(.system(size: 11, weight: isSelected ? .medium : .regular))
+                .font(ChromeType.workspaceName(selected: isSelected))
                 .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
                 .lineLimit(1)
-            Spacer(minLength: 4)
+            Spacer(minLength: ChromeMetrics.WorkspaceRow.countMinimumGap)
             Text("\(paneCount)")
-                .font(.system(size: 9))
+                .font(ChromeType.workspaceCount)
                 .foregroundStyle(theme.textLabel)
         }
-        // The system font's 11pt line is taller than the row's 13pt content
-        // band; fixed so rows keep their 21pt pitch.
-        .frame(height: 13)
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
+        // Fixed rather than taken from the label's line height, which varies
+        // with face and size, so rows keep a whole-point pitch.
+        .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
+        .padding(.vertical, ChromeMetrics.WorkspaceRow.verticalPadding)
+        .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
         .background(
-            RoundedRectangle(cornerRadius: 2)
+            RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius)
                 .fill(theme.selection)
                 .opacity(isSelected ? 1 : 0)
         )

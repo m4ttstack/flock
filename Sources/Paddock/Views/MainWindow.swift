@@ -61,10 +61,11 @@ private struct TitleBar: View {
 
     var body: some View {
         Text("paddock")
-            .font(.system(size: 9, weight: .medium))
+            .font(ChromeType.windowTitle)
             .foregroundStyle(theme.textStrong)
+            .padding(.top, ChromeMetrics.TitleBar.titleTopInset)
             .frame(maxWidth: .infinity)
-            .frame(height: ChromeMetrics.titleBarHeight)
+            .frame(height: ChromeMetrics.TitleBar.height)
             .overlay(alignment: .trailing) { connectionNotice }
             .background(theme.chrome)
     }
@@ -74,13 +75,13 @@ private struct TitleBar: View {
     @ViewBuilder
     private var connectionNotice: some View {
         if let color = noticeColor {
-            HStack(spacing: 5) {
-                Circle().fill(color).frame(width: 5, height: 5)
+            HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
+                Circle().fill(color).frame(width: ChromeMetrics.TitleBar.noticeDot, height: ChromeMetrics.TitleBar.noticeDot)
                 Text("herdr · \(sessionLabel)")
-                    .font(.system(size: 9))
+                    .font(ChromeType.connectionNotice)
                     .foregroundStyle(theme.textLabel)
             }
-            .padding(.trailing, 10)
+            .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
         }
     }
 
@@ -98,19 +99,20 @@ private struct UnsupportedBanner: View {
     let mismatch: ProtocolMismatch
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: ChromeMetrics.Banner.spacing) {
             Image(systemName: "exclamationmark.triangle.fill")
+                .font(ChromeType.bannerSymbol)
                 .foregroundStyle(theme.red)
             Text(
                 "herdr is too old for paddock (found protocol \(mismatch.found), "
                     + "need \(mismatch.required)). Run `herdr update`."
             )
-            .font(.system(size: 11))
+            .font(ChromeType.banner)
             .foregroundStyle(theme.textStrong)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
+        .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
         .boundedBackground(theme.red.opacity(0.12))
     }
 }

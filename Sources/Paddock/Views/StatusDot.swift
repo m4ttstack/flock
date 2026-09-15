@@ -20,7 +20,7 @@ extension Theme {
 struct StatusDot: View {
     let status: AgentStatus
     let theme: Theme
-    var size: CGFloat = 5
+    var size: CGFloat = ChromeMetrics.Tab.statusDot
 
     var body: some View {
         Circle()

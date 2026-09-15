@@ -24,7 +24,7 @@ struct PaneCanvas: View {
     private static let dividerThickness: CGFloat = DividerBand.gutter
 
     private static let canvasPadding: EdgeInsets = {
-        let padding = PaneBox.canvasPadding(margin: ChromeMetrics.canvasMargin, dividerThickness: dividerThickness)
+        let padding = PaneBox.canvasPadding(margin: ChromeMetrics.Canvas.margin, dividerThickness: dividerThickness)
         return EdgeInsets(
             top: padding.leadingAndTop, leading: padding.leadingAndTop,
             bottom: padding.trailingAndBottom, trailing: padding.trailingAndBottom
@@ -77,7 +77,7 @@ struct PaneCanvas: View {
                     }
                 } else {
                     Text("No tab selected")
-                        .font(.system(size: 12))
+                        .font(ChromeType.emptyCanvas)
                         .foregroundStyle(theme.textLabel)
                         .frame(width: proxy.size.width, height: proxy.size.height)
                 }

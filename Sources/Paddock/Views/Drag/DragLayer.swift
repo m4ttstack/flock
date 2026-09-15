@@ -43,9 +43,9 @@ struct DragLayer: View {
     }
 
     private func targetOutline(_ rect: CGRect) -> some View {
-        RoundedRectangle(cornerRadius: PaneCellView.cornerRadius)
+        RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
             .fill(theme.accent.opacity(0.14))
-            .overlay(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).strokeBorder(theme.accent, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.accent, lineWidth: 1))
             .frame(width: rect.width, height: rect.height)
             .offset(x: rect.minX, y: rect.minY)
     }
@@ -65,7 +65,7 @@ private struct LandingFlash: View {
         // A wash, never a stroke: a pane drop lands exactly on a pane box,
         // so a stroked flash sits a couple of points inside the border the
         // pane already draws and doubles it for the whole fade.
-        RoundedRectangle(cornerRadius: PaneCellView.cornerRadius)
+        RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
             .fill(theme.accent.opacity(0.35))
             .frame(width: rect.width, height: rect.height)
             .offset(x: rect.minX, y: rect.minY)

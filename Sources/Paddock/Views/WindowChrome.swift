@@ -1,20 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// Fixed chrome dimensions, shared by the SwiftUI chrome and the AppKit title
-/// bar so the window buttons center on the same bar the views draw.
-enum ChromeMetrics {
-    static let titleBarHeight: CGFloat = 20
-    static let railWidth: CGFloat = 150
-    static let tabStripHeight: CGFloat = 28
-    static let ruleWidth: CGFloat = 1
-    static let canvasMargin: CGFloat = 5
-}
-
 extension View {
     /// A fill confined to this view's own frame. The shape-style `.background`
     /// extends into safe areas, and everything within the system title bar's
-    /// height (taller than `ChromeMetrics.titleBarHeight`) sits inside the top
+    /// height (taller than `ChromeMetrics.TitleBar.height`) sits inside the top
     /// safe area, so that fill would paint up over the title bar.
     func boundedBackground<S: ShapeStyle>(_ style: S) -> some View {
         background(style, ignoresSafeAreaEdges: [])
@@ -22,10 +12,10 @@ extension View {
 }
 
 /// Takes the view's area out of the window's drag region. The system title bar
-/// is taller than `ChromeMetrics.titleBarHeight`, so the top of the tab strip
+/// is taller than `ChromeMetrics.TitleBar.height`, so the top of the tab strip
 /// sits inside it, and a hosting view reports `mouseDownCanMoveWindow` true:
-/// without an opt-out there, a press on a tab's top edge moves the window
-/// instead of reaching the tab. It never takes a hit itself, so every press
+/// without an opt-out there, a press at the top of the strip moves the window
+/// instead of reaching the strip. It never takes a hit itself, so every press
 /// still lands on the SwiftUI content above it.
 struct WindowDragExclusion: NSViewRepresentable {
     func makeNSView(context: Context) -> NonDraggableView { NonDraggableView() }
@@ -61,7 +51,7 @@ final class TitlebarHostView: NSView {
         didSet { configure() }
     }
 
-    private let buttons = WindowButtonCentering(barHeight: ChromeMetrics.titleBarHeight)
+    private let buttons = WindowButtonCentering(barHeight: ChromeMetrics.TitleBar.height)
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

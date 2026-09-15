@@ -16,7 +16,7 @@ struct TabStrip: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .bottom, spacing: 2) {
+            HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
                 ForEach(Array(tabs.enumerated()), id: \.element.tabID) { index, tab in
                     TabBlock(
                         theme: theme,
@@ -36,13 +36,14 @@ struct TabStrip: View {
                 }
                 Spacer(minLength: 0)
                 Text("protocol \(protocolVersion)")
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(ChromeType.protocolReadout)
                     .foregroundStyle(theme.textLabel)
-                    .frame(height: ChromeMetrics.tabStripHeight)
+                    .padding(.bottom, ChromeMetrics.Strip.readoutBottomInset)
+                    .frame(height: ChromeMetrics.Strip.height)
                     .reportsDragFrame { drag.stripTrailingLimit = $0.minX }
             }
-            .padding(.horizontal, 8)
-            .frame(height: ChromeMetrics.tabStripHeight)
+            .padding(.horizontal, ChromeMetrics.Strip.horizontalPadding)
+            .frame(height: ChromeMetrics.Strip.height)
             // The strip above its rule: the insertion bar is clamped inside
             // this frame, so a frame that included the rule would let the bar
             // cross it into the canvas.
@@ -86,9 +87,6 @@ struct TabStrip: View {
 }
 
 private struct TabBlock: View {
-    static let size = CGSize(width: 78, height: 22)
-    static let underlineHeight: CGFloat = 2
-
     let theme: Theme
     let tab: TabRecord
     let isSelected: Bool
@@ -102,23 +100,23 @@ private struct TabBlock: View {
         // selected label centers on the block above it; resting tabs have no
         // underline slot at all.
         VStack(spacing: 0) {
-            HStack(spacing: 5) {
+            HStack(spacing: ChromeMetrics.Tab.labelDotGap) {
                 Text(tab.label)
-                    .font(.system(size: 11, weight: isSelected ? .medium : .regular))
+                    .font(ChromeType.tabLabel(selected: isSelected))
                     .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
                     .lineLimit(1)
-                StatusDot(status: tab.agentStatus, theme: theme, size: 5)
+                StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot)
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, ChromeMetrics.Tab.horizontalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .boundedBackground(isSelected ? theme.selection : theme.tabRest)
             if isSelected {
                 Rectangle()
                     .fill(theme.accent)
-                    .frame(height: Self.underlineHeight)
+                    .frame(height: ChromeMetrics.Tab.underlineHeight)
             }
         }
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: ChromeMetrics.Tab.size.width, height: ChromeMetrics.Tab.size.height)
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(x: displacement)

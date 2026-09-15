@@ -1,3 +1,4 @@
+import PaddockCore
 import SwiftUI
 
 /// Draws a window-scope `ToastCenter.current` in the window's top-right
@@ -18,8 +19,8 @@ struct ToastHost: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(.top, ChromeMetrics.titleBarHeight + ChromeMetrics.tabStripHeight + ChromeMetrics.ruleWidth + 10)
-        .padding(.trailing, 14)
+        .padding(.top, ChromeMetrics.TitleBar.height + ChromeMetrics.Strip.height + ChromeMetrics.ruleWidth + ChromeMetrics.Toast.topGap)
+        .padding(.trailing, ChromeMetrics.Toast.trailingInset)
         .animation(.easeOut(duration: 0.15), value: toastCenter.current)
         .allowsHitTesting(false)
     }
@@ -30,20 +31,20 @@ private struct ToastPill: View {
     let toast: ToastCenter.Toast
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: ChromeMetrics.Toast.spacing) {
             Image(systemName: symbolName)
-                .font(.system(size: 10, weight: .medium))
+                .font(ChromeType.toastSymbol)
                 .foregroundStyle(iconColor)
             Text(toast.message)
-                .font(.system(size: 11))
+                .font(ChromeType.toastMessage)
                 .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneCellView.cornerRadius))
-        .overlay(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
-        .shadow(color: theme.chrome.opacity(0.6), radius: 9, y: 4)
+        .padding(.horizontal, ChromeMetrics.Toast.horizontalPadding)
+        .padding(.vertical, ChromeMetrics.Toast.verticalPadding)
+        .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
+        .shadow(color: theme.chrome.opacity(0.6), radius: ChromeMetrics.Toast.shadowRadius, y: ChromeMetrics.Toast.shadowY)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(toast.accessibilityIdentifier)
     }

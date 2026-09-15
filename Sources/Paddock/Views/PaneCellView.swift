@@ -25,8 +25,6 @@ private struct HoverLift: ViewModifier {
 /// the standing attach policy; card mode is what shows while that attach is
 /// still in flight.
 struct PaneCellView: View {
-    static let cornerRadius: CGFloat = 2
-
     /// What the canvas subtracts from a box before deriving the whole-cell
     /// grid, so the chrome never eats a terminal cell. Must agree with
     /// `contentInsets` exactly.
@@ -201,7 +199,7 @@ struct PaneCellView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(Self.contentInsets)
             .background(theme.pane)
-            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
+            .clipShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
             // The track spans the content area, so the two paddings are the
             // box's own (asymmetric) content insets: a symmetric one would
             // leave the thumb unable to reach the last row.
@@ -209,7 +207,7 @@ struct PaneCellView: View {
                 PaneScrollIndicator(theme: theme, scroll: pane.scroll)
                     .padding(.top, Self.contentInsets.top)
                     .padding(.bottom, Self.contentInsets.bottom)
-                    .padding(.trailing, 3)
+                    .padding(.trailing, ChromeMetrics.Pane.scrollIndicatorInset)
             }
             .overlay {
                 if rearrangeMode.active {
@@ -217,7 +215,7 @@ struct PaneCellView: View {
                 }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: Self.cornerRadius)
+                RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
                     .strokeBorder(borderColor, lineWidth: 1)
             )
             // Applied only while rearranging: a scale effect in the chain at
@@ -241,7 +239,7 @@ struct PaneCellView: View {
         ZStack {
             theme.surfaceDim.opacity(0.62)
             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .font(.system(size: 22, weight: .semibold))
+                .font(ChromeType.rearrangeSymbol)
                 .foregroundStyle(theme.accent)
         }
         .allowsHitTesting(false)
@@ -249,7 +247,7 @@ struct PaneCellView: View {
 
     private var title: some View {
         Text(pane.terminalTitleStripped ?? pane.label ?? "shell")
-            .font(.system(size: 9, weight: .medium))
+            .font(ChromeType.paneTitle)
             .foregroundStyle(isFocused ? theme.textStrong : theme.textDim)
             .lineLimit(1)
             .frame(height: PaneChrome.titleRowHeight)
@@ -275,11 +273,11 @@ struct PaneCellView: View {
     private var statusChip: some View {
         if let statusColor {
             Text(pane.agentStatus.rawValue)
-                .font(.system(size: 9, design: .monospaced))
+                .font(ChromeType.statusChip)
                 .foregroundStyle(statusColor)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
                 .frame(height: PaneChrome.titleRowHeight)
-                .background(RoundedRectangle(cornerRadius: Self.cornerRadius).fill(statusColor.opacity(0.14)))
+                .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(statusColor.opacity(0.14)))
                 .padding(.top, PaneChrome.verticalPadding)
                 .padding(.trailing, PaneChrome.horizontalPadding)
                 // Decorative, so it yields its part of the chrome band to the
@@ -353,7 +351,7 @@ struct PaneCellView: View {
                 if let ownToast {
                     PaneCopiedToastPill(theme: theme, toast: ownToast)
                         .id(ownToast.id)
-                        .padding(10)
+                        .padding(ChromeMetrics.Pane.toastInset)
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
@@ -398,35 +396,35 @@ struct PaneCellView: View {
     /// agree with what's wanted here. Shown only until the live attach
     /// resolves (see `content`).
     private var cardContent: some View {
-        VStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .center, spacing: ChromeMetrics.Card.spacing) {
             Spacer(minLength: 0)
             Image(systemName: "terminal")
-                .font(.system(size: 22))
+                .font(ChromeType.cardSymbol)
                 .foregroundStyle(theme.textLabel)
             Text(cwdTail)
-                .font(.system(size: 10, design: .monospaced))
+                .font(ChromeType.cardText)
                 .foregroundStyle(theme.textDim)
             if let lastLine, !lastLine.isEmpty {
                 Text(lastLine)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(ChromeType.cardText)
                     .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, ChromeMetrics.Card.lineHorizontalPadding)
+                    .padding(.vertical, ChromeMetrics.Card.lineVerticalPadding)
                     .background(
-                        RoundedRectangle(cornerRadius: Self.cornerRadius)
+                        RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
                             .fill(theme.pane)
-                            .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
                     )
             }
             Text(hintText)
-                .font(.system(size: 9))
+                .font(ChromeType.cardHint)
                 .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(14)
+        .padding(ChromeMetrics.Card.padding)
     }
 
     private var hintText: String { "click to focus in herdr" }
@@ -482,20 +480,20 @@ private struct PaneCopiedToastPill: View {
     let toast: ToastCenter.Toast
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: ChromeMetrics.Toast.spacing) {
             Image(systemName: "doc.on.doc")
-                .font(.system(size: 11, weight: .medium))
+                .font(ChromeType.copiedSymbol)
                 .foregroundStyle(theme.green)
             Text(toast.message)
-                .font(.system(size: 10))
+                .font(ChromeType.copiedMessage)
                 .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneCellView.cornerRadius))
-        .overlay(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
-        .shadow(color: theme.chrome.opacity(0.4), radius: 9, y: 6)
+        .padding(.horizontal, ChromeMetrics.Toast.horizontalPadding)
+        .padding(.vertical, ChromeMetrics.Toast.copiedVerticalPadding)
+        .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
+        .shadow(color: theme.chrome.opacity(0.4), radius: ChromeMetrics.Toast.shadowRadius, y: ChromeMetrics.Toast.copiedShadowY)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(toast.accessibilityIdentifier)
     }

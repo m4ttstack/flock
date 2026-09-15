@@ -8,7 +8,7 @@ import SwiftUI
 /// Display only, never hit-testable: the wheel still moves herdr's viewport
 /// through the control FIFO, and this just reflects where it landed.
 struct PaneScrollIndicator: View {
-    static let width: CGFloat = 4
+    static let width = ChromeMetrics.Pane.scrollIndicatorWidth
     let theme: Theme
     let scroll: ScrollInfo?
 

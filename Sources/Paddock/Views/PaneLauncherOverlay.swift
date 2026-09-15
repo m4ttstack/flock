@@ -1,3 +1,4 @@
+import PaddockCore
 import SwiftUI
 
 /// One CLI agent harness `HarnessRoster` knows how to launch. `monogramColor`
@@ -47,21 +48,21 @@ struct PaneLauncherOverlay: View {
     let onLaunch: (HarnessEntry) -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: ChromeMetrics.Launcher.spacing) {
             Spacer(minLength: 0)
-            HStack(spacing: 12) {
+            HStack(spacing: ChromeMetrics.Launcher.buttonSpacing) {
                 ForEach(entries) { entry in
                     Button { onLaunch(entry) } label: {
-                        HStack(spacing: 8) {
+                        HStack(spacing: ChromeMetrics.Launcher.labelSpacing) {
                             MonogramBadge(entry: entry)
                             Text(entry.displayName)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(ChromeType.launcherName)
                                 .foregroundStyle(theme.textStrong)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).fill(theme.tabRest))
-                        .overlay(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
+                        .padding(.horizontal, ChromeMetrics.Launcher.buttonHorizontalPadding)
+                        .padding(.vertical, ChromeMetrics.Launcher.buttonVerticalPadding)
+                        .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.tabRest))
+                        .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("paddock.pane.launcher.\(entry.binary)")
@@ -70,14 +71,14 @@ struct PaneLauncherOverlay: View {
             .allowsHitTesting(true)
             Spacer(minLength: 0)
             Text("detected on PATH · click launches in this pane · typing hides these")
-                .font(.system(size: 9))
+                .font(ChromeType.launcherHint)
                 .foregroundStyle(theme.textLabel)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
+                .padding(.horizontal, ChromeMetrics.Launcher.hintHorizontalPadding)
+                .padding(.bottom, ChromeMetrics.Launcher.hintBottomPadding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, 28) // leaves the header-adjacent prompt row unobscured
+        .padding(.top, ChromeMetrics.Launcher.promptClearance)
         .allowsHitTesting(false)
     }
 }
@@ -88,10 +89,10 @@ private struct MonogramBadge: View {
     var body: some View {
         Circle()
             .fill(entry.monogramColor)
-            .frame(width: 22, height: 22)
+            .frame(width: ChromeMetrics.Launcher.monogram, height: ChromeMetrics.Launcher.monogram)
             .overlay(
                 Text(entry.monogram)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(ChromeType.launcherMonogram)
                     .foregroundStyle(.white)
             )
     }
