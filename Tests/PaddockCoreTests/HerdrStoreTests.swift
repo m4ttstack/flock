@@ -105,6 +105,25 @@ private func threeLevelMixedDirectionNestSnapshotResultJSON() -> String {
     """#
 }
 
+/// Four workspaces in the scattered order `[w2, w4, w1, w3]`, one tab each:
+/// what `[w1, w3]` moved to the end of `[w1, w2, w3, w4]` leaves behind.
+private func scatteredFourWorkspaceSnapshotResultJSON() -> String {
+    let rows = ["w2", "w4", "w1", "w3"].enumerated().map { index, id in
+        #"{"workspace_id":"\#(id)","label":"\#(id)","number":\#(index + 1),"active_tab_id":"\#(id):t1","agent_status":"unknown"}"#
+    }
+    let tabs = ["w2", "w4", "w1", "w3"].map { id in
+        #"{"tab_id":"\#(id):t1","workspace_id":"\#(id)","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"}"#
+    }
+    return #"{"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":null,"workspaces":[\#(rows.joined(separator: ","))],"tabs":[\#(tabs.joined(separator: ","))],"panes":[],"layouts":[]}}"#
+}
+
+private func workspaceReorderedEventLine(_ order: [String]) -> String {
+    let rows = order.enumerated().map { index, id in
+        #"{"workspace_id":"\#(id)","label":"\#(id)","number":\#(index + 1),"active_tab_id":"\#(id):t1","agent_status":"unknown"}"#
+    }
+    return #"{"data":{"type":"workspace_reordered","workspaces":[\#(rows.joined(separator: ","))]}}"#
+}
+
 private func threeWorkspaceSnapshotResultJSON() -> String {
     #"""
     {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":null,"workspaces":[{"workspace_id":"w1","label":"w1","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"w2","number":2,"active_tab_id":"w2:t1","agent_status":"unknown"},{"workspace_id":"w3","label":"w3","number":3,"active_tab_id":"w3:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w2:t1","workspace_id":"w2","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"},{"tab_id":"w3:t1","workspace_id":"w3","label":"t1","number":1,"pane_count":0,"agent_status":"unknown"}],"panes":[],"layouts":[]}}
@@ -601,6 +620,64 @@ final class HerdrStoreTests: XCTestCase {
             [WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3"), WorkspaceID(rawValue: "w2")]
         )
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "a timed-out watch resnapshots")
+    }
+
+    /// The other half of the test above. A plan that armed no watch at all
+    /// passes that one, since nothing times out; here, with no confirming
+    /// event, only an armed watch ever resnapshots.
+    @MainActor
+    func testMoveWorkspaceBlockWithNoConfirmingEventTimesOutIntoAResnapshot() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: threeWorkspaceSnapshotResultJSON())
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .milliseconds(200))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3")], before: WorkspaceID(rawValue: "w2"))], label: "Move workspaces")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        try await waitUntil { fake.receivedRequests.filter { $0.method == "session.snapshot" }.count == 2 }
+    }
+
+    /// Undoing a scattered block move is two `workspace.move_block` calls,
+    /// each confirmed by its own `workspace.reordered`. The first carries
+    /// `[w1, w2, w4, w3]`, neither the start nor the end; applied, it would
+    /// show the rail an order the overlay had already moved past.
+    @MainActor
+    func testAMultiMoveReorderNeverShowsTheIntermediateOrderHerdrReportsOnTheWay() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: scatteredFourWorkspaceSnapshotResultJSON())
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .seconds(1))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let w = ["w1", "w2", "w3", "w4"].map { WorkspaceID(rawValue: $0) }
+        let plan = OpPlan(ops: [
+            .moveWorkspaceBlock([w[0]], before: w[1]),
+            .moveWorkspaceBlock([w[2]], before: w[3]),
+        ], label: "Undo Move workspaces")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+        XCTAssertEqual(store.model?.workspaces.map(\.workspaceID), w)
+
+        fake.pushEventLine(workspaceReorderedEventLine(["w1", "w2", "w4", "w3"]))
+        // Events apply in arrival order, so once this later rename has landed
+        // the intermediate reorder before it has been handled too.
+        fake.pushEventLine(#"{"data":{"type":"tab_renamed","tab_id":"w1:t1","label":"marker"}}"#)
+        try await waitUntil { store.model?.tabs[w[0]]?.first?.label == "marker" }
+        XCTAssertEqual(store.model?.workspaces.map(\.workspaceID), w, "the intermediate order reached the rail")
+
+        fake.pushEventLine(workspaceReorderedEventLine(["w1", "w2", "w3", "w4"]))
+        try await Task.sleep(for: .milliseconds(1400))
+        XCTAssertEqual(store.model?.workspaces.map(\.workspaceID), w)
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "the final order never converged the watch")
     }
 
     // MARK: - setSplitRatio prediction (the divider drag's own optimistic overlay)

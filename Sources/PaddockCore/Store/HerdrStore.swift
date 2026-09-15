@@ -64,6 +64,10 @@ public final class HerdrStore {
     private struct PendingConvergence {
         let generation: Int
         let kinds: Set<ConvergenceKind>
+        /// Set only for a plan of more than one workspace reorder. herdr
+        /// confirms each reorder with its own event, and every event before
+        /// the last carries an order the overlay has already moved past.
+        let finalWorkspaceOrder: [WorkspaceID]?
     }
 
     public init(
@@ -126,13 +130,18 @@ public final class HerdrStore {
             ))
         }
 
-        model = Self.predictedModel(applying: plan, to: baseModel)
+        let predicted = Self.predictedModel(applying: plan, to: baseModel)
+        model = predicted
         overlayGeneration += 1
         let generation = overlayGeneration
 
         let kinds = Self.convergenceKinds(for: plan)
         if !kinds.isEmpty {
-            armConvergence(kinds: kinds, generation: generation)
+            let reorders = plan.ops.filter(Self.isWorkspaceReorder).count
+            armConvergence(
+                kinds: kinds, generation: generation,
+                finalWorkspaceOrder: reorders > 1 ? predicted.workspaces.map(\.workspaceID) : nil
+            )
         }
 
         let engine = MutationEngine(client: HerdrClient(socketPath: socketPath))
@@ -165,11 +174,25 @@ public final class HerdrStore {
     /// Superseding an unresolved watch resolves it "not matched" first, so a
     /// second `execute` racing ahead of the first can never leave a result
     /// permanently uncollected.
-    private func armConvergence(kinds: Set<ConvergenceKind>, generation: Int) {
+    private func armConvergence(kinds: Set<ConvergenceKind>, generation: Int, finalWorkspaceOrder: [WorkspaceID]?) {
         if let previous = pendingConvergence {
             resolveConvergence(previous.generation, matched: false)
         }
-        pendingConvergence = PendingConvergence(generation: generation, kinds: kinds)
+        pendingConvergence = PendingConvergence(generation: generation, kinds: kinds, finalWorkspaceOrder: finalWorkspaceOrder)
+    }
+
+    private static func isWorkspaceReorder(_ op: PrimitiveOp) -> Bool {
+        switch op {
+        case .moveWorkspace, .moveWorkspaceBlock: true
+        default: false
+        }
+    }
+
+    private static func workspaceOrder(carriedBy event: HerdrEvent) -> [WorkspaceID]? {
+        switch event {
+        case .workspaceMoved(let workspaces), .workspaceReordered(let workspaces): workspaces.map(\.workspaceID)
+        default: nil
+        }
     }
 
     private func resolveConvergence(_ generation: Int, matched: Bool) {
@@ -637,6 +660,12 @@ public final class HerdrStore {
 
     private func applyLiveEvent(_ event: HerdrEvent) {
         guard var current = model else { return }
+        // Held back rather than applied: the rail would flash through it. A
+        // watch that never sees the final order times out into a resnapshot,
+        // which recovers whatever herdr really did.
+        if let final = pendingConvergence?.finalWorkspaceOrder, let order = Self.workspaceOrder(carriedBy: event), order != final {
+            return
+        }
         apply(event, to: &current)
         model = current
         if let pending = pendingConvergence, let kind = Self.convergenceKind(of: event), pending.kinds.contains(kind) {
