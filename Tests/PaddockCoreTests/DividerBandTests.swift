@@ -31,12 +31,12 @@ final class DividerBandTests: XCTestCase {
 
     /// `PaneCellView`'s real chrome, mirrored here rather than imported: 10pt
     /// leading/trailing content inset, 8pt bottom inset, 8pt legend half-height
-    /// plus 12pt top inset above a pane's terminal surface, and the 6pt
-    /// gutter's own half-inset each pane box already carries. If any of these
-    /// numbers, or `DividerBand.thickness`, ever change, this must be
-    /// rechecked before trusting the band stays off the terminal surface.
+    /// plus 12pt top inset above a pane's terminal surface, and the gutter's
+    /// own half-inset each pane box already carries. If any of these numbers
+    /// change, this must be rechecked before trusting the band stays off the
+    /// terminal surface.
     func testHitBandNeverReachesEitherNeighborsTerminalSurface() {
-        let halfGutter: CGFloat = 6 / 2
+        let halfGutter: CGFloat = DividerBand.gutter / 2
         let leadingInset: CGFloat = 10
         let bottomInset: CGFloat = 8
         let legendHalfHeight: CGFloat = 8
@@ -109,4 +109,18 @@ final class DividerBandTests: XCTestCase {
         // Off both centerlines but closer to the vertical (2 vs 4).
         XCTAssertEqual(DividerIntersections.resolve(intersection, at: CGPoint(x: 102, y: 44)).path, [])
     }
+    // MARK: - handle
+
+    func testHandleIsAFifthOfALongDivider() {
+        XCTAssertEqual(DividerBand.handleLength(forDividerLength: 600), 120, accuracy: 0.001)
+    }
+
+    func testHandleNeverShrinksBelowItsMinimum() {
+        XCTAssertEqual(DividerBand.handleLength(forDividerLength: 80), DividerBand.handleMinimumLength)
+    }
+
+    func testHandleNeverOutgrowsItsDivider() {
+        XCTAssertEqual(DividerBand.handleLength(forDividerLength: 20), 20)
+    }
+
 }

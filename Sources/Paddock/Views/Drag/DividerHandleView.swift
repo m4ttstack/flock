@@ -44,12 +44,9 @@ struct DividerHandleView: View {
     var body: some View {
         ZStack {
             if let liveRatio {
-                liveLine(at: liveRatio)
+                liveHandle(at: liveRatio)
             } else {
-                restLine
-                if isHovering {
-                    pip
-                }
+                handle(color: isHovering ? theme.accent : theme.overlay0)
             }
         }
         .frame(width: band.width, height: band.height)
@@ -91,30 +88,34 @@ struct DividerHandleView: View {
             .onEnded { _ in dividerDrag.ended() }
     }
 
-    /// Discoverable at rest: a faint line on the gutter's own centerline,
-    /// always drawn (never only on hover). `liveLine` replaces it while
-    /// dragging rather than layering under it.
-    private var restLine: some View {
-        Rectangle()
-            .fill(isHovering ? theme.accent : theme.separator)
-            .frame(width: isVertical ? 1 : band.width, height: isVertical ? band.height : 1)
+    /// Always drawn, so the divider is findable without hunting for it:
+    /// a capsule centered along the divider, a fifth of its length.
+    private func handle(color: Color) -> some View {
+        let length = DividerBand.handleLength(
+            forDividerLength: isVertical ? divider.frame.height : divider.frame.width
+        )
+        return Capsule()
+            .fill(color)
+            .frame(
+                width: isVertical ? DividerBand.handleThickness : length,
+                height: isVertical ? length : DividerBand.handleThickness
+            )
     }
 
-    private var pip: some View {
-        Capsule()
-            .fill(theme.overlay1)
-            .frame(width: isVertical ? 3 : 16, height: isVertical ? 16 : 3)
-    }
-
-    private func liveLine(at ratio: Double) -> some View {
+    /// The same handle, moved to the boundary the drag is previewing.
+    private func liveHandle(at ratio: Double) -> some View {
         let boundary = DividerDragMath.boundary(forRatio: ratio, divider: divider)
         let localOffset = isVertical ? boundary - divider.frame.midX : boundary - divider.frame.midY
 
+        let handleLength = DividerBand.handleLength(
+            forDividerLength: isVertical ? divider.frame.height : divider.frame.width
+        )
         return ZStack {
-            Rectangle()
-                .fill(theme.accent)
-                .frame(width: isVertical ? 2 : divider.frame.width, height: isVertical ? divider.frame.height : 2)
+            handle(color: theme.accent)
+            // Clear of the handle so the percentage never covers what the
+            // pointer is holding.
             ratioLabel(ratio)
+                .offset(y: isVertical ? -(handleLength / 2 + 14) : -16)
         }
         .offset(x: isVertical ? localOffset : 0, y: isVertical ? 0 : localOffset)
     }

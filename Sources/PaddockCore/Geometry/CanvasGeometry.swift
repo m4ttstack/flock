@@ -53,7 +53,22 @@ extension DividerHandle {
 /// this past the tightest of those (16, the 8pt-bottom-inset case) without
 /// rechecking `CanvasGeometryTests`' own margin assertions.
 public enum DividerBand {
-    public static let thickness: CGFloat = 16
+    /// The drawn space between two pane boxes. Every pane box and the drop
+    /// preview inset by half of it, so this is the one value to change.
+    public static let gutter: CGFloat = 12
+    /// The grab band centered on the gutter. Half of it must stay under the
+    /// smallest chrome margin a neighbor carries past its half-gutter (its
+    /// 8pt bottom inset), or a press could land on terminal text.
+    public static let thickness: CGFloat = 24
+    /// The visible handle: a capsule this thick, a fifth of the divider's
+    /// length, centered along it.
+    public static let handleThickness: CGFloat = 4
+    public static let handleLengthFraction: CGFloat = 0.2
+    public static let handleMinimumLength: CGFloat = 28
+
+    public static func handleLength(forDividerLength length: CGFloat) -> CGFloat {
+        min(length, max(handleMinimumLength, length * handleLengthFraction))
+    }
 }
 
 /// Where a tab's cell grid sits on the canvas: the tab's `area` stretched to

@@ -21,7 +21,7 @@ struct PaneCanvas: View {
     @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(\.displayScale) private var displayScale
 
-    private static let dividerThickness: CGFloat = 6
+    private static let dividerThickness: CGFloat = DividerBand.gutter
 
     var body: some View {
         GeometryReader { proxy in
