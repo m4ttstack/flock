@@ -22,15 +22,13 @@ struct WorkspaceRail: View {
                     .font(ChromeType.railHeading)
                     .tracking(ChromeType.railHeadingTracking)
                     .foregroundStyle(theme.textLabel)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // Centered on the heading text and overlaid, so the
+                    // button's box can never move the heading or the rows
+                    // under it however large it grows.
+                    .overlay(alignment: .trailing) { AllWorkspacesButton(theme: theme) }
                     .padding(.top, ChromeMetrics.Rail.verticalPadding)
                     .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // An overlay, so the button's own box can never move the
-                    // heading or the rows under it.
-                    .overlay(alignment: .bottomTrailing) {
-                        AllWorkspacesButton(theme: theme)
-                            .padding(.trailing, ChromeMetrics.Rail.horizontalPadding)
-                    }
                 // Only the rows scroll. The gap below the heading is scroll
                 // content, so rows scroll up to the heading's edge, and the
                 // horizontal padding is too, so the viewport keeps the rail's
@@ -125,14 +123,32 @@ private struct AllWorkspacesButton: View {
         } label: {
             Image(systemName: "square.grid.2x2")
                 .font(ChromeType.railHeadingSymbol)
-                .foregroundStyle(isHovering ? theme.textStrong : theme.textLabel)
-                .frame(width: ChromeMetrics.Rail.headingButtonSize, height: ChromeMetrics.Rail.headingButtonSize)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(HeadingButtonStyle(theme: theme, isHovering: isHovering))
         .onHover { isHovering = $0 }
         .help("All workspaces")
         .accessibilityIdentifier("paddock.rail.allWorkspaces")
+    }
+}
+
+/// A square block behind the glyph that appears on hover and deepens while the
+/// press is held.
+private struct HeadingButtonStyle: ButtonStyle {
+    let theme: Theme
+    let isHovering: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let lit = isHovering || configuration.isPressed
+        return configuration.label
+            .foregroundStyle(lit ? theme.textStrong : theme.textLabel)
+            .frame(width: ChromeMetrics.Rail.headingButtonSize, height: ChromeMetrics.Rail.headingButtonSize)
+            .background(
+                RoundedRectangle(cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius)
+                    .fill(configuration.isPressed ? theme.selection : theme.tabRest)
+                    .opacity(lit ? 1 : 0)
+            )
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: lit)
     }
 }
 

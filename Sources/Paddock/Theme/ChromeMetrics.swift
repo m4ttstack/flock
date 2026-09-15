@@ -36,8 +36,11 @@ enum ChromeMetrics {
         /// row gap either side of it.
         static let headingToFirstRow: CGFloat = rowGap + headingGap + rowGap
         /// The "All workspaces" button's hit box, overlaid on the heading row
-        /// so its size never moves the heading or the rows below it.
-        static let headingButtonSize: CGFloat = 16
+        /// so its size never moves the heading or the rows below it. Taller
+        /// than the heading text: the overflow is absorbed by the padding
+        /// above and the gap below.
+        static let headingButtonSize: CGFloat = 22
+        static let headingButtonCornerRadius: CGFloat = 3
     }
 
     enum WorkspaceRow {
