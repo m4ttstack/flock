@@ -72,10 +72,14 @@ struct DropzoneOverlay: View {
         }
     }
 
+    /// The wash alone, never a stroke. A drop onto a pane's interior
+    /// previews that pane's own box, so a stroked preview lands a couple of
+    /// points inside the border the pane already draws and reads as a
+    /// doubled edge; an edge-band drop shares two sides with it for the
+    /// same reason.
     private func filled(in box: CGRect) -> some View {
         RoundedRectangle(cornerRadius: 9)
-            .fill(theme.accent.opacity(0.18))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent, lineWidth: 2))
+            .fill(theme.accent.opacity(0.22))
             .frame(width: box.width, height: box.height)
             .offset(x: box.minX, y: box.minY)
     }
