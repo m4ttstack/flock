@@ -451,7 +451,8 @@ final class GhosttySession {
         guard let surface else { return false }
         guard host.updateLiveConfig(
             surface: surface, colors: colors, commandArgv: configuration.commandArgv,
-            fontFamily: TerminalFont.face, fontSizePoints: fontSizePoints
+            fontFamily: TerminalFont.face, fontSizePoints: fontSizePoints,
+            thickenStrokes: TerminalFont.thickensStrokes
         ) else {
             return false
         }
@@ -567,7 +568,8 @@ final class GhosttySession {
         // app's config once, at creation.
         guard host.configureNextSurface(
             colors: configuration.themeColors, commandArgv: configuration.commandArgv,
-            fontFamily: TerminalFont.face, fontSizePoints: configuration.fontSizePoints
+            fontFamily: TerminalFont.face, fontSizePoints: configuration.fontSizePoints,
+            thickenStrokes: TerminalFont.thickensStrokes
         ) else { return }
 
         if let scheme = colorScheme(for: view.effectiveAppearance) {

@@ -88,13 +88,19 @@ public enum GhosttyThemeConfig {
     /// the cell size from origin 0, so any padding would shift the leftmost
     /// and topmost slice of every cell onto the previous one; the pane chrome
     /// already provides the visual inset.
+    /// `thickenStrokes` is ghostty's own remedy for macOS grayscale
+    /// antialiasing on a display with no backing scale to spend: at 1x a
+    /// 13pt stem is one pixel wide and reads as faint. It is pointless above
+    /// 1x, so the caller decides from the screen rather than this builder.
     public static func configText(
-        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Double
+        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String,
+        fontSizePoints: Double, thickenStrokes: Bool = false
     ) -> String {
         let command = commandArgv.map(\.shellEscaped).joined(separator: " ")
         return configText(colors: colors)
             + "font-family = \(fontFamily)\n"
             + "font-size = \(fontSizeText(fontSizePoints))\n"
+            + (thickenStrokes ? "font-thicken = true\n" : "")
             + "window-padding-x = 0\n"
             + "window-padding-y = 0\n"
             + "command = shell:\(command)\n"

@@ -1,8 +1,13 @@
+import AppKit
+import CoreText
 import Foundation
+import PaddockCore
 import Observation
 
 /// The terminal font face the ghostty surface loads (via
-/// `GhosttyThemeConfig`'s `font-family` config line). "SF Mono" -- what SwiftUI's
+/// `GhosttyThemeConfig`'s `font-family` config line): the family the user's
+/// own terminal is configured with when CoreText resolves it, else the
+/// fallback below. "SF Mono" -- what SwiftUI's
 /// `.system(design: .monospaced)` resolves to -- is NOT CoreText-discoverable
 /// by family name, even with Xcode.app installed: the file exists
 /// (`Xcode.app/Contents/SharedFrameworks/DVTUserInterfaceKit.framework/.../
@@ -17,7 +22,30 @@ import Observation
 /// (`Vendor/ghostty/src/font/face/coretext.zig`) -- the pinned face for both
 /// reasons.
 public enum TerminalFont {
-    public static let face = "Menlo"
+    /// Resolved once per launch: a font change in the terminal's own config
+    /// lands on the next launch rather than mid-session, which keeps every
+    /// pane's cell metrics stable for the life of the process.
+    public static let face: String = resolve()
+
+    /// Where the terminal paddock mirrors keeps its own config.
+    private static var terminalConfigURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/ghostty/config")
+    }
+
+    /// True where a glyph gets no subpixel budget: macOS draws grayscale
+    /// antialiased text, so at 1x a thin stem lands on one pixel and reads
+    /// as faint. Read once, like the face.
+    public static let thickensStrokes: Bool = (NSScreen.main?.backingScaleFactor ?? 2) < 2
+
+    private static func resolve() -> String {
+        let text = try? String(contentsOf: terminalConfigURL, encoding: .utf8)
+        return TerminalFontResolution.face(configText: text) { family in
+            // CoreText answers a name it cannot resolve with Helvetica rather
+            // than with nil, so the family name has to be read back.
+            let font = CTFontCreateWithName(family as CFString, 13, nil)
+            return (CTFontCopyFamilyName(font) as String) == family
+        }
+    }
 }
 
 /// One of three fixed terminal point sizes: the font size every pane renders

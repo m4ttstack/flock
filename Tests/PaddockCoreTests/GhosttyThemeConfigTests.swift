@@ -204,4 +204,21 @@ final class GhosttyThemeConfigTests: XCTestCase {
             ansi: Array(repeating: color(2, 2, 2), count: 16)
         ).ansi.count, 16)
     }
+    func testStrokeThickeningIsEmittedOnlyWhenAsked() {
+        let colors = GhosttyThemeColors(
+            background: color(0x19, 0x1a, 0x22),
+            foreground: color(0xc0, 0xca, 0xf5),
+            ansi: (0..<16).map { _ in color(0x41, 0x48, 0x68) }
+        )
+        let thin = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: ["/bin/zsh"], fontFamily: "Menlo", fontSizePoints: 13
+        )
+        let thick = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: ["/bin/zsh"], fontFamily: "Menlo", fontSizePoints: 13,
+            thickenStrokes: true
+        )
+        XCTAssertFalse(thin.contains("font-thicken"))
+        XCTAssertTrue(thick.contains("font-thicken = true"))
+    }
+
 }
