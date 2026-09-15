@@ -77,14 +77,15 @@ public enum DragVisuals {
         return CGSize(width: origin.width * scale, height: origin.height * scale)
     }
 
-    /// Where the proxy settles when a drop does not commit: centered on the
-    /// item it was picked up from, so it bounces back onto that item rather
-    /// than onto wherever inside it the press happened to land. `origin` is
-    /// that item's frame in the drag space; without one the press point is the
-    /// best available stand-in.
-    public static func settleHomeTopLeft(origin: CGRect?, grabPoint: CGPoint, ghostSize: CGSize) -> CGPoint {
-        let home = origin.map { CGPoint(x: $0.midX, y: $0.midY) } ?? grabPoint
-        return ghostTopLeft(forCursor: home, ghostSize: ghostSize)
+    /// Where the proxy settles: centered on the region it belongs to -- the
+    /// item it was picked up from for a drop that commits nothing, the region
+    /// it landed in for one that does. A proxy is rarely that region's own
+    /// size, so matching their origins instead would hang it off one corner
+    /// (a 261pt rail-row proxy against the 172pt row it lands on). Without a
+    /// region the press point is the best available stand-in.
+    public static func settleTopLeft(on region: CGRect?, grabPoint: CGPoint, ghostSize: CGSize) -> CGPoint {
+        let center = region.map { CGPoint(x: $0.midX, y: $0.midY) } ?? grabPoint
+        return ghostTopLeft(forCursor: center, ghostSize: ghostSize)
     }
 }
 

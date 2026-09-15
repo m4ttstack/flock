@@ -11,8 +11,24 @@ final class GridDragSettleTests: XCTestCase {
     private static let pane = PaneID(rawValue: "w1:p1")
     private static let card = CGRect(x: 10, y: 10, width: 500, height: 200)
     private static let thumbnail = CGRect(x: 20, y: 60, width: 100, height: 82)
-    /// One mini pane inside the thumbnail, its own footprint.
-    private static let miniPane = CGRect(x: 24, y: 64, width: 45, height: 74)
+    /// One mini pane inside the thumbnail, stated in the thumbnail's space.
+    private static let miniPaneBox = CGRect(x: 4, y: 4, width: 45, height: 74)
+    private static var miniPane: CGRect {
+        CGRect(
+            x: thumbnail.minX + miniPaneBox.minX, y: thumbnail.minY + miniPaneBox.minY,
+            width: miniPaneBox.width, height: miniPaneBox.height
+        )
+    }
+
+    private static func home(box: CGRect, item: GridItemID) -> DragCoordinator.DragHome {
+        let frame = item == .tab(tab) ? thumbnail : card
+        return DragCoordinator.DragHome(
+            atStart: CGRect(
+                x: frame.minX + box.minX, y: frame.minY + box.minY, width: box.width, height: box.height
+            ),
+            item: item, boxInItem: box
+        )
+    }
 
     /// A shown grid with one card and one thumbnail, assembled from frame
     /// reports rather than from a window.
@@ -28,6 +44,10 @@ final class GridDragSettleTests: XCTestCase {
         drag.setGridItemFrame(Self.card, for: .card(Self.workspace))
         drag.setGridItemFrame(Self.thumbnail, for: .tab(Self.tab))
         return drag
+    }
+
+    private var paneHome: DragCoordinator.DragHome {
+        Self.home(box: Self.miniPaneBox, item: .tab(Self.tab))
     }
 
     private func paneGhost(originSize: CGSize) -> DragCoordinator.Ghost {
@@ -50,7 +70,7 @@ final class GridDragSettleTests: XCTestCase {
         let drag = makeCoordinator()
         drag.beginIfIdle(
             .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size),
-            at: CGPoint(x: 30, y: 70), home: Self.miniPane
+            at: CGPoint(x: 30, y: 70), home: paneHome
         )
         drag.move(to: CGPoint(x: 90, y: 120))
         XCTAssertEqual(drag.target, .tabThumbnail(Self.tab))
@@ -68,7 +88,8 @@ final class GridDragSettleTests: XCTestCase {
             ghost: DragCoordinator.Ghost(
                 title: "agents", symbol: "rectangle.stack", originSize: Self.thumbnail.size, isCompact: true
             ),
-            at: CGPoint(x: 40, y: 80), home: Self.thumbnail
+            at: CGPoint(x: 40, y: 80),
+            home: Self.home(box: CGRect(origin: .zero, size: Self.thumbnail.size), item: .tab(Self.tab))
         )
         drag.move(to: CGPoint(x: 400, y: 180))
         XCTAssertEqual(drag.target, .workspaceThumbnail(Self.workspace))
@@ -84,7 +105,7 @@ final class GridDragSettleTests: XCTestCase {
         let drag = makeCoordinator()
         drag.beginIfIdle(
             .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size),
-            at: CGPoint(x: 30, y: 70), home: Self.miniPane
+            at: CGPoint(x: 30, y: 70), home: paneHome
         )
         drag.move(to: CGPoint(x: 560, y: 380))
         XCTAssertNil(drag.target)
@@ -92,6 +113,23 @@ final class GridDragSettleTests: XCTestCase {
         drag.release()
         await awaitSettle(drag)
         XCTAssertEqual(drag.ghostTopLeft, Self.miniPane.origin)
+    }
+
+    /// The grid scrolls under the drag, so the mini pane is no longer where it
+    /// was when the press landed. The spring back follows the item, not the
+    /// rect it once occupied.
+    func testAGridThatScrollsUnderTheDragMovesWhereTheGhostSpringsBackTo() async {
+        let drag = makeCoordinator()
+        drag.beginIfIdle(
+            .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPaneBox.size),
+            at: CGPoint(x: 30, y: 70), home: paneHome
+        )
+        drag.move(to: CGPoint(x: 90, y: 120))
+        drag.setGridContentOrigin(CGPoint(x: 0, y: -120))
+
+        drag.release()
+        await awaitSettle(drag)
+        XCTAssertEqual(drag.ghostTopLeft, CGPoint(x: Self.miniPane.minX, y: Self.miniPane.minY - 120))
     }
 
     /// Without a recorded home the press point stands in, which is what every

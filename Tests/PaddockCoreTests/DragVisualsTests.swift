@@ -83,15 +83,26 @@ final class DragVisualsTests: XCTestCase {
     func testAnUncommittedDropSettlesOntoTheItemItWasPickedUpFrom() {
         let home = CGRect(x: 100, y: 200, width: 60, height: 80)
         let ghost = CGSize(width: 60, height: 80)
-        let top = DragVisuals.settleHomeTopLeft(origin: home, grabPoint: CGPoint(x: 105, y: 275), ghostSize: ghost)
+        let top = DragVisuals.settleTopLeft(on: home, grabPoint: CGPoint(x: 105, y: 275), ghostSize: ghost)
         XCTAssertEqual(top, CGPoint(x: 100, y: 200))
     }
 
-    /// Without a recorded origin frame the press point is the stand-in, which
-    /// is what every drag outside the grid still uses.
-    func testWithNoOriginFrameTheSettleFallsBackToThePressPoint() {
+    /// A proxy is rarely its landing region's own size, so it centers on the
+    /// region rather than matching origins with it: a 261x41 rail-row proxy
+    /// would otherwise hang 89pt past the 172pt row it lands on.
+    func testACommittedDropCentersTheProxyOnTheRegionItLandedIn() {
+        let row = CGRect(x: 10, y: 100, width: 172, height: 27)
+        let top = DragVisuals.settleTopLeft(on: row, grabPoint: .zero, ghostSize: CGSize(width: 261, height: 41))
+        XCTAssertEqual(top, CGPoint(x: -34.5, y: 93), "overhanging both sides equally, not one")
+        XCTAssertEqual(top.x + 261 / 2, row.midX)
+        XCTAssertEqual(top.y + 41 / 2, row.midY)
+    }
+
+    /// Without a region the press point is the stand-in, which is what every
+    /// drag outside the grid still uses.
+    func testWithNoRegionTheSettleFallsBackToThePressPoint() {
         let ghost = CGSize(width: 60, height: 80)
-        let top = DragVisuals.settleHomeTopLeft(origin: nil, grabPoint: CGPoint(x: 105, y: 275), ghostSize: ghost)
+        let top = DragVisuals.settleTopLeft(on: nil, grabPoint: CGPoint(x: 105, y: 275), ghostSize: ghost)
         XCTAssertEqual(top, CGPoint(x: 75, y: 235))
     }
 

@@ -74,6 +74,17 @@ final class DragCoordinator {
         let dot: CGRect
     }
 
+    /// Where a drag was picked up from, for the spring back. A grid item moves
+    /// under the drag whenever the grid scrolls or a card expands, so a grid
+    /// home is carried as the item plus the box inside it and resolved from
+    /// the live frames at settle time. `atStart` is the answer for an item
+    /// that has gone by then, and the only answer a drag outside the grid has.
+    struct DragHome: Equatable {
+        let atStart: CGRect
+        var item: GridItemID?
+        var boxInItem: CGRect = .zero
+    }
+
     let controller: DragController
 
     private(set) var ghost: Ghost?
@@ -201,10 +212,10 @@ final class DragCoordinator {
     @ObservationIgnored private var generation = 0
     /// Where the gesture started, for the cancel spring-back.
     @ObservationIgnored private var grabPoint: CGPoint = .zero
-    /// The frame of the item the drag was picked up from, in the drag space.
-    /// A drop that commits nothing sends the ghost back onto it rather than
-    /// onto the point inside it that happened to be pressed.
-    @ObservationIgnored private var homeFrame: CGRect?
+    /// What the drag was picked up from. A drop that commits nothing sends
+    /// the ghost back onto it rather than onto the point inside it that
+    /// happened to be pressed.
+    @ObservationIgnored private var dragHome: DragHome?
     /// Whether this drag is the one holding rearrange mode open. Only a drag
     /// that STARTED in rearrange mode does: the hold exists so releasing
     /// Control mid-drag does not repaint the panes, and a chrome drag at rest
@@ -493,14 +504,14 @@ final class DragCoordinator {
     /// (the pane body's AppKit path and a SwiftUI gesture both seeing it, say)
     /// finds the gesture already live and does nothing, so no view needs a
     /// latch of its own to remember what it started.
-    func beginIfIdle(_ subject: DragSubject, ghost: Ghost, at point: CGPoint, home: CGRect? = nil) {
+    func beginIfIdle(_ subject: DragSubject, ghost: Ghost, at point: CGPoint, home: DragHome? = nil) {
         guard machine.handle(.begin) == .start else { return }
         generation += 1
         outcomes.generation = generation
         settleTask?.cancel()
         isSettling = false
         grabPoint = point
-        homeFrame = home
+        dragHome = home
         pendingReveal = nil
         pendingStripScroll = nil
         activeSubject = subject
@@ -645,7 +656,7 @@ final class DragCoordinator {
             settleHome()
             return
         }
-        settle(to: settleRect.origin)
+        settle(onto: settleRect)
     }
 
     private func releaseRearrangeHold() {
@@ -666,11 +677,32 @@ final class DragCoordinator {
     /// commits nothing: no target, a target with no landing rect, a no-op, a
     /// rejection, Esc, and an abandoned gesture.
     private func settleHome() {
+        settle(onto: homeRect)
+    }
+
+    /// Centered on `region`, or on the press point when the drag has none.
+    private func settle(onto region: CGRect?) {
         guard let ghost else {
-            settle(to: grabPoint)
+            settle(to: region?.origin ?? grabPoint)
             return
         }
-        settle(to: DragVisuals.settleHomeTopLeft(origin: homeFrame, grabPoint: grabPoint, ghostSize: ghostSize(ghost)))
+        settle(to: DragVisuals.settleTopLeft(on: region, grabPoint: grabPoint, ghostSize: ghostSize(ghost)))
+    }
+
+    /// The home where it is NOW: the grid scrolls and reflows under a drag, so
+    /// a grid item's rect is read back from the live frames rather than from
+    /// the one recorded when the press landed.
+    private var homeRect: CGRect? {
+        guard let dragHome else { return nil }
+        guard let item = dragHome.item,
+              let live = gridItems.onScreen.first(where: { $0.id == item })?.frame
+        else {
+            return dragHome.atStart
+        }
+        return CGRect(
+            x: live.minX + dragHome.boxInItem.minX, y: live.minY + dragHome.boxInItem.minY,
+            width: dragHome.boxInItem.width, height: dragHome.boxInItem.height
+        )
     }
 
     private func ghostSize(_ ghost: Ghost) -> CGSize {
