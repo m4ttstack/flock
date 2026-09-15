@@ -22,6 +22,25 @@ final class GridGeometryTests: XCTestCase {
 
     // MARK: - mini pane geometry
 
+    /// The mini panes start under the tab's handle strip, not at the
+    /// thumbnail's own top edge: a box read against the full frame would sit
+    /// a strip's height above where it is drawn, and the hover card and the
+    /// spring-back home both read boxes that way.
+    func testThePaneAreaStartsBelowTheHandleStrip() {
+        let thumbnail = CGRect(x: 20, y: 60, width: 100, height: 101)
+        XCTAssertEqual(
+            MiniPaneLayout.paneArea(in: thumbnail, stripHeight: 15),
+            CGRect(x: 20, y: 75, width: 100, height: 86)
+        )
+    }
+
+    /// A thumbnail shorter than its own strip (a transient layout pass) keeps
+    /// a real rect rather than a negative one.
+    func testAPaneAreaNeverGoesNegative() {
+        let area = MiniPaneLayout.paneArea(in: CGRect(x: 0, y: 0, width: 100, height: 10), stripHeight: 15)
+        XCTAssertEqual(area.height, 0)
+    }
+
     func testASideBySideSplitKeepsThePaddingOutsideAndTheGapBetween() {
         let boxes = MiniPaneLayout.boxes(
             layout: sideBySide, exported: nil, fallbackPanes: [], size: thumbnail, padding: 4, gap: 4, displayScale: 2
@@ -252,6 +271,14 @@ final class GridGeometryTests: XCTestCase {
 
     func testAPaneOverAGridThumbnailTargetsThatTab() {
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 60, y: 100), dragging: pane, surfaces: surfaces(grid: true)), .tabThumbnail(TabID(rawValue: "w1:t2")))
+    }
+
+    /// The tab's handle strip is drawn inside its thumbnail and reports no
+    /// frame of its own, so a drop on the strip is a drop on that tab rather
+    /// than a target of its own or the card's empty space.
+    func testAPaneOverATabsHandleStripTargetsThatTab() {
+        let strip = CGPoint(x: gridThumbnail.frame.midX, y: gridThumbnail.frame.minY + 2)
+        XCTAssertEqual(resolveDropTarget(at: strip, dragging: pane, surfaces: surfaces(grid: true)), .tabThumbnail(TabID(rawValue: "w1:t2")))
     }
 
     /// Both tiles a card can show report as one grid item, so the "fewer" tile

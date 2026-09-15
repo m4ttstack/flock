@@ -141,7 +141,15 @@ enum ChromeMetrics {
         /// Between tabs, across a row and down an expanded card.
         static let tabGap: CGFloat = 10
         static let tabLabelGap: CGFloat = 5
-        static let thumbnailHeight: CGFloat = 82
+        /// The thumbnail carries the tab's own title strip, so it is taller
+        /// than the block alone by exactly what the label row under it used
+        /// to spend: a card's rows are the same height either way.
+        static let thumbnailHeight: CGFloat = 101
+        /// The tab's handle: a band across the top of its thumbnail, holding
+        /// the title and status dot.
+        static let tabStripHeight: CGFloat = 15
+        static let tabStripHorizontalPadding: CGFloat = 5
+        static let tabStripSpacing: CGFloat = 5
         static let thumbnailCornerRadius: CGFloat = 3
         static let thumbnailPadding: CGFloat = 4
         static let miniPaneGap: CGFloat = 4

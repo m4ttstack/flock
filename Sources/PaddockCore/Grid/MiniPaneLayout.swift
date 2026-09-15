@@ -10,6 +10,17 @@ public enum MiniPaneLayout {
         public let frame: CGRect
     }
 
+    /// What is left of a thumbnail for its mini panes, once the tab's own
+    /// handle strip is taken off the top. Every caller that turns a
+    /// thumbnail's reported frame into mini-pane boxes goes through this, so
+    /// the strip cannot shift a box under the pointer that is aimed at it.
+    public static func paneArea(in thumbnail: CGRect, stripHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: thumbnail.minX, y: thumbnail.minY + stripHeight,
+            width: thumbnail.width, height: max(0, thumbnail.height - stripHeight)
+        )
+    }
+
     /// Every pane's box inside a thumbnail of `size`, top to bottom and then
     /// left to right as drawn. Outer boxes sit exactly `padding` inside the
     /// thumbnail and neighbors `gap` apart. A tab with no layout yet stacks

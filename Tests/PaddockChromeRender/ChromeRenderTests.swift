@@ -127,12 +127,13 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
 
         let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+        let panes = MiniPaneLayout.paneArea(in: thumbnail, stripHeight: ChromeMetrics.Grid.tabStripHeight)
         let boxes = MiniPaneLayout.boxes(
-            layout: model.layouts[GridFixture.agentsTab], exported: nil, fallbackPanes: [], size: thumbnail.size,
+            layout: model.layouts[GridFixture.agentsTab], exported: nil, fallbackPanes: [], size: panes.size,
             padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
         )
         let claude = try XCTUnwrap(boxes.first { $0.pane == GridFixture.claudePane })
-        harness.drag.gridHoverMoved(pane: claude.pane, pointer: CGPoint(x: thumbnail.minX + claude.frame.midX, y: thumbnail.minY + claude.frame.midY))
+        harness.drag.gridHoverMoved(pane: claude.pane, pointer: CGPoint(x: panes.minX + claude.frame.midX, y: panes.minY + claude.frame.midY))
         harness.drag.gridHoverIntentElapsed(pane: claude.pane)
         await settle(window)
         let rest = try snapshot(window)
@@ -206,8 +207,9 @@ final class ChromeRenderTests: XCTestCase {
 
         let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
         let source = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+        let sourcePanes = MiniPaneLayout.paneArea(in: source, stripHeight: ChromeMetrics.Grid.tabStripHeight)
         let claude = try XCTUnwrap(MiniPaneLayout.boxes(
-            layout: model.layouts[GridFixture.agentsTab], exported: nil, fallbackPanes: [], size: source.size,
+            layout: model.layouts[GridFixture.agentsTab], exported: nil, fallbackPanes: [], size: sourcePanes.size,
             padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
         ).first { $0.pane == GridFixture.claudePane })
         harness.drag.beginIfIdle(
@@ -215,7 +217,7 @@ final class ChromeRenderTests: XCTestCase {
             ghost: DragCoordinator.Ghost(
                 title: "claude", symbol: "macwindow", originSize: claude.frame.size, isCompact: true
             ),
-            at: CGPoint(x: source.minX + claude.frame.midX, y: source.minY + claude.frame.midY)
+            at: CGPoint(x: sourcePanes.minX + claude.frame.midX, y: sourcePanes.minY + claude.frame.midY)
         )
 
         let target = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.migrationTab }?.frame)
@@ -245,6 +247,77 @@ final class ChromeRenderTests: XCTestCase {
         }
         assertGridSamples(overCard, theme: .tokyoNight)
         window.close()
+    }
+
+    /// The placeholder for the tab a card drop will create, checked against
+    /// the real reported frames of the cells beside it: a four-tab card,
+    /// whose row is full, and the nine-tab card expanded, where the next slot
+    /// follows the collapse tile.
+    func testTheNewTabPlaceholderTakesTheCardsNextSlot() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        harness.drag.toggleGridCard(GridFixture.repoTools)
+        await settle(window)
+
+        let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.claudePane),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: source.size, isCompact: true),
+            at: CGPoint(x: source.midX, y: source.midY)
+        )
+
+        // The expanded nine-tab card: its last row holds the ninth tab and
+        // the collapse tile, so the placeholder is that row's third column.
+        try await overEmptySpace(of: GridFixture.repoTools, harness: harness, window: window)
+        let expandedPlaceholder = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)))
+        let collapseTile = try XCTUnwrap(harness.drag.surfaces?.grid?.tiles.first { $0.id == GridFixture.repoTools }?.frame)
+        assertSlotFollows(expandedPlaceholder, collapseTile, "the collapse tile")
+        let expanded = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(expanded.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-new-tab.png"))
+        }
+
+        // The four-tab card fills its only row, so the placeholder opens a
+        // second one under the first tab.
+        try await overEmptySpace(of: GridFixture.mattstackApps, harness: harness, window: window)
+        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)), "the placeholder left with the card it was over")
+        let placeholder = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.mattstackApps)))
+        let cardTabs = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.filter { $0.id.rawValue.hasPrefix("w3:") })
+        let firstRow = cardTabs.map(\.frame).sorted { $0.minX < $1.minX }
+        XCTAssertEqual(firstRow.count, 4)
+        XCTAssertEqual(placeholder.minX, try XCTUnwrap(firstRow.first).minX, accuracy: 0.5, "the next row's first column")
+        XCTAssertEqual(placeholder.width, try XCTUnwrap(firstRow.first).width, accuracy: 0.5)
+        XCTAssertEqual(placeholder.height, ChromeMetrics.Grid.thumbnailHeight, accuracy: 0.5)
+        XCTAssertEqual(
+            placeholder.minY, try XCTUnwrap(firstRow.first).maxY + ChromeMetrics.Grid.tabGap, accuracy: 0.5,
+            "one row down"
+        )
+        window.close()
+    }
+
+    /// Moves the live drag onto a card's own empty space, which is its header
+    /// row: no thumbnail or tile covers it.
+    private func overEmptySpace(of workspace: WorkspaceID, harness: Harness, window: NSWindow) async throws {
+        let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
+        harness.drag.move(to: CGPoint(
+            x: card.midX,
+            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
+        ))
+        XCTAssertEqual(harness.drag.target, .workspaceThumbnail(workspace))
+        await settle(window)
+    }
+
+    /// Two cells of one row: same top edge and height, one `tabGap` apart.
+    private func assertSlotFollows(_ slot: CGRect, _ previous: CGRect, _ label: String) {
+        XCTAssertEqual(slot.minY, previous.minY, accuracy: 0.5, "same row as \(label)")
+        XCTAssertEqual(slot.height, previous.height, accuracy: 0.5, "same height as \(label)")
+        XCTAssertEqual(slot.width, previous.width, accuracy: 0.5, "same width as \(label)")
+        XCTAssertEqual(slot.minX, previous.maxX + ChromeMetrics.Grid.tabGap, accuracy: 0.5, "the slot after \(label)")
     }
 
     /// Points are top-left in the 900x560 window: the title bar, the grid

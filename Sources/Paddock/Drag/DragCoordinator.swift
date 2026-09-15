@@ -34,6 +34,10 @@ enum GridItemID: Hashable, Sendable {
     case tile(WorkspaceID)
     /// The whole workspace card, which the thumbnails and tiles sit inside.
     case card(WorkspaceID)
+    /// The placeholder for the tab a drop on this card's empty space will
+    /// create. Tracked only so its frame can be read back; it is never a drop
+    /// surface, since the card behind it is what takes that drop.
+    case newTab(WorkspaceID)
 }
 
 /// The one place the drag gestures, the live layout, and `DragController`
@@ -111,10 +115,14 @@ final class DragCoordinator {
     private(set) var landingFlash: LandingFlash?
     /// True from a PANE drag's own start (past the movement threshold, never
     /// for a tab/workspace drag) until its teardown, settle animation
-    /// excluded -- exactly the span the closed-hand cursor covers. A
-    /// dedicated flag rather than `activeSubject != nil`: that stays set
-    /// through the settle spring, which is no longer "in flight."
+    /// excluded. A dedicated flag rather than `activeSubject != nil`: that
+    /// stays set through the settle spring, which is no longer "in flight."
     private(set) var isPaneDragInFlight = false
+    /// True for exactly the span the app-wide closed-hand cursor is pushed:
+    /// every pane drag, plus any drag started while the grid covers the
+    /// window, where a tab is dragged by its own handle strip. What the grab
+    /// handles read so their hover never repaints over that push.
+    private(set) var holdsGrabCursor = false
 
     // MARK: - Live surfaces, every frame in the drag space
 
@@ -423,6 +431,7 @@ final class DragCoordinator {
             case .tab(let id): thumbnails.append(TabItemFrame(id: id, frame: item.frame))
             case .tile(let id): tiles.append(WorkspaceItemFrame(id: id, frame: item.frame))
             case .card(let id): cards.append(WorkspaceItemFrame(id: id, frame: item.frame))
+            case .newTab: break
             }
         }
         return GridDropSurfaces(viewport: gridViewport ?? .zero, thumbnails: thumbnails, tiles: tiles, cards: cards)
@@ -531,10 +540,15 @@ final class DragCoordinator {
         // re-entered to repaint, and the pointer is usually over some OTHER
         // pane by the time this matters -- `push` forces the image
         // regardless of what is under the pointer, for as long as this drag
-        // lasts. Only a pane drag gets it; a tab/workspace drag keeps
-        // whatever cursor it already had.
+        // lasts. A pane drag always gets it; so does anything dragged inside
+        // the grid, where every draggable already shows the open hand. A
+        // tab or workspace drag from the strip or the rail keeps whatever
+        // cursor it had.
         if case .pane = subject {
             isPaneDragInFlight = true
+        }
+        if isPaneDragInFlight || grid.isShown {
+            holdsGrabCursor = true
             NSCursor.closedHand.push()
         }
         holdsRearrangeOpen = rearrangeMode.active
@@ -634,9 +648,14 @@ final class DragCoordinator {
         // The one choke point every exit path (`end`, `cancel`, `abandon`)
         // runs through, so the pop is always paired with the push above --
         // never duplicated per exit path, which is how a stray unbalanced
-        // pop or a stuck closed-hand cursor would sneak in.
+        // pop or a stuck closed-hand cursor would sneak in. The pop is keyed
+        // on its own flag, never on the subject: what was pushed is the only
+        // thing that may be popped.
         if isPaneDragInFlight {
             isPaneDragInFlight = false
+        }
+        if holdsGrabCursor {
+            holdsGrabCursor = false
             NSCursor.pop()
         }
     }
@@ -701,9 +720,7 @@ final class DragCoordinator {
     /// the one recorded when the press landed.
     private var homeRect: CGRect? {
         guard let dragHome else { return nil }
-        guard let item = dragHome.item,
-              let live = gridItems.onScreen.first(where: { $0.id == item })?.frame
-        else {
+        guard let item = dragHome.item, let live = gridItemFrame(for: item) else {
             return dragHome.atStart
         }
         return CGRect(
@@ -998,6 +1015,13 @@ final class DragCoordinator {
 
     func setGridItemFrame(_ frame: CGRect, for id: GridItemID) {
         writeIfChanged(\.gridItems) { $0.setContentFrame(frame, for: id) }
+    }
+
+    /// One grid item where it is on screen now, in the drag space. Reaches
+    /// the items the drop surfaces leave out, which is what a spring-back
+    /// home and the new-tab placeholder both need.
+    func gridItemFrame(for id: GridItemID) -> CGRect? {
+        gridItems.onScreen.first { $0.id == id }?.frame
     }
 
     func setGridContentOrigin(_ origin: CGPoint) {

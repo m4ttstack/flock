@@ -43,6 +43,40 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertEqual(GridCardLayout.rows(tabs: tabs(7), expanded: true).map(\.count), [4, 4])
     }
 
+    // MARK: - the new-tab placeholder's slot
+
+    /// A full row pushes the placeholder onto a new row of its own: the card
+    /// draws four slots per row whatever it holds, so the fifth cell is the
+    /// next row's first column.
+    func testThePlaceholderTakesTheFirstSlotNoSettledCellHolds() {
+        XCTAssertEqual(GridCardLayout.newTabSlot(tabs: tabs(2), expanded: false), GridSlot(row: 0, column: 2))
+        XCTAssertEqual(GridCardLayout.newTabSlot(tabs: tabs(4), expanded: false), GridSlot(row: 1, column: 0))
+    }
+
+    /// A resting card of nine tabs spends its fourth slot on the +N tile, so
+    /// the placeholder still follows the tile rather than the last tab.
+    func testThePlaceholderFollowsARestingCardsTile() {
+        XCTAssertEqual(GridCardLayout.newTabSlot(tabs: tabs(9), expanded: false), GridSlot(row: 1, column: 0))
+    }
+
+    /// Expanding the same card moves every slot, and the placeholder with it:
+    /// nine tabs plus the collapse tile fill ten slots, so the eleventh is
+    /// the third row's third column.
+    func testThePlaceholderFollowsAnExpandedCardsCollapseTile() {
+        XCTAssertEqual(GridCardLayout.newTabSlot(tabs: tabs(9), expanded: true), GridSlot(row: 2, column: 2))
+    }
+
+    /// The placeholder is a cell of the card's own rows, never a separate
+    /// overlay, which is what keeps it from drifting off the slot it names.
+    func testThePlaceholderIsTheLastCellOfTheCardsOwnRows() {
+        let rows = GridCardLayout.rows(tabs: tabs(9), expanded: true, newTab: true)
+        let slot = GridCardLayout.newTabSlot(tabs: tabs(9), expanded: true)
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows[slot.row].count, slot.column + 1)
+        XCTAssertEqual(rows[slot.row][slot.column], .newTab)
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(9), expanded: true).flatMap { $0 }, Array(rows.flatMap { $0 }.dropLast()))
+    }
+
     func testCardsPairUpTwoToARowInRailOrder() {
         XCTAssertEqual(GridCardLayout.cardRows([1, 2, 3, 4, 5]), [[1, 2], [3, 4], [5]])
         XCTAssertEqual(GridCardLayout.cardRows([Int]()), [])

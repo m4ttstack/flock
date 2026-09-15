@@ -7,6 +7,22 @@ public enum GridCell: Hashable, Sendable {
     case moreTabs(hidden: Int)
     /// Ends an expanded card and folds it back to rest.
     case collapse
+    /// The tab a drop on this card's empty space is about to create, drawn
+    /// in the slot that tab will take.
+    case newTab
+}
+
+/// A slot's place in a card: which row it falls in and which of that row's
+/// `tabsPerRow` columns. Every row keeps all its slots, so two cells with the
+/// same place occupy the same rect.
+public struct GridSlot: Equatable, Sendable {
+    public let row: Int
+    public let column: Int
+
+    public init(row: Int, column: Int) {
+        self.row = row
+        self.column = column
+    }
 }
 
 /// Which tabs a workspace card shows and how they wrap.
@@ -17,8 +33,13 @@ public enum GridCardLayout {
     public static let columns = 2
 
     /// A workspace whose tabs fit one row shows every tab and has nothing to
-    /// expand.
-    public static func cells(tabs: [TabID], expanded: Bool) -> [GridCell] {
+    /// expand. `newTab` appends the drop placeholder, which is why it lands
+    /// in the first free slot after everything the card already draws.
+    public static func cells(tabs: [TabID], expanded: Bool, newTab: Bool = false) -> [GridCell] {
+        settled(tabs: tabs, expanded: expanded) + (newTab ? [.newTab] : [])
+    }
+
+    private static func settled(tabs: [TabID], expanded: Bool) -> [GridCell] {
         guard tabs.count > tabsPerRow else { return tabs.map(GridCell.tab) }
         guard expanded else {
             return tabs.prefix(restingTabCount).map(GridCell.tab) + [.moreTabs(hidden: tabs.count - restingTabCount)]
@@ -26,8 +47,20 @@ public enum GridCardLayout {
         return tabs.map(GridCell.tab) + [.collapse]
     }
 
-    public static func rows(tabs: [TabID], expanded: Bool) -> [[GridCell]] {
-        chunked(cells(tabs: tabs, expanded: expanded), by: tabsPerRow)
+    public static func rows(tabs: [TabID], expanded: Bool, newTab: Bool = false) -> [[GridCell]] {
+        chunked(cells(tabs: tabs, expanded: expanded, newTab: newTab), by: tabsPerRow)
+    }
+
+    /// Where the `newTab` placeholder sits, which is the first slot no
+    /// settled cell holds. The card's own rows are chunked from the same
+    /// list, so this is the placeholder's real place, not a parallel guess
+    /// at it.
+    public static func newTabSlot(tabs: [TabID], expanded: Bool) -> GridSlot {
+        slot(atIndex: settled(tabs: tabs, expanded: expanded).count)
+    }
+
+    public static func slot(atIndex index: Int) -> GridSlot {
+        GridSlot(row: index / tabsPerRow, column: index % tabsPerRow)
     }
 
     /// Cards in rail order, `columns` to a row.

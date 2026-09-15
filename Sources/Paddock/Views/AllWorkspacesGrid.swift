@@ -79,11 +79,15 @@ struct AllWorkspacesGrid: View {
     private var itemOrder: [GridItemID] {
         workspaces.flatMap { workspace in
             let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
-            let cells = GridCardLayout.cells(tabs: tabs, expanded: drag.expandedGridCards.contains(workspace.workspaceID))
+            let cells = GridCardLayout.cells(
+                tabs: tabs, expanded: drag.expandedGridCards.contains(workspace.workspaceID),
+                newTab: drag.target == .workspaceThumbnail(workspace.workspaceID)
+            )
             return [.card(workspace.workspaceID)] + cells.map { cell -> GridItemID in
                 switch cell {
                 case .tab(let id): .tab(id)
                 case .moreTabs, .collapse: .tile(workspace.workspaceID)
+                case .newTab: .newTab(workspace.workspaceID)
                 }
             }
         }
@@ -99,7 +103,10 @@ private struct WorkspaceCard: View {
 
     var body: some View {
         let tabs = viewModel.model?.tabs[workspace.workspaceID] ?? []
-        let rows = GridCardLayout.rows(tabs: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID))
+        let rows = GridCardLayout.rows(
+            tabs: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
+            newTab: takesTheDrop
+        )
         VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardSpacing) {
             header(tabCount: tabs.count)
             VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabGap) {
@@ -172,6 +179,8 @@ private struct WorkspaceCard: View {
             tile(title: "+\(hidden)", label: "more tabs")
         case .collapse:
             tile(title: "fewer", label: "fewer tabs")
+        case .newTab:
+            NewTabPlaceholder(theme: theme, workspace: workspace.workspaceID)
         }
     }
 
@@ -214,38 +223,56 @@ private struct TabThumbnail: View {
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        let isFocusedTab = tab.tabID == viewModel.model?.focusedTabID
-        VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabLabelGap) {
+        VStack(spacing: 0) {
+            titleStrip
             GeometryReader { proxy in
                 miniPanes(size: proxy.size)
             }
-            .frame(height: ChromeMetrics.Grid.thumbnailHeight)
-            .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-            .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
-            .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(tab.tabID)) }
-            .contentShape(Rectangle())
-            // Selected before the grid closes, so the window never draws the
-            // previously selected tab in between.
-            .onTapGesture {
-                viewModel.select(tab: tab.tabID)
-                drag.closeGrid()
-                Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
-            }
-            .accessibilityIdentifier("paddock.grid.tab.\(tab.tabID.rawValue)")
-            HStack(spacing: ChromeMetrics.Grid.labelDotGap) {
-                Text(tab.label)
-                    .font(ChromeType.gridTabLabel(selected: isFocusedTab))
-                    .foregroundStyle(isFocusedTab ? theme.textStrong : theme.textDim)
-                    .lineLimit(1)
-                StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
-            }
         }
+        .frame(height: ChromeMetrics.Grid.thumbnailHeight)
+        .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
+        // One frame for the whole thumbnail, strip included: a drop anywhere
+        // on it is a drop on this tab, so the strip never resolves as a
+        // target of its own.
+        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(tab.tabID)) }
+        .contentShape(Rectangle())
+        // Selected before the grid closes, so the window never draws the
+        // previously selected tab in between.
+        .onTapGesture {
+            viewModel.select(tab: tab.tabID)
+            drag.closeGrid()
+            Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
+        }
+        .accessibilityIdentifier("paddock.grid.tab.\(tab.tabID.rawValue)")
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(drag.isDragging(tab: tab.tabID) ? DragVisuals.originOpacity : 1)
         // On the whole thumbnail, mini panes included, so a press anywhere a
         // mini pane does not cover drags the tab. A mini pane's own gesture
         // is a descendant's, so it takes the press where it sits.
         .gesture(tabDrag)
+    }
+
+    /// The tab's handle: a band a step above the pane fill across the top of
+    /// the thumbnail, carrying the title the label row under it used to.
+    private var titleStrip: some View {
+        let isFocusedTab = tab.tabID == viewModel.model?.focusedTabID
+        return HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
+            Text(tab.label)
+                .font(ChromeType.gridTabLabel(selected: isFocusedTab))
+                .foregroundStyle(isFocusedTab ? theme.textStrong : theme.textDim)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
+        }
+        .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: ChromeMetrics.Grid.tabStripHeight)
+        .background(theme.tabRest)
+        .onHover { hovering in
+            GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
+        }
     }
 
     private var tabDrag: some Gesture {
@@ -271,7 +298,9 @@ private struct TabThumbnail: View {
     }
 
     /// The thumbnail this drag came from, carried as the grid item rather than
-    /// as a rect: the grid scrolls and reflows under a drag.
+    /// as a rect: the grid scrolls and reflows under a drag. `box` is in the
+    /// THUMBNAIL's own space, which a mini pane's box reaches by clearing the
+    /// handle strip above it.
     private func home(box: CGRect) -> DragCoordinator.DragHome? {
         guard let thumbnail = thumbnailFrame else { return nil }
         return DragCoordinator.DragHome(
@@ -285,11 +314,12 @@ private struct TabThumbnail: View {
     }
 
     /// A mini pane is a preview, never a surface, so the proxy is the mini
-    /// pane's own footprint carrying the pane's title. `box` is in the
-    /// thumbnail's space; the thumbnail's own frame places it in the drag
-    /// space.
+    /// pane's own footprint carrying the pane's title. `box` is in the mini
+    /// pane AREA's space; the strip above it is what separates that from the
+    /// thumbnail's own space.
     private func paneDrag(_ pane: PaneRecord, box: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
+        let inThumbnail = box.offsetBy(dx: 0, dy: ChromeMetrics.Grid.tabStripHeight)
+        return DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
                 drag.beginIfIdle(
                     .pane(pane.paneID),
@@ -297,7 +327,7 @@ private struct TabThumbnail: View {
                         title: pane.displayTitle, symbol: "macwindow", originSize: box.size, isCompact: true
                     ),
                     at: value.startLocation,
-                    home: home(box: box)
+                    home: home(box: inThumbnail)
                 )
             }
     }
@@ -329,8 +359,12 @@ private struct TabThumbnail: View {
                         // pointer, and so the card, where it is.
                         .onContinuousHover(coordinateSpace: DragSpace.coordinateSpace) { phase in
                             switch phase {
-                            case .active(let pointer): drag.gridHoverMoved(pane: pane.paneID, pointer: pointer)
-                            case .ended: drag.gridHoverEnded(pane: pane.paneID)
+                            case .active(let pointer):
+                                drag.gridHoverMoved(pane: pane.paneID, pointer: pointer)
+                                GridCursor.hover(true, dragInFlight: drag.holdsGrabCursor)
+                            case .ended:
+                                drag.gridHoverEnded(pane: pane.paneID)
+                                GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor)
                             }
                         }
                 }
@@ -367,7 +401,8 @@ private struct MiniPane: View {
 }
 
 /// The +N tile and the collapse tile: a thumbnail-sized block with a count or
-/// word, and a label where a tab's would be.
+/// word over its label. Both lines live inside the block, so a tile is exactly
+/// as tall as the thumbnails beside it.
 private struct GridTile: View {
     let theme: Theme
     let title: String
@@ -379,25 +414,71 @@ private struct GridTile: View {
     @Environment(DragCoordinator.self) private var drag
 
     var body: some View {
-        VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabLabelGap) {
+        VStack(spacing: ChromeMetrics.Grid.tabLabelGap) {
             Text(title)
                 .font(ChromeType.gridTileTitle)
                 .foregroundStyle(theme.textDim)
-                .frame(maxWidth: .infinity)
-                .frame(height: ChromeMetrics.Grid.thumbnailHeight)
-                .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-                .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
-                .background {
-                    Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture(perform: action)
             Text(label)
                 .font(ChromeType.gridTileLabel)
                 .foregroundStyle(theme.textLabel)
                 .lineLimit(1)
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: ChromeMetrics.Grid.thumbnailHeight)
+        .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
+        .background {
+            Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The tab a drop on this card's empty space is about to create, drawn in the
+/// slot that tab will take. Its own cell comes from `GridCardLayout`, so the
+/// card's rows place it exactly as they place a real thumbnail. It reports a
+/// frame but is never a drop surface: the card behind it is what answers.
+private struct NewTabPlaceholder: View {
+    let theme: Theme
+    let workspace: WorkspaceID
+
+    @Environment(DragCoordinator.self) private var drag
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("new tab")
+                .font(ChromeType.gridTabLabel(selected: false))
+                .foregroundStyle(theme.textDim)
+                .lineLimit(1)
+                .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: ChromeMetrics.Grid.tabStripHeight)
+                .background(theme.accent.opacity(DragVisuals.dropWashOpacity))
+            Color.clear
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: ChromeMetrics.Grid.thumbnailHeight)
+        // The wash alone, never a stroke, which is how the canvas previews a
+        // drop; the strip band takes a second coat of it so the tab's own
+        // handle shape still reads inside an otherwise empty slot.
+        .background(theme.accent.opacity(DragVisuals.dropWashOpacity), in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .newTab(workspace)) }
+        .allowsHitTesting(false)
+        .accessibilityIdentifier("paddock.grid.newTab.\(workspace.rawValue)")
+    }
+}
+
+/// The grid's pointer shapes, which are rearrange mode's: an open hand over
+/// anything draggable, and nothing at all while a drag is live, since
+/// `DragCoordinator` has already pushed the closed hand for the whole app and
+/// a `set` here would paint over that push with nothing to pop it back off.
+private enum GridCursor {
+    static func hover(_ hovering: Bool, dragInFlight: Bool) {
+        guard !dragInFlight else { return }
+        (hovering ? NSCursor.openHand : NSCursor.arrow).set()
     }
 }
 
