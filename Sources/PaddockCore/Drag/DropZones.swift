@@ -9,6 +9,10 @@ import CoreGraphics
 /// or rail cannot grow an accidental target a pixel wide.
 public enum DropZones {
     public static let minimumExtent: CGFloat = 44
+    /// Breathing room between a zone and whatever it borders. A zone drawn
+    /// flush against the last item, the window edge and the chrome above it
+    /// reads as a rendering artifact rather than as a target.
+    public static let margin: CGFloat = 8
 
     public static func trailing(
         in container: CGRect,
@@ -16,10 +20,13 @@ public enum DropZones {
         before limit: CGFloat,
         minimumExtent: CGFloat = DropZones.minimumExtent
     ) -> CGRect? {
-        let start = max(itemsEnd ?? container.minX, container.minX)
-        let end = min(limit, container.maxX)
+        let start = max(itemsEnd ?? container.minX, container.minX) + margin
+        let end = min(limit, container.maxX) - margin
         guard end - start >= minimumExtent else { return nil }
-        return CGRect(x: start, y: container.minY, width: end - start, height: container.height)
+        return CGRect(
+            x: start, y: container.minY + margin / 2,
+            width: end - start, height: max(0, container.height - margin)
+        )
     }
 
     public static func below(
@@ -27,8 +34,12 @@ public enum DropZones {
         itemsEndingAt itemsEnd: CGFloat?,
         minimumExtent: CGFloat = DropZones.minimumExtent
     ) -> CGRect? {
-        let start = max(itemsEnd ?? container.minY, container.minY)
-        guard container.maxY - start >= minimumExtent else { return nil }
-        return CGRect(x: container.minX, y: start, width: container.width, height: container.maxY - start)
+        let start = max(itemsEnd ?? container.minY, container.minY) + margin
+        let end = container.maxY - margin
+        guard end - start >= minimumExtent else { return nil }
+        return CGRect(
+            x: container.minX + margin / 2, y: start,
+            width: max(0, container.width - margin), height: end - start
+        )
     }
 }
