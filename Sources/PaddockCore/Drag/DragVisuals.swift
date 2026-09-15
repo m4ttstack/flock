@@ -28,7 +28,7 @@ public enum DragVisuals {
     }
 
     /// The proxy's size: the origin item scaled down but never past
-    /// `maximum`, aspect preserved, so a full-window pane and a tab pill both
+    /// `maximum`, aspect preserved, so a full-window pane and a tab both
     /// produce something small enough to see the drop target under.
     public static func ghostSize(forOrigin origin: CGSize, maximum: CGSize = CGSize(width: 260, height: 160)) -> CGSize {
         guard origin.width > 0, origin.height > 0 else { return maximum }
@@ -51,20 +51,12 @@ public enum DragThreshold {
 
 /// Where a pane can be grabbed.
 ///
-/// At rest the handle is the cell's top chrome: the legend line plus the inset
-/// above the terminal surface. That band is chrome the cell already spends, so
-/// it costs no terminal rows and the terminal's first line stays selectable
-/// text. The body itself is the terminal's until rearrange mode is active, at
-/// which point the whole pane is a drag surface.
+/// At rest the handle is the box's top chrome (`PaneChrome.contentTop`): the
+/// padding and title row above the terminal surface. That band is chrome the
+/// box already spends, so it costs no terminal rows and the terminal's first
+/// line stays selectable text. The body itself is the terminal's until
+/// rearrange mode is active, at which point the whole pane is a drag surface.
 public enum PaneGrabRegion {
-    /// From the cell's own top edge down to the first terminal row: half the
-    /// legend's height (the part above the box) plus the box's top inset.
-    /// Derived from the cell's real metrics rather than fixed, so the band and
-    /// the surface cannot drift apart.
-    public static func topChromeHeight(legendHalfHeight: CGFloat, contentInsetTop: CGFloat) -> CGFloat {
-        legendHalfHeight + contentInsetTop
-    }
-
     /// Whether a press in the pane BODY arms a drag. `point` and `bounds` are
     /// in the body's own space with a TOP-LEFT origin; an AppKit caller flips
     /// before calling, never after.

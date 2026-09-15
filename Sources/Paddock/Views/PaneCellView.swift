@@ -2,14 +2,6 @@ import AppKit
 import PaddockCore
 import SwiftUI
 
-/// A single pane cell: the title, status dot, and chip ride the top border
-/// line as a legend (herdr's own pane framing), so no header row spends
-/// terminal space; the body swaps between status-card mode (glyph/cwd/hint,
-/// for a pane not yet attached) and live mode (its one ghostty surface) once
-/// `SessionViewModel` hands one back. Every pane the canvas renders is a
-/// visible pane of the selected tab, so it attaches on first visibility per
-/// the standing attach policy; card mode is what shows while that attach is
-/// still in flight.
 /// The rearrange-mode hover lift. A `scaleEffect` is only ever in the view
 /// chain while it is actually lifting, because an identity scale still costs
 /// an offscreen render pass on a layer-backed subview.
@@ -25,23 +17,24 @@ private struct HoverLift: ViewModifier {
     }
 }
 
+/// A single pane cell: a bordered box with the pane's title in its top
+/// chrome, over a body that swaps between status-card mode (glyph/cwd/hint,
+/// for a pane not yet attached) and live mode (its one ghostty surface) once
+/// `SessionViewModel` hands one back. Every pane the canvas renders is a
+/// visible pane of the selected tab, so it attaches on first visibility per
+/// the standing attach policy; card mode is what shows while that attach is
+/// still in flight.
 struct PaneCellView: View {
-    /// Half the legend's height: the framed box begins this far below the
-    /// cell's top so the legend can sit centered on the box's top edge
-    /// without leaving the cell's own frame.
-    static let legendHalfHeight: CGFloat = 8
-    /// Terminal content insets inside the box. Top clears the legend's lower
-    /// half; the rest mirrors the artboards' text inset from the frame.
-    static let contentInsets = EdgeInsets(top: 12, leading: 10, bottom: 8, trailing: 10)
+    static let cornerRadius: CGFloat = 2
 
-    /// Everything a cell's box holds besides its surface, per axis: what the
-    /// canvas subtracts from a box before deriving the whole-cell grid, so the
-    /// chrome never eats a terminal cell. Must agree with `cell`/`box`'s own
-    /// padding exactly. Whole points on both axes, which is what keeps the
-    /// surface's origin on the device-pixel grid the box was snapped to.
-    static let chrome = CGSize(
-        width: contentInsets.leading + contentInsets.trailing,
-        height: legendHalfHeight + contentInsets.top + contentInsets.bottom
+    /// What the canvas subtracts from a box before deriving the whole-cell
+    /// grid, so the chrome never eats a terminal cell. Must agree with
+    /// `contentInsets` exactly.
+    static let chrome = PaneChrome.size
+
+    private static let contentInsets = EdgeInsets(
+        top: PaneChrome.contentTop, leading: PaneChrome.horizontalPadding,
+        bottom: PaneChrome.verticalPadding, trailing: PaneChrome.horizontalPadding
     )
 
     let theme: Theme
@@ -108,12 +101,11 @@ struct PaneCellView: View {
 
     private var cell: some View {
         box
-            .padding(.top, Self.legendHalfHeight)
-            // Under the legend and the chip, so both keep their own gestures,
+            // Under the title and the chip, so both keep their own gestures,
             // and strictly above the terminal surface, so this is the at-rest
             // handle without taking a single terminal row.
             .overlay(alignment: .top) { chromeGrabBand }
-            .overlay(alignment: .topLeading) { legend }
+            .overlay(alignment: .topLeading) { title }
             .overlay(alignment: .topTrailing) { statusChip }
             // While rearranging a drag starts from ANY point on the pane,
             // gutters and sub-cell remainder included, which no subview of the
@@ -155,15 +147,12 @@ struct PaneCellView: View {
         )
     }
 
-    /// The at-rest drag handle: the cell's top chrome, which is the legend
-    /// line plus the inset above the terminal surface. It is chrome the cell
-    /// already spends, so the handle costs no terminal rows and the first
-    /// terminal line stays selectable text.
+    /// The at-rest drag handle: the box's top chrome above the terminal
+    /// surface. It is chrome the box already spends, so the handle costs no
+    /// terminal rows and the first terminal line stays selectable text.
     private var chromeGrabBand: some View {
         Color.clear
-            .frame(height: PaneGrabRegion.topChromeHeight(
-                legendHalfHeight: Self.legendHalfHeight, contentInsetTop: Self.contentInsets.top
-            ))
+            .frame(height: PaneChrome.contentTop)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .gesture(paneDrag)
@@ -209,19 +198,17 @@ struct PaneCellView: View {
         return PaneMenuModel.entries(for: pane.paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID)
     }
 
-    /// The framed terminal box. The content is pinned to exactly the
+    /// The bordered terminal box. The content is pinned to exactly the
     /// surface's cols x rows cells, top-left in the box's content area (the
     /// box itself fills the frame the canvas laid out, so the sub-cell
-    /// remainder is plain ground). Content is clipped to the rounded frame
-    /// and the focus halo is a real ring geometry (even-odd cutout) so no
-    /// accent fill can bleed into the interior.
+    /// remainder is plain ground).
     private var box: some View {
         content
             .frame(width: surfaceSize.width, height: surfaceSize.height)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(Self.contentInsets)
-            .background(theme.terminalGround)
-            .clipShape(RoundedRectangle(cornerRadius: 9))
+            .background(theme.pane)
+            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
             // The track spans the content area, so the two paddings are the
             // box's own (asymmetric) content insets: a symmetric one would
             // leave the thumb unable to reach the last row.
@@ -237,16 +224,9 @@ struct PaneCellView: View {
                 }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: 9)
-                    .strokeBorder(borderColor, lineWidth: borderWidth)
+                RoundedRectangle(cornerRadius: Self.cornerRadius)
+                    .strokeBorder(borderColor, lineWidth: 1)
             )
-            .background {
-                if isFocused, !rearrangeMode.active {
-                    HaloRing(cornerRadius: 9, thickness: 3)
-                        .fill(theme.accent.opacity(0.18), style: FillStyle(eoFill: true))
-                        .padding(-3)
-                }
-            }
             // Applied only while rearranging: a scale effect in the chain at
             // rest makes SwiftUI rasterize the surface into an offscreen
             // buffer and resample it, which softens every glyph.
@@ -257,11 +237,7 @@ struct PaneCellView: View {
     }
 
     private var borderColor: Color {
-        rearrangeMode.active || isFocused ? theme.accent : theme.separator
-    }
-
-    private var borderWidth: CGFloat {
-        rearrangeMode.active || isFocused ? 2 : 1
+        rearrangeMode.active || isFocused ? theme.accent : theme.paneBorder
     }
 
     /// Rearrange mode's repaint, per the spec's "Grabbing a pane" bullet:
@@ -278,21 +254,15 @@ struct PaneCellView: View {
         .allowsHitTesting(false)
     }
 
-    /// Dot + title inlaid on the box's top edge. The two-tone backing paints
-    /// the canvas ground above the edge and the terminal ground below it, so
-    /// the border line reads as interrupted by the legend rather than as a
-    /// pill floating over it.
-    private var legend: some View {
-        HStack(spacing: 6) {
-            StatusDot(status: pane.agentStatus, theme: theme)
-            Text(pane.terminalTitleStripped ?? pane.label ?? "shell")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(theme.text)
-                .lineLimit(1)
-        }
-        .legendBacking(above: theme.windowBg, below: theme.terminalGround, halfHeight: Self.legendHalfHeight)
-        .padding(.leading, 12)
-        .contentShape(Rectangle())
+    private var title: some View {
+        Text(pane.terminalTitleStripped ?? pane.label ?? "shell")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(isFocused ? theme.textStrong : theme.textDim)
+            .lineLimit(1)
+            .frame(height: PaneChrome.titleRowHeight)
+            .padding(.top, PaneChrome.verticalPadding)
+            .padding(.leading, PaneChrome.horizontalPadding)
+            .contentShape(Rectangle())
         // SwiftUI's tap gesture on macOS fires for the secondary button as
         // well, so the click is checked before it may act as a focus click;
         // the right-click falls through to the context menu below.
@@ -300,7 +270,7 @@ struct PaneCellView: View {
             guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
             Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
         }
-        // The legend is a drag handle at rest as well as in rearrange mode;
+        // The title is a drag handle at rest as well as in rearrange mode;
         // simultaneous with the tap above, which the 4pt minimum keeps
         // distinct from it.
         .simultaneousGesture(paneDrag)
@@ -314,11 +284,11 @@ struct PaneCellView: View {
             Text(pane.agentStatus.rawValue)
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(statusColor)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 4).fill(statusColor.opacity(0.14)))
-                .legendBacking(above: theme.windowBg, below: theme.terminalGround, halfHeight: Self.legendHalfHeight)
-                .padding(.trailing, 12)
+                .padding(.horizontal, 4)
+                .frame(height: PaneChrome.titleRowHeight)
+                .background(RoundedRectangle(cornerRadius: Self.cornerRadius).fill(statusColor.opacity(0.14)))
+                .padding(.top, PaneChrome.verticalPadding)
+                .padding(.trailing, PaneChrome.horizontalPadding)
                 // Decorative, so it yields its part of the chrome band to the
                 // drag handle underneath it.
                 .allowsHitTesting(false)
@@ -381,7 +351,7 @@ struct PaneCellView: View {
             // live pane keeps going through the AppKit path exactly as
             // before. Checked fresh per tap, not cached: the launcher can
             // hide (a keystroke, real output) between this view updating and
-            // the next click landing. Guarded the same way `legend`'s own
+            // the next click landing. Guarded the same way `title`'s own
             // tap is, so a right-click still opens the pane menu rather than
             // also firing a focus jump.
             .contentShape(Rectangle())
@@ -412,7 +382,7 @@ struct PaneCellView: View {
     }
 
     /// The SwiftUI rendering of the pane menu, for the parts of the cell
-    /// that are not the ghostty NSView (the card and the legend). The
+    /// that are not the ghostty NSView (the card and the title). The
     /// ghostty body supplies the same rows as a real `NSMenu` through
     /// `PaneMenuBuilder`; SwiftUI's `.contextMenu` can never reach an
     /// AppKit subview's right-click.
@@ -444,27 +414,27 @@ struct PaneCellView: View {
             Spacer(minLength: 0)
             Image(systemName: "terminal")
                 .font(.system(size: 22))
-                .foregroundStyle(theme.overlay0)
+                .foregroundStyle(theme.textLabel)
             Text(cwdTail)
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(theme.subtext0)
+                .foregroundStyle(theme.textDim)
             if let lastLine, !lastLine.isEmpty {
                 Text(lastLine)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(theme.overlay0)
+                    .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(theme.terminalGround)
-                            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(theme.separator, lineWidth: 1))
+                        RoundedRectangle(cornerRadius: Self.cornerRadius)
+                            .fill(theme.pane)
+                            .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
                     )
             }
             Text(hintText)
                 .font(.system(size: 9))
-                .foregroundStyle(theme.overlay0)
+                .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -518,25 +488,7 @@ private extension NSEvent {
     }
 }
 
-private extension View {
-    /// Pins a legend element to a fixed row of `2 * halfHeight`, centered on
-    /// the seam between the two grounds, and paints each ground on its side
-    /// of that seam behind the element.
-    func legendBacking(above: Color, below: Color, halfHeight: CGFloat) -> some View {
-        padding(.horizontal, 5)
-            .frame(height: halfHeight * 2)
-            .background {
-                VStack(spacing: 0) {
-                    above
-                    below
-                }
-            }
-    }
-}
-
-/// The "Copied" whisper, geometry per the Interactions artboard's copy-on-
-/// selection panel: 10pt inset from the pane's bottom-right corner, 10/5
-/// padding, 6pt radius, 11pt icon, 10pt label.
+/// The "Copied" whisper, shown only in the pane the copy happened in.
 private struct PaneCopiedToastPill: View {
     let theme: Theme
     let toast: ToastCenter.Toast
@@ -548,29 +500,15 @@ private struct PaneCopiedToastPill: View {
                 .foregroundStyle(theme.green)
             Text(toast.message)
                 .font(.system(size: 10))
-                .foregroundStyle(theme.chromeTextStrong)
+                .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(theme.paneHeaderBg, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.tabPillSelectedBorder, lineWidth: 1))
-        .shadow(color: theme.railBg.opacity(0.4), radius: 9, y: 6)
+        .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneCellView.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
+        .shadow(color: theme.chrome.opacity(0.4), radius: 9, y: 6)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(toast.accessibilityIdentifier)
-    }
-}
-
-/// A ring shape (outer rounded rect minus an inset inner one, even-odd
-/// filled) so the focused-pane halo is geometrically confined to its band --
-/// no reliance on an opaque foreground to hide fill in the interior.
-private struct HaloRing: Shape {
-    var cornerRadius: CGFloat
-    var thickness: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path(roundedRect: rect, cornerRadius: cornerRadius + thickness)
-        path.addPath(Path(roundedRect: rect.insetBy(dx: thickness, dy: thickness), cornerRadius: cornerRadius))
-        return path
     }
 }

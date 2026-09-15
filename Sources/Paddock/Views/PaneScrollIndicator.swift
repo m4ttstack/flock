@@ -16,9 +16,9 @@ struct PaneScrollIndicator: View {
         GeometryReader { proxy in
             if let scroll, let thumb = ScrollIndicatorGeometry.thumb(for: scroll, trackLength: proxy.size.height) {
                 ZStack(alignment: .top) {
-                    Capsule().fill(theme.overlay0.opacity(0.18))
+                    Capsule().fill(theme.textLabel.opacity(0.18))
                     Capsule()
-                        .fill(theme.subtext0)
+                        .fill(theme.textLabel)
                         .frame(height: thumb.length)
                         .offset(y: thumb.offset)
                 }

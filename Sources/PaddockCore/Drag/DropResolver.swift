@@ -113,7 +113,7 @@ public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces
 /// exist yet.
 ///
 /// Every other subject falls THROUGH to the chrome the zone sits inside, where
-/// the same free run means what that chrome means: past the last pill, a tab
+/// the same free run means what that chrome means: past the last tab, a tab
 /// takes the strip's end insertion index; below the last row, a workspace
 /// takes the rail's. Scoping this here rather than by withholding the zone
 /// keeps one zone rect serving every subject correctly.

@@ -41,8 +41,9 @@ final class DragVisualsTests: XCTestCase {
         XCTAssertTrue(DragThreshold.passed(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 10, y: 6)))
     }
 
-    func testTopChromeHeightIsTheLegendPlusTheBoxInset() {
-        XCTAssertEqual(PaneGrabRegion.topChromeHeight(legendHalfHeight: 8, contentInsetTop: 12), 20)
+    func testPaneContentStartsBelowThePaddingAndTitleRow() {
+        XCTAssertEqual(PaneChrome.contentTop, 22)
+        XCTAssertEqual(PaneChrome.size, CGSize(width: 20, height: 30))
     }
 
     func testPaneBodyIsTheTerminalsAtRest() {

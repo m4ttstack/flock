@@ -78,7 +78,7 @@ struct DropzoneOverlay: View {
     /// doubled edge; an edge-band drop shares two sides with it for the
     /// same reason.
     private func filled(in box: CGRect) -> some View {
-        RoundedRectangle(cornerRadius: 9)
+        RoundedRectangle(cornerRadius: PaneCellView.cornerRadius)
             .fill(theme.accent.opacity(0.22))
             .frame(width: box.width, height: box.height)
             .offset(x: box.minX, y: box.minY)

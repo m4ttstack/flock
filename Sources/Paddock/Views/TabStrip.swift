@@ -1,9 +1,9 @@
 import PaddockCore
 import SwiftUI
 
-/// The 42px tab strip: pill tabs for the selected workspace plus the
-/// "protocol NN" readout. Read-only mirror, selection/jump, and the tab end of
-/// the drag layer; stays untested until the e2e suite per the task brief.
+/// The tab strip: square tabs for the selected workspace plus the protocol
+/// readout, over a rule. Read-only mirror, selection/jump, and the tab end of
+/// the drag layer.
 struct TabStrip: View {
     let theme: Theme
     let workspace: WorkspaceID?
@@ -15,36 +15,39 @@ struct TabStrip: View {
     @Environment(DragCoordinator.self) private var drag
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(Array(tabs.enumerated()), id: \.element.tabID) { index, tab in
-                TabPill(
-                    theme: theme,
-                    tab: tab,
-                    isSelected: tab.tabID == selectedTabID,
-                    displacement: drag.tabDisplacement(at: index),
-                    isGhosted: drag.isDragging(tab: tab.tabID)
-                )
-                // Outside the pill, which offsets its own content: an offset
-                // leaves the layout frame alone, so what is published here is
-                // the pill's resting place rather than its reshuffled one --
-                // which is what the insertion index must be measured against.
-                .reportsDragFrame { drag.setTabFrame($0, for: tab.tabID) }
-                .accessibilityIdentifier("paddock.strip.tab.\(tab.tabID.rawValue)")
-                .onTapGesture { onSelect(tab.tabID) }
-                .simultaneousGesture(pillDrag(tab))
+        VStack(spacing: 0) {
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(Array(tabs.enumerated()), id: \.element.tabID) { index, tab in
+                    TabBlock(
+                        theme: theme,
+                        tab: tab,
+                        isSelected: tab.tabID == selectedTabID,
+                        displacement: drag.tabDisplacement(at: index),
+                        isGhosted: drag.isDragging(tab: tab.tabID)
+                    )
+                    // Outside the tab, which offsets its own content: an offset
+                    // leaves the layout frame alone, so what is published here is
+                    // the tab's resting place rather than its reshuffled one --
+                    // which is what the insertion index must be measured against.
+                    .reportsDragFrame { drag.setTabFrame($0, for: tab.tabID) }
+                    .accessibilityIdentifier("paddock.strip.tab.\(tab.tabID.rawValue)")
+                    .onTapGesture { onSelect(tab.tabID) }
+                    .simultaneousGesture(tabDrag(tab))
+                }
+                Spacer(minLength: 0)
+                Text("protocol \(protocolVersion)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(theme.textLabel)
+                    .frame(height: ChromeMetrics.tabStripHeight)
+                    .reportsDragFrame { drag.stripTrailingLimit = $0.minX }
             }
-            Spacer(minLength: 0)
-            Text("protocol \(protocolVersion)")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(theme.overlay0)
-                .reportsDragFrame { drag.stripTrailingLimit = $0.minX }
+            .padding(.horizontal, 8)
+            .frame(height: ChromeMetrics.tabStripHeight)
+            Rectangle()
+                .fill(theme.rule)
+                .frame(height: ChromeMetrics.ruleWidth)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 42)
-        .background(theme.tabStripBg)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.separator).frame(height: 1)
-        }
+        .background(theme.chrome)
         .reportsDragFrame { drag.stripFrame = $0 }
         .onAppear { publishIdentity() }
         .onChange(of: tabs.map(\.tabID)) { _, _ in publishIdentity() }
@@ -52,7 +55,7 @@ struct TabStrip: View {
     }
 
     /// The strip's own order and workspace: `DropTarget`'s tab cases carry a
-    /// workspace id the pill frames themselves cannot supply, and the order is
+    /// workspace id the tab frames themselves cannot supply, and the order is
     /// what turns those frames back into a list.
     private func publishIdentity() {
         drag.stripWorkspace = workspace
@@ -60,9 +63,9 @@ struct TabStrip: View {
     }
 
     /// Starts the drag and nothing else: `DragCoordinator` drives it from
-    /// there, off window-level monitors, so no per-pill latch can be left
+    /// there, off window-level monitors, so no per-tab latch can be left
     /// behind by a strip that is rebuilt mid-drag.
-    private func pillDrag(_ tab: TabRecord) -> some Gesture {
+    private func tabDrag(_ tab: TabRecord) -> some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
                 drag.beginIfIdle(
@@ -78,38 +81,40 @@ struct TabStrip: View {
     }
 }
 
-private struct TabPill: View {
+private struct TabBlock: View {
+    static let size = CGSize(width: 78, height: 22)
+    static let underlineHeight: CGFloat = 2
+
     let theme: Theme
     let tab: TabRecord
     let isSelected: Bool
-    /// How far this pill slides to open the insertion gap.
+    /// How far this tab slides to open the insertion gap.
     var displacement: CGFloat = 0
-    /// The pill this drag started from, left in place and faded.
+    /// The tab this drag started from, left in place and faded.
     var isGhosted = false
 
     var body: some View {
-        HStack(spacing: 7) {
-            Text(tab.label)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? theme.chromeTextStrong : theme.chromeTextDim)
-            StatusDot(status: tab.agentStatus, theme: theme, size: 7)
+        // The underline takes its height out of the selected block, so the
+        // selected label centers on the block above it; resting tabs have no
+        // underline slot at all.
+        VStack(spacing: 0) {
+            HStack(spacing: 5) {
+                Text(tab.label)
+                    .font(.system(size: 11, weight: isSelected ? .medium : .regular))
+                    .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
+                    .lineLimit(1)
+                StatusDot(status: tab.agentStatus, theme: theme, size: 5)
+            }
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(isSelected ? theme.selection : theme.tabRest)
+            if isSelected {
+                Rectangle()
+                    .fill(theme.accent)
+                    .frame(height: Self.underlineHeight)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        // A one-character label would otherwise make a pill barely wider
-        // than its dot: too small to aim a drop at, or to read at a glance.
-        .frame(minWidth: 72)
-        .background(
-            // The selected pill's own surface role -- see `Theme`'s doc on
-            // `tabPillSelectedBg`/`tabPillSelectedBorder` for why these are
-            // distinct roles from `separator` rather than a reuse of it.
-            RoundedRectangle(cornerRadius: 7)
-                .fill(isSelected ? theme.tabPillSelectedBg : Color.clear)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(isSelected ? theme.tabPillSelectedBorder : Color.clear, lineWidth: 1)
-        )
+        .frame(width: Self.size.width, height: Self.size.height)
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(x: displacement)

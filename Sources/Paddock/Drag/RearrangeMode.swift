@@ -17,7 +17,7 @@ import SwiftUI
 /// Option, not Control: on macOS a Control-click IS a secondary click (AppKit
 /// delivers `rightMouseDown`, never `mouseDown`, for it -- see this repo's
 /// own `NSEvent.isSecondaryButtonEvent`, which already encodes that fact for
-/// the legend tap guard), so a Control-held press on a pane body could never
+/// the pane title's tap guard), so a Control-held press on a pane body could never
 /// have started a rearrange drag at all. Option carries no such remap
 /// (confirmed against Apple's own "secondary click" documentation, which
 /// names only Control), and Option+right-click is already paddock's

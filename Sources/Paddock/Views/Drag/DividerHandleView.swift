@@ -45,10 +45,10 @@ struct DividerHandleView: View {
             if let liveRatio {
                 liveHandle(at: liveRatio)
             } else {
-                // A hue the pane borders never use: a focused border is the
-                // accent and the text color is a pale version of the same
-                // blue, so either one disappears into the border beside it.
-                handle(color: isHovering ? theme.mauve : theme.overlay0.opacity(0.75))
+                // Hover and a live drag take a hue no pane border ever uses,
+                // so an active handle never reads as the focused border beside
+                // it.
+                handle(color: isHovering ? theme.mauve : theme.textLabel)
             }
         }
         .frame(width: band.width, height: band.height)
@@ -88,7 +88,7 @@ struct DividerHandleView: View {
     }
 
     /// Always drawn, so the divider is findable without hunting for it:
-    /// a capsule centered along the divider, a fifth of its length.
+    /// a thin bar with fully rounded ends, centered in the gutter.
     private func handle(color: Color) -> some View {
         let length = DividerBand.handleLength(
             forDividerLength: isVertical ? divider.frame.height : divider.frame.width
@@ -120,10 +120,10 @@ struct DividerHandleView: View {
     private func ratioLabel(_ ratio: Double) -> some View {
         Text("\(Int((ratio * 100).rounded()))%")
             .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(theme.chromeTextStrong)
+            .foregroundStyle(theme.textStrong)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
-            .background(Capsule().fill(theme.panelBg))
+            .background(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).fill(theme.chrome))
             .fixedSize()
     }
 }

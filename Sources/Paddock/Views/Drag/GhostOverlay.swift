@@ -12,7 +12,7 @@ struct GhostOverlay: View {
     /// just inside that pane's border for the whole spring.
     var settling = false
 
-    /// Floors for a proxy whose origin is tiny (a tab pill, a rail row), so
+    /// Floors for a proxy whose origin is tiny (a tab, a rail row), so
     /// the label always has somewhere to sit.
     private static let minimumSize = CGSize(width: 150, height: 32)
 
@@ -26,7 +26,7 @@ struct GhostOverlay: View {
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
             }
-            .foregroundStyle(theme.chromeTextStrong)
+            .foregroundStyle(theme.textStrong)
             Spacer(minLength: 0)
         }
         .padding(8)
@@ -37,8 +37,12 @@ struct GhostOverlay: View {
         )
         // Translucent so the tab or row under the pointer stays readable
         // through the proxy while it is being targeted.
-        .background(theme.paneHeaderBg.opacity(0.7), in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent, lineWidth: 2).opacity(settling ? 0 : 1))
-        .shadow(color: theme.railBg.opacity(0.5), radius: 14, y: 8)
+        .background(theme.chrome.opacity(0.7), in: RoundedRectangle(cornerRadius: PaneCellView.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: PaneCellView.cornerRadius)
+                .strokeBorder(theme.accent, lineWidth: 1)
+                .opacity(settling ? 0 : 1)
+        )
+        .shadow(color: theme.chrome.opacity(0.5), radius: 14, y: 8)
     }
 }

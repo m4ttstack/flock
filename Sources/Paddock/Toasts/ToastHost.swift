@@ -18,7 +18,7 @@ struct ToastHost: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(.top, 54)
+        .padding(.top, ChromeMetrics.titleBarHeight + ChromeMetrics.tabStripHeight + ChromeMetrics.ruleWidth + 10)
         .padding(.trailing, 14)
         .animation(.easeOut(duration: 0.15), value: toastCenter.current)
         .allowsHitTesting(false)
@@ -36,14 +36,14 @@ private struct ToastPill: View {
                 .foregroundStyle(iconColor)
             Text(toast.message)
                 .font(.system(size: 11))
-                .foregroundStyle(theme.chromeTextStrong)
+                .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(theme.paneHeaderBg, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.tabPillSelectedBorder, lineWidth: 1))
-        .shadow(color: theme.railBg.opacity(0.6), radius: 9, y: 4)
+        .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneCellView.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: PaneCellView.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
+        .shadow(color: theme.chrome.opacity(0.6), radius: 9, y: 4)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(toast.accessibilityIdentifier)
     }
@@ -67,7 +67,7 @@ private struct ToastPill: View {
     private var iconColor: Color {
         switch toast.kind {
         case .copied: theme.green
-        case .notice, .info: theme.subtext0
+        case .notice, .info: theme.textDim
         }
     }
 }

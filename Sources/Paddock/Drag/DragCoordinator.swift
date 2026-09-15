@@ -517,7 +517,7 @@ final class DragCoordinator {
         }
     }
 
-    /// The outline over a whole-item target: a tab pill, a workspace row, or a
+    /// The outline over a whole-item target: a tab, a workspace row, or a
     /// new-tab/new-workspace zone. Canvas targets are not drawn here --
     /// `DropzoneOverlay` previews the whole post-drop layout for those.
     var targetHighlight: CGRect? {

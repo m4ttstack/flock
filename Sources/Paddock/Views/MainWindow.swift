@@ -2,9 +2,8 @@ import AppKit
 import PaddockCore
 import SwiftUI
 
-/// The whole window: titlebar, workspace rail, tab strip, pane canvas.
-/// Every color comes from the active theme via the environment; nothing here
-/// hardcodes a chrome hex.
+/// The whole window: title bar, workspace rail, tab strip, pane canvas.
+/// Every color comes from the active theme's roles via the environment.
 struct MainWindow: View {
     @Environment(ThemeStore.self) private var themeStore
     @Environment(DragCoordinator.self) private var dragCoordinator
@@ -38,7 +37,7 @@ struct MainWindow: View {
                 }
             }
         }
-        .background(theme.windowBg)
+        .background(theme.chrome)
         // Names the one space every drag frame and drag point is expressed in
         // -- see `DragSpace`. Applied before the overlays so they resolve it
         // too, and so a rail/strip/canvas frame and a ghost position are
@@ -51,7 +50,7 @@ struct MainWindow: View {
         .overlay { ToastHost() }
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
-        .background(TitlebarConfigurator(windowBg: theme.windowBg))
+        .background(TitlebarConfigurator(windowBg: theme.chrome))
     }
 }
 
@@ -61,31 +60,33 @@ private struct TitleBar: View {
     let connectionState: ConnectionState
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Reserves the space macOS draws the traffic lights into.
-            Spacer().frame(width: 78)
-            Text("paddock")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(theme.text)
-                .frame(maxWidth: .infinity)
-            HStack(spacing: 6) {
-                Circle().fill(connectionColor).frame(width: 7, height: 7)
+        Text("paddock")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(theme.textStrong)
+            .frame(maxWidth: .infinity)
+            .frame(height: ChromeMetrics.titleBarHeight)
+            .overlay(alignment: .trailing) { connectionNotice }
+            .background(theme.chrome)
+    }
+
+    /// Only while the session is not live, so a connected window's bar carries
+    /// nothing but its title.
+    @ViewBuilder
+    private var connectionNotice: some View {
+        if let color = noticeColor {
+            HStack(spacing: 5) {
+                Circle().fill(color).frame(width: 5, height: 5)
                 Text("herdr · \(sessionLabel)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.subtext0)
+                    .font(.system(size: 9))
+                    .foregroundStyle(theme.textLabel)
             }
-            .padding(.trailing, 16)
-        }
-        .frame(height: 44)
-        .background(theme.windowBg)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.separator).frame(height: 1)
+            .padding(.trailing, 10)
         }
     }
 
-    private var connectionColor: Color {
+    private var noticeColor: Color? {
         switch connectionState {
-        case .live: theme.green
+        case .live: nil
         case .connecting, .reconnecting: theme.yellow
         case .unsupported: theme.red
         }
@@ -104,40 +105,12 @@ private struct UnsupportedBanner: View {
                 "herdr is too old for paddock (found protocol \(mismatch.found), "
                     + "need \(mismatch.required)). Run `herdr update`."
             )
-            .font(.system(size: 12))
-            .foregroundStyle(theme.text)
+            .font(.system(size: 11))
+            .foregroundStyle(theme.textStrong)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(theme.red.opacity(0.12))
-    }
-}
-
-/// Merges the system titlebar into our own content so the traffic lights
-/// sit directly on `TitleBar`'s dark 44px bar with zero gray system strip
-/// above it: `.windowStyle(.hiddenTitleBar)` alone still leaves a titlebar
-/// safe-area inset that pushes SwiftUI content down, so `MainWindow` also
-/// ignores the top safe area, and this configurator paints the window's own
-/// background so nothing shows through before the first frame draws.
-private struct TitlebarConfigurator: NSViewRepresentable {
-    let windowBg: Color
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        DispatchQueue.main.async { configure(view) }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        configure(nsView)
-    }
-
-    private func configure(_ view: NSView) {
-        guard let window = view.window else { return }
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.styleMask.insert(.fullSizeContentView)
-        window.backgroundColor = NSColor(windowBg)
     }
 }

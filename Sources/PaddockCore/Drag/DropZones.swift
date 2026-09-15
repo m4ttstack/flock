@@ -2,7 +2,7 @@ import CoreGraphics
 
 /// The two "create something new" drop zones, derived from the free run a
 /// strip or rail already has rather than from a button: the tab strip's space
-/// after the last pill and before its trailing readout, and the workspace
+/// after the last tab and before its trailing readout, and the workspace
 /// rail's space below the last row.
 ///
 /// A run shorter than `minimumExtent` yields no zone at all, so a full strip

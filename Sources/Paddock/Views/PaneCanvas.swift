@@ -9,8 +9,8 @@ import SwiftUI
 ///
 /// `CanvasGeometry.resolved` reads herdr's own `layout.export` split tree when
 /// the view-model has one cached for this tab, falling back to rect derivation
-/// otherwise; each pane is inset by half the 6px gutter so adjacent cells read
-/// as separated.
+/// otherwise; each pane box is inset from its layout frame (`PaneBox`) so
+/// adjacent boxes leave exactly `DividerBand.gutter` between them.
 struct PaneCanvas: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -22,6 +22,14 @@ struct PaneCanvas: View {
     @Environment(\.displayScale) private var displayScale
 
     private static let dividerThickness: CGFloat = DividerBand.gutter
+
+    private static let canvasPadding: EdgeInsets = {
+        let padding = PaneBox.canvasPadding(margin: ChromeMetrics.canvasMargin, dividerThickness: dividerThickness)
+        return EdgeInsets(
+            top: padding.leadingAndTop, leading: padding.leadingAndTop,
+            bottom: padding.trailingAndBottom, trailing: padding.trailingAndBottom
+        )
+    }()
 
     var body: some View {
         GeometryReader { proxy in
@@ -70,7 +78,7 @@ struct PaneCanvas: View {
                 } else {
                     Text("No tab selected")
                         .font(.system(size: 12))
-                        .foregroundStyle(theme.overlay0)
+                        .foregroundStyle(theme.textLabel)
                         .frame(width: proxy.size.width, height: proxy.size.height)
                 }
                 DropzoneOverlay(
@@ -97,8 +105,8 @@ struct PaneCanvas: View {
             // canvas's own origin there, once, here.
             .background { canvasReporter(geometry.offset(by: proxy.frame(in: DragSpace.coordinateSpace).origin)) }
         }
-        .padding(10)
-        .background(theme.windowBg)
+        .padding(Self.canvasPadding)
+        .background(theme.canvas)
     }
 
     private func resolvedGeometry(grid: CanvasGrid) -> CanvasGeometry {
@@ -119,8 +127,8 @@ struct PaneCanvas: View {
             .onChange(of: placed) { _, new in drag.canvas = new }
     }
 
-    /// What is left of a box for the terminal itself, once the legend band and
-    /// the content insets are taken out.
+    /// What is left of a box for the terminal itself, once its chrome is
+    /// taken out.
     private static func innerSize(of box: CGSize) -> CGSize {
         let chrome = PaneCellView.chrome
         return CGSize(width: max(0, box.width - chrome.width), height: max(0, box.height - chrome.height))
