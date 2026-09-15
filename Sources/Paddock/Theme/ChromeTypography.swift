@@ -74,11 +74,6 @@ enum ChromeType {
     }
 
     private static let installation: Void = {
-        // The chrome's weights were approved as drawn without stem darkening;
-        // with it every face reads close to a weight heavier. The default is
-        // this process's own, and the terminal sets smoothing on its own
-        // glyph contexts, so terminal text is unaffected.
-        UserDefaults.standard.register(defaults: ["AppleFontSmoothing": 0])
         let bundle = Bundle(for: BundleToken.self)
         for weight in Weight.allCases {
             guard let url = bundle.url(forResource: weight.postScriptName, withExtension: "otf") else { continue }

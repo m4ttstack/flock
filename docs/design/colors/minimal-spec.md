@@ -86,12 +86,9 @@ to a whole point (text to the half point), except 1pt rules and borders.
 
 Chrome text is **Inter** (4.1 static faces, bundled and registered at launch).
 Monospaced chrome text is the **terminal face**: the `font-family` the user's
-Ghostty config names when CoreText resolves it (JetBrains Mono on the reference
-machine), else Menlo, exactly as the panes resolve it. SF Symbols stay in the
-system face. Chrome text draws without stem darkening (`AppleFontSmoothing` 0
-for the app's process), which is how the design renders its type; with
-darkening on, Inter reads close to a weight heavier than approved. Terminal
-glyphs set their own smoothing and are unaffected.
+Ghostty config names when CoreText resolves it (JetBrainsMono Nerd Font on the
+reference machine), else Menlo, exactly as the panes resolve it. SF Symbols stay
+in the system face. Text uses the system's normal font smoothing.
 
 | Text | Face | Size | Weight |
 |---|---|---|---|
