@@ -157,6 +157,60 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A pane dragged out of a mini pane, first over another workspace's
+    /// thumbnail and then over a third workspace's card where no thumbnail
+    /// sits. Both renders carry the ghost, the drop wash and the targeted
+    /// card's accent outline.
+    func testAGridDragWashesTheThumbnailThenTheCardItIsOver() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
+        let source = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+        let claude = try XCTUnwrap(MiniPaneLayout.boxes(
+            layout: model.layouts[GridFixture.agentsTab], exported: nil, fallbackPanes: [], size: source.size,
+            padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
+        ).first { $0.pane == GridFixture.claudePane })
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.claudePane),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: claude.frame.size),
+            at: CGPoint(x: source.minX + claude.frame.midX, y: source.minY + claude.frame.midY)
+        )
+
+        let target = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.migrationTab }?.frame)
+        harness.drag.move(to: CGPoint(x: target.midX, y: target.midY))
+        XCTAssertEqual(harness.drag.target, .tabThumbnail(GridFixture.migrationTab))
+        await settle(window)
+        let overThumbnail = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(overThumbnail.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-thumbnail.png"))
+        }
+        assertGridSamples(overThumbnail, theme: .tokyoNight)
+
+        // The card's header row: inside the card, and no thumbnail or tile
+        // covers it, which is what makes it the card's own empty space.
+        let card = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
+        harness.drag.move(to: CGPoint(
+            x: card.midX,
+            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
+        ))
+        XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.mattstackApps))
+        await settle(window)
+        let overCard = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(overCard.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-card.png"))
+        }
+        assertGridSamples(overCard, theme: .tokyoNight)
+        window.close()
+    }
+
     /// Points are top-left in the 900x560 window: the title bar, the grid
     /// header over its rule, the canvas margin, and the first card's border,
     /// fill and focused accent bar.
@@ -369,7 +423,9 @@ private struct GridFixtureClient: HerdrCommandClient {
 /// and every agent status.
 private enum GridFixture {
     static let repoTools = WorkspaceID(rawValue: "w1")
+    static let mattstackApps = WorkspaceID(rawValue: "w3")
     static let agentsTab = TabID(rawValue: "w1:t1")
+    static let migrationTab = TabID(rawValue: "w2:t1")
     static let claudePane = PaneID(rawValue: "w1:p1")
 
     private typealias Rect = (x: Int, y: Int, width: Int, height: Int)
