@@ -8,11 +8,11 @@ import CoreGraphics
 /// A run shorter than `minimumExtent` yields no zone at all, so a full strip
 /// or rail cannot grow an accidental target a pixel wide.
 public enum DropZones {
-    public static let minimumExtent: CGFloat = 44
+    public static let minimumExtent: CGFloat = 56
     /// Breathing room between a zone and whatever it borders. A zone drawn
     /// flush against the last item, the window edge and the chrome above it
     /// reads as a rendering artifact rather than as a target.
-    public static let margin: CGFloat = 8
+    public static let margin: CGFloat = 10
 
     public static func trailing(
         in container: CGRect,

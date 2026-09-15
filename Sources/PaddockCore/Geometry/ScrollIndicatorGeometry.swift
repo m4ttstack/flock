@@ -15,7 +15,7 @@ public enum ScrollIndicatorGeometry {
     /// length is the viewport's share of (scrollback + viewport) rows,
     /// floored at `minimumLength`, and its offset places the viewport's
     /// position within the remaining travel, top meaning fully scrolled up.
-    public static func thumb(for scroll: ScrollInfo, trackLength: CGFloat, minimumLength: CGFloat = 12) -> Thumb? {
+    public static func thumb(for scroll: ScrollInfo, trackLength: CGFloat, minimumLength: CGFloat = 15) -> Thumb? {
         guard scroll.offsetFromBottom > 0, scroll.maxOffsetFromBottom > 0, scroll.viewportRows > 0, trackLength > 0 else {
             return nil
         }

@@ -46,7 +46,7 @@ final class DividerBandTests: XCTestCase {
 
     /// Easy to acquire: several times the gutter it is centered on.
     func testHitBandIsAtLeastThreeGuttersWide() {
-        XCTAssertEqual(DividerBand.gutter, 7)
+        XCTAssertEqual(DividerBand.gutter, 9)
         XCTAssertGreaterThanOrEqual(DividerBand.thickness, DividerBand.gutter * 3)
     }
 
@@ -110,8 +110,8 @@ final class DividerBandTests: XCTestCase {
     // MARK: - handle
 
     func testHandleIsAFixedLengthOnALongDivider() {
-        XCTAssertEqual(DividerBand.handleLength(forDividerLength: 600), 40)
-        XCTAssertEqual(DividerBand.handleThickness, 1.5)
+        XCTAssertEqual(DividerBand.handleLength(forDividerLength: 600), 51)
+        XCTAssertEqual(DividerBand.handleThickness, 2)
     }
 
     func testHandleNeverOutgrowsItsDivider() {

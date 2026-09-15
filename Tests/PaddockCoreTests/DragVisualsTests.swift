@@ -19,8 +19,8 @@ final class DragVisualsTests: XCTestCase {
 
     func testGhostSizeShrinksAPaneToFitTheCapAndKeepsItsAspect() {
         let size = DragVisuals.ghostSize(forOrigin: CGSize(width: 800, height: 400))
-        XCTAssertEqual(size.width, 260, accuracy: 0.001)
-        XCTAssertEqual(size.height, 130, accuracy: 0.001)
+        XCTAssertEqual(size.width, 333, accuracy: 0.001)
+        XCTAssertEqual(size.height, 166.5, accuracy: 0.001)
     }
 
     func testGhostSizeLeavesSomethingAlreadySmallerAlone() {
@@ -29,7 +29,7 @@ final class DragVisualsTests: XCTestCase {
     }
 
     func testGhostSizeFallsBackToTheCapForADegenerateOrigin() {
-        XCTAssertEqual(DragVisuals.ghostSize(forOrigin: .zero), CGSize(width: 260, height: 160))
+        XCTAssertEqual(DragVisuals.ghostSize(forOrigin: .zero), CGSize(width: 333, height: 205))
     }
 
     func testThresholdRejectsAPressThatBarelyMoves() {
@@ -42,8 +42,8 @@ final class DragVisualsTests: XCTestCase {
     }
 
     func testPaneContentStartsBelowThePaddingAndTitleRow() {
-        XCTAssertEqual(PaneChrome.contentTop, 22)
-        XCTAssertEqual(PaneChrome.size, CGSize(width: 20, height: 30))
+        XCTAssertEqual(PaneChrome.contentTop, 28)
+        XCTAssertEqual(PaneChrome.size, CGSize(width: 26, height: 38))
     }
 
     func testPaneBodyIsTheTerminalsAtRest() {

@@ -30,7 +30,7 @@ public enum DragVisuals {
     /// The proxy's size: the origin item scaled down but never past
     /// `maximum`, aspect preserved, so a full-window pane and a tab both
     /// produce something small enough to see the drop target under.
-    public static func ghostSize(forOrigin origin: CGSize, maximum: CGSize = CGSize(width: 260, height: 160)) -> CGSize {
+    public static func ghostSize(forOrigin origin: CGSize, maximum: CGSize = CGSize(width: 333, height: 205)) -> CGSize {
         guard origin.width > 0, origin.height > 0 else { return maximum }
         let scale = min(1, min(maximum.width / origin.width, maximum.height / origin.height))
         return CGSize(width: origin.width * scale, height: origin.height * scale)
@@ -77,7 +77,7 @@ public enum PaneGrabRegion {
 public enum ReshuffleOffset {
     /// What a cross-list drag (a tab from another workspace) opens, having no
     /// item of its own in this list to take the extent from.
-    public static let defaultExtent: CGFloat = 56
+    public static let defaultExtent: CGFloat = 72
 
     public static func displacement(forItemAt index: Int, draggingIndex: Int?, insertIndex: Int, extent: CGFloat) -> CGFloat {
         // Nothing of this list is moving, so the gap is simply opened at the

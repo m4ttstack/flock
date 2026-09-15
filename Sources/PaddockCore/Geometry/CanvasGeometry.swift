@@ -52,14 +52,14 @@ extension DividerHandle {
 public enum DividerBand {
     /// The drawn space between two pane boxes. Every pane box and the drop
     /// preview are inset from it, so this is the one value to change.
-    public static let gutter: CGFloat = 7
+    public static let gutter: CGFloat = 9
     /// The grab band centered on the gutter. Half of it must stay under the
     /// smallest margin a neighbor carries past its half-gutter (the bottom
     /// padding), or a press could land on terminal text.
-    public static let thickness: CGFloat = 22
+    public static let thickness: CGFloat = 28
     /// The visible handle, centered in the gutter along the divider.
-    public static let handleThickness: CGFloat = 1.5
-    public static let handleMaximumLength: CGFloat = 40
+    public static let handleThickness: CGFloat = 2
+    public static let handleMaximumLength: CGFloat = 51
 
     public static func handleLength(forDividerLength length: CGFloat) -> CGFloat {
         min(length, handleMaximumLength)

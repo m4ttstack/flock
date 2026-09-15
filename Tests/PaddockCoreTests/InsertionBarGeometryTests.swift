@@ -41,15 +41,15 @@ final class InsertionBarGeometryTests: XCTestCase {
 
     func testBarSpansTheTabsCrossExtentNotTheWholeStrip() {
         let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: tabs, container: strip, axis: .vertical)
-        XCTAssertEqual(bar.minY, 4, accuracy: 0.001)
-        XCTAssertEqual(bar.maxY, 38, accuracy: 0.001)
+        XCTAssertEqual(bar.minY, 3, accuracy: 0.001)
+        XCTAssertEqual(bar.maxY, 39, accuracy: 0.001)
     }
 
     /// The empty-strip case the explicit `stripFrame` exists for: with no
     /// items to measure against, the bar still lands inside the strip.
     func testBarFallsBackIntoAnEmptyStrip() {
         let bar = InsertionBarGeometry.bar(atInsertIndex: 0, items: [], container: strip, axis: .vertical)
-        XCTAssertEqual(bar.midX, 8, accuracy: 0.001)
+        XCTAssertEqual(bar.midX, 10, accuracy: 0.001)
         XCTAssertTrue(strip.insetBy(dx: -1, dy: -1).contains(bar))
     }
 
@@ -97,7 +97,7 @@ final class InsertionBarGeometryTests: XCTestCase {
         XCTAssertEqual(bar.midY, 103, accuracy: 0.001)
         XCTAssertEqual(bar.height, InsertionBarGeometry.thickness)
         XCTAssertEqual(bar.minX, 5, accuracy: 0.001)
-        XCTAssertEqual(bar.maxX, 211, accuracy: 0.001)
+        XCTAssertEqual(bar.maxX, 212, accuracy: 0.001)
     }
 
     func testEndDotCapsTheBarsLeadingEnd() {
@@ -112,10 +112,10 @@ final class InsertionBarGeometryTests: XCTestCase {
     /// it: the bar must not cross the strip's bottom edge, and its end dot
     /// must not rise above the strip's top.
     func testBarAndDotStayInsideAStripWhoseTabsSitFlushOnItsEdge() {
-        let tightStrip = CGRect(x: 151, y: 20, width: 749, height: 28)
+        let tightStrip = CGRect(x: 193, y: 26, width: 707, height: 36)
         let flushTabs = [
-            CGRect(x: 159, y: 26, width: 78, height: 22),
-            CGRect(x: 239, y: 26, width: 78, height: 22)
+            CGRect(x: 203, y: 34, width: 100, height: 28),
+            CGRect(x: 306, y: 34, width: 100, height: 28)
         ]
         let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: flushTabs, container: tightStrip, axis: .vertical)
         let dot = InsertionBarGeometry.endDot(for: bar, axis: .vertical)

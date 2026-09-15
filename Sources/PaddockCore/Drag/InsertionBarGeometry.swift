@@ -13,13 +13,13 @@ public enum InsertionBarGeometry {
         case horizontal
     }
 
-    public static let thickness: CGFloat = 2
-    public static let dotDiameter: CGFloat = 8
+    public static let thickness: CGFloat = 3
+    public static let dotDiameter: CGFloat = 10
     /// How far the bar overhangs the items' own cross-axis extent.
-    public static let crossOutset: CGFloat = 3
+    public static let crossOutset: CGFloat = 4
     /// The gap assumed either side of a lone item, and inside an empty
     /// container: real gaps are measured from the items themselves.
-    public static let assumedGap: CGFloat = 8
+    public static let assumedGap: CGFloat = 10
 
     public static func bar(atInsertIndex index: Int, items: [CGRect], container: CGRect, axis: Axis) -> CGRect {
         let center = mainCenter(atInsertIndex: index, items: items, container: container, axis: axis)
