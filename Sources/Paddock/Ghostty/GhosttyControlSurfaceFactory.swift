@@ -140,10 +140,6 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
         session.setExpectedGrid(cols: cols, rows: rows)
     }
 
-    func repaint(cols: Int, rows: Int) {
-        session.setExpectedGrid(cols: cols, rows: rows, repaint: true)
-    }
-
     /// Drops paddock's only strong reference to the session, AND -- since
     /// `GhosttySession.view` now holds its own view strongly, so a parked
     /// pane's surface survives its cell disappearing from SwiftUI -- breaks

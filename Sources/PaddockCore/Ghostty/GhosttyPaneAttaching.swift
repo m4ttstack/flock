@@ -42,10 +42,6 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// cols x rows cells).
     func resize(cols: Int, rows: Int)
 
-    /// Re-declares the grid past every repeat guard and asks herdr for a full
-    /// frame at it, once the bridge sees libghostty's terminal at that grid.
-    func repaint(cols: Int, rows: Int)
-
     /// Tears the surface down: frees the libghostty surface, which ends the
     /// bridge's PTY and, with it, the bridge process and its own herdr
     /// control child. `async` so a real teardown that needs to wait on

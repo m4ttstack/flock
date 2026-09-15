@@ -196,18 +196,6 @@ public final class SessionViewModel {
         surface.resize(cols: size.cols, rows: size.rows)
     }
 
-    /// A resize gesture ended: re-declares every visible pane's current grid
-    /// past the repeat guards, so herdr repaints each one in full once its
-    /// surface is laid out there. A parked pane has nothing on screen to fix,
-    /// and a pane still attaching gets its newest grid from `performAttach`.
-    public func settlePaneDims() {
-        for (pane, surface) in ghosttySurfaces where !parkedPanes.contains(pane) {
-            guard let size = paneBoxDims[pane] else { continue }
-            lastSentDims[pane] = size
-            surface.repaint(cols: size.cols, rows: size.rows)
-        }
-    }
-
     /// Any pane herdr no longer reports (closed, or the model went nil) has
     /// nothing left to come back to, so its surface is torn down for real
     /// regardless of the warm cap -- keeping it parked would only leak a
