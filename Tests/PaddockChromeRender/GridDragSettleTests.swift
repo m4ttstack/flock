@@ -63,6 +63,59 @@ final class GridDragSettleTests: XCTestCase {
         }
     }
 
+    /// A tab dragged by its handle strip carries the grab cursor the whole
+    /// way, which a tab drag outside the grid never does. What the push is
+    /// keyed on has to be what the pop is keyed on, or a release leaves the
+    /// closed hand on screen for the rest of the session.
+    func testAGridDragHoldsTheGrabCursorFromBeginToRelease() async {
+        let drag = makeCoordinator()
+        XCTAssertFalse(drag.holdsGrabCursor)
+
+        drag.beginIfIdle(
+            .tab(Self.tab),
+            ghost: DragCoordinator.Ghost(
+                title: "agents", symbol: "rectangle.stack", originSize: Self.thumbnail.size, isCompact: true
+            ),
+            at: CGPoint(x: 40, y: 80),
+            home: Self.home(box: CGRect(origin: .zero, size: Self.thumbnail.size), item: .tab(Self.tab))
+        )
+        XCTAssertTrue(drag.holdsGrabCursor)
+        XCTAssertFalse(drag.isPaneDragInFlight, "a tab is not a pane, whatever cursor it carries")
+
+        drag.release()
+        await awaitSettle(drag)
+        XCTAssertFalse(drag.holdsGrabCursor)
+    }
+
+    /// The same tab dragged from the strip, with no grid covering the window,
+    /// keeps whatever cursor it had: the open hand belongs to the grid's own
+    /// handles and to rearrange mode, not to every drag.
+    func testATabDraggedWithNoGridShownHoldsNoGrabCursor() {
+        let drag = makeCoordinator()
+        drag.closeGrid()
+
+        drag.beginIfIdle(
+            .tab(Self.tab),
+            ghost: DragCoordinator.Ghost(
+                title: "agents", symbol: "rectangle.stack", originSize: Self.thumbnail.size, isCompact: true
+            ),
+            at: CGPoint(x: 40, y: 80)
+        )
+        XCTAssertFalse(drag.holdsGrabCursor)
+    }
+
+    /// A pane drag still carries it wherever it starts, grid or canvas.
+    func testAPaneDragHoldsTheGrabCursorWithOrWithoutTheGrid() {
+        let drag = makeCoordinator()
+        drag.closeGrid()
+
+        drag.beginIfIdle(
+            .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size), at: CGPoint(x: 30, y: 70)
+        )
+        XCTAssertTrue(drag.holdsGrabCursor)
+        XCTAssertTrue(drag.isPaneDragInFlight)
+    }
+
     /// Released over the thumbnail it started in: the planner answers `.noOp`,
     /// so the ghost has to spring back onto the mini pane rather than vanish
     /// where it was let go.
