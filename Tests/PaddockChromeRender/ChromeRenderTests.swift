@@ -93,7 +93,8 @@ final class ChromeRenderTests: XCTestCase {
     /// The system title bar is taller than the chrome's, so the top of the tab
     /// strip lies inside it. A press there must stay with the strip: some view
     /// of ours at that point opts out of moving the window. The chrome title
-    /// bar must keep moving the window, so nothing of ours opts out there.
+    /// bar drags and double-clicks through `TitleBarMouseView`, so every point
+    /// on it must reach that view.
     func testTabStripTopInsideTheSystemTitleBarDoesNotMoveTheWindow() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let window = harness.makeWindow(size: Self.windowSize)
@@ -105,7 +106,7 @@ final class ChromeRenderTests: XCTestCase {
         let stripTopEdge = CGPoint(x: 260, y: stripTop + 1)
         XCTAssertTrue(contentViews(at: stripTopEdge, in: window).contains { !$0.mouseDownCanMoveWindow })
         for titlePoint in [CGPoint(x: 450, y: 10), CGPoint(x: 250, y: 10), CGPoint(x: 800, y: 3)] {
-            XCTAssertFalse(contentViews(at: titlePoint, in: window).contains { !$0.mouseDownCanMoveWindow }, "\(titlePoint)")
+            XCTAssertTrue(contentViews(at: titlePoint, in: window).contains { $0 is TitleBarMouseView }, "\(titlePoint)")
         }
         window.close()
     }

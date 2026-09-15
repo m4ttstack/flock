@@ -1,4 +1,5 @@
 import AppKit
+import PaddockCore
 import SwiftUI
 
 extension View {
@@ -25,6 +26,43 @@ struct WindowDragExclusion: NSViewRepresentable {
 final class NonDraggableView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// The chrome title bar's own mouse handling. Content covers the system title
+/// bar, so AppKit's double-click action never sees a click there: this view
+/// performs the user's chosen double-click action itself and hands every other
+/// press to the window drag.
+struct TitleBarMouseArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> TitleBarMouseView { TitleBarMouseView() }
+    func updateNSView(_ nsView: TitleBarMouseView, context: Context) {}
+}
+
+final class TitleBarMouseView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        guard event.clickCount == 2 else {
+            window.performDrag(with: event)
+            return
+        }
+        let defaults = UserDefaults.standard
+        let action = TitleBarDoubleClickAction(
+            action: defaults.string(forKey: TitleBarDoubleClickAction.actionKey),
+            legacyMinimize: defaults.bool(forKey: TitleBarDoubleClickAction.legacyMinimizeKey)
+        )
+        switch action {
+        case .zoom:
+            window.performZoom(nil)
+        case .fill:
+            guard let screen = window.screen else { return }
+            window.setFrame(screen.visibleFrame, display: true, animate: true)
+        case .minimize:
+            window.performMiniaturize(nil)
+        case .doNothing:
+            break
+        }
+    }
 }
 
 /// Merges the system title bar into the content so the window buttons sit on

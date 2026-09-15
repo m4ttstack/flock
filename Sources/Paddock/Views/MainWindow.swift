@@ -67,6 +67,7 @@ private struct TitleBar: View {
             .frame(maxWidth: .infinity)
             .frame(height: ChromeMetrics.TitleBar.height)
             .overlay(alignment: .trailing) { connectionNotice }
+            .overlay { TitleBarMouseArea() }
             .background(theme.chrome)
     }
 
