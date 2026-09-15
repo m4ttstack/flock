@@ -62,7 +62,7 @@ private final class CommitSpy {
 private final class SpringLoadSpy {
     private(set) var fired: [DropTarget] = []
 
-    func fire(_ target: DropTarget) async {
+    func fire(_ target: DropTarget) {
         fired.append(target)
     }
 
@@ -111,7 +111,7 @@ final class DragControllerTests: XCTestCase {
     private func makeController(
         commit: CommitSpy, springLoad: SpringLoadSpy, clock: FakeClock
     ) -> DragController {
-        DragController(commit: commit.commit, springLoadAction: springLoad.fire, now: clock.now)
+        DragController(commit: commit.commit, onSpringLoad: springLoad.fire, now: clock.now)
     }
 
     // MARK: - began / moved
@@ -362,7 +362,7 @@ final class DragControllerTests: XCTestCase {
         let clock = FakeClock()
         var hooked: [DropTarget] = []
         let controller = DragController(
-            commit: CommitSpy().commit, springLoadAction: SpringLoadSpy().fire,
+            commit: CommitSpy().commit,
             onSpringLoad: { hooked.append($0) }, now: clock.now
         )
         controller.began(.pane(Self.paneID), at: .zero)
@@ -381,7 +381,7 @@ final class DragControllerTests: XCTestCase {
     func testOnSpringLoadRunsInsideForceSpringLoad() {
         var hooked: [DropTarget] = []
         let controller = DragController(
-            commit: CommitSpy().commit, springLoadAction: SpringLoadSpy().fire,
+            commit: CommitSpy().commit,
             onSpringLoad: { hooked.append($0) }, now: FakeClock().now
         )
         controller.began(.pane(Self.paneID), at: .zero)

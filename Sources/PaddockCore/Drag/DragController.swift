@@ -21,10 +21,6 @@ public enum DragOutcome: Equatable, Sendable {
 /// controller never plans or executes anything itself.
 public typealias DragCommit = @MainActor (DragSubject, DropTarget) async -> DragOutcome
 
-/// Reveals `target`'s tab or workspace so the user can drop inside it. Fired
-/// once per dwell; the drag itself stays in `.dragging` while this runs.
-public typealias SpringLoadAction = @MainActor (DropTarget) async -> Void
-
 /// State machine for one drag-and-drop gesture, sitting between the pointer
 /// events a view reports and the mutation path `DragCommit` runs.
 ///
@@ -64,21 +60,17 @@ public final class DragController {
     private var generation = 0
 
     private let commit: DragCommit
-    private let springLoadAction: SpringLoadAction
-    /// Runs inside the call that fires a spring load, before
-    /// `springLoadAction`'s task is scheduled: anything that must stop the
-    /// moment a reveal fires cannot wait for that task to run.
+    /// Runs synchronously inside the call that fires the spring load, before
+    /// `moved`/`forceSpringLoad` returns.
     private let onSpringLoad: @MainActor (DropTarget) -> Void
     private let now: @MainActor () -> ContinuousClock.Instant
 
     public init(
         commit: @escaping DragCommit,
-        springLoadAction: @escaping SpringLoadAction = { _ in },
         onSpringLoad: @escaping @MainActor (DropTarget) -> Void = { _ in },
         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
     ) {
         self.commit = commit
-        self.springLoadAction = springLoadAction
         self.onSpringLoad = onSpringLoad
         self.now = now
     }
@@ -169,8 +161,6 @@ public final class DragController {
     private func fire(_ target: DropTarget) {
         springLoadFired = true
         onSpringLoad(target)
-        let action = springLoadAction
-        Task { await action(target) }
     }
 
     private func clearSpringLoad() {
