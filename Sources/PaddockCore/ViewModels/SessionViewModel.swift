@@ -35,9 +35,10 @@ public final class SessionViewModel {
     // `ghosttySurfaces`. This is what actually closes the reentrancy hole a
     // simple "recheck after await" guard cannot: a second attach or a
     // teardown arriving mid-attach must never reach the surface concurrently
-    // with whatever request is already in flight for the same pane. Not pruned as requests settle -- bounded by how many distinct
-    // panes have ever existed in the session, not by request volume, so this
-    // does not grow unbounded in practice.
+    // with whatever request is already in flight for the same pane. Not
+    // pruned as requests settle: bounded by how many distinct panes have ever
+    // existed in the session, not by request volume, so this does not grow
+    // unbounded in practice.
     private var paneWork: [PaneID: Task<Void, Never>] = [:]
     private let client: any HerdrCommandClient
     private let ghosttyFactory: (any GhosttyPaneFactory)?

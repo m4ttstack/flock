@@ -103,7 +103,7 @@ final class GhosttySession {
     /// The grid paddock's pane box holds, which the view lays the surface out
     /// at. Kept only so `verifyExpectedGrid` can log whether libghostty's live
     /// grid matches it.
-    private(set) var expectedGrid: (cols: Int, rows: Int)?
+    private var expectedGrid: (cols: Int, rows: Int)?
     private var lastVerifiedGrid: (cols: Int, rows: Int)?
 
     init(host: GhosttyHost, paneID: PaneID, configuration: Launch) {
@@ -157,12 +157,14 @@ final class GhosttySession {
     }
 
     /// Records the grid paddock's box holds for this pane, for the grid log.
+    /// It is not checked here: a new box grid arrives before AppKit lays the
+    /// new frame out, so libghostty still holds the old grid. `resize(to:)`
+    /// and `updateAppearance` check it once the grid can have moved.
     func setExpectedGrid(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         if let expectedGrid, expectedGrid.cols == cols, expectedGrid.rows == rows { return }
         expectedGrid = (cols, rows)
         lastVerifiedGrid = nil
-        verifyExpectedGrid()
     }
 
     /// Runs whenever libghostty's live grid may have changed: logs, once per
