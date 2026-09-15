@@ -139,4 +139,48 @@ final class DragVisualsTests: XCTestCase {
         XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 1, draggingIndex: nil, insertIndex: 1, extent: extent), 60)
         XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 2, draggingIndex: nil, insertIndex: 1, extent: extent), 60)
     }
+
+    // MARK: - block reshuffle
+
+    /// Rows 20 tall on a 22pt pitch.
+    private let rows = (0..<5).map { CGRect(x: 0, y: CGFloat($0) * 22, width: 180, height: 20) }
+
+    func testScatteredBlockDroppedAtTheEndPreviewsThePostDropOrder() {
+        // Block {0, 2} to the end of four rows: [1, 3, 0, 2].
+        let items = Array(rows.prefix(4))
+        let block: Set<Int> = [0, 2]
+        let offsets = (0..<4).map {
+            ReshuffleOffset.blockDisplacement(forItemAt: $0, blockIndices: block, insertIndex: 4, items: items, axis: .horizontal)
+        }
+        XCTAssertEqual(offsets, [44, -22, 22, -44])
+    }
+
+    /// Exactly one item per slot, whatever the block and gap: the displaced
+    /// positions are the resting positions, reordered.
+    func testBlockPreviewNeverStacksTwoItemsInOneSlot() {
+        let resting = rows.map(\.minY)
+        for mask in 1..<(1 << rows.count) {
+            let block = Set(rows.indices.filter { mask & (1 << $0) != 0 })
+            for insertIndex in 0...rows.count {
+                let landed = rows.indices.map {
+                    rows[$0].minY + ReshuffleOffset.blockDisplacement(forItemAt: $0, blockIndices: block, insertIndex: insertIndex, items: rows, axis: .horizontal)
+                }
+                XCTAssertEqual(landed.sorted(), resting, "block \(block.sorted()) at gap \(insertIndex)")
+            }
+        }
+    }
+
+    func testBlockOfOneMatchesTheSingleReshuffle() {
+        for dragging in rows.indices {
+            for insertIndex in 0...rows.count {
+                for index in rows.indices {
+                    XCTAssertEqual(
+                        ReshuffleOffset.blockDisplacement(forItemAt: index, blockIndices: [dragging], insertIndex: insertIndex, items: rows, axis: .horizontal),
+                        ReshuffleOffset.displacement(forItemAt: index, draggingIndex: dragging, insertIndex: insertIndex, extent: 22),
+                        "item \(index), dragging \(dragging), gap \(insertIndex)"
+                    )
+                }
+            }
+        }
+    }
 }

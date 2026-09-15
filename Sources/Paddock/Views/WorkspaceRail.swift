@@ -1,3 +1,4 @@
+import AppKit
 import PaddockCore
 import SwiftUI
 
@@ -29,6 +30,7 @@ struct WorkspaceRail: View {
                         workspace: workspace,
                         paneCount: viewModel.paneCount(for: workspace.workspaceID),
                         isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
+                        isMultiSelected: drag.isWorkspaceMultiSelected(workspace.workspaceID),
                         displacement: drag.workspaceDisplacement(at: index),
                         isGhosted: drag.isDragging(workspace: workspace.workspaceID)
                     )
@@ -37,7 +39,12 @@ struct WorkspaceRail: View {
                     // insertion index is measured against.
                     .reportsDragFrame { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
                     .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
-                    .onTapGesture { onSelect(workspace.workspaceID) }
+                    .onTapGesture {
+                        let commandHeld = NSEvent.modifierFlags.contains(.command)
+                        if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld) {
+                            onSelect(workspace.workspaceID)
+                        }
+                    }
                     .simultaneousGesture(rowDrag(workspace))
                 }
 
@@ -63,10 +70,12 @@ struct WorkspaceRail: View {
     private func rowDrag(_ workspace: WorkspaceRecord) -> some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
+                let subject = drag.workspaceDragSubject(pressing: workspace.workspaceID)
+                let title = if case .workspaces(let block) = subject { "\(block.count) workspaces" } else { workspace.label }
                 drag.beginIfIdle(
-                    .workspace(workspace.workspaceID),
+                    subject,
                     ghost: DragCoordinator.Ghost(
-                        title: workspace.label,
+                        title: title,
                         symbol: "square.grid.2x2",
                         originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero
                     ),
@@ -81,6 +90,9 @@ private struct WorkspaceRow: View {
     let workspace: WorkspaceRecord
     let paneCount: Int
     let isSelected: Bool
+    /// In the rail's Cmd+click selection: the fill only, since the accent bar
+    /// and weight mark herdr's own selected workspace.
+    var isMultiSelected = false
     /// How far this row slides to open the insertion gap.
     var displacement: CGFloat = 0
     /// The row this drag started from, left in place and faded.
@@ -110,7 +122,7 @@ private struct WorkspaceRow: View {
         .background(
             RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius)
                 .fill(theme.selection)
-                .opacity(isSelected ? 1 : 0)
+                .opacity(isSelected || isMultiSelected ? 1 : 0)
         )
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)

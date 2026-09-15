@@ -144,6 +144,11 @@ final class DragCoordinator {
     /// event monitor.
     @ObservationIgnored nonisolated(unsafe) private var eventMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var selectionEscapeMonitor: Any?
+
+    /// The rail's Cmd+click selection. Decisions live in `WorkspaceSelection`;
+    /// this only owns the Esc monitor and the two moments a drag clears it.
+    private(set) var workspaceSelection = WorkspaceSelection()
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
 
@@ -178,6 +183,9 @@ final class DragCoordinator {
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
         }
+        if let selectionEscapeMonitor {
+            NSEvent.removeMonitor(selectionEscapeMonitor)
+        }
     }
 
     // MARK: - Surface registration
@@ -198,6 +206,8 @@ final class DragCoordinator {
     func setWorkspaceOrder(_ order: [WorkspaceID]) {
         guard workspaceOrder != order else { return }
         workspaceOrder = order
+        workspaceSelection.retain(order)
+        syncSelectionEscapeMonitor()
     }
 
     /// Frozen while that list is showing an insertion gap: the index is
@@ -293,6 +303,7 @@ final class DragCoordinator {
     private func end() {
         let landingTarget = target
         teardown()
+        clearWorkspaceSelection()
         guard case .dragging = controller.phase else {
             settle(to: ghostTopLeft(centeredOn: grabPoint))
             return
@@ -314,6 +325,7 @@ final class DragCoordinator {
         guard machine.handle(.cancel) == .cancel else { return }
         generation += 1
         teardown(keepingMonitors: true)
+        clearWorkspaceSelection()
         controller.cancelled()
         settle(to: ghostTopLeft(centeredOn: grabPoint))
     }
@@ -486,6 +498,49 @@ final class DragCoordinator {
         resignObserver = nil
     }
 
+    // MARK: - Rail multi-selection
+
+    /// True when the click is a plain one whose jump the caller should run.
+    func clickWorkspace(_ id: WorkspaceID, commandHeld: Bool) -> Bool {
+        let effect = workspaceSelection.click(id, commandHeld: commandHeld)
+        syncSelectionEscapeMonitor()
+        return effect == .jump(id)
+    }
+
+    func isWorkspaceMultiSelected(_ id: WorkspaceID) -> Bool {
+        workspaceSelection.contains(id)
+    }
+
+    func workspaceDragSubject(pressing id: WorkspaceID) -> DragSubject {
+        workspaceSelection.dragSubject(pressing: id, order: workspaceOrder)
+    }
+
+    private func clearWorkspaceSelection() {
+        guard !workspaceSelection.isEmpty else { return }
+        workspaceSelection.clear()
+        syncSelectionEscapeMonitor()
+    }
+
+    /// Present only while something is selected, so the rest of the time an
+    /// Esc reaches the focused terminal untouched.
+    private func syncSelectionEscapeMonitor() {
+        guard !workspaceSelection.isEmpty else {
+            if let selectionEscapeMonitor {
+                NSEvent.removeMonitor(selectionEscapeMonitor)
+            }
+            selectionEscapeMonitor = nil
+            return
+        }
+        guard selectionEscapeMonitor == nil else { return }
+        selectionEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, Int(event.keyCode) == kVK_Escape,
+                  self.workspaceSelection.escapeClears(dragIdle: self.machine.state == .idle)
+            else { return event }
+            self.clearWorkspaceSelection()
+            return nil
+        }
+    }
+
     private func dragSpacePoint(_ event: NSEvent) -> CGPoint? {
         guard let anchor = spaceAnchor, anchor.window === event.window else { return nil }
         let local = anchor.convert(event.locationInWindow, from: nil)
@@ -496,7 +551,13 @@ final class DragCoordinator {
 
     func isDragging(pane: PaneID) -> Bool { activeSubject == .pane(pane) }
     func isDragging(tab: TabID) -> Bool { activeSubject == .tab(tab) }
-    func isDragging(workspace: WorkspaceID) -> Bool { activeSubject == .workspace(workspace) }
+    func isDragging(workspace: WorkspaceID) -> Bool {
+        switch activeSubject {
+        case .workspace(let id)?: id == workspace
+        case .workspaces(let ids)?: ids.contains(workspace)
+        default: false
+        }
+    }
 
     var insertionMark: InsertionMark? {
         switch target {
@@ -544,6 +605,13 @@ final class DragCoordinator {
     func workspaceDisplacement(at index: Int) -> CGFloat {
         guard case .workspaceRail(let insertIndex)? = target else { return 0 }
         let items = workspaceFrames.map(\.frame)
+        if case .workspaces(let block)? = activeSubject {
+            let members = Set(block)
+            let blockIndices = Set(workspaceFrames.indices.filter { members.contains(workspaceFrames[$0].id) })
+            return ReshuffleOffset.blockDisplacement(
+                forItemAt: index, blockIndices: blockIndices, insertIndex: insertIndex, items: items, axis: .horizontal
+            )
+        }
         let draggingIndex = draggingWorkspaceIndex
         return ReshuffleOffset.displacement(
             forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex,

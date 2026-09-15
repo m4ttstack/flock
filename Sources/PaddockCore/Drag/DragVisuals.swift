@@ -101,6 +101,25 @@ public enum ReshuffleOffset {
         return 0
     }
 
+    /// The same invariant for a block: its members leave their slots, land
+    /// together in list order at the gap, and every item takes the slot that
+    /// post-drop order gives it. Slots are rebuilt from each item's own
+    /// advance rather than from one shared extent, because a block's members
+    /// need not be neighbors.
+    public static func blockDisplacement(
+        forItemAt index: Int, blockIndices: Set<Int>, insertIndex: Int, items: [CGRect], axis: InsertionBarGeometry.Axis
+    ) -> CGFloat {
+        guard items.indices.contains(index), let first = items.first else { return 0 }
+        func leading(_ rect: CGRect) -> CGFloat { axis == .vertical ? rect.minX : rect.minY }
+        let unmoved = items.indices.filter { !blockIndices.contains($0) }
+        let landed = unmoved.filter { $0 < insertIndex }
+            + items.indices.filter(blockIndices.contains)
+            + unmoved.filter { $0 >= insertIndex }
+        guard let slot = landed.firstIndex(of: index) else { return 0 }
+        let position = landed[..<slot].reduce(leading(first)) { $0 + advance(ofItemAt: $1, items: items, axis: axis) }
+        return position - leading(items[index])
+    }
+
     /// The main-axis distance an item occupies including the gap to its
     /// neighbor: how far the list shifts when that item leaves or arrives.
     /// Measured from the frames themselves, so no view's spacing constant has

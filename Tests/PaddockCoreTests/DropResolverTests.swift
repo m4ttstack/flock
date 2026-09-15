@@ -297,6 +297,27 @@ final class DropResolverTests: XCTestCase {
         )
     }
 
+    func testWorkspaceBlockOverRailResolvesTheSameGapIndexAsASingleWorkspace() throws {
+        let surfaces = surfaces(canvas: try canvas())
+        let block = DragSubject.workspaces([WorkspaceID(rawValue: "w0"), WorkspaceID(rawValue: "w2")])
+        for y in stride(from: 5.0, through: 295.0, by: 10.0) {
+            let point = CGPoint(x: -70, y: y)
+            XCTAssertEqual(
+                resolveDropTarget(at: point, dragging: block, surfaces: surfaces),
+                resolveDropTarget(at: point, dragging: .workspace(WorkspaceID(rawValue: "w0")), surfaces: surfaces),
+                "y \(y)"
+            )
+        }
+    }
+
+    func testWorkspaceBlockOverStripCanvasOrZoneResolvesNil() throws {
+        let surfaces = surfaces(canvas: try canvas())
+        let block = DragSubject.workspaces([WorkspaceID(rawValue: "w0"), WorkspaceID(rawValue: "w2")])
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 150, y: 320), dragging: block, surfaces: surfaces))
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 150, y: 150), dragging: block, surfaces: surfaces))
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 630, y: 20), dragging: block, surfaces: surfaces))
+    }
+
     func testWorkspaceSubjectOverEmptyRailResolvesIndexZero() throws {
         let railFrame = CGRect(x: -100, y: 0, width: 60, height: 300)
         let surfaces = surfaces(canvas: try canvas(), workspaceFrames: [], railFrame: railFrame)
