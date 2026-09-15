@@ -11,6 +11,16 @@ enum ChromeMetrics {
     static let canvasMargin: CGFloat = 5
 }
 
+extension View {
+    /// A fill confined to this view's own frame. The shape-style `.background`
+    /// extends into safe areas, and everything within the system title bar's
+    /// height (taller than `ChromeMetrics.titleBarHeight`) sits inside the top
+    /// safe area, so that fill would paint up over the title bar.
+    func boundedBackground<S: ShapeStyle>(_ style: S) -> some View {
+        background(style, ignoresSafeAreaEdges: [])
+    }
+}
+
 /// Merges the system title bar into the content so the window buttons sit on
 /// `TitleBar`'s chrome with no system strip above it. `.windowStyle(.hiddenTitleBar)`
 /// alone still leaves a title bar safe-area inset, so `MainWindow` also ignores

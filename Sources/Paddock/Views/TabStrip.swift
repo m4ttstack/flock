@@ -47,7 +47,7 @@ struct TabStrip: View {
                 .fill(theme.rule)
                 .frame(height: ChromeMetrics.ruleWidth)
         }
-        .background(theme.chrome)
+        .boundedBackground(theme.chrome)
         .reportsDragFrame { drag.stripFrame = $0 }
         .onAppear { publishIdentity() }
         .onChange(of: tabs.map(\.tabID)) { _, _ in publishIdentity() }
@@ -107,7 +107,7 @@ private struct TabBlock: View {
             }
             .padding(.horizontal, 9)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(isSelected ? theme.selection : theme.tabRest)
+            .boundedBackground(isSelected ? theme.selection : theme.tabRest)
             if isSelected {
                 Rectangle()
                     .fill(theme.accent)

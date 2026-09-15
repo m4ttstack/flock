@@ -51,7 +51,7 @@ struct WorkspaceRail: View {
                 .fill(theme.rule)
                 .frame(width: ChromeMetrics.ruleWidth)
         }
-        .background(theme.chrome)
+        .boundedBackground(theme.chrome)
         .reportsDragFrame { drag.railFrame = $0 }
         .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
@@ -103,6 +103,9 @@ private struct WorkspaceRow: View {
                 .font(.system(size: 9))
                 .foregroundStyle(theme.textLabel)
         }
+        // The system font's 11pt line is taller than the row's 13pt content
+        // band; fixed so rows keep their 21pt pitch.
+        .frame(height: 13)
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
         .background(

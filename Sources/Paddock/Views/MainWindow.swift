@@ -111,6 +111,6 @@ private struct UnsupportedBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(theme.red.opacity(0.12))
+        .boundedBackground(theme.red.opacity(0.12))
     }
 }
