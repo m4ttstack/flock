@@ -70,7 +70,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
   # The app's views compiled into a hostless test bundle, so the window chrome
   # renders offscreen from fixture data without launching Paddock or opening a
-  # herdr connection. Kept out of the Paddock scheme; it has its own.
+  # herdr connection. The Paddock scheme builds it for testing, so a break in
+  # it fails the core test run, but runs it only from its own scheme.
   PaddockChromeRender:
     type: bundle.unit-test
     platform: macOS
@@ -95,6 +96,7 @@ schemes:
       targets:
         Paddock: all
         PaddockCore: all
+        PaddockChromeRender: [test]
     run:
       config: Debug
     test:
