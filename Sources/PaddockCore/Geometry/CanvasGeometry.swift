@@ -33,7 +33,7 @@ extension DividerHandle {
     public var isVerticalLine: Bool { direction == .right }
 
     /// `frame` widened from the drawn gutter to `thickness`, same
-    /// centerline (`frame` is already centered on the split boundary),
+    /// centerline (`frame` is already exactly the gap between the boxes),
     /// same length -- the divider's actual hit region, distinct from what
     /// it paints. Widening only the cross-axis keeps the along-axis reach
     /// exactly what `frame` already covers.
@@ -45,27 +45,24 @@ extension DividerHandle {
 }
 
 /// The gutter between panes, its grab band and its visible handle. The band
-/// is bounded by `PaneCellView`'s own chrome: a vertical divider borders each
-/// neighbor's 10pt leading/trailing content inset, a horizontal one borders
-/// the 8pt bottom inset above and the 8pt legend band plus 12pt top inset
-/// below, each past half the gutter. `DividerBandTests` pins that the band's
-/// half stays inside the tightest of them.
+/// is bounded by each neighbor's `PaneChrome`: a vertical divider borders the
+/// horizontal padding, a horizontal one the bottom padding above and the top
+/// padding plus title row below, each past half the gutter.
+/// `DividerBandTests` pins that the band's half stays inside the tightest.
 public enum DividerBand {
     /// The drawn space between two pane boxes. Every pane box and the drop
-    /// preview inset by half of it, so this is the one value to change.
-    public static let gutter: CGFloat = 12
+    /// preview are inset from it, so this is the one value to change.
+    public static let gutter: CGFloat = 7
     /// The grab band centered on the gutter. Half of it must stay under the
-    /// smallest chrome margin a neighbor carries past its half-gutter (its
-    /// 8pt bottom inset), or a press could land on terminal text.
-    public static let thickness: CGFloat = 24
-    /// The visible handle: a capsule this thick, a fifth of the divider's
-    /// length, centered along it.
-    public static let handleThickness: CGFloat = 3
-    public static let handleLengthFraction: CGFloat = 0.2
-    public static let handleMinimumLength: CGFloat = 28
+    /// smallest margin a neighbor carries past its half-gutter (the bottom
+    /// padding), or a press could land on terminal text.
+    public static let thickness: CGFloat = 22
+    /// The visible handle, centered in the gutter along the divider.
+    public static let handleThickness: CGFloat = 1.5
+    public static let handleMaximumLength: CGFloat = 40
 
     public static func handleLength(forDividerLength length: CGFloat) -> CGFloat {
-        min(length, max(handleMinimumLength, length * handleLengthFraction))
+        min(length, handleMaximumLength)
     }
 }
 
@@ -130,18 +127,38 @@ public enum SurfaceGrid {
 
 /// One pane's box inside the layout frame the canvas gave it.
 public enum PaneBox {
-    /// Inset by half the divider gutter on every side, so two adjacent boxes
-    /// leave a full gutter between them. The size is clamped at zero: a frame
-    /// narrower or shorter than the gutter (enough splits in a small window,
-    /// or a transient zero-size layout pass) would otherwise hand SwiftUI a
-    /// negative frame. A whole-point gutter keeps the snapped origin snapped.
+    /// The gutter splits into whole points, the odd point going to the
+    /// trailing side, so a box origin stays on the device-pixel grid its frame
+    /// was snapped to at any display scale. Two adjacent boxes still leave
+    /// exactly one full gutter between them.
+    public static func leadingInset(dividerThickness: CGFloat) -> CGFloat {
+        (dividerThickness / 2).rounded(.down)
+    }
+
+    public static func trailingInset(dividerThickness: CGFloat) -> CGFloat {
+        dividerThickness - leadingInset(dividerThickness: dividerThickness)
+    }
+
+    /// The size is clamped at zero: a frame narrower or shorter than the
+    /// gutter (enough splits in a small window, or a transient zero-size
+    /// layout pass) would otherwise hand SwiftUI a negative frame.
     public static func frame(in frame: CGRect, dividerThickness: CGFloat) -> CGRect {
-        let inset = dividerThickness / 2
+        let inset = leadingInset(dividerThickness: dividerThickness)
         return CGRect(
             x: frame.minX + inset,
             y: frame.minY + inset,
             width: max(0, frame.width - dividerThickness),
             height: max(0, frame.height - dividerThickness)
+        )
+    }
+
+    /// Padding around the canvas's layout area that leaves every outer box
+    /// edge exactly `margin` from the canvas edge, whichever side of the
+    /// split gutter that edge's box is inset by.
+    public static func canvasPadding(margin: CGFloat, dividerThickness: CGFloat) -> (leadingAndTop: CGFloat, trailingAndBottom: CGFloat) {
+        (
+            max(0, margin - leadingInset(dividerThickness: dividerThickness)),
+            max(0, margin - trailingInset(dividerThickness: dividerThickness))
         )
     }
 }
@@ -456,16 +473,18 @@ public struct CanvasGeometry: Equatable, Sendable {
         return paths
     }
 
-    /// Centered on the edge the first child's SCALED region actually ends
-    /// at, never on `ratio * extent`: the panes are laid out from whole-cell
-    /// child regions, so a divider drawn at the raw ratio sits up to a cell
-    /// away from the gap the two pane boxes leave, visibly off-center in it.
+    /// Exactly the gap the two boxes leave around the edge the first child's
+    /// SCALED region actually ends at, never around `ratio * extent`: the
+    /// panes are laid out from whole-cell child regions, so a divider drawn
+    /// at the raw ratio sits up to a cell away from that gap, visibly
+    /// off-center in it.
     private static func dividerFrame(direction: SplitDirection, firstChild: CGRect, fullFrame: CGRect, thickness: CGFloat) -> CGRect {
+        let before = PaneBox.trailingInset(dividerThickness: thickness)
         switch direction {
         case .right:
-            return CGRect(x: firstChild.maxX - thickness / 2, y: fullFrame.minY, width: thickness, height: fullFrame.height)
+            return CGRect(x: firstChild.maxX - before, y: fullFrame.minY, width: thickness, height: fullFrame.height)
         case .down:
-            return CGRect(x: fullFrame.minX, y: firstChild.maxY - thickness / 2, width: fullFrame.width, height: thickness)
+            return CGRect(x: fullFrame.minX, y: firstChild.maxY - before, width: fullFrame.width, height: thickness)
         }
     }
 

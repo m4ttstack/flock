@@ -29,27 +29,25 @@ final class DividerBandTests: XCTestCase {
         XCTAssertEqual(band.width, divider.frame.width)
     }
 
-    /// `PaneCellView`'s real chrome, mirrored here rather than imported: 10pt
-    /// leading/trailing content inset, 8pt bottom inset, 8pt legend half-height
-    /// plus 12pt top inset above a pane's terminal surface, and the gutter's
-    /// own half-inset each pane box already carries. If any of these numbers
-    /// change, this must be rechecked before trusting the band stays off the
+    /// Measured from the gap's own center, which the band is centered on:
+    /// half the gutter to either box, then that box's chrome before its
     /// terminal surface.
     func testHitBandNeverReachesEitherNeighborsTerminalSurface() {
-        let halfGutter: CGFloat = DividerBand.gutter / 2
-        let leadingInset: CGFloat = 10
-        let bottomInset: CGFloat = 8
-        let legendHalfHeight: CGFloat = 8
-        let topInset: CGFloat = 12
-
-        let verticalMargin = halfGutter + leadingInset
-        let aboveMargin = halfGutter + bottomInset
-        let belowMargin = halfGutter + legendHalfHeight + topInset
+        let halfGutter = DividerBand.gutter / 2
+        let verticalMargin = halfGutter + PaneChrome.horizontalPadding
+        let aboveMargin = halfGutter + PaneChrome.verticalPadding
+        let belowMargin = halfGutter + PaneChrome.contentTop
         let bandHalf = DividerBand.thickness / 2
 
         XCTAssertLessThan(bandHalf, verticalMargin)
         XCTAssertLessThan(bandHalf, aboveMargin)
         XCTAssertLessThan(bandHalf, belowMargin)
+    }
+
+    /// Easy to acquire: several times the gutter it is centered on.
+    func testHitBandIsWiderThanTheGutterOnBothSides() {
+        XCTAssertEqual(DividerBand.gutter, 7)
+        XCTAssertGreaterThanOrEqual(DividerBand.thickness, DividerBand.gutter * 3)
     }
 
     // MARK: - intersections
@@ -111,16 +109,17 @@ final class DividerBandTests: XCTestCase {
     }
     // MARK: - handle
 
-    func testHandleIsAFifthOfALongDivider() {
-        XCTAssertEqual(DividerBand.handleLength(forDividerLength: 600), 120, accuracy: 0.001)
-    }
-
-    func testHandleNeverShrinksBelowItsMinimum() {
-        XCTAssertEqual(DividerBand.handleLength(forDividerLength: 80), DividerBand.handleMinimumLength)
+    func testHandleIsAFixedLengthOnALongDivider() {
+        XCTAssertEqual(DividerBand.handleLength(forDividerLength: 600), 40)
+        XCTAssertEqual(DividerBand.handleThickness, 1.5)
     }
 
     func testHandleNeverOutgrowsItsDivider() {
         XCTAssertEqual(DividerBand.handleLength(forDividerLength: 20), 20)
+    }
+
+    func testHandleFitsInsideTheGutter() {
+        XCTAssertLessThan(DividerBand.handleThickness, DividerBand.gutter)
     }
 
 }

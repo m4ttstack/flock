@@ -346,6 +346,47 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(box.height, 0)
     }
 
+    func testPaneBoxSplitsAnOddGutterIntoWholePoints() {
+        let box = PaneBox.frame(in: CGRect(x: 100, y: 40, width: 300, height: 200), dividerThickness: 7)
+
+        XCTAssertEqual(box, CGRect(x: 103, y: 43, width: 293, height: 193))
+    }
+
+    /// At 1x a half-point inset would put every surface on a fractional device
+    /// pixel. An odd gutter must still leave exactly the gutter between two
+    /// boxes, with the divider covering exactly that gap.
+    func testAnOddGutterKeepsBoxesOnWholePixelsAndTheDividerOnTheGap() throws {
+        let layout = try layout(splitCount: 1)
+        let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 540, height: 300), scale: 1), dividerThickness: 7)
+
+        let left = PaneBox.frame(in: try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p1")]), dividerThickness: 7)
+        let right = PaneBox.frame(in: try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "w1:p2")]), dividerThickness: 7)
+        let divider = try XCTUnwrap(geometry.dividers.first)
+
+        for value in [left.minX, left.minY, right.minX, right.minY] {
+            XCTAssertEqual(value, value.rounded(), "box origin \(value) is off the pixel grid")
+        }
+        XCTAssertEqual(right.minX - left.maxX, 7)
+        XCTAssertEqual(divider.frame.minX, left.maxX)
+        XCTAssertEqual(divider.frame.maxX, right.minX)
+    }
+
+    func testCanvasPaddingPutsEveryOuterBoxEdgeAtTheMargin() {
+        let padding = PaneBox.canvasPadding(margin: 5, dividerThickness: 7)
+        let canvas = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let layoutArea = CGRect(
+            x: padding.leadingAndTop, y: padding.leadingAndTop,
+            width: canvas.width - padding.leadingAndTop - padding.trailingAndBottom,
+            height: canvas.height - padding.leadingAndTop - padding.trailingAndBottom
+        )
+        let box = PaneBox.frame(in: layoutArea, dividerThickness: 7)
+
+        XCTAssertEqual(box.minX, 5)
+        XCTAssertEqual(box.minY, 5)
+        XCTAssertEqual(canvas.maxX - box.maxX, 5)
+        XCTAssertEqual(canvas.maxY - box.maxY, 5)
+    }
+
     // MARK: - Translating into an outer space (drop hit-testing)
 
     func testOffsetMovesEveryPaneFrameAndDivider() throws {
