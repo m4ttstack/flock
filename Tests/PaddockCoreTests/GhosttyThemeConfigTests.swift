@@ -205,4 +205,25 @@ final class GhosttyThemeConfigTests: XCTestCase {
         ).ansi.count, 16)
     }
 
+    /// A family given only as `font-family` leaves ghostty to synthesize
+    /// bold by smearing the regular face, which is a pixel heavier and
+    /// softer than the family's real bold member.
+    func testEveryStyleNamesTheFamilySoNoneIsSynthesized() {
+        let colors = GhosttyThemeColors(
+            background: color(0x19, 0x1a, 0x22),
+            foreground: color(0xc0, 0xca, 0xf5),
+            ansi: (0..<16).map { _ in color(0x41, 0x48, 0x68) }
+        )
+        let text = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: ["/bin/zsh"], fontFamily: "JetBrainsMono Nerd Font",
+            fontSizePoints: 13
+        )
+        for key in ["font-family", "font-family-bold", "font-family-italic", "font-family-bold-italic"] {
+            XCTAssertTrue(
+                text.contains("\(key) = JetBrainsMono Nerd Font\n"),
+                "\(key) is not named, so ghostty synthesizes that style"
+            )
+        }
+    }
+
 }

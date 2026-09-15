@@ -94,6 +94,13 @@ public enum GhosttyThemeConfig {
         let command = commandArgv.map(\.shellEscaped).joined(separator: " ")
         return configText(colors: colors)
             + "font-family = \(fontFamily)\n"
+            // Named explicitly because a family given only as `font-family`
+            // leaves ghostty to synthesize bold by smearing the regular
+            // face, which renders a full pixel heavier and softer than the
+            // real bold member.
+            + "font-family-bold = \(fontFamily)\n"
+            + "font-family-italic = \(fontFamily)\n"
+            + "font-family-bold-italic = \(fontFamily)\n"
             + "font-size = \(fontSizeText(fontSizePoints))\n"
             + "window-padding-x = 0\n"
             + "window-padding-y = 0\n"
