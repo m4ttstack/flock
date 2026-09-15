@@ -210,12 +210,14 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   its first three tabs as layout thumbnails plus a "+N" tile for the rest;
   clicking the tile (or dwelling on it 500ms mid-drag, so hidden tabs can
   still take a drop) expands that card to every tab, four per row, and the
-  grid scrolls. Every pane inside a thumbnail is a mini status card, never
-  a blank box: pane title (`terminalTitleStripped ?? label`) with its agent
-  status dot, the cwd's tail, and the last line of output
-  (`pane.read {source:"visible", lines:1}`, cached by `PaneRecord.revision`,
-  fetched only for cards on screen). The grid never attaches panes:
-  attaching sizes the real pane, so a live grid would resize all of herdr.
+  grid scrolls. Every pane inside a thumbnail shows its title
+  (`terminalTitleStripped ?? label`) with its agent status dot, small, and
+  nothing else, never a blank box. Hovering a pane shows a hover card with
+  the full status card: title, status, tab and pane position, cwd, and the
+  last line of output (`pane.read {source:"visible", lines:1}`, fetched on
+  hover and cached by `PaneRecord.revision`). No hover card while a drag is
+  in flight. The grid never attaches panes: attaching sizes the real pane,
+  so a live grid would resize all of herdr.
 
 ## Architecture
 
