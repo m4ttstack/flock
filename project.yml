@@ -68,6 +68,27 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  # The app's views compiled into a hostless test bundle, so the window chrome
+  # renders offscreen from fixture data without launching Paddock or opening a
+  # herdr connection. Kept out of the Paddock scheme; it has its own.
+  PaddockChromeRender:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Sources/Paddock
+        excludes:
+          - main.swift
+          - PaddockApp.swift
+          - Info.plist
+          - Resources
+      - Tests/PaddockChromeRender
+    dependencies:
+      - target: PaddockCore
+      - framework: Vendor/GhosttyKit.xcframework
+        embed: false
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Paddock:
     build:
@@ -79,3 +100,10 @@ schemes:
     test:
       config: Debug
       targets: [PaddockCoreTests, PaddockUITests]
+  PaddockChromeRender:
+    build:
+      targets:
+        PaddockChromeRender: [test]
+    test:
+      config: Debug
+      targets: [PaddockChromeRender]
