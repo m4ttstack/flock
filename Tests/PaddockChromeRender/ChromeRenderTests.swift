@@ -121,6 +121,8 @@ final class ChromeRenderTests: XCTestCase {
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
+        let shownByTheCanvas = Set(model.panes.keys.filter { harness.viewModel.ghosttySurface(for: $0) != nil })
+        XCTAssertLessThan(shownByTheCanvas.count, model.panes.count, "every pane is on the canvas, so the no-attach check below proves nothing")
         harness.drag.toggleGrid()
         await settle(window)
 
@@ -138,7 +140,7 @@ final class ChromeRenderTests: XCTestCase {
             try XCTUnwrap(rest.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-hover.png"))
         }
-        for pane in model.panes.keys {
+        for pane in model.panes.keys where !shownByTheCanvas.contains(pane) {
             XCTAssertNil(harness.viewModel.ghosttySurface(for: pane), "the grid attached \(pane.rawValue)")
         }
         assertGridSamples(rest, theme: .tokyoNight)
