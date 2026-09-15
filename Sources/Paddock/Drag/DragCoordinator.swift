@@ -252,9 +252,9 @@ final class DragCoordinator {
         settleTask?.cancel()
         isSettling = false
         grabPoint = point
-        ghostTopLeft = DragVisuals.ghostTopLeft(forCursor: point)
         activeSubject = subject
         self.ghost = ghost
+        ghostTopLeft = ghostTopLeft(centeredOn: point)
         controller.began(subject, at: point)
         target = nil
         // Global, not per-view: a per-view cursor rect would have to be
@@ -276,7 +276,7 @@ final class DragCoordinator {
 
     private func move(to point: CGPoint) {
         guard machine.tracksMotion else { return }
-        ghostTopLeft = DragVisuals.ghostTopLeft(forCursor: point)
+        ghostTopLeft = ghostTopLeft(centeredOn: point)
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
         let resolved: DropTarget?
@@ -294,7 +294,7 @@ final class DragCoordinator {
         let landingTarget = target
         teardown()
         guard case .dragging = controller.phase else {
-            settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
+            settle(to: ghostTopLeft(centeredOn: grabPoint))
             return
         }
         let surfaces = surfaces
@@ -315,7 +315,7 @@ final class DragCoordinator {
         generation += 1
         teardown(keepingMonitors: true)
         controller.cancelled()
-        settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
+        settle(to: ghostTopLeft(centeredOn: grabPoint))
     }
 
     /// The app went away with the button still down, so no `leftMouseUp` is
@@ -329,7 +329,7 @@ final class DragCoordinator {
         generation += 1
         teardown()
         controller.cancelled()
-        settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
+        settle(to: ghostTopLeft(centeredOn: grabPoint))
     }
 
     private func release() {
@@ -365,23 +365,33 @@ final class DragCoordinator {
             // The only public way back to `.idle` from `.rejected`, and it
             // issues no commit of its own.
             controller.cancelled()
-            settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
+            settle(to: ghostTopLeft(centeredOn: grabPoint))
             return
         }
         guard outcomes.last?.generation == generation, outcomes.last?.outcome == .committed else {
-            settle(to: DragVisuals.ghostTopLeft(forCursor: grabPoint))
+            settle(to: ghostTopLeft(centeredOn: grabPoint))
             return
         }
         if let flashRect {
             flash(flashRect)
         }
-        settle(to: settleRect?.origin ?? DragVisuals.ghostTopLeft(forCursor: grabPoint))
+        settle(to: settleRect?.origin ?? ghostTopLeft(centeredOn: grabPoint))
     }
 
     private func releaseRearrangeHold() {
         guard holdsRearrangeOpen else { return }
         holdsRearrangeOpen = false
         rearrangeMode.dragEnded()
+    }
+
+    /// The ghost's top-left for a pointer at `point`, sized from whatever
+    /// this drag is carrying. A drag with no ghost yet cannot be positioned
+    /// against one, so the pointer itself is the answer.
+    private func ghostTopLeft(centeredOn point: CGPoint) -> CGPoint {
+        guard let ghost else { return point }
+        return DragVisuals.ghostTopLeft(
+            forCursor: point, ghostSize: DragVisuals.ghostSize(forOrigin: ghost.originSize)
+        )
     }
 
     private func settle(to topLeft: CGPoint) {

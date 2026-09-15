@@ -3,9 +3,18 @@ import CoreGraphics
 @testable import PaddockCore
 
 final class DragVisualsTests: XCTestCase {
-    func testGhostSitsBelowAndRightOfTheCursor() {
-        let top = DragVisuals.ghostTopLeft(forCursor: CGPoint(x: 100, y: 40))
-        XCTAssertEqual(top, CGPoint(x: 116, y: 48))
+    func testGhostIsCenteredOnTheCursor() {
+        let size = CGSize(width: 260, height: 130)
+        let top = DragVisuals.ghostTopLeft(forCursor: CGPoint(x: 100, y: 40), ghostSize: size)
+        XCTAssertEqual(top, CGPoint(x: -30, y: -25))
+        XCTAssertEqual(CGPoint(x: top.x + size.width / 2, y: top.y + size.height / 2), CGPoint(x: 100, y: 40))
+    }
+
+    func testGhostCenteringHandlesAnOddSizeWithoutDrift() {
+        let size = CGSize(width: 91, height: 31)
+        let top = DragVisuals.ghostTopLeft(forCursor: CGPoint(x: 10, y: 10), ghostSize: size)
+        XCTAssertEqual(top.x, 10 - 45.5, accuracy: 0.0001)
+        XCTAssertEqual(top.y, 10 - 15.5, accuracy: 0.0001)
     }
 
     func testGhostSizeShrinksAPaneToFitTheCapAndKeepsItsAspect() {

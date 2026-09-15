@@ -7,7 +7,6 @@ public enum DragVisuals {
     /// What the origin item fades to while its ghost is out.
     public static let originOpacity: CGFloat = 0.4
     /// The ghost's top-left corner relative to the cursor.
-    public static let ghostCursorOffset = CGSize(width: 16, height: 8)
     /// Strip/rail reshuffle, run when the insertion index changes -- which is
     /// exactly when the dragged item's center crosses a neighbor's, since
     /// that is the rule `resolveDropTarget` derives the index by.
@@ -21,9 +20,11 @@ public enum DragVisuals {
     /// The dropzone preview's cross-fade as the target changes.
     public static let previewCrossfadeDuration: Double = 0.12
 
-    /// The ghost's top-left for a cursor at `point`, both in the same space.
-    public static func ghostTopLeft(forCursor point: CGPoint) -> CGPoint {
-        CGPoint(x: point.x + ghostCursorOffset.width, y: point.y + ghostCursorOffset.height)
+    /// The ghost's top-left for a cursor at `point`, both in the same space:
+    /// the proxy is centered on the pointer, so what the pointer is over is
+    /// what the drop resolves against.
+    public static func ghostTopLeft(forCursor point: CGPoint, ghostSize: CGSize) -> CGPoint {
+        CGPoint(x: point.x - ghostSize.width / 2, y: point.y - ghostSize.height / 2)
     }
 
     /// The proxy's size: the origin item scaled down but never past
