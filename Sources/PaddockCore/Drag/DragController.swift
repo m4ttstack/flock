@@ -65,15 +65,21 @@ public final class DragController {
 
     private let commit: DragCommit
     private let springLoadAction: SpringLoadAction
+    /// Runs inside the call that fires a spring load, before
+    /// `springLoadAction`'s task is scheduled: anything that must stop the
+    /// moment a reveal fires cannot wait for that task to run.
+    private let onSpringLoad: @MainActor (DropTarget) -> Void
     private let now: @MainActor () -> ContinuousClock.Instant
 
     public init(
         commit: @escaping DragCommit,
         springLoadAction: @escaping SpringLoadAction = { _ in },
+        onSpringLoad: @escaping @MainActor (DropTarget) -> Void = { _ in },
         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
     ) {
         self.commit = commit
         self.springLoadAction = springLoadAction
+        self.onSpringLoad = onSpringLoad
         self.now = now
     }
 
@@ -162,6 +168,7 @@ public final class DragController {
 
     private func fire(_ target: DropTarget) {
         springLoadFired = true
+        onSpringLoad(target)
         let action = springLoadAction
         Task { await action(target) }
     }

@@ -19,9 +19,9 @@ final class DragOutcomeRelay {
     var last: Record?
 }
 
-/// Tells the coordinator a spring load fired. The controller fires it from a
-/// task of its own, through a closure the coordinator has to hand over before
-/// its own initializer has finished.
+/// Tells the coordinator a spring load fired, inside the controller call that
+/// fired it. The controller needs the closure before the coordinator's own
+/// initializer has finished, so it goes through this box.
 @MainActor
 final class SpringLoadRelay {
     var fired: (() -> Void)?
@@ -174,10 +174,13 @@ final class DragCoordinator {
     /// event monitor.
     @ObservationIgnored nonisolated(unsafe) private var eventMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
-    @ObservationIgnored nonisolated(unsafe) private var selectionEscapeMonitor: Any?
+    @ObservationIgnored nonisolated(unsafe) private var windowCloseObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var selectionMonitor: Any?
+    @ObservationIgnored nonisolated(unsafe) private var selectionResignObserver: NSObjectProtocol?
 
-    /// The rail's Cmd+click selection. Decisions live in `WorkspaceSelection`;
-    /// this only owns the Esc monitor and the two moments a drag clears it.
+    /// The rail's Cmd+click selection. Every decision lives in
+    /// `WorkspaceSelection`; this only feeds it the presses, keys, app
+    /// deactivation and drag ends it decides on.
     private(set) var workspaceSelection = WorkspaceSelection()
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
@@ -203,10 +206,8 @@ final class DragCoordinator {
                 outcomes.last = DragOutcomeRelay.Record(generation: issuedBy, outcome: outcome)
                 return outcome
             },
-            springLoadAction: { target in
-                springLoads.fired?()
-                await springLoadAction(target)
-            }
+            springLoadAction: springLoadAction,
+            onSpringLoad: { _ in springLoads.fired?() }
         )
         springLoads.fired = { [weak self] in self?.springLoadFired() }
     }
@@ -218,8 +219,14 @@ final class DragCoordinator {
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
         }
-        if let selectionEscapeMonitor {
-            NSEvent.removeMonitor(selectionEscapeMonitor)
+        if let windowCloseObserver {
+            NotificationCenter.default.removeObserver(windowCloseObserver)
+        }
+        if let selectionMonitor {
+            NSEvent.removeMonitor(selectionMonitor)
+        }
+        if let selectionResignObserver {
+            NotificationCenter.default.removeObserver(selectionResignObserver)
         }
     }
 
@@ -242,8 +249,7 @@ final class DragCoordinator {
     func setWorkspaceOrder(_ order: [WorkspaceID]) {
         guard workspaceOrder != order else { return }
         writeIfChanged(\.workspaceItems) { $0.setOrder(order) }
-        workspaceSelection.retain(order)
-        syncSelectionEscapeMonitor()
+        updateSelection { $0.retain(order) }
     }
 
     /// Frozen while that list is showing an insertion gap: the index is
@@ -376,7 +382,7 @@ final class DragCoordinator {
     private func end() {
         let landingTarget = target
         teardown()
-        clearWorkspaceSelection()
+        finishWorkspaceSelection()
         guard case .dragging = controller.phase else {
             settle(to: ghostTopLeft(centeredOn: grabPoint))
             return
@@ -398,14 +404,15 @@ final class DragCoordinator {
         guard machine.handle(.cancel) == .cancel else { return }
         generation += 1
         teardown(keepingMonitors: true)
-        clearWorkspaceSelection()
+        finishWorkspaceSelection()
         controller.cancelled()
         settle(to: ghostTopLeft(centeredOn: grabPoint))
     }
 
-    /// The app went away with the button still down, so no `leftMouseUp` is
-    /// ever coming to this window. Same teardown as Esc, but the gesture ends
-    /// outright rather than waiting for a release that will not arrive.
+    /// The app went inactive or the window closed with the button still down,
+    /// so no `leftMouseUp` is ever coming to this window. Same teardown as
+    /// Esc, but the gesture ends outright rather than waiting for a release
+    /// that will not arrive.
     private func abandon() {
         guard machine.handle(.abandon) == .cancel else {
             removeMonitors()
@@ -559,6 +566,13 @@ final class DragCoordinator {
                 MainActor.assumeIsolated { self?.abandon() }
             }
         }
+        if windowCloseObserver == nil, let window = spaceAnchor?.window {
+            windowCloseObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.abandon() }
+            }
+        }
     }
 
     private func removeMonitors() {
@@ -570,6 +584,10 @@ final class DragCoordinator {
             NotificationCenter.default.removeObserver(resignObserver)
         }
         resignObserver = nil
+        if let windowCloseObserver {
+            NotificationCenter.default.removeObserver(windowCloseObserver)
+        }
+        windowCloseObserver = nil
     }
 
     // MARK: - Edge auto-scroll
@@ -637,9 +655,7 @@ final class DragCoordinator {
 
     /// True when the click is a plain one whose jump the caller should run.
     func clickWorkspace(_ id: WorkspaceID, commandHeld: Bool) -> Bool {
-        let effect = workspaceSelection.click(id, commandHeld: commandHeld)
-        syncSelectionEscapeMonitor()
-        return effect == .jump(id)
+        updateSelection { $0.click(id, commandHeld: commandHeld) } == .jump(id)
     }
 
     func isWorkspaceMultiSelected(_ id: WorkspaceID) -> Bool {
@@ -650,30 +666,69 @@ final class DragCoordinator {
         workspaceSelection.dragSubject(pressing: id, order: workspaceOrder)
     }
 
-    private func clearWorkspaceSelection() {
-        guard !workspaceSelection.isEmpty else { return }
-        workspaceSelection.clear()
-        syncSelectionEscapeMonitor()
+    private func finishWorkspaceSelection() {
+        guard let activeSubject else { return }
+        updateSelection { $0.dragFinished(activeSubject) }
     }
 
-    /// Present only while something is selected, so the rest of the time an
-    /// Esc reaches the focused terminal untouched.
-    private func syncSelectionEscapeMonitor() {
+    /// Writes only a real change: rows observe the whole selection, and a
+    /// keystroke that leaves it as it was must not re-render them.
+    @discardableResult
+    private func updateSelection<Result>(_ change: (inout WorkspaceSelection) -> Result) -> Result {
+        var copy = workspaceSelection
+        let result = change(&copy)
+        if copy != workspaceSelection {
+            workspaceSelection = copy
+        }
+        syncSelectionMonitor()
+        return result
+    }
+
+    /// Present only while something is selected, so the rest of the time
+    /// every press and key reaches its view untouched. Presses and other keys
+    /// always pass through; only an Esc the selection takes is swallowed.
+    private func syncSelectionMonitor() {
         guard !workspaceSelection.isEmpty else {
-            if let selectionEscapeMonitor {
-                NSEvent.removeMonitor(selectionEscapeMonitor)
+            if let selectionMonitor {
+                NSEvent.removeMonitor(selectionMonitor)
             }
-            selectionEscapeMonitor = nil
+            selectionMonitor = nil
+            if let selectionResignObserver {
+                NotificationCenter.default.removeObserver(selectionResignObserver)
+            }
+            selectionResignObserver = nil
             return
         }
-        guard selectionEscapeMonitor == nil else { return }
-        selectionEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, Int(event.keyCode) == kVK_Escape,
-                  self.workspaceSelection.escapeClears(dragIdle: self.machine.state == .idle)
-            else { return event }
-            self.clearWorkspaceSelection()
-            return nil
+        if selectionMonitor == nil {
+            selectionMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self] event in
+                self?.selectionSaw(event) ?? event
+            }
         }
+        if selectionResignObserver == nil {
+            selectionResignObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateSelection { $0.disengage() } }
+            }
+        }
+    }
+
+    private func selectionSaw(_ event: NSEvent) -> NSEvent? {
+        guard event.type == .keyDown else {
+            let onRow = dragSpacePoint(event).map {
+                WorkspaceSelection.isRailRow($0, rows: workspaceFrames.map(\.frame), viewport: railViewport)
+            } ?? false
+            updateSelection { $0.pointerPressed(onRailRow: onRow) }
+            return event
+        }
+        guard Int(event.keyCode) == kVK_Escape else {
+            updateSelection { $0.disengage() }
+            return event
+        }
+        let dragIdle = machine.state == .idle
+        return updateSelection { $0.escapePressed(dragIdle: dragIdle) } ? nil : event
     }
 
     private func dragSpacePoint(_ event: NSEvent) -> CGPoint? {

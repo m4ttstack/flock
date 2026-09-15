@@ -320,6 +320,42 @@ final class DragControllerTests: XCTestCase {
         XCTAssertEqual(springLoad.fired.count, 2)
     }
 
+    /// No await anywhere: the hook must already have run when `moved` returns,
+    /// or a caller stopping work on it gets one more frame first.
+    func testOnSpringLoadRunsInsideTheMovedCallThatFiresAndOnlyOnce() {
+        let clock = FakeClock()
+        var hooked: [DropTarget] = []
+        let controller = DragController(
+            commit: CommitSpy().commit, springLoadAction: SpringLoadSpy().fire,
+            onSpringLoad: { hooked.append($0) }, now: clock.now
+        )
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        XCTAssertEqual(hooked, [])
+
+        clock.advance(by: .milliseconds(500))
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        XCTAssertEqual(hooked, [.tabThumbnail(Self.tabID)])
+
+        clock.advance(by: .milliseconds(500))
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+        XCTAssertEqual(hooked.count, 1)
+    }
+
+    func testOnSpringLoadRunsInsideForceSpringLoad() {
+        var hooked: [DropTarget] = []
+        let controller = DragController(
+            commit: CommitSpy().commit, springLoadAction: SpringLoadSpy().fire,
+            onSpringLoad: { hooked.append($0) }, now: FakeClock().now
+        )
+        controller.began(.pane(Self.paneID), at: .zero)
+        controller.moved(to: Self.tabThumbnailPoint, surfaces: surfaces())
+
+        controller.forceSpringLoad()
+
+        XCTAssertEqual(hooked, [.tabThumbnail(Self.tabID)])
+    }
+
     func testForceSpringLoadFiresBeforeTheDeadline() async {
         let springLoad = SpringLoadSpy()
         let controller = makeController(commit: CommitSpy(), springLoad: springLoad, clock: FakeClock())
