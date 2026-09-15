@@ -140,7 +140,11 @@ public final class SessionViewModel {
     /// `selectedTabID` itself, is what lets a paddock-initiated selection
     /// that currently differs from herdr's last-known focus persist through
     /// an unrelated update (a `layoutUpdated` that touches neither) instead
-    /// of being stomped back to whatever herdr already was focused on.
+    /// of being stomped back to whatever herdr already was focused on. A
+    /// followed tab brings its workspace along (`select(tab:)`): herdr's
+    /// focus can land in another workspace, a pane followed after a drop
+    /// into another workspace's tab, and a window showing that tab under the
+    /// old workspace's rail and strip would show two workspaces at once.
     public func update(model: SessionModel?, connection: ConnectionState) {
         let previousFocusedTabID = self.model?.focusedTabID
         self.model = model
@@ -151,7 +155,7 @@ public final class SessionViewModel {
         if selectedTabID == nil {
             selectedTabID = model?.focusedTabID
         } else if let focusedTabID = model?.focusedTabID, focusedTabID != previousFocusedTabID {
-            selectedTabID = focusedTabID
+            select(tab: focusedTabID)
         }
         // The echo caught up: the model now agrees with what the click
         // predicted, so the prediction can stand down and let the model's

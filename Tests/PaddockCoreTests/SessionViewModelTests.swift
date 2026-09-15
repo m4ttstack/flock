@@ -306,9 +306,9 @@ final class SessionViewModelTests: XCTestCase {
             "herdr's focused tab changed, so paddock's selection follows it")
     }
 
-    private static func twoWorkspaceModel() -> SessionModel {
+    private static func twoWorkspaceModel(focusedWorkspace: String = "w1", focusedTab: String = "w1:t1") -> SessionModel {
         let json = #"""
-        {"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"one","number":1,"active_tab_id":"w1:t1","agent_status":"idle"},{"workspace_id":"w2","label":"two","number":2,"active_tab_id":"w2:t1","agent_status":"idle"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"a","number":1,"pane_count":1,"agent_status":"idle"},{"tab_id":"w2:t1","workspace_id":"w2","label":"b","number":1,"pane_count":1,"agent_status":"idle"},{"tab_id":"w2:t2","workspace_id":"w2","label":"c","number":2,"pane_count":1,"agent_status":"idle"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"idle","revision":0,"cwd":"/tmp"}],"layouts":[]}
+        {"version":"0.9.0","protocol":22,"focused_workspace_id":"\#(focusedWorkspace)","focused_tab_id":"\#(focusedTab)","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"one","number":1,"active_tab_id":"w1:t1","agent_status":"idle"},{"workspace_id":"w2","label":"two","number":2,"active_tab_id":"w2:t1","agent_status":"idle"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"a","number":1,"pane_count":1,"agent_status":"idle"},{"tab_id":"w2:t1","workspace_id":"w2","label":"b","number":1,"pane_count":1,"agent_status":"idle"},{"tab_id":"w2:t2","workspace_id":"w2","label":"c","number":2,"pane_count":1,"agent_status":"idle"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"idle","revision":0,"cwd":"/tmp"}],"layouts":[]}
         """#
         return SessionModel(snapshot: try! JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8)))
     }
@@ -325,6 +325,22 @@ final class SessionViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
         XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t2"))
+        XCTAssertEqual(viewModel.tabsForSelectedWorkspace.map(\.tabID), [TabID(rawValue: "w2:t1"), TabID(rawValue: "w2:t2")])
+    }
+
+    /// After a pane is dropped on another workspace's thumbnail, following it
+    /// moves herdr's focus into that workspace. The rail and the strip must
+    /// follow along with the canvas, or the window shows two workspaces.
+    @MainActor
+    func testFollowingHerdrFocusIntoAnotherWorkspacesTabSelectsThatWorkspaceToo() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w1"))
+
+        viewModel.update(model: Self.twoWorkspaceModel(focusedWorkspace: "w2", focusedTab: "w2:t2"), connection: .live)
+
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t2"))
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
         XCTAssertEqual(viewModel.tabsForSelectedWorkspace.map(\.tabID), [TabID(rawValue: "w2:t1"), TabID(rawValue: "w2:t2")])
     }
 
