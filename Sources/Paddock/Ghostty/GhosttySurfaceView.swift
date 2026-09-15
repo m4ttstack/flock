@@ -63,15 +63,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// While true, `mouseDecision` forces every `MouseForwarding` result to
     /// `.drop` and `rightMouseDown` forces `RightClickDisposition` to
     /// `.suppressed`: the whole pane is a drag surface, so no mouse event
-    /// reaches the app or libghostty's own surface. The `didSet` is what
-    /// makes the open-hand cursor track the mode the instant it flips even
-    /// with the pointer stationary: `invalidateCursorRects` re-asks
-    /// `cursorUpdate(with:)` for the CURRENT pointer location, which a real
-    /// mouse-moved event would otherwise be the only way to trigger.
+    /// reaches the app or libghostty's own surface.
+    ///
+    /// The cursor is set here directly when the pointer is already over this
+    /// view: a `.cursorUpdate` tracking area only fires on ENTERING the area,
+    /// and `invalidateCursorRects` re-runs cursor rects, not tracking-area
+    /// cursor updates, so a mode flip with the pointer resting on the pane
+    /// would otherwise leave the old cursor showing until it left and came
+    /// back.
     var rearrangeActive = false {
         didSet {
-            guard rearrangeActive != oldValue, let window else { return }
-            window.invalidateCursorRects(for: self)
+            guard rearrangeActive != oldValue else { return }
+            if pointerIsInside { applyPaneCursor() }
         }
     }
     /// Set by `GhosttySurfaceRepresentable` from
@@ -338,7 +341,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         sendButtonUp(otherButton(number), event: event, route: route, appkitNumber: number)
     }
 
-    override func mouseEntered(with event: NSEvent) { session.sendMousePosition(event) }
+    override func mouseEntered(with event: NSEvent) {
+        guard !rearrangeActive else {
+            applyPaneCursor()
+            return
+        }
+        session.sendMousePosition(event)
+    }
     override func mouseExited(with event: NSEvent) { session.sendMouseExit(modifiers: event.modifierFlags) }
 
     /// Under capture the app owns the pointer, so motion becomes a
@@ -351,7 +360,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// first and separately rather than folded into the existing `.drop`
     /// branch below.
     override func mouseMoved(with event: NSEvent) {
-        guard !rearrangeActive else { return }
+        // No cursor-update event fires for motion WITHIN a tracking area, so
+        // the open hand is re-asserted here or anything that set another
+        // cursor mid-hover would stick.
+        guard !rearrangeActive else {
+            applyPaneCursor()
+            return
+        }
         switch mouseDecision(kind: .moved, button: nil, event: event) {
         case .toApp(let command): session.sendPaneMouse(command)
         // `.toHerdrScroll` is unreachable for `.moved` (`decide` only ever
@@ -743,23 +758,29 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         cursor.set()
     }
 
-    /// Fires on entering this view's tracking area, and again for the
-    /// CURRENT pointer position whenever `invalidateCursorRects(for:)` runs
-    /// -- the seam `rearrangeActive`'s `didSet` uses so the cursor updates
-    /// the instant the mode toggles, without needing the pointer to move.
+    /// Fires on entering this view's tracking area.
     override func cursorUpdate(with event: NSEvent) {
+        applyPaneCursor()
+    }
+
+    private func applyPaneCursor() {
         switch PaneCursor.forPaneBody(rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress) {
         case .closedHand:
             // `DragCoordinator` already pushed the closed-hand cursor for
-            // the whole app; this callback owns no push of its own; setting
-            // it again here would just repaint over that push with nothing
-            // to pop it back off.
+            // the whole app; setting it again here would repaint over that
+            // push with nothing to pop it back off.
             break
         case .openHand:
             NSCursor.openHand.set()
         case .passthrough:
             (lastLibghosttyCursor ?? NSCursor.arrow).set()
         }
+    }
+
+    private var pointerIsInside: Bool {
+        guard let window else { return false }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return visibleRect.contains(point)
     }
 
     func setCursorHidden(_ hidden: Bool) {
