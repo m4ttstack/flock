@@ -3,10 +3,12 @@ import PaddockCore
 import SwiftUI
 
 /// One divider's hit zone and paint. Placed by the caller via `.offset` at
-/// `divider.frame`'s origin, the same convention `PaneCanvas` already uses
-/// for `PaneCellView` -- this view sizes itself to `divider.frame`. Invisible
-/// at rest; a pip on hover; an accent line plus the live ratio while
-/// dragging.
+/// `band`'s origin, the same convention `PaneCanvas` already uses for
+/// `PaneCellView` -- this view sizes itself to `band`, which is wider than
+/// the gutter it paints (`DividerBand.thickness` vs. the drawn line), so the
+/// hit zone reaches into both neighbors' chrome insets without ever meeting
+/// their terminal surfaces. A faint separator line at rest; brightens plus a
+/// pip on hover; an accent line plus the live ratio while dragging.
 ///
 /// A divider drag is NOT routed through `DragCoordinator`/`DragController`:
 /// it resolves no drop target, has no ghost, and never spring-loads, so
@@ -20,6 +22,10 @@ import SwiftUI
 struct DividerHandleView: View {
     let theme: Theme
     let divider: DividerHandle
+    /// `divider.hitBand(thickness: DividerBand.thickness)` -- the caller's
+    /// own, so its placement offset and this view's local space agree on
+    /// the same rect.
+    let band: CGRect
 
     @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(DragCoordinator.self) private var drag
@@ -39,11 +45,14 @@ struct DividerHandleView: View {
         ZStack {
             if let liveRatio {
                 liveLine(at: liveRatio)
-            } else if isHovering {
-                pip
+            } else {
+                restLine
+                if isHovering {
+                    pip
+                }
             }
         }
-        .frame(width: divider.frame.width, height: divider.frame.height)
+        .frame(width: band.width, height: band.height)
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovering = hovering
@@ -63,24 +72,32 @@ struct DividerHandleView: View {
     }
 
     /// `.local` so `value.location` is relative to this view's own bounds
-    /// (sized to `divider.frame`), which `divider.frame.origin` then
-    /// translates back into the shared canvas-local space every geometry
-    /// input already lives in. `began()` is called on every callback while
-    /// not yet dragging rather than gated on a separate flag: the machine's
-    /// own latch (`DragGestureMachine`, composed inside `DividerDragMachine`)
-    /// is what actually decides whether a begin takes effect, so a stray
-    /// re-arm attempt during `.cancelledAwaitingRelease` is already a no-op
-    /// there.
+    /// (sized to `band`), which `band.origin` then translates back into the
+    /// shared canvas-local space every geometry input already lives in.
+    /// `began()` is called on every callback while not yet dragging rather
+    /// than gated on a separate flag: the machine's own latch
+    /// (`DragGestureMachine`, composed inside `DividerDragMachine`) is what
+    /// actually decides whether a begin takes effect, so a stray re-arm
+    /// attempt during `.cancelledAwaitingRelease` is already a no-op there.
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .local)
             .onChanged { value in
                 if !dividerDrag.isDragging {
                     dividerDrag.began(divider)
                 }
-                let pointer = CGPoint(x: divider.frame.minX + value.location.x, y: divider.frame.minY + value.location.y)
+                let pointer = CGPoint(x: band.minX + value.location.x, y: band.minY + value.location.y)
                 dividerDrag.moved(to: pointer, for: divider)
             }
             .onEnded { _ in dividerDrag.ended() }
+    }
+
+    /// Discoverable at rest: a faint line on the gutter's own centerline,
+    /// always drawn (never only on hover). `liveLine` replaces it while
+    /// dragging rather than layering under it.
+    private var restLine: some View {
+        Rectangle()
+            .fill(isHovering ? theme.accent : theme.separator)
+            .frame(width: isVertical ? 1 : band.width, height: isVertical ? band.height : 1)
     }
 
     private var pip: some View {

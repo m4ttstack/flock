@@ -31,6 +31,29 @@ extension DividerHandle {
     /// one. What its own paint geometry, live-ratio offset, and resize
     /// cursor all key off, so no caller restates `direction == .right`.
     public var isVerticalLine: Bool { direction == .right }
+
+    /// `frame` widened from the drawn gutter to `thickness`, same
+    /// centerline (`frame` is already centered on the split boundary),
+    /// same length -- the divider's actual hit region, distinct from what
+    /// it paints. Widening only the cross-axis keeps the along-axis reach
+    /// exactly what `frame` already covers.
+    public func hitBand(thickness: CGFloat) -> CGRect {
+        isVerticalLine
+            ? frame.insetBy(dx: -(thickness - frame.width) / 2, dy: 0)
+            : frame.insetBy(dx: 0, dy: -(thickness - frame.height) / 2)
+    }
+}
+
+/// The divider hit band's width: wider than the 6pt gutter it paints so a
+/// press does not have to thread that needle. Bounded by
+/// `PaneCellView`'s own chrome: a vertical divider borders each neighbor's
+/// 10pt leading/trailing content inset, a horizontal one borders the 8pt
+/// bottom inset above and the 8pt legend band plus 12pt top inset below --
+/// half of 16 (8) sits inside all four with margin to spare. Never widen
+/// this past the tightest of those (16, the 8pt-bottom-inset case) without
+/// rechecking `CanvasGeometryTests`' own margin assertions.
+public enum DividerBand {
+    public static let thickness: CGFloat = 16
 }
 
 /// Where a tab's cell grid sits on the canvas: the tab's `area` stretched to

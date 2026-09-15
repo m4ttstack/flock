@@ -79,8 +79,16 @@ struct PaneCanvas: View {
                 )
                 if layout != nil {
                     ForEach(geometry.dividers, id: \.path) { divider in
-                        DividerHandleView(theme: theme, divider: divider)
-                            .offset(x: divider.frame.minX, y: divider.frame.minY)
+                        let band = divider.hitBand(thickness: DividerBand.thickness)
+                        DividerHandleView(theme: theme, divider: divider, band: band)
+                            .offset(x: band.minX, y: band.minY)
+                    }
+                    // On top of every divider: a T or a plus overlaps two
+                    // bands in one square, which neither divider's own view
+                    // can resolve alone (see `DividerIntersectionView`).
+                    ForEach(DividerIntersections.find(in: geometry.dividers, bandThickness: DividerBand.thickness), id: \.id) { intersection in
+                        DividerIntersectionView(intersection: intersection)
+                            .offset(x: intersection.square.minX, y: intersection.square.minY)
                     }
                 }
             }
