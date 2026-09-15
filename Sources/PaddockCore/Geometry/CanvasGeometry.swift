@@ -11,10 +11,10 @@ public struct DividerHandle: Equatable, Sendable {
     public let direction: SplitDirection
     /// The full region this divider's own boundary moves within -- both
     /// children's combined extent, before the gutter is carved out of it.
-    /// The same rect `dividerFrame`'s own `boundaryX`/`boundaryY` was
-    /// computed against, so a pointer-to-ratio translation measured against
-    /// this can never drift from wherever the two children actually render,
-    /// cell rounding included.
+    /// The same rect the two children were scaled within, so a
+    /// pointer-to-ratio translation measured against this can never drift
+    /// from wherever the two children actually render, cell rounding
+    /// included.
     public let regionFrame: CGRect
     /// The along-axis cell count of `regionFrame` -- columns for `.right`,
     /// rows for `.down`. What a ratio must be weighed against to keep both
@@ -44,14 +44,12 @@ extension DividerHandle {
     }
 }
 
-/// The divider hit band's width: wider than the 6pt gutter it paints so a
-/// press does not have to thread that needle. Bounded by
-/// `PaneCellView`'s own chrome: a vertical divider borders each neighbor's
-/// 10pt leading/trailing content inset, a horizontal one borders the 8pt
-/// bottom inset above and the 8pt legend band plus 12pt top inset below --
-/// half of 16 (8) sits inside all four with margin to spare. Never widen
-/// this past the tightest of those (16, the 8pt-bottom-inset case) without
-/// rechecking `CanvasGeometryTests`' own margin assertions.
+/// The gutter between panes, its grab band and its visible handle. The band
+/// is bounded by `PaneCellView`'s own chrome: a vertical divider borders each
+/// neighbor's 10pt leading/trailing content inset, a horizontal one borders
+/// the 8pt bottom inset above and the 8pt legend band plus 12pt top inset
+/// below, each past half the gutter. `DividerBandTests` pins that the band's
+/// half stays inside the tightest of them.
 public enum DividerBand {
     /// The drawn space between two pane boxes. Every pane box and the drop
     /// preview inset by half of it, so this is the one value to change.
@@ -62,7 +60,7 @@ public enum DividerBand {
     public static let thickness: CGFloat = 24
     /// The visible handle: a capsule this thick, a fifth of the divider's
     /// length, centered along it.
-    public static let handleThickness: CGFloat = 4
+    public static let handleThickness: CGFloat = 3
     public static let handleLengthFraction: CGFloat = 0.2
     public static let handleMinimumLength: CGFloat = 28
 
@@ -293,7 +291,7 @@ public struct CanvasGeometry: Equatable, Sendable {
             dividers.append(DividerHandle(
                 tabID: tabID,
                 path: path,
-                frame: dividerFrame(direction: direction, ratio: ratio, fullFrame: full, thickness: thickness),
+                frame: dividerFrame(direction: direction, firstChild: scale(firstRegion), fullFrame: full, thickness: thickness),
                 direction: direction,
                 regionFrame: full,
                 cellExtent: direction == .right ? rect.width : rect.height
@@ -328,10 +326,11 @@ public struct CanvasGeometry: Equatable, Sendable {
             // cannot).
             let ratio = override?.path == path ? override!.ratio : Double(split.ratio)
             let full = scale(split.rect)
+            let firstChild = scale(childRegions(of: split.rect, direction: split.direction, ratio: ratio).first)
             return DividerHandle(
                 tabID: tabID,
                 path: path,
-                frame: dividerFrame(direction: split.direction, ratio: ratio, fullFrame: full, thickness: thickness),
+                frame: dividerFrame(direction: split.direction, firstChild: firstChild, fullFrame: full, thickness: thickness),
                 direction: split.direction,
                 regionFrame: full,
                 cellExtent: split.direction == .right ? split.rect.width : split.rect.height
@@ -457,14 +456,16 @@ public struct CanvasGeometry: Equatable, Sendable {
         return paths
     }
 
-    private static func dividerFrame(direction: SplitDirection, ratio: Double, fullFrame: CGRect, thickness: CGFloat) -> CGRect {
+    /// Centered on the edge the first child's SCALED region actually ends
+    /// at, never on `ratio * extent`: the panes are laid out from whole-cell
+    /// child regions, so a divider drawn at the raw ratio sits up to a cell
+    /// away from the gap the two pane boxes leave, visibly off-center in it.
+    private static func dividerFrame(direction: SplitDirection, firstChild: CGRect, fullFrame: CGRect, thickness: CGFloat) -> CGRect {
         switch direction {
         case .right:
-            let boundaryX = fullFrame.minX + CGFloat(ratio) * fullFrame.width
-            return CGRect(x: boundaryX - thickness / 2, y: fullFrame.minY, width: thickness, height: fullFrame.height)
+            return CGRect(x: firstChild.maxX - thickness / 2, y: fullFrame.minY, width: thickness, height: fullFrame.height)
         case .down:
-            let boundaryY = fullFrame.minY + CGFloat(ratio) * fullFrame.height
-            return CGRect(x: fullFrame.minX, y: boundaryY - thickness / 2, width: fullFrame.width, height: thickness)
+            return CGRect(x: fullFrame.minX, y: firstChild.maxY - thickness / 2, width: fullFrame.width, height: thickness)
         }
     }
 

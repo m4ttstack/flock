@@ -46,7 +46,7 @@ struct DividerHandleView: View {
             if let liveRatio {
                 liveHandle(at: liveRatio)
             } else {
-                handle(color: isHovering ? theme.accent : theme.overlay0)
+                handle(color: isHovering ? theme.accent : theme.overlay0.opacity(0.75))
             }
         }
         .frame(width: band.width, height: band.height)
@@ -102,11 +102,10 @@ struct DividerHandleView: View {
             )
     }
 
-    /// The same handle, moved to the boundary the drag is previewing.
+    /// The geometry already rebuilt this divider's frame for the previewed
+    /// ratio, so the handle stays centered in its own frame rather than being
+    /// offset to a raw-ratio position the whole-cell panes never reach.
     private func liveHandle(at ratio: Double) -> some View {
-        let boundary = DividerDragMath.boundary(forRatio: ratio, divider: divider)
-        let localOffset = isVertical ? boundary - divider.frame.midX : boundary - divider.frame.midY
-
         let handleLength = DividerBand.handleLength(
             forDividerLength: isVertical ? divider.frame.height : divider.frame.width
         )
@@ -117,7 +116,6 @@ struct DividerHandleView: View {
             ratioLabel(ratio)
                 .offset(y: isVertical ? -(handleLength / 2 + 14) : -16)
         }
-        .offset(x: isVertical ? localOffset : 0, y: isVertical ? 0 : localOffset)
     }
 
     private func ratioLabel(_ ratio: Double) -> some View {

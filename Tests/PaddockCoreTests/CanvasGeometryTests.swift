@@ -47,6 +47,23 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(divider.frame.height, size.height, accuracy: 1)
     }
 
+    /// The panes are laid out from whole-cell child regions, so the divider
+    /// has to sit on the cell edge the first child actually ends at, not at
+    /// `ratio * width`: 0.39 of the fixture's 54 cells rounds to 21 cells,
+    /// which is 210pt on a 540pt canvas at 10pt per cell, where the raw ratio
+    /// would put the divider at 210.6 and off-center in the gap.
+    func testDividerSitsOnTheWholeCellEdgeNotTheRawRatio() throws {
+        let layout = try layout(splitCount: 1)
+        let size = CGSize(width: 540, height: 300)
+        let geometry = CanvasGeometry(
+            layout: layout, grid: grid(filling: size, scale: 1), dividerThickness: 12,
+            liveRatioOverride: (path: [], ratio: 0.39)
+        )
+
+        let divider = try XCTUnwrap(geometry.dividers.first)
+        XCTAssertEqual(divider.frame.midX, 210, accuracy: 0.01)
+    }
+
     func testSinglePaneHasNoDividers() throws {
         let layout = try layout(splitCount: 0)
         let geometry = CanvasGeometry(layout: layout, grid: grid(filling: CGSize(width: 400, height: 200)))
