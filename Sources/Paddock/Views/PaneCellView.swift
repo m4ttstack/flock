@@ -10,6 +10,21 @@ import SwiftUI
 /// visible pane of the selected tab, so it attaches on first visibility per
 /// the standing attach policy; card mode is what shows while that attach is
 /// still in flight.
+/// The rearrange-mode hover lift. A `scaleEffect` is only ever in the view
+/// chain while it is actually lifting, because an identity scale still costs
+/// an offscreen render pass on a layer-backed subview.
+private struct HoverLift: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content.scaleEffect(1.02)
+        } else {
+            content
+        }
+    }
+}
+
 struct PaneCellView: View {
     /// Half the legend's height: the framed box begins this far below the
     /// cell's top so the legend can sit centered on the box's top edge
@@ -232,7 +247,10 @@ struct PaneCellView: View {
                         .padding(-3)
                 }
             }
-            .scaleEffect(rearrangeMode.active && isHoveringWhileRearranging ? 1.02 : 1)
+            // Applied only while rearranging: a scale effect in the chain at
+            // rest makes SwiftUI rasterize the surface into an offscreen
+            // buffer and resample it, which softens every glyph.
+            .modifier(HoverLift(active: rearrangeMode.active && isHoveringWhileRearranging))
             .onHover { isHoveringWhileRearranging = $0 }
             .animation(.easeOut(duration: 0.12), value: rearrangeMode.active)
             .animation(.easeOut(duration: 0.12), value: isHoveringWhileRearranging)
