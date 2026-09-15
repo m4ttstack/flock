@@ -147,7 +147,8 @@ enum ChromeMetrics {
         static let cornerRadius: CGFloat = 4
         static let titleSpacing: CGFloat = 6
         static let statusDot: CGFloat = 6
-        static let anchorGap: CGFloat = 6
+        /// Right of and below the pointer, clear of the arrow cursor.
+        static let pointerOffset = CGSize(width: 13, height: 18)
         /// Where placement starts before the card has measured itself once.
         static let estimatedHeight: CGFloat = 110
     }

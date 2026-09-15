@@ -119,17 +119,19 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        harness.drag.toggleGrid()
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
 
-        let thumbnail = try XCTUnwrap(harness.drag.gridContentFrame(for: .tab(GridFixture.agentsTab)))
+        let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         let boxes = MiniPaneLayout.boxes(
             layout: model.layouts[GridFixture.agentsTab], exported: nil, fallbackPanes: [], size: thumbnail.size,
             padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
         )
         let claude = try XCTUnwrap(boxes.first { $0.pane == GridFixture.claudePane })
-        harness.drag.gridHoverBegan(pane: claude.pane, anchor: claude.frame.offsetBy(dx: thumbnail.minX, dy: thumbnail.minY))
+        harness.drag.gridHoverMoved(pane: claude.pane, pointer: CGPoint(x: thumbnail.minX + claude.frame.midX, y: thumbnail.minY + claude.frame.midY))
+        harness.drag.gridHoverIntentElapsed(pane: claude.pane)
         await settle(window)
         let rest = try snapshot(window)
         if let directory {
@@ -296,7 +298,7 @@ private struct Harness {
         drag = DragCoordinator(
             toasts: toasts, rearrangeMode: rearrange,
             commit: { _, _ in fatalError("a render never drops") },
-            springLoadAction: { _ in }
+            reveal: { _ in }
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
         viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory())

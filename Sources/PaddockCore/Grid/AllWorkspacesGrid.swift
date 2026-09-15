@@ -45,18 +45,26 @@ public enum GridCardLayout {
 public struct AllWorkspacesGridState: Equatable, Sendable {
     public struct Hover: Equatable, Sendable {
         public let pane: PaneID
-        /// The hovered mini pane's frame in the grid's own space.
-        public let anchor: CGRect
+        /// The pointer, in the drag space.
+        public let pointer: CGPoint
 
-        public init(pane: PaneID, anchor: CGRect) {
+        public init(pane: PaneID, pointer: CGPoint) {
             self.pane = pane
-            self.anchor = anchor
+            self.pointer = pointer
         }
     }
 
+    /// How long the pointer must rest on one pane before its card shows, so
+    /// a sweep across the grid neither flickers cards nor reads every pane
+    /// it crosses.
+    public static let hoverIntentDelay: Duration = .milliseconds(200)
+
     public private(set) var isShown = false
     public private(set) var expanded: Set<WorkspaceID> = []
+    /// The pane whose card is showing.
     public private(set) var hover: Hover?
+    /// The pane waiting out the intent delay.
+    public private(set) var pendingHover: Hover?
 
     public init() {}
 
@@ -69,6 +77,7 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         isShown = false
         expanded.removeAll()
         hover = nil
+        pendingHover = nil
     }
 
     public mutating func toggle() {
@@ -77,10 +86,6 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         } else {
             open()
         }
-    }
-
-    public func isExpanded(_ workspace: WorkspaceID) -> Bool {
-        expanded.contains(workspace)
     }
 
     public mutating func toggleExpanded(_ workspace: WorkspaceID) {
@@ -96,21 +101,49 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         expanded.formIntersection(Set(order))
     }
 
-    public mutating func hoverBegan(pane: PaneID, anchor: CGRect) {
-        hover = Hover(pane: pane, anchor: anchor)
+    /// Every pointer report over a mini pane. Moving within the pane the card
+    /// or the wait already belongs to only moves the pointer; any other pane
+    /// hides the card and starts a new wait. True when a wait starts, which
+    /// the caller times out through `hoverIntentElapsed`.
+    @discardableResult
+    public mutating func hoverMoved(pane: PaneID, pointer: CGPoint) -> Bool {
+        let report = Hover(pane: pane, pointer: pointer)
+        if hover?.pane == pane {
+            hover = report
+            return false
+        }
+        if pendingHover?.pane == pane {
+            pendingHover = report
+            return false
+        }
+        hover = nil
+        pendingHover = report
+        return true
     }
 
-    /// Only the pane still hovered clears it: moving onto a neighbor can
-    /// report the neighbor's entry before this pane's exit.
+    /// A wait that has since moved to another pane, or ended, shows nothing.
+    public mutating func hoverIntentElapsed(pane: PaneID) {
+        guard let pendingHover, pendingHover.pane == pane else { return }
+        hover = pendingHover
+        self.pendingHover = nil
+    }
+
+    /// Only the pane still hovered or waited on clears: moving onto a
+    /// neighbor can report the neighbor's entry before this pane's exit.
     public mutating func hoverEnded(pane: PaneID) {
-        guard hover?.pane == pane else { return }
-        hover = nil
+        if hover?.pane == pane {
+            hover = nil
+        }
+        if pendingHover?.pane == pane {
+            pendingHover = nil
+        }
     }
 
     /// Hover reports stop while the button is held, so whatever was hovered
     /// when a drag began is stale by the time it ends.
     public mutating func dragBegan() {
         hover = nil
+        pendingHover = nil
     }
 
     /// Never while a drag is in flight, when the card would cover the
@@ -121,19 +154,44 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
 
     /// What a fired dwell does to the grid. A thumbnail reveals its tab in
     /// the window, so the grid gives way to it; the tab selection itself is
-    /// the view model's.
-    public mutating func springLoaded(_ target: DropTarget) {
+    /// the view model's. True when the grid opened or closed, which replaces
+    /// every surface under the pointer.
+    @discardableResult
+    public mutating func springLoaded(_ target: DropTarget) -> Bool {
+        let wasShown = isShown
         switch target {
         case .allWorkspaces:
             open()
         case .moreTabs(let workspace):
-            guard isShown else { return }
-            expanded.insert(workspace)
+            if isShown {
+                expanded.insert(workspace)
+            }
         case .tabThumbnail:
             close()
         case .paneEdge, .paneInterior, .tabStrip, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
             break
         }
+        return isShown != wasShown
+    }
+}
+
+/// The rail's pinned "All workspaces" row and the room the rail makes for it
+/// while a pane drag shows it.
+public enum AllWorkspacesEntry {
+    /// How far the rows' scroll content ends above the rail's bottom, so a
+    /// fully scrolled rail stops its last row `gap` above the entry row
+    /// rather than under it.
+    public static func railBottomMargin(restingMargin: CGFloat, entryHeight: CGFloat, entryBottomInset: CGFloat, gap: CGFloat) -> CGFloat {
+        max(restingMargin, entryBottomInset + entryHeight + gap)
+    }
+
+    /// The part of the rail's viewport above the entry row: where its rows
+    /// can be hit and where its bottom scroll band sits.
+    public static func railViewport(_ viewport: CGRect?, above entry: CGRect?) -> CGRect? {
+        guard let viewport, let entry else { return viewport }
+        var clipped = viewport
+        clipped.size.height = max(0, min(viewport.maxY, entry.minY) - viewport.minY)
+        return clipped
     }
 }
 

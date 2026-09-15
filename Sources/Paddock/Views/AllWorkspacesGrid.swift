@@ -201,14 +201,17 @@ private struct TabThumbnail: View {
         let isFocusedTab = tab.tabID == viewModel.model?.focusedTabID
         VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabLabelGap) {
             GeometryReader { proxy in
-                miniPanes(size: proxy.size, origin: proxy.frame(in: .named(DragSpace.gridContent)).origin)
+                miniPanes(size: proxy.size)
             }
             .frame(height: ChromeMetrics.Grid.thumbnailHeight)
             .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
             .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
             .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(tab.tabID)) }
             .contentShape(Rectangle())
+            // Selected before the grid closes, so the window never draws the
+            // previously selected tab in between.
             .onTapGesture {
+                viewModel.select(tab: tab.tabID)
                 drag.closeGrid()
                 Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
             }
@@ -224,9 +227,7 @@ private struct TabThumbnail: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// `origin` is the thumbnail's place in the grid content, which is the
-    /// space a hover anchor is kept in so it scrolls with the card.
-    private func miniPanes(size: CGSize, origin: CGPoint) -> some View {
+    private func miniPanes(size: CGSize) -> some View {
         let model = viewModel.model
         let tabPanes = (model?.panes.values.filter { $0.tabID == tab.tabID } ?? [])
             .map(\.paneID)
@@ -246,11 +247,13 @@ private struct TabThumbnail: View {
                     MiniPane(theme: theme, pane: pane)
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
-                        .onHover { hovering in
-                            if hovering {
-                                drag.gridHoverBegan(pane: pane.paneID, anchor: placed.frame.offsetBy(dx: origin.x, dy: origin.y))
-                            } else {
-                                drag.gridHoverEnded(pane: pane.paneID)
+                        // In the drag space, where the card is placed: a
+                        // scroll or reflow under a still pointer leaves the
+                        // pointer, and so the card, where it is.
+                        .onContinuousHover(coordinateSpace: DragSpace.coordinateSpace) { phase in
+                            switch phase {
+                            case .active(let pointer): drag.gridHoverMoved(pane: pane.paneID, pointer: pointer)
+                            case .ended: drag.gridHoverEnded(pane: pane.paneID)
                             }
                         }
                 }
@@ -338,8 +341,8 @@ private struct DropWash: View {
 }
 
 /// Drawn over the grid's scroll view rather than inside a card, so it is
-/// never clipped by the card or the row below it. It reads the scroll origin
-/// on its own, which keeps a scroll from re-rendering the cards.
+/// never clipped by the card or the row below it, and only it re-renders as
+/// the pointer moves.
 private struct GridHoverCard: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -352,11 +355,12 @@ private struct GridHoverCard: View {
            let viewport = drag.gridViewport,
            let model = viewModel.model,
            let pane = model.panes[hover.pane],
-           let content = PaneHoverCardContent.make(pane: hover.pane, model: model, homeDirectory: NSHomeDirectory()) {
-            let contentOrigin = drag.gridContentOrigin
-            let anchor = hover.anchor.offsetBy(dx: contentOrigin.x - viewport.minX, dy: contentOrigin.y - viewport.minY)
+           let content = PaneHoverCardContent.make(
+               pane: hover.pane, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory()
+           ) {
             let origin = HoverCardPlacement.origin(
-                anchor: anchor, card: size, container: CGRect(origin: .zero, size: viewport.size), gap: ChromeMetrics.HoverCard.anchorGap
+                pointer: CGPoint(x: hover.pointer.x - viewport.minX, y: hover.pointer.y - viewport.minY),
+                card: size, container: CGRect(origin: .zero, size: viewport.size), offset: ChromeMetrics.HoverCard.pointerOffset
             )
             PaneHoverCardView(theme: theme, content: content, lastLine: viewModel.lastLine(for: pane))
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }

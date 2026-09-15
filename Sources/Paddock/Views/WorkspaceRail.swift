@@ -15,6 +15,13 @@ struct WorkspaceRail: View {
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
+    private static let bottomMarginDuringPaneDrag = AllWorkspacesEntry.railBottomMargin(
+        restingMargin: ChromeMetrics.Rail.verticalPadding,
+        entryHeight: ChromeMetrics.WorkspaceRow.contentHeight + 2 * ChromeMetrics.WorkspaceRow.verticalPadding,
+        entryBottomInset: ChromeMetrics.Rail.verticalPadding,
+        gap: ChromeMetrics.Rail.rowGap
+    )
+
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -58,7 +65,10 @@ struct WorkspaceRail: View {
                         }
                     }
                     .padding(.top, ChromeMetrics.Rail.headingToFirstRow)
-                    .padding(.bottom, ChromeMetrics.Rail.verticalPadding)
+                    // Longer content, never a shorter viewport: no row moves
+                    // when a pane drag starts, and a fully scrolled rail stops
+                    // its last row above the entry row instead of under it.
+                    .padding(.bottom, drag.isPaneDragInFlight ? Self.bottomMarginDuringPaneDrag : ChromeMetrics.Rail.verticalPadding)
                     .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
                     .frame(width: ChromeMetrics.Rail.width, alignment: .leading)
                     .coordinateSpace(.named(DragSpace.railContent))
@@ -80,7 +90,6 @@ struct WorkspaceRail: View {
                     AllWorkspacesEntryRow(theme: theme)
                         .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
                         .padding(.bottom, ChromeMetrics.Rail.verticalPadding)
-                        .transition(.opacity)
                 }
             }
             Rectangle()

@@ -5,6 +5,9 @@ import XCTest
 final class AllWorkspacesGridTests: XCTestCase {
     private let w1 = WorkspaceID(rawValue: "w1")
     private let w2 = WorkspaceID(rawValue: "w2")
+    private let p1 = PaneID(rawValue: "w1:p1")
+    private let p2 = PaneID(rawValue: "w1:p2")
+    private let p3 = PaneID(rawValue: "w1:p3")
 
     private func tabs(_ count: Int) -> [TabID] {
         (1...max(count, 1)).prefix(count).map { TabID(rawValue: "w1:t\($0)") }
@@ -47,25 +50,29 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     // MARK: - grid state
 
-    func testClosingForgetsExpandedCardsAndTheHover() {
+    func testClosingForgetsExpandedCardsTheCardAndAPendingWait() {
         var state = AllWorkspacesGridState()
         state.open()
         state.toggleExpanded(w1)
-        state.hoverBegan(pane: PaneID(rawValue: "w1:p1"), anchor: .zero)
+        state.hoverMoved(pane: p1, pointer: .zero)
+        state.hoverIntentElapsed(pane: p1)
+        state.hoverMoved(pane: p2, pointer: .zero)
         state.close()
         XCTAssertFalse(state.isShown)
-        XCTAssertFalse(state.isExpanded(w1))
+        XCTAssertEqual(state.expanded, [])
         XCTAssertNil(state.hover)
         state.open()
-        XCTAssertFalse(state.isExpanded(w1), "a grid opened again starts at rest")
+        state.hoverIntentElapsed(pane: p2)
+        XCTAssertNil(state.hover, "a wait from before the grid closed must not show a card")
+        XCTAssertEqual(state.expanded, [], "a grid opened again starts at rest")
     }
 
     func testToggleExpandedFoldsACardBack() {
         var state = AllWorkspacesGridState()
         state.toggleExpanded(w1)
-        XCTAssertTrue(state.isExpanded(w1))
+        XCTAssertEqual(state.expanded, [w1])
         state.toggleExpanded(w1)
-        XCTAssertFalse(state.isExpanded(w1))
+        XCTAssertEqual(state.expanded, [])
     }
 
     func testRetainForgetsAClosedWorkspacesExpansion() {
@@ -76,60 +83,115 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertEqual(state.expanded, [w2])
     }
 
-    func testTheHoverCardNeverShowsWhileADragIsInFlight() {
+    // MARK: - hover intent
+
+    func testACardShowsOnlyOnceThePointerHasRestedThroughTheWait() {
         var state = AllWorkspacesGridState()
-        let pane = PaneID(rawValue: "w1:p1")
-        state.hoverBegan(pane: pane, anchor: CGRect(x: 1, y: 2, width: 3, height: 4))
-        XCTAssertEqual(state.hoverCard(dragInFlight: false)?.pane, pane)
-        XCTAssertNil(state.hoverCard(dragInFlight: true))
+        XCTAssertTrue(state.hoverMoved(pane: p1, pointer: CGPoint(x: 10, y: 20)), "entering a pane starts a wait")
+        XCTAssertNil(state.hoverCard(dragInFlight: false))
+        state.hoverIntentElapsed(pane: p1)
+        XCTAssertEqual(state.hoverCard(dragInFlight: false), .init(pane: p1, pointer: CGPoint(x: 10, y: 20)))
     }
 
-    func testADragBeginningForgetsTheHoverSoItDoesNotReturnWhenTheDragEnds() {
+    func testLeavingBeforeTheWaitEndsShowsNothing() {
         var state = AllWorkspacesGridState()
-        state.hoverBegan(pane: PaneID(rawValue: "w1:p1"), anchor: .zero)
-        state.dragBegan()
+        state.hoverMoved(pane: p1, pointer: .zero)
+        state.hoverEnded(pane: p1)
+        state.hoverIntentElapsed(pane: p1)
         XCTAssertNil(state.hoverCard(dragInFlight: false))
     }
 
-    func testLeavingAPaneAfterItsNeighborWasEnteredKeepsTheNeighbor() {
+    /// Crossing three panes starts three waits, and only the pane the pointer
+    /// stopped on ever shows: the first two waits end on panes already left.
+    func testASweepShowsOnlyThePaneThePointerStoppedOn() {
         var state = AllWorkspacesGridState()
-        let first = PaneID(rawValue: "w1:p1")
-        let neighbor = PaneID(rawValue: "w1:p2")
-        state.hoverBegan(pane: first, anchor: .zero)
-        state.hoverBegan(pane: neighbor, anchor: .zero)
-        state.hoverEnded(pane: first)
-        XCTAssertEqual(state.hover?.pane, neighbor)
-        state.hoverEnded(pane: neighbor)
+        XCTAssertTrue(state.hoverMoved(pane: p1, pointer: .zero))
+        XCTAssertTrue(state.hoverMoved(pane: p2, pointer: .zero))
+        XCTAssertTrue(state.hoverMoved(pane: p3, pointer: .zero))
+        state.hoverIntentElapsed(pane: p1)
+        state.hoverIntentElapsed(pane: p2)
+        XCTAssertNil(state.hoverCard(dragInFlight: false))
+        state.hoverIntentElapsed(pane: p3)
+        XCTAssertEqual(state.hoverCard(dragInFlight: false)?.pane, p3)
+    }
+
+    func testMovingWithinAPaneFollowsThePointerWithoutRestartingTheWait() {
+        var state = AllWorkspacesGridState()
+        state.hoverMoved(pane: p1, pointer: CGPoint(x: 1, y: 1))
+        XCTAssertFalse(state.hoverMoved(pane: p1, pointer: CGPoint(x: 5, y: 5)))
+        state.hoverIntentElapsed(pane: p1)
+        XCTAssertEqual(state.hover?.pointer, CGPoint(x: 5, y: 5))
+        XCTAssertFalse(state.hoverMoved(pane: p1, pointer: CGPoint(x: 9, y: 7)))
+        XCTAssertEqual(state.hoverCard(dragInFlight: false)?.pointer, CGPoint(x: 9, y: 7), "the showing card follows the pointer")
+    }
+
+    func testMovingOntoANeighborHidesTheCardUntilTheNeighborsOwnWaitEnds() {
+        var state = AllWorkspacesGridState()
+        state.hoverMoved(pane: p1, pointer: .zero)
+        state.hoverIntentElapsed(pane: p1)
+        XCTAssertTrue(state.hoverMoved(pane: p2, pointer: .zero))
+        XCTAssertNil(state.hoverCard(dragInFlight: false))
+        state.hoverIntentElapsed(pane: p2)
+        XCTAssertEqual(state.hoverCard(dragInFlight: false)?.pane, p2)
+    }
+
+    func testLeavingAPaneAfterItsNeighborWasEnteredKeepsTheNeighborsWait() {
+        var state = AllWorkspacesGridState()
+        state.hoverMoved(pane: p1, pointer: .zero)
+        state.hoverMoved(pane: p2, pointer: .zero)
+        state.hoverEnded(pane: p1)
+        state.hoverIntentElapsed(pane: p2)
+        XCTAssertEqual(state.hover?.pane, p2)
+        state.hoverEnded(pane: p2)
         XCTAssertNil(state.hover)
+    }
+
+    func testTheHoverCardNeverShowsWhileADragIsInFlight() {
+        var state = AllWorkspacesGridState()
+        state.hoverMoved(pane: p1, pointer: .zero)
+        state.hoverIntentElapsed(pane: p1)
+        XCTAssertEqual(state.hoverCard(dragInFlight: false)?.pane, p1)
+        XCTAssertNil(state.hoverCard(dragInFlight: true))
+    }
+
+    func testADragBeginningForgetsTheCardAndTheWait() {
+        var state = AllWorkspacesGridState()
+        state.hoverMoved(pane: p1, pointer: .zero)
+        state.hoverIntentElapsed(pane: p1)
+        state.hoverMoved(pane: p2, pointer: .zero)
+        state.dragBegan()
+        state.hoverIntentElapsed(pane: p2)
+        XCTAssertNil(state.hoverCard(dragInFlight: false))
     }
 
     // MARK: - spring-load targets
 
-    func testDwellingOnTheRailEntryOpensTheGrid() {
+    func testDwellingOnTheRailEntryOpensTheGridAndSwapsTheSurfaces() {
         var state = AllWorkspacesGridState()
-        state.springLoaded(.allWorkspaces)
+        XCTAssertTrue(state.springLoaded(.allWorkspaces))
         XCTAssertTrue(state.isShown)
+        XCTAssertFalse(state.springLoaded(.allWorkspaces), "a grid already shown swaps nothing")
     }
 
-    func testDwellingOnAPlusTileExpandsThatCardOnly() {
+    func testDwellingOnAPlusTileExpandsThatCardOnlyAndKeepsTheSurfaces() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.springLoaded(.moreTabs(w2))
+        XCTAssertFalse(state.springLoaded(.moreTabs(w2)))
         XCTAssertEqual(state.expanded, [w2])
     }
 
-    func testDwellingOnAGridThumbnailHandsTheWindowBackToThatTab() {
+    func testDwellingOnAGridThumbnailHandsTheWindowBackAndSwapsTheSurfaces() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.springLoaded(.tabThumbnail(TabID(rawValue: "w2:t1")))
+        XCTAssertTrue(state.springLoaded(.tabThumbnail(TabID(rawValue: "w2:t1"))))
         XCTAssertFalse(state.isShown)
     }
 
-    func testDwellsOutsideTheGridLeaveItAlone() {
+    func testDwellsOutsideTheGridLeaveItAloneAndSwapNothing() {
         var state = AllWorkspacesGridState()
-        state.springLoaded(.tabThumbnail(TabID(rawValue: "w1:t2")))
-        state.springLoaded(.moreTabs(w1))
-        state.springLoaded(.workspaceThumbnail(w2))
+        XCTAssertFalse(state.springLoaded(.tabThumbnail(TabID(rawValue: "w1:t2"))))
+        XCTAssertFalse(state.springLoaded(.moreTabs(w1)))
+        XCTAssertFalse(state.springLoaded(.workspaceThumbnail(w2)))
         XCTAssertEqual(state, AllWorkspacesGridState(), "a strip thumbnail or a rail row dwell must not open, close or expand anything")
     }
 
@@ -157,21 +219,19 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     func testALastLineIsFetchedOncePerRevision() {
         var requests = LastLineRequests()
-        let pane = PaneID(rawValue: "w1:p1")
-        XCTAssertTrue(requests.begin(pane: pane, revision: 3))
-        XCTAssertFalse(requests.begin(pane: pane, revision: 3))
-        XCTAssertTrue(requests.begin(pane: pane, revision: 4))
-        XCTAssertTrue(requests.begin(pane: PaneID(rawValue: "w1:p2"), revision: 3), "revisions are per pane")
+        XCTAssertTrue(requests.begin(pane: p1, revision: 3))
+        XCTAssertFalse(requests.begin(pane: p1, revision: 3))
+        XCTAssertTrue(requests.begin(pane: p1, revision: 4))
+        XCTAssertTrue(requests.begin(pane: p2, revision: 3), "revisions are per pane")
     }
 
     func testAReplyForARevisionThePaneHasMovedPastIsStale() {
         var requests = LastLineRequests()
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = requests.begin(pane: pane, revision: 3)
-        XCTAssertTrue(requests.accepts(pane: pane, revision: 3))
-        _ = requests.begin(pane: pane, revision: 4)
-        XCTAssertFalse(requests.accepts(pane: pane, revision: 3))
-        XCTAssertTrue(requests.accepts(pane: pane, revision: 4))
+        _ = requests.begin(pane: p1, revision: 3)
+        XCTAssertTrue(requests.accepts(pane: p1, revision: 3))
+        _ = requests.begin(pane: p1, revision: 4)
+        XCTAssertFalse(requests.accepts(pane: p1, revision: 3))
+        XCTAssertTrue(requests.accepts(pane: p1, revision: 4))
         XCTAssertFalse(requests.accepts(pane: PaneID(rawValue: "w1:p9"), revision: 4), "a pane never asked for has nothing to accept")
     }
 }

@@ -200,25 +200,27 @@ final class DragCoordinator {
     /// `WorkspaceSelection`; this only feeds it the presses, keys, app
     /// deactivation and drag ends it decides on.
     private(set) var workspaceSelection = WorkspaceSelection()
-    /// The All Workspaces grid. Every decision lives in
-    /// `AllWorkspacesGridState`; views observe the three mirrors below, each
-    /// written only on a real change, so a hover never re-renders the cards
-    /// and a card expanding never re-renders the window.
-    @ObservationIgnored private var grid = AllWorkspacesGridState()
+    /// The All Workspaces grid, written only through `updateGrid`.
+    @ObservationIgnored private(set) var grid = AllWorkspacesGridState()
     private(set) var isGridShown = false
     private(set) var expandedGridCards: Set<WorkspaceID> = []
-    private var gridHover: AllWorkspacesGridState.Hover?
+    private(set) var gridHover: AllWorkspacesGridState.Hover?
+    @ObservationIgnored var gridHoverIntent: Task<Void, Never>?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
+    /// Selects what a fired dwell uncovers. Synchronous and run before the
+    /// grid opens or closes, so no frame draws the window between the two.
+    @ObservationIgnored private let reveal: @MainActor (DropTarget) -> Void
 
     init(
         toasts: ToastCenter,
         rearrangeMode: RearrangeMode,
         commit: @escaping DragCommit,
-        springLoadAction: @escaping SpringLoadAction
+        reveal: @escaping @MainActor (DropTarget) -> Void
     ) {
         self.toasts = toasts
         self.rearrangeMode = rearrangeMode
+        self.reveal = reveal
         let outcomes = self.outcomes
         let springLoads = self.springLoads
         controller = DragController(
@@ -232,7 +234,6 @@ final class DragCoordinator {
                 outcomes.last = DragOutcomeRelay.Record(generation: issuedBy, outcome: outcome)
                 return outcome
             },
-            springLoadAction: springLoadAction,
             onSpringLoad: { target in springLoads.fired?(target) }
         )
         springLoads.fired = { [weak self] target in self?.springLoadFired(target) }
@@ -342,12 +343,18 @@ final class DragCoordinator {
             stripFrame: stripFrame,
             railFrame: railFrame,
             stripViewport: stripViewport,
-            railViewport: railViewport,
+            railViewport: railViewportAboveEntry,
             newTabZone: newTabZone,
             newWorkspaceZone: newWorkspaceZone,
             grid: gridSurfaces,
             allWorkspacesEntry: allWorkspacesEntryFrame
         )
+    }
+
+    /// Where the rail's rows can be hit and its bottom band scrolls: never
+    /// the pinned entry row a pane drag lays over the rail's bottom.
+    private var railViewportAboveEntry: CGRect? {
+        AllWorkspacesEntry.railViewport(railViewport, above: allWorkspacesEntryFrame)
     }
 
     private var gridSurfaces: GridDropSurfaces? {
@@ -651,7 +658,7 @@ final class DragCoordinator {
                 offset: stripScrollExtent.offset, maximumOffset: stripScrollExtent.maximum
             ))
         }
-        if let railViewport {
+        if let railViewport = railViewportAboveEntry {
             regions.append(AutoScroller.Region(
                 surface: .rail, viewport: railViewport, axis: .vertical,
                 offset: railScrollExtent.offset, maximumOffset: railScrollExtent.maximum
@@ -689,16 +696,20 @@ final class DragCoordinator {
         }
     }
 
-    /// A reveal just changed what sits under the pointer; see
-    /// `AutoScroller.springLoaded`.
-    /// The band is suppressed against the surfaces the dwell happened over,
-    /// before the grid opens, closes or expands under the pointer.
+    /// A reveal just changed what sits under the pointer (see
+    /// `AutoScroller.springLoaded`). The suppression is taken against the
+    /// surfaces the dwell happened over, before anything moves; a dwell that
+    /// opens or closes the grid replaces those surfaces, so it holds every
+    /// band. The tab is selected before the grid gives way to it.
     private func springLoadFired(_ target: DropTarget) {
         autoScrollTicker.stop()
+        var next = grid
+        let swapsSurfaces = next.springLoaded(target)
         if let lastPointer {
-            autoScroller.springLoaded(pointer: lastPointer, regions: scrollRegions)
+            autoScroller.springLoaded(pointer: lastPointer, regions: scrollRegions, swapsSurfaces: swapsSurfaces)
         }
-        updateGrid { $0.springLoaded(target) }
+        reveal(target)
+        updateGrid { $0 = next }
     }
 
     private func stopAutoScroll() {
@@ -800,45 +811,7 @@ final class DragCoordinator {
         }
     }
 
-    // MARK: - All Workspaces grid
-
-    func toggleGrid() {
-        updateGrid { $0.toggle() }
-    }
-
-    func closeGrid() {
-        updateGrid { $0.close() }
-    }
-
-    func toggleGridCard(_ workspace: WorkspaceID) {
-        updateGrid { $0.toggleExpanded(workspace) }
-    }
-
-    func retainGridCards(_ order: [WorkspaceID]) {
-        updateGrid { $0.retain(order) }
-    }
-
-    func gridHoverBegan(pane: PaneID, anchor: CGRect) {
-        updateGrid { $0.hoverBegan(pane: pane, anchor: anchor) }
-    }
-
-    func gridHoverEnded(pane: PaneID) {
-        updateGrid { $0.hoverEnded(pane: pane) }
-    }
-
-    /// Held back for as long as a ghost is on screen, settle included.
-    var gridHoverCard: AllWorkspacesGridState.Hover? {
-        guard gridHover != nil else { return nil }
-        return grid.hoverCard(dragInFlight: activeSubject != nil)
-    }
-
-    var gridContentOrigin: CGPoint { gridItems.contentOrigin }
-
-    /// In the grid content's own space, where a scroll never moves it.
-    func gridContentFrame(for id: GridItemID) -> CGRect? {
-        let origin = gridItems.contentOrigin
-        return gridItems.onScreen.first { $0.id == id }?.frame.offsetBy(dx: -origin.x, dy: -origin.y)
-    }
+    // MARK: - All Workspaces grid storage (the rest is in DragCoordinator+Grid)
 
     func setGridOrder(_ order: [GridItemID]) {
         writeIfChanged(\.gridItems) { $0.setOrder(order) }
@@ -856,8 +829,12 @@ final class DragCoordinator {
         gridScrollExtent = (offset, maximumOffset)
     }
 
-    private func updateGrid(_ change: (inout AllWorkspacesGridState) -> Void) {
-        change(&grid)
+    /// Views observe the three mirrors, each written only on a real change,
+    /// so a hover never re-renders the cards and a card expanding never
+    /// re-renders the window. A wait still running is not mirrored at all.
+    @discardableResult
+    func updateGrid<Result>(_ change: (inout AllWorkspacesGridState) -> Result) -> Result {
+        let result = change(&grid)
         if isGridShown != grid.isShown {
             isGridShown = grid.isShown
         }
@@ -868,6 +845,7 @@ final class DragCoordinator {
             gridHover = grid.hover
         }
         syncSelectionMonitor()
+        return result
     }
 
     private func dragSpacePoint(_ event: NSEvent) -> CGPoint? {

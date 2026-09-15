@@ -177,7 +177,7 @@ struct PaddockApp: App {
             // Reveals the dwelled-on tab or workspace in place, which is a
             // local selection only: a `*.focus` RPC mid-drag would move
             // herdr's own focus for what is still just a hover.
-            springLoadAction: { target in
+            reveal: { target in
                 switch target {
                 case .tabThumbnail(let id): viewModel.select(tab: id)
                 case .workspaceThumbnail(let id): viewModel.select(workspace: id)
@@ -231,7 +231,6 @@ struct PaddockApp: App {
                     }
                 }
                 .accessibilityIdentifier("paddock.view.rearrangeMode")
-                // The shortcut Safari gives its own tab overview.
                 Button {
                     dragCoordinator.toggleGrid()
                 } label: {

@@ -10,10 +10,10 @@ public enum MiniPaneLayout {
         public let frame: CGRect
     }
 
-    /// Every pane's box inside a thumbnail of `size`, in reading order. Outer
-    /// boxes sit exactly `padding` inside the thumbnail and neighbors `gap`
-    /// apart. A tab with no layout yet stacks `fallbackPanes` evenly rather
-    /// than drawing nothing.
+    /// Every pane's box inside a thumbnail of `size`, top to bottom and then
+    /// left to right as drawn. Outer boxes sit exactly `padding` inside the
+    /// thumbnail and neighbors `gap` apart. A tab with no layout yet stacks
+    /// `fallbackPanes` evenly rather than drawing nothing.
     public static func boxes(
         layout: LayoutSnapshot?,
         exported: ExportedLayoutDescription?,
@@ -30,30 +30,17 @@ public enum MiniPaneLayout {
         )
         let grid = CanvasGrid(canvas: area, displayScale: displayScale)
         let frames: [PaneID: CGRect]
-        let order: [PaneID]
         if let layout, !layout.panes.isEmpty {
             frames = CanvasGeometry.resolved(layout: layout, exported: exported, grid: grid, dividerThickness: gap).paneFrames
-            order = readingOrder(layout: layout, fallbackPanes: [])
         } else {
             let stack = CellRect(x: 0, y: 0, width: 1, height: max(fallbackPanes.count, 1))
             frames = Dictionary(
                 fallbackPanes.enumerated().map { ($0.element, grid.frame(for: CellRect(x: 0, y: $0.offset, width: 1, height: 1), area: stack)) },
                 uniquingKeysWith: { first, _ in first }
             )
-            order = fallbackPanes
         }
-        return order.compactMap { pane in
-            frames[pane].map {
-                Placed(pane: pane, frame: PaneBox.frame(in: $0, dividerThickness: gap).offsetBy(dx: insets.leadingAndTop, dy: insets.leadingAndTop))
-            }
-        }
-    }
-
-    /// Top to bottom, then left to right, by cell position.
-    public static func readingOrder(layout: LayoutSnapshot?, fallbackPanes: [PaneID]) -> [PaneID] {
-        guard let layout, !layout.panes.isEmpty else { return fallbackPanes }
-        return layout.panes
-            .sorted { ($0.rect.y, $0.rect.x) < ($1.rect.y, $1.rect.x) }
-            .map(\.paneID)
+        return frames
+            .map { Placed(pane: $0.key, frame: PaneBox.frame(in: $0.value, dividerThickness: gap).offsetBy(dx: insets.leadingAndTop, dy: insets.leadingAndTop)) }
+            .sorted { ($0.frame.minY, $0.frame.minX, $0.pane.rawValue) < ($1.frame.minY, $1.frame.minX, $1.pane.rawValue) }
     }
 }
