@@ -62,28 +62,65 @@ on a capture rather than trusting the arithmetic.
 
 ## Geometry
 
+The design frame is authored at 1x and the app implements it at 1.28x, the
+scale it was approved at: every value below is the design's times 1.28, rounded
+to a whole point (text to the half point), except 1pt rules and borders.
+
 | Element | Value |
 |---|---|
-| Title bar | 20pt tall; window buttons 12pt, vertically centered; title 9pt medium, centered |
-| Sidebar | 150pt wide, padding 10 vertical / 8 horizontal, 1pt row gap, 1pt rule on its right edge |
-| WORKSPACES heading | 8pt semibold, letter spacing 1, 6pt below it before the first row |
-| Workspace row | padding 4 / 8, gap 6, corner radius 2; 2x12pt indicator bar keeps names aligned: accent when selected; on other rows the workspace's agent status in the tab dot colors (blocked red, done teal, working yellow, most urgent first), clear when idle or unknown; name 11pt (medium when selected); count 9pt, right-aligned |
-| Tab strip | 28pt tall, padding 0 / 8, 2pt gap between tabs, tabs bottom-aligned, 1pt rule under the strip |
-| Tab | 78pt wide, 22pt tall, square corners, padding 0 / 9, gap 5; label 11pt (medium when selected), left-anchored; 5pt status dot after the label |
-| Selected tab | selection fill, 2pt accent underline at the bottom; unselected tabs have no underline slot at all |
-| Protocol readout | 9pt monospace, right side of the strip |
-| Canvas | 5pt padding around the panes |
-| Gap between panes | 7pt |
-| Divider handle | 1.5pt by 40pt, radius 0.75, centered in the gap |
-| Pane | corner radius 2, 1pt border (focused pane: 1pt accent), padding 8 / 10; title 9pt medium |
+| Title bar | 26pt tall; window buttons vertically centered; title centered, 1.5pt below the bar's center |
+| Sidebar | 192pt wide, padding 13 vertical / 10 horizontal, 1pt row gap, 1pt rule on its right edge |
+| WORKSPACES heading | 8pt below it before the first row |
+| Workspace row | padding 5 / 10, gap 8, corner radius 3, 17pt content band (27pt row, 28pt pitch); 3x15pt indicator bar keeps names aligned: accent when selected; on other rows the workspace's agent status in the tab dot colors (blocked red, done teal, working yellow, most urgent first), clear when idle or unknown; count right-aligned |
+| Tab strip | 36pt tall, padding 0 / 10, 3pt gap between tabs, tabs bottom-aligned, 1pt rule under the strip |
+| Tab | 100pt wide, 28pt tall, square corners, padding 0 / 12, gap 6; label left-anchored; 6pt status dot after the label |
+| Selected tab | selection fill, 3pt accent underline at the bottom; unselected tabs have no underline slot at all |
+| Protocol readout | right side of the strip, 1.5pt above the strip's center |
+| Canvas | 6pt margin around the panes |
+| Gap between panes | 9pt; grab band 28pt centered on it |
+| Divider handle | 2pt by 51pt, fully rounded, centered in the gap |
+| Pane | corner radius 3, 1pt border (focused pane: 1pt accent), padding 10 / 13; 14pt title row, 4pt above the terminal |
+| Drag visuals | overlay, ghost, flash and toast radii 3; insertion bar 3pt with a 10pt end dot and 4pt overhang; drop zone margin 10, minimum run 56; ghost capped at 333x205, floored at 192x41; scroll thumb 5pt wide, 15pt minimum |
+
+## Typography
+
+Chrome text is **Inter** (4.1 static faces, bundled and registered at launch).
+Monospaced chrome text is the **terminal face**: the `font-family` the user's
+Ghostty config names when CoreText resolves it (JetBrains Mono on the reference
+machine), else Menlo, exactly as the panes resolve it. SF Symbols stay in the
+system face. Chrome text draws without stem darkening (`AppleFontSmoothing` 0
+for the app's process), which is how the design renders its type; with
+darkening on, Inter reads close to a weight heavier than approved. Terminal
+glyphs set their own smoothing and are unaffected.
+
+| Text | Face | Size | Weight |
+|---|---|---|---|
+| Window title | Inter | 11.5pt | medium |
+| WORKSPACES heading | Inter | 10pt, tracking 1.28 | semibold |
+| Workspace name | Inter | 14pt | regular, medium when selected |
+| Workspace count | Inter | 11.5pt | regular |
+| Tab label | Inter | 14pt | regular, medium when selected |
+| Pane title | Inter | 11.5pt | medium |
+| Protocol readout, pane status chip | terminal face | 11.5pt | regular |
+| Status card path and last line | terminal face | 13pt | regular |
+| Connection notice, card and launcher hints | Inter | 11.5pt | regular |
+| Banner, toast message | Inter | 14pt | regular |
+| Copied whisper | Inter | 13pt | regular |
+| Ghost label | Inter | 14pt | semibold |
+| Divider ratio label | Inter | 13pt | semibold |
+| Launcher harness name | Inter | 16.5pt | medium |
+| Launcher monogram | Inter | 14pt | bold |
+| Empty canvas | Inter | 15.5pt | regular |
 
 ## Implementation notes
 
-- The 7pt gap replaces `DividerBand.gutter` (12). The grab band's half must still
-  clear the tightest neighbouring inset; recheck `DividerBandTests` against the
-  new gutter and the pane's new 8 / 10 padding before trusting it.
-- On a 1x display a 1.5pt handle cannot sit on whole pixels and renders as a soft
-  2px line; 1pt is the crisp fallback if it reads fuzzy.
-- The 20pt title bar means repositioning the macOS window buttons in AppKit and
+- Sizes live in one place each: `ChromeMetrics` (window chrome), `PaneChrome`
+  (pane box), `DividerBand` (gutter and handle), `ChromeType` (faces and sizes).
+- The 9pt gap is `DividerBand.gutter`, split 4 leading / 5 trailing so box edges
+  stay whole; canvas padding 2 / 1 keeps the outer margin at exactly 6. The grab
+  band's half (14) stays inside the tightest neighbouring inset (half gap 4.5
+  plus bottom padding 10); `DividerBandTests` pins it.
+- The 26pt title bar means repositioning the macOS window buttons in AppKit and
   reapplying that after resize and full screen, since their default position
-  assumes a taller bar.
+  assumes a taller bar. The system title bar (32pt) still reaches the top of the
+  tab strip, which `WindowDragExclusion` keeps from moving the window.
