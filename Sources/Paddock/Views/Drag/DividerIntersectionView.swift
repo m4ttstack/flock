@@ -19,20 +19,20 @@ struct DividerIntersectionView: View {
     /// the diagonal mid-drag keeps dragging the divider the press started
     /// on -- matching `DividerHandleView`'s own single-divider gesture.
     @State private var lockedDivider: DividerHandle?
+    /// Which divider the pointer would grab at its current spot, so the
+    /// resize cursor matches the drag a press there would start.
+    @State private var hoverResolvesVertical = true
 
     var body: some View {
         Color.clear
             .frame(width: intersection.square.width, height: intersection.square.height)
             .contentShape(Rectangle())
             .onContinuousHover(coordinateSpace: .local) { phase in
-                guard !drag.isPaneDragInFlight else { return }
-                switch phase {
-                case .active(let location):
-                    (winner(at: location).isVerticalLine ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).set()
-                case .ended:
-                    NSCursor.arrow.set()
+                if case .active(let location) = phase {
+                    hoverResolvesVertical = winner(at: location).isVerticalLine
                 }
             }
+            .pointerStyle(drag.isPaneDragInFlight ? nil : (hoverResolvesVertical ? .columnResize : .rowResize))
             .gesture(dragGesture)
             .accessibilityIdentifier("paddock.canvas.divider.intersection.\(intersection.id)")
     }

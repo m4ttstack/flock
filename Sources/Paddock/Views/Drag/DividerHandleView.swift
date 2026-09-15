@@ -53,15 +53,12 @@ struct DividerHandleView: View {
         }
         .frame(width: band.width, height: band.height)
         .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovering = hovering
-            // A pane drag already owns the cursor for its whole duration
-            // (`DragCoordinator`'s own push); the pointer can pass over this
-            // gutter mid-drag without landing a divider drag of its own, and
-            // must not repaint the closed hand away underneath it.
-            guard !drag.isPaneDragInFlight else { return }
-            (hovering ? (isVertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown) : NSCursor.arrow).set()
-        }
+        .onHover { isHovering = $0 }
+        // Declarative rather than `NSCursor.set()` from a hover callback: a
+        // set cursor is overwritten by the next cursor-rect or tracking-area
+        // update from the panes beside the band. Withheld during a pane drag,
+        // which owns the closed hand for its whole duration.
+        .pointerStyle(drag.isPaneDragInFlight ? nil : (isVertical ? .columnResize : .rowResize))
         .gesture(dragGesture)
         .accessibilityIdentifier("paddock.canvas.divider.\(pathLabel)")
     }

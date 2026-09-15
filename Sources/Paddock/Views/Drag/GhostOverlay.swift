@@ -7,6 +7,10 @@ import SwiftUI
 struct GhostOverlay: View {
     let theme: Theme
     let ghost: DragCoordinator.Ghost
+    /// True while the settle spring carries the ghost onto its landing rect.
+    /// A pane drop lands on a pane box, so the ghost's own border would sit
+    /// just inside that pane's border for the whole spring.
+    var settling = false
 
     /// Floors for a proxy whose origin is tiny (a tab pill, a rail row), so
     /// the label always has somewhere to sit.
@@ -32,7 +36,7 @@ struct GhostOverlay: View {
             alignment: .topLeading
         )
         .background(theme.paneHeaderBg, in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent, lineWidth: 2).opacity(settling ? 0 : 1))
         .shadow(color: theme.railBg.opacity(0.5), radius: 14, y: 8)
     }
 }

@@ -26,7 +26,7 @@ struct DragLayer: View {
                     .id(flash.id)
             }
             if let ghost = drag.ghost, let topLeft = drag.ghostTopLeft {
-                GhostOverlay(theme: theme, ghost: ghost)
+                GhostOverlay(theme: theme, ghost: ghost, settling: drag.isSettling)
                     .offset(x: topLeft.x, y: topLeft.y)
                     // The settle spring is the ONLY animation on the ghost's
                     // position: while the drag is live it tracks the cursor
@@ -62,9 +62,11 @@ private struct LandingFlash: View {
     @State private var faded = false
 
     var body: some View {
+        // A wash, never a stroke: a pane drop lands exactly on a pane box,
+        // so a stroked flash sits a couple of points inside the border the
+        // pane already draws and doubles it for the whole fade.
         RoundedRectangle(cornerRadius: 8)
             .fill(theme.accent.opacity(0.35))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.accent, lineWidth: 2))
             .frame(width: rect.width, height: rect.height)
             .offset(x: rect.minX, y: rect.minY)
             .opacity(faded ? 0 : 1)
