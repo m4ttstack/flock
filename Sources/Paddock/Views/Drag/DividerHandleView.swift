@@ -45,9 +45,10 @@ struct DividerHandleView: View {
             if let liveRatio {
                 liveHandle(at: liveRatio)
             } else {
-                // Never the accent: a focused pane's border is the accent, and
-                // a handle beside it in the same color disappears into it.
-                handle(color: isHovering ? theme.text : theme.overlay0.opacity(0.75))
+                // A hue the pane borders never use: a focused border is the
+                // accent and the text color is a pale version of the same
+                // blue, so either one disappears into the border beside it.
+                handle(color: isHovering ? theme.mauve : theme.overlay0.opacity(0.75))
             }
         }
         .frame(width: band.width, height: band.height)
@@ -111,7 +112,7 @@ struct DividerHandleView: View {
             forDividerLength: isVertical ? divider.frame.height : divider.frame.width
         )
         return ZStack {
-            handle(color: theme.text)
+            handle(color: theme.mauve)
             // Clear of the handle so the percentage never covers what the
             // pointer is holding.
             ratioLabel(ratio)
