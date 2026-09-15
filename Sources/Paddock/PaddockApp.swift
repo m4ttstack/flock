@@ -240,7 +240,9 @@ struct PaddockApp: App {
                         Text("All Workspaces")
                     }
                 }
-                .keyboardShortcut("\\", modifiers: [.command, .shift])
+                // A letter key: SwiftUI does not reliably match a shifted
+                // punctuation key equivalent.
+                .keyboardShortcut("a", modifiers: [.command, .shift])
                 .accessibilityIdentifier("paddock.view.allWorkspaces")
             }
             CommandGroup(replacing: .undoRedo) {

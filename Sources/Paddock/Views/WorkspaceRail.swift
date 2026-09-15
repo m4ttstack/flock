@@ -24,6 +24,13 @@ struct WorkspaceRail: View {
                     .foregroundStyle(theme.textLabel)
                     .padding(.top, ChromeMetrics.Rail.verticalPadding)
                     .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // An overlay, so the button's own box can never move the
+                    // heading or the rows under it.
+                    .overlay(alignment: .bottomTrailing) {
+                        AllWorkspacesButton(theme: theme)
+                            .padding(.trailing, ChromeMetrics.Rail.horizontalPadding)
+                    }
                 // Only the rows scroll. The gap below the heading is scroll
                 // content, so rows scroll up to the heading's edge, and the
                 // horizontal padding is too, so the viewport keeps the rail's
@@ -101,6 +108,31 @@ struct WorkspaceRail: View {
                     at: value.startLocation
                 )
             }
+    }
+}
+
+/// The way into the All Workspaces grid that does not need the menu. The way
+/// back is Esc: the grid covers this rail while it is shown.
+private struct AllWorkspacesButton: View {
+    let theme: Theme
+
+    @Environment(DragCoordinator.self) private var drag
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            drag.toggleGrid()
+        } label: {
+            Image(systemName: "square.grid.2x2")
+                .font(ChromeType.railHeadingSymbol)
+                .foregroundStyle(isHovering ? theme.textStrong : theme.textLabel)
+                .frame(width: ChromeMetrics.Rail.headingButtonSize, height: ChromeMetrics.Rail.headingButtonSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("All workspaces")
+        .accessibilityIdentifier("paddock.rail.allWorkspaces")
     }
 }
 
