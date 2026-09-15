@@ -38,7 +38,8 @@ final class TabStripScrollGeometryTests: XCTestCase {
     }
 
     func testAMultiLineWheelDeltaScalesWithTheNotchCount() {
-        XCTAssertEqual(wheel(current: 300, maximumOffset: 900, deltaY: 3, precise: false), 300 - 3 * step)
+        XCTAssertEqual(wheel(current: 400, maximumOffset: 900, deltaY: 3, precise: false), 400 - 3 * step)
+        XCTAssertEqual(wheel(current: 0, maximumOffset: 900, deltaY: -3, precise: false), 3 * step)
     }
 
     func testATrackpadSwipeWithAHorizontalComponentIsLeftAlone() {
