@@ -5,32 +5,37 @@ import XCTest
 
 /// Renders the real `MainWindow` offscreen from fixture data, with no app host
 /// and no herdr connection. Pane bodies are ground-only surfaces, since
-/// terminal content is not part of the chrome. The PNG pass writes only when
-/// `PADDOCK_CHROME_RENDER_DIR` is set.
+/// terminal content is not part of the chrome. PNGs are written only when
+/// `PADDOCK_CHROME_RENDER_DIR` is set; the pixel and window assertions always
+/// run.
 @MainActor
 final class ChromeRenderTests: XCTestCase {
     static let defaultsSuite = "dev.mattstack.paddock.chrome-render"
     private static let windowSize = CGSize(width: 900, height: 560)
-    private static let themeIDs = ["tokyo-night", "catppuccin-latte", "tokyo-night-day", "dracula", "gruvbox-light", "one-light"]
+    private static let themeIDs = [
+        "tokyo-night", "dracula",
+        "catppuccin-latte", "tokyo-night-day", "gruvbox-light", "one-light",
+        "solarized-light", "kanagawa-lotus", "rose-pine-dawn",
+    ]
 
     override func tearDown() {
         UserDefaults().removePersistentDomain(forName: Self.defaultsSuite)
         super.tearDown()
     }
 
-    func testRenderChromeForEachTheme() async throws {
-        guard let directory = ProcessInfo.processInfo.environment["PADDOCK_CHROME_RENDER_DIR"], !directory.isEmpty else {
-            throw XCTSkip("set PADDOCK_CHROME_RENDER_DIR to write the renders")
-        }
+    func testEveryChromeRolePaintsItsExactHex() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for id in Self.themeIDs {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let harness = try await Harness(theme: theme)
             let window = harness.makeWindow(size: Self.windowSize)
             await settle(window)
             let image = try snapshot(window)
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("chrome-\(id).png")
-            try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
-            printSamples(image, theme: theme)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("chrome-\(id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            assertSamples(image, theme: theme)
             window.close()
         }
     }
@@ -40,11 +45,53 @@ final class ChromeRenderTests: XCTestCase {
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
         assertButtonsCentered(in: window)
-        printTitleBarHits(in: window)
 
         window.setContentSize(NSSize(width: 1100, height: 700))
         await settle(window)
         assertButtonsCentered(in: window)
+        window.close()
+    }
+
+    /// AppKit rebuilds the standard buttons on a style mask change. The next
+    /// pass must move its frame observers onto the new buttons, or AppKit
+    /// laying one out again later leaves it off center until some window event.
+    func testReplacedWindowButtonsAreObservedAndKeptCentered() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let before = WindowButtonCentering.buttons(of: window)
+
+        window.styleMask.remove(.titled)
+        window.styleMask.insert(.titled)
+        window.setContentSize(NSSize(width: 1000, height: 600))
+        await settle(window)
+        let after = WindowButtonCentering.buttons(of: window)
+        XCTAssertEqual(after.count, 3)
+        XCTAssertFalse(zip(before, after).contains { $0 === $1 }, "the style mask change kept the same buttons, so nothing was replaced")
+
+        let close = try XCTUnwrap(window.standardWindowButton(.closeButton))
+        close.setFrameOrigin(NSPoint(x: close.frame.minX, y: close.frame.minY + 6))
+        assertButtonsCentered(in: window)
+        window.close()
+    }
+
+    /// The system title bar is taller than the chrome's, so the top of each
+    /// tab lies inside it. A press there must stay with the tab: some view of
+    /// ours at that point opts out of moving the window. The chrome title bar
+    /// must keep moving the window, so nothing of ours opts out there.
+    func testTabTopEdgeInsideTheSystemTitleBarDoesNotMoveTheWindow() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let systemTitleBarHeight = window.frame.height - window.contentLayoutRect.maxY
+        let tabTop = ChromeMetrics.titleBarHeight + ChromeMetrics.tabStripHeight - 22
+        XCTAssertGreaterThan(systemTitleBarHeight, tabTop, "the system title bar no longer reaches the tabs, so this test exercises nothing")
+
+        let tabTopEdge = CGPoint(x: 200, y: tabTop + 1)
+        XCTAssertTrue(contentViews(at: tabTopEdge, in: window).contains { !$0.mouseDownCanMoveWindow })
+        for titlePoint in [CGPoint(x: 450, y: 10), CGPoint(x: 250, y: 10), CGPoint(x: 800, y: 3)] {
+            XCTAssertFalse(contentViews(at: titlePoint, in: window).contains { !$0.mouseDownCanMoveWindow }, "\(titlePoint)")
+        }
         window.close()
     }
 
@@ -85,10 +132,18 @@ final class ChromeRenderTests: XCTestCase {
         return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
     }
 
-    /// Points are top-left, in the 900x560 window.
-    private func printSamples(_ image: NSBitmapImageRep, theme: Theme) {
+    /// Points are top-left, in the 900x560 window. Indicator samples sit on
+    /// each row's 2x12 bar: the selected row is accent, the others take the
+    /// fixture's workspace status.
+    private func assertSamples(_ image: NSBitmapImageRep, theme: Theme) {
         let roles = theme.palette.chromeRoles
+        let palette = theme.palette
         let samples: [(String, CGPoint, RGB)] = [
+            ("indicator/selected", CGPoint(x: 17, y: 59), roles.accent),
+            ("indicator/blocked", CGPoint(x: 17, y: 81), palette.red),
+            ("indicator/working", CGPoint(x: 17, y: 103), palette.yellow),
+            ("indicator/done", CGPoint(x: 17, y: 125), palette.teal),
+            ("indicator/idle", CGPoint(x: 17, y: 147), roles.chrome),
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
             ("chrome/strip", CGPoint(x: 600, y: 30), roles.chrome),
             ("chrome/rail", CGPoint(x: 75, y: 400), roles.chrome),
@@ -104,8 +159,7 @@ final class ChromeRenderTests: XCTestCase {
             ("accent/focused", CGPoint(x: 894.25, y: 400), roles.accent),
         ]
         for (name, point, expected) in samples {
-            let actual = hex(image, point)
-            print("SAMPLE \(theme.id) \(name) expected=\(expected.hex) actual=\(actual)\(actual == expected.hex ? "" : " MISMATCH")")
+            XCTAssertEqual(hex(image, point), expected.hex, "\(theme.id) \(name) at \(point)")
         }
     }
 
@@ -115,27 +169,26 @@ final class ChromeRenderTests: XCTestCase {
         for button in buttons {
             let inWindow = button.convert(button.bounds, to: nil)
             let centerFromTop = window.frame.height - inWindow.midY
-            print("BUTTON frame=\(button.frame) centerFromTop=\(centerFromTop) windowHeight=\(window.frame.height)")
-            XCTAssertEqual(centerFromTop, ChromeMetrics.titleBarHeight / 2, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(centerFromTop, ChromeMetrics.titleBarHeight / 2, accuracy: 0.5, "\(button.frame)", file: file, line: line)
         }
     }
 
-    private func printTitleBarHits(in window: NSWindow) {
-        guard let frameView = window.contentView?.superview else { return }
-        let height = frameView.bounds.height
-        let points: [(String, CGPoint)] = [
-            ("title center", CGPoint(x: 450, y: 10)),
-            ("title left of name", CGPoint(x: 250, y: 10)),
-            ("strip above tabs", CGPoint(x: 600, y: 23)),
-            ("tab top sliver", CGPoint(x: 200, y: 27)),
-            ("tab body", CGPoint(x: 200, y: 40)),
-            ("rail heading", CGPoint(x: 40, y: 34)),
-        ]
-        for (name, point) in points {
-            let hit = frameView.hitTest(NSPoint(x: point.x, y: height - point.y))
-            let chain = sequence(first: hit, next: { $0?.superview }).prefix(4).compactMap { $0.map { String(describing: type(of: $0)) } }
-            print("HIT \(name) \(chain.joined(separator: " < ")) canMoveWindow=\(hit?.mouseDownCanMoveWindow ?? false)")
+    /// Every visible view of ours under a top-left window point, the content
+    /// view included: the views whose `mouseDownCanMoveWindow` decides whether
+    /// a press there moves the window.
+    private func contentViews(at point: CGPoint, in window: NSWindow) -> [NSView] {
+        guard let root = window.contentView else { return [] }
+        let windowPoint = NSPoint(x: point.x, y: window.frame.height - point.y)
+        var found: [NSView] = []
+        func walk(_ view: NSView) {
+            guard !view.isHidden else { return }
+            if view.convert(view.bounds, to: nil).contains(windowPoint) {
+                found.append(view)
+            }
+            view.subviews.forEach(walk)
         }
+        walk(root)
+        return found
     }
 }
 
@@ -161,11 +214,11 @@ private struct Harness {
             commit: { _, _ in fatalError("a render never drops") },
             springLoadAction: { _ in }
         )
-        dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }, settle: {}))
+        dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
         viewModel = SessionViewModel(client: OfflineHerdrClient(), ghosttyFactory: GroundSurfaceFactory())
         viewModel.update(model: try Fixture.model(), connection: .live)
         for pane in Fixture.canvasPanes {
-            _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+            _ = await viewModel.attachPane(pane)
         }
     }
 
@@ -200,8 +253,6 @@ private struct OfflineHerdrClient: HerdrCommandClient {
 
 @MainActor
 private final class GroundSurface: GhosttyPaneSurface {
-    func resize(cols: Int, rows: Int) {}
-    func repaint(cols: Int, rows: Int) {}
     func detach() async {}
     func park() {}
     func unpark() {}
@@ -211,7 +262,7 @@ private final class GroundSurface: GhosttyPaneSurface {
 @MainActor
 private struct GroundSurfaceFactory: GhosttyPaneFactory {
     func makeSurface(
-        for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void,
+        for pane: PaneID, onUserInput: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
         GroundSurface()
@@ -222,9 +273,9 @@ private enum Fixture {
     static let canvasPanes = [PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")]
 
     static func model() throws -> SessionModel {
-        let workspaces: [(id: String, label: String, panes: Int)] = [
-            ("w1", "paddock", 5), ("w2", "repo-tools", 3), ("w3", "board", 2),
-            ("w4", "mattstack-apps", 4), ("w5", "herdr", 1),
+        let workspaces: [(id: String, label: String, panes: Int, status: String)] = [
+            ("w1", "paddock", 5, "idle"), ("w2", "repo-tools", 3, "blocked"), ("w3", "board", 2, "working"),
+            ("w4", "mattstack-apps", 4, "done"), ("w5", "herdr", 1, "idle"),
         ]
         var workspaceRows: [[String: Any]] = []
         var tabRows: [[String: Any]] = []
@@ -234,7 +285,7 @@ private enum Fixture {
             let tabLabels = isPaddock ? ["api", "web", "claude", "logs"] : ["main"]
             workspaceRows.append([
                 "workspace_id": workspace.id, "label": workspace.label, "number": index + 1,
-                "active_tab_id": isPaddock ? "w1:t3" : "\(workspace.id):t1", "agent_status": "idle",
+                "active_tab_id": isPaddock ? "w1:t3" : "\(workspace.id):t1", "agent_status": workspace.status,
             ])
             for (tabIndex, label) in tabLabels.enumerated() {
                 tabRows.append([
