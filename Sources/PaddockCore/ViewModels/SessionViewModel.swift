@@ -44,9 +44,10 @@ public final class SessionViewModel {
     private let ghosttyFactory: (any GhosttyPaneFactory)?
     // Every visible pane's live surface, keyed by pane -- created exactly
     // once per pane, on first visibility, and torn down only when the pane
-    // leaves the visible set entirely. Attach/resize/detach for a given pane
-    // always goes through `paneWork`, so a resize can never race an attach or
-    // a teardown for that pane.
+    // leaves the visible set entirely. Attach/park/teardown for a given pane
+    // always goes through `paneWork`. A box resize is sent synchronously
+    // instead, and only to a surface already registered here; one still
+    // being created picks the grid up from `paneBoxDims` in `performAttach`.
     // `@ObservationIgnored`: `PaneCellView.init` reads this once (via
     // `ghosttySurface(for:)`) to seed its own `@State`, and that read runs
     // as part of `PaneCanvas.body` building its children -- without this,
@@ -93,40 +94,6 @@ public final class SessionViewModel {
     // grid costs nothing. Cleared on teardown along with `paneBoxDims`: a
     // fresh surface has been told nothing yet.
     private var lastSentDims: [PaneID: PTYSize] = [:]
-    // One pending flush per pane. A live window drag reports a new box grid
-    // every frame; the flush fires once per `dimsCoalescingWindow` with
-    // whichever grid is newest by then, and every report inside that window
-    // collapses into it.
-    private var dimsFlushes: [PaneID: Task<Void, Never>] = [:]
-    // Held for the duration of a divider drag: `setPaneBoxDims` still
-    // records the box the live footprint preview lays out (so a pane
-    // attaching mid-drag gets the current grid), but schedules no send --
-    // a real PTY resize on every pointer frame, and a full reflow out and
-    // back on an Esc-cancelled drag, is exactly what the ratio's own
-    // publish-on-release rule exists to avoid.
-    private var suppressingPaneBoxDimsSends = false
-    // How many times each pane's own flush has re-armed itself against
-    // `suppressingPaneBoxDimsSends` in a row. Bounds a pane whose report
-    // predates a drag to a fixed number of retries rather than spinning a
-    // fresh task every coalescing window for as long as suppression stays
-    // set -- a real drag ends in seconds, but a stranded suppression flag
-    // (a bug elsewhere, not something this file can rule out on its own)
-    // must not turn one stale report into a task that reschedules itself
-    // forever.
-    private var suppressedFlushRetries: [PaneID: Int] = [:]
-    private static let maxSuppressedFlushRetries = 50
-    // Every pane whose own retry budget above ran out while STILL
-    // suppressed: at the default 100ms coalescing window that is only
-    // ~5 seconds, well inside how long a real divider drag can be held
-    // before ending WITHOUT committing (Esc, or a release with no net
-    // move) -- exactly the strand `suppressedFlushRetries` itself exists to
-    // prevent, just on a longer clock. `resumePaneBoxDimsSends` re-arms
-    // every pane recorded here, since that is precisely the path a
-    // non-committing end takes and the one `flushPaneBoxDimsAfterDividerDrag`
-    // does not need this for (it already flushes every currently-tracked
-    // pane directly, gave-up or not).
-    private var stalledSuppressedPanes: Set<PaneID> = []
-    private let dimsCoalescingWindow: Duration
 
     private let paneLauncherRegistry = PaneLauncherRegistry()
     // Armed per visible pane on attach, disarmed on park and teardown, so a
@@ -156,7 +123,6 @@ public final class SessionViewModel {
         planExecutor: (any PlanExecuting)? = nil,
         undoJournal: UndoJournal? = nil,
         paneScrollSubscriber: (any PaneScrollSubscribing)? = nil,
-        dimsCoalescingWindow: Duration = .milliseconds(100),
         noticeSink: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.client = client
@@ -165,7 +131,6 @@ public final class SessionViewModel {
         self.planExecutor = planExecutor
         self.undoJournal = undoJournal
         self.paneScrollSubscriber = paneScrollSubscriber
-        self.dimsCoalescingWindow = dimsCoalescingWindow
         self.noticeSink = noticeSink
     }
 
@@ -209,135 +174,26 @@ public final class SessionViewModel {
         reconcileClosedPanes()
     }
 
-    // MARK: - pane dims (paddock's own box grid, coalesced)
+    // MARK: - pane dims (paddock's own box grid, sent on change)
 
     /// The canvas laid `pane`'s box out at `cols` x `rows` whole cells. This
     /// is the ONLY size source: herdr's own layout rect is a proportion the
     /// canvas divides the window by, never a pane's real size.
     ///
-    /// Recording happens synchronously so a pane whose surface does not exist
-    /// yet still carries its newest grid into `performAttach`; the send itself
-    /// is coalesced, so a window drag costs one `terminal.resize` per pane per
-    /// window rather than one per frame.
+    /// Sent the moment the grid changes, mid divider drag or not. A box only
+    /// changes grid when it crosses a cell boundary, so sends are bounded by
+    /// cell crossings rather than by frames. The record is written first and
+    /// unconditionally, so a pane whose surface does not exist yet still
+    /// carries its newest grid into `performAttach`. A parked pane is not
+    /// sent to: its next warm reattach applies the same record.
     public func setPaneBoxDims(_ pane: PaneID, cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         let size = PTYSize(cols: cols, rows: rows)
         guard paneBoxDims[pane] != size else { return }
         paneBoxDims[pane] = size
-        guard !suppressingPaneBoxDimsSends else { return }
-        scheduleDimsFlush(for: pane)
-    }
-
-    /// Held for the duration of a divider drag (see `suppressingPaneBoxDimsSends`'s
-    /// own doc comment). Idempotent: a live drag calls this once per pointer
-    /// frame via `PaneCanvas`, alongside every `setPaneBoxDims` the moving
-    /// preview triggers.
-    public func beginSuppressingPaneBoxDimsSends() {
-        suppressingPaneBoxDimsSends = true
-    }
-
-    /// Lifts the suppression with no send of its own -- for a drag that
-    /// ends WITHOUT committing (Esc, abandoned, or a release with no net
-    /// ratio change): the preview's geometry reverts to the pre-drag layout
-    /// on its own, which reports a DIFFERENT grid than whatever was last
-    /// suppressed, so the ordinary `setPaneBoxDims` -> `scheduleDimsFlush`
-    /// path picks it up unprompted. An explicit flush here would instead
-    /// send the about-to-be-abandoned mid-drag size first -- the exact
-    /// out-and-back reflow this suppression exists to prevent.
-    public func resumePaneBoxDimsSends() {
-        suppressingPaneBoxDimsSends = false
-        reviveStalledPaneFlushes()
-    }
-
-    /// Lifts the suppression and sends every pane's latest recorded box now
-    /// -- for a drag that DID commit: the committed layout reports the SAME
-    /// grid the live preview already settled on, so nothing would otherwise
-    /// change value and trigger another `setPaneBoxDims` call to send it.
-    public func flushPaneBoxDimsAfterDividerDrag() async {
-        suppressingPaneBoxDimsSends = false
-        // Snapshotted before the loop: an awaited `flushDims` yields the
-        // main actor, and another pane's own report could otherwise mutate
-        // `paneBoxDims` out from under a live iteration over it.
-        for pane in Array(paneBoxDims.keys) {
-            await flushDims(for: pane)
-        }
-    }
-
-    /// Re-arms every pane whose own suppressed-flush retry budget ran out
-    /// mid-drag: `scheduleDimsFlush` starts each one's own fresh
-    /// coalescing window, which -- suppression now lifted -- succeeds on
-    /// its own next firing without needing to know why it gave up in the
-    /// first place.
-    private func reviveStalledPaneFlushes() {
-        guard !stalledSuppressedPanes.isEmpty else { return }
-        let panes = stalledSuppressedPanes
-        stalledSuppressedPanes.removeAll()
-        for pane in panes {
-            scheduleDimsFlush(for: pane)
-        }
-    }
-
-    /// One pending flush per pane, never restarted by a later report: the
-    /// first change in a quiet period starts the clock and the flush reads
-    /// whatever grid is newest when it fires, which is what bounds a drag to
-    /// one resize per window rather than deferring it until the drag stops.
-    private func scheduleDimsFlush(for pane: PaneID) {
-        guard dimsFlushes[pane] == nil else { return }
-        let window = dimsCoalescingWindow
-        dimsFlushes[pane] = Task { [weak self] in
-            try? await Task.sleep(for: window)
-            guard let self else { return }
-            self.dimsFlushes[pane] = nil
-            await self.flushDims(for: pane)
-        }
-    }
-
-    /// Sends `pane`'s recorded box grid to its surface, chained through
-    /// `paneWork` like every other per-pane request. A pane with no surface
-    /// (never attached, torn down) or a parked one is skipped: a parked pane's
-    /// grid is applied by its next warm reattach, from the same record.
-    private func flushDims(for pane: PaneID) async {
-        // A flush that was already scheduled before a divider drag began
-        // (an unrelated window resize, say) lands its own timer mid-drag
-        // and finds itself suppressed -- `scheduleDimsFlush`'s own task
-        // already cleared `dimsFlushes[pane]` just before calling this, so
-        // without re-arming here, nothing would ever ask again: that pane
-        // is outside the dragged subtree, so nothing else touches its
-        // `paneBoxDims` to trigger a fresh `setPaneBoxDims` call once
-        // suppression lifts, and the size it was already owed would be
-        // silently dropped for the rest of the session.
-        guard !suppressingPaneBoxDimsSends else {
-            let retries = (suppressedFlushRetries[pane] ?? 0) + 1
-            guard retries <= Self.maxSuppressedFlushRetries else {
-                suppressedFlushRetries[pane] = nil
-                stalledSuppressedPanes.insert(pane)
-                return
-            }
-            suppressedFlushRetries[pane] = retries
-            scheduleDimsFlush(for: pane)
-            return
-        }
-        suppressedFlushRetries[pane] = nil
-        stalledSuppressedPanes.remove(pane)
-        guard let size = paneBoxDims[pane], lastSentDims[pane] != size else { return }
-        guard !parkedPanes.contains(pane), ghosttySurfaces[pane] != nil else { return }
+        guard !parkedPanes.contains(pane), let surface = ghosttySurfaces[pane], lastSentDims[pane] != size else { return }
         lastSentDims[pane] = size
-        let previous = paneWork[pane]
-        let task = Task { [weak self] in
-            _ = await previous?.value
-            guard let self, let surface = self.ghosttySurfaces[pane] else { return }
-            surface.resize(cols: size.cols, rows: size.rows)
-        }
-        paneWork[pane] = task
-        await task.value
-    }
-
-    /// Lets a test await every pending dims flush instead of polling; a no-op
-    /// when none is pending. Production never calls this.
-    public func waitForPaneDimsReconciliation() async {
-        for task in dimsFlushes.values {
-            await task.value
-        }
+        surface.resize(cols: size.cols, rows: size.rows)
     }
 
     /// Any pane herdr no longer reports (closed, or the model went nil) has
@@ -659,9 +515,6 @@ public final class SessionViewModel {
         paneScrollSubscriber?.unsubscribe(pane: pane)
         lastSentDims.removeValue(forKey: pane)
         paneBoxDims.removeValue(forKey: pane)
-        dimsFlushes.removeValue(forKey: pane)?.cancel()
-        suppressedFlushRetries.removeValue(forKey: pane)
-        stalledSuppressedPanes.remove(pane)
         parkedPanes.removeAll { $0 == pane }
         await surface.detach()
     }

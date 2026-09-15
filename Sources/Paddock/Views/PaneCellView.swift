@@ -51,8 +51,8 @@ struct PaneCellView: View {
     let lastLine: String?
     /// The whole-cell grid this pane's own box holds: what the surface is laid
     /// out at and, through `SessionViewModel`, the size herdr is asked for. A
-    /// later change reaches the surface through the view model's coalesced
-    /// dims path, never through a reattach.
+    /// later change reaches the surface through the view model's dims path,
+    /// never through a reattach.
     let grid: PTYSize
     /// Exactly `grid.cols x grid.rows` cells: the surface's frame, top-left in
     /// the box's content area, any remainder left as ground.
@@ -133,7 +133,7 @@ struct PaneCellView: View {
             ghosttySurface = await viewModel.attachPane(pane.paneID, cols: grid.cols, rows: grid.rows)
         }
         // The box moved (a window resize, a split appearing, a divider drag):
-        // the view model records it and coalesces the send.
+        // the view model records it and sends it if the grid changed.
         .onChange(of: grid) { _, new in
             viewModel.setPaneBoxDims(pane.paneID, cols: new.cols, rows: new.rows)
         }

@@ -637,12 +637,11 @@ final class SessionViewModelTests: XCTestCase {
     @MainActor
     func testBoxResizeEmitsOneDimsCallForThatPane() async throws {
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
         _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
 
         viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
-        await viewModel.waitForPaneDimsReconciliation()
 
         let surface = try XCTUnwrap(factory.surfaces[pane])
         XCTAssertEqual(surface.resizeCalls.map(\.cols), [30])
@@ -652,44 +651,75 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(surface.detachCallCount, 0)
     }
 
-    /// A live window drag reports a box grid many times in quick succession;
-    /// only the last of a coalescing window ever reaches herdr.
+    /// No clock stands between a box change and its send: the resize is
+    /// issued before `setPaneBoxDims` returns, with nothing awaited.
     @MainActor
-    func testRepeatedBoxResizesInsideTheCoalescingWindowCollapseToTheLastOne() async throws {
+    func testABoxChangeSendsBeforeSetPaneBoxDimsReturns() async throws {
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(120))
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
         _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
 
-        for cols in [58, 52, 47, 41] {
+        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
+
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [45], "the send must not wait for a timer or a later main-actor turn")
+    }
+
+    @MainActor
+    func testABurstOfBoxChangesOnTheSameGridSendsOnce() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+
+        for _ in 0..<5 {
+            viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
+        }
+
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [45])
+    }
+
+    /// A divider drag's live preview moves a box one cell crossing at a time:
+    /// each distinct grid reaches herdr while the drag is still live, and a
+    /// cancelled drag's revert sends the pre-drag grid through the same path.
+    @MainActor
+    func testEachIntermediateGridOfADividerDragSends() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+
+        for cols in [58, 58, 52, 47, 47, 41] {
             viewModel.setPaneBoxDims(pane, cols: cols, rows: 40)
         }
-        await viewModel.waitForPaneDimsReconciliation()
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [58, 52, 47, 41])
 
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [41], "one resize per pane per window, carrying the newest grid")
+        viewModel.setPaneBoxDims(pane, cols: 60, rows: 40)
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [58, 52, 47, 41, 60])
     }
 
     @MainActor
     func testUnchangedBoxDimsEmitNothing() async throws {
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
         _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
 
         viewModel.setPaneBoxDims(pane, cols: 60, rows: 40)
-        await viewModel.waitForPaneDimsReconciliation()
 
         let surface = try XCTUnwrap(factory.surfaces[pane])
         XCTAssertTrue(surface.resizeCalls.isEmpty, "the surface already runs at its attach dims")
     }
 
-    /// Only the pane whose box moved is resized: a second pane sharing the
-    /// same coalescing window must not be swept along with it.
+    /// Only the pane whose box moved is resized: a second pane reporting in
+    /// the same layout pass must not be swept along with it.
     @MainActor
     func testAPaneWhoseBoxDidNotChangeEmitsNothing() async throws {
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let moved = PaneID(rawValue: "w1:p1")
         let still = PaneID(rawValue: "w1:p2")
         _ = await viewModel.attachPane(moved, cols: 60, rows: 40)
@@ -697,187 +727,9 @@ final class SessionViewModelTests: XCTestCase {
 
         viewModel.setPaneBoxDims(moved, cols: 30, rows: 40)
         viewModel.setPaneBoxDims(still, cols: 60, rows: 40)
-        await viewModel.waitForPaneDimsReconciliation()
 
         XCTAssertEqual(factory.surfaces[moved]?.resizeCalls.map(\.cols), [30])
         XCTAssertEqual(factory.surfaces[still]?.resizeCalls.count, 0)
-    }
-
-    // MARK: - suppressing pane box dims sends (a divider drag's live footprint preview)
-
-    /// A live footprint preview reflows real pane boxes about ten times a
-    /// second; while suppressed, `setPaneBoxDims` must still RECORD the
-    /// newest box (so a pane attaching mid-drag gets it) but send nothing.
-    @MainActor
-    func testSuppressedPaneBoxDimsRecordsButNeverSendsWhileSuppressed() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.beginSuppressingPaneBoxDimsSends()
-        viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
-        await viewModel.waitForPaneDimsReconciliation()
-
-        let surface = try XCTUnwrap(factory.surfaces[pane], "attachPane must have created a surface")
-        XCTAssertTrue(surface.resizeCalls.isEmpty, "a suppressed report must never reach the surface while still suppressed")
-
-        // The recording half: the report was held, not dropped. Flushing
-        // afterward delivers exactly the suppressed value, never the
-        // pre-drag one -- proof the earlier `setPaneBoxDims` actually
-        // recorded it rather than the silence above being indistinguishable
-        // from "never happened at all".
-        await viewModel.flushPaneBoxDimsAfterDividerDrag()
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [30], "the suppressed report was recorded, not dropped")
-    }
-
-    /// A flush already scheduled BEFORE the drag began (an unrelated window
-    /// resize, outside the dragged subtree) must not be silently dropped
-    /// when its own timer happens to land mid-drag: `flushDims` re-arms
-    /// itself on the suppression guard rather than just returning, so the
-    /// report still lands once suppression lifts even though nothing else
-    /// ever calls `setPaneBoxDims` again for this pane during the drag.
-    @MainActor
-    func testAFlushPendingBeforeSuppressionBeginsStillDeliversOnceResumed() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
-        viewModel.beginSuppressingPaneBoxDimsSends()
-        // Long enough for the pre-drag flush's own 20ms timer to land while
-        // still suppressed, proving the re-arm path (not just fast timing)
-        // is what eventually delivers it.
-        try? await Task.sleep(for: .milliseconds(60))
-
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertTrue(surface.resizeCalls.isEmpty, "still suppressed -- nothing sent yet")
-
-        viewModel.resumePaneBoxDimsSends()
-        await viewModel.waitForPaneDimsReconciliation()
-
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [45], "the pre-drag report must still land once suppression lifts")
-    }
-
-    /// The re-arm above must not spin forever if suppression never lifts (a
-    /// bug elsewhere leaving it stranded, say): bounded to a fixed retry
-    /// count, so a pane's own stale report stops rescheduling ITSELF rather
-    /// than a fresh task every coalescing window without end. A short
-    /// coalescing window keeps the bound reachable inside a normal test
-    /// timeout. Giving up is not the same as dropping the report forever,
-    /// though -- see the next test for the other half.
-    @MainActor
-    func testASuppressedFlushGivesUpRetryingAfterBoundedAttemptsWhileStillSuppressed() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(1))
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
-        viewModel.beginSuppressingPaneBoxDimsSends()
-        // Long enough for the retry bound (50 retries at ~1ms each) to be
-        // exhausted while suppression is STILL active.
-        try? await Task.sleep(for: .milliseconds(500))
-
-        // Nothing left rescheduling itself: a wait for "any pending flush"
-        // returns immediately rather than catching a task still in flight.
-        await viewModel.waitForPaneDimsReconciliation()
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertTrue(surface.resizeCalls.isEmpty, "still suppressed -- the bound stops retrying, it does not send anyway")
-    }
-
-    /// The other half: a pane whose retry budget ran out mid-drag is not
-    /// stranded forever the way round 3's original bug left it -- ending the
-    /// drag WITHOUT committing (Esc, or a release with no net move) still
-    /// delivers it, exactly the strand this round closes. Held past the
-    /// bound on purpose, then resumed via the non-committing exit path
-    /// (`resumePaneBoxDimsSends`, not the commit path's own flush).
-    @MainActor
-    func testAStalledSuppressedFlushIsRevivedByResumePaneBoxDimsSends() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(1))
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
-        viewModel.beginSuppressingPaneBoxDimsSends()
-        try? await Task.sleep(for: .milliseconds(500))
-        await viewModel.waitForPaneDimsReconciliation()
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertTrue(surface.resizeCalls.isEmpty, "precondition: the retry budget is exhausted before resuming")
-
-        viewModel.resumePaneBoxDimsSends()
-        await viewModel.waitForPaneDimsReconciliation()
-
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [45], "a drag held longer than the retry bound must not lose a pane outside its own subtree")
-    }
-
-    /// Lifting suppression with `resumePaneBoxDimsSends` issues no send of
-    /// its own: a drag that ends without committing (Esc, abandoned, a
-    /// no-op release) reverts the geometry, which reports a DIFFERENT box
-    /// through the ordinary `setPaneBoxDims` path on its own -- an explicit
-    /// flush here would instead send the about-to-be-abandoned mid-drag
-    /// size first, the exact out-and-back reflow suppression exists to
-    /// prevent.
-    @MainActor
-    func testResumePaneBoxDimsSendsIssuesNoSendOfItsOwn() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.beginSuppressingPaneBoxDimsSends()
-        viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
-        viewModel.resumePaneBoxDimsSends()
-        await viewModel.waitForPaneDimsReconciliation()
-
-        XCTAssertTrue(factory.surfaces[pane]?.resizeCalls.isEmpty ?? true, "resuming must not itself send the suppressed mid-drag size")
-
-        // A later, genuinely new report (the reverted geometry settling on
-        // a value distinct from both the pre-drag and the suppressed one)
-        // reaches the surface through the ordinary path.
-        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
-        await viewModel.waitForPaneDimsReconciliation()
-        XCTAssertEqual(factory.surfaces[pane]?.resizeCalls.map(\.cols), [45])
-    }
-
-    /// `flushPaneBoxDimsAfterDividerDrag` is the commit path: the committed
-    /// layout reports the SAME box the live preview already settled on, so
-    /// nothing would otherwise change value and trigger a send -- this is
-    /// what actually delivers the one real PTY resize a committed drag
-    /// needs.
-    @MainActor
-    func testFlushPaneBoxDimsAfterDividerDragSendsTheSuppressedValue() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.beginSuppressingPaneBoxDimsSends()
-        viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
-        await viewModel.flushPaneBoxDimsAfterDividerDrag()
-
-        XCTAssertEqual(factory.surfaces[pane]?.resizeCalls.map(\.cols), [30])
-    }
-
-    /// Several pointer-frame reports collapse into the one send the commit
-    /// flush issues -- suppression is not merely a delay, it is a real
-    /// coalescing of everything the drag reported into its final value.
-    @MainActor
-    func testSuppressedReportsCollapseToOneSendOnFlush() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.beginSuppressingPaneBoxDimsSends()
-        for cols in [55, 48, 41, 33] {
-            viewModel.setPaneBoxDims(pane, cols: cols, rows: 40)
-        }
-        await viewModel.flushPaneBoxDimsAfterDividerDrag()
-
-        XCTAssertEqual(factory.surfaces[pane]?.resizeCalls.map(\.cols), [33], "one send, carrying the newest suppressed grid")
     }
 
     /// herdr's own layout rect is no longer a size source at all: paddock
@@ -886,13 +738,12 @@ final class SessionViewModelTests: XCTestCase {
     @MainActor
     func testALayoutRectChangeNeverResizesAPaneByItself() async throws {
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
         viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 60, height: 40)), connection: .live)
         _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
 
         viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 30, height: 40)), connection: .live)
-        await viewModel.waitForPaneDimsReconciliation()
 
         let surface = try XCTUnwrap(factory.surfaces[pane])
         XCTAssertTrue(surface.resizeCalls.isEmpty, "herdr's rect is a proportion, never a size")
@@ -906,13 +757,12 @@ final class SessionViewModelTests: XCTestCase {
     func testABoxChangeDuringAnInFlightAttachIsAppliedWhenTheSurfaceRegisters() async throws {
         let factory = FakeGhosttyPaneFactory()
         factory.hold()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
         let attachTask = Task { await viewModel.attachPane(pane, cols: 80, rows: 24) }
         try? await Task.sleep(nanoseconds: 20_000_000)
         viewModel.setPaneBoxDims(pane, cols: 100, rows: 30)
-        await viewModel.waitForPaneDimsReconciliation()
 
         factory.releaseNext()
         _ = await attachTask.value
@@ -924,18 +774,46 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(surface.resizeCalls.map(\.rows), [30])
     }
 
+    /// Several box changes landing before the surface exists send nothing
+    /// anywhere; the newest is the one the surface receives on registering,
+    /// and from then on a change sends directly.
+    @MainActor
+    func testTheNewestGridRecordedBeforeASurfaceExistsIsTheOneItReceives() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        factory.hold()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        let attachTask = Task { await viewModel.attachPane(pane, cols: 80, rows: 24) }
+        for _ in 0..<1_000 where factory.makeSurfaceCalls.isEmpty {
+            await Task.yield()
+        }
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "precondition: the attach is suspended inside makeSurface")
+        for cols in [90, 95, 100] {
+            viewModel.setPaneBoxDims(pane, cols: cols, rows: 30)
+        }
+
+        factory.releaseNext()
+        _ = await attachTask.value
+
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100])
+
+        viewModel.setPaneBoxDims(pane, cols: 70, rows: 30)
+        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100, 70])
+    }
+
     /// A parked pane's box dims are re-sent by its next warm reattach, not
     /// while it sits in the pool with nothing on screen.
     @MainActor
     func testBoxDimsForAParkedPaneWaitForTheReattach() async throws {
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, dimsCoalescingWindow: .milliseconds(20))
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
         _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
         await viewModel.detachPane(pane)
 
         viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
-        await viewModel.waitForPaneDimsReconciliation()
         let surface = try XCTUnwrap(factory.surfaces[pane])
         XCTAssertTrue(surface.resizeCalls.isEmpty, "a parked pane gets no dims while parked")
 

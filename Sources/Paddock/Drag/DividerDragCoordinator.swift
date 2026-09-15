@@ -14,14 +14,13 @@ import PaddockCore
 /// That choice is a correctness requirement, not a style preference: a
 /// per-divider coordinator can be torn down mid-drag (a tab switch with the
 /// button still down, a `layout.updated` that removes the divider, the tab
-/// closing) while nothing but that SAME view's own `.onChange` ever resumed
-/// pane box dims sends or cleared the live footprint override. A torn-down
-/// view firing no further events is normal SwiftUI; a coordinator living
-/// inside it taking the session's send-suppression and geometry override
-/// down with it is not. Living here instead, the coordinator's own
-/// `began`/`moved`/`ended`/`cancelled`/`abandoned` are the only ways
-/// suppression or the override change, and every one of them is reachable
-/// with no view required to still exist.
+/// closing) while nothing but that SAME view's own `.onChange` ever cleared
+/// the live footprint override. A torn-down view firing no further events is
+/// normal SwiftUI; a coordinator living inside it taking the session's
+/// geometry override down with it is not. Living here instead, the
+/// coordinator's own `began`/`moved`/`ended`/`cancelled`/`abandoned` are the
+/// only ways the override changes, and every one of them is reachable with
+/// no view required to still exist.
 ///
 /// The view may still START a drag; it must never be the only thing that
 /// can END one. A `.leftMouseUp` window monitor (mirroring
@@ -38,9 +37,10 @@ import PaddockCore
 /// cancelled/abandoned state, the pointer-to-ratio translation, and the
 /// Esc latch (composed from `DragGestureMachine`, the same latch the pane
 /// drags use); this class is the AppKit-facing shell around it -- the Esc
-/// and release monitors, the resign-active observer, the async call into
-/// `viewModel.setSplitRatio` on release, and the pane-box-dims suppression
-/// that ride alongside it.
+/// and release monitors, the resign-active observer, and the async call into
+/// `viewModel.setSplitRatio` on release. Pane dims are not its business: the
+/// live preview's box changes reach herdr through `setPaneBoxDims` like any
+/// other box change, and only the ratio waits for release.
 @MainActor
 @Observable
 final class DividerDragCoordinator {
@@ -54,22 +54,13 @@ final class DividerDragCoordinator {
     private var machine = DividerDragMachine()
     private let viewModel: SessionViewModel
     /// Bumped by every `began` and by `cancel`/`abandon`, so a commit's own
-    /// pane-box-dims flush and override clear -- both async, resolving after
-    /// the machine has already gone back to idle -- can tell whether they
-    /// still belong to the CURRENT drag before touching shared state. The
-    /// mutation itself (`setSplitRatio`, and its own undo-journal entry)
-    /// always runs regardless: it is the user's real, already-decided
-    /// action, same as `DragCoordinator`'s own commit outliving a
-    /// superseding gesture.
+    /// override clear, which resolves after the machine has already gone
+    /// back to idle, can tell whether it still belongs to the CURRENT drag
+    /// and never clears a newer drag's live preview. The mutation itself
+    /// (`setSplitRatio`, and its own undo-journal entry) always runs
+    /// regardless: it is the user's real, already-decided action, same as
+    /// `DragCoordinator`'s own commit outliving a superseding gesture.
     private var generation = 0
-    /// Set when a stale commit's own flush was skipped because a later
-    /// drag already owned suppression at the time it resolved -- that
-    /// commit's panes are otherwise never sent again (nothing else changes
-    /// their `paneBoxDims` once the drag that moved them is over). The
-    /// NEXT teardown of whichever drag currently owns suppression honors it
-    /// by flushing instead of merely resuming, sweeping up the stale
-    /// commit's panes along with its own.
-    private var flushOwed = false
     @ObservationIgnored nonisolated(unsafe) private var keyMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var releaseMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var resignObserver: NSObjectProtocol?
@@ -94,17 +85,6 @@ final class DividerDragCoordinator {
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
         }
-        // Best-effort: this coordinator is session-scoped, so in practice
-        // `deinit` only runs at app shutdown, where whether this lands
-        // barely matters -- but a stray mid-drag deallocation must not
-        // leave suppression stranded either, and `deinit` cannot touch
-        // `@MainActor` state directly (it runs outside isolation even for
-        // a `@MainActor` class). Captured locally rather than via `self`,
-        // which `deinit` may not close over into an escaping task.
-        let viewModel = self.viewModel
-        Task { @MainActor in
-            await viewModel.flushPaneBoxDimsAfterDividerDrag()
-        }
     }
 
     var isDragging: Bool { machine.isDragging }
@@ -117,7 +97,6 @@ final class DividerDragCoordinator {
         generation += 1
         guard case .dragging(_, let start, _) = machine.phase else { return }
         liveOverride = (divider.tabID, divider.path, start)
-        viewModel.beginSuppressingPaneBoxDimsSends()
         (divider.isVerticalLine ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push()
         hasPushedCursor = true
         installMonitors()
@@ -137,8 +116,8 @@ final class DividerDragCoordinator {
     }
 
     /// A committed op holds `liveOverride` (and so the live footprint
-    /// preview) and the pane-box-dims suppression until `setSplitRatio`
-    /// itself resolves, rather than clearing them up front: the optimistic
+    /// preview) until `setSplitRatio` itself resolves, rather than clearing
+    /// it up front: the optimistic
     /// overlay it triggers lands synchronously inside that same call,
     /// before its own network await, but clearing first would still fall
     /// back to the pre-drag layout for however many main-actor hops stand
@@ -153,7 +132,7 @@ final class DividerDragCoordinator {
     /// what makes the second call a true no-op rather than merely a
     /// harmless-looking one: without it, a redundant call after a REAL
     /// commit's own `ended()` already started would run `teardown()` and
-    /// clear `liveOverride`/resume suppression immediately, undoing the
+    /// clear `liveOverride` immediately, undoing the
     /// "hold until the commit resolves" behavior above for a commit that is
     /// still in flight.
     func ended() {
@@ -174,30 +153,8 @@ final class DividerDragCoordinator {
         let started = generation
         Task {
             await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio)
-            guard self.generation == started else {
-                // A later drag started before this resolved. If it is
-                // STILL live, touching suppression or the override here
-                // would send ITS still-uncommitted grid, or blow away ITS
-                // live preview -- `flushOwed` carries this commit's own
-                // obligation to whichever teardown runs next. But if that
-                // later drag has ALREADY ended by now (its own `began`
-                // bumped `generation`, then it finished before THIS task
-                // got here), no future teardown is coming to ever consume
-                // the flag -- nothing is currently suppressing, so this
-                // commit's panes would otherwise sit stranded until some
-                // UNRELATED later drag happened to end. Flush directly
-                // instead of setting `flushOwed` in that case.
-                if self.machine.phase == .idle {
-                    self.flushOwed = false
-                    await self.viewModel.flushPaneBoxDimsAfterDividerDrag()
-                } else {
-                    self.flushOwed = true
-                }
-                return
-            }
+            guard self.generation == started else { return }
             self.liveOverride = nil
-            self.flushOwed = false
-            await self.viewModel.flushPaneBoxDimsAfterDividerDrag()
         }
     }
 
@@ -225,24 +182,12 @@ final class DividerDragCoordinator {
         NSCursor.pop()
     }
 
-    /// Shared by every non-committing exit (a no-op release, Esc, abandon):
-    /// clears the preview, and either lifts suppression with no send of its
-    /// own -- the reverted geometry reports a DIFFERENT box than whatever
-    /// was last suppressed, which the ordinary `setPaneBoxDims` path picks
-    /// up and sends on its own, so an explicit flush here would instead
-    /// send the about-to-be-abandoned mid-drag size first -- or, when an
-    /// EARLIER drag's own commit left a flush owed, performs that flush
-    /// now: this drag is over, so its own subtree's mid-drag values are no
-    /// longer being protected either, and the earlier commit's panes have
-    /// no other path left to ever reach herdr again.
+    /// Shared by every non-committing exit (a no-op release, Esc, abandon).
+    /// Clearing the preview reverts to the pre-drag ratio with no ratio op;
+    /// the panes' pre-drag grids flow back through `setPaneBoxDims` as the
+    /// reverted layout reports them.
     private func teardown() {
         liveOverride = nil
-        if flushOwed {
-            flushOwed = false
-            Task { await viewModel.flushPaneBoxDimsAfterDividerDrag() }
-        } else {
-            viewModel.resumePaneBoxDimsSends()
-        }
     }
 
     private func installMonitors() {
