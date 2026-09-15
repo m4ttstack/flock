@@ -18,6 +18,7 @@ enum DragSpace {
     /// content's own origin in the drag space places them on screen.
     static let stripContent = "paddock.drag.strip-content"
     static let railContent = "paddock.drag.rail-content"
+    static let gridContent = "paddock.drag.grid-content"
 }
 
 /// An `NSView` laid out at exactly the drag space's frame, handed to the

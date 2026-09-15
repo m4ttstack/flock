@@ -19,6 +19,9 @@ public enum DragVisuals {
     public static let landingFlashDuration: Double = 0.7
     /// The dropzone preview's cross-fade as the target changes.
     public static let previewCrossfadeDuration: Double = 0.12
+    /// The accent laid over whatever a pane drop is aimed at: the canvas
+    /// preview and a targeted grid thumbnail.
+    public static let dropWashOpacity: Double = 0.22
 
     /// The ghost's top-left for a cursor at `point`, both in the same space:
     /// the proxy is centered on the pointer, so what the pointer is over is

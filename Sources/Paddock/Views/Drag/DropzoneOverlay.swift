@@ -79,7 +79,7 @@ struct DropzoneOverlay: View {
     /// same reason.
     private func filled(in box: CGRect) -> some View {
         RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
-            .fill(theme.accent.opacity(0.22))
+            .fill(theme.accent.opacity(DragVisuals.dropWashOpacity))
             .frame(width: box.width, height: box.height)
             .offset(x: box.minX, y: box.minY)
     }

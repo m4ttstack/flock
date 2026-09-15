@@ -231,6 +231,18 @@ struct PaddockApp: App {
                     }
                 }
                 .accessibilityIdentifier("paddock.view.rearrangeMode")
+                // The shortcut Safari gives its own tab overview.
+                Button {
+                    dragCoordinator.toggleGrid()
+                } label: {
+                    if dragCoordinator.isGridShown {
+                        Label("All Workspaces", systemImage: "checkmark")
+                    } else {
+                        Text("All Workspaces")
+                    }
+                }
+                .keyboardShortcut("\\", modifiers: [.command, .shift])
+                .accessibilityIdentifier("paddock.view.allWorkspaces")
             }
             CommandGroup(replacing: .undoRedo) {
                 Button(undoJournal.undoLabel.map { "Undo \($0)" } ?? "Undo") {

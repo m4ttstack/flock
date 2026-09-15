@@ -73,6 +73,16 @@ struct WorkspaceRail: View {
                 .onAppear { drag.railScroller = { y in scrollPosition.scrollTo(y: y) } }
             }
             .frame(width: ChromeMetrics.Rail.width)
+            // Over the rows rather than below them, so showing it never
+            // changes the rows' viewport mid-drag.
+            .overlay(alignment: .bottom) {
+                if drag.isPaneDragInFlight {
+                    AllWorkspacesEntryRow(theme: theme)
+                        .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+                        .padding(.bottom, ChromeMetrics.Rail.verticalPadding)
+                        .transition(.opacity)
+                }
+            }
             Rectangle()
                 .fill(theme.rule)
                 .frame(width: ChromeMetrics.ruleWidth)
@@ -101,6 +111,33 @@ struct WorkspaceRail: View {
                     at: value.startLocation
                 )
             }
+    }
+}
+
+/// Pinned under the rows for the length of a pane drag: a dwell on it opens
+/// the All Workspaces grid, where every workspace's tabs can take the pane.
+private struct AllWorkspacesEntryRow: View {
+    let theme: Theme
+
+    @Environment(DragCoordinator.self) private var drag
+
+    var body: some View {
+        HStack(spacing: ChromeMetrics.WorkspaceRow.spacing) {
+            Color.clear
+                .frame(width: ChromeMetrics.WorkspaceRow.indicatorSize.width, height: ChromeMetrics.WorkspaceRow.indicatorSize.height)
+            Text("All workspaces")
+                .font(ChromeType.workspaceName(selected: false))
+                .foregroundStyle(theme.textDim)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
+        .padding(.vertical, ChromeMetrics.WorkspaceRow.verticalPadding)
+        .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
+        .background(theme.tabRest, in: RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius))
+        .reportsDragFrame { drag.allWorkspacesEntryFrame = $0 }
+        .onDisappear { drag.allWorkspacesEntryFrame = nil }
+        .accessibilityIdentifier("paddock.rail.allWorkspaces")
     }
 }
 

@@ -18,22 +18,26 @@ struct MainWindow: View {
             if let banner = viewModel.unsupportedBanner {
                 UnsupportedBanner(theme: theme, mismatch: banner)
             }
-            HStack(spacing: 0) {
-                WorkspaceRail(
-                    theme: theme,
-                    viewModel: viewModel,
-                    onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
-                )
-                VStack(spacing: 0) {
-                    TabStrip(
+            if dragCoordinator.isGridShown {
+                AllWorkspacesGrid(theme: theme, viewModel: viewModel)
+            } else {
+                HStack(spacing: 0) {
+                    WorkspaceRail(
                         theme: theme,
-                        workspace: viewModel.selectedWorkspaceID,
-                        tabs: viewModel.tabsForSelectedWorkspace,
-                        selectedTabID: viewModel.selectedTabID,
-                        protocolVersion: HerdrClient.minimumProtocol,
-                        onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
+                        viewModel: viewModel,
+                        onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
                     )
-                    PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
+                    VStack(spacing: 0) {
+                        TabStrip(
+                            theme: theme,
+                            workspace: viewModel.selectedWorkspaceID,
+                            tabs: viewModel.tabsForSelectedWorkspace,
+                            selectedTabID: viewModel.selectedTabID,
+                            protocolVersion: HerdrClient.minimumProtocol,
+                            onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
+                        )
+                        PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
+                    }
                 }
             }
         }

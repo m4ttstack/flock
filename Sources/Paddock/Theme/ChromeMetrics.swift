@@ -110,6 +110,48 @@ enum ChromeMetrics {
         static let copiedShadowY: CGFloat = 8
     }
 
+    enum Grid {
+        static let headerHeight: CGFloat = 36
+        static let headerHorizontalPadding: CGFloat = 13
+        static let headerSpacing: CGFloat = 8
+        static let canvasPadding: CGFloat = 13
+        /// Between cards, across a row and down the grid.
+        static let cardGap: CGFloat = 13
+        static let cardCornerRadius: CGFloat = 3
+        static let cardVerticalPadding: CGFloat = 10
+        static let cardHorizontalPadding: CGFloat = 13
+        static let cardSpacing: CGFloat = 10
+        static let cardHeaderSpacing: CGFloat = 8
+        static let cardStatusDot: CGFloat = 6
+        /// Between tabs, across a row and down an expanded card.
+        static let tabGap: CGFloat = 10
+        static let tabLabelGap: CGFloat = 5
+        static let thumbnailHeight: CGFloat = 82
+        static let thumbnailCornerRadius: CGFloat = 3
+        static let thumbnailPadding: CGFloat = 4
+        static let miniPaneGap: CGFloat = 4
+        static let miniPaneCornerRadius: CGFloat = 1
+        static let miniPaneVerticalPadding: CGFloat = 4
+        static let miniPaneHorizontalPadding: CGFloat = 5
+        static let miniPaneTitleSpacing: CGFloat = 3
+        static let miniPaneStatusDot: CGFloat = 4
+        static let labelDotGap: CGFloat = 6
+        static let labelStatusDot: CGFloat = 6
+    }
+
+    enum HoverCard {
+        static let width: CGFloat = 274
+        static let verticalPadding: CGFloat = 10
+        static let horizontalPadding: CGFloat = 13
+        static let spacing: CGFloat = 5
+        static let cornerRadius: CGFloat = 4
+        static let titleSpacing: CGFloat = 6
+        static let statusDot: CGFloat = 6
+        static let anchorGap: CGFloat = 6
+        /// Where placement starts before the card has measured itself once.
+        static let estimatedHeight: CGFloat = 110
+    }
+
     enum Ghost {
         /// The floor for a proxy whose origin is tiny (a tab, a rail row), so
         /// the label always has somewhere to sit.

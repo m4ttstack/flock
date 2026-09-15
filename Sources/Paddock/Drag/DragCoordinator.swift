@@ -24,7 +24,13 @@ final class DragOutcomeRelay {
 /// initializer has finished, so it goes through this box.
 @MainActor
 final class SpringLoadRelay {
-    var fired: (() -> Void)?
+    var fired: ((DropTarget) -> Void)?
+}
+
+/// A grid item a drop can hit.
+enum GridItemID: Hashable, Sendable {
+    case tab(TabID)
+    case moreTabs(WorkspaceID)
 }
 
 /// The one place the drag gestures, the live layout, and `DragController`
@@ -110,15 +116,24 @@ final class DragCoordinator {
         )
     }
 
+    /// Stops above the pinned "All workspaces" row while a pane drag shows it.
     var newWorkspaceZone: CGRect? {
         guard let railFrame else { return nil }
-        return DropZones.below(in: railFrame, itemsEndingAt: workspaceFrames.last?.frame.maxY)
+        var run = railFrame
+        if let allWorkspacesEntryFrame {
+            run.size.height = max(0, allWorkspacesEntryFrame.minY - railFrame.minY)
+        }
+        return DropZones.below(in: run, itemsEndingAt: workspaceFrames.last?.frame.maxY)
     }
 
     /// The strip's and the rail's scroll views, which is where their items are
     /// actually visible once either list overflows.
     var stripViewport: CGRect?
     var railViewport: CGRect?
+    var gridViewport: CGRect?
+    /// The rail's pinned "All workspaces" row, only while a pane drag shows
+    /// it.
+    var allWorkspacesEntryFrame: CGRect?
 
     /// Frames arrive one item at a time as each row lays out, so the strip and
     /// the rail publish their ORDER separately; that order is what turns the
@@ -127,6 +142,7 @@ final class DragCoordinator {
     /// scroll content's own space, so a scroll moves them without a report.
     private var tabItems = ScrolledItemFrames<TabID>()
     private var workspaceItems = ScrolledItemFrames<WorkspaceID>()
+    private var gridItems = ScrolledItemFrames<GridItemID>()
 
     var tabOrder: [TabID] { tabItems.order }
     var workspaceOrder: [WorkspaceID] { workspaceItems.order }
@@ -137,6 +153,7 @@ final class DragCoordinator {
     @ObservationIgnored var gridScroller: ((CGFloat) -> Void)?
     @ObservationIgnored private var stripScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
     @ObservationIgnored private var railScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
+    @ObservationIgnored private var gridScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
 
     /// An `NSView` laid out at exactly the drag space's own frame, so a raw
     /// AppKit event location becomes a drag-space point without this file
@@ -183,6 +200,14 @@ final class DragCoordinator {
     /// `WorkspaceSelection`; this only feeds it the presses, keys, app
     /// deactivation and drag ends it decides on.
     private(set) var workspaceSelection = WorkspaceSelection()
+    /// The All Workspaces grid. Every decision lives in
+    /// `AllWorkspacesGridState`; views observe the three mirrors below, each
+    /// written only on a real change, so a hover never re-renders the cards
+    /// and a card expanding never re-renders the window.
+    @ObservationIgnored private var grid = AllWorkspacesGridState()
+    private(set) var isGridShown = false
+    private(set) var expandedGridCards: Set<WorkspaceID> = []
+    private var gridHover: AllWorkspacesGridState.Hover?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
 
@@ -208,9 +233,9 @@ final class DragCoordinator {
                 return outcome
             },
             springLoadAction: springLoadAction,
-            onSpringLoad: { _ in springLoads.fired?() }
+            onSpringLoad: { target in springLoads.fired?(target) }
         )
-        springLoads.fired = { [weak self] in self?.springLoadFired() }
+        springLoads.fired = { [weak self] target in self?.springLoadFired(target) }
     }
 
     deinit {
@@ -319,8 +344,23 @@ final class DragCoordinator {
             stripViewport: stripViewport,
             railViewport: railViewport,
             newTabZone: newTabZone,
-            newWorkspaceZone: newWorkspaceZone
+            newWorkspaceZone: newWorkspaceZone,
+            grid: gridSurfaces,
+            allWorkspacesEntry: allWorkspacesEntryFrame
         )
+    }
+
+    private var gridSurfaces: GridDropSurfaces? {
+        guard grid.isShown else { return nil }
+        var thumbnails: [TabItemFrame] = []
+        var moreTiles: [WorkspaceItemFrame] = []
+        for item in gridItems.onScreen {
+            switch item.id {
+            case .tab(let id): thumbnails.append(TabItemFrame(id: id, frame: item.frame))
+            case .moreTabs(let id): moreTiles.append(WorkspaceItemFrame(id: id, frame: item.frame))
+            }
+        }
+        return GridDropSurfaces(viewport: gridViewport ?? .zero, thumbnails: thumbnails, moreTiles: moreTiles)
     }
 
     // MARK: - Gesture lifecycle
@@ -341,6 +381,7 @@ final class DragCoordinator {
         ghostTopLeft = ghostTopLeft(centeredOn: point)
         controller.began(subject, at: point)
         target = nil
+        updateGrid { $0.dragBegan() }
         // Global, not per-view: a per-view cursor rect would have to be
         // re-entered to repaint, and the pointer is usually over some OTHER
         // pane by the time this matters -- `push` forces the image
@@ -593,7 +634,16 @@ final class DragCoordinator {
 
     // MARK: - Edge auto-scroll
 
+    /// The strip and rail viewports go stale under a shown grid, so the grid
+    /// is then the only region.
     private var scrollRegions: [AutoScroller.Region] {
+        if grid.isShown {
+            guard let gridViewport else { return [] }
+            return [AutoScroller.Region(
+                surface: .grid, viewport: gridViewport, axis: .vertical,
+                offset: gridScrollExtent.offset, maximumOffset: gridScrollExtent.maximum
+            )]
+        }
         var regions: [AutoScroller.Region] = []
         if let stripViewport {
             regions.append(AutoScroller.Region(
@@ -641,10 +691,14 @@ final class DragCoordinator {
 
     /// A reveal just changed what sits under the pointer; see
     /// `AutoScroller.springLoaded`.
-    private func springLoadFired() {
+    /// The band is suppressed against the surfaces the dwell happened over,
+    /// before the grid opens, closes or expands under the pointer.
+    private func springLoadFired(_ target: DropTarget) {
         autoScrollTicker.stop()
-        guard let lastPointer else { return }
-        autoScroller.springLoaded(pointer: lastPointer, regions: scrollRegions)
+        if let lastPointer {
+            autoScroller.springLoaded(pointer: lastPointer, regions: scrollRegions)
+        }
+        updateGrid { $0.springLoaded(target) }
     }
 
     private func stopAutoScroll() {
@@ -685,11 +739,12 @@ final class DragCoordinator {
         return result
     }
 
-    /// Present only while something is selected, so the rest of the time
-    /// every press and key reaches its view untouched. Presses and other keys
-    /// always pass through; only an Esc the selection takes is swallowed.
+    /// Present only while something is selected or the grid is shown, so the
+    /// rest of the time every press and key reaches its view untouched.
+    /// Presses and other keys always pass through; only an Esc the selection
+    /// or the grid takes is swallowed.
     private func syncSelectionMonitor() {
-        guard !workspaceSelection.isEmpty else {
+        guard !workspaceSelection.isEmpty || grid.isShown else {
             if let selectionMonitor {
                 NSEvent.removeMonitor(selectionMonitor)
             }
@@ -716,11 +771,13 @@ final class DragCoordinator {
         }
     }
 
+    /// The rail's row frames outlive the rail while the grid covers it, so no
+    /// press then counts as a press on a row.
     private func selectionSaw(_ event: NSEvent) -> NSEvent? {
         guard event.type == .keyDown else {
-            let onRow = dragSpacePoint(event).map {
+            let onRow = !grid.isShown && (dragSpacePoint(event).map {
                 WorkspaceSelection.isRailRow($0, rows: workspaceFrames.map(\.frame), viewport: railViewport)
-            } ?? false
+            } ?? false)
             updateSelection { $0.pointerPressed(onRailRow: onRow) }
             return event
         }
@@ -728,8 +785,89 @@ final class DragCoordinator {
             updateSelection { $0.disengage() }
             return event
         }
-        let dragIdle = machine.state == .idle
-        return updateSelection { $0.escapePressed(dragIdle: dragIdle) } ? nil : event
+        let route = EscapeRoute.route(
+            dragIdle: machine.state == .idle, gridShown: grid.isShown, railTakesEscape: workspaceSelection.takesEscape
+        )
+        switch route {
+        case .drag, .focusedView:
+            return event
+        case .grid:
+            closeGrid()
+            return nil
+        case .railSelection:
+            updateSelection { _ = $0.escapePressed(dragIdle: true) }
+            return nil
+        }
+    }
+
+    // MARK: - All Workspaces grid
+
+    func toggleGrid() {
+        updateGrid { $0.toggle() }
+    }
+
+    func closeGrid() {
+        updateGrid { $0.close() }
+    }
+
+    func toggleGridCard(_ workspace: WorkspaceID) {
+        updateGrid { $0.toggleExpanded(workspace) }
+    }
+
+    func retainGridCards(_ order: [WorkspaceID]) {
+        updateGrid { $0.retain(order) }
+    }
+
+    func gridHoverBegan(pane: PaneID, anchor: CGRect) {
+        updateGrid { $0.hoverBegan(pane: pane, anchor: anchor) }
+    }
+
+    func gridHoverEnded(pane: PaneID) {
+        updateGrid { $0.hoverEnded(pane: pane) }
+    }
+
+    /// Held back for as long as a ghost is on screen, settle included.
+    var gridHoverCard: AllWorkspacesGridState.Hover? {
+        guard gridHover != nil else { return nil }
+        return grid.hoverCard(dragInFlight: activeSubject != nil)
+    }
+
+    var gridContentOrigin: CGPoint { gridItems.contentOrigin }
+
+    /// In the grid content's own space, where a scroll never moves it.
+    func gridContentFrame(for id: GridItemID) -> CGRect? {
+        let origin = gridItems.contentOrigin
+        return gridItems.onScreen.first { $0.id == id }?.frame.offsetBy(dx: -origin.x, dy: -origin.y)
+    }
+
+    func setGridOrder(_ order: [GridItemID]) {
+        writeIfChanged(\.gridItems) { $0.setOrder(order) }
+    }
+
+    func setGridItemFrame(_ frame: CGRect, for id: GridItemID) {
+        writeIfChanged(\.gridItems) { $0.setContentFrame(frame, for: id) }
+    }
+
+    func setGridContentOrigin(_ origin: CGPoint) {
+        writeIfChanged(\.gridItems) { $0.setContentOrigin(origin) }
+    }
+
+    func setGridScroll(offset: CGFloat, maximumOffset: CGFloat) {
+        gridScrollExtent = (offset, maximumOffset)
+    }
+
+    private func updateGrid(_ change: (inout AllWorkspacesGridState) -> Void) {
+        change(&grid)
+        if isGridShown != grid.isShown {
+            isGridShown = grid.isShown
+        }
+        if expandedGridCards != grid.expanded {
+            expandedGridCards = grid.expanded
+        }
+        if gridHover != grid.hover {
+            gridHover = grid.hover
+        }
+        syncSelectionMonitor()
     }
 
     private func dragSpacePoint(_ event: NSEvent) -> CGPoint? {
@@ -774,10 +912,14 @@ final class DragCoordinator {
     /// `DropzoneOverlay` previews the whole post-drop layout for those.
     var targetHighlight: CGRect? {
         guard let target, let surfaces else { return nil }
+        // A grid target is the grid's own to draw: a wash on the thumbnail or
+        // tile and an accent outline on its card.
         switch target {
-        case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
+        case .tabThumbnail where grid.isShown:
+            return nil
+        case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .allWorkspaces:
             return dropTargetRect(for: target, surfaces: surfaces)
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .allWorkspaces, .moreTabs:
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .moreTabs:
             return nil
         }
     }
