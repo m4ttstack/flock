@@ -549,7 +549,7 @@ final class ControlBridgeTests: XCTestCase {
 
         let lines = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
         XCTAssertEqual(lines.count, 1)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(lines[0])) as? [String: Any])
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
         XCTAssertEqual(object["type"] as? String, "terminal.resize")
         XCTAssertEqual(object["cols"] as? Int, 30)
         XCTAssertEqual(object["rows"] as? Int, 40)
@@ -579,7 +579,7 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(readAllAvailableForTest(stdoutCapture.fileHandleForReading.fileDescriptor).count, 0)
         let sent = readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
         XCTAssertEqual(sent.count, 1, "three drops in one burst ask for one repaint")
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(sent[0])) as? [String: Any])
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(sent.first))) as? [String: Any])
         XCTAssertEqual(object["type"] as? String, "terminal.resize")
         XCTAssertEqual(object["cols"] as? Int, 30)
 
@@ -621,7 +621,7 @@ final class ControlBridgeTests: XCTestCase {
 
         let repaint = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
         XCTAssertEqual(repaint.count, 1)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(repaint[0])) as? [String: Any])
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(repaint.first))) as? [String: Any])
         XCTAssertEqual(object["type"] as? String, "terminal.resize")
         XCTAssertEqual(object["cols"] as? Int, 30)
 
