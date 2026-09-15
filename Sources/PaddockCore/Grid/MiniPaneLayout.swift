@@ -11,14 +11,24 @@ public enum MiniPaneLayout {
     }
 
     /// What is left of a thumbnail for its mini panes, once the tab's own
-    /// handle strip is taken off the top. Every caller that turns a
-    /// thumbnail's reported frame into mini-pane boxes goes through this, so
-    /// the strip cannot shift a box under the pointer that is aimed at it.
+    /// handle strip is taken off the top. This is where the strip's own
+    /// geometry is stated; `boxInThumbnail` reads the offset back out of it,
+    /// so a strip that grows a hairline or an inset moves both together.
     public static func paneArea(in thumbnail: CGRect, stripHeight: CGFloat) -> CGRect {
         CGRect(
             x: thumbnail.minX, y: thumbnail.minY + stripHeight,
             width: thumbnail.width, height: max(0, thumbnail.height - stripHeight)
         )
+    }
+
+    /// A mini pane's box, stated in the pane AREA's space, moved into the
+    /// thumbnail's. A drag records its spring-back home against the
+    /// thumbnail, since that is the grid item whose live frame the home is
+    /// read back from, so the two spaces have to meet somewhere and this is
+    /// the only place they do.
+    public static func boxInThumbnail(_ box: CGRect, stripHeight: CGFloat) -> CGRect {
+        let area = paneArea(in: .zero, stripHeight: stripHeight)
+        return box.offsetBy(dx: area.minX, dy: area.minY)
     }
 
     /// Every pane's box inside a thumbnail of `size`, top to bottom and then

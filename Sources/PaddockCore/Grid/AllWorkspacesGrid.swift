@@ -12,16 +12,14 @@ public enum GridCell: Hashable, Sendable {
     case newTab
 }
 
-/// A slot's place in a card: which row it falls in and which of that row's
-/// `tabsPerRow` columns. Every row keeps all its slots, so two cells with the
-/// same place occupy the same rect.
-public struct GridSlot: Equatable, Sendable {
-    public let row: Int
-    public let column: Int
-
-    public init(row: Int, column: Int) {
-        self.row = row
-        self.column = column
+extension GridCell {
+    /// The trailing control a card can end with. It is not a tab, so it is
+    /// never the slot a new tab lands in.
+    var isTile: Bool {
+        switch self {
+        case .moreTabs, .collapse: true
+        case .tab, .newTab: false
+        }
     }
 }
 
@@ -33,10 +31,29 @@ public enum GridCardLayout {
     public static let columns = 2
 
     /// A workspace whose tabs fit one row shows every tab and has nothing to
-    /// expand. `newTab` appends the drop placeholder, which is why it lands
-    /// in the first free slot after everything the card already draws.
+    /// expand.
+    ///
+    /// `newTab` inserts the drop placeholder where the tab itself will be
+    /// ordered, which is BEFORE the trailing tile, never after it: a tile
+    /// always ends the list, so the slot past it is one no tab can reach.
+    /// The placeholder takes the tile's own slot and the tile moves along,
+    /// which keeps the placeholder in a row the card already has.
+    ///
+    /// A card with no tile yet gets one only when the drop will really draw
+    /// the tab in that slot. The one card that would not is a RESTING card
+    /// whose tabs already fill the row: the drop grows it a tile and hides
+    /// the new tab behind it, so it shows no placeholder rather than open a
+    /// row the drop will not leave behind. Its accent outline still marks it.
     public static func cells(tabs: [TabID], expanded: Bool, newTab: Bool = false) -> [GridCell] {
-        settled(tabs: tabs, expanded: expanded) + (newTab ? [.newTab] : [])
+        var cells = settled(tabs: tabs, expanded: expanded)
+        guard newTab else { return cells }
+        if let tile = cells.firstIndex(where: \.isTile) {
+            cells.insert(.newTab, at: tile)
+            return cells
+        }
+        guard expanded || cells.count < tabsPerRow else { return cells }
+        cells.append(.newTab)
+        return cells
     }
 
     private static func settled(tabs: [TabID], expanded: Bool) -> [GridCell] {
@@ -49,18 +66,6 @@ public enum GridCardLayout {
 
     public static func rows(tabs: [TabID], expanded: Bool, newTab: Bool = false) -> [[GridCell]] {
         chunked(cells(tabs: tabs, expanded: expanded, newTab: newTab), by: tabsPerRow)
-    }
-
-    /// Where the `newTab` placeholder sits, which is the first slot no
-    /// settled cell holds. The card's own rows are chunked from the same
-    /// list, so this is the placeholder's real place, not a parallel guess
-    /// at it.
-    public static func newTabSlot(tabs: [TabID], expanded: Bool) -> GridSlot {
-        slot(atIndex: settled(tabs: tabs, expanded: expanded).count)
-    }
-
-    public static func slot(atIndex index: Int) -> GridSlot {
-        GridSlot(row: index / tabsPerRow, column: index % tabsPerRow)
     }
 
     /// Cards in rail order, `columns` to a row.

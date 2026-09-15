@@ -17,14 +17,19 @@ private func makeDivider(
     thickness: CGFloat = 6,
     cellExtent: Int = 1000
 ) -> DividerHandle {
+    // `PaneBox` gives an odd gutter's extra point to the trailing side, which
+    // is what puts the drawn gutter's midpoint half a point off the boundary
+    // it straddles. Mirrored here rather than centred, or a fixture at the
+    // real 9pt gutter would not reproduce the geometry it stands for.
+    let before = PaneBox.trailingInset(dividerThickness: thickness)
     let frame: CGRect
     switch direction {
     case .right:
         let boundaryX = region.minX + CGFloat(ratio) * region.width
-        frame = CGRect(x: boundaryX - thickness / 2, y: region.minY, width: thickness, height: region.height)
+        frame = CGRect(x: boundaryX - before, y: region.minY, width: thickness, height: region.height)
     case .down:
         let boundaryY = region.minY + CGFloat(ratio) * region.height
-        frame = CGRect(x: region.minX, y: boundaryY - thickness / 2, width: region.width, height: thickness)
+        frame = CGRect(x: region.minX, y: boundaryY - before, width: region.width, height: thickness)
     }
     return DividerHandle(tabID: tabID, path: path, frame: frame, direction: direction, regionFrame: region, cellExtent: cellExtent)
 }
@@ -215,6 +220,34 @@ final class DividerDragMachineTests: XCTestCase {
         }
         XCTAssertEqual(startRatio, 0.62, accuracy: 0.001)
         XCTAssertEqual(liveRatio, 0.62, accuracy: 0.001)
+    }
+
+    /// The real gutter is 9pt, which `PaneBox` splits 4 leading and 5
+    /// trailing, so the drawn gutter's own midpoint is half a point off the
+    /// edge the two boxes share. A press samples the edge.
+    func testTheBoundaryPointIsTheSharedEdgeNotTheDrawnGuttersMidpoint() {
+        let vertical = makeDivider(region: region, direction: .right, ratio: 0.5, thickness: 9)
+        XCTAssertEqual(vertical.frame.midX, 299.5, accuracy: 0.0001, "the drawn gutter is off-centre by construction")
+        XCTAssertEqual(vertical.boundaryPoint.x, 300, accuracy: 0.0001)
+
+        let horizontal = makeDivider(region: region, direction: .down, ratio: 0.5, thickness: 9)
+        XCTAssertEqual(horizontal.frame.midY, 149.5, accuracy: 0.0001)
+        XCTAssertEqual(horizontal.boundaryPoint.y, 150, accuracy: 0.0001)
+    }
+
+    /// The live preview places a ratio to the pixel, so a start ratio taken
+    /// from the drawn gutter's midpoint would move both boxes on a press that
+    /// moved nothing.
+    func testABarePressStartsAtTheDividersOwnBoundaryThroughAnOddGutter() {
+        var machine = DividerDragMachine()
+        let d = makeDivider(region: region, direction: .right, ratio: 0.5, thickness: 9)
+
+        XCTAssertTrue(machine.began(d))
+
+        guard case .dragging(_, let startRatio, _) = machine.phase else {
+            return XCTFail("expected a dragging phase after began")
+        }
+        XCTAssertEqual(startRatio, 0.5, accuracy: 0.000001)
     }
 
     /// A divider already sitting below the cell floor (reachable from

@@ -67,22 +67,21 @@ struct DividerHandleView: View {
         divider.path.isEmpty ? "root" : divider.path.map { $0 ? "1" : "0" }.joined()
     }
 
-    /// `.local` so `value.location` is relative to this view's own bounds
-    /// (sized to `band`), which `band.origin` then translates back into the
-    /// shared canvas-local space every geometry input already lives in.
-    /// `began()` is called on every callback while not yet dragging rather
-    /// than gated on a separate flag: the machine's own latch
+    /// Measured in the canvas's own named space, which is the space
+    /// `divider.regionFrame` is already stated in, so the pointer never has
+    /// to be reconstructed from `band` -- a rect this very gesture moves
+    /// every frame. `began()` is called on every callback while not yet
+    /// dragging rather than gated on a separate flag: the machine's own latch
     /// (`DragGestureMachine`, composed inside `DividerDragMachine`) is what
     /// actually decides whether a begin takes effect, so a stray re-arm
     /// attempt during `.cancelledAwaitingRelease` is already a no-op there.
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 1, coordinateSpace: .local)
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(DragSpace.canvasContent))
             .onChanged { value in
                 if !dividerDrag.isDragging {
                     dividerDrag.began(divider)
                 }
-                let pointer = CGPoint(x: band.minX + value.location.x, y: band.minY + value.location.y)
-                dividerDrag.moved(to: pointer, for: divider)
+                dividerDrag.moved(to: value.location, for: divider)
             }
             .onEnded { _ in dividerDrag.ended() }
     }

@@ -158,7 +158,6 @@ enum ChromeMetrics {
         static let miniPaneHorizontalPadding: CGFloat = 5
         static let miniPaneTitleSpacing: CGFloat = 3
         static let miniPaneStatusDot: CGFloat = 4
-        static let labelDotGap: CGFloat = 6
         static let labelStatusDot: CGFloat = 6
     }
 

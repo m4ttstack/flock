@@ -42,6 +42,19 @@ extension DividerHandle {
             ? frame.insetBy(dx: -(thickness - frame.width) / 2, dy: 0)
             : frame.insetBy(dx: 0, dy: -(thickness - frame.height) / 2)
     }
+
+    /// The edge the two children actually share, which is NOT `frame`'s own
+    /// midpoint: `PaneBox` splits an odd gutter with the extra point on the
+    /// leading side, so the drawn gap sits half a point off the boundary it
+    /// straddles. A start ratio sampled from the midpoint would move both
+    /// boxes on a bare press, since the live preview honors a ratio to the
+    /// pixel.
+    public var boundaryPoint: CGPoint {
+        let leading = PaneBox.leadingInset(dividerThickness: isVerticalLine ? frame.width : frame.height)
+        return isVerticalLine
+            ? CGPoint(x: frame.maxX - leading, y: frame.midY)
+            : CGPoint(x: frame.midX, y: frame.maxY - leading)
+    }
 }
 
 /// The gutter between panes, its grab band and its visible handle. The band
@@ -314,7 +327,10 @@ public struct CanvasGeometry: Equatable, Sendable {
         let frame: CGRect
 
         func place(_ rect: CellRect, grid: CanvasGrid) -> CGRect {
-            guard cells.width > 0, cells.height > 0 else { return .zero }
+            // A region that rounds to zero cells on an axis still belongs
+            // where its parent put it: a rect at the canvas origin would move
+            // the frame instead of flattening it.
+            guard cells.width > 0, cells.height > 0 else { return CGRect(origin: frame.origin, size: .zero) }
             let left = grid.snappedX(frame.minX + frame.width * CGFloat(rect.x - cells.x) / CGFloat(cells.width))
             let right = grid.snappedX(frame.minX + frame.width * CGFloat(rect.x - cells.x + rect.width) / CGFloat(cells.width))
             let top = grid.snappedY(frame.minY + frame.height * CGFloat(rect.y - cells.y) / CGFloat(cells.height))

@@ -814,6 +814,66 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(topRight.width, 900, accuracy: 0.01)
     }
 
+    /// A press that moves nothing must draw nothing new. The live preview
+    /// honours a ratio to the pixel, so a start ratio sampled from the drawn
+    /// gutter's own midpoint (half a point off the shared edge at the real
+    /// 9pt gutter) would shift both boxes on mouse-down and back on release,
+    /// and at a retina scale that half point survives the snap.
+    func testABarePressOnADividerLeavesEveryBoxExactlyWhereItWas() throws {
+        let area = CellRect(x: 0, y: 0, width: 12, height: 4)
+        let root = ExportedLayoutNode.split(
+            direction: .right, ratio: 0.5,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+            second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "right")))
+        )
+        let canvasGrid = grid(filling: CGSize(width: 1200, height: 400), scale: 2)
+        let atRest = CanvasGeometry(
+            exportedRoot: root, area: area, tabID: TabID(rawValue: "w:t"), grid: canvasGrid,
+            dividerThickness: DividerBand.gutter
+        )
+
+        var machine = DividerDragMachine()
+        XCTAssertTrue(machine.began(try XCTUnwrap(atRest.dividers.first)))
+        guard case .dragging(_, _, let liveRatio) = machine.phase else {
+            return XCTFail("expected a dragging phase after began")
+        }
+
+        let pressed = CanvasGeometry(
+            exportedRoot: root, area: area, tabID: TabID(rawValue: "w:t"), grid: canvasGrid,
+            dividerThickness: DividerBand.gutter, liveRatioOverride: (path: [], ratio: liveRatio)
+        )
+        XCTAssertEqual(pressed.paneFrames, atRest.paneFrames)
+        XCTAssertEqual(pressed.dividers.first?.frame, atRest.dividers.first?.frame)
+    }
+
+    /// A region that rounds to zero cells is flattened where it sits, never
+    /// moved to the canvas corner: a rect at the origin would draw a box on
+    /// top of the first pane and answer a drop hit-test there.
+    func testADegenerateRegionUnderTheDraggedSplitStaysWhereItsParentPutIt() throws {
+        let tree = wideCellTree()
+        let root = ExportedLayoutNode.split(
+            direction: .right, ratio: 0.5,
+            first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "left"))),
+            // A second child one cell tall, split again: the nested split's
+            // own first child rounds to zero rows.
+            second: .split(
+                direction: .down, ratio: 0.1,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "sliver"))),
+                second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "rest")))
+            )
+        )
+        let area = CellRect(x: 0, y: 0, width: 12, height: 1)
+
+        let geometry = CanvasGeometry(
+            exportedRoot: root, area: area, tabID: TabID(rawValue: "w:t"), grid: tree.grid, dividerThickness: 6,
+            liveRatioOverride: (path: [], ratio: 0.29)
+        )
+
+        let sliver = try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "sliver")])
+        XCTAssertEqual(sliver.size, .zero, "a zero-cell region draws nothing")
+        XCTAssertEqual(sliver.minX, 348, accuracy: 0.01, "and it is still inside the region the drag moved")
+    }
+
     /// A pane two levels under the dragged split still fills the region the
     /// drag moved: the exact rect is handed down the recursion, not
     /// recomputed from the cell map that put it back on the grid.

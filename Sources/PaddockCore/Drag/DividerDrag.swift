@@ -129,11 +129,15 @@ public struct DividerDragMachine: Equatable, Sendable {
     public var isDragging: Bool { gesture.state == .live }
 
     /// `startRatio` is derived from `divider`'s OWN current boundary
-    /// (`DividerDragMath.rawRatio` at its frame's own midpoint), never from
-    /// wherever the press happened to land inside the gutter -- the two can
-    /// differ by up to half the hit zone's width, which would otherwise
-    /// make a one-point nudge issue no op at all (start already equals the
-    /// first live sample) or an out-and-back drag issue a redundant one.
+    /// (`DividerDragMath.rawRatio` at `boundaryPoint`), never from wherever
+    /// the press happened to land inside the gutter -- the two can differ by
+    /// up to half the hit zone's width, which would otherwise make a
+    /// one-point nudge issue no op at all (start already equals the first
+    /// live sample) or an out-and-back drag issue a redundant one. The
+    /// boundary, not the drawn gutter's midpoint: the two differ by half a
+    /// point for an odd gutter, and the live preview places a ratio to the
+    /// pixel, so sampling the midpoint would shift both boxes on a press
+    /// that moved nothing.
     /// Unclamped: the divider's CURRENT position may already sit below
     /// whatever floor a commit would enforce (nothing enforced one before
     /// now), and running it through the full clamp would jump the panes on
@@ -143,7 +147,7 @@ public struct DividerDragMachine: Equatable, Sendable {
     @discardableResult
     public mutating func began(_ divider: DividerHandle) -> Bool {
         guard gesture.handle(.begin) == .start else { return false }
-        let start = DividerDragMath.rawRatio(atPointer: CGPoint(x: divider.frame.midX, y: divider.frame.midY), divider: divider)
+        let start = DividerDragMath.rawRatio(atPointer: divider.boundaryPoint, divider: divider)
         payload = Payload(divider: divider, startRatio: start, liveRatio: start)
         return true
     }

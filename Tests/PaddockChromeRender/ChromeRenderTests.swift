@@ -249,11 +249,11 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The placeholder for the tab a card drop will create, checked against
-    /// the real reported frames of the cells beside it: a four-tab card,
-    /// whose row is full, and the nine-tab card expanded, where the next slot
-    /// follows the collapse tile.
-    func testTheNewTabPlaceholderTakesTheCardsNextSlot() async throws {
+    /// The placeholder's frame against the frame the real tab takes, from
+    /// real reported frames on both sides. The expanded card's collapse tile
+    /// sits in exactly the slot the tenth tab will land in, so its rect
+    /// BEFORE the drag is the answer to compare against.
+    func testTheNewTabPlaceholderTakesTheSlotTheTabWillLandIn() async throws {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
@@ -263,6 +263,12 @@ final class ChromeRenderTests: XCTestCase {
         harness.drag.toggleGridCard(GridFixture.repoTools)
         await settle(window)
 
+        // Nine tabs plus the collapse tile fill ten slots, so the tile holds
+        // the slot the tenth tab takes. Read before anything is dragged.
+        let landing = try XCTUnwrap(harness.drag.surfaces?.grid?.tiles.first { $0.id == GridFixture.repoTools }?.frame)
+        let herdrTabs = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.filter { $0.id.rawValue.hasPrefix("w4:") })
+        let lastHerdrTab = try XCTUnwrap(herdrTabs.map(\.frame).max { $0.minX < $1.minX })
+
         let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         harness.drag.beginIfIdle(
             .pane(GridFixture.claudePane),
@@ -270,33 +276,35 @@ final class ChromeRenderTests: XCTestCase {
             at: CGPoint(x: source.midX, y: source.midY)
         )
 
-        // The expanded nine-tab card: its last row holds the ninth tab and
-        // the collapse tile, so the placeholder is that row's third column.
         try await overEmptySpace(of: GridFixture.repoTools, harness: harness, window: window)
         let expandedPlaceholder = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)))
-        let collapseTile = try XCTUnwrap(harness.drag.surfaces?.grid?.tiles.first { $0.id == GridFixture.repoTools }?.frame)
-        assertSlotFollows(expandedPlaceholder, collapseTile, "the collapse tile")
+        XCTAssertEqual(expandedPlaceholder.minX, landing.minX, accuracy: 0.5, "the slot the tenth tab lands in")
+        XCTAssertEqual(expandedPlaceholder.minY, landing.minY, accuracy: 0.5)
+        XCTAssertEqual(expandedPlaceholder.width, landing.width, accuracy: 0.5)
+        XCTAssertEqual(expandedPlaceholder.height, landing.height, accuracy: 0.5)
+
+        let movedTile = try XCTUnwrap(harness.drag.surfaces?.grid?.tiles.first { $0.id == GridFixture.repoTools }?.frame)
+        assertSlotFollows(movedTile, expandedPlaceholder, "the placeholder that took its slot")
         let expanded = try snapshot(window)
         if let directory {
             try XCTUnwrap(expanded.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-new-tab.png"))
         }
 
-        // The four-tab card fills its only row, so the placeholder opens a
-        // second one under the first tab.
-        try await overEmptySpace(of: GridFixture.mattstackApps, harness: harness, window: window)
+        // A resting card under its cap draws the tab, so the placeholder
+        // stands in the next slot of the row it is already in.
+        try await overEmptySpace(of: GridFixture.herdr, harness: harness, window: window)
         XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)), "the placeholder left with the card it was over")
-        let placeholder = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.mattstackApps)))
-        let cardTabs = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.filter { $0.id.rawValue.hasPrefix("w3:") })
-        let firstRow = cardTabs.map(\.frame).sorted { $0.minX < $1.minX }
-        XCTAssertEqual(firstRow.count, 4)
-        XCTAssertEqual(placeholder.minX, try XCTUnwrap(firstRow.first).minX, accuracy: 0.5, "the next row's first column")
-        XCTAssertEqual(placeholder.width, try XCTUnwrap(firstRow.first).width, accuracy: 0.5)
-        XCTAssertEqual(placeholder.height, ChromeMetrics.Grid.thumbnailHeight, accuracy: 0.5)
-        XCTAssertEqual(
-            placeholder.minY, try XCTUnwrap(firstRow.first).maxY + ChromeMetrics.Grid.tabGap, accuracy: 0.5,
-            "one row down"
-        )
+        let resting = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.herdr)))
+        assertSlotFollows(resting, lastHerdrTab, "the card's last tab")
+
+        // A resting card whose row is already full hides the tab it would
+        // create, so it shows no placeholder and keeps its single row.
+        let cardBefore = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
+        try await overEmptySpace(of: GridFixture.mattstackApps, harness: harness, window: window)
+        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.mattstackApps)))
+        let cardAfter = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
+        XCTAssertEqual(cardAfter.height, cardBefore.height, accuracy: 0.5, "no row the drop will not leave behind")
         window.close()
     }
 
@@ -533,6 +541,8 @@ private struct GridFixtureClient: HerdrCommandClient {
 private enum GridFixture {
     static let repoTools = WorkspaceID(rawValue: "w1")
     static let mattstackApps = WorkspaceID(rawValue: "w3")
+    /// Three tabs: a resting card still under its visible-tab cap.
+    static let herdr = WorkspaceID(rawValue: "w4")
     static let agentsTab = TabID(rawValue: "w1:t1")
     static let migrationTab = TabID(rawValue: "w2:t1")
     static let claudePane = PaneID(rawValue: "w1:p1")

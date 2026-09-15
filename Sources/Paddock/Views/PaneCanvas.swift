@@ -100,6 +100,10 @@ struct PaneCanvas: View {
                     }
                 }
             }
+            // Named so a divider gesture can read its pointer in the space
+            // `geometry`'s own rects are stated in, rather than reconstruct
+            // it from the moving band it is dragging.
+            .coordinateSpace(.named(DragSpace.canvasContent))
             // The canvas lays out in its own space and drop hit-testing works
             // in the window's, so the frames are published translated by the
             // canvas's own origin there, once, here.

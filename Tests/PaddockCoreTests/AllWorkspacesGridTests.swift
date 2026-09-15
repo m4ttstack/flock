@@ -45,36 +45,74 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     // MARK: - the new-tab placeholder's slot
 
-    /// A full row pushes the placeholder onto a new row of its own: the card
-    /// draws four slots per row whatever it holds, so the fifth cell is the
-    /// next row's first column.
-    func testThePlaceholderTakesTheFirstSlotNoSettledCellHolds() {
-        XCTAssertEqual(GridCardLayout.newTabSlot(tabs: tabs(2), expanded: false), GridSlot(row: 0, column: 2))
-        XCTAssertEqual(GridCardLayout.newTabSlot(tabs: tabs(4), expanded: false), GridSlot(row: 1, column: 0))
+    /// Where the placeholder actually lands, read off the card's own rows --
+    /// the same rows the card draws, so nothing here is a parallel model of
+    /// the geometry.
+    private func placeholderSlot(tabs list: [TabID], expanded: Bool) -> (row: Int, column: Int)? {
+        let rows = GridCardLayout.rows(tabs: list, expanded: expanded, newTab: true)
+        for (row, cells) in rows.enumerated() {
+            if let column = cells.firstIndex(of: .newTab) { return (row, column) }
+        }
+        return nil
     }
 
-    /// A resting card of nine tabs spends its fourth slot on the +N tile, so
-    /// the placeholder still follows the tile rather than the last tab.
-    func testThePlaceholderFollowsARestingCardsTile() {
-        XCTAssertEqual(GridCardLayout.newTabSlot(tabs: tabs(9), expanded: false), GridSlot(row: 1, column: 0))
+    /// Where the real tab lands, from the same function with one more tab.
+    private func landingSlot(tabs list: [TabID], expanded: Bool) -> (row: Int, column: Int)? {
+        let added = list + [TabID(rawValue: "w1:tNEW")]
+        let rows = GridCardLayout.rows(tabs: added, expanded: expanded)
+        for (row, cells) in rows.enumerated() {
+            if let column = cells.firstIndex(of: .tab(TabID(rawValue: "w1:tNEW"))) { return (row, column) }
+        }
+        return nil
     }
 
-    /// Expanding the same card moves every slot, and the placeholder with it:
-    /// nine tabs plus the collapse tile fill ten slots, so the eleventh is
-    /// the third row's third column.
-    func testThePlaceholderFollowsAnExpandedCardsCollapseTile() {
-        XCTAssertEqual(GridCardLayout.newTabSlot(tabs: tabs(9), expanded: true), GridSlot(row: 2, column: 2))
+    private func assertPlaceholderMatchesTheLanding(tabs list: [TabID], expanded: Bool, file: StaticString = #filePath, line: UInt = #line) {
+        let placeholder = placeholderSlot(tabs: list, expanded: expanded)
+        let landing = landingSlot(tabs: list, expanded: expanded)
+        XCTAssertNotNil(placeholder, "no placeholder drawn", file: file, line: line)
+        XCTAssertNotNil(landing, "the tab is not drawn after the drop", file: file, line: line)
+        XCTAssertEqual(placeholder?.row, landing?.row, file: file, line: line)
+        XCTAssertEqual(placeholder?.column, landing?.column, file: file, line: line)
     }
 
-    /// The placeholder is a cell of the card's own rows, never a separate
-    /// overlay, which is what keeps it from drifting off the slot it names.
-    func testThePlaceholderIsTheLastCellOfTheCardsOwnRows() {
-        let rows = GridCardLayout.rows(tabs: tabs(9), expanded: true, newTab: true)
-        let slot = GridCardLayout.newTabSlot(tabs: tabs(9), expanded: true)
-        XCTAssertEqual(rows.count, 3)
-        XCTAssertEqual(rows[slot.row].count, slot.column + 1)
-        XCTAssertEqual(rows[slot.row][slot.column], .newTab)
-        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(9), expanded: true).flatMap { $0 }, Array(rows.flatMap { $0 }.dropLast()))
+    /// A resting card under its cap: the drop draws the tab, and the
+    /// placeholder has to be standing in exactly that slot.
+    func testThePlaceholderTakesTheSlotTheTabWillTakeOnARestingCard() {
+        assertPlaceholderMatchesTheLanding(tabs: tabs(2), expanded: false)
+        assertPlaceholderMatchesTheLanding(tabs: tabs(3), expanded: false)
+    }
+
+    /// An expanded card draws every tab, so the placeholder is exact at any
+    /// count. Nine tabs plus the collapse tile is where appending used to put
+    /// it one column late.
+    func testThePlaceholderTakesTheSlotTheTabWillTakeOnAnExpandedCard() {
+        assertPlaceholderMatchesTheLanding(tabs: tabs(9), expanded: true)
+        assertPlaceholderMatchesTheLanding(tabs: tabs(5), expanded: true)
+    }
+
+    /// A tile always ends the list, so the slot after it is one no tab can
+    /// ever reach. The placeholder takes the tile's slot and the tile moves
+    /// along.
+    func testThePlaceholderIsOrderedBeforeTheTrailingTile() {
+        let all = tabs(9)
+        XCTAssertEqual(
+            GridCardLayout.cells(tabs: all, expanded: false, newTab: true),
+            [.tab(all[0]), .tab(all[1]), .tab(all[2]), .newTab, .moreTabs(hidden: 6)]
+        )
+        XCTAssertEqual(GridCardLayout.cells(tabs: all, expanded: true, newTab: true).suffix(2), [.newTab, .collapse])
+    }
+
+    /// The one card whose drop draws no tab at all: a resting card whose tabs
+    /// already fill the row grows a tile instead and hides the new tab behind
+    /// it. Rather than open a row the drop will not leave behind, it shows
+    /// nothing and lets the card's accent outline carry the affordance.
+    func testARestingCardThatWillHideTheNewTabShowsNoPlaceholder() {
+        XCTAssertNil(landingSlot(tabs: tabs(4), expanded: false), "the fifth tab really is hidden after the drop")
+        XCTAssertNil(placeholderSlot(tabs: tabs(4), expanded: false))
+        XCTAssertEqual(
+            GridCardLayout.rows(tabs: tabs(4), expanded: false, newTab: true).count, 1,
+            "and the card keeps the single row it already had"
+        )
     }
 
     func testCardsPairUpTwoToARowInRailOrder() {

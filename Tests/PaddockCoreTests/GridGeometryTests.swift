@@ -24,8 +24,7 @@ final class GridGeometryTests: XCTestCase {
 
     /// The mini panes start under the tab's handle strip, not at the
     /// thumbnail's own top edge: a box read against the full frame would sit
-    /// a strip's height above where it is drawn, and the hover card and the
-    /// spring-back home both read boxes that way.
+    /// a strip's height above where it is drawn.
     func testThePaneAreaStartsBelowTheHandleStrip() {
         let thumbnail = CGRect(x: 20, y: 60, width: 100, height: 101)
         XCTAssertEqual(
@@ -39,6 +38,26 @@ final class GridGeometryTests: XCTestCase {
     func testAPaneAreaNeverGoesNegative() {
         let area = MiniPaneLayout.paneArea(in: CGRect(x: 0, y: 0, width: 100, height: 10), stripHeight: 15)
         XCTAssertEqual(area.height, 0)
+    }
+
+    /// The spring-back home is recorded against the thumbnail, so a mini
+    /// pane's box has to cross from the pane area's space into it. Both
+    /// directions read the same offset, so a strip that grows an inset moves
+    /// them together instead of leaving the home behind.
+    func testABoxCrossesIntoTheThumbnailsSpaceByTheSameOffsetThePaneAreaUses() {
+        let stripHeight: CGFloat = 15
+        let thumbnail = CGRect(x: 20, y: 60, width: 100, height: 101)
+        let box = CGRect(x: 4, y: 4, width: 45, height: 74)
+
+        let inThumbnail = MiniPaneLayout.boxInThumbnail(box, stripHeight: stripHeight)
+        XCTAssertEqual(inThumbnail, CGRect(x: 4, y: 19, width: 45, height: 74))
+
+        let area = MiniPaneLayout.paneArea(in: thumbnail, stripHeight: stripHeight)
+        XCTAssertEqual(
+            CGPoint(x: thumbnail.minX + inThumbnail.minX, y: thumbnail.minY + inThumbnail.minY),
+            CGPoint(x: area.minX + box.minX, y: area.minY + box.minY),
+            "the box lands in the same place whichever space it is stated in"
+        )
     }
 
     func testASideBySideSplitKeepsThePaddingOutsideAndTheGapBetween() {

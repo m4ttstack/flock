@@ -19,6 +19,12 @@ enum DragSpace {
     static let stripContent = "paddock.drag.strip-content"
     static let railContent = "paddock.drag.rail-content"
     static let gridContent = "paddock.drag.grid-content"
+
+    /// The pane canvas's own space, which every `CanvasGeometry` rect is
+    /// stated in before the canvas offsets a copy into the drag space. A
+    /// divider gesture reads its pointer here so the value cannot depend on
+    /// where the band it is dragging currently sits.
+    static let canvasContent = "paddock.drag.canvas-content"
 }
 
 /// An `NSView` laid out at exactly the drag space's frame, handed to the

@@ -29,7 +29,7 @@ struct DividerIntersectionView: View {
             .contentShape(Rectangle())
             .onContinuousHover(coordinateSpace: .local) { phase in
                 if case .active(let location) = phase {
-                    hoverResolvesVertical = winner(at: location).isVerticalLine
+                    hoverResolvesVertical = winner(atLocal: location).isVerticalLine
                 }
             }
             .pointerStyle(drag.isPaneDragInFlight ? nil : (hoverResolvesVertical ? .columnResize : .rowResize))
@@ -37,21 +37,28 @@ struct DividerIntersectionView: View {
             .accessibilityIdentifier("paddock.canvas.divider.intersection.\(intersection.id)")
     }
 
-    private func winner(at localPoint: CGPoint) -> DividerHandle {
-        let point = CGPoint(x: intersection.square.minX + localPoint.x, y: intersection.square.minY + localPoint.y)
-        return DividerIntersections.resolve(intersection, at: point)
+    /// `localPoint` is in this square's own space, which only the hover
+    /// callback works in; the gesture already reads canvas points.
+    private func winner(atLocal localPoint: CGPoint) -> DividerHandle {
+        DividerIntersections.resolve(
+            intersection,
+            at: CGPoint(x: intersection.square.minX + localPoint.x, y: intersection.square.minY + localPoint.y)
+        )
     }
 
+    /// Measured in the canvas's own named space, like `DividerHandleView`'s:
+    /// `intersection.square` is derived from the two bands this gesture
+    /// moves, so reconstructing a canvas point from it would read the
+    /// pointer against a rect the drag itself displaces.
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 1, coordinateSpace: .local)
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(DragSpace.canvasContent))
             .onChanged { value in
-                let divider = lockedDivider ?? winner(at: value.startLocation)
+                let divider = lockedDivider ?? DividerIntersections.resolve(intersection, at: value.startLocation)
                 if lockedDivider == nil {
                     lockedDivider = divider
                     dividerDrag.began(divider)
                 }
-                let pointer = CGPoint(x: intersection.square.minX + value.location.x, y: intersection.square.minY + value.location.y)
-                dividerDrag.moved(to: pointer, for: divider)
+                dividerDrag.moved(to: value.location, for: divider)
             }
             .onEnded { _ in
                 lockedDivider = nil

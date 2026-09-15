@@ -318,7 +318,7 @@ private struct TabThumbnail: View {
     /// pane AREA's space; the strip above it is what separates that from the
     /// thumbnail's own space.
     private func paneDrag(_ pane: PaneRecord, box: CGRect) -> some Gesture {
-        let inThumbnail = box.offsetBy(dx: 0, dy: ChromeMetrics.Grid.tabStripHeight)
+        let inThumbnail = MiniPaneLayout.boxInThumbnail(box, stripHeight: ChromeMetrics.Grid.tabStripHeight)
         return DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
                 drag.beginIfIdle(
