@@ -34,7 +34,7 @@ struct DividerHandleView: View {
 
     /// This divider's own live ratio, or `nil` when it is not the one
     /// `dividerDrag` is currently tracking -- another divider's drag (or
-    /// none) must never paint THIS one's accent line.
+    /// none) must never paint THIS one as live.
     private var liveRatio: Double? {
         guard let live = dividerDrag.liveOverride, live.tabID == divider.tabID, live.path == divider.path else { return nil }
         return live.ratio
@@ -45,7 +45,9 @@ struct DividerHandleView: View {
             if let liveRatio {
                 liveHandle(at: liveRatio)
             } else {
-                handle(color: isHovering ? theme.accent : theme.overlay0.opacity(0.75))
+                // Never the accent: a focused pane's border is the accent, and
+                // a handle beside it in the same color disappears into it.
+                handle(color: isHovering ? theme.text : theme.overlay0.opacity(0.75))
             }
         }
         .frame(width: band.width, height: band.height)
@@ -109,7 +111,7 @@ struct DividerHandleView: View {
             forDividerLength: isVertical ? divider.frame.height : divider.frame.width
         )
         return ZStack {
-            handle(color: theme.accent)
+            handle(color: theme.text)
             // Clear of the handle so the percentage never covers what the
             // pointer is holding.
             ratioLabel(ratio)
