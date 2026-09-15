@@ -2,12 +2,11 @@ import XCTest
 import CoreGraphics
 @testable import PaddockCore
 
-/// Records what a `DividerDragSession` owes as its gestures end. `commit` can
-/// be held open so a test can look between a release and its commit landing.
+/// Records the ratios a `DividerDragSession` commits. `commit` can be held
+/// open so a test can look between a release and its commit landing.
 @MainActor
-private final class GestureEndRecorder {
+private final class CommitRecorder {
     private(set) var commits: [Double] = []
-    var settles = 0
     var holdCommits = false
     private var pending: CheckedContinuation<Void, Never>?
 
@@ -38,16 +37,13 @@ final class DividerDragSessionTests: XCTestCase {
     private static let movedPointer = CGPoint(x: 180, y: region.midY)
 
     @MainActor
-    private func makeSession(_ recorder: GestureEndRecorder) -> DividerDragSession {
-        DividerDragSession(
-            commit: { _, _, ratio in await recorder.commit(ratio) },
-            settle: { recorder.settles += 1 }
-        )
+    private func makeSession(_ recorder: CommitRecorder) -> DividerDragSession {
+        DividerDragSession(commit: { _, _, ratio in await recorder.commit(ratio) })
     }
 
     @MainActor
-    func testAReleaseAfterARealMoveSettlesOnceItsCommitLands() async {
-        let recorder = GestureEndRecorder()
+    func testAReleaseAfterARealMoveCommitsOnceAndHoldsThePreviewUntilItLands() async {
+        let recorder = CommitRecorder()
         recorder.holdCommits = true
         let session = makeSession(recorder)
         session.began(Self.divider)
@@ -58,72 +54,70 @@ final class DividerDragSessionTests: XCTestCase {
             await Task.yield()
         }
         XCTAssertEqual(recorder.commits.count, 1)
-        XCTAssertEqual(recorder.settles, 0, "the geometry is not final until the commit lands")
-        XCTAssertNotNil(session.liveOverride)
+        XCTAssertNotNil(session.liveOverride, "the preview holds until the commit lands")
 
         recorder.releaseCommit()
         await session.pendingCommit?.value
 
-        XCTAssertEqual(recorder.settles, 1)
+        XCTAssertEqual(recorder.commits.count, 1)
         XCTAssertNil(session.liveOverride)
     }
 
     @MainActor
-    func testAReleaseWithNoMoveSettlesOnceAndCommitsNothing() {
-        let recorder = GestureEndRecorder()
+    func testAReleaseWithNoMoveCommitsNothing() {
+        let recorder = CommitRecorder()
         let session = makeSession(recorder)
         session.began(Self.divider)
 
         XCTAssertTrue(session.ended())
 
-        XCTAssertEqual(recorder.settles, 1)
         XCTAssertTrue(recorder.commits.isEmpty)
+        XCTAssertNil(session.liveOverride)
     }
 
     @MainActor
-    func testEscSettlesOnceAndItsReleaseAddsNothing() {
-        let recorder = GestureEndRecorder()
+    func testEscCommitsNothingAndItsReleaseStillEndsTheGesture() {
+        let recorder = CommitRecorder()
         let session = makeSession(recorder)
         session.began(Self.divider)
         session.moved(to: Self.movedPointer, for: Self.divider)
 
         session.cancel()
-        XCTAssertEqual(recorder.settles, 1)
         XCTAssertNil(session.liveOverride)
 
         XCTAssertTrue(session.ended(), "the release after Esc still ends the gesture")
-        XCTAssertEqual(recorder.settles, 1)
         XCTAssertTrue(recorder.commits.isEmpty)
     }
 
     @MainActor
-    func testAbandoningALiveDragSettlesOnce() {
-        let recorder = GestureEndRecorder()
+    func testAbandoningALiveDragCommitsNothingAndOwesNoRelease() {
+        let recorder = CommitRecorder()
         let session = makeSession(recorder)
         session.began(Self.divider)
         session.moved(to: Self.movedPointer, for: Self.divider)
 
         session.abandon()
 
-        XCTAssertEqual(recorder.settles, 1)
+        XCTAssertNil(session.liveOverride)
         XCTAssertFalse(session.ended(), "no release is owed after abandon")
-        XCTAssertEqual(recorder.settles, 1)
+        XCTAssertTrue(recorder.commits.isEmpty)
     }
 
     @MainActor
-    func testAReleaseWithNoGestureSettlesNothing() {
-        let recorder = GestureEndRecorder()
+    func testAReleaseWithNoGestureEndsNothing() {
+        let recorder = CommitRecorder()
         let session = makeSession(recorder)
 
         XCTAssertFalse(session.ended())
 
-        XCTAssertEqual(recorder.settles, 0)
+        XCTAssertTrue(recorder.commits.isEmpty)
     }
 
-    /// A newer drag owns the geometry now and settles at its own end.
+    /// A newer drag owns the geometry now: the older commit landing must not
+    /// clear its preview.
     @MainActor
-    func testACommitLandingAfterANewerDragBeganSettlesNothingForIt() async {
-        let recorder = GestureEndRecorder()
+    func testACommitLandingAfterANewerDragBeganKeepsTheNewerPreview() async {
+        let recorder = CommitRecorder()
         recorder.holdCommits = true
         let session = makeSession(recorder)
         session.began(Self.divider)
@@ -138,10 +132,6 @@ final class DividerDragSessionTests: XCTestCase {
         recorder.releaseCommit()
         await firstCommit?.value
 
-        XCTAssertEqual(recorder.settles, 0)
         XCTAssertNotNil(session.liveOverride, "the newer drag's preview survives the older commit")
-
-        session.ended()
-        XCTAssertEqual(recorder.settles, 1)
     }
 }

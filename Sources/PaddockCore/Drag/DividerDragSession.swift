@@ -6,12 +6,10 @@ import Observation
 public typealias SplitRatioCommit = @MainActor (TabID, [Bool], Double) async -> Void
 
 /// The AppKit-free half of a divider drag: `DividerDragMachine`, the live
-/// footprint override the canvas lays out from, and what each way a gesture
-/// ends owes. A release after a real move commits the ratio; every end of a
-/// live drag (that release, a no-op release, Esc, abandon) settles once, after
-/// the geometry that end produces is final. `DividerDragCoordinator` feeds it
-/// pointer, release, Esc and resign-active events and owns the cursor and
-/// event monitors around it.
+/// footprint override the canvas lays out from, and the one ratio commit a
+/// release after a real move owes. `DividerDragCoordinator` feeds it pointer,
+/// release, Esc and resign-active events and owns the cursor and event
+/// monitors around it.
 @MainActor
 @Observable
 public final class DividerDragSession {
@@ -29,13 +27,11 @@ public final class DividerDragSession {
     /// regardless: it is the user's real, already-decided action.
     private var generation = 0
     @ObservationIgnored private let commit: SplitRatioCommit
-    @ObservationIgnored private let settle: @MainActor () -> Void
     /// The commit the latest real release started, so a test can await it.
     @ObservationIgnored public private(set) var pendingCommit: Task<Void, Never>?
 
-    public init(commit: @escaping SplitRatioCommit, settle: @escaping @MainActor () -> Void) {
+    public init(commit: @escaping SplitRatioCommit) {
         self.commit = commit
-        self.settle = settle
     }
 
     public var isDragging: Bool { machine.isDragging }
@@ -66,8 +62,7 @@ public final class DividerDragSession {
     /// Returns whether there was a gesture to end. A committed op holds
     /// `liveOverride` until the commit resolves: the optimistic overlay it
     /// triggers lands inside that call, and clearing first would snap back to
-    /// the pre-drag layout for the main-actor hops in between. The settle
-    /// waits for the same point, since the geometry is not final before it.
+    /// the pre-drag layout for the main-actor hops in between.
     ///
     /// Reachable twice for the SAME release (the view's own `onEnded` and the
     /// coordinator's release monitor). The idle guard is what makes the second
@@ -76,9 +71,8 @@ public final class DividerDragSession {
     @discardableResult
     public func ended() -> Bool {
         guard machine.phase != .idle else { return false }
-        let wasDragging = machine.isDragging
         guard case let .setSplitRatio(tab, path, ratio)? = machine.ended() else {
-            teardown(settling: wasDragging)
+            liveOverride = nil
             return true
         }
         let started = generation
@@ -86,7 +80,6 @@ public final class DividerDragSession {
             await self.commit(tab, path, ratio)
             guard self.generation == started else { return }
             self.liveOverride = nil
-            self.settle()
         }
         return true
     }
@@ -94,23 +87,15 @@ public final class DividerDragSession {
     /// Esc with the button still down.
     public func cancel() {
         generation += 1
-        let wasDragging = machine.isDragging
         _ = machine.cancelled()
-        teardown(settling: wasDragging)
+        liveOverride = nil
     }
 
     /// The app resigned active with the button still down: no release is
     /// ever coming.
     public func abandon() {
         generation += 1
-        let wasDragging = machine.isDragging
         machine.abandoned()
-        teardown(settling: wasDragging)
-    }
-
-    /// A gesture already settled at Esc owes nothing more at its release.
-    private func teardown(settling: Bool) {
         liveOverride = nil
-        if settling { settle() }
     }
 }

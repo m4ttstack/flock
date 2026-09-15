@@ -32,10 +32,10 @@ import PaddockCore
 /// view's callback and the monitor can both fire for the same release with
 /// no double-commit.
 ///
-/// `DividerDragSession` (`PaddockCore`) owns the machine, the live override,
-/// the ratio commit and the settle repaint each end of a gesture owes; this
-/// class is the AppKit-facing shell around it -- the Esc and release
-/// monitors, the resign-active observer, and the resize cursor.
+/// `DividerDragSession` (`PaddockCore`) owns the machine, the live override
+/// and the ratio commit; this class is the AppKit-facing shell around it:
+/// the Esc and release monitors, the resign-active observer, and the resize
+/// cursor.
 @MainActor
 @Observable
 final class DividerDragCoordinator {

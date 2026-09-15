@@ -14,8 +14,6 @@ import Darwin
 /// against a newer bridge.
 public struct BridgeOptions: Equatable, Sendable {
     public var target: String
-    public var cols: Int?
-    public var rows: Int?
     public var socketPath: String?
     public var herdrBinary: String?
     public var controlPipe: String?
@@ -46,8 +44,6 @@ public struct BridgeOptions: Equatable, Sendable {
         }
 
         target = pick("--bridge", "HERDR_TERM_TARGET") ?? ""
-        cols = values["--cols"].flatMap(Int.init)
-        rows = values["--rows"].flatMap(Int.init)
         socketPath = pick("--socket", "HERDR_SOCKET_PATH")
         herdrBinary = pick("--herdr-bin", "HERDR_BIN")
         controlPipe = pick("--control-pipe", PaneControlChannel.environmentKey)
@@ -62,18 +58,12 @@ public struct BridgeOptions: Equatable, Sendable {
     public static func argv(
         executablePath: String,
         target: String,
-        cols: Int,
-        rows: Int,
         socketPath: String,
         herdrBinary: String? = nil,
         controlPipe: String? = nil,
         statusPipe: String? = nil
     ) -> [String] {
-        var argv = [
-            executablePath, "--bridge", target,
-            "--cols", "\(cols)", "--rows", "\(rows)",
-            "--socket", socketPath,
-        ]
+        var argv = [executablePath, "--bridge", target, "--socket", socketPath]
         if let herdrBinary, !herdrBinary.isEmpty {
             argv += ["--herdr-bin", herdrBinary]
         }
@@ -100,8 +90,7 @@ public struct PTYSize: Equatable, Sendable {
 
 /// PTY child for libghostty: translates a herdr `terminal session control`
 /// NDJSON stream into raw bytes on stdout / keystrokes on stdin, and resizes
-/// that pane's real runtime to whatever grid paddock declares over
-/// `paddock.dims`.
+/// that pane's real runtime to its PTY's own size.
 ///
 /// Every visible pane holds one of these for its whole life (Herdglass's
 /// model): there is no observe verb and no live mode switch. Which pane
@@ -140,6 +129,16 @@ public enum ControlBridge {
         ]
     }
 
+    /// The size herdr's child is spawned at: the PTY's, the grid libghostty
+    /// parses frames into. 80x24 covers only an axis the PTY reports as zero,
+    /// which happens only with no tty behind the bridge.
+    static func spawnSize(ptyWinsize: PTYSize) -> PTYSize {
+        PTYSize(
+            cols: ptyWinsize.cols > 0 ? ptyWinsize.cols : 80,
+            rows: ptyWinsize.rows > 0 ? ptyWinsize.rows : 24
+        )
+    }
+
     public static func run(arguments: [String] = Array(CommandLine.arguments.dropFirst())) {
         signal(SIGPIPE, SIG_IGN)
         // Before anything else touches stdout, including `setvbuf` below:
@@ -160,17 +159,7 @@ public enum ControlBridge {
         }
 
         let cookedTerminal = enterRawMode()
-        // The pane's grid comes from argv (and later from `paddock.dims`
-        // lines), never from this PTY's own winsize: paddock derives the grid
-        // from the pane's box and its font's cell, and the PTY size is a
-        // consequence of that, not a second opinion about it. The ioctl
-        // fallback only covers a bare `--bridge` run.
-        var size = PTYSize(cols: options.cols ?? 0, rows: options.rows ?? 0)
-        if size.cols <= 0 || size.rows <= 0 {
-            let ioctlSize = currentWinSize(fd: STDIN_FILENO)
-            if size.cols <= 0 { size.cols = ioctlSize.cols > 0 ? ioctlSize.cols : 80 }
-            if size.rows <= 0 { size.rows = ioctlSize.rows > 0 ? ioctlSize.rows : 24 }
-        }
+        let size = spawnSize(ptyWinsize: currentWinSize(fd: STDIN_FILENO))
 
         let proc = Process()
         proc.executableURL = executableURL
@@ -203,17 +192,14 @@ public enum ControlBridge {
             fputs("paddock-bridge: cannot open status pipe \(statusPipe)\n", stderr)
         }
 
-        let ownerBox = Box<BridgeChildOwner>()
+        let owner = BridgeChildOwner(process: proc)
         let io = BridgeIO(
             herdrInFD: toHerdr.fileHandleForWriting.fileDescriptor, statusFD: statusFD,
-            onPeerGone: { ownerBox.value?.terminate() }
+            spawnedSize: size, onPeerGone: { owner.terminate() }
         )
-        let owner = BridgeChildOwner(process: proc, size: size, io: io)
-        ownerBox.value = owner
-        io.onDimsCommand = { newSize, repaint in owner.recordSize(newSize, repaint: repaint) }
 
         io.startStdin()
-        io.startSurfaceResizeWatch()
+        io.startPTYSizeRelay()
         io.startHerdrOutput(fromHerdr.fileHandleForReading)
         if let controlPipe = options.controlPipe {
             io.startControlPipe(at: controlPipe)
@@ -230,7 +216,6 @@ public enum ControlBridge {
     /// `nil` for anything that is not a well-formed `terminal.frame` line.
     /// A pure function so line-boundary handling (buffering a herdr line
     /// across several `read()`s) can be tested independently of decoding.
-    /// A frame missing herdr's `width`/`height` decodes with no size.
     static func parseFrame(_ line: Data) -> HerdrFrame? {
         guard !line.isEmpty,
               let frame = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
@@ -239,11 +224,7 @@ public enum ControlBridge {
               let bytes = Data(base64Encoded: encoded),
               !bytes.isEmpty
         else { return nil }
-        var size: PTYSize?
-        if let width = frame["width"] as? Int, let height = frame["height"] as? Int, width > 0, height > 0 {
-            size = PTYSize(cols: width, rows: height)
-        }
-        return HerdrFrame(bytes: bytes, size: size, full: frame["full"] as? Bool ?? false)
+        return HerdrFrame(bytes: bytes, full: frame["full"] as? Bool ?? false)
     }
 
     /// The `terminal.input` object for a chunk of raw PTY bytes.
@@ -279,38 +260,16 @@ public enum ControlBridge {
     /// FIFO only ever carries one for the resolved-focused pane in the first
     /// place: `MouseForwarding.decide` drops every mouse event for an
     /// unfocused pane before a `terminal.scroll` could ever be built (see
-    /// `PaneControlChannel.scroll`). `paddock.dims` lines never reach this
-    /// function at all -- see `parseDimsCommand` and
-    /// `BridgeIO.startControlPipe`'s own dispatch.
+    /// `PaneControlChannel.scroll`). `terminal.resize` is refused: a size
+    /// reaches herdr only from the PTY itself (`BridgeIO.startPTYSizeRelay`).
     static func parseForwardableControlCommand(_ line: Data) -> [String: Any]? {
         guard
             let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
             let type = command["type"] as? String,
-            type.hasPrefix("terminal.")
+            type.hasPrefix("terminal."),
+            type != "terminal.resize"
         else { return nil }
         return command
-    }
-
-    /// `nil` for anything that is not a well-formed `paddock.dims` command
-    /// with positive `cols` and `rows`: the grid paddock's own pane box holds,
-    /// and the only size the bridge ever sends as `terminal.resize`.
-    /// Paddock-namespaced (`paddock.` rather than `terminal.`) so it can never
-    /// be mistaken for a forwardable line by `parseForwardableControlCommand`.
-    static func parseDimsCommand(_ line: Data) -> DimsCommand? {
-        guard
-            let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-            command["type"] as? String == "paddock.dims",
-            let cols = command["cols"] as? Int, cols > 0,
-            let rows = command["rows"] as? Int, rows > 0
-        else { return nil }
-        return DimsCommand(size: PTYSize(cols: cols, rows: rows), repaint: command["repaint"] as? Bool ?? false)
-    }
-
-    /// One `paddock.dims` line. `repaint` is set when a resize gesture has
-    /// just ended: herdr owes a full frame at `size` even if it is unchanged.
-    struct DimsCommand: Equatable {
-        let size: PTYSize
-        let repaint: Bool
     }
 
     /// The NDJSON line for one control-channel object, or nil if it cannot
@@ -323,45 +282,43 @@ public enum ControlBridge {
     }
 }
 
-/// Single-writer-then-read holder for a value with a genuine init-order
-/// cycle (`BridgeIO`'s `onPeerGone` needs to reach a `BridgeChildOwner` that
-/// itself needs the already-constructed `BridgeIO`). Written exactly once,
-/// synchronously, before any `BridgeIO` source is resumed; read only from
-/// callbacks that cannot fire before that point.
-final class Box<T>: @unchecked Sendable {
-    var value: T?
+/// One herdr `terminal.frame` line, decoded: the ANSI bytes, and whether they
+/// redraw every cell rather than diff against the previous frame.
+struct HerdrFrame: Equatable, Sendable {
+    let bytes: Data
+    let full: Bool
 }
 
-/// The bridge's one herdr child: resized in place from `paddock.dims`, and
-/// terminated exactly once.
+/// Which PTY winsizes become a `terminal.resize`: every readable size herdr
+/// was not already given, starting from the size its child was spawned at.
+/// Pure, so the dedupe and the startup read are testable without a signal.
+struct PTYResizeRelay: Sendable {
+    private(set) var herdrSize: PTYSize?
+
+    init(spawned: PTYSize?) {
+        herdrSize = spawned
+    }
+
+    /// The size to send herdr for the PTY's current `winsize`, or nil when it
+    /// is unreadable or herdr already has it.
+    mutating func relay(_ winsize: PTYSize?) -> PTYSize? {
+        guard let winsize, winsize.cols > 0, winsize.rows > 0, winsize != herdrSize else { return nil }
+        herdrSize = winsize
+        return winsize
+    }
+}
+
+/// The bridge's one herdr child, terminated exactly once.
 ///
-/// `@unchecked Sendable`: every stored var is read and written only inside
-/// `lock`; `process`/`io` are immutable after init.
+/// `@unchecked Sendable`: `terminated` is read and written only inside
+/// `lock`; `process` is immutable after init.
 final class BridgeChildOwner: @unchecked Sendable {
     private let lock = NSLock()
     private let process: Process
-    private let io: BridgeIO
-    /// Set once the bridge's own PTY has gone away for good (the GUI tore the
-    /// pane's surface down): a `paddock.dims` line still queued behind that
-    /// teardown must not reach a child that is already being killed.
-    private var peerGone = false
+    private var terminated = false
 
-    init(process: Process, size: PTYSize, io: BridgeIO) {
+    init(process: Process) {
         self.process = process
-        self.io = io
-        io.seedDims(size)
-    }
-
-    /// Applies paddock's box grid to the live child through `io`'s frame
-    /// gate, which sends nothing for an unchanged grid unless `repaint` is
-    /// set. Declared outside the lock, so a slow write can never block a
-    /// concurrent `terminate`.
-    func recordSize(_ size: PTYSize, repaint: Bool = false) {
-        lock.lock()
-        let gone = peerGone
-        lock.unlock()
-        guard !gone else { return }
-        io.declareDims(size, repaint: repaint)
     }
 
     /// `Process.terminate()` raises on a task that was never launched, so the
@@ -369,8 +326,8 @@ final class BridgeChildOwner: @unchecked Sendable {
     func terminate() {
         lock.lock()
         defer { lock.unlock() }
-        guard !peerGone else { return }
-        peerGone = true
+        guard !terminated else { return }
+        terminated = true
         guard process.isRunning else { return }
         terminateWithBoundedEscalation(process)
     }
@@ -488,16 +445,9 @@ private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
 /// called synchronously from `ControlBridge.run` before any of the sources
 /// are resumed and so before any of their event handlers can run; `close()`
 /// only ever runs after `run`'s wait, i.e. strictly after every `start*` call
-/// has returned. `onDimsCommand` is set once, synchronously, before
-/// `startControlPipe` resumes its source, matching that same invariant.
-/// `gate` is read and written only inside `gateLock`, as is every resize it
-/// emits. `surfaceResizeSource` is written once, by
-/// `startSurfaceResizeWatch`, under the same invariant as the other sources.
-///
-/// SIGWINCH never becomes a `terminal.resize` of its own: the PTY's winsize
-/// is downstream of paddock's own box grid, so relaying it would give herdr a
-/// second, lagging opinion about a size paddock already declared over
-/// `paddock.dims`. It only tells `gate` that libghostty's terminal grid moved.
+/// has returned. `winchSource` is written once, by `startPTYSizeRelay`,
+/// under the same invariant. `resizeRelay` is read and written only inside
+/// `resizeLock`, which is held across the resize it emits.
 final class BridgeIO: @unchecked Sendable {
     private var herdrInFD: Int32
     private let stdinFD: Int32
@@ -521,31 +471,26 @@ final class BridgeIO: @unchecked Sendable {
     private var firstFrameSent = false
     private var stdinSource: DispatchSourceRead?
     private var controlSource: DispatchSourceRead?
-    private var surfaceResizeSource: DispatchSourceSignal?
+    private var winchSource: DispatchSourceSignal?
     private var closed = false
-    /// Held across a gate decision AND the resize it emits, so a forced
-    /// repaint decided on one queue can never reach herdr after a newer
-    /// declared grid sent from another.
-    private let gateLock = NSLock()
-    private var gate = BridgeFrameGate()
-    /// The PTY winsize, which is libghostty's terminal grid; nil when it
-    /// cannot be read.
-    private let surfaceSize: () -> PTYSize?
-
-    /// Fired when a `paddock.dims` line arrives on the control pipe: the grid
-    /// paddock's pane box holds and whether a repaint is owed at it, wired to
-    /// `BridgeChildOwner.recordSize` so the live child is resized to it.
-    var onDimsCommand: ((PTYSize, Bool) -> Void)?
+    /// Held across a relay decision AND the resize it sends, so two sizes
+    /// decided on different queues reach herdr in the order they were read.
+    private let resizeLock = NSLock()
+    private var resizeRelay: PTYResizeRelay
+    /// The PTY winsize; nil when it cannot be read.
+    private let ptySize: () -> PTYSize?
 
     init(
         herdrInFD: Int32, stdinFD: Int32 = STDIN_FILENO, stdoutFD: Int32 = STDOUT_FILENO,
-        statusFD: Int32 = -1, surfaceSize: (() -> PTYSize?)? = nil, onPeerGone: @escaping () -> Void
+        statusFD: Int32 = -1, spawnedSize: PTYSize? = nil, ptySize: (() -> PTYSize?)? = nil,
+        onPeerGone: @escaping () -> Void
     ) {
         self.herdrInFD = herdrInFD
         self.stdinFD = stdinFD
         self.stdoutFD = stdoutFD
         self.statusFD = statusFD
-        self.surfaceSize = surfaceSize ?? {
+        self.resizeRelay = PTYResizeRelay(spawned: spawnedSize)
+        self.ptySize = ptySize ?? {
             let size = currentWinSize(fd: stdinFD)
             return size.cols > 0 && size.rows > 0 ? size : nil
         }
@@ -558,58 +503,34 @@ final class BridgeIO: @unchecked Sendable {
         writeLock.unlock()
         stdinSource?.cancel()
         controlSource?.cancel()
-        surfaceResizeSource?.cancel()
+        winchSource?.cancel()
     }
 
-    /// The grid the herdr child was spawned at, declared without a send.
-    func seedDims(_ size: PTYSize) {
-        gateLock.lock()
-        defer { gateLock.unlock() }
-        gate = BridgeFrameGate(declared: size)
-    }
-
-    func declareDims(_ size: PTYSize, repaint: Bool) {
-        updateGate { gate, surface in gate.declare(size, repaint: repaint, surface: surface) }
-    }
-
-    func startSurfaceResizeWatch() {
+    /// libghostty sets the PTY winsize only when it applies a new grid to its
+    /// terminal, so a resize sent from SIGWINCH reaches herdr after the
+    /// surface can take the full frame herdr answers it with. A size sent any
+    /// earlier lands that frame in the old grid.
+    ///
+    /// The read after arming must follow it: a SIGWINCH delivered before the
+    /// source exists is lost, and a new surface's PTY is resized a moment
+    /// after the bridge forks.
+    func startPTYSizeRelay() {
         signal(SIGWINCH, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: .global(qos: .userInteractive))
         source.setEventHandler { [weak self] in
-            self?.updateGate { gate, surface in gate.surfaceResized(surface: surface) }
+            self?.relayPTYSize()
         }
         source.resume()
-        surfaceResizeSource = source
+        winchSource = source
+        relayPTYSize()
     }
 
-    private func updateGate(_ body: (inout BridgeFrameGate, PTYSize?) -> BridgeFrameGate.Effects) {
-        gateLock.lock()
-        let effects = body(&gate, surfaceSize())
-        sendResize(effects.resize)
-        gateLock.unlock()
-        scheduleSurfaceWait(effects.surfaceWait)
-    }
-
-    private func gateFrame(_ frame: HerdrFrame) -> Bool {
-        gateLock.lock()
-        let (write, effects) = gate.frame(frame, surface: surfaceSize())
-        sendResize(effects.resize)
-        gateLock.unlock()
-        scheduleSurfaceWait(effects.surfaceWait)
-        return write
-    }
-
-    private func sendResize(_ size: PTYSize?) {
-        guard let size else { return }
+    /// Sends herdr the PTY's current size unless herdr already has it.
+    private func relayPTYSize() {
+        resizeLock.lock()
+        defer { resizeLock.unlock() }
+        guard let size = resizeRelay.relay(ptySize()) else { return }
         send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows])
-    }
-
-    private func scheduleSurfaceWait(_ token: Int?) {
-        guard let token else { return }
-        let delay = DispatchTimeInterval.milliseconds(BridgeFrameGate.surfaceWaitMilliseconds)
-        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.updateGate { gate, surface in gate.surfaceWaitExpired(token: token, surface: surface) }
-        }
     }
 
     func send(_ object: [String: Any]) {
@@ -637,11 +558,8 @@ final class BridgeIO: @unchecked Sendable {
         stdinSource = source
     }
 
-    /// Commands the surface cannot express as keystrokes, plus the
-    /// `paddock.dims` size path. A dims line is intercepted here and never
-    /// reaches `send`/herdr as it is; everything else, including
-    /// `terminal.scroll`, is forwarded verbatim -- see
-    /// `ControlBridge.parseForwardableControlCommand`'s doc comment.
+    /// Commands the surface cannot express as keystrokes, forwarded verbatim
+    /// (see `ControlBridge.parseForwardableControlCommand`).
     func startControlPipe(at path: String) {
         // O_RDWR mirrors the GUI side: neither end may ever see EOF just
         // because the other is idle.
@@ -663,23 +581,9 @@ final class BridgeIO: @unchecked Sendable {
             let n = read(fd, &buffer, buffer.count)
             guard n > 0 else { return }
             commands.append(Data(buffer.prefix(n)))
-            var latestDims: PTYSize?
-            var repaint = false
             while let line = commands.popLine() {
-                if let dims = ControlBridge.parseDimsCommand(line) {
-                    latestDims = dims.size
-                    repaint = repaint || dims.repaint
-                    continue
-                }
                 guard let command = ControlBridge.parseForwardableControlCommand(line) else { continue }
                 send(command)
-            }
-            // Coalesced: several `paddock.dims` lines queued in the same read
-            // (a window drag landing before the bridge gets a scheduler turn)
-            // collapse into ONE resize for the LAST grid -- every one before
-            // it is already stale -- carrying any repaint one of them asked for.
-            if let latestDims {
-                onDimsCommand?(latestDims, repaint)
             }
         }
         if closeOnCancel {
@@ -720,15 +624,10 @@ final class BridgeIO: @unchecked Sendable {
             while let line = lines.popLine() {
                 if let frame = ControlBridge.parseFrame(line) {
                     stdoutLock.lock()
-                    let wasCurrent = herdrOutputGeneration == generation
-                    stdoutLock.unlock()
-                    if !wasCurrent { return }
-                    let write = gateFrame(frame)
-                    stdoutLock.lock()
                     let stillCurrent = herdrOutputGeneration == generation
-                    if stillCurrent, write { writeIgnoringBrokenPipe(stdoutFD, frame.bytes) }
+                    if stillCurrent { writeIgnoringBrokenPipe(stdoutFD, frame.bytes) }
                     var firstFrameLine: Data?
-                    if stillCurrent, write, frame.full, !firstFrameSent, statusFD >= 0 {
+                    if stillCurrent, frame.full, !firstFrameSent, statusFD >= 0 {
                         firstFrameSent = true
                         firstFrameLine = ControlBridge.encodeLine(["type": "paddock.first_frame"])
                     }
