@@ -193,6 +193,18 @@ public enum AllWorkspacesEntry {
         clipped.size.height = max(0, min(viewport.maxY, entry.minY) - viewport.minY)
         return clipped
     }
+
+    /// The rail's scroll offset to hold the instant a pane drag's entry row
+    /// grows the content by `addedMargin`. A rail already at its resting
+    /// maximum keeps that same content in view rather than losing it under
+    /// the newly added margin for the one frame before another scroll would
+    /// otherwise recover it; a rail with slack left is untouched.
+    public static func railOffsetPreservingMaximum(
+        offset: CGFloat, restingMaximum: CGFloat, addedMargin: CGFloat
+    ) -> CGFloat {
+        guard offset >= restingMaximum else { return offset }
+        return offset + addedMargin
+    }
 }
 
 /// Who an Esc belongs to.

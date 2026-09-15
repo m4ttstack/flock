@@ -21,6 +21,11 @@ struct WorkspaceRail: View {
         entryBottomInset: ChromeMetrics.Rail.verticalPadding,
         gap: ChromeMetrics.Rail.rowGap
     )
+    /// How much a pane drag's entry row grows the rows' scroll content over
+    /// the resting bottom padding. `DragCoordinator` adds this to a rail
+    /// already at its resting maximum the instant the drag begins, so the
+    /// margin never has a frame to hide the last row behind.
+    static let entryRowMarginDelta = bottomMarginDuringPaneDrag - ChromeMetrics.Rail.verticalPadding
 
     var body: some View {
         HStack(spacing: 0) {

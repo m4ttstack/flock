@@ -398,6 +398,18 @@ final class DragCoordinator {
         if case .pane = subject {
             isPaneDragInFlight = true
             NSCursor.closedHand.push()
+            // The entry row's margin is about to grow the rail's content
+            // beneath a resting scroll offset the row report above has not
+            // caught up to yet; nudge it now so the first frame with the
+            // entry row shown does not still hide the last row behind it.
+            let adjusted = AllWorkspacesEntry.railOffsetPreservingMaximum(
+                offset: railScrollExtent.offset,
+                restingMaximum: railScrollExtent.maximum,
+                addedMargin: WorkspaceRail.entryRowMarginDelta
+            )
+            if adjusted != railScrollExtent.offset {
+                railScroller?(adjusted)
+            }
         }
         holdsRearrangeOpen = rearrangeMode.active
         if holdsRearrangeOpen {

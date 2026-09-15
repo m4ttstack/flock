@@ -240,6 +240,24 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertTrue(scroller.pointerMoved(to: CGPoint(x: -100, y: entry.minY - 2), regions: region), "the band sits just above it")
     }
 
+    /// A rail already at its resting maximum when a pane drag begins must not
+    /// wait for another scroll to reveal its last row past the new margin.
+    func testARailAtItsRestingMaximumIsNudgedByTheAddedMargin() {
+        XCTAssertEqual(AllWorkspacesEntry.railOffsetPreservingMaximum(offset: 300, restingMaximum: 300, addedMargin: 28), 328)
+    }
+
+    /// Past the resting maximum (a momentary overscroll) is still "at rest"
+    /// for this purpose: the margin still must not swallow the last row.
+    func testARailPastItsRestingMaximumIsAlsoNudged() {
+        XCTAssertEqual(AllWorkspacesEntry.railOffsetPreservingMaximum(offset: 305, restingMaximum: 300, addedMargin: 28), 333)
+    }
+
+    /// A rail with slack left has nothing to protect: the margin lands below
+    /// what is already visible, so the offset is untouched.
+    func testARailWithRoomToSpareIsNotNudged() {
+        XCTAssertEqual(AllWorkspacesEntry.railOffsetPreservingMaximum(offset: 100, restingMaximum: 300, addedMargin: 28), 100)
+    }
+
     func testWithNoEntryRowTheRailKeepsItsRestingMarginAndViewport() {
         let viewport = CGRect(x: 0, y: 0, width: 192, height: 400)
         XCTAssertEqual(AllWorkspacesEntry.railViewport(viewport, above: nil), viewport)
