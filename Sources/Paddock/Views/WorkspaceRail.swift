@@ -36,7 +36,9 @@ struct WorkspaceRail: View {
                                 workspace: workspace,
                                 paneCount: viewModel.paneCount(for: workspace.workspaceID),
                                 isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
-                                isMultiSelected: drag.isWorkspaceMultiSelected(workspace.workspaceID),
+                                showsFill: drag.showsWorkspaceFill(
+                                    workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.selectedWorkspaceID
+                                ),
                                 displacement: drag.workspaceDisplacement(at: index),
                                 isGhosted: drag.isDragging(workspace: workspace.workspaceID)
                             )
@@ -48,7 +50,7 @@ struct WorkspaceRail: View {
                             .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
                             .onTapGesture {
                                 let commandHeld = NSEvent.modifierFlags.contains(.command)
-                                if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld) {
+                                if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld, current: viewModel.selectedWorkspaceID) {
                                     onSelect(workspace.workspaceID)
                                 }
                             }
@@ -107,9 +109,10 @@ private struct WorkspaceRow: View {
     let workspace: WorkspaceRecord
     let paneCount: Int
     let isSelected: Bool
-    /// In the rail's Cmd+click selection: the fill only, since the accent bar
-    /// and weight mark herdr's own selected workspace.
-    var isMultiSelected = false
+    /// The selection fill alone. The accent bar and weight always mark
+    /// herdr's selected workspace; the fill follows the Cmd+click selection
+    /// whenever one exists.
+    var showsFill = false
     /// How far this row slides to open the insertion gap.
     var displacement: CGFloat = 0
     /// The row this drag started from, left in place and faded.
@@ -139,7 +142,7 @@ private struct WorkspaceRow: View {
         .background(
             RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius)
                 .fill(theme.selection)
-                .opacity(isSelected || isMultiSelected ? 1 : 0)
+                .opacity(showsFill ? 1 : 0)
         )
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)

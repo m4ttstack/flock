@@ -654,12 +654,12 @@ final class DragCoordinator {
     // MARK: - Rail multi-selection
 
     /// True when the click is a plain one whose jump the caller should run.
-    func clickWorkspace(_ id: WorkspaceID, commandHeld: Bool) -> Bool {
-        updateSelection { $0.click(id, commandHeld: commandHeld) } == .jump(id)
+    func clickWorkspace(_ id: WorkspaceID, commandHeld: Bool, current: WorkspaceID?) -> Bool {
+        updateSelection { $0.click(id, commandHeld: commandHeld, current: current) } == .jump(id)
     }
 
-    func isWorkspaceMultiSelected(_ id: WorkspaceID) -> Bool {
-        workspaceSelection.contains(id)
+    func showsWorkspaceFill(_ id: WorkspaceID, isCurrent: Bool) -> Bool {
+        workspaceSelection.showsFill(id, isCurrent: isCurrent)
     }
 
     func workspaceDragSubject(pressing id: WorkspaceID) -> DragSubject {
@@ -667,8 +667,7 @@ final class DragCoordinator {
     }
 
     private func finishWorkspaceSelection() {
-        guard let activeSubject else { return }
-        updateSelection { $0.dragFinished(activeSubject) }
+        updateSelection { $0.dragFinished() }
     }
 
     /// Writes only a real change: rows observe the whole selection, and a

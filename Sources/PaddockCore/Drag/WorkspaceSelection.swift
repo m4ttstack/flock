@@ -28,11 +28,27 @@ public struct WorkspaceSelection: Equatable, Sendable {
 
     public func contains(_ id: WorkspaceID) -> Bool { ids.contains(id) }
 
-    public mutating func click(_ id: WorkspaceID, commandHeld: Bool) -> ClickEffect {
+    /// Whether row `id` draws the selection fill: herdr's current row while
+    /// nothing is selected, and only selected rows once something is. A
+    /// current row toggled out of a selection must not look like it will move
+    /// with the block.
+    public func showsFill(_ id: WorkspaceID, isCurrent: Bool) -> Bool {
+        ids.isEmpty ? isCurrent : ids.contains(id)
+    }
+
+    /// `current` is herdr's selected workspace, which already draws the fill,
+    /// so the Cmd+click that starts a selection takes it along. Once a
+    /// selection exists, Cmd+click toggles only the row clicked, `current`
+    /// included.
+    public mutating func click(_ id: WorkspaceID, commandHeld: Bool, current: WorkspaceID?) -> ClickEffect {
         isRailEngaged = true
         guard commandHeld else {
             ids.removeAll()
             return .jump(id)
+        }
+        if ids.isEmpty, let current, current != id {
+            ids = [current, id]
+            return .toggled
         }
         if ids.contains(id) {
             ids.remove(id)
@@ -69,15 +85,11 @@ public struct WorkspaceSelection: Equatable, Sendable {
         return true
     }
 
-    /// Only a drag of the rail's own rows ends the selection, by drop or by
-    /// Esc; a pane or tab drag leaves it alone.
-    public mutating func dragFinished(_ subject: DragSubject) {
-        switch subject {
-        case .workspace, .workspaces:
-            ids.removeAll()
-        case .pane, .tab:
-            break
-        }
+    /// A drop or an Esc ends the selection. Only a rail drag can arrive here
+    /// with one: every pane or tab drag starts with a press off the rail rows,
+    /// and `pointerPressed` has already cleared it.
+    public mutating func dragFinished() {
+        ids.removeAll()
     }
 
     /// Forgets every id `order` no longer carries, so a closed workspace
