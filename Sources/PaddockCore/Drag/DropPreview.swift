@@ -199,7 +199,7 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
         }
         return surfaces.tabFrames.first { $0.id == tab }?.frame
     case .moreTabs(let workspace):
-        return surfaces.grid?.moreTiles.first { $0.id == workspace }?.frame
+        return surfaces.grid?.tiles.first { $0.id == workspace }?.frame
     case .workspaceThumbnail(let workspace):
         if let grid = surfaces.grid {
             return grid.cards.first { $0.id == workspace }?.frame

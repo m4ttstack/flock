@@ -241,7 +241,7 @@ final class GridGeometryTests: XCTestCase {
             grid: grid ? GridDropSurfaces(
                 viewport: viewport,
                 thumbnails: [gridThumbnail, otherCardThumbnail, scrolledAway],
-                moreTiles: [plusTile],
+                tiles: [plusTile],
                 cards: [cardOne, cardTwo, cardThree]
             ) : nil
         )
@@ -254,8 +254,14 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 60, y: 100), dragging: pane, surfaces: surfaces(grid: true)), .tabThumbnail(TabID(rawValue: "w1:t2")))
     }
 
-    func testAPaneOverAPlusTileTargetsTheCardsHiddenTabs() {
+    /// Both tiles a card can show report as one grid item, so the "fewer" tile
+    /// of an expanded card refuses a drop exactly as "+N" does rather than
+    /// letting the card behind it make a tab.
+    func testAPaneOverACardsTileTargetsTheTileNeverTheCardBehindIt() {
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 170, y: 100), dragging: pane, surfaces: surfaces(grid: true)), .moreTabs(WorkspaceID(rawValue: "w1")))
+        guard case .failure(.noOp) = plan(dragging: pane, onto: .moreTabs(WorkspaceID(rawValue: "w1")), model: model()) else {
+            return XCTFail("a tile must spring back silently")
+        }
     }
 
     /// The card's empty space is whatever its thumbnails and tiles do not

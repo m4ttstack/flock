@@ -30,7 +30,8 @@ final class SpringLoadRelay {
 /// A grid item a drop can hit.
 enum GridItemID: Hashable, Sendable {
     case tab(TabID)
-    case moreTabs(WorkspaceID)
+    /// The one tile a card shows: "+N" at rest, "fewer" once expanded.
+    case tile(WorkspaceID)
     /// The whole workspace card, which the thumbnails and tiles sit inside.
     case card(WorkspaceID)
 }
@@ -409,16 +410,16 @@ final class DragCoordinator {
     private var gridSurfaces: GridDropSurfaces? {
         guard grid.isShown else { return nil }
         var thumbnails: [TabItemFrame] = []
-        var moreTiles: [WorkspaceItemFrame] = []
+        var tiles: [WorkspaceItemFrame] = []
         var cards: [WorkspaceItemFrame] = []
         for item in gridItems.onScreen {
             switch item.id {
             case .tab(let id): thumbnails.append(TabItemFrame(id: id, frame: item.frame))
-            case .moreTabs(let id): moreTiles.append(WorkspaceItemFrame(id: id, frame: item.frame))
+            case .tile(let id): tiles.append(WorkspaceItemFrame(id: id, frame: item.frame))
             case .card(let id): cards.append(WorkspaceItemFrame(id: id, frame: item.frame))
             }
         }
-        return GridDropSurfaces(viewport: gridViewport ?? .zero, thumbnails: thumbnails, moreTiles: moreTiles, cards: cards)
+        return GridDropSurfaces(viewport: gridViewport ?? .zero, thumbnails: thumbnails, tiles: tiles, cards: cards)
     }
 
     // MARK: - Tab strip wheel and reveal

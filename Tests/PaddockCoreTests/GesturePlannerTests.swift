@@ -557,7 +557,7 @@ final class GesturePlannerTests: XCTestCase {
             grid: GridDropSurfaces(
                 viewport: CGRect(x: 0, y: 0, width: 600, height: 600),
                 thumbnails: [TabItemFrame(id: TabID(rawValue: "w1:t2"), frame: CGRect(x: 10, y: 10, width: 100, height: 82))],
-                moreTiles: [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 120, y: 10, width: 100, height: 82))],
+                tiles: [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 120, y: 10, width: 100, height: 82))],
                 cards: [
                     WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 0, width: 240, height: 120)),
                     WorkspaceItemFrame(id: WorkspaceID(rawValue: "w2"), frame: CGRect(x: 260, y: 0, width: 240, height: 120)),

@@ -11,8 +11,9 @@ public enum DropTarget: Equatable, Sendable {
     case newTab(WorkspaceID)
     case newWorkspace
     case workspaceRail(insertIndex: Int)
-    /// A resting grid card's +N tile. It only expands the card on a dwell;
-    /// nothing lands there.
+    /// A grid card's tile: "+N" at rest, "fewer" once expanded. Nothing lands
+    /// on either; a dwell on the "+N" one expands the card so its hidden tabs
+    /// can take the drop instead.
     case moreTabs(WorkspaceID)
 }
 

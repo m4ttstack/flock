@@ -80,11 +80,10 @@ struct AllWorkspacesGrid: View {
         workspaces.flatMap { workspace in
             let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
             let cells = GridCardLayout.cells(tabs: tabs, expanded: drag.expandedGridCards.contains(workspace.workspaceID))
-            return [.card(workspace.workspaceID)] + cells.compactMap { cell -> GridItemID? in
+            return [.card(workspace.workspaceID)] + cells.map { cell -> GridItemID in
                 switch cell {
                 case .tab(let id): .tab(id)
-                case .moreTabs: .moreTabs(workspace.workspaceID)
-                case .collapse: nil
+                case .moreTabs, .collapse: .tile(workspace.workspaceID)
                 }
             }
         }
@@ -170,21 +169,26 @@ private struct WorkspaceCard: View {
                 TabThumbnail(theme: theme, viewModel: viewModel, tab: tab, isTargeted: drag.target == .tabThumbnail(id))
             }
         case .moreTabs(let hidden):
-            GridTile(
-                theme: theme, title: "+\(hidden)", label: "more tabs",
-                isTargeted: drag.target == .moreTabs(workspace.workspaceID), reportsAs: .moreTabs(workspace.workspaceID)
-            ) {
-                drag.toggleGridCard(workspace.workspaceID)
-            }
+            tile(title: "+\(hidden)", label: "more tabs")
         case .collapse:
-            GridTile(theme: theme, title: "fewer", label: "fewer tabs", isTargeted: false, reportsAs: nil) {
-                drag.toggleGridCard(workspace.workspaceID)
-            }
+            tile(title: "fewer", label: "fewer tabs")
+        }
+    }
+
+    /// Either tile a card can show. Neither takes a drop, so both refuse one
+    /// visibly rather than letting the card behind them make a tab.
+    private func tile(title: String, label: String) -> some View {
+        GridTile(
+            theme: theme, title: title, label: label,
+            isTargeted: drag.target == .moreTabs(workspace.workspaceID),
+            reportsAs: .tile(workspace.workspaceID)
+        ) {
+            drag.toggleGridCard(workspace.workspaceID)
         }
     }
 
     /// The accent outline: on whichever card owns the target, whether that is
-    /// one of its thumbnails, its +N tile, or the card itself.
+    /// one of its thumbnails, its tile, or the card itself.
     private func isTargeted(_ tabs: [TabRecord]) -> Bool {
         switch drag.target {
         case .tabThumbnail(let id)?: tabs.contains { $0.tabID == id }
@@ -369,8 +373,7 @@ private struct GridTile: View {
     let title: String
     let label: String
     let isTargeted: Bool
-    /// Only a tile a drop can dwell on reports its frame.
-    let reportsAs: GridItemID?
+    let reportsAs: GridItemID
     let action: () -> Void
 
     @Environment(DragCoordinator.self) private var drag
@@ -385,9 +388,7 @@ private struct GridTile: View {
                 .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
                 .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
                 .background {
-                    if let reportsAs {
-                        Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
-                    }
+                    Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
                 }
                 .contentShape(Rectangle())
                 .onTapGesture(perform: action)

@@ -30,16 +30,20 @@ public struct WorkspaceItemFrame: Equatable, Sendable {
 /// and tiles. A card's "empty space" is not a frame of its own: it is
 /// whatever of the card the thumbnails and tiles do not cover, which is why
 /// the card is hit-tested last.
+///
+/// `tiles` is the one tile a card shows, "+N" at rest and "fewer" once
+/// expanded. Neither takes a drop: both read as controls, so a release on
+/// either springs back rather than making a tab behind them.
 public struct GridDropSurfaces: Equatable, Sendable {
     public let viewport: CGRect
     public let thumbnails: [TabItemFrame]
-    public let moreTiles: [WorkspaceItemFrame]
+    public let tiles: [WorkspaceItemFrame]
     public let cards: [WorkspaceItemFrame]
 
-    public init(viewport: CGRect, thumbnails: [TabItemFrame], moreTiles: [WorkspaceItemFrame], cards: [WorkspaceItemFrame]) {
+    public init(viewport: CGRect, thumbnails: [TabItemFrame], tiles: [WorkspaceItemFrame], cards: [WorkspaceItemFrame]) {
         self.viewport = viewport
         self.thumbnails = thumbnails
-        self.moreTiles = moreTiles
+        self.tiles = tiles
         self.cards = cards
     }
 }
@@ -176,10 +180,11 @@ private func resolveZone(at point: CGPoint, dragging: DragSubject, surfaces: Dro
 }
 
 /// Rearranging from inside the grid. A pane lands in the tab whose thumbnail
-/// it is over, or in a new tab of whatever card it is over otherwise; a +N
-/// tile is where a dwell uncovers the tabs it stands for. A whole tab lands
-/// in a workspace, so the card is the only target it has, thumbnails and
-/// tiles included. A workspace drag has nothing to land on here.
+/// it is over, or in a new tab of whatever card it is over otherwise; a card's
+/// tile takes no drop, and a dwell on a "+N" one uncovers the tabs it stands
+/// for. A whole tab lands in a workspace, so the card is the only target it
+/// has, thumbnails and tiles included. A workspace drag has nothing to land
+/// on here.
 ///
 /// A thumbnail is a whole-tab target with no edge bands: it is far too small
 /// to divide into four zones, so nothing in the grid ever splits a pane.
@@ -193,7 +198,7 @@ private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDro
         if let hit = grid.thumbnails.first(where: { $0.frame.contains(point) }) {
             return .tabThumbnail(hit.id)
         }
-        if let hit = grid.moreTiles.first(where: { $0.frame.contains(point) }) {
+        if let hit = grid.tiles.first(where: { $0.frame.contains(point) }) {
             return .moreTabs(hit.id)
         }
         return card()

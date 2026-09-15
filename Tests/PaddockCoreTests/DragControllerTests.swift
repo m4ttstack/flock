@@ -210,7 +210,7 @@ final class DragControllerTests: XCTestCase {
             newTabZone: nil, newWorkspaceZone: nil,
             grid: GridDropSurfaces(
                 viewport: CGRect(x: 0, y: 0, width: 600, height: 300), thumbnails: [],
-                moreTiles: [WorkspaceItemFrame(id: Self.workspaceID, frame: CGRect(x: 10, y: 10, width: 80, height: 80))],
+                tiles: [WorkspaceItemFrame(id: Self.workspaceID, frame: CGRect(x: 10, y: 10, width: 80, height: 80))],
                 cards: []
             )
         )
