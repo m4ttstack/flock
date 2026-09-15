@@ -103,23 +103,23 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(written, ControlBridge.startupClearScreen)
     }
 
-    // MARK: - parseDimsCommand (paddock.dims: the pane's box grid)
+    // MARK: - PTYResizeRelay (the PTY's size is the only size herdr hears)
 
-    func testParseDimsCommandAcceptsPositiveDims() {
-        let line = ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40])!
-        XCTAssertEqual(ControlBridge.parseDimsCommand(line), .init(size: PTYSize(cols: 30, rows: 40), repaint: false))
+    func testRelaySendsEachNewWinsize() {
+        var relay = PTYResizeRelay(spawned: PTYSize(cols: 30, rows: 40))
+        XCTAssertEqual(relay.relay(PTYSize(cols: 60, rows: 41)), PTYSize(cols: 60, rows: 41))
+        XCTAssertEqual(relay.relay(PTYSize(cols: 30, rows: 40)), PTYSize(cols: 30, rows: 40), "back to the spawn size is a change too")
     }
 
-    func testParseDimsCommandReadsTheRepaintFlag() {
-        let line = ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40, "repaint": true])!
-        XCTAssertEqual(ControlBridge.parseDimsCommand(line), .init(size: PTYSize(cols: 30, rows: 40), repaint: true))
-    }
-
-    func testParseDimsCommandRejectsNonPositiveMissingOrOtherTypes() {
-        XCTAssertNil(ControlBridge.parseDimsCommand(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 0, "rows": 40])!))
-        XCTAssertNil(ControlBridge.parseDimsCommand(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30])!))
-        XCTAssertNil(ControlBridge.parseDimsCommand(ControlBridge.encodeLine(["type": "terminal.resize", "cols": 30, "rows": 40])!))
-        XCTAssertNil(ControlBridge.parseDimsCommand(Data("{not json".utf8)))
+    func testRelayDropsAnUnchangedOrUnreadableWinsize() {
+        var relay = PTYResizeRelay(spawned: PTYSize(cols: 30, rows: 40))
+        XCTAssertNil(relay.relay(PTYSize(cols: 30, rows: 40)), "herdr was spawned at this size")
+        XCTAssertEqual(relay.relay(PTYSize(cols: 60, rows: 41)), PTYSize(cols: 60, rows: 41))
+        XCTAssertNil(relay.relay(PTYSize(cols: 60, rows: 41)), "herdr already has this size")
+        XCTAssertNil(relay.relay(nil))
+        XCTAssertNil(relay.relay(PTYSize(cols: 0, rows: 41)))
+        XCTAssertNil(relay.relay(PTYSize(cols: 60, rows: 0)))
+        XCTAssertEqual(relay.herdrSize, PTYSize(cols: 60, rows: 41), "an unreadable size forgets nothing")
     }
 
     // MARK: - childArgv (one control child, for the bridge's whole life)
@@ -152,21 +152,14 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertNil(ControlBridge.parseFrame(line.dropLast()))
     }
 
-    /// herdr's CLI stamps every frame with the grid it rendered for.
-    func testParseFrameReadsHerdrsSizeAndFullFlag() {
-        let line = ControlBridge.encodeLine([
-            "type": "terminal.frame", "bytes": "aGk=", "width": 80, "height": 24, "full": true,
-        ])!
-        let frame = ControlBridge.parseFrame(line.dropLast())
-        XCTAssertEqual(frame?.size, PTYSize(cols: 80, rows: 24))
-        XCTAssertEqual(frame?.full, true)
+    func testParseFrameReadsTheFullFlag() {
+        let line = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": "aGk=", "full": true])!
+        XCTAssertEqual(ControlBridge.parseFrame(line.dropLast())?.full, true)
     }
 
-    func testParseFrameWithoutSizeOrFullFieldsIsAnUnsizedIncrementalFrame() {
+    func testParseFrameWithoutAFullFieldIsIncremental() {
         let line = ControlBridge.encodeLine(["type": "terminal.frame", "bytes": "aGk="])!
-        let frame = ControlBridge.parseFrame(line.dropLast())
-        XCTAssertNil(frame?.size)
-        XCTAssertEqual(frame?.full, false)
+        XCTAssertEqual(ControlBridge.parseFrame(line.dropLast())?.full, false)
     }
 
     func testEncodeInputBase64RoundTrips() {
@@ -209,6 +202,11 @@ final class ControlBridgeTests: XCTestCase {
 
     func testParseForwardableControlCommandRejectsNonTerminalType() {
         let line = ControlBridge.encodeLine(["type": "session.hello"])!
+        XCTAssertNil(ControlBridge.parseForwardableControlCommand(line.dropLast()))
+    }
+
+    func testParseForwardableControlCommandRejectsAResize() {
+        let line = ControlBridge.encodeLine(["type": "terminal.resize", "cols": 60, "rows": 41])!
         XCTAssertNil(ControlBridge.parseForwardableControlCommand(line.dropLast()))
     }
 
@@ -448,244 +446,110 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0)
     }
 
-    // MARK: - control pipe: paddock.dims drives the resize, SIGWINCH never does
+    // MARK: - resize: only the PTY's own size, only from SIGWINCH or the startup read
 
-    /// A `paddock.dims` line is intercepted: it fires the dims callback and is
-    /// never forwarded to herdr as-is; a `terminal.input` line after it still
-    /// forwards.
-    func testDimsCommandLineFiresTheCallbackAndIsNeverForwardedVerbatim() async throws {
-        let control = Pipe()
+    func testSIGWINCHSendsThePTYWinsize() async throws {
         let herdrIn = Pipe()
         let io = BridgeIO(
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 60, rows: 41) },
             onPeerGone: {}
         )
-        let receivedDims = LockedBox<[PTYSize]>([])
-        io.onDimsCommand = { size, _ in receivedDims.mutate { $0.append(size) } }
-        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+        io.startWinch()
 
-        let dimsLine = ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40])!
-        let inputLine = ControlBridge.encodeLine(["type": "terminal.input", "bytes": "aGk="])!
-        control.fileHandleForWriting.write(dimsLine)
-        control.fileHandleForWriting.write(inputLine)
-
-        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
-        let lines = forwarded.split(separator: 0x0A)
-        XCTAssertEqual(lines.count, 1, "only the terminal.input line is forwarded verbatim")
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(lines[0])) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.input")
-        XCTAssertEqual(receivedDims.value, [PTYSize(cols: 30, rows: 40)])
-    }
-
-    func testSeveralDimsLinesInOneReadCollapseToTheLastOne() async throws {
-        let control = Pipe()
-        let io = BridgeIO(herdrInFD: Pipe().fileHandleForWriting.fileDescriptor, onPeerGone: {})
-        let seen = LockedBox<[PTYSize]>([])
-        io.onDimsCommand = { size, _ in seen.mutate { $0.append(size) } }
-        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
-
-        let burst = [
-            ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40])!,
-            ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 40])!,
-            ControlBridge.encodeLine(["type": "paddock.dims", "cols": 90, "rows": 20])!,
-        ].reduce(Data()) { $0 + $1 }
-        control.fileHandleForWriting.write(burst)
-        try await Task.sleep(for: .milliseconds(150))
-
-        XCTAssertEqual(
-            seen.value, [PTYSize(cols: 90, rows: 20)],
-            "three dims lines in one read must collapse to a single request for the LAST one")
-    }
-
-    /// Wired the way `ControlBridge.run` wires it: a dims line reaches the
-    /// child owner, which sends `terminal.resize` with exactly those dims.
-    func testDimsCommandSendsTerminalResizeWithExactlyThoseDims() async throws {
-        let control = Pipe()
-        let herdrIn = Pipe()
-        let io = BridgeIO(
-            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
-            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
-        )
-        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
-        io.onDimsCommand = { size, repaint in owner.recordSize(size, repaint: repaint) }
-        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
-
-        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 41])!)
-
-        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: forwarded.split(separator: 0x0A)[0]) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.resize")
-        XCTAssertEqual(object["cols"] as? Int, 60)
-        XCTAssertEqual(object["rows"] as? Int, 41)
-    }
-
-    /// A settle's `repaint` gets an unchanged grid past the bridge's own
-    /// dedupe: herdr is sent the same dims again, which it answers with a full
-    /// frame.
-    func testARepaintDimsLineResendsAnUnchangedGrid() async throws {
-        let control = Pipe()
-        let herdrIn = Pipe()
-        let io = BridgeIO(
-            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
-            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
-        )
-        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
-        io.onDimsCommand = { size, repaint in owner.recordSize(size, repaint: repaint) }
-        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
-
-        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40])!)
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(
-            readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0,
-            "precondition: the unchanged grid alone sends nothing")
-
-        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 30, "rows": 40, "repaint": true])!)
+        kill(getpid(), SIGWINCH)
 
         let lines = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
         XCTAssertEqual(lines.count, 1)
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
         XCTAssertEqual(object["type"] as? String, "terminal.resize")
-        XCTAssertEqual(object["cols"] as? Int, 30)
-        XCTAssertEqual(object["rows"] as? Int, 40)
+        XCTAssertEqual(object["cols"] as? Int, 60)
+        XCTAssertEqual(object["rows"] as? Int, 41)
     }
 
-    /// Over real pipes: frames herdr rendered for another grid never reach the
-    /// PTY, a burst of them asks herdr for one repaint at the declared grid,
-    /// and the full frame that answers it is written.
-    func testAStaleFrameBurstIsDroppedAndAsksForOneRepaint() async throws {
-        let fromHerdr = Pipe()
-        let stdoutCapture = Pipe()
+    func testSIGWINCHWithAnUnchangedWinsizeSendsNothing() async throws {
         let herdrIn = Pipe()
+        let winsize = LockedBox(PTYSize(cols: 30, rows: 40))
         let io = BridgeIO(
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
-            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
             onPeerGone: {}
         )
-        io.seedDims(PTYSize(cols: 30, rows: 40))
-        io.startHerdrOutput(fromHerdr.fileHandleForReading)
+        io.startWinch()
 
-        for _ in 0..<3 {
-            fromHerdr.fileHandleForWriting.write(frameLine("STALE", cols: 20, rows: 40, full: false))
-        }
+        kill(getpid(), SIGWINCH)
         try await Task.sleep(for: .milliseconds(150))
-
-        XCTAssertEqual(readAllAvailableForTest(stdoutCapture.fileHandleForReading.fileDescriptor).count, 0)
-        let sent = readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
-        XCTAssertEqual(sent.count, 1, "three drops in one burst ask for one repaint")
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(sent.first))) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.resize")
-        XCTAssertEqual(object["cols"] as? Int, 30)
-
-        fromHerdr.fileHandleForWriting.write(frameLine("FULL", cols: 30, rows: 40, full: true))
-        let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
-        XCTAssertEqual(decoded, Data("FULL".utf8))
-    }
-
-    /// The PTY winsize is libghostty's terminal grid: a frame for the newly
-    /// declared grid is held while the PTY still reports the old one, and the
-    /// SIGWINCH that brings it level sends the one repaint that drop owes.
-    func testAFrameWaitsForThePTYToReachTheDeclaredGrid() async throws {
-        let fromHerdr = Pipe()
-        let stdoutCapture = Pipe()
-        let herdrIn = Pipe()
-        let surface = LockedBox(PTYSize(cols: 20, rows: 40))
-        let io = BridgeIO(
-            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
-            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
-            surfaceSize: { surface.value },
-            onPeerGone: {}
-        )
-        io.seedDims(PTYSize(cols: 20, rows: 40))
-        io.startSurfaceResizeWatch()
-        io.startHerdrOutput(fromHerdr.fileHandleForReading)
-        io.declareDims(PTYSize(cols: 30, rows: 40), repaint: false)
-        _ = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
-
-        fromHerdr.fileHandleForWriting.write(frameLine("EARLY", cols: 30, rows: 40, full: true))
-        try await Task.sleep(for: .milliseconds(50))
-        XCTAssertEqual(readAllAvailableForTest(stdoutCapture.fileHandleForReading.fileDescriptor).count, 0)
         XCTAssertEqual(
             readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0,
-            "no repaint is asked for before the surface can take it")
+            "herdr was spawned at the PTY's size")
 
-        surface.mutate { $0 = PTYSize(cols: 30, rows: 40) }
+        winsize.mutate { $0 = PTYSize(cols: 60, rows: 41) }
         kill(getpid(), SIGWINCH)
-
-        let repaint = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
-        XCTAssertEqual(repaint.count, 1)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(repaint.first))) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.resize")
-        XCTAssertEqual(object["cols"] as? Int, 30)
-
-        fromHerdr.fileHandleForWriting.write(frameLine("CLEAN", cols: 30, rows: 40, full: true))
-        let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
-        XCTAssertEqual(decoded, Data("CLEAN".utf8))
-    }
-
-    /// A SIGWINCH is never a size declaration: with no repaint owed, a fully
-    /// wired `BridgeIO` sends nothing at all when the signal lands.
-    func testSIGWINCHSendsNoResize() async throws {
-        let herdrIn = Pipe()
-        // Held for the whole test: a released write end would read as the
-        // PTY going away and send `terminal.release`, which is not a resize
-        // but would muddy the assertion below.
-        let stdinStandIn = Pipe()
-        let io = BridgeIO(
-            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
-            stdinFD: stdinStandIn.fileHandleForReading.fileDescriptor,
-            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
-        )
-        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
-        io.onDimsCommand = { size, repaint in owner.recordSize(size, repaint: repaint) }
-        io.startStdin()
-        io.startSurfaceResizeWatch()
-        io.startControlPipe(fd: Pipe().fileHandleForReading.fileDescriptor, closeOnCancel: false)
+        let sent = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(sent.split(separator: 0x0A).count, 1)
 
         kill(getpid(), SIGWINCH)
         try await Task.sleep(for: .milliseconds(150))
-
-        let sent = String(decoding: readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor), as: UTF8.self)
-        XCTAssertFalse(sent.contains("terminal.resize"), "SIGWINCH must never become a terminal.resize; got: \(sent)")
-        XCTAssertTrue(sent.isEmpty, "nothing at all is owed to herdr for a PTY winsize change; got: \(sent)")
-        withExtendedLifetime(stdinStandIn) {}
+        XCTAssertEqual(
+            readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0,
+            "a repeat of the size herdr already has sends nothing")
     }
 
-    // MARK: - BridgeChildOwner (one child, resized in place, terminated once)
+    func testTheStartupReadSendsOnlyWhenThePTYLeftTheSpawnSize() throws {
+        let moved = Pipe()
+        BridgeIO(
+            herdrInFD: moved.fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 60, rows: 41) },
+            onPeerGone: {}
+        ).relayPTYSize()
+        let lines = readAllAvailableForTest(moved.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
+        XCTAssertEqual(lines.count, 1)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "terminal.resize")
+        XCTAssertEqual(object["cols"] as? Int, 60)
+        XCTAssertEqual(object["rows"] as? Int, 41)
 
-    func testUnchangedDimsSendNoResize() {
+        let still = Pipe()
+        BridgeIO(
+            herdrInFD: still.fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
+            onPeerGone: {}
+        ).relayPTYSize()
+        XCTAssertEqual(readAllAvailableForTest(still.fileHandleForReading.fileDescriptor).count, 0)
+    }
+
+    /// The app has no way left to put a size in front of herdr: neither a
+    /// `terminal.resize` nor a legacy `paddock.dims` line on the control FIFO
+    /// reaches it, while ordinary input still does.
+    func testTheControlPipeCarriesNoSizeToHerdr() async throws {
+        let control = Pipe()
         let herdrIn = Pipe()
-        let io = BridgeIO(herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
-        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
+            onPeerGone: {}
+        )
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
 
-        owner.recordSize(PTYSize(cols: 30, rows: 40))
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "terminal.resize", "cols": 60, "rows": 41])!)
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "paddock.dims", "cols": 60, "rows": 41])!)
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "terminal.input", "bytes": "aGk="])!)
 
-        let sent = String(decoding: readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor), as: UTF8.self)
-        XCTAssertTrue(sent.isEmpty, "the child already runs at these dims; got: \(sent)")
+        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        try await Task.sleep(for: .milliseconds(80))
+        let lines = (forwarded + readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor)).split(separator: 0x0A)
+        XCTAssertEqual(lines.count, 1, "only the input line reaches herdr")
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "terminal.input")
     }
 
-    /// The PTY going away (the GUI tore the pane's surface down) latches the
-    /// owner: a dims line still queued behind that teardown must not reach a
-    /// child that is already being killed.
-    func testAResizeAfterThePeerIsGoneSendsNothing() {
-        let herdrIn = Pipe()
-        let io = BridgeIO(herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor, onPeerGone: {})
-        let owner = BridgeChildOwner(process: Process(), size: PTYSize(cols: 30, rows: 40), io: io)
-
-        owner.terminate()
-        owner.recordSize(PTYSize(cols: 60, rows: 40))
-
-        let sent = String(decoding: readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor), as: UTF8.self)
-        XCTAssertTrue(sent.isEmpty, "a resize racing the teardown must be dropped; got: \(sent)")
-    }
+    // MARK: - BridgeChildOwner (one child, terminated once)
 
     /// The child outlives the assertion window by seconds, so a `terminate()`
     /// that did nothing would still be running when this checks -- the test
@@ -694,8 +558,7 @@ final class ControlBridgeTests: XCTestCase {
         let proc = spawnTestChild(script: "sleep 30")
         guard proc.isRunning else { return XCTFail("failed to spawn the test child") }
         defer { if proc.isRunning { kill(proc.processIdentifier, SIGKILL) } }
-        let io = BridgeIO(herdrInFD: -1, onPeerGone: {})
-        let owner = BridgeChildOwner(process: proc, size: PTYSize(cols: 30, rows: 40), io: io)
+        let owner = BridgeChildOwner(process: proc)
 
         owner.terminate()
         owner.terminate()
@@ -868,13 +731,6 @@ private func waitForNonEmptyReadOfAtLeast(_ fd: Int32, lines: Int, timeout: Dura
         if ContinuousClock.now >= deadline { throw BridgeTimeoutError() }
         try await Task.sleep(for: .milliseconds(20))
     }
-}
-
-private func frameLine(_ text: String, cols: Int, rows: Int, full: Bool) -> Data {
-    ControlBridge.encodeLine([
-        "type": "terminal.frame", "bytes": Data(text.utf8).base64EncodedString(),
-        "width": cols, "height": rows, "full": full,
-    ])!
 }
 
 private func readAllAvailableForTest(_ fd: Int32) -> Data {

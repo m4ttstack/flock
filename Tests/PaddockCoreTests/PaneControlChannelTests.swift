@@ -18,27 +18,12 @@ final class PaneControlChannelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(readerFD, 0)
         defer { close(readerFD) }
 
-        channel.send(["type": "terminal.resize", "cols": 100, "rows": 40])
+        channel.send(["type": "terminal.input", "bytes": "aGk="])
 
         let line = try waitForNonEmptyReadFromFIFO(readerFD)
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: line.split(separator: 0x0A)[0]) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "terminal.resize")
-        XCTAssertEqual(object["cols"] as? Int, 100)
-        XCTAssertEqual(object["rows"] as? Int, 40)
-    }
-
-    func testSetDimsCarriesTheRepaintFlagTheBridgeReads() throws {
-        let channel = try XCTUnwrap(PaneControlChannel())
-        defer { channel.close() }
-        let readerFD = open(channel.path, O_RDONLY | O_NONBLOCK)
-        XCTAssertGreaterThanOrEqual(readerFD, 0)
-        defer { close(readerFD) }
-
-        channel.setDims(cols: 80, rows: 24)
-        channel.setDims(cols: 80, rows: 24, repaint: true)
-
-        let lines = try waitForNonEmptyReadFromFIFO(readerFD).split(separator: 0x0A)
-        XCTAssertEqual(lines.map { ControlBridge.parseDimsCommand(Data($0))?.repaint }, [false, true])
+        XCTAssertEqual(object["type"] as? String, "terminal.input")
+        XCTAssertEqual(object["bytes"] as? String, "aGk=")
     }
 
     /// Matches Herdglass's own `PaneControlChannel.scroll` wire shape
@@ -59,24 +44,6 @@ final class PaneControlChannelTests: XCTestCase {
         XCTAssertEqual(object["direction"] as? String, "up")
         XCTAssertEqual(object["lines"] as? Int, 5)
         XCTAssertEqual(object["source"] as? String, "wheel")
-    }
-
-    /// The pane's real herdr dims, paddock-namespaced so the bridge intercepts
-    /// the line instead of forwarding it.
-    func testSetDimsFramesAPaddockDimsLine() throws {
-        let channel = try XCTUnwrap(PaneControlChannel())
-        defer { channel.close() }
-        let readerFD = open(channel.path, O_RDONLY | O_NONBLOCK)
-        XCTAssertGreaterThanOrEqual(readerFD, 0)
-        defer { close(readerFD) }
-
-        channel.setDims(cols: 30, rows: 40)
-
-        let line = try waitForNonEmptyReadFromFIFO(readerFD)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: line.split(separator: 0x0A)[0]) as? [String: Any])
-        XCTAssertEqual(object["type"] as? String, "paddock.dims")
-        XCTAssertEqual(object["cols"] as? Int, 30)
-        XCTAssertEqual(object["rows"] as? Int, 40)
     }
 
     /// herdr drops (`terminal_sessions.rs`: "terminal.scroll lines must be
@@ -109,7 +76,7 @@ final class PaneControlChannelTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
 
         // Must not crash or reopen the unlinked path.
-        channel.send(["type": "terminal.resize", "cols": 80, "rows": 24])
+        channel.send(["type": "terminal.input", "bytes": "aGk="])
     }
 
     func testInitReturnsNilWhenDirectoryDoesNotExist() {
