@@ -1,9 +1,9 @@
 import PaddockCore
 import SwiftUI
 
-/// The floating proxy: the dragged item's own footprint, scaled down far
-/// enough to see the drop target under it, carrying its name. No tilt -- pane
-/// cells are content surfaces, and a tilted terminal reads as a glitch.
+/// The floating proxy: the dragged item's own footprint at one scale, carrying
+/// its name. No tilt -- pane cells are content surfaces, and a tilted terminal
+/// reads as a glitch.
 struct GhostOverlay: View {
     let theme: Theme
     let ghost: DragCoordinator.Ghost
@@ -13,24 +13,27 @@ struct GhostOverlay: View {
     var settling = false
 
     var body: some View {
-        let size = DragVisuals.ghostSize(forOrigin: ghost.originSize)
+        let size = DragVisuals.ghostSize(forOrigin: ghost.originSize, bounds: ghost.bounds)
+        let compact = ghost.isCompact
+        let labelled = carriesLabel(width: size.width)
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: ChromeMetrics.Ghost.spacing) {
+            HStack(spacing: compact ? ChromeMetrics.Ghost.compactSpacing : ChromeMetrics.Ghost.spacing) {
                 Image(systemName: ghost.symbol)
-                    .font(ChromeType.ghostSymbol)
-                Text(ghost.title)
-                    .font(ChromeType.ghostLabel)
-                    .lineLimit(1)
+                    .font(compact ? ChromeType.ghostCompactSymbol : ChromeType.ghostSymbol)
+                if labelled {
+                    Text(ghost.title)
+                        .font(compact ? ChromeType.ghostCompactLabel : ChromeType.ghostLabel)
+                        .lineLimit(1)
+                }
             }
             .foregroundStyle(theme.textStrong)
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: labelled ? .leading : .center)
+            if !compact {
+                Spacer(minLength: 0)
+            }
         }
-        .padding(ChromeMetrics.Ghost.padding)
-        .frame(
-            width: max(size.width, ChromeMetrics.Ghost.minimumSize.width),
-            height: max(size.height, ChromeMetrics.Ghost.minimumSize.height),
-            alignment: .topLeading
-        )
+        .padding(compact ? ChromeMetrics.Ghost.compactPadding : ChromeMetrics.Ghost.padding)
+        .frame(width: size.width, height: size.height, alignment: compact ? .leading : .topLeading)
         // Translucent so the tab or row under the pointer stays readable
         // through the proxy while it is being targeted.
         .background(theme.chrome.opacity(0.7), in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
@@ -40,5 +43,11 @@ struct GhostOverlay: View {
                 .opacity(settling ? 0 : 1)
         )
         .shadow(color: theme.chrome.opacity(0.5), radius: ChromeMetrics.Ghost.shadowRadius, y: ChromeMetrics.Ghost.shadowY)
+    }
+
+    /// A proxy sized from a narrow mini pane has no room for a title, and it
+    /// is the item's footprint that decides the box, never the label.
+    private func carriesLabel(width: CGFloat) -> Bool {
+        !ghost.isCompact || width >= ChromeMetrics.Ghost.compactLabelMinimumWidth
     }
 }

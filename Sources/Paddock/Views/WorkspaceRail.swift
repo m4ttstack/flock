@@ -131,8 +131,8 @@ private struct AllWorkspacesButton: View {
     }
 }
 
-/// A square block behind the glyph that appears on hover and deepens while the
-/// press is held.
+/// The selected-tab block behind the glyph, appearing on hover and taking a
+/// wash of accent while the press is held.
 private struct HeadingButtonStyle: ButtonStyle {
     let theme: Theme
     let isHovering: Bool
@@ -144,7 +144,12 @@ private struct HeadingButtonStyle: ButtonStyle {
             .frame(width: ChromeMetrics.Rail.headingButtonSize, height: ChromeMetrics.Rail.headingButtonSize)
             .background(
                 RoundedRectangle(cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius)
-                    .fill(configuration.isPressed ? theme.selection : theme.tabRest)
+                    .fill(theme.selection)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius)
+                            .fill(theme.accent)
+                            .opacity(configuration.isPressed ? ChromeMetrics.Rail.headingButtonPressedAccent : 0)
+                    )
                     .opacity(lit ? 1 : 0)
             )
             .contentShape(Rectangle())

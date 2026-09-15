@@ -23,13 +23,76 @@ final class DragVisualsTests: XCTestCase {
         XCTAssertEqual(size.height, 166.5, accuracy: 0.001)
     }
 
-    func testGhostSizeLeavesSomethingAlreadySmallerAlone() {
-        let size = DragVisuals.ghostSize(forOrigin: CGSize(width: 90, height: 30))
-        XCTAssertEqual(size, CGSize(width: 90, height: 30))
+    /// The floor is reached by scaling BOTH axes, never by stretching the
+    /// short one: a tab pill is a wider, shorter proxy than a rail row, and a
+    /// per-axis `max()` would hand them the same box.
+    func testGhostSizeLiftsASmallOriginProportionallyRatherThanStretchingIt() {
+        let pill = DragVisuals.ghostSize(forOrigin: CGSize(width: 100, height: 28))
+        XCTAssertEqual(pill.width, 192, accuracy: 0.001, "the binding axis just meets the floor")
+        XCTAssertEqual(pill.height, 53.76, accuracy: 0.001)
+
+        let row = DragVisuals.ghostSize(forOrigin: CGSize(width: 172, height: 27))
+        XCTAssertEqual(row.height, 41, accuracy: 0.001, "here the height binds instead")
+        XCTAssertEqual(row.width, 261.185, accuracy: 0.001)
+        XCTAssertNotEqual(pill, row)
     }
 
-    func testGhostSizeFallsBackToTheCapForADegenerateOrigin() {
-        XCTAssertEqual(DragVisuals.ghostSize(forOrigin: .zero), CGSize(width: 333, height: 205))
+    /// The compact bounds are the same rule at grid scale: a mini pane and a
+    /// thumbnail both already sit inside them, so each proxy is its own
+    /// footprint exactly.
+    func testAGridOriginIsItsOwnFootprintUnderTheCompactBounds() {
+        let compact = DragVisuals.compactGhostBounds
+        XCTAssertEqual(DragVisuals.ghostSize(forOrigin: CGSize(width: 45, height: 74), bounds: compact), CGSize(width: 45, height: 74))
+        XCTAssertEqual(DragVisuals.ghostSize(forOrigin: CGSize(width: 74, height: 74), bounds: compact), CGSize(width: 74, height: 74))
+        XCTAssertEqual(DragVisuals.ghostSize(forOrigin: CGSize(width: 103, height: 82), bounds: compact), CGSize(width: 103, height: 82))
+    }
+
+    /// Wide, tall, square and pill, under both bounds: one scale factor, so
+    /// the proxy is always the origin's own shape and never outgrows the cap.
+    func testEveryProxyKeepsItsOriginsAspectAndStaysInsideTheCap() {
+        let origins = [
+            CGSize(width: 800, height: 400), CGSize(width: 400, height: 900), CGSize(width: 74, height: 74),
+            CGSize(width: 100, height: 28), CGSize(width: 45, height: 74), CGSize(width: 103, height: 82),
+            CGSize(width: 1200, height: 60),
+        ]
+        for bounds in [DragVisuals.ghostBounds, DragVisuals.compactGhostBounds] {
+            for origin in origins {
+                let size = DragVisuals.ghostSize(forOrigin: origin, bounds: bounds)
+                XCTAssertEqual(size.width / size.height, origin.width / origin.height, accuracy: 0.0001, "\(origin) \(size)")
+                XCTAssertLessThanOrEqual(size.width, bounds.maximum.width + 0.0001, "\(origin) \(size)")
+                XCTAssertLessThanOrEqual(size.height, bounds.maximum.height + 0.0001, "\(origin) \(size)")
+            }
+        }
+    }
+
+    /// A shape neither box can satisfy at once. The cap wins: a proxy that
+    /// covers the drop target is worse than one that is small.
+    func testAnOriginTooWideToMeetBothBoundsStaysInsideTheCap() {
+        let size = DragVisuals.ghostSize(forOrigin: CGSize(width: 1200, height: 60))
+        XCTAssertEqual(size.width, 333, accuracy: 0.001)
+        XCTAssertEqual(size.height, 16.65, accuracy: 0.001)
+        XCTAssertLessThan(size.height, DragVisuals.ghostBounds.minimum.height)
+    }
+
+    func testGhostSizeFallsBackToTheFloorForADegenerateOrigin() {
+        XCTAssertEqual(DragVisuals.ghostSize(forOrigin: .zero), DragVisuals.ghostBounds.minimum)
+    }
+
+    /// A drop that commits nothing bounces the proxy onto the middle of the
+    /// item it came from, wherever inside that item the press landed.
+    func testAnUncommittedDropSettlesOntoTheItemItWasPickedUpFrom() {
+        let home = CGRect(x: 100, y: 200, width: 60, height: 80)
+        let ghost = CGSize(width: 60, height: 80)
+        let top = DragVisuals.settleHomeTopLeft(origin: home, grabPoint: CGPoint(x: 105, y: 275), ghostSize: ghost)
+        XCTAssertEqual(top, CGPoint(x: 100, y: 200))
+    }
+
+    /// Without a recorded origin frame the press point is the stand-in, which
+    /// is what every drag outside the grid still uses.
+    func testWithNoOriginFrameTheSettleFallsBackToThePressPoint() {
+        let ghost = CGSize(width: 60, height: 80)
+        let top = DragVisuals.settleHomeTopLeft(origin: nil, grabPoint: CGPoint(x: 105, y: 275), ghostSize: ghost)
+        XCTAssertEqual(top, CGPoint(x: 75, y: 235))
     }
 
     func testThresholdRejectsAPressThatBarelyMoves() {

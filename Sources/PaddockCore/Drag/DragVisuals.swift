@@ -32,13 +32,59 @@ public enum DragVisuals {
         CGPoint(x: point.x - ghostSize.width / 2, y: point.y - ghostSize.height / 2)
     }
 
-    /// The proxy's size: the origin item scaled down but never past
-    /// `maximum`, aspect preserved, so a full-window pane and a tab both
-    /// produce something small enough to see the drop target under.
-    public static func ghostSize(forOrigin origin: CGSize, maximum: CGSize = CGSize(width: 333, height: 205)) -> CGSize {
-        guard origin.width > 0, origin.height > 0 else { return maximum }
-        let scale = min(1, min(maximum.width / origin.width, maximum.height / origin.height))
+    /// What a proxy may not outgrow, and what it may not shrink below.
+    /// `maximum` is the hard bound of the two (see `ghostSize`).
+    public struct GhostBounds: Equatable, Sendable {
+        public let maximum: CGSize
+        public let minimum: CGSize
+
+        public init(maximum: CGSize, minimum: CGSize) {
+            self.maximum = maximum
+            self.minimum = minimum
+        }
+    }
+
+    /// A drag in the window: a full-window pane has to come down far enough to
+    /// see the target under it, and a tab pill has to come up far enough to
+    /// read.
+    public static let ghostBounds = GhostBounds(
+        maximum: CGSize(width: 333, height: 205), minimum: CGSize(width: 192, height: 41)
+    )
+
+    /// A drag that starts inside the All Workspaces grid, where a thumbnail is
+    /// around 103x82 and a mini pane smaller still: at window bounds the proxy
+    /// would cover the target it is aimed at and most of its card.
+    public static let compactGhostBounds = GhostBounds(
+        maximum: CGSize(width: 112, height: 88), minimum: CGSize(width: 44, height: 22)
+    )
+
+    /// The proxy's size: the origin at ONE scale factor, so the proxy is
+    /// always the dragged item's own shape. Never a per-axis stretch, which
+    /// hands a tall pane the same box as a wide one.
+    ///
+    /// The factor is 1 -- the item's own footprint -- unless that overflows
+    /// `bounds.maximum`, where it shrinks to fit, or falls under
+    /// `bounds.minimum`, where it grows to reach it. The maximum is the hard
+    /// bound: an origin whose shape cannot satisfy both (far wider or far
+    /// narrower than either box) stays inside the maximum and comes out under
+    /// the minimum, since a proxy that covers the drop target is worse than a
+    /// small one.
+    public static func ghostSize(forOrigin origin: CGSize, bounds: GhostBounds = DragVisuals.ghostBounds) -> CGSize {
+        guard origin.width > 0, origin.height > 0 else { return bounds.minimum }
+        let fit = min(bounds.maximum.width / origin.width, bounds.maximum.height / origin.height)
+        let lift = max(bounds.minimum.width / origin.width, bounds.minimum.height / origin.height)
+        let scale = min(fit, max(1, lift))
         return CGSize(width: origin.width * scale, height: origin.height * scale)
+    }
+
+    /// Where the proxy settles when a drop does not commit: centered on the
+    /// item it was picked up from, so it bounces back onto that item rather
+    /// than onto wherever inside it the press happened to land. `origin` is
+    /// that item's frame in the drag space; without one the press point is the
+    /// best available stand-in.
+    public static func settleHomeTopLeft(origin: CGRect?, grabPoint: CGPoint, ghostSize: CGSize) -> CGPoint {
+        let home = origin.map { CGPoint(x: $0.midX, y: $0.midY) } ?? grabPoint
+        return ghostTopLeft(forCursor: home, ghostSize: ghostSize)
     }
 }
 

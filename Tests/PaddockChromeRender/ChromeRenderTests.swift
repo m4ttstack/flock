@@ -178,7 +178,9 @@ final class ChromeRenderTests: XCTestCase {
         ).first { $0.pane == GridFixture.claudePane })
         harness.drag.beginIfIdle(
             .pane(GridFixture.claudePane),
-            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: claude.frame.size),
+            ghost: DragCoordinator.Ghost(
+                title: "claude", symbol: "macwindow", originSize: claude.frame.size, isCompact: true
+            ),
             at: CGPoint(x: source.minX + claude.frame.midX, y: source.minY + claude.frame.midY)
         )
 

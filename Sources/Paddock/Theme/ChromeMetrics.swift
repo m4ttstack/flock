@@ -41,6 +41,9 @@ enum ChromeMetrics {
         /// above and the gap below.
         static let headingButtonSize: CGFloat = 22
         static let headingButtonCornerRadius: CGFloat = 3
+        /// How much accent a held press blends over the selection fill, so
+        /// pressed reads a step deeper than hover.
+        static let headingButtonPressedAccent: Double = 0.2
     }
 
     enum WorkspaceRow {
@@ -162,11 +165,14 @@ enum ChromeMetrics {
     }
 
     enum Ghost {
-        /// The floor for a proxy whose origin is tiny (a tab, a rail row), so
-        /// the label always has somewhere to sit.
-        static let minimumSize = CGSize(width: 192, height: 41)
         static let padding: CGFloat = 10
         static let spacing: CGFloat = 8
+        static let compactPadding: CGFloat = 6
+        static let compactSpacing: CGFloat = 6
+        /// Narrower than this and a compact proxy carries its glyph alone: the
+        /// proxy is sized from the item it stands for, so it is never widened
+        /// to fit a label.
+        static let compactLabelMinimumWidth: CGFloat = 64
         static let shadowRadius: CGFloat = 18
         static let shadowY: CGFloat = 10
     }

@@ -72,6 +72,8 @@ enum ChromeType {
 
     static let ghostSymbol = Font.system(size: 14, weight: .semibold)
     static let ghostLabel = inter(14, .semibold)
+    static let ghostCompactSymbol = Font.system(size: 10.5, weight: .semibold)
+    static let ghostCompactLabel = inter(11.5, .semibold)
     static let ratioLabel = inter(13, .semibold)
 
     static func inter(_ size: CGFloat, _ weight: Weight = .regular) -> Font {

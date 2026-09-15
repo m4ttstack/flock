@@ -54,6 +54,13 @@ final class DragCoordinator {
         let title: String
         let symbol: String
         let originSize: CGSize
+        /// A drag that started inside the All Workspaces grid, where a
+        /// window-scale proxy would cover the thumbnail it is aimed at.
+        var isCompact = false
+
+        var bounds: DragVisuals.GhostBounds {
+            isCompact ? DragVisuals.compactGhostBounds : DragVisuals.ghostBounds
+        }
     }
 
     /// A committed drop's landing zone while it flashes.
@@ -183,6 +190,10 @@ final class DragCoordinator {
     @ObservationIgnored private var generation = 0
     /// Where the gesture started, for the cancel spring-back.
     @ObservationIgnored private var grabPoint: CGPoint = .zero
+    /// The frame of the item the drag was picked up from, in the drag space.
+    /// A drop that commits nothing sends the ghost back onto it rather than
+    /// onto the point inside it that happened to be pressed.
+    @ObservationIgnored private var homeFrame: CGRect?
     /// Whether this drag is the one holding rearrange mode open. Only a drag
     /// that STARTED in rearrange mode does: the hold exists so releasing
     /// Control mid-drag does not repaint the panes, and a chrome drag at rest
@@ -422,13 +433,14 @@ final class DragCoordinator {
     /// (the pane body's AppKit path and a SwiftUI gesture both seeing it, say)
     /// finds the gesture already live and does nothing, so no view needs a
     /// latch of its own to remember what it started.
-    func beginIfIdle(_ subject: DragSubject, ghost: Ghost, at point: CGPoint) {
+    func beginIfIdle(_ subject: DragSubject, ghost: Ghost, at point: CGPoint, home: CGRect? = nil) {
         guard machine.handle(.begin) == .start else { return }
         generation += 1
         outcomes.generation = generation
         settleTask?.cancel()
         isSettling = false
         grabPoint = point
+        homeFrame = home
         activeSubject = subject
         self.ghost = ghost
         ghostTopLeft = ghostTopLeft(centeredOn: point)
@@ -481,7 +493,7 @@ final class DragCoordinator {
         teardown()
         finishWorkspaceSelection()
         guard case .dragging = controller.phase else {
-            settle(to: ghostTopLeft(centeredOn: grabPoint))
+            settleHome()
             return
         }
         let surfaces = surfaces
@@ -503,7 +515,7 @@ final class DragCoordinator {
         teardown(keepingMonitors: true)
         finishWorkspaceSelection()
         controller.cancelled()
-        settle(to: ghostTopLeft(centeredOn: grabPoint))
+        settleHome()
     }
 
     /// The app went inactive or the window closed with the button still down,
@@ -518,10 +530,12 @@ final class DragCoordinator {
         generation += 1
         teardown()
         controller.cancelled()
-        settle(to: ghostTopLeft(centeredOn: grabPoint))
+        settleHome()
     }
 
-    private func release() {
+    /// The button coming up, from the window monitor above and from the
+    /// offscreen render harness.
+    func release() {
         guard machine.handle(.release) == .end else {
             removeMonitors()
             return
@@ -555,17 +569,21 @@ final class DragCoordinator {
             // The only public way back to `.idle` from `.rejected`, and it
             // issues no commit of its own.
             controller.cancelled()
-            settle(to: ghostTopLeft(centeredOn: grabPoint))
+            settleHome()
             return
         }
         guard outcomes.last?.generation == generation, outcomes.last?.outcome == .committed else {
-            settle(to: ghostTopLeft(centeredOn: grabPoint))
+            settleHome()
             return
         }
         if let flashRect {
             flash(flashRect)
         }
-        settle(to: settleRect?.origin ?? ghostTopLeft(centeredOn: grabPoint))
+        guard let settleRect else {
+            settleHome()
+            return
+        }
+        settle(to: settleRect.origin)
     }
 
     private func releaseRearrangeHold() {
@@ -579,9 +597,22 @@ final class DragCoordinator {
     /// against one, so the pointer itself is the answer.
     private func ghostTopLeft(centeredOn point: CGPoint) -> CGPoint {
         guard let ghost else { return point }
-        return DragVisuals.ghostTopLeft(
-            forCursor: point, ghostSize: DragVisuals.ghostSize(forOrigin: ghost.originSize)
-        )
+        return DragVisuals.ghostTopLeft(forCursor: point, ghostSize: ghostSize(ghost))
+    }
+
+    /// The spring back onto the item the drag came from, for every ending that
+    /// commits nothing: no target, a target with no landing rect, a no-op, a
+    /// rejection, Esc, and an abandoned gesture.
+    private func settleHome() {
+        guard let ghost else {
+            settle(to: grabPoint)
+            return
+        }
+        settle(to: DragVisuals.settleHomeTopLeft(origin: homeFrame, grabPoint: grabPoint, ghostSize: ghostSize(ghost)))
+    }
+
+    private func ghostSize(_ ghost: Ghost) -> CGSize {
+        DragVisuals.ghostSize(forOrigin: ghost.originSize, bounds: ghost.bounds)
     }
 
     private func settle(to topLeft: CGPoint) {

@@ -247,27 +247,40 @@ private struct TabThumbnail: View {
     private var tabDrag: some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
+                let home = thumbnailFrame
                 drag.beginIfIdle(
                     .tab(tab.tabID),
                     ghost: DragCoordinator.Ghost(
-                        title: tab.label,
-                        symbol: "rectangle.stack",
-                        originSize: drag.surfaces?.grid?.thumbnails.first { $0.id == tab.tabID }?.frame.size ?? .zero
+                        title: tab.label, symbol: "rectangle.stack",
+                        originSize: home?.size ?? .zero, isCompact: true
                     ),
-                    at: value.startLocation
+                    at: value.startLocation,
+                    home: home
                 )
             }
     }
 
-    /// A mini pane is a preview, never a surface, so the proxy carries the
-    /// pane's title over the mini pane's own footprint.
-    private func paneDrag(_ pane: PaneRecord, origin: CGSize) -> some Gesture {
+    /// On screen, in the drag space: where a released drag springs back to,
+    /// and what a mini pane's own frame is measured from.
+    private var thumbnailFrame: CGRect? {
+        drag.surfaces?.grid?.thumbnails.first { $0.id == tab.tabID }?.frame
+    }
+
+    /// A mini pane is a preview, never a surface, so the proxy is the mini
+    /// pane's own footprint carrying the pane's title. `box` is in the
+    /// thumbnail's space; the thumbnail's own frame places it in the drag
+    /// space.
+    private func paneDrag(_ pane: PaneRecord, box: CGRect) -> some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
+                let home = thumbnailFrame.map { $0.origin.offsetting(box) }
                 drag.beginIfIdle(
                     .pane(pane.paneID),
-                    ghost: DragCoordinator.Ghost(title: pane.displayTitle, symbol: "macwindow", originSize: origin),
-                    at: value.startLocation
+                    ghost: DragCoordinator.Ghost(
+                        title: pane.displayTitle, symbol: "macwindow", originSize: box.size, isCompact: true
+                    ),
+                    at: value.startLocation,
+                    home: home
                 )
             }
     }
@@ -293,7 +306,7 @@ private struct TabThumbnail: View {
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
-                        .gesture(paneDrag(pane, origin: placed.frame.size))
+                        .gesture(paneDrag(pane, box: placed.frame))
                         // In the drag space, where the card is placed: a
                         // scroll or reflow under a still pointer leaves the
                         // pointer, and so the card, where it is.
@@ -466,5 +479,12 @@ private struct PaneHoverCardView: View {
             RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.cornerRadius)
                 .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
         )
+    }
+}
+
+private extension CGPoint {
+    /// `rect`, stated relative to this point instead of to its own origin.
+    func offsetting(_ rect: CGRect) -> CGRect {
+        CGRect(x: x + rect.minX, y: y + rect.minY, width: rect.width, height: rect.height)
     }
 }
