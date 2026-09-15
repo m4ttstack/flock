@@ -348,7 +348,7 @@ final class DropResolverTests: XCTestCase {
         )
     }
 
-    /// Past the last pill means "move it to the end", never "make a new tab":
+    /// Past the last tab means "move it to the end", never "make a new tab":
     /// the strip owns the same free run for a tab subject.
     func testTabOverTheStripsFreeRunIsTheEndInsertIndex() throws {
         XCTAssertEqual(

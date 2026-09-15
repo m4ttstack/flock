@@ -166,8 +166,8 @@ public final class RearrangeMode {
 }
 
 /// Installs `RearrangeMode`'s event monitor once this hosting view has a
-/// window, mirroring `MainWindow.TitlebarConfigurator`'s own
-/// window-not-yet-available dance. Teardown is `RearrangeMode.deinit`, not
+/// window, which a freshly made view does not have yet; hence the deferred
+/// attach below. Teardown is `RearrangeMode.deinit`, not
 /// this representable's dismantle: the app has exactly one window for its
 /// whole life, so the monitor's lifetime is the app's.
 struct RearrangeOptionMonitorHost: NSViewRepresentable {

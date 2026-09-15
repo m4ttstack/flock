@@ -84,11 +84,20 @@ final class ChromeRolesTests: XCTestCase {
         }
     }
 
-    func testSelectionCarriesEachThemesOwnAccent() {
-        let roles = ThemePalette.dracula.chromeRoles
-        let expected = roles.chrome.mixed(with: roles.accent, amount: ChromeRoles.selectionAccentAmount)
-        XCTAssertEqual(roles.selection, expected)
-        XCTAssertNotEqual(roles.selection, roles.chrome)
+    /// A tint of chrome toward the theme's own accent: every channel between
+    /// the two, nearer chrome than accent, and visibly off chrome.
+    func testSelectionIsChromeTintedTowardEachThemesOwnAccent() {
+        let derived = ThemePalette.builtins.filter { $0.selectionOverride == nil }
+        XCTAssertEqual(derived.count, ThemePalette.builtins.count - 1)
+        for palette in derived {
+            let roles = palette.chromeRoles
+            XCTAssertNotEqual(roles.selection, roles.chrome, palette.id)
+            let channels = zip(zip(roles.chrome.channels, roles.accent.channels), roles.selection.channels)
+            for ((chrome, accent), selection) in channels {
+                XCTAssertTrue((min(chrome, accent)...max(chrome, accent)).contains(selection), "\(palette.id): \(roles.selection.hex) leaves chrome..accent")
+                XCTAssertLessThanOrEqual(abs(selection - chrome) * 2, abs(accent - chrome) + 1, "\(palette.id): \(roles.selection.hex) is nearer the accent")
+            }
+        }
     }
 
     func testContrastRatioMatchesTheWCAGExtremes() {
