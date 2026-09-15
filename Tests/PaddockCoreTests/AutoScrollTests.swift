@@ -135,6 +135,41 @@ final class AutoScrollTests: XCTestCase {
         XCTAssertNotNil(scroller.tick(pointer: railTop, regions: regions, elapsed: 1.0 / 60))
     }
 
+    /// The rail's entry row dwell opens the grid under a still pointer that
+    /// already sits in the grid's bottom band. A suppression keyed to the
+    /// rail would clear on the first report over the grid and scroll it.
+    func testASpringLoadThatSwapsTheSurfacesHoldsEveryBandUntilThePointerLeavesThemAll() throws {
+        var scroller = AutoScroller()
+        let railRegions = [railRegion(offset: 0)]
+        let onEntryRow = CGPoint(x: 90, y: rail.maxY - 10)
+        let gridViewport = CGRect(x: 0, y: 26, width: 900, height: 400)
+        let gridRegions = [AutoScroller.Region(surface: .grid, viewport: gridViewport, axis: .vertical, offset: 0, maximumOffset: 800)]
+
+        scroller.springLoaded(pointer: onEntryRow, regions: railRegions, swapsSurfaces: true)
+
+        XCTAssertFalse(scroller.pointerMoved(to: onEntryRow, regions: gridRegions))
+        XCTAssertNil(scroller.tick(pointer: onEntryRow, regions: gridRegions, elapsed: 1.0 / 60))
+        XCTAssertFalse(scroller.pointerMoved(to: CGPoint(x: 90, y: gridViewport.maxY - 2), regions: gridRegions), "a deeper point in the same band is still held")
+
+        XCTAssertFalse(scroller.pointerMoved(to: CGPoint(x: 90, y: gridViewport.midY), regions: gridRegions))
+        XCTAssertTrue(scroller.pointerMoved(to: onEntryRow, regions: gridRegions))
+        XCTAssertNotNil(scroller.tick(pointer: onEntryRow, regions: gridRegions, elapsed: 1.0 / 60))
+    }
+
+    func testASpringLoadThatKeepsTheSurfacesLetsAnotherSurfaceScrollAtOnce() throws {
+        var scroller = AutoScroller()
+        scroller.springLoaded(pointer: railTop, regions: [railRegion(offset: 100)])
+        let stripRegion = AutoScroller.Region(surface: .strip, viewport: strip, axis: .horizontal, offset: 50, maximumOffset: 300)
+        XCTAssertTrue(scroller.pointerMoved(to: CGPoint(x: strip.maxX - 1, y: strip.midY), regions: [railRegion(offset: 100), stripRegion]))
+    }
+
+    func testResetForgetsASurfaceSwapSuppression() throws {
+        var scroller = AutoScroller()
+        scroller.springLoaded(pointer: railTop, regions: [railRegion(offset: 100)], swapsSurfaces: true)
+        scroller.reset()
+        XCTAssertNotNil(scroller.tick(pointer: railTop, regions: [railRegion(offset: 100)], elapsed: 1.0 / 60))
+    }
+
     func testResetForgetsBothTheCarriedOffsetAndASuppression() throws {
         var scroller = AutoScroller()
         let regions = [railRegion(offset: 100)]

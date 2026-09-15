@@ -87,6 +87,11 @@ public struct AutoScroller: Equatable, Sendable {
     /// left it: the reveal just changed what is under the pointer, and
     /// scrolling on would carry the drop somewhere the user never looked.
     private var suppressed: Surface?
+    /// Set by a spring load that swapped the surfaces themselves (the grid
+    /// opening or closing). The pointer's old band says nothing about the new
+    /// surfaces, so every band stays still until the pointer is outside all
+    /// of them.
+    private var suppressesAll = false
 
     public init() {}
 
@@ -96,8 +101,10 @@ public struct AutoScroller: Equatable, Sendable {
         guard let hovered = Self.hovered(pointer, regions) else {
             carried = nil
             suppressed = nil
+            suppressesAll = false
             return false
         }
+        guard !suppressesAll else { return false }
         if let suppressed, suppressed != hovered.region.surface {
             self.suppressed = nil
         }
@@ -115,8 +122,10 @@ public struct AutoScroller: Equatable, Sendable {
         guard let hovered = Self.hovered(pointer, regions) else {
             carried = nil
             suppressed = nil
+            suppressesAll = false
             return nil
         }
+        guard !suppressesAll else { return nil }
         if let suppressed {
             guard suppressed != hovered.region.surface else { return nil }
             self.suppressed = nil
@@ -129,14 +138,19 @@ public struct AutoScroller: Equatable, Sendable {
         return next == base ? nil : step
     }
 
-    public mutating func springLoaded(pointer: CGPoint, regions: [Region]) {
+    /// `regions` are the surfaces the dwell happened over. `swapsSurfaces`
+    /// means the reveal replaces them, so no band may scroll until the
+    /// pointer has been outside every band once.
+    public mutating func springLoaded(pointer: CGPoint, regions: [Region], swapsSurfaces: Bool = false) {
         carried = nil
         suppressed = Self.hovered(pointer, regions)?.region.surface
+        suppressesAll = swapsSurfaces
     }
 
     public mutating func reset() {
         carried = nil
         suppressed = nil
+        suppressesAll = false
     }
 
     private func currentOffset(_ region: Region) -> CGFloat {
