@@ -43,7 +43,7 @@ final class ChromeRenderTests: XCTestCase {
     /// A face that failed to register resolves to the system font with no
     /// error, so only a lookup by name shows the chrome is really in Inter.
     func testChromeFacesResolveToInterWithDistinctWeights() throws {
-        ChromeType.registerBundledFonts()
+        ChromeType.install()
         var weights: [CGFloat] = []
         for weight in ChromeType.Weight.allCases {
             let font = try XCTUnwrap(NSFont(name: weight.postScriptName, size: 14), weight.postScriptName)
@@ -221,7 +221,7 @@ private struct Harness {
     let viewModel: SessionViewModel
 
     init(theme: Theme) async throws {
-        ChromeType.registerBundledFonts()
+        ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
         themeStore = ThemeStore(userDefaults: defaults)
         themeStore.select(theme)

@@ -67,13 +67,18 @@ enum ChromeType {
         .custom(TerminalFont.face, fixedSize: size)
     }
 
-    /// Must run before the first chrome view resolves a font: a face that is
-    /// not registered yet resolves to the system face, with no error.
-    static func registerBundledFonts() {
-        _ = registration
+    /// Must run before the first chrome view draws text: a face that is not
+    /// registered yet resolves to the system face, with no error.
+    static func install() {
+        _ = installation
     }
 
-    private static let registration: Void = {
+    private static let installation: Void = {
+        // The chrome's weights were approved as drawn without stem darkening;
+        // with it every face reads close to a weight heavier. The default is
+        // this process's own, and the terminal sets smoothing on its own
+        // glyph contexts, so terminal text is unaffected.
+        UserDefaults.standard.register(defaults: ["AppleFontSmoothing": 0])
         let bundle = Bundle(for: BundleToken.self)
         for weight in Weight.allCases {
             guard let url = bundle.url(forResource: weight.postScriptName, withExtension: "otf") else { continue }
