@@ -130,7 +130,6 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
             guard isShown else { return }
             expanded.insert(workspace)
         case .tabThumbnail:
-            guard isShown else { return }
             close()
         case .paneEdge, .paneInterior, .tabStrip, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
             break
