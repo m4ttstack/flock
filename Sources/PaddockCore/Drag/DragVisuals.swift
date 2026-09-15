@@ -19,6 +19,8 @@ public enum DragVisuals {
     public static let landingFlashDuration: Double = 0.7
     /// The dropzone preview's cross-fade as the target changes.
     public static let previewCrossfadeDuration: Double = 0.12
+    /// The strip's scroll when the selected tab changes off screen.
+    public static let tabRevealDuration: Double = 0.2
     /// The accent laid over whatever a pane drop is aimed at: the canvas
     /// preview and a targeted grid thumbnail.
     public static let dropWashOpacity: Double = 0.22

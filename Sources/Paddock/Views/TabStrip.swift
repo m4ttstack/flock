@@ -53,7 +53,20 @@ struct TabStrip: View {
                 .reportsScrollExtent(.horizontal) { drag.setStripScroll(offset: $0, maximumOffset: $1) }
                 .frame(height: ChromeMetrics.Strip.height)
                 .reportsDragFrame { drag.stripViewport = $0 }
-                .onAppear { drag.stripScroller = { x in scrollPosition.scrollTo(x: x) } }
+                .overlay(alignment: .leading) {
+                    if drag.stripEdgeFade.leading { edgeFade(leading: true) }
+                }
+                .overlay(alignment: .trailing) {
+                    if drag.stripEdgeFade.trailing { edgeFade(leading: false) }
+                }
+                .onAppear {
+                    drag.stripScroller = { x in scrollPosition.scrollTo(x: x) }
+                    drag.stripRevealScroller = { x in
+                        withAnimation(.easeOut(duration: DragVisuals.tabRevealDuration)) {
+                            scrollPosition.scrollTo(x: x)
+                        }
+                    }
+                }
                 Text("protocol \(protocolVersion)")
                     .font(ChromeType.protocolReadout)
                     .foregroundStyle(theme.textLabel)
@@ -76,6 +89,18 @@ struct TabStrip: View {
         .onAppear { publishIdentity() }
         .onChange(of: tabs.map(\.tabID)) { _, _ in publishIdentity() }
         .onChange(of: workspace) { _, _ in publishIdentity() }
+        .onChange(of: selectedTabID) { _, id in if let id { drag.revealTab(id) } }
+    }
+
+    /// Hints at tabs scrolled past this edge: the strip's own color run down
+    /// to nothing, never intercepting the tabs or the drag frames under it.
+    private func edgeFade(leading: Bool) -> some View {
+        LinearGradient(
+            colors: leading ? [theme.chrome, theme.chrome.opacity(0)] : [theme.chrome.opacity(0), theme.chrome],
+            startPoint: .leading, endPoint: .trailing
+        )
+        .frame(width: ChromeMetrics.Strip.edgeFadeWidth)
+        .allowsHitTesting(false)
     }
 
     /// The strip's own order and workspace: `DropTarget`'s tab cases carry a

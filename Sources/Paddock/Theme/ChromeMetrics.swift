@@ -55,6 +55,8 @@ enum ChromeMetrics {
         /// center; the inset is twice that because the frame centers the
         /// padded label.
         static let readoutBottomInset: CGFloat = 3
+        /// How far the overflow hint runs in from an edge that hides tabs.
+        static let edgeFadeWidth: CGFloat = 24
     }
 
     enum Tab {

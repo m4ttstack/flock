@@ -104,6 +104,10 @@ final class DragCoordinator {
     /// new-tab zone may reach.
     var stripTrailingLimit: CGFloat?
     var railFrame: CGRect?
+    /// Which edge of the strip hints at tabs scrolled out of view. Written
+    /// only on an actual change (see `setStripScroll`), so a scroll that
+    /// never crosses either edge never re-renders the strip's overlay.
+    private(set) var stripEdgeFade = TabStripScrollGeometry.EdgeFade.none
 
     /// Neither zone is a button: each is the free run its chrome already has,
     /// so they move with the items rather than being published separately and
@@ -151,6 +155,9 @@ final class DragCoordinator {
     @ObservationIgnored var stripScroller: ((CGFloat) -> Void)?
     @ObservationIgnored var railScroller: ((CGFloat) -> Void)?
     @ObservationIgnored var gridScroller: ((CGFloat) -> Void)?
+    /// Animated, unlike `stripScroller`: a reveal is one deliberate jump, never
+    /// the per-tick stream auto-scroll drives.
+    @ObservationIgnored var stripRevealScroller: ((CGFloat) -> Void)?
     @ObservationIgnored private var stripScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
     @ObservationIgnored private var railScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
     @ObservationIgnored private var gridScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
@@ -195,6 +202,10 @@ final class DragCoordinator {
     @ObservationIgnored nonisolated(unsafe) private var windowCloseObserver: NSObjectProtocol?
     @ObservationIgnored nonisolated(unsafe) private var selectionMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var selectionResignObserver: NSObjectProtocol?
+    /// Installed for the coordinator's whole life, not just a drag's: a
+    /// plain wheel must scroll the strip whether or not anything is being
+    /// dragged.
+    @ObservationIgnored nonisolated(unsafe) private var wheelMonitor: Any?
 
     /// The rail's Cmd+click selection. Every decision lives in
     /// `WorkspaceSelection`; this only feeds it the presses, keys, app
@@ -237,11 +248,17 @@ final class DragCoordinator {
             onSpringLoad: { target in springLoads.fired?(target) }
         )
         springLoads.fired = { [weak self] target in self?.springLoadFired(target) }
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
+            self?.handleStripWheel(event) ?? event
+        }
     }
 
     deinit {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
+        }
+        if let wheelMonitor {
+            NSEvent.removeMonitor(wheelMonitor)
         }
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
@@ -306,6 +323,10 @@ final class DragCoordinator {
 
     func setStripScroll(offset: CGFloat, maximumOffset: CGFloat) {
         stripScrollExtent = (offset, maximumOffset)
+        let fade = TabStripScrollGeometry.edgeFade(offset: offset, maximumOffset: maximumOffset)
+        if fade != stripEdgeFade {
+            stripEdgeFade = fade
+        }
     }
 
     func setRailScroll(offset: CGFloat, maximumOffset: CGFloat) {
@@ -368,6 +389,42 @@ final class DragCoordinator {
             }
         }
         return GridDropSurfaces(viewport: gridViewport ?? .zero, thumbnails: thumbnails, moreTiles: moreTiles)
+    }
+
+    // MARK: - Tab strip wheel and reveal
+
+    /// A wheel with no horizontal component of its own scrolls the strip on
+    /// its one axis; a drag in flight owns the strip through its own
+    /// auto-scroll instead, so this steps aside for one.
+    private func handleStripWheel(_ event: NSEvent) -> NSEvent? {
+        guard machine.state == .idle, let stripViewport, let point = dragSpacePoint(event), stripViewport.contains(point) else {
+            return event
+        }
+        guard let offset = TabStripScrollGeometry.wheelOffset(
+            current: stripScrollExtent.offset, maximumOffset: stripScrollExtent.maximum,
+            deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY
+        ) else {
+            return event
+        }
+        stripScroller?(offset)
+        return nil
+    }
+
+    /// Brings `id`'s tab fully into the strip, animated. A no-op while a
+    /// drag is live: the dwell that reveals a thumbnail mid-drag selects it
+    /// through this same path, and auto-scroll owns the strip until the drag
+    /// itself is over.
+    func revealTab(_ id: TabID) {
+        guard machine.state == .idle, let stripViewport, let frame = tabFrames.first(where: { $0.id == id })?.frame else {
+            return
+        }
+        guard let offset = TabStripScrollGeometry.revealOffset(
+            for: frame, offset: stripScrollExtent.offset, viewportWidth: stripViewport.width,
+            maximumOffset: stripScrollExtent.maximum
+        ) else {
+            return
+        }
+        stripRevealScroller?(offset)
     }
 
     // MARK: - Gesture lifecycle
