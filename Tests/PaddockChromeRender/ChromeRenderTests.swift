@@ -300,12 +300,35 @@ final class ChromeRenderTests: XCTestCase {
 
         // A resting card whose row is already full hides the tab it would
         // create, so it shows no placeholder and keeps its single row.
-        let cardBefore = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
-        try await overEmptySpace(of: GridFixture.mattstackApps, harness: harness, window: window)
-        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.mattstackApps)))
-        let cardAfter = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
-        XCTAssertEqual(cardAfter.height, cardBefore.height, accuracy: 0.5, "no row the drop will not leave behind")
+        try await assertNoPlaceholderAndNoNewRow(
+            on: GridFixture.mattstackApps, harness: harness, window: window, directory: nil, render: nil
+        )
+
+        // The same for a resting card already over its cap: its row holds
+        // three tabs and a "+N" tile, and it redraws to that same single row
+        // however many tabs it gains, so a placeholder in the tile's slot
+        // would push the tile into a row the drop takes straight back.
+        try await assertNoPlaceholderAndNoNewRow(
+            on: GridFixture.paddock, harness: harness, window: window,
+            directory: directory, render: "grid-drag-resting-card.png"
+        )
         window.close()
+    }
+
+    /// Moves the drag onto a card that will not draw the tab it creates, and
+    /// pins that the card shows no placeholder and does not grow.
+    private func assertNoPlaceholderAndNoNewRow(
+        on workspace: WorkspaceID, harness: Harness, window: NSWindow, directory: String?, render: String?
+    ) async throws {
+        let before = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
+        try await overEmptySpace(of: workspace, harness: harness, window: window)
+        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(workspace)), "\(workspace.rawValue)")
+        let after = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
+        XCTAssertEqual(after.height, before.height, accuracy: 0.5, "\(workspace.rawValue) grew a row the drop will not keep")
+        if let directory, let render {
+            try XCTUnwrap(snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent(render))
+        }
     }
 
     /// Moves the live drag onto a card's own empty space, which is its header
@@ -540,6 +563,8 @@ private struct GridFixtureClient: HerdrCommandClient {
 /// and every agent status.
 private enum GridFixture {
     static let repoTools = WorkspaceID(rawValue: "w1")
+    /// Six tabs: a resting card already over its cap, so it draws a "+N" tile.
+    static let paddock = WorkspaceID(rawValue: "w2")
     static let mattstackApps = WorkspaceID(rawValue: "w3")
     /// Three tabs: a resting card still under its visible-tab cap.
     static let herdr = WorkspaceID(rawValue: "w4")

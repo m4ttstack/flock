@@ -36,24 +36,37 @@ public enum GridCardLayout {
     /// `newTab` inserts the drop placeholder where the tab itself will be
     /// ordered, which is BEFORE the trailing tile, never after it: a tile
     /// always ends the list, so the slot past it is one no tab can reach.
-    /// The placeholder takes the tile's own slot and the tile moves along,
-    /// which keeps the placeholder in a row the card already has.
     ///
-    /// A card with no tile yet gets one only when the drop will really draw
-    /// the tab in that slot. The one card that would not is a RESTING card
-    /// whose tabs already fill the row: the drop grows it a tile and hides
-    /// the new tab behind it, so it shows no placeholder rather than open a
-    /// row the drop will not leave behind. Its accent outline still marks it.
+    /// It is shown at all only while the preview's own rows are rows the drop
+    /// leaves behind (`previewKeepsItsRows`). A card that would gain a row on
+    /// hover and lose it again on drop shows nothing, and its accent outline
+    /// marks it the way it marks every other card-level drop target.
     public static func cells(tabs: [TabID], expanded: Bool, newTab: Bool = false) -> [GridCell] {
         var cells = settled(tabs: tabs, expanded: expanded)
-        guard newTab else { return cells }
-        if let tile = cells.firstIndex(where: \.isTile) {
-            cells.insert(.newTab, at: tile)
-            return cells
-        }
-        guard expanded || cells.count < tabsPerRow else { return cells }
-        cells.append(.newTab)
+        guard newTab, previewKeepsItsRows(tabs: tabs.count, expanded: expanded) else { return cells }
+        cells.insert(.newTab, at: cells.firstIndex(where: \.isTile) ?? cells.count)
         return cells
+    }
+
+    /// A RESTING card over its cap redraws to the same single row however
+    /// many tabs it gains, so a placeholder there opens a row that collapses
+    /// again the moment the drop lands, whichever slot it takes. An EXPANDED
+    /// card draws every tab, so a row it gains on hover is one it keeps.
+    private static func previewKeepsItsRows(tabs: Int, expanded: Bool) -> Bool {
+        rowCount(settledCount(tabs: tabs, expanded: expanded) + 1)
+            <= rowCount(settledCount(tabs: tabs + 1, expanded: expanded))
+    }
+
+    /// `settled(tabs:expanded:).count` without building the cells, so the
+    /// shape a card takes AFTER a drop can be weighed against the one it has
+    /// now. The two must agree for every count.
+    static func settledCount(tabs: Int, expanded: Bool) -> Int {
+        guard tabs > tabsPerRow else { return tabs }
+        return expanded ? tabs + 1 : tabsPerRow
+    }
+
+    static func rowCount(_ cells: Int) -> Int {
+        (cells + tabsPerRow - 1) / tabsPerRow
     }
 
     private static func settled(tabs: [TabID], expanded: Bool) -> [GridCell] {
