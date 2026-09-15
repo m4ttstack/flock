@@ -160,6 +160,17 @@ final class DragCoordinator {
     /// the per-tick stream auto-scroll drives.
     @ObservationIgnored var stripRevealScroller: ((CGFloat) -> Void)?
     @ObservationIgnored private var stripScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
+    /// Where the wheel has scrolled the strip to, ahead of the strip saying so.
+    /// A scroll view reports its geometry back a render pass late, so a burst
+    /// of wheel events inside one frame would otherwise each start from the
+    /// same stale offset and overwrite one another instead of accumulating.
+    /// Cleared once a report catches up with it, and by anything else that
+    /// scrolls the strip.
+    @ObservationIgnored private var pendingStripScroll: (offset: CGFloat, maximum: CGFloat)?
+    /// A reveal asked for before its tab had reported a frame: a tab is
+    /// selected in the same update pass that inserts it, and frames arrive
+    /// only once that subtree has laid out. Retried as frames come in.
+    @ObservationIgnored private var pendingReveal: TabID?
     @ObservationIgnored private var railScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
     @ObservationIgnored private var gridScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
 
@@ -293,6 +304,7 @@ final class DragCoordinator {
 
     func setTabOrder(_ order: [TabID]) {
         writeIfChanged(\.tabItems) { $0.setOrder(order) }
+        retryPendingReveal()
     }
 
     func setWorkspaceOrder(_ order: [WorkspaceID]) {
@@ -311,6 +323,7 @@ final class DragCoordinator {
     func setTabFrame(_ frame: CGRect, for id: TabID) {
         guard !isReorderingTabs else { return }
         writeIfChanged(\.tabItems) { $0.setContentFrame(frame, for: id) }
+        retryPendingReveal()
     }
 
     func setWorkspaceFrame(_ frame: CGRect, for id: WorkspaceID) {
@@ -328,6 +341,12 @@ final class DragCoordinator {
 
     func setStripScroll(offset: CGFloat, maximumOffset: CGFloat) {
         stripScrollExtent = (offset, maximumOffset)
+        // Caught up with the wheel, or clamped somewhere else because the
+        // content changed underneath it. Either way the running total has
+        // nothing left to add to.
+        if let pending = pendingStripScroll, offset == pending.offset || maximumOffset != pending.maximum {
+            pendingStripScroll = nil
+        }
         let fade = TabStripScrollGeometry.edgeFade(offset: offset, maximumOffset: maximumOffset)
         if fade != stripEdgeFade {
             stripEdgeFade = fade
@@ -395,36 +414,77 @@ final class DragCoordinator {
 
     /// A wheel with no horizontal component of its own scrolls the strip on
     /// its one axis; a drag in flight owns the strip through its own
-    /// auto-scroll instead, so this steps aside for one.
+    /// auto-scroll instead, so this steps aside for one. The strip's viewport
+    /// goes stale under a shown grid rather than being cleared, so the grid
+    /// has to be checked too.
     private func handleStripWheel(_ event: NSEvent) -> NSEvent? {
-        guard machine.state == .idle, let stripViewport, let point = dragSpacePoint(event), stripViewport.contains(point) else {
+        guard machine.state == .idle, !grid.isShown, let stripViewport,
+              let point = dragSpacePoint(event), stripViewport.contains(point)
+        else {
             return event
         }
-        guard let offset = TabStripScrollGeometry.wheelOffset(
-            current: stripScrollExtent.offset, maximumOffset: stripScrollExtent.maximum,
-            deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY
-        ) else {
-            return event
-        }
-        stripScroller?(offset)
-        return nil
+        let scrolled = stripWheelScrolled(
+            deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
+            precise: event.hasPreciseScrollingDeltas
+        )
+        return scrolled ? nil : event
     }
 
-    /// Brings `id`'s tab fully into the strip, animated. A no-op while a
-    /// drag is live: the dwell that reveals a thumbnail mid-drag selects it
-    /// through this same path, and auto-scroll owns the strip until the drag
-    /// itself is over.
+    /// One wheel event's effect on the strip, reading the running total rather
+    /// than the strip's own report so a burst inside one frame accumulates.
+    /// False when the event means nothing here and belongs to whatever is
+    /// under it. Split from the monitor so a test can drive the values without
+    /// a synthetic event.
+    @discardableResult
+    func stripWheelScrolled(deltaX: CGFloat, deltaY: CGFloat, precise: Bool) -> Bool {
+        guard let offset = TabStripScrollGeometry.wheelOffset(
+            current: pendingStripScroll?.offset ?? stripScrollExtent.offset,
+            maximumOffset: stripScrollExtent.maximum,
+            deltaX: deltaX, deltaY: deltaY,
+            precise: precise, lineStep: ChromeMetrics.Strip.wheelLineStep
+        ) else {
+            return false
+        }
+        pendingStripScroll = (offset, stripScrollExtent.maximum)
+        stripScroller?(offset)
+        return true
+    }
+
+    /// Brings `id`'s tab fully into the strip, animated. A no-op while a drag
+    /// is live: the dwell that reveals a thumbnail mid-drag selects it through
+    /// this same path, and auto-scroll owns the strip until the drag itself is
+    /// over. A tab with no frame yet is held and retried, since a tab is
+    /// selected in the same update pass that inserts it.
     func revealTab(_ id: TabID) {
-        guard machine.state == .idle, let stripViewport, let frame = tabFrames.first(where: { $0.id == id })?.frame else {
+        guard machine.state == .idle, !grid.isShown else {
+            pendingReveal = nil
             return
+        }
+        pendingReveal = applyReveal(id) ? nil : id
+    }
+
+    /// True once the reveal is settled: the tab has a frame, and either the
+    /// strip moved for it or it was already in view.
+    private func applyReveal(_ id: TabID) -> Bool {
+        guard let stripViewport, let frame = tabFrames.first(where: { $0.id == id })?.frame else {
+            return false
         }
         guard let offset = TabStripScrollGeometry.revealOffset(
             for: frame, offset: stripScrollExtent.offset, viewportWidth: stripViewport.width,
             maximumOffset: stripScrollExtent.maximum
         ) else {
-            return
+            return true
         }
+        pendingStripScroll = nil
         stripRevealScroller?(offset)
+        return true
+    }
+
+    private func retryPendingReveal() {
+        guard let pendingReveal, machine.state == .idle, !grid.isShown else { return }
+        if applyReveal(pendingReveal) {
+            self.pendingReveal = nil
+        }
     }
 
     // MARK: - Gesture lifecycle
@@ -441,6 +501,8 @@ final class DragCoordinator {
         isSettling = false
         grabPoint = point
         homeFrame = home
+        pendingReveal = nil
+        pendingStripScroll = nil
         activeSubject = subject
         self.ghost = ghost
         ghostTopLeft = ghostTopLeft(centeredOn: point)

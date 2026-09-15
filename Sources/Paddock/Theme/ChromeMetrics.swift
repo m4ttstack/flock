@@ -66,6 +66,10 @@ enum ChromeMetrics {
         static let readoutBottomInset: CGFloat = 3
         /// How far the overflow hint runs in from an edge that hides tabs.
         static let edgeFadeWidth: CGFloat = 24
+        /// What one notch of a classic wheel is worth, whose delta counts
+        /// lines rather than points: one tab and the gap after it, so a notch
+        /// advances the strip by exactly one tab.
+        static let wheelLineStep: CGFloat = Tab.size.width + tabGap
     }
 
     enum Tab {

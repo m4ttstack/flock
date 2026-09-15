@@ -5,27 +5,62 @@ import XCTest
 final class TabStripScrollGeometryTests: XCTestCase {
     // MARK: - wheelOffset
 
+    private let step: CGFloat = 103
+
+    private func wheel(
+        current: CGFloat = 100, maximumOffset: CGFloat = 300, deltaX: CGFloat = 0, deltaY: CGFloat, precise: Bool = true
+    ) -> CGFloat? {
+        TabStripScrollGeometry.wheelOffset(
+            current: current, maximumOffset: maximumOffset,
+            deltaX: deltaX, deltaY: deltaY, precise: precise, lineStep: step
+        )
+    }
+
     func testAPlainVerticalWheelScrollsTheStripHorizontally() {
-        XCTAssertEqual(
-            TabStripScrollGeometry.wheelOffset(current: 100, maximumOffset: 300, deltaX: 0, deltaY: 10), 90
-        )
-        XCTAssertEqual(
-            TabStripScrollGeometry.wheelOffset(current: 100, maximumOffset: 300, deltaX: 0, deltaY: -10), 110
-        )
+        XCTAssertEqual(wheel(deltaY: 10), 90)
+        XCTAssertEqual(wheel(deltaY: -10), 110)
+    }
+
+    /// The same raw delta means points from a trackpad and LINES from a
+    /// classic wheel. Read as points a notch moves the strip 1pt against a
+    /// 103pt tab pitch, which is the difference between working and not.
+    func testTheSameRawDeltaIsPointsFromATrackpadAndAWholeTabFromAWheel() {
+        XCTAssertEqual(wheel(current: 300, deltaY: 1, precise: true), 299)
+        XCTAssertEqual(wheel(current: 300, deltaY: 1, precise: false), 300 - step)
+        XCTAssertEqual(wheel(current: 0, deltaY: -1, precise: false), step)
+    }
+
+    /// macOS delivers 0.1 for a slow wheel click; rounding the magnitude out
+    /// to a full notch is what keeps that click worth a tab.
+    func testASlowWheelClicksFractionalNotchStillMovesAWholeTab() {
+        XCTAssertEqual(wheel(current: 300, deltaY: 0.1, precise: false), 300 - step)
+        XCTAssertEqual(wheel(current: 0, deltaY: -0.1, precise: false), step)
+    }
+
+    func testAMultiLineWheelDeltaScalesWithTheNotchCount() {
+        XCTAssertEqual(wheel(current: 300, maximumOffset: 900, deltaY: 3, precise: false), 300 - 3 * step)
     }
 
     func testATrackpadSwipeWithAHorizontalComponentIsLeftAlone() {
-        XCTAssertNil(TabStripScrollGeometry.wheelOffset(current: 100, maximumOffset: 300, deltaX: 5, deltaY: 10))
-        XCTAssertNil(TabStripScrollGeometry.wheelOffset(current: 100, maximumOffset: 300, deltaX: -5, deltaY: 0))
+        XCTAssertNil(wheel(deltaX: 5, deltaY: 10))
+        XCTAssertNil(wheel(deltaX: -5, deltaY: 0))
     }
 
     func testAZeroVerticalDeltaIsLeftAlone() {
-        XCTAssertNil(TabStripScrollGeometry.wheelOffset(current: 100, maximumOffset: 300, deltaX: 0, deltaY: 0))
+        XCTAssertNil(wheel(deltaY: 0))
+    }
+
+    /// Nothing overflows, so there is nothing to scroll and no reason to
+    /// swallow the event.
+    func testAStripWithNothingHiddenPassesTheWheelThrough() {
+        XCTAssertNil(wheel(current: 0, maximumOffset: 0, deltaY: 10))
+        XCTAssertNil(wheel(current: 0, maximumOffset: 0, deltaY: 10, precise: false))
     }
 
     func testWheelOffsetClampsToTheStripsRun() {
-        XCTAssertEqual(TabStripScrollGeometry.wheelOffset(current: 5, maximumOffset: 300, deltaX: 0, deltaY: 50), 0)
-        XCTAssertEqual(TabStripScrollGeometry.wheelOffset(current: 295, maximumOffset: 300, deltaX: 0, deltaY: -50), 300)
+        XCTAssertEqual(wheel(current: 5, deltaY: 50), 0)
+        XCTAssertEqual(wheel(current: 295, deltaY: -50), 300)
+        XCTAssertEqual(wheel(current: 295, deltaY: -1, precise: false), 300)
     }
 
     // MARK: - revealOffset

@@ -10,15 +10,30 @@ public enum TabStripScrollGeometry {
     /// event should pass through untouched. A trackpad swipe already carries
     /// its own horizontal delta, so only a delta with no horizontal
     /// component at all is translated -- otherwise a diagonal swipe would
-    /// fight its own X against a translated Y. The sign matches AppKit's own
+    /// fight its own X against a translated Y. A strip with nothing to reveal
+    /// passes the event through too, rather than swallowing it to scroll to
+    /// the offset it is already at. The sign matches AppKit's own
     /// `scrollingDelta` convention (positive Y is a scroll up), applied to
     /// the horizontal axis the same way a vertical list applies its own
     /// delta: scrolling up moves toward the leading edge.
+    ///
+    /// `precise` is `NSEvent.hasPreciseScrollingDeltas`. Only a precise delta
+    /// is already in points; a classic wheel reports a count of LINES, so it
+    /// is multiplied by `lineStep` the way `ScrollAccumulator` multiplies by a
+    /// cell height, with macOS's slow-click 0.1 magnitude rounded out to a
+    /// full notch first.
     public static func wheelOffset(
-        current: CGFloat, maximumOffset: CGFloat, deltaX: CGFloat, deltaY: CGFloat
+        current: CGFloat, maximumOffset: CGFloat, deltaX: CGFloat, deltaY: CGFloat,
+        precise: Bool, lineStep: CGFloat
     ) -> CGFloat? {
-        guard deltaX == 0, deltaY != 0 else { return nil }
-        return min(max(current - deltaY, 0), max(0, maximumOffset))
+        guard deltaX == 0, deltaY != 0, maximumOffset > 0 else { return nil }
+        let points: CGFloat
+        if precise {
+            points = deltaY
+        } else {
+            points = (deltaY > 0 ? max(deltaY, 1) : min(deltaY, -1)) * lineStep
+        }
+        return min(max(current - points, 0), maximumOffset)
     }
 
     /// The offset that brings `frame` (in the strip's scroll content space)
