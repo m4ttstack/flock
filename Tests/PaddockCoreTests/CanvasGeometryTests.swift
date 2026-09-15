@@ -708,6 +708,37 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(bottomRight.height, 75, accuracy: 0.01)
     }
 
+    /// The cached export lags the layout snapshot by a round trip, and a
+    /// committed divider drag lands in the snapshot first (the store's
+    /// prediction, then herdr's own event). The canvas must follow the
+    /// snapshot's ratio, or the drag snaps back to the export's old split
+    /// until the refetch arrives.
+    func testResolvedGeometryTakesSplitRatiosFromTheLayoutSnapshotOverAStaleExport() throws {
+        let area = CellRect(x: 0, y: 0, width: 200, height: 100)
+        let left = PaneID(rawValue: "left")
+        let right = PaneID(rawValue: "right")
+        let tabID = TabID(rawValue: "w:t")
+        let layout = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w"), tabID: tabID, zoomed: false, area: area, focusedPaneID: left,
+            panes: [
+                PaneRect(paneID: left, focused: true, rect: CellRect(x: 0, y: 0, width: 140, height: 100)),
+                PaneRect(paneID: right, focused: false, rect: CellRect(x: 140, y: 0, width: 60, height: 100)),
+            ],
+            splits: [SplitInfo(id: "split_0_root", direction: .right, ratio: 0.7, rect: area)]
+        )
+        let staleExport = ExportedLayoutDescription(
+            workspaceID: WorkspaceID(rawValue: "w"), tabID: tabID, zoomed: false, focusedPaneID: left,
+            root: .split(direction: .right, ratio: 0.5, first: .pane(ExportedLayoutPane(paneID: left)), second: .pane(ExportedLayoutPane(paneID: right)))
+        )
+
+        let geometry = CanvasGeometry.resolved(
+            layout: layout, exported: staleExport, grid: grid(filling: CGSize(width: 200, height: 100), scale: 1), dividerThickness: 6
+        )
+
+        XCTAssertEqual(try XCTUnwrap(geometry.paneFrames[left]).width, 140, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(geometry.paneFrames[right]).minX, 140, accuracy: 0.01)
+    }
+
     func testARightSplitDividerIsAVerticalLine() {
         let divider = DividerHandle(
             tabID: TabID(rawValue: "w:t"), path: [], frame: .zero, direction: .right, regionFrame: .zero, cellExtent: 0

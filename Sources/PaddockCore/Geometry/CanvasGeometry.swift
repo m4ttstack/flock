@@ -199,6 +199,13 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// ratio during the walk, for a divider drag's own live preview -- see
     /// `walk`'s own doc comment for why only the exported-tree path can
     /// actually move pane frames from it.
+    ///
+    /// The export supplies structure; each split's ratio comes from `layout`
+    /// wherever its split resolves to a path. A committed ratio reaches the
+    /// snapshot (the store's prediction, then herdr's own event) a full
+    /// round trip before the export is refetched, so reading the export's
+    /// ratio would snap a finished divider drag back to its old split until
+    /// that refetch lands.
     public static func resolved(
         layout: LayoutSnapshot,
         exported: ExportedLayoutDescription?,
@@ -207,9 +214,15 @@ public struct CanvasGeometry: Equatable, Sendable {
         liveRatioOverride: (path: [Bool], ratio: Double)? = nil
     ) -> CanvasGeometry {
         if let exported, exported.tabID == layout.tabID {
+            let paths = splitPaths(splits: layout.splits, area: layout.area)
+            var ratios: [[Bool]: Double] = [:]
+            for split in layout.splits {
+                guard let path = paths[split.id] else { continue }
+                ratios[path] = split.ratio
+            }
             return CanvasGeometry(
                 exportedRoot: exported.root, area: layout.area, tabID: layout.tabID, grid: grid,
-                dividerThickness: dividerThickness, liveRatioOverride: liveRatioOverride
+                dividerThickness: dividerThickness, liveRatioOverride: liveRatioOverride, splitRatios: ratios
             )
         }
         return CanvasGeometry(layout: layout, grid: grid, dividerThickness: dividerThickness, liveRatioOverride: liveRatioOverride)
@@ -250,7 +263,7 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// which `layout.export` does not itself carry).
     public init(
         exportedRoot root: ExportedLayoutNode, area: CellRect, tabID: TabID, grid: CanvasGrid, dividerThickness: CGFloat = 6,
-        liveRatioOverride: (path: [Bool], ratio: Double)? = nil
+        liveRatioOverride: (path: [Bool], ratio: Double)? = nil, splitRatios: [[Bool]: Double] = [:]
     ) {
         guard area.width > 0, area.height > 0 else {
             paneFrames = [:]
@@ -272,6 +285,7 @@ public struct CanvasGeometry: Equatable, Sendable {
             scale: scale,
             thickness: dividerThickness,
             override: liveRatioOverride,
+            splitRatios: splitRatios,
             paneFrames: &paneFrames,
             dividers: &dividers
         )
@@ -285,7 +299,7 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// this a true live footprint preview rather than a redrawn line: the
     /// tree only carries ratios and parent/child order, never absolute
     /// rects, so a changed ratio anywhere propagates to every descendant for
-    /// free.
+    /// free. Without an override, `splitRatios` outranks the tree's own ratio.
     private static func walk(
         _ node: ExportedLayoutNode,
         rect: CellRect,
@@ -294,6 +308,7 @@ public struct CanvasGeometry: Equatable, Sendable {
         scale: (CellRect) -> CGRect,
         thickness: CGFloat,
         override: (path: [Bool], ratio: Double)?,
+        splitRatios: [[Bool]: Double],
         paneFrames: inout [PaneID: CGRect],
         dividers: inout [DividerHandle]
     ) {
@@ -302,7 +317,7 @@ public struct CanvasGeometry: Equatable, Sendable {
             guard let paneID = pane.paneID else { return }
             paneFrames[paneID] = scale(rect)
         case .split(let direction, let nodeRatio, let first, let second):
-            let ratio = override?.path == path ? override!.ratio : nodeRatio
+            let ratio = override?.path == path ? override!.ratio : (splitRatios[path] ?? nodeRatio)
             let (firstRegion, secondRegion) = childRegions(of: rect, direction: direction, ratio: ratio)
             let full = scale(rect)
             dividers.append(DividerHandle(
@@ -313,8 +328,8 @@ public struct CanvasGeometry: Equatable, Sendable {
                 regionFrame: full,
                 cellExtent: direction == .right ? rect.width : rect.height
             ))
-            walk(first, rect: firstRegion, path: path + [false], tabID: tabID, scale: scale, thickness: thickness, override: override, paneFrames: &paneFrames, dividers: &dividers)
-            walk(second, rect: secondRegion, path: path + [true], tabID: tabID, scale: scale, thickness: thickness, override: override, paneFrames: &paneFrames, dividers: &dividers)
+            walk(first, rect: firstRegion, path: path + [false], tabID: tabID, scale: scale, thickness: thickness, override: override, splitRatios: splitRatios, paneFrames: &paneFrames, dividers: &dividers)
+            walk(second, rect: secondRegion, path: path + [true], tabID: tabID, scale: scale, thickness: thickness, override: override, splitRatios: splitRatios, paneFrames: &paneFrames, dividers: &dividers)
         }
     }
 
