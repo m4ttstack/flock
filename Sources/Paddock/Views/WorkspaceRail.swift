@@ -11,49 +11,62 @@ struct WorkspaceRail: View {
     let onSelect: (WorkspaceID) -> Void
 
     @Environment(DragCoordinator.self) private var drag
+    @State private var scrollPosition = ScrollPosition()
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
-                Text("WORKSPACES")
-                    .font(ChromeType.railHeading)
-                    .tracking(ChromeType.railHeadingTracking)
-                    .foregroundStyle(theme.textLabel)
-                Spacer()
-                    .frame(height: ChromeMetrics.Rail.headingGap)
+            // The heading and both paddings scroll with the rows, so the scroll
+            // view spans the whole rail and, at rest, every row sits exactly
+            // where the unscrolled column put it.
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
+                    Text("WORKSPACES")
+                        .font(ChromeType.railHeading)
+                        .tracking(ChromeType.railHeadingTracking)
+                        .foregroundStyle(theme.textLabel)
+                    Spacer()
+                        .frame(height: ChromeMetrics.Rail.headingGap)
 
-                ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
-                    WorkspaceRow(
-                        theme: theme,
-                        workspace: workspace,
-                        paneCount: viewModel.paneCount(for: workspace.workspaceID),
-                        isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
-                        isMultiSelected: drag.isWorkspaceMultiSelected(workspace.workspaceID),
-                        displacement: drag.workspaceDisplacement(at: index),
-                        isGhosted: drag.isDragging(workspace: workspace.workspaceID)
-                    )
-                    // Outside the row, which offsets its own content: the frame
-                    // published here is the row's resting place, which is what the
-                    // insertion index is measured against.
-                    .reportsDragFrame { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
-                    .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
-                    .onTapGesture {
-                        let commandHeld = NSEvent.modifierFlags.contains(.command)
-                        if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld) {
-                            onSelect(workspace.workspaceID)
+                    ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
+                        WorkspaceRow(
+                            theme: theme,
+                            workspace: workspace,
+                            paneCount: viewModel.paneCount(for: workspace.workspaceID),
+                            isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
+                            isMultiSelected: drag.isWorkspaceMultiSelected(workspace.workspaceID),
+                            displacement: drag.workspaceDisplacement(at: index),
+                            isGhosted: drag.isDragging(workspace: workspace.workspaceID)
+                        )
+                        // Outside the row, which offsets its own content: the
+                        // frame published here is the row's resting place, which
+                        // is what the insertion index is measured against.
+                        .reportsFrame(in: DragSpace.railContent) { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
+                        .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
+                        .onTapGesture {
+                            let commandHeld = NSEvent.modifierFlags.contains(.command)
+                            if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld) {
+                                onSelect(workspace.workspaceID)
+                            }
                         }
+                        .simultaneousGesture(rowDrag(workspace))
                     }
-                    .simultaneousGesture(rowDrag(workspace))
                 }
-
-                Spacer(minLength: 0)
+                .padding(.vertical, ChromeMetrics.Rail.verticalPadding)
+                .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+                .frame(width: ChromeMetrics.Rail.width, alignment: .leading)
+                .coordinateSpace(.named(DragSpace.railContent))
+                .reportsDragFrame { drag.setRailContentOrigin($0.origin) }
             }
-            .padding(.vertical, ChromeMetrics.Rail.verticalPadding)
-            .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+            .scrollIndicators(.never)
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+            .scrollPosition($scrollPosition)
+            .reportsScrollExtent(.vertical) { drag.setRailScroll(offset: $0, maximumOffset: $1) }
             .frame(width: ChromeMetrics.Rail.width)
-            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(maxHeight: .infinity)
+            .reportsDragFrame { drag.railViewport = $0 }
+            .onAppear { drag.railScroller = { y in scrollPosition.scrollTo(y: y) } }
             Rectangle()
                 .fill(theme.rule)
                 .frame(width: ChromeMetrics.ruleWidth)

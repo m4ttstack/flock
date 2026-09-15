@@ -19,6 +19,14 @@ final class DragOutcomeRelay {
     var last: Record?
 }
 
+/// Tells the coordinator a spring load fired. The controller fires it from a
+/// task of its own, through a closure the coordinator has to hand over before
+/// its own initializer has finished.
+@MainActor
+final class SpringLoadRelay {
+    var fired: (() -> Void)?
+}
+
 /// The one place the drag gestures, the live layout, and `DragController`
 /// meet.
 ///
@@ -107,14 +115,27 @@ final class DragCoordinator {
         return DropZones.below(in: railFrame, itemsEndingAt: workspaceFrames.last?.frame.maxY)
     }
 
+    /// The strip's and the rail's scroll views, which is where their items are
+    /// actually visible once either list overflows.
+    var stripViewport: CGRect?
+    var railViewport: CGRect?
+
     /// Frames arrive one item at a time as each row lays out, so the strip and
     /// the rail publish their ORDER separately; that order is what turns the
     /// frames back into a list, and it is also what drops an item's stale
-    /// frame once the item itself is gone.
-    private(set) var tabOrder: [TabID] = []
-    private(set) var workspaceOrder: [WorkspaceID] = []
-    private var tabFrameByID: [TabID: CGRect] = [:]
-    private var workspaceFrameByID: [WorkspaceID: CGRect] = [:]
+    /// frame once the item itself is gone. Each list's frames are held in its
+    /// scroll content's own space, so a scroll moves them without a report.
+    private var tabItems = ScrolledItemFrames<TabID>()
+    private var workspaceItems = ScrolledItemFrames<WorkspaceID>()
+
+    var tabOrder: [TabID] { tabItems.order }
+    var workspaceOrder: [WorkspaceID] { workspaceItems.order }
+
+    /// Set by the strip and the rail; each scrolls its own list to an offset.
+    @ObservationIgnored var stripScroller: ((CGFloat) -> Void)?
+    @ObservationIgnored var railScroller: ((CGFloat) -> Void)?
+    @ObservationIgnored private var stripScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
+    @ObservationIgnored private var railScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
 
     /// An `NSView` laid out at exactly the drag space's own frame, so a raw
     /// AppKit event location becomes a drag-space point without this file
@@ -124,6 +145,15 @@ final class DragCoordinator {
     @ObservationIgnored private let toasts: ToastCenter
     @ObservationIgnored private let rearrangeMode: RearrangeMode
     @ObservationIgnored private let outcomes = DragOutcomeRelay()
+    @ObservationIgnored private let springLoads = SpringLoadRelay()
+    /// The tick decision lives in `AutoScroller`; this only owns the display
+    /// link that asks it once per frame.
+    @ObservationIgnored private var autoScroller = AutoScroller()
+    @ObservationIgnored private let autoScrollTicker = AutoScrollTicker()
+    /// Where the pointer last was. A list auto-scrolling under a pointer that
+    /// has stopped moving delivers no events, so each tick resolves the drop
+    /// again from here.
+    @ObservationIgnored private var lastPointer: CGPoint?
     /// Which life the current gesture is in, and the gate that makes a second
     /// arm for one press a no-op. Pure, so its truth table is tested in
     /// `DragGestureMachineTests` rather than argued about here.
@@ -161,6 +191,7 @@ final class DragCoordinator {
         self.toasts = toasts
         self.rearrangeMode = rearrangeMode
         let outcomes = self.outcomes
+        let springLoads = self.springLoads
         controller = DragController(
             commit: { subject, target in
                 // Sampled BEFORE the await, which is the whole point of the
@@ -172,8 +203,12 @@ final class DragCoordinator {
                 outcomes.last = DragOutcomeRelay.Record(generation: issuedBy, outcome: outcome)
                 return outcome
             },
-            springLoadAction: springLoadAction
+            springLoadAction: { target in
+                springLoads.fired?()
+                await springLoadAction(target)
+            }
         )
+        springLoads.fired = { [weak self] in self?.springLoadFired() }
     }
 
     deinit {
@@ -190,22 +225,23 @@ final class DragCoordinator {
 
     // MARK: - Surface registration
 
+    /// On screen, in the drag space: content frames placed through wherever
+    /// the list has scrolled to.
     var tabFrames: [TabItemFrame] {
-        tabOrder.compactMap { id in tabFrameByID[id].map { TabItemFrame(id: id, frame: $0) } }
+        tabItems.onScreen.map { TabItemFrame(id: $0.id, frame: $0.frame) }
     }
 
     var workspaceFrames: [WorkspaceItemFrame] {
-        workspaceOrder.compactMap { id in workspaceFrameByID[id].map { WorkspaceItemFrame(id: id, frame: $0) } }
+        workspaceItems.onScreen.map { WorkspaceItemFrame(id: $0.id, frame: $0.frame) }
     }
 
     func setTabOrder(_ order: [TabID]) {
-        guard tabOrder != order else { return }
-        tabOrder = order
+        writeIfChanged(\.tabItems) { $0.setOrder(order) }
     }
 
     func setWorkspaceOrder(_ order: [WorkspaceID]) {
         guard workspaceOrder != order else { return }
-        workspaceOrder = order
+        writeIfChanged(\.workspaceItems) { $0.setOrder(order) }
         workspaceSelection.retain(order)
         syncSelectionEscapeMonitor()
     }
@@ -214,15 +250,44 @@ final class DragCoordinator {
     /// measured against where the items REST, so a reshuffled item must never
     /// be able to report its shifted position back in and move the very gap
     /// that shifted it. Neither reorder target is spring-load eligible, so
-    /// nothing else can change either list while one is frozen.
+    /// nothing else can change either list while one is frozen. The frame is
+    /// in the strip's content space, so the freeze never stops a scroll from
+    /// moving it on screen.
     func setTabFrame(_ frame: CGRect, for id: TabID) {
-        guard !isReorderingTabs, tabFrameByID[id] != frame else { return }
-        tabFrameByID[id] = frame
+        guard !isReorderingTabs else { return }
+        writeIfChanged(\.tabItems) { $0.setContentFrame(frame, for: id) }
     }
 
     func setWorkspaceFrame(_ frame: CGRect, for id: WorkspaceID) {
-        guard !isReorderingWorkspaces, workspaceFrameByID[id] != frame else { return }
-        workspaceFrameByID[id] = frame
+        guard !isReorderingWorkspaces else { return }
+        writeIfChanged(\.workspaceItems) { $0.setContentFrame(frame, for: id) }
+    }
+
+    func setStripContentOrigin(_ origin: CGPoint) {
+        writeIfChanged(\.tabItems) { $0.setContentOrigin(origin) }
+    }
+
+    func setRailContentOrigin(_ origin: CGPoint) {
+        writeIfChanged(\.workspaceItems) { $0.setContentOrigin(origin) }
+    }
+
+    func setStripScroll(offset: CGFloat, maximumOffset: CGFloat) {
+        stripScrollExtent = (offset, maximumOffset)
+    }
+
+    func setRailScroll(offset: CGFloat, maximumOffset: CGFloat) {
+        railScrollExtent = (offset, maximumOffset)
+    }
+
+    /// An observed property notifies on every write, equal value or not, and
+    /// a frame report that changes nothing must not re-render every row.
+    private func writeIfChanged<ID>(
+        _ keyPath: ReferenceWritableKeyPath<DragCoordinator, ScrolledItemFrames<ID>>,
+        _ change: (inout ScrolledItemFrames<ID>) -> Bool
+    ) {
+        var copy = self[keyPath: keyPath]
+        guard change(&copy) else { return }
+        self[keyPath: keyPath] = copy
     }
 
     private var isReorderingTabs: Bool {
@@ -244,6 +309,8 @@ final class DragCoordinator {
             workspaceFrames: workspaceFrames,
             stripFrame: stripFrame,
             railFrame: railFrame,
+            stripViewport: stripViewport,
+            railViewport: railViewport,
             newTabZone: newTabZone,
             newWorkspaceZone: newWorkspaceZone
         )
@@ -286,6 +353,12 @@ final class DragCoordinator {
 
     private func move(to point: CGPoint) {
         guard machine.tracksMotion else { return }
+        lastPointer = point
+        resolve(at: point)
+        updateAutoScroll(pointer: point)
+    }
+
+    private func resolve(at point: CGPoint) {
         ghostTopLeft = ghostTopLeft(centeredOn: point)
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
@@ -357,6 +430,7 @@ final class DragCoordinator {
         if !keepingMonitors {
             removeMonitors()
         }
+        stopAutoScroll()
         target = nil
         releaseRearrangeHold()
         // The one choke point every exit path (`end`, `cancel`, `abandon`)
@@ -498,6 +572,67 @@ final class DragCoordinator {
         resignObserver = nil
     }
 
+    // MARK: - Edge auto-scroll
+
+    private var scrollRegions: [AutoScroller.Region] {
+        var regions: [AutoScroller.Region] = []
+        if let stripViewport {
+            regions.append(AutoScroller.Region(
+                surface: .strip, viewport: stripViewport, axis: .horizontal,
+                offset: stripScrollExtent.offset, maximumOffset: stripScrollExtent.maximum
+            ))
+        }
+        if let railViewport {
+            regions.append(AutoScroller.Region(
+                surface: .rail, viewport: railViewport, axis: .vertical,
+                offset: railScrollExtent.offset, maximumOffset: railScrollExtent.maximum
+            ))
+        }
+        return regions
+    }
+
+    private func updateAutoScroll(pointer: CGPoint) {
+        guard autoScroller.pointerMoved(to: pointer, regions: scrollRegions) else {
+            autoScrollTicker.stop()
+            return
+        }
+        guard !autoScrollTicker.isRunning, let spaceAnchor else { return }
+        autoScrollTicker.start(on: spaceAnchor) { [weak self] elapsed in
+            self?.autoScrollTick(elapsed: elapsed)
+        }
+    }
+
+    private func autoScrollTick(elapsed: Double) {
+        guard machine.tracksMotion, let pointer = lastPointer else {
+            stopAutoScroll()
+            return
+        }
+        resolve(at: pointer)
+        if let step = autoScroller.tick(pointer: pointer, regions: scrollRegions, elapsed: elapsed) {
+            switch step.surface {
+            case .strip: stripScroller?(step.offset)
+            case .rail: railScroller?(step.offset)
+            }
+        }
+        if !autoScroller.pointerMoved(to: pointer, regions: scrollRegions) {
+            autoScrollTicker.stop()
+        }
+    }
+
+    /// A reveal just changed what sits under the pointer; see
+    /// `AutoScroller.springLoaded`.
+    private func springLoadFired() {
+        autoScrollTicker.stop()
+        guard let lastPointer else { return }
+        autoScroller.springLoaded(pointer: lastPointer, regions: scrollRegions)
+    }
+
+    private func stopAutoScroll() {
+        autoScrollTicker.stop()
+        autoScroller.reset()
+        lastPointer = nil
+    }
+
     // MARK: - Rail multi-selection
 
     /// True when the click is a plain one whose jump the caller should run.
@@ -562,15 +697,15 @@ final class DragCoordinator {
     var insertionMark: InsertionMark? {
         switch target {
         case .tabStrip(_, let insertIndex):
-            guard let stripFrame else { return nil }
+            guard let container = stripViewport ?? stripFrame else { return nil }
             let bar = InsertionBarGeometry.bar(
-                atInsertIndex: insertIndex, items: tabFrames.map(\.frame), container: stripFrame, axis: .vertical
+                atInsertIndex: insertIndex, items: tabFrames.map(\.frame), container: container, axis: .vertical
             )
             return InsertionMark(bar: bar, dot: InsertionBarGeometry.endDot(for: bar, axis: .vertical))
         case .workspaceRail(let insertIndex):
-            guard let railFrame else { return nil }
+            guard let container = railViewport ?? railFrame else { return nil }
             let bar = InsertionBarGeometry.bar(
-                atInsertIndex: insertIndex, items: workspaceFrames.map(\.frame), container: railFrame, axis: .horizontal
+                atInsertIndex: insertIndex, items: workspaceFrames.map(\.frame), container: container, axis: .horizontal
             )
             return InsertionMark(bar: bar, dot: InsertionBarGeometry.endDot(for: bar, axis: .horizontal))
         default:

@@ -13,28 +13,48 @@ struct TabStrip: View {
     let onSelect: (TabID) -> Void
 
     @Environment(DragCoordinator.self) private var drag
+    @State private var scrollPosition = ScrollPosition()
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
-                ForEach(Array(tabs.enumerated()), id: \.element.tabID) { index, tab in
-                    TabBlock(
-                        theme: theme,
-                        tab: tab,
-                        isSelected: tab.tabID == selectedTabID,
-                        displacement: drag.tabDisplacement(at: index),
-                        isGhosted: drag.isDragging(tab: tab.tabID)
-                    )
-                    // Outside the tab, which offsets its own content: an offset
-                    // leaves the layout frame alone, so what is published here is
-                    // the tab's resting place rather than its reshuffled one --
-                    // which is what the insertion index must be measured against.
-                    .reportsDragFrame { drag.setTabFrame($0, for: tab.tabID) }
-                    .accessibilityIdentifier("paddock.strip.tab.\(tab.tabID.rawValue)")
-                    .onTapGesture { onSelect(tab.tabID) }
-                    .simultaneousGesture(tabDrag(tab))
+                // Tabs scroll once they overflow; the readout never does. The
+                // leading padding lives inside the content so overflowing tabs
+                // scroll to the rail's rule, and at rest the tabs sit exactly
+                // where an unscrolled row put them.
+                ScrollView(.horizontal) {
+                    HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
+                        ForEach(Array(tabs.enumerated()), id: \.element.tabID) { index, tab in
+                            TabBlock(
+                                theme: theme,
+                                tab: tab,
+                                isSelected: tab.tabID == selectedTabID,
+                                displacement: drag.tabDisplacement(at: index),
+                                isGhosted: drag.isDragging(tab: tab.tabID)
+                            )
+                            // Outside the tab, which offsets its own content: an
+                            // offset leaves the layout frame alone, so what is
+                            // published here is the tab's resting place rather
+                            // than its reshuffled one -- which is what the
+                            // insertion index must be measured against.
+                            .reportsFrame(in: DragSpace.stripContent) { drag.setTabFrame($0, for: tab.tabID) }
+                            .accessibilityIdentifier("paddock.strip.tab.\(tab.tabID.rawValue)")
+                            .onTapGesture { onSelect(tab.tabID) }
+                            .simultaneousGesture(tabDrag(tab))
+                        }
+                    }
+                    .padding(.leading, ChromeMetrics.Strip.horizontalPadding)
+                    .frame(height: ChromeMetrics.Strip.height, alignment: .bottom)
+                    .coordinateSpace(.named(DragSpace.stripContent))
+                    .reportsDragFrame { drag.setStripContentOrigin($0.origin) }
                 }
-                Spacer(minLength: 0)
+                .scrollIndicators(.never)
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                .scrollPosition($scrollPosition)
+                .reportsScrollExtent(.horizontal) { drag.setStripScroll(offset: $0, maximumOffset: $1) }
+                .frame(height: ChromeMetrics.Strip.height)
+                .reportsDragFrame { drag.stripViewport = $0 }
+                .onAppear { drag.stripScroller = { x in scrollPosition.scrollTo(x: x) } }
                 Text("protocol \(protocolVersion)")
                     .font(ChromeType.protocolReadout)
                     .foregroundStyle(theme.textLabel)
@@ -42,7 +62,7 @@ struct TabStrip: View {
                     .frame(height: ChromeMetrics.Strip.height)
                     .reportsDragFrame { drag.stripTrailingLimit = $0.minX }
             }
-            .padding(.horizontal, ChromeMetrics.Strip.horizontalPadding)
+            .padding(.trailing, ChromeMetrics.Strip.horizontalPadding)
             .frame(height: ChromeMetrics.Strip.height)
             // The strip above its rule: the insertion bar is clamped inside
             // this frame, so a frame that included the rule would let the bar

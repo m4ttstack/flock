@@ -35,6 +35,12 @@ public struct WorkspaceItemFrame: Equatable, Sendable {
 /// explicit frame is what lets a strip or rail with zero items still
 /// resolve a same-kind drag to insert index 0 inside its own area, instead
 /// of that area going unrecognized entirely.
+///
+/// `stripViewport`/`railViewport` are the scroll views' visible frames. Item
+/// frames are on screen but can lie outside them once the list scrolls, under
+/// the readout or past an edge, so only a point inside the viewport may hit
+/// an item as a thumbnail. Insert indices still count every item, visible or
+/// not, since a hidden item is still before or after the gap.
 public struct DropSurfaces: Equatable, Sendable {
     public let canvas: CanvasGeometry
     public let stripWorkspace: WorkspaceID
@@ -42,6 +48,8 @@ public struct DropSurfaces: Equatable, Sendable {
     public let workspaceFrames: [WorkspaceItemFrame]
     public let stripFrame: CGRect?
     public let railFrame: CGRect?
+    public let stripViewport: CGRect?
+    public let railViewport: CGRect?
     public let newTabZone: CGRect?
     public let newWorkspaceZone: CGRect?
 
@@ -52,6 +60,8 @@ public struct DropSurfaces: Equatable, Sendable {
         workspaceFrames: [WorkspaceItemFrame],
         stripFrame: CGRect? = nil,
         railFrame: CGRect? = nil,
+        stripViewport: CGRect? = nil,
+        railViewport: CGRect? = nil,
         newTabZone: CGRect?,
         newWorkspaceZone: CGRect?
     ) {
@@ -61,6 +71,8 @@ public struct DropSurfaces: Equatable, Sendable {
         self.workspaceFrames = workspaceFrames
         self.stripFrame = stripFrame
         self.railFrame = railFrame
+        self.stripViewport = stripViewport
+        self.railViewport = railViewport
         self.newTabZone = newTabZone
         self.newWorkspaceZone = newWorkspaceZone
     }
@@ -131,7 +143,9 @@ private func resolveZone(at point: CGPoint, dragging: DragSubject, surfaces: Dro
 private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
     switch dragging {
     case .pane, .tab:
-        guard let hit = surfaces.workspaceFrames.first(where: { $0.frame.contains(point) }) else { return nil }
+        guard surfaces.railViewport?.contains(point) ?? true,
+              let hit = surfaces.workspaceFrames.first(where: { $0.frame.contains(point) })
+        else { return nil }
         return .workspaceThumbnail(hit.id)
     case .workspace, .workspaces:
         let centers = surfaces.workspaceFrames.map(\.frame.midY)
@@ -142,7 +156,9 @@ private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: Dro
 private func resolveStrip(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
     switch dragging {
     case .pane:
-        guard let hit = surfaces.tabFrames.first(where: { $0.frame.contains(point) }) else { return nil }
+        guard surfaces.stripViewport?.contains(point) ?? true,
+              let hit = surfaces.tabFrames.first(where: { $0.frame.contains(point) })
+        else { return nil }
         return .tabThumbnail(hit.id)
     case .tab:
         let centers = surfaces.tabFrames.map(\.frame.midX)

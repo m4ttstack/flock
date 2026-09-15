@@ -201,12 +201,12 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
     case .newWorkspace:
         return surfaces.newWorkspaceZone
     case .tabStrip(_, let insertIndex):
-        guard let container = surfaces.stripFrame else { return nil }
+        guard let container = surfaces.stripViewport ?? surfaces.stripFrame else { return nil }
         return InsertionBarGeometry.bar(
             atInsertIndex: insertIndex, items: surfaces.tabFrames.map(\.frame), container: container, axis: .vertical
         )
     case .workspaceRail(let insertIndex):
-        guard let container = surfaces.railFrame else { return nil }
+        guard let container = surfaces.railViewport ?? surfaces.railFrame else { return nil }
         return InsertionBarGeometry.bar(
             atInsertIndex: insertIndex, items: surfaces.workspaceFrames.map(\.frame), container: container, axis: .horizontal
         )

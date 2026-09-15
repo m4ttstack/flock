@@ -12,6 +12,12 @@ import SwiftUI
 enum DragSpace {
     static let name = "paddock.drag"
     static var coordinateSpace: CoordinateSpace { .named(name) }
+
+    /// The scrolled content of the tab strip and the workspace rail. Items
+    /// report their frames here, where scrolling never moves them; the
+    /// content's own origin in the drag space places them on screen.
+    static let stripContent = "paddock.drag.strip-content"
+    static let railContent = "paddock.drag.rail-content"
 }
 
 /// An `NSView` laid out at exactly the drag space's frame, handed to the
@@ -33,13 +39,14 @@ struct DragSpaceAnchor: NSViewRepresentable {
     }
 }
 
-private struct DragFrameReporter: ViewModifier {
+private struct FrameReporter: ViewModifier {
+    let space: CoordinateSpace
     let report: (CGRect) -> Void
 
     func body(content: Content) -> some View {
         content.background {
             GeometryReader { proxy in
-                let frame = proxy.frame(in: DragSpace.coordinateSpace)
+                let frame = proxy.frame(in: space)
                 Color.clear
                     .onAppear { report(frame) }
                     .onChange(of: frame) { _, new in report(new) }
@@ -48,9 +55,36 @@ private struct DragFrameReporter: ViewModifier {
     }
 }
 
+/// A scroll view's offset along one axis and the furthest it can go.
+private struct ScrollExtent: Equatable {
+    let offset: CGFloat
+    let maximum: CGFloat
+}
+
 extension View {
     /// Publishes this view's frame in the drag space whenever it changes.
     func reportsDragFrame(_ report: @escaping (CGRect) -> Void) -> some View {
-        modifier(DragFrameReporter(report: report))
+        modifier(FrameReporter(space: DragSpace.coordinateSpace, report: report))
+    }
+
+    /// Publishes this view's frame in the named space `name` whenever it
+    /// changes.
+    func reportsFrame(in name: String, _ report: @escaping (CGRect) -> Void) -> some View {
+        modifier(FrameReporter(space: .named(name), report: report))
+    }
+
+    /// Applied to a scroll view: publishes its offset along `axis` and its
+    /// maximum, zero while the content fits.
+    func reportsScrollExtent(_ axis: Axis, _ report: @escaping (_ offset: CGFloat, _ maximum: CGFloat) -> Void) -> some View {
+        onScrollGeometryChange(for: ScrollExtent.self) { geometry in
+            switch axis {
+            case .horizontal:
+                ScrollExtent(offset: geometry.contentOffset.x, maximum: max(0, geometry.contentSize.width - geometry.containerSize.width))
+            case .vertical:
+                ScrollExtent(offset: geometry.contentOffset.y, maximum: max(0, geometry.contentSize.height - geometry.containerSize.height))
+            }
+        } action: { _, extent in
+            report(extent.offset, extent.maximum)
+        }
     }
 }
