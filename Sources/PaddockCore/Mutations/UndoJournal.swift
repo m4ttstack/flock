@@ -243,7 +243,7 @@ public final class UndoJournal {
                 return .zoom(pane(p), mode: mode)
             case let .focusPane(p):
                 return .focusPane(pane(p))
-            case .setSplitRatio, .moveTab, .moveWorkspace, .renameTab, .renameWorkspace,
+            case .setSplitRatio, .moveTab, .moveWorkspace, .moveWorkspaceBlock, .renameTab, .renameWorkspace,
                  .closeTab, .closeWorkspace, .focusTab, .focusWorkspace:
                 return op
             }
@@ -317,7 +317,7 @@ public final class UndoJournal {
             return [tabOfPane(p)].compactMap { $0 }
         case let .focusTab(t):
             return [t]
-        case .moveWorkspace, .renamePane, .renameWorkspace, .closePane, .closeWorkspace, .focusWorkspace:
+        case .moveWorkspace, .moveWorkspaceBlock, .renamePane, .renameWorkspace, .closePane, .closeWorkspace, .focusWorkspace:
             return []
         }
     }
@@ -346,6 +346,8 @@ public final class UndoJournal {
             return tab(t)
         case let .moveWorkspace(w, _):
             return workspace(w)
+        case let .moveWorkspaceBlock(block, before):
+            return block.allSatisfy(workspace) && (before.map(workspace) ?? true)
         case let .renamePane(p, _):
             return pane(p)
         case let .renameTab(t, _):

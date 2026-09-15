@@ -18,6 +18,8 @@ public enum DragSubject: Equatable, Sendable {
     case pane(PaneID)
     case tab(TabID)
     case workspace(WorkspaceID)
+    /// A rail multi-selection moving as one block, in rail order.
+    case workspaces([WorkspaceID])
 }
 
 /// An ordered list of mutations that realizes one gesture, produced by

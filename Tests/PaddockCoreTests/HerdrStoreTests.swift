@@ -547,6 +547,62 @@ final class HerdrStoreTests: XCTestCase {
         )
     }
 
+    /// herdr splices the block in its LISTED order, so a block listed
+    /// against rail order ([w3, w1]) predicts [w2, w3, w1], not [w2, w1, w3].
+    /// Checked while the wire call is still held, so what is asserted is the
+    /// prediction and not a snapshot that followed it.
+    @MainActor
+    func testMoveWorkspaceBlockPredictionMatchesHerdrsSplice() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: threeWorkspaceSnapshotResultJSON())
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let release = fake.holdNext(method: "workspace.move_block")
+        let plan = OpPlan(ops: [.moveWorkspaceBlock([WorkspaceID(rawValue: "w3"), WorkspaceID(rawValue: "w1")], before: nil)], label: "Move workspaces")
+        let task = Task { await store.execute(plan) }
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "workspace.move_block" } }
+
+        XCTAssertEqual(
+            store.model?.workspaces.map(\.workspaceID),
+            [WorkspaceID(rawValue: "w2"), WorkspaceID(rawValue: "w3"), WorkspaceID(rawValue: "w1")]
+        )
+        release()
+        guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+    }
+
+    /// `workspace.move_block` confirms through `workspace.reordered`, never
+    /// `workspace.moved`: a watch waiting on the wrong family would time out
+    /// and throw the correct prediction away for a resnapshot.
+    @MainActor
+    func testMoveWorkspaceBlockConvergesOnWorkspaceReorderedWithoutReverting() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: threeWorkspaceSnapshotResultJSON())
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .milliseconds(300))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3")], before: WorkspaceID(rawValue: "w2"))], label: "Move workspaces")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+        fake.pushEventLine(#"{"data":{"type":"workspace_reordered","workspace_ids":["w1","w3"],"before_workspace_id":"w2","workspaces":[{"workspace_id":"w1","label":"w1","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w3","label":"w3","number":2,"active_tab_id":"w3:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"w2","number":3,"active_tab_id":"w2:t1","agent_status":"unknown"}]}}"#)
+
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(
+            store.model?.workspaces.map(\.workspaceID),
+            [WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3"), WorkspaceID(rawValue: "w2")]
+        )
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "a timed-out watch resnapshots")
+    }
+
     // MARK: - setSplitRatio prediction (the divider drag's own optimistic overlay)
 
     /// Before this, `setSplitRatio` predicted nothing at all: the overlay

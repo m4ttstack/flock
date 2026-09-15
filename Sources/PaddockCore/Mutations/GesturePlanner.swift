@@ -32,6 +32,9 @@ public func plan(dragging subject: DragSubject, onto target: DropTarget, model: 
     case let (.workspace(workspace), .workspaceRail(insertIndex)):
         return planWorkspaceReorder(workspace: workspace, insertIndex: insertIndex, model: model)
 
+    case let (.workspaces(block), .workspaceRail(insertIndex)):
+        return planWorkspaceBlockReorder(block: block, insertIndex: insertIndex, model: model)
+
     default:
         return .failure(.invalidCombination)
     }
@@ -233,6 +236,25 @@ private func planWorkspaceReorder(workspace: WorkspaceID, insertIndex: Int, mode
         return .failure(.invalidCombination)
     }
     return .success(OpPlan(ops: [.moveWorkspace(workspace, insertIndex: insertIndex)], label: "Move workspace", needsUnzoom: []))
+}
+
+/// The block is sent in rail order whatever order the selection arrived in:
+/// herdr splices it as listed, and a block drag must never shuffle its own
+/// members. A drop that leaves the order unchanged is a no-op here rather
+/// than a call herdr would answer with no event to converge on.
+private func planWorkspaceBlockReorder(block: [WorkspaceID], insertIndex: Int, model: SessionModel) -> Result<OpPlan, PlanError> {
+    let order = model.workspaces.map(\.workspaceID)
+    let members = Set(block)
+    guard !block.isEmpty, members.count == block.count, members.isSubset(of: order) else {
+        return .failure(.invalidCombination)
+    }
+    let inRailOrder = order.filter(members.contains)
+    let before = WorkspaceBlockMove.anchor(forInsertIndex: insertIndex, block: inRailOrder, order: order)
+    guard let result = WorkspaceBlockMove.apply(block: inRailOrder, before: before, to: order) else {
+        return .failure(.invalidCombination)
+    }
+    guard result != order else { return .failure(.noOp) }
+    return .success(OpPlan(ops: [.moveWorkspaceBlock(inRailOrder, before: before)], label: "Move workspaces", needsUnzoom: []))
 }
 
 // MARK: - shared

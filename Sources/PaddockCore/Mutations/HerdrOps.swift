@@ -59,6 +59,14 @@ extension HerdrClient {
                 )
                 return OpResult()
 
+            case let .moveWorkspaceBlock(block, before):
+                _ = try await request(
+                    "workspace.move_block",
+                    WorkspaceMoveBlockParamsWire(workspaceIDs: block.map(\.rawValue), beforeWorkspaceID: before?.rawValue),
+                    as: DiscardedResult.self
+                )
+                return OpResult()
+
             case let .renamePane(pane, label):
                 _ = try await request(
                     "pane.rename", PaneRenameParamsWire(paneID: pane.rawValue, label: label), as: DiscardedResult.self
@@ -233,6 +241,18 @@ private struct WorkspaceMoveParamsWire: Encodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case workspaceID = "workspace_id"
         case insertIndex = "insert_index"
+    }
+}
+
+/// `workspace.move_block` (`WorkspaceMoveBlockParams`). herdr defaults an
+/// absent `before_workspace_id` to the end, so nil is omitted, never null.
+private struct WorkspaceMoveBlockParamsWire: Encodable, Sendable {
+    let workspaceIDs: [String]
+    let beforeWorkspaceID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case workspaceIDs = "workspace_ids"
+        case beforeWorkspaceID = "before_workspace_id"
     }
 }
 

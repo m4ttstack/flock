@@ -113,6 +113,7 @@ public actor MutationEngine {
         }
 
         var results: [Int: OpResult] = [:]
+        var reorderedModel = model
         var trackedFocusID = model.focusedPaneID
         var focusNeedsRestore = false
 
@@ -150,11 +151,12 @@ public actor MutationEngine {
                     // record (side) already reconstructs the correct
                     // arrangement on undo, so a standalone "swap again" entry
                     // here would double it back to no swap at all.
-                } else if let inverseOp = Self.simpleInverse(for: op, model: model) {
-                    simpleInverseOps.insert(inverseOp, at: 0)
+                } else if case let inverseOps = Self.simpleInverse(for: op, model: reorderedModel), !inverseOps.isEmpty {
+                    simpleInverseOps.insert(contentsOf: inverseOps, at: 0)
                 } else if Self.isCloseOp(op), !Self.isPlaceholderTabCleanup(rawOp) {
                     irreversible.append(op)
                 }
+                Self.applyWorkspaceReorder(op, to: &reorderedModel)
             } catch {
                 if case let .closeTab(rawTabTarget) = rawOp, rawTabTarget.planPlaceholderStep != nil, Self.isTabNotFound(error) {
                     // herdr auto-closes a bounce plan's temp tab the instant
@@ -248,7 +250,7 @@ public actor MutationEngine {
         case let .moveTab(t, insertIndex):
             guard let t2 = tab(t) else { return nil }
             return .moveTab(t2, insertIndex: insertIndex)
-        case .moveWorkspace:
+        case .moveWorkspace, .moveWorkspaceBlock:
             return op
         case let .renamePane(p, label):
             guard let p2 = pane(p) else { return nil }
@@ -387,53 +389,76 @@ public actor MutationEngine {
 
     // MARK: - non-move inverses (built immediately, in reverse-chronological order)
 
-    /// The reverse of one non-move op, or `nil` when `op` moves a pane (see
-    /// `MoveTracker`, which builds those semantically instead) or has no
-    /// meaningful reverse at all (close/zoom/focus). Reads whatever "prior"
-    /// value it needs from `model` -- the snapshot as it stood before the
-    /// whole plan started.
-    private static func simpleInverse(for op: PrimitiveOp, model: SessionModel) -> PrimitiveOp? {
+    /// The reverse of one non-move op, in the order it must run, or empty
+    /// when `op` moves a pane (see `MoveTracker`, which builds those
+    /// semantically instead) or has no meaningful reverse at all
+    /// (close/zoom/focus). Reads whatever "prior" value it needs from `model`
+    /// -- the snapshot as it stood before the whole plan started, except for
+    /// workspace order, which `applyWorkspaceReorder` keeps current op by op.
+    private static func simpleInverse(for op: PrimitiveOp, model: SessionModel) -> [PrimitiveOp] {
         switch op {
         case .movePaneToTab, .movePaneToNewTab, .movePaneToNewWorkspace:
-            return nil
+            return []
 
         case let .swapPanes(a, b):
-            return .swapPanes(a, b)
+            return [.swapPanes(a, b)]
 
         case let .setSplitRatio(tab, path, _):
-            guard let priorRatio = priorSplitRatio(tab: tab, path: path, model: model) else { return nil }
-            return .setSplitRatio(tab: tab, path: path, ratio: priorRatio)
+            guard let priorRatio = priorSplitRatio(tab: tab, path: path, model: model) else { return [] }
+            return [.setSplitRatio(tab: tab, path: path, ratio: priorRatio)]
 
         case let .moveTab(tab, insertIndex):
             guard let workspaceID = workspaceContaining(tab: tab, model: model),
                   let priorIndex = model.tabs[workspaceID]?.firstIndex(where: { $0.tabID == tab })
-            else { return nil }
-            return .moveTab(tab, insertIndex: inverseInsertIndex(priorIndex: priorIndex, forwardInsertIndex: insertIndex))
+            else { return [] }
+            return [.moveTab(tab, insertIndex: inverseInsertIndex(priorIndex: priorIndex, forwardInsertIndex: insertIndex))]
 
         case let .moveWorkspace(workspace, insertIndex):
-            guard let priorIndex = model.workspaces.firstIndex(where: { $0.workspaceID == workspace }) else { return nil }
-            return .moveWorkspace(workspace, insertIndex: inverseInsertIndex(priorIndex: priorIndex, forwardInsertIndex: insertIndex))
+            guard let priorIndex = model.workspaces.firstIndex(where: { $0.workspaceID == workspace }) else { return [] }
+            return [.moveWorkspace(workspace, insertIndex: inverseInsertIndex(priorIndex: priorIndex, forwardInsertIndex: insertIndex))]
+
+        case let .moveWorkspaceBlock(block, before):
+            return WorkspaceBlockMove.inverse(block: block, before: before, prior: model.workspaces.map(\.workspaceID))
+                .map { .moveWorkspaceBlock($0.block, before: $0.before) }
 
         case let .renamePane(pane, _):
-            return .renamePane(pane, model.panes[pane]?.label)
+            return [.renamePane(pane, model.panes[pane]?.label)]
 
         case let .renameTab(tab, _):
-            guard let priorLabel = model.tabs.values.flatMap({ $0 }).first(where: { $0.tabID == tab })?.label else { return nil }
-            return .renameTab(tab, priorLabel)
+            guard let priorLabel = model.tabs.values.flatMap({ $0 }).first(where: { $0.tabID == tab })?.label else { return [] }
+            return [.renameTab(tab, priorLabel)]
 
         case let .renameWorkspace(workspace, _):
-            guard let priorLabel = model.workspaces.first(where: { $0.workspaceID == workspace })?.label else { return nil }
-            return .renameWorkspace(workspace, priorLabel)
+            guard let priorLabel = model.workspaces.first(where: { $0.workspaceID == workspace })?.label else { return [] }
+            return [.renameWorkspace(workspace, priorLabel)]
 
         case .closePane, .closeTab, .closeWorkspace:
             // No inverse: herdr has no "recreate with this exact id" verb, so
             // fabricating one here would just be a lie the undo journal
             // trusts. The omission itself is the honest representation --
             // reflected in `ExecutedPlan.irreversible`.
-            return nil
+            return []
 
         case .zoom, .focusPane, .focusTab, .focusWorkspace:
-            return nil
+            return []
+        }
+    }
+
+    /// A later workspace reorder in the same plan is inverted against the
+    /// order it ran on: a block move's inverse anchors each run on its
+    /// follower, and an earlier move in the plan can change that follower.
+    private static func applyWorkspaceReorder(_ op: PrimitiveOp, to model: inout SessionModel) {
+        switch op {
+        case let .moveWorkspace(workspace, insertIndex):
+            guard let index = model.workspaces.firstIndex(where: { $0.workspaceID == workspace }) else { return }
+            let record = model.workspaces.remove(at: index)
+            let actual = gapAdjustedResultIndex(source: index, insert: insertIndex)
+            model.workspaces.insert(record, at: min(max(actual, 0), model.workspaces.count))
+        case let .moveWorkspaceBlock(block, before):
+            guard let reordered = WorkspaceBlockMove.apply(block: block, before: before, to: model.workspaces, id: \.workspaceID) else { return }
+            model.workspaces = reordered
+        default:
+            return
         }
     }
 

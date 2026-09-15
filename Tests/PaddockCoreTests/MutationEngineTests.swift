@@ -332,6 +332,65 @@ final class MutationEngineTests: XCTestCase {
         XCTAssertEqual(executed.inverse.ops, [.moveWorkspace(WorkspaceID(rawValue: "w1"), insertIndex: 0)])
     }
 
+    // MARK: - moveWorkspaceBlock inverse
+
+    private func workspaceOrderModel(_ order: [String]) -> SessionModel {
+        model(workspaces: order.map { workspaceRecord($0, activeTab: "\($0):t1") }, tabs: [], panes: [], layouts: [])
+    }
+
+    private func replayWorkspaceReorders(_ ops: [PrimitiveOp], on order: [WorkspaceID]) -> [WorkspaceID]? {
+        var current = order
+        for op in ops {
+            guard case let .moveWorkspaceBlock(block, before) = op,
+                  let next = WorkspaceBlockMove.apply(block: block, before: before, to: current) else { return nil }
+            current = next
+        }
+        return current
+    }
+
+    func testInverseOfAScatteredBlockMoveRestoresTheExactPriorOrder() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+        let prior = ["w1", "w2", "w3", "w4"].map { WorkspaceID(rawValue: $0) }
+
+        let plan = OpPlan(ops: [.moveWorkspaceBlock([prior[0], prior[2]], before: nil)], label: "Move workspaces")
+        let result = await engine.execute(plan, model: workspaceOrderModel(["w1", "w2", "w3", "w4"]))
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertEqual(executed.inverse.ops, [
+            .moveWorkspaceBlock([prior[0]], before: prior[1]),
+            .moveWorkspaceBlock([prior[2]], before: prior[3]),
+        ])
+        let forward = replayWorkspaceReorders(plan.ops, on: prior)
+        XCTAssertEqual(forward, ["w2", "w4", "w1", "w3"].map { WorkspaceID(rawValue: $0) })
+        XCTAssertEqual(forward.flatMap { replayWorkspaceReorders(executed.inverse.ops, on: $0) }, prior)
+        XCTAssertTrue(executed.irreversible.isEmpty)
+    }
+
+    /// An inverse plan can itself be several block moves, and inverting THAT
+    /// needs each move inverted against the order it actually ran on. Here
+    /// the first move leaves w3 last, so the second move's true prior has w3
+    /// at the end; read against the pre-plan order instead, w3 sits before
+    /// w4, its inverse looks like a no-op, and w3 is never put back.
+    func testInverseOfAMultiMoveBlockPlanInvertsEachMoveAgainstTheOrderItRanOn() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+        let w = ["w1", "w2", "w3", "w4"].map { WorkspaceID(rawValue: $0) }
+
+        let plan = OpPlan(ops: [
+            .moveWorkspaceBlock([w[3]], before: w[0]),
+            .moveWorkspaceBlock([w[2]], before: w[3]),
+        ], label: "Move workspaces twice")
+        let result = await engine.execute(plan, model: workspaceOrderModel(["w1", "w2", "w3", "w4"]))
+        guard let executed = expectSuccess(result) else { return }
+
+        let afterPlan = replayWorkspaceReorders(plan.ops, on: w)
+        XCTAssertEqual(afterPlan, [w[2], w[3], w[0], w[1]])
+        XCTAssertEqual(afterPlan.flatMap { replayWorkspaceReorders(executed.inverse.ops, on: $0) }, w)
+    }
+
     func testInverseOfRenamePaneIsThePriorLabelIncludingNilToClear() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
         fake.respond(to: "pane.rename", withResultJSON: "{}")

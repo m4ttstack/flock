@@ -188,6 +188,38 @@ final class UndoJournalTests: XCTestCase {
         XCTAssertEqual(notices, ["Can't undo: Move a pane that is now gone, panes changed"])
     }
 
+    /// A block move's inverse anchors on workspaces outside the block; one of
+    /// those closed since means the inverse would land the run somewhere
+    /// else, so it is stale exactly like a vanished pane.
+    @MainActor
+    func testBlockMoveEntryWhoseAnchorClosedIsSkippedAsStale() async {
+        let executor = FakePlanExecutor()
+        var notices: [String] = []
+        let journal = UndoJournal(executor: executor, model: { self.fixtureModel() }, notify: { notices.append($0) })
+        let forward = OpPlan(ops: [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1")], before: nil)], label: "Move workspaces")
+        let inverse = OpPlan(ops: [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1")], before: WorkspaceID(rawValue: "w9"))], label: "Undo Move workspaces")
+        journal.record(ExecutedPlan(plan: forward, inverse: inverse))
+
+        await journal.undo()
+
+        XCTAssertTrue(executor.executedPlans.isEmpty)
+        XCTAssertEqual(notices, ["Can't undo: Move workspaces, panes changed"])
+    }
+
+    @MainActor
+    func testBlockMoveEntryWithLiveReferencesUndoesAndRedoes() async {
+        let executor = FakePlanExecutor()
+        let journal = UndoJournal(executor: executor, model: { self.fixtureModel() }, notify: { _ in })
+        let forward = OpPlan(ops: [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1")], before: nil)], label: "Move workspaces")
+        let inverse = OpPlan(ops: [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1")], before: nil)], label: "Undo Move workspaces")
+        journal.record(ExecutedPlan(plan: forward, inverse: inverse))
+
+        await journal.undo()
+        await journal.redo()
+
+        XCTAssertEqual(executor.executedPlans.map(\.ops), [inverse.ops, forward.ops])
+    }
+
     // MARK: - a nil (not-yet-connected) model restores the entry, never drops it
 
     @MainActor

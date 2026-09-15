@@ -24,6 +24,8 @@ public enum PrimitiveOp: Equatable, Sendable {
     case setSplitRatio(tab: TabID, path: [Bool], ratio: Double)
     case moveTab(TabID, insertIndex: Int)
     case moveWorkspace(WorkspaceID, insertIndex: Int)
+    /// The block lands before `before` in its listed order; nil is the end.
+    case moveWorkspaceBlock([WorkspaceID], before: WorkspaceID?)
     case renamePane(PaneID, String?)
     case renameTab(TabID, String)
     case renameWorkspace(WorkspaceID, String)

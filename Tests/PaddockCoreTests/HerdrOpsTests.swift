@@ -189,6 +189,46 @@ final class HerdrOpsTests: XCTestCase {
         XCTAssertEqual(params["insert_index"] as? Int, 1)
     }
 
+    func testMoveWorkspaceBlockSendsTheIDsInOrderAndTheAnchor() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+        let client = HerdrClient(socketPath: fake.socketPath)
+
+        _ = try await client.perform(.moveWorkspaceBlock(
+            [WorkspaceID(rawValue: "w3"), WorkspaceID(rawValue: "w1")], before: WorkspaceID(rawValue: "w2")
+        ))
+
+        let (method, params) = lastRequest(fake)
+        XCTAssertEqual(method, "workspace.move_block")
+        XCTAssertEqual(params["workspace_ids"] as? [String], ["w3", "w1"])
+        XCTAssertEqual(params["before_workspace_id"] as? String, "w2")
+        XCTAssertEqual(params.count, 2)
+    }
+
+    /// herdr's `before_workspace_id` is `#[serde(default)]`: absent means the
+    /// end, and a JSON null is not the same wire shape.
+    func testMoveWorkspaceBlockWithNoAnchorOmitsIt() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+        let client = HerdrClient(socketPath: fake.socketPath)
+
+        _ = try await client.perform(.moveWorkspaceBlock([WorkspaceID(rawValue: "w1")], before: nil))
+
+        let request = try XCTUnwrap(fake.receivedRequests.last)
+        XCTAssertFalse(request.paramsJSON.contains("before_workspace_id"), request.paramsJSON)
+        XCTAssertEqual(lastRequest(fake).params["workspace_ids"] as? [String], ["w1"])
+    }
+
+    func testMoveWorkspaceBlockFailureSurfacesItsCode() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.failNext(method: "workspace.move_block", code: "workspace_move_block_failed", message: "before_workspace_id must not be part of workspace_ids")
+        let client = HerdrClient(socketPath: fake.socketPath)
+
+        await XCTAssertThrowsErrorAsync(try await client.perform(.moveWorkspaceBlock([WorkspaceID(rawValue: "w1")], before: WorkspaceID(rawValue: "w1")))) {
+            XCTAssertEqual($0 as? HerdrOpError, .other(code: "workspace_move_block_failed", message: "before_workspace_id must not be part of workspace_ids"))
+        }
+    }
+
     // MARK: - rename
 
     func testRenamePaneNilLabelClears() async throws {
@@ -365,7 +405,7 @@ final class HerdrOpsTests: XCTestCase {
     func testEveryOpSendsItsExplicitIDs() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
         for method in [
-            "pane.move", "pane.swap", "layout.set_split_ratio", "tab.move", "workspace.move",
+            "pane.move", "pane.swap", "layout.set_split_ratio", "tab.move", "workspace.move", "workspace.move_block",
             "pane.rename", "tab.rename", "workspace.rename", "pane.close", "tab.close",
             "workspace.close", "pane.zoom", "pane.focus", "tab.focus", "workspace.focus",
         ] {
@@ -381,6 +421,7 @@ final class HerdrOpsTests: XCTestCase {
             .setSplitRatio(tab: TabID(rawValue: "w1:t1"), path: [true], ratio: 0.5),
             .moveTab(TabID(rawValue: "w1:t1"), insertIndex: 0),
             .moveWorkspace(WorkspaceID(rawValue: "w1"), insertIndex: 0),
+            .moveWorkspaceBlock([WorkspaceID(rawValue: "w1")], before: nil),
             .renamePane(PaneID(rawValue: "w1:p1"), nil),
             .renameTab(TabID(rawValue: "w1:t1"), "x"),
             .renameWorkspace(WorkspaceID(rawValue: "w1"), "x"),
@@ -411,6 +452,8 @@ final class HerdrOpsTests: XCTestCase {
                 XCTAssertFalse((dict["tab_id"] as? String ?? "").isEmpty, request.method)
             case "workspace.move", "workspace.rename", "workspace.close", "workspace.focus":
                 XCTAssertFalse((dict["workspace_id"] as? String ?? "").isEmpty, request.method)
+            case "workspace.move_block":
+                XCTAssertFalse((dict["workspace_ids"] as? [String] ?? []).isEmpty, request.method)
             case "pane.rename", "pane.close", "pane.focus", "pane.zoom":
                 XCTAssertFalse((dict["pane_id"] as? String ?? "").isEmpty, request.method)
             default:

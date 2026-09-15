@@ -254,7 +254,7 @@ public final class HerdrStore {
                 kinds.insert(.layoutUpdated)
             case .moveTab:
                 kinds.insert(.tabMoved)
-            case .moveWorkspace:
+            case .moveWorkspace, .moveWorkspaceBlock:
                 kinds.insert(.workspaceMoved)
             case .renamePane:
                 break
@@ -373,6 +373,10 @@ public final class HerdrStore {
             let actual = Self.gapAdjustedResultIndex(source: index, insert: insertIndex)
             workspaces.insert(record, at: min(max(actual, 0), workspaces.count))
             return .workspaceMoved(workspaces)
+
+        case let .moveWorkspaceBlock(block, before):
+            guard let workspaces = WorkspaceBlockMove.apply(block: block, before: before, to: model.workspaces, id: \.workspaceID) else { return nil }
+            return .workspaceReordered(workspaces)
 
         case let .focusPane(pane):
             return .paneFocused(pane)

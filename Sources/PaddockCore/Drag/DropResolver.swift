@@ -133,7 +133,7 @@ private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: Dro
     case .pane, .tab:
         guard let hit = surfaces.workspaceFrames.first(where: { $0.frame.contains(point) }) else { return nil }
         return .workspaceThumbnail(hit.id)
-    case .workspace:
+    case .workspace, .workspaces:
         let centers = surfaces.workspaceFrames.map(\.frame.midY)
         return .workspaceRail(insertIndex: insertIndex(of: point.y, centers: centers))
     }
@@ -147,7 +147,7 @@ private func resolveStrip(at point: CGPoint, dragging: DragSubject, surfaces: Dr
     case .tab:
         let centers = surfaces.tabFrames.map(\.frame.midX)
         return .tabStrip(workspace: surfaces.stripWorkspace, insertIndex: insertIndex(of: point.x, centers: centers))
-    case .workspace:
+    case .workspace, .workspaces:
         return nil
     }
 }

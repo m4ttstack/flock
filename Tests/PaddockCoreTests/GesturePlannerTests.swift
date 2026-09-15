@@ -345,6 +345,76 @@ final class GesturePlannerTests: XCTestCase {
         XCTAssertEqual(opPlan.ops, [.moveWorkspace(WorkspaceID(rawValue: "w2"), insertIndex: 0)])
     }
 
+    // MARK: - Workspace block -> rail
+
+    private func threeWorkspaceModel() -> SessionModel {
+        model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1"), workspaceRecord("w3", activeTab: "w3:t1")],
+            tabs: [], panes: [], layouts: []
+        )
+    }
+
+    func testBlockOfFirstAndLastDroppedBeforeTheMiddleIsOneMoveBlock() {
+        let result = plan(
+            dragging: .workspaces([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3")]),
+            onto: .workspaceRail(insertIndex: 1), model: threeWorkspaceModel()
+        )
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3")], before: WorkspaceID(rawValue: "w2"))])
+        XCTAssertEqual(opPlan.needsUnzoom, [])
+    }
+
+    func testBlockIsSentInRailOrderWhateverOrderTheSelectionCameIn() {
+        let result = plan(
+            dragging: .workspaces([WorkspaceID(rawValue: "w3"), WorkspaceID(rawValue: "w1")]),
+            onto: .workspaceRail(insertIndex: 1), model: threeWorkspaceModel()
+        )
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3")], before: WorkspaceID(rawValue: "w2"))])
+    }
+
+    func testBlockDroppedPastEveryUnmovedWorkspaceHasNoAnchor() {
+        let result = plan(
+            dragging: .workspaces([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w2")]),
+            onto: .workspaceRail(insertIndex: 3), model: threeWorkspaceModel()
+        )
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w2")], before: nil)])
+    }
+
+    func testBlockDroppedIntoItsOwnGapIsANoOp() {
+        let result = plan(
+            dragging: .workspaces([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w2")]),
+            onto: .workspaceRail(insertIndex: 1), model: threeWorkspaceModel()
+        )
+        switch result {
+        case .failure(.noOp): break
+        default: XCTFail("expected .noOp, got \(result)")
+        }
+    }
+
+    func testBlockNamingAWorkspaceTheModelLacksIsInvalid() {
+        let result = plan(
+            dragging: .workspaces([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w9")]),
+            onto: .workspaceRail(insertIndex: 3), model: threeWorkspaceModel()
+        )
+        switch result {
+        case .failure(.invalidCombination): break
+        default: XCTFail("expected .invalidCombination, got \(result)")
+        }
+    }
+
+    func testBlockOntoTabStripIsInvalidCombination() {
+        let result = plan(
+            dragging: .workspaces([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w3")]),
+            onto: .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0), model: threeWorkspaceModel()
+        )
+        switch result {
+        case .failure(.invalidCombination): break
+        default: XCTFail("expected .invalidCombination, got \(result)")
+        }
+    }
+
     // MARK: - Invalid combinations
 
     func testTabOntoPaneEdgeIsInvalidCombination() {
@@ -412,7 +482,8 @@ final class GesturePlannerTests: XCTestCase {
         let subjects: [DragSubject] = [
             .pane(PaneID(rawValue: "w1:p1")),
             .tab(TabID(rawValue: "w1:t1")),
-            .workspace(WorkspaceID(rawValue: "w1"))
+            .workspace(WorkspaceID(rawValue: "w1")),
+            .workspaces([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w2")])
         ]
 
         var produced: [(DragSubject, DropTarget)] = []
