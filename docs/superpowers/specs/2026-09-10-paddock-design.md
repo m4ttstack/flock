@@ -182,7 +182,7 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   by Matt: "herdr is really good at responding to resizes"). The Terminal Text setting (Compact/Regular/Large) is the font
   size outright, not a maximum; each pane's cols x rows is its box divided
   by that font's cell metrics, with the remainder as padding inside the
-  box. A scroll indicator fed by herdr's own scroll state
+  box. Real pane resizes are LIVE during every drag (window resize and divider drag alike), sent the moment a pane's whole-cell grid changes, exactly as Herdglass does (`TerminalSurfaceView.layout()` resizes the surface, whose bridge sends `terminal.resize` on SIGWINCH with no coalescing); only the split RATIO waits for release (ruled 2026-09-15 after Matt saw divider drags correct only on release, caused by an earlier ruling that held pane dims for the drag and misapplied Herdglass's ratio rule to sizes). A scroll indicator fed by herdr's own scroll state
   (offset_from_bottom, `pane.scroll_changed`) shows when a pane's viewport
   is above its tail.
 - **Tab following (ruled 2026-09-13):** paddock's selected tab follows
