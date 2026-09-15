@@ -776,6 +776,10 @@ final class CanvasGeometryTests: XCTestCase {
         )
 
         XCTAssertEqual(try XCTUnwrap(geometry.paneFrames[PaneID(rawValue: "left")]).width, 300, accuracy: 0.01)
+        XCTAssertEqual(
+            try XCTUnwrap(geometry.dividers.first).frame.midX, 300, accuracy: 0.01,
+            "the gutter stays centered on the cell edge the boxes actually end at"
+        )
     }
 
     /// The dragged split's descendants ride the region the drag moved, so a
