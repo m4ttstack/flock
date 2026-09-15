@@ -43,12 +43,16 @@ struct TabStrip: View {
             }
             .padding(.horizontal, 8)
             .frame(height: ChromeMetrics.tabStripHeight)
+            // The strip above its rule: the insertion bar is clamped inside
+            // this frame, so a frame that included the rule would let the bar
+            // cross it into the canvas.
+            .reportsDragFrame { drag.stripFrame = $0 }
             Rectangle()
                 .fill(theme.rule)
                 .frame(height: ChromeMetrics.ruleWidth)
         }
+        .background(WindowDragExclusion())
         .boundedBackground(theme.chrome)
-        .reportsDragFrame { drag.stripFrame = $0 }
         .onAppear { publishIdentity() }
         .onChange(of: tabs.map(\.tabID)) { _, _ in publishIdentity() }
         .onChange(of: workspace) { _, _ in publishIdentity() }

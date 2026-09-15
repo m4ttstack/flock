@@ -21,6 +21,22 @@ extension View {
     }
 }
 
+/// Takes the view's area out of the window's drag region. The system title bar
+/// is taller than `ChromeMetrics.titleBarHeight`, so the top of the tab strip
+/// sits inside it, and a hosting view reports `mouseDownCanMoveWindow` true:
+/// without an opt-out there, a press on a tab's top edge moves the window
+/// instead of reaching the tab. It never takes a hit itself, so every press
+/// still lands on the SwiftUI content above it.
+struct WindowDragExclusion: NSViewRepresentable {
+    func makeNSView(context: Context) -> NonDraggableView { NonDraggableView() }
+    func updateNSView(_ nsView: NonDraggableView, context: Context) {}
+}
+
+final class NonDraggableView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// Merges the system title bar into the content so the window buttons sit on
 /// `TitleBar`'s chrome with no system strip above it. `.windowStyle(.hiddenTitleBar)`
 /// alone still leaves a title bar safe-area inset, so `MainWindow` also ignores
@@ -69,20 +85,29 @@ final class TitlebarHostView: NSView {
 /// shorter than the system's. AppKit lays the buttons out again on its own
 /// schedule (a resize, a key change, leaving full screen), so each button's
 /// own frame change is observed and corrected synchronously, before the pass
-/// draws, as well as the window events that precede a relayout. Full screen is
+/// draws, as well as the window events that precede a relayout. AppKit can
+/// also replace the buttons outright (a style mask change), so every pass
+/// checks it is still observing the buttons the window has now. Full screen is
 /// left alone: there the buttons live in the system's reveal bar.
 @MainActor
 final class WindowButtonCentering {
+    private final class WeakButton {
+        weak var button: NSButton?
+        init(_ button: NSButton) { self.button = button }
+    }
+
     private let barHeight: CGFloat
     private weak var window: NSWindow?
-    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+    nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
+    nonisolated(unsafe) private var buttonObservers: [NSObjectProtocol] = []
+    private var observedButtons: [WeakButton] = []
 
     init(barHeight: CGFloat) {
         self.barHeight = barHeight
     }
 
     deinit {
-        for observer in observers {
+        for observer in windowObservers + buttonObservers {
             NotificationCenter.default.removeObserver(observer)
         }
     }
@@ -102,13 +127,7 @@ final class WindowButtonCentering {
             NSWindow.didChangeBackingPropertiesNotification,
         ]
         for name in windowEvents {
-            observers.append(center.addObserver(forName: name, object: window, queue: nil) { [weak self] _ in
-                MainActor.assumeIsolated { self?.apply() }
-            })
-        }
-        for button in Self.buttons(of: window) {
-            button.postsFrameChangedNotifications = true
-            observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: button, queue: nil) { [weak self] _ in
+            windowObservers.append(center.addObserver(forName: name, object: window, queue: nil) { [weak self] _ in
                 MainActor.assumeIsolated { self?.apply() }
             })
         }
@@ -116,16 +135,41 @@ final class WindowButtonCentering {
     }
 
     func detach() {
-        for observer in observers {
+        for observer in windowObservers + buttonObservers {
             NotificationCenter.default.removeObserver(observer)
         }
-        observers = []
+        windowObservers = []
+        buttonObservers = []
+        observedButtons = []
         window = nil
     }
 
+    private func isObserving(_ buttons: [NSButton]) -> Bool {
+        observedButtons.count == buttons.count && zip(observedButtons, buttons).allSatisfy { $0.button === $1 }
+    }
+
+    private func observe(_ buttons: [NSButton]) {
+        let center = NotificationCenter.default
+        for observer in buttonObservers {
+            center.removeObserver(observer)
+        }
+        buttonObservers = buttons.map { button in
+            button.postsFrameChangedNotifications = true
+            return center.addObserver(forName: NSView.frameDidChangeNotification, object: button, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.apply() }
+            }
+        }
+        observedButtons = buttons.map(WeakButton.init)
+    }
+
     func apply() {
-        guard let window, !window.styleMask.contains(.fullScreen) else { return }
-        for button in Self.buttons(of: window) {
+        guard let window else { return }
+        let buttons = Self.buttons(of: window)
+        if !isObserving(buttons) {
+            observe(buttons)
+        }
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        for button in buttons {
             guard let container = button.superview else { continue }
             let y = Self.originY(
                 buttonHeight: button.frame.height, barHeight: barHeight,
