@@ -157,6 +157,40 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// The strip's overflow hint, which no other render reaches: the fixture
+    /// window's four tabs never overflow. repo-tools has nine, so the strip
+    /// scrolls and each end of its run hides tabs on exactly one side.
+    func testAnOverflowingStripFadesOnlyTheEdgeThatHidesTabs() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let harness = try await Harness(theme: .tokyoNight, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+
+        XCTAssertEqual(harness.drag.stripEdgeFade, TabStripScrollGeometry.EdgeFade(leading: false, trailing: true))
+        let start = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(start.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("strip-fade-start.png"))
+        }
+
+        // Past the end of the run; the scroll view clamps it to the maximum.
+        harness.drag.stripScroller?(10_000)
+        await settle(window)
+        XCTAssertEqual(harness.drag.stripEdgeFade, TabStripScrollGeometry.EdgeFade(leading: true, trailing: false))
+        let end = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(end.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("strip-fade-end.png"))
+        }
+
+        // The strip is the only thing that differs between the two: the rail,
+        // the canvas and the title bar are untouched by a strip scroll.
+        XCTAssertEqual(hex(start, CGPoint(x: 100, y: 74)), hex(end, CGPoint(x: 100, y: 74)), "the rail")
+        XCTAssertEqual(hex(start, CGPoint(x: 700, y: 400)), hex(end, CGPoint(x: 700, y: 400)), "the canvas")
+        XCTAssertNotEqual(hex(start, CGPoint(x: 210, y: 40)), hex(end, CGPoint(x: 210, y: 40)), "the strip's leading edge")
+        window.close()
+    }
+
     /// A pane dragged out of a mini pane, first over another workspace's
     /// thumbnail and then over a third workspace's card where no thumbnail
     /// sits. Both renders carry the ghost, the drop wash and the targeted
