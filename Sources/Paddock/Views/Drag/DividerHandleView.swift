@@ -5,10 +5,9 @@ import SwiftUI
 /// One divider's hit zone and paint. Placed by the caller via `.offset` at
 /// `band`'s origin, the same convention `PaneCanvas` already uses for
 /// `PaneCellView` -- this view sizes itself to `band`, which is wider than
-/// the gutter it paints (`DividerBand.thickness` vs. the drawn line), so the
-/// hit zone reaches into both neighbors' chrome insets without ever meeting
-/// their terminal surfaces. A faint separator line at rest; brightens plus a
-/// pip on hover; an accent line plus the live ratio while dragging.
+/// the gutter (`DividerBand.thickness` vs. `DividerBand.gutter`), so the hit
+/// zone reaches into both neighbors' chrome insets without ever meeting
+/// their terminal surfaces. The visible part is only the centered handle.
 ///
 /// A divider drag is NOT routed through `DragCoordinator`/`DragController`:
 /// it resolves no drop target, has no ghost, and never spring-loads, so
