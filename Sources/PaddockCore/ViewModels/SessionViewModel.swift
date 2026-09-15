@@ -737,7 +737,7 @@ extension DropTarget {
         switch self {
         case .tabThumbnail, .newTab, .workspaceThumbnail, .newWorkspace:
             return true
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .allWorkspaces, .moreTabs:
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .moreTabs:
             return false
         }
     }

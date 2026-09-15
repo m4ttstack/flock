@@ -35,7 +35,7 @@ public func plan(dragging subject: DragSubject, onto target: DropTarget, model: 
     case let (.workspaces(block), .workspaceRail(insertIndex)):
         return planWorkspaceBlockReorder(block: block, insertIndex: insertIndex, model: model)
 
-    case (_, .allWorkspaces), (_, .moreTabs):
+    case (_, .moreTabs):
         return .failure(.noOp)
 
     default:
@@ -136,6 +136,11 @@ private func planPaneToTabThumbnail(pane: PaneID, tab: TabID, model: SessionMode
           model.tabs.values.contains(where: { $0.contains { $0.tabID == tab } }) else {
         return .failure(.invalidCombination)
     }
+    // The pane is already in this tab, and herdr refuses a same-tab
+    // `pane.move` outright (`same_tab`).
+    guard subjectRecord.tabID != tab else {
+        return .failure(.noOp)
+    }
     return .success(OpPlan(
         ops: [.movePaneToTab(pane, tab: tab, target: nil, split: .right, ratio: 0.5)],
         label: "Move pane into tab",
@@ -204,6 +209,11 @@ private func planTabReorder(tab: TabID, workspace: WorkspaceID, insertIndex: Int
 private func planTabMigration(tab: TabID, workspace: WorkspaceID, model: SessionModel) -> Result<OpPlan, PlanError> {
     guard model.workspaces.contains(where: { $0.workspaceID == workspace }) else {
         return .failure(.invalidCombination)
+    }
+    // Already there. Replaying the shape into a fresh tab of the same
+    // workspace would destroy and rebuild the tab for no move at all.
+    guard model.tabs[workspace]?.contains(where: { $0.tabID == tab }) != true else {
+        return .failure(.noOp)
     }
     guard let layout = model.layouts[tab], !layout.panes.isEmpty,
           let tree = SplitTree.build(from: layout) else {

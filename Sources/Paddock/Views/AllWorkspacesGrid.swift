@@ -80,7 +80,7 @@ struct AllWorkspacesGrid: View {
         workspaces.flatMap { workspace in
             let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
             let cells = GridCardLayout.cells(tabs: tabs, expanded: drag.expandedGridCards.contains(workspace.workspaceID))
-            return cells.compactMap { cell -> GridItemID? in
+            return [.card(workspace.workspaceID)] + cells.compactMap { cell -> GridItemID? in
                 switch cell {
                 case .tab(let id): .tab(id)
                 case .moreTabs: .moreTabs(workspace.workspaceID)
@@ -123,11 +123,15 @@ private struct WorkspaceCard: View {
         .padding(.horizontal, ChromeMetrics.Grid.cardHorizontalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.cardCornerRadius))
+        .overlay {
+            DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.cardCornerRadius)
+        }
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.Grid.cardCornerRadius)
                 .strokeBorder(isTargeted(tabs) ? theme.accent : theme.paneBorder, lineWidth: ChromeMetrics.ruleWidth)
         )
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
+        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
         .accessibilityIdentifier("paddock.grid.workspace.\(workspace.workspaceID.rawValue)")
     }
 
@@ -179,12 +183,20 @@ private struct WorkspaceCard: View {
         }
     }
 
+    /// The accent outline: on whichever card owns the target, whether that is
+    /// one of its thumbnails, its +N tile, or the card itself.
     private func isTargeted(_ tabs: [TabRecord]) -> Bool {
         switch drag.target {
         case .tabThumbnail(let id)?: tabs.contains { $0.tabID == id }
         case .moreTabs(let id)?: id == workspace.workspaceID
-        default: false
+        default: takesTheDrop
         }
+    }
+
+    /// The card itself is the target: a drop lands in a new tab of this
+    /// workspace, or migrates a whole tab into it.
+    private var takesTheDrop: Bool {
+        drag.target == .workspaceThumbnail(workspace.workspaceID)
     }
 }
 
@@ -225,6 +237,39 @@ private struct TabThumbnail: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(drag.isDragging(tab: tab.tabID) ? DragVisuals.originOpacity : 1)
+        // On the whole thumbnail, mini panes included, so a press anywhere a
+        // mini pane does not cover drags the tab. A mini pane's own gesture
+        // is a descendant's, so it takes the press where it sits.
+        .gesture(tabDrag)
+    }
+
+    private var tabDrag: some Gesture {
+        DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
+            .onChanged { value in
+                drag.beginIfIdle(
+                    .tab(tab.tabID),
+                    ghost: DragCoordinator.Ghost(
+                        title: tab.label,
+                        symbol: "rectangle.stack",
+                        originSize: drag.surfaces?.grid?.thumbnails.first { $0.id == tab.tabID }?.frame.size ?? .zero
+                    ),
+                    at: value.startLocation
+                )
+            }
+    }
+
+    /// A mini pane is a preview, never a surface, so the proxy carries the
+    /// pane's title over the mini pane's own footprint.
+    private func paneDrag(_ pane: PaneRecord, origin: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
+            .onChanged { value in
+                drag.beginIfIdle(
+                    .pane(pane.paneID),
+                    ghost: DragCoordinator.Ghost(title: pane.displayTitle, symbol: "macwindow", originSize: origin),
+                    at: value.startLocation
+                )
+            }
     }
 
     private func miniPanes(size: CGSize) -> some View {
@@ -247,6 +292,8 @@ private struct TabThumbnail: View {
                     MiniPane(theme: theme, pane: pane)
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
+                        .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
+                        .gesture(paneDrag(pane, origin: placed.frame.size))
                         // In the drag space, where the card is placed: a
                         // scroll or reflow under a still pointer leaves the
                         // pointer, and so the card, where it is.
@@ -330,9 +377,10 @@ private struct GridTile: View {
 private struct DropWash: View {
     let theme: Theme
     let isTargeted: Bool
+    var cornerRadius: CGFloat = ChromeMetrics.Grid.thumbnailCornerRadius
 
     var body: some View {
-        RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius)
+        RoundedRectangle(cornerRadius: cornerRadius)
             .fill(theme.accent.opacity(DragVisuals.dropWashOpacity))
             .opacity(isTargeted ? 1 : 0)
             .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted)

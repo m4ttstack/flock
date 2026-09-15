@@ -25,15 +25,22 @@ public struct WorkspaceItemFrame: Equatable, Sendable {
 /// The All Workspaces grid while it covers the window, every frame in the
 /// drag space. `viewport` is the grid's scroll view: a thumbnail or tile
 /// scrolled out of it is not there to hit.
+///
+/// `cards` are the whole workspace cards, which contain their own thumbnails
+/// and tiles. A card's "empty space" is not a frame of its own: it is
+/// whatever of the card the thumbnails and tiles do not cover, which is why
+/// the card is hit-tested last.
 public struct GridDropSurfaces: Equatable, Sendable {
     public let viewport: CGRect
     public let thumbnails: [TabItemFrame]
     public let moreTiles: [WorkspaceItemFrame]
+    public let cards: [WorkspaceItemFrame]
 
-    public init(viewport: CGRect, thumbnails: [TabItemFrame], moreTiles: [WorkspaceItemFrame]) {
+    public init(viewport: CGRect, thumbnails: [TabItemFrame], moreTiles: [WorkspaceItemFrame], cards: [WorkspaceItemFrame]) {
         self.viewport = viewport
         self.thumbnails = thumbnails
         self.moreTiles = moreTiles
+        self.cards = cards
     }
 }
 
@@ -43,8 +50,6 @@ public struct GridDropSurfaces: Equatable, Sendable {
 /// `grid` is set only while the grid covers the window. The rail, strip and
 /// canvas keep their last reported frames underneath it, so a set `grid` is
 /// the whole answer and those frames are never consulted.
-/// `allWorkspacesEntry` is the rail's pinned "All workspaces" row, present
-/// only while a pane drag shows it.
 ///
 /// `stripWorkspace` is the workspace `tabFrames` belongs to: `DropTarget`'s
 /// `.tabStrip`/`.newTab` cases carry a workspace id that the frames
@@ -75,7 +80,6 @@ public struct DropSurfaces: Equatable, Sendable {
     public let newTabZone: CGRect?
     public let newWorkspaceZone: CGRect?
     public let grid: GridDropSurfaces?
-    public let allWorkspacesEntry: CGRect?
 
     public init(
         canvas: CanvasGeometry,
@@ -88,11 +92,9 @@ public struct DropSurfaces: Equatable, Sendable {
         railViewport: CGRect? = nil,
         newTabZone: CGRect?,
         newWorkspaceZone: CGRect?,
-        grid: GridDropSurfaces? = nil,
-        allWorkspacesEntry: CGRect? = nil
+        grid: GridDropSurfaces? = nil
     ) {
         self.grid = grid
-        self.allWorkspacesEntry = allWorkspacesEntry
         self.canvas = canvas
         self.stripWorkspace = stripWorkspace
         self.tabFrames = tabFrames
@@ -114,8 +116,7 @@ public let edgeBandFraction: CGFloat = 0.20
 /// could land on.
 ///
 /// A shown grid answers alone (see `DropSurfaces`). Otherwise, precedence
-/// when surfaces overlap on screen: the rail's "All workspaces" row, which
-/// sits over the rail's free run, then the new-tab/new-workspace zones, then
+/// when surfaces overlap on screen: the new-tab/new-workspace zones, then
 /// the workspace rail, then the tab strip, then the canvas. Each
 /// tier that contains the point owns the result outright, including `nil`
 /// for a subject that tier does not accept -- the point never falls through
@@ -130,10 +131,6 @@ public let edgeBandFraction: CGFloat = 0.20
 public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
     if let grid = surfaces.grid {
         return resolveGrid(at: point, dragging: dragging, grid: grid)
-    }
-
-    if case .pane = dragging, let entry = surfaces.allWorkspacesEntry, entry.contains(point) {
-        return .allWorkspaces
     }
 
     if let zone = resolveZone(at: point, dragging: dragging, surfaces: surfaces) {
@@ -178,17 +175,33 @@ private func resolveZone(at point: CGPoint, dragging: DragSubject, surfaces: Dro
     return nil
 }
 
-/// The grid serves pane drops only: a thumbnail moves the pane into that tab,
-/// and a +N tile is where a dwell uncovers the tabs it stands for.
+/// Rearranging from inside the grid. A pane lands in the tab whose thumbnail
+/// it is over, or in a new tab of whatever card it is over otherwise; a +N
+/// tile is where a dwell uncovers the tabs it stands for. A whole tab lands
+/// in a workspace, so the card is the only target it has, thumbnails and
+/// tiles included. A workspace drag has nothing to land on here.
+///
+/// A thumbnail is a whole-tab target with no edge bands: it is far too small
+/// to divide into four zones, so nothing in the grid ever splits a pane.
 private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDropSurfaces) -> DropTarget? {
-    guard case .pane = dragging, grid.viewport.contains(point) else { return nil }
-    if let hit = grid.thumbnails.first(where: { $0.frame.contains(point) }) {
-        return .tabThumbnail(hit.id)
+    guard grid.viewport.contains(point) else { return nil }
+    func card() -> DropTarget? {
+        grid.cards.first(where: { $0.frame.contains(point) }).map { .workspaceThumbnail($0.id) }
     }
-    if let hit = grid.moreTiles.first(where: { $0.frame.contains(point) }) {
-        return .moreTabs(hit.id)
+    switch dragging {
+    case .pane:
+        if let hit = grid.thumbnails.first(where: { $0.frame.contains(point) }) {
+            return .tabThumbnail(hit.id)
+        }
+        if let hit = grid.moreTiles.first(where: { $0.frame.contains(point) }) {
+            return .moreTabs(hit.id)
+        }
+        return card()
+    case .tab:
+        return card()
+    case .workspace, .workspaces:
+        return nil
     }
-    return nil
 }
 
 private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {

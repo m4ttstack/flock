@@ -1401,7 +1401,6 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(DropTarget.paneInterior(pane).takesThePaneOffItsTab)
         XCTAssertFalse(DropTarget.tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0).takesThePaneOffItsTab)
         XCTAssertFalse(DropTarget.workspaceRail(insertIndex: 0).takesThePaneOffItsTab)
-        XCTAssertFalse(DropTarget.allWorkspaces.takesThePaneOffItsTab)
         XCTAssertFalse(DropTarget.moreTabs(WorkspaceID(rawValue: "w1")).takesThePaneOffItsTab)
     }
 

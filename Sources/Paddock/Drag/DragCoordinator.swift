@@ -31,6 +31,8 @@ final class SpringLoadRelay {
 enum GridItemID: Hashable, Sendable {
     case tab(TabID)
     case moreTabs(WorkspaceID)
+    /// The whole workspace card, which the thumbnails and tiles sit inside.
+    case card(WorkspaceID)
 }
 
 /// The one place the drag gestures, the live layout, and `DragController`
@@ -120,14 +122,9 @@ final class DragCoordinator {
         )
     }
 
-    /// Stops above the pinned "All workspaces" row while a pane drag shows it.
     var newWorkspaceZone: CGRect? {
         guard let railFrame else { return nil }
-        var run = railFrame
-        if let allWorkspacesEntryFrame {
-            run.size.height = max(0, allWorkspacesEntryFrame.minY - railFrame.minY)
-        }
-        return DropZones.below(in: run, itemsEndingAt: workspaceFrames.last?.frame.maxY)
+        return DropZones.below(in: railFrame, itemsEndingAt: workspaceFrames.last?.frame.maxY)
     }
 
     /// The strip's and the rail's scroll views, which is where their items are
@@ -135,9 +132,6 @@ final class DragCoordinator {
     var stripViewport: CGRect?
     var railViewport: CGRect?
     var gridViewport: CGRect?
-    /// The rail's pinned "All workspaces" row, only while a pane drag shows
-    /// it.
-    var allWorkspacesEntryFrame: CGRect?
 
     /// Frames arrive one item at a time as each row lays out, so the strip and
     /// the rail publish their ORDER separately; that order is what turns the
@@ -364,31 +358,26 @@ final class DragCoordinator {
             stripFrame: stripFrame,
             railFrame: railFrame,
             stripViewport: stripViewport,
-            railViewport: railViewportAboveEntry,
+            railViewport: railViewport,
             newTabZone: newTabZone,
             newWorkspaceZone: newWorkspaceZone,
-            grid: gridSurfaces,
-            allWorkspacesEntry: allWorkspacesEntryFrame
+            grid: gridSurfaces
         )
-    }
-
-    /// Where the rail's rows can be hit and its bottom band scrolls: never
-    /// the pinned entry row a pane drag lays over the rail's bottom.
-    private var railViewportAboveEntry: CGRect? {
-        AllWorkspacesEntry.railViewport(railViewport, above: allWorkspacesEntryFrame)
     }
 
     private var gridSurfaces: GridDropSurfaces? {
         guard grid.isShown else { return nil }
         var thumbnails: [TabItemFrame] = []
         var moreTiles: [WorkspaceItemFrame] = []
+        var cards: [WorkspaceItemFrame] = []
         for item in gridItems.onScreen {
             switch item.id {
             case .tab(let id): thumbnails.append(TabItemFrame(id: id, frame: item.frame))
             case .moreTabs(let id): moreTiles.append(WorkspaceItemFrame(id: id, frame: item.frame))
+            case .card(let id): cards.append(WorkspaceItemFrame(id: id, frame: item.frame))
             }
         }
-        return GridDropSurfaces(viewport: gridViewport ?? .zero, thumbnails: thumbnails, moreTiles: moreTiles)
+        return GridDropSurfaces(viewport: gridViewport ?? .zero, thumbnails: thumbnails, moreTiles: moreTiles, cards: cards)
     }
 
     // MARK: - Tab strip wheel and reveal
@@ -455,18 +444,6 @@ final class DragCoordinator {
         if case .pane = subject {
             isPaneDragInFlight = true
             NSCursor.closedHand.push()
-            // The entry row's margin is about to grow the rail's content
-            // beneath a resting scroll offset the row report above has not
-            // caught up to yet; nudge it now so the first frame with the
-            // entry row shown does not still hide the last row behind it.
-            let adjusted = AllWorkspacesEntry.railOffsetPreservingMaximum(
-                offset: railScrollExtent.offset,
-                restingMaximum: railScrollExtent.maximum,
-                addedMargin: WorkspaceRail.entryRowMarginDelta
-            )
-            if adjusted != railScrollExtent.offset {
-                railScroller?(adjusted)
-            }
         }
         holdsRearrangeOpen = rearrangeMode.active
         if holdsRearrangeOpen {
@@ -475,7 +452,9 @@ final class DragCoordinator {
         installMonitors()
     }
 
-    private func move(to point: CGPoint) {
+    /// Every pointer move of a live drag, from the window monitor above and
+    /// from the offscreen render harness.
+    func move(to point: CGPoint) {
         guard machine.tracksMotion else { return }
         lastPointer = point
         resolve(at: point)
@@ -727,7 +706,7 @@ final class DragCoordinator {
                 offset: stripScrollExtent.offset, maximumOffset: stripScrollExtent.maximum
             ))
         }
-        if let railViewport = railViewportAboveEntry {
+        if let railViewport {
             regions.append(AutoScroller.Region(
                 surface: .rail, viewport: railViewport, axis: .vertical,
                 offset: railScrollExtent.offset, maximumOffset: railScrollExtent.maximum
@@ -766,19 +745,18 @@ final class DragCoordinator {
     }
 
     /// A reveal just changed what sits under the pointer (see
-    /// `AutoScroller.springLoaded`). The suppression is taken against the
-    /// surfaces the dwell happened over, before anything moves; a dwell that
-    /// opens or closes the grid replaces those surfaces, so it holds every
-    /// band. The tab is selected before the grid gives way to it.
+    /// `AutoScroller.springLoaded`). A dwell inside the grid only ever
+    /// uncovers more of the grid, so the window under it is never revealed
+    /// while a grid drag is in flight.
     private func springLoadFired(_ target: DropTarget) {
         autoScrollTicker.stop()
-        var next = grid
-        let swapsSurfaces = next.springLoaded(target)
         if let lastPointer {
-            autoScroller.springLoaded(pointer: lastPointer, regions: scrollRegions, swapsSurfaces: swapsSurfaces)
+            autoScroller.springLoaded(pointer: lastPointer, regions: scrollRegions)
         }
-        reveal(target)
-        updateGrid { $0 = next }
+        if !grid.isShown {
+            reveal(target)
+        }
+        updateGrid { $0.springLoaded(target) }
     }
 
     private func stopAutoScroll() {
@@ -959,12 +937,11 @@ final class DragCoordinator {
     /// `DropzoneOverlay` previews the whole post-drop layout for those.
     var targetHighlight: CGRect? {
         guard let target, let surfaces else { return nil }
-        // A grid target is the grid's own to draw: a wash on the thumbnail or
-        // tile and an accent outline on its card.
+        // Every grid target is the grid's own to draw: a wash on the
+        // thumbnail, tile or card, and an accent outline on the card.
+        guard !grid.isShown else { return nil }
         switch target {
-        case .tabThumbnail where grid.isShown:
-            return nil
-        case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .allWorkspaces:
+        case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
             return dropTargetRect(for: target, surfaces: surfaces)
         case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .moreTabs:
             return nil

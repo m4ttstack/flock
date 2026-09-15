@@ -158,6 +158,18 @@ final class GesturePlannerTests: XCTestCase {
         ])
     }
 
+    /// Where the pane already is. herdr refuses a same-tab `pane.move`, so a
+    /// plan here would reach the user as a rejection rather than springing
+    /// back: it comes up whenever a grid drag is released over the thumbnail
+    /// it started in.
+    func testAPaneDroppedOnItsOwnTabsThumbnailIsANoOp() {
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .tabThumbnail(TabID(rawValue: "w1:t1")), model: twoTabModel())
+        switch result {
+        case .failure(.noOp): break
+        default: XCTFail("expected .noOp, got \(result)")
+        }
+    }
+
     // MARK: - Named test 6: workspace thumbnail drop makes a new tab
 
     func testWorkspaceThumbnailDropMakesNewTab() {
@@ -262,6 +274,17 @@ final class GesturePlannerTests: XCTestCase {
                 target: PaneID.planPlaceholder(movedByStep: 0), split: .down, ratio: 0.5
             ),
         ])
+    }
+
+    /// Dropping a tab on the card or rail row of the workspace it is already
+    /// in. Migrating would tear the tab down and rebuild it in a new tab of
+    /// the same workspace, losing its id for no move at all.
+    func testATabDroppedOnItsOwnWorkspaceIsANoOp() {
+        let result = plan(dragging: .tab(TabID(rawValue: "w1:t1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), model: twoTabModel())
+        switch result {
+        case .failure(.noOp): break
+        default: XCTFail("expected .noOp, got \(result)")
+        }
     }
 
     /// A migration whose split list has no split rect exactly matching the
@@ -499,8 +522,8 @@ final class GesturePlannerTests: XCTestCase {
         }
 
         // Guards against a sweep that silently covers nothing: every one of
-        // the resolver's ten target cases is reachable from these surfaces.
-        XCTAssertEqual(Set(produced.map { Self.caseName($0.1) }).count, 10, "\(Set(produced.map { Self.caseName($0.1) }))")
+        // the resolver's nine target cases is reachable from these surfaces.
+        XCTAssertEqual(Set(produced.map { Self.caseName($0.1) }).count, 9, "\(Set(produced.map { Self.caseName($0.1) }))")
 
         for (subject, target) in produced {
             if case .failure(.invalidCombination) = plan(dragging: subject, onto: target, model: model) {
@@ -519,22 +542,14 @@ final class GesturePlannerTests: XCTestCase {
         case .newTab: "newTab"
         case .newWorkspace: "newWorkspace"
         case .workspaceRail: "workspaceRail"
-        case .allWorkspaces: "allWorkspaces"
         case .moreTabs: "moreTabs"
         }
     }
 
-    /// The window with its free runs, the same window while a pane drag
-    /// shows the rail's entry row, and the grid covering it, so the sweep
-    /// reaches every tier.
+    /// The window with its free runs, and the grid covering it with one card
+    /// per workspace, so the sweep reaches every tier.
     private func everySurface() -> [DropSurfaces] {
         let window = windowSurface()
-        let withEntry = DropSurfaces(
-            canvas: window.canvas, stripWorkspace: window.stripWorkspace, tabFrames: window.tabFrames,
-            workspaceFrames: window.workspaceFrames, stripFrame: window.stripFrame, railFrame: window.railFrame,
-            newTabZone: window.newTabZone, newWorkspaceZone: window.newWorkspaceZone,
-            allWorkspacesEntry: CGRect(x: -208, y: 560, width: 200, height: 27)
-        )
         let grid = DropSurfaces(
             canvas: window.canvas, stripWorkspace: window.stripWorkspace, tabFrames: window.tabFrames,
             workspaceFrames: window.workspaceFrames, stripFrame: window.stripFrame, railFrame: window.railFrame,
@@ -542,10 +557,14 @@ final class GesturePlannerTests: XCTestCase {
             grid: GridDropSurfaces(
                 viewport: CGRect(x: 0, y: 0, width: 600, height: 600),
                 thumbnails: [TabItemFrame(id: TabID(rawValue: "w1:t2"), frame: CGRect(x: 10, y: 10, width: 100, height: 82))],
-                moreTiles: [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 120, y: 10, width: 100, height: 82))]
+                moreTiles: [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 120, y: 10, width: 100, height: 82))],
+                cards: [
+                    WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 0, width: 240, height: 120)),
+                    WorkspaceItemFrame(id: WorkspaceID(rawValue: "w2"), frame: CGRect(x: 260, y: 0, width: 240, height: 120)),
+                ]
             )
         )
-        return [window, withEntry, grid]
+        return [window, grid]
     }
 
     /// Canvas, strip, rail and both free runs at once, with ids the model

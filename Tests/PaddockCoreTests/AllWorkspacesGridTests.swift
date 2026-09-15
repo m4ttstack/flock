@@ -166,33 +166,30 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     // MARK: - spring-load targets
 
-    func testDwellingOnTheRailEntryOpensTheGridAndSwapsTheSurfaces() {
-        var state = AllWorkspacesGridState()
-        XCTAssertTrue(state.springLoaded(.allWorkspaces))
-        XCTAssertTrue(state.isShown)
-        XCTAssertFalse(state.springLoaded(.allWorkspaces), "a grid already shown swaps nothing")
-    }
-
-    func testDwellingOnAPlusTileExpandsThatCardOnlyAndKeepsTheSurfaces() {
+    func testDwellingOnAPlusTileExpandsThatCardOnly() {
         var state = AllWorkspacesGridState()
         state.open()
-        XCTAssertFalse(state.springLoaded(.moreTabs(w2)))
+        state.springLoaded(.moreTabs(w2))
         XCTAssertEqual(state.expanded, [w2])
     }
 
-    func testDwellingOnAGridThumbnailHandsTheWindowBackAndSwapsTheSurfaces() {
+    /// A grid drag stays in the grid: resting on a thumbnail or a card must
+    /// not hand the window back mid-drag.
+    func testNoDwellInsideAShownGridClosesIt() {
         var state = AllWorkspacesGridState()
         state.open()
-        XCTAssertTrue(state.springLoaded(.tabThumbnail(TabID(rawValue: "w2:t1"))))
-        XCTAssertFalse(state.isShown)
+        state.springLoaded(.tabThumbnail(TabID(rawValue: "w2:t1")))
+        state.springLoaded(.workspaceThumbnail(w2))
+        XCTAssertTrue(state.isShown)
+        XCTAssertTrue(state.expanded.isEmpty)
     }
 
-    func testDwellsOutsideTheGridLeaveItAloneAndSwapNothing() {
+    func testDwellsOutsideTheGridLeaveItAlone() {
         var state = AllWorkspacesGridState()
-        XCTAssertFalse(state.springLoaded(.tabThumbnail(TabID(rawValue: "w1:t2"))))
-        XCTAssertFalse(state.springLoaded(.moreTabs(w1)))
-        XCTAssertFalse(state.springLoaded(.workspaceThumbnail(w2)))
-        XCTAssertEqual(state, AllWorkspacesGridState(), "a strip thumbnail or a rail row dwell must not open, close or expand anything")
+        state.springLoaded(.tabThumbnail(TabID(rawValue: "w1:t2")))
+        state.springLoaded(.moreTabs(w1))
+        state.springLoaded(.workspaceThumbnail(w2))
+        XCTAssertEqual(state, AllWorkspacesGridState(), "a strip thumbnail or a rail row dwell must not open or expand anything")
     }
 
     // MARK: - Esc

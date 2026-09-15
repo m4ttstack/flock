@@ -152,58 +152,12 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         dragInFlight ? nil : hover
     }
 
-    /// What a fired dwell does to the grid. A thumbnail reveals its tab in
-    /// the window, so the grid gives way to it; the tab selection itself is
-    /// the view model's. True when the grid opened or closed, which replaces
-    /// every surface under the pointer.
-    @discardableResult
-    public mutating func springLoaded(_ target: DropTarget) -> Bool {
-        let wasShown = isShown
-        switch target {
-        case .allWorkspaces:
-            open()
-        case .moreTabs(let workspace):
-            if isShown {
-                expanded.insert(workspace)
-            }
-        case .tabThumbnail:
-            close()
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
-            break
-        }
-        return isShown != wasShown
-    }
-}
-
-/// The rail's pinned "All workspaces" row and the room the rail makes for it
-/// while a pane drag shows it.
-public enum AllWorkspacesEntry {
-    /// How far the rows' scroll content ends above the rail's bottom, so a
-    /// fully scrolled rail stops its last row `gap` above the entry row
-    /// rather than under it.
-    public static func railBottomMargin(restingMargin: CGFloat, entryHeight: CGFloat, entryBottomInset: CGFloat, gap: CGFloat) -> CGFloat {
-        max(restingMargin, entryBottomInset + entryHeight + gap)
-    }
-
-    /// The part of the rail's viewport above the entry row: where its rows
-    /// can be hit and where its bottom scroll band sits.
-    public static func railViewport(_ viewport: CGRect?, above entry: CGRect?) -> CGRect? {
-        guard let viewport, let entry else { return viewport }
-        var clipped = viewport
-        clipped.size.height = max(0, min(viewport.maxY, entry.minY) - viewport.minY)
-        return clipped
-    }
-
-    /// The rail's scroll offset to hold the instant a pane drag's entry row
-    /// grows the content by `addedMargin`. A rail already at its resting
-    /// maximum keeps that same content in view rather than losing it under
-    /// the newly added margin for the one frame before another scroll would
-    /// otherwise recover it; a rail with slack left is untouched.
-    public static func railOffsetPreservingMaximum(
-        offset: CGFloat, restingMaximum: CGFloat, addedMargin: CGFloat
-    ) -> CGFloat {
-        guard offset >= restingMaximum else { return offset }
-        return offset + addedMargin
+    /// What a fired dwell does to the grid: uncover the tabs a "+N" tile
+    /// stands for, so one of them can take the drop. A grid drag stays in the
+    /// grid, so no dwell hands the window back mid-drag.
+    public mutating func springLoaded(_ target: DropTarget) {
+        guard case .moreTabs(let workspace) = target, isShown else { return }
+        expanded.insert(workspace)
     }
 }
 

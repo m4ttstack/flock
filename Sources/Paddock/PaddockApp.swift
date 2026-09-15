@@ -181,7 +181,7 @@ struct PaddockApp: App {
                 switch target {
                 case .tabThumbnail(let id): viewModel.select(tab: id)
                 case .workspaceThumbnail(let id): viewModel.select(workspace: id)
-                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail, .allWorkspaces, .moreTabs: break
+                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail, .moreTabs: break
                 }
             }
         ))

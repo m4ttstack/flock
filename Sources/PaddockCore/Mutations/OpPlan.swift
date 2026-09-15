@@ -11,9 +11,6 @@ public enum DropTarget: Equatable, Sendable {
     case newTab(WorkspaceID)
     case newWorkspace
     case workspaceRail(insertIndex: Int)
-    /// The rail's "All workspaces" row. It only opens the grid on a dwell;
-    /// nothing lands there.
-    case allWorkspaces
     /// A resting grid card's +N tile. It only expands the card on a dwell;
     /// nothing lands there.
     case moreTabs(WorkspaceID)

@@ -206,75 +206,27 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(HoverCardPlacement.origin(pointer: CGPoint(x: 50, y: 30), card: card, container: tiny, offset: offset), CGPoint(x: 10, y: 10))
     }
 
-    // MARK: - the rail entry row
-
-    /// A rail whose rows fill it, scrolled to its end during a pane drag: the
-    /// margin stops the last row above the entry row, the row still takes a
-    /// drop, and the bottom scroll band sits above the entry rather than on it.
-    func testAFullyScrolledRailKeepsItsLastRowAndItsBandAboveTheEntryRow() throws {
-        let rowHeight: CGFloat = 27
-        let inset: CGFloat = 13
-        let gap: CGFloat = 1
-        let viewport = CGRect(x: -192, y: 50, width: 192, height: 510)
-        let entry = CGRect(x: -182, y: viewport.maxY - inset - rowHeight, width: 172, height: rowHeight)
-        let margin = AllWorkspacesEntry.railBottomMargin(restingMargin: inset, entryHeight: rowHeight, entryBottomInset: inset, gap: gap)
-        let last = WorkspaceID(rawValue: "w16")
-        let lastRow = CGRect(x: -182, y: viewport.maxY - margin - rowHeight, width: 172, height: rowHeight)
-        XCTAssertLessThanOrEqual(lastRow.maxY, entry.minY - gap)
-
-        let clipped = try XCTUnwrap(AllWorkspacesEntry.railViewport(viewport, above: entry))
-        XCTAssertEqual(clipped.maxY, entry.minY)
-        let surfaces = DropSurfaces(
-            canvas: .empty, stripWorkspace: WorkspaceID(rawValue: "w1"), tabFrames: [],
-            workspaceFrames: [WorkspaceItemFrame(id: last, frame: lastRow)],
-            railFrame: viewport, railViewport: clipped, newTabZone: nil, newWorkspaceZone: nil, allWorkspacesEntry: entry
-        )
-        let pane = DragSubject.pane(PaneID(rawValue: "w1:p1"))
-        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: -100, y: lastRow.midY), dragging: pane, surfaces: surfaces), .workspaceThumbnail(last))
-        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: -100, y: entry.midY), dragging: pane, surfaces: surfaces), .allWorkspaces)
-
-        var scroller = AutoScroller()
-        let region = [AutoScroller.Region(surface: .rail, viewport: clipped, axis: .vertical, offset: 300, maximumOffset: 600)]
-        XCTAssertFalse(scroller.pointerMoved(to: CGPoint(x: -100, y: entry.maxY - 2), regions: region), "the entry row is not part of the band")
-        XCTAssertNil(scroller.tick(pointer: CGPoint(x: -100, y: entry.maxY - 2), regions: region, elapsed: 1.0 / 60))
-        XCTAssertTrue(scroller.pointerMoved(to: CGPoint(x: -100, y: entry.minY - 2), regions: region), "the band sits just above it")
-    }
-
-    /// A rail already at its resting maximum when a pane drag begins must not
-    /// wait for another scroll to reveal its last row past the new margin.
-    func testARailAtItsRestingMaximumIsNudgedByTheAddedMargin() {
-        XCTAssertEqual(AllWorkspacesEntry.railOffsetPreservingMaximum(offset: 300, restingMaximum: 300, addedMargin: 28), 328)
-    }
-
-    /// Past the resting maximum (a momentary overscroll) is still "at rest"
-    /// for this purpose: the margin still must not swallow the last row.
-    func testARailPastItsRestingMaximumIsAlsoNudged() {
-        XCTAssertEqual(AllWorkspacesEntry.railOffsetPreservingMaximum(offset: 305, restingMaximum: 300, addedMargin: 28), 333)
-    }
-
-    /// A rail with slack left has nothing to protect: the margin lands below
-    /// what is already visible, so the offset is untouched.
-    func testARailWithRoomToSpareIsNotNudged() {
-        XCTAssertEqual(AllWorkspacesEntry.railOffsetPreservingMaximum(offset: 100, restingMaximum: 300, addedMargin: 28), 100)
-    }
-
-    func testWithNoEntryRowTheRailKeepsItsRestingMarginAndViewport() {
-        let viewport = CGRect(x: 0, y: 0, width: 192, height: 400)
-        XCTAssertEqual(AllWorkspacesEntry.railViewport(viewport, above: nil), viewport)
-        XCTAssertNil(AllWorkspacesEntry.railViewport(nil, above: CGRect(x: 0, y: 360, width: 10, height: 10)))
-        XCTAssertEqual(AllWorkspacesEntry.railBottomMargin(restingMargin: 50, entryHeight: 27, entryBottomInset: 13, gap: 1), 50)
-    }
-
     // MARK: - grid drop resolution
 
+    /// Two cards side by side inside the grid's viewport, and a third scrolled
+    /// below it. Card w1 holds a thumbnail and a +N tile; card w2 holds one
+    /// thumbnail. Everything else inside a card is its empty space.
+    private let viewport = CGRect(x: 0, y: 40, width: 600, height: 300)
+    private let cardOne = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 10, y: 50, width: 280, height: 160))
+    private let cardTwo = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w2"), frame: CGRect(x: 310, y: 50, width: 280, height: 160))
+    private let cardThree = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w3"), frame: CGRect(x: 10, y: 350, width: 280, height: 160))
     private let gridThumbnail = TabItemFrame(id: TabID(rawValue: "w1:t2"), frame: CGRect(x: 20, y: 60, width: 90, height: 82))
-    private let scrolledAway = TabItemFrame(id: TabID(rawValue: "w1:t1"), frame: CGRect(x: 20, y: 360, width: 90, height: 82))
+    private let otherCardThumbnail = TabItemFrame(id: TabID(rawValue: "w2:t1"), frame: CGRect(x: 320, y: 60, width: 90, height: 82))
+    private let scrolledAway = TabItemFrame(id: TabID(rawValue: "w3:t1"), frame: CGRect(x: 20, y: 360, width: 90, height: 82))
     private let plusTile = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 130, y: 60, width: 90, height: 82))
-    private let entry = CGRect(x: -200, y: 540, width: 190, height: 27)
+
+    /// Points inside a card that no thumbnail or tile covers.
+    private var cardOneEmptySpace: CGPoint { CGPoint(x: 250, y: 180) }
+    private var cardTwoEmptySpace: CGPoint { CGPoint(x: 550, y: 180) }
 
     /// A canvas pane, a strip tab and a rail row all lie where the grid now
     /// sits, as their last reported frames do while the grid covers them.
-    private func surfaces(grid: Bool, entry: CGRect? = nil) -> DropSurfaces {
+    private func surfaces(grid: Bool) -> DropSurfaces {
         let canvas = CanvasGeometry(layout: sideBySide, grid: CanvasGrid(canvas: CGSize(width: 600, height: 300)))
         let railFrame = CGRect(x: -200, y: 0, width: 200, height: 600)
         return DropSurfaces(
@@ -286,12 +238,17 @@ final class GridGeometryTests: XCTestCase {
             railFrame: railFrame,
             newTabZone: nil,
             newWorkspaceZone: DropZones.below(in: railFrame, itemsEndingAt: 67),
-            grid: grid ? GridDropSurfaces(viewport: CGRect(x: 0, y: 40, width: 600, height: 300), thumbnails: [gridThumbnail, scrolledAway], moreTiles: [plusTile]) : nil,
-            allWorkspacesEntry: entry
+            grid: grid ? GridDropSurfaces(
+                viewport: viewport,
+                thumbnails: [gridThumbnail, otherCardThumbnail, scrolledAway],
+                moreTiles: [plusTile],
+                cards: [cardOne, cardTwo, cardThree]
+            ) : nil
         )
     }
 
     private let pane = DragSubject.pane(PaneID(rawValue: "w1:p1"))
+    private let tab = DragSubject.tab(TabID(rawValue: "w1:t1"))
 
     func testAPaneOverAGridThumbnailTargetsThatTab() {
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 60, y: 100), dragging: pane, surfaces: surfaces(grid: true)), .tabThumbnail(TabID(rawValue: "w1:t2")))
@@ -301,37 +258,62 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 170, y: 100), dragging: pane, surfaces: surfaces(grid: true)), .moreTabs(WorkspaceID(rawValue: "w1")))
     }
 
+    /// The card's empty space is whatever its thumbnails and tiles do not
+    /// cover, so it can only be answered after both of them miss.
+    func testAPaneOverACardsEmptySpaceTargetsThatWorkspace() {
+        XCTAssertEqual(resolveDropTarget(at: cardOneEmptySpace, dragging: pane, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w1")))
+        XCTAssertEqual(resolveDropTarget(at: cardTwoEmptySpace, dragging: pane, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w2")))
+    }
+
+    /// The gaps between cards, the header strip and the canvas margin are not
+    /// anything: a release there springs back.
+    func testAPaneBetweenTheCardsTargetsNothing() {
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 300, y: 180), dragging: pane, surfaces: surfaces(grid: true)))
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 300, y: 45), dragging: pane, surfaces: surfaces(grid: true)))
+    }
+
     func testAThumbnailScrolledOutOfTheGridIsNotThereToHit() {
         XCTAssertNil(resolveDropTarget(at: CGPoint(x: 60, y: 400), dragging: pane, surfaces: surfaces(grid: true)))
+    }
+
+    /// The card that thumbnail belongs to is scrolled out with it, so the
+    /// viewport gate has to cover cards as well.
+    func testACardScrolledOutOfTheGridIsNotThereToHit() {
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 250, y: 480), dragging: pane, surfaces: surfaces(grid: true)))
     }
 
     /// Without the grid the same point is a canvas pane: the grid answering
     /// alone is what keeps the hidden canvas from taking the drop.
     func testTheFramesUnderAShownGridNeverAnswer() {
-        let overStaleCanvas = CGPoint(x: 400, y: 200)
+        let overStaleCanvas = CGPoint(x: 400, y: 250)
         XCTAssertEqual(resolveDropTarget(at: overStaleCanvas, dragging: pane, surfaces: surfaces(grid: false)), .paneInterior(p2))
         XCTAssertNil(resolveDropTarget(at: overStaleCanvas, dragging: pane, surfaces: surfaces(grid: true)))
         XCTAssertNil(resolveDropTarget(at: CGPoint(x: -100, y: 50), dragging: pane, surfaces: surfaces(grid: true)), "a stale rail row")
         XCTAssertNil(resolveDropTarget(at: CGPoint(x: 50, y: 14), dragging: pane, surfaces: surfaces(grid: true)), "a stale strip tab")
     }
 
-    func testOnlyAPaneDropsIntoTheGrid() {
-        for subject in [DragSubject.tab(TabID(rawValue: "w1:t1")), .workspace(WorkspaceID(rawValue: "w1")), .workspaces([WorkspaceID(rawValue: "w1")])] {
-            XCTAssertNil(resolveDropTarget(at: CGPoint(x: 60, y: 100), dragging: subject, surfaces: surfaces(grid: true)), "\(subject)")
-            XCTAssertNil(resolveDropTarget(at: CGPoint(x: 170, y: 100), dragging: subject, surfaces: surfaces(grid: true)), "\(subject)")
+    /// A whole tab lands in a workspace, so the card is the only target it
+    /// has: a thumbnail or a +N tile inside another card still resolves to
+    /// that card.
+    func testATabOverAnotherCardTargetsThatWorkspaceWhereverInTheCardItIs() {
+        for point in [cardTwoEmptySpace, CGPoint(x: 350, y: 100)] {
+            XCTAssertEqual(resolveDropTarget(at: point, dragging: tab, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w2")), "\(point)")
+        }
+        for point in [cardOneEmptySpace, CGPoint(x: 60, y: 100), CGPoint(x: 170, y: 100)] {
+            XCTAssertEqual(resolveDropTarget(at: point, dragging: tab, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w1")), "\(point)")
         }
     }
 
-    func testTheRailEntryOutranksTheNewWorkspaceRunItSitsIn() {
-        let withEntry = surfaces(grid: false, entry: entry)
-        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: -100, y: 550), dragging: pane, surfaces: surfaces(grid: false)), .newWorkspace)
-        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: -100, y: 550), dragging: pane, surfaces: withEntry), .allWorkspaces)
-        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: -100, y: 300), dragging: pane, surfaces: withEntry), .newWorkspace)
+    func testATabBetweenTheCardsTargetsNothing() {
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 300, y: 180), dragging: tab, surfaces: surfaces(grid: true)))
     }
 
-    func testTheRailEntryIsAPanesAlone() {
-        let target = resolveDropTarget(at: CGPoint(x: -100, y: 550), dragging: .tab(TabID(rawValue: "w1:t1")), surfaces: surfaces(grid: false, entry: entry))
-        XCTAssertNotEqual(target, .allWorkspaces)
+    func testAWorkspaceDragHasNothingToLandOnInTheGrid() {
+        for subject in [DragSubject.workspace(WorkspaceID(rawValue: "w1")), .workspaces([WorkspaceID(rawValue: "w1")])] {
+            for point in [CGPoint(x: 60, y: 100), CGPoint(x: 170, y: 100), cardOneEmptySpace] {
+                XCTAssertNil(resolveDropTarget(at: point, dragging: subject, surfaces: surfaces(grid: true)), "\(subject) at \(point)")
+            }
+        }
     }
 
     // MARK: - rects
@@ -342,21 +324,25 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(dropFlashRect(for: .tabThumbnail(TabID(rawValue: "w1:t2")), surfaces: surfaces(grid: true)), gridThumbnail.frame)
     }
 
-    func testTheDwellOnlyTargetsHaveARectButNeverFlash() {
+    /// The same target means a card in the grid and a rail row without it, so
+    /// the ghost settles and the flash lands on whichever is on screen.
+    func testAWorkspacesRectIsItsCardInTheGridAndItsRailRowWithoutIt() {
+        XCTAssertEqual(dropTargetRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)), cardOne.frame)
+        XCTAssertEqual(dropTargetRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: false))?.minX, -190)
+        XCTAssertEqual(dropFlashRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)), cardOne.frame)
+    }
+
+    func testTheDwellOnlyTargetHasARectButNeverFlashes() {
         XCTAssertEqual(dropTargetRect(for: .moreTabs(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)), plusTile.frame)
-        XCTAssertEqual(dropTargetRect(for: .allWorkspaces, surfaces: surfaces(grid: false, entry: entry)), entry)
         XCTAssertNil(dropFlashRect(for: .moreTabs(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)))
-        XCTAssertNil(dropFlashRect(for: .allWorkspaces, surfaces: surfaces(grid: false, entry: entry)))
     }
 
     // MARK: - planner
 
     func testADropOnADwellOnlyTargetIsANoOpNeverARejection() {
-        for subject in [pane, .tab(TabID(rawValue: "w1:t1"))] {
-            for target in [DropTarget.allWorkspaces, .moreTabs(WorkspaceID(rawValue: "w1"))] {
-                guard case .failure(.noOp) = plan(dragging: subject, onto: target, model: model()) else {
-                    return XCTFail("\(subject) onto \(target) must spring back silently")
-                }
+        for subject in [pane, tab] {
+            guard case .failure(.noOp) = plan(dragging: subject, onto: .moreTabs(WorkspaceID(rawValue: "w1")), model: model()) else {
+                return XCTFail("\(subject) onto a +N tile must spring back silently")
             }
         }
     }

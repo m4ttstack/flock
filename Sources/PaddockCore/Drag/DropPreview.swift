@@ -52,7 +52,7 @@ public enum DropPreview {
         case .paneInterior(let targetPane):
             guard targetPane != paneID, let frame = current.paneFrames[targetPane] else { return nil }
             return DropPreviewFrames(incoming: box(frame))
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .allWorkspaces, .moreTabs:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .moreTabs:
             return nil
         }
     }
@@ -84,7 +84,7 @@ public enum DropPreview {
                 return swapping(pane, targetPane, in: root)
             }
             return replacingLeaf(targetPane, in: root) { _ in .pane(ExportedLayoutPane(paneID: pane)) }
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .allWorkspaces, .moreTabs:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .moreTabs:
             return nil
         }
     }
@@ -176,7 +176,7 @@ public enum DropPreview {
 /// The dwell-only targets never take a drop, so there is nothing to flash.
 public func dropFlashRect(for target: DropTarget, surfaces: DropSurfaces) -> CGRect? {
     switch target {
-    case .tabStrip, .workspaceRail, .allWorkspaces, .moreTabs:
+    case .tabStrip, .workspaceRail, .moreTabs:
         return nil
     case .paneEdge, .paneInterior, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
         return dropTargetRect(for: target, surfaces: surfaces)
@@ -200,9 +200,10 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
         return surfaces.tabFrames.first { $0.id == tab }?.frame
     case .moreTabs(let workspace):
         return surfaces.grid?.moreTiles.first { $0.id == workspace }?.frame
-    case .allWorkspaces:
-        return surfaces.allWorkspacesEntry
     case .workspaceThumbnail(let workspace):
+        if let grid = surfaces.grid {
+            return grid.cards.first { $0.id == workspace }?.frame
+        }
         return surfaces.workspaceFrames.first { $0.id == workspace }?.frame
     case .newTab:
         return surfaces.newTabZone

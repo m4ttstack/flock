@@ -170,7 +170,7 @@ public final class DragController {
 
     private static func springLoadEligible(_ target: DropTarget) -> Bool {
         switch target {
-        case .tabThumbnail, .workspaceThumbnail, .allWorkspaces, .moreTabs: return true
+        case .tabThumbnail, .workspaceThumbnail, .moreTabs: return true
         case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail: return false
         }
     }
