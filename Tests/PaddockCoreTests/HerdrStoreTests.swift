@@ -680,6 +680,37 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "the final order never converged the watch")
     }
 
+    /// A reorder from another client during a multi-move window is none of
+    /// the plan's own steps, so it must reach the model at once and converge
+    /// the watch, not wait out the timeout behind the plan's final order.
+    @MainActor
+    func testAForeignReorderDuringAMultiMoveWindowLandsAtOnce() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: scatteredFourWorkspaceSnapshotResultJSON())
+        fake.respond(to: "workspace.move_block", withResultJSON: #"{"type":"workspace_list","workspaces":[]}"#)
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .seconds(1))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let w = ["w1", "w2", "w3", "w4"].map { WorkspaceID(rawValue: $0) }
+        let plan = OpPlan(ops: [
+            .moveWorkspaceBlock([w[0]], before: w[1]),
+            .moveWorkspaceBlock([w[2]], before: w[3]),
+        ], label: "Undo Move workspaces")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        let foreign = ["w4", "w3", "w2", "w1"]
+        fake.pushEventLine(workspaceReorderedEventLine(foreign))
+        try await waitUntil(timeout: 0.5) { store.model?.workspaces.map(\.workspaceID.rawValue) == foreign }
+
+        try await Task.sleep(for: .milliseconds(1400))
+        XCTAssertEqual(store.model?.workspaces.map(\.workspaceID.rawValue), foreign)
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "the foreign order never converged the watch")
+    }
+
     // MARK: - setSplitRatio prediction (the divider drag's own optimistic overlay)
 
     /// Before this, `setSplitRatio` predicted nothing at all: the overlay
