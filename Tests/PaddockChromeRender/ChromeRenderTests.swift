@@ -111,6 +111,67 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// The All Workspaces grid from fixture layouts: at rest with a pane's
+    /// hover card open, then with the nine-tab card expanded. PNGs are
+    /// written only when `PADDOCK_GRID_RENDER_DIR` is set; the samples and
+    /// the no-attach check always run.
+    func testAllWorkspacesGridRendersFromLayoutsWithoutAttachingAPane() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        harness.drag.toggleGrid()
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+
+        let thumbnail = try XCTUnwrap(harness.drag.gridContentFrame(for: .tab(GridFixture.agentsTab)))
+        let boxes = MiniPaneLayout.boxes(
+            layout: model.layouts[GridFixture.agentsTab], exported: nil, fallbackPanes: [], size: thumbnail.size,
+            padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
+        )
+        let claude = try XCTUnwrap(boxes.first { $0.pane == GridFixture.claudePane })
+        harness.drag.gridHoverBegan(pane: claude.pane, anchor: claude.frame.offsetBy(dx: thumbnail.minX, dy: thumbnail.minY))
+        await settle(window)
+        let rest = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(rest.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-hover.png"))
+        }
+        for pane in model.panes.keys {
+            XCTAssertNil(harness.viewModel.ghosttySurface(for: pane), "the grid attached \(pane.rawValue)")
+        }
+        assertGridSamples(rest, theme: .tokyoNight)
+
+        harness.drag.gridHoverEnded(pane: claude.pane)
+        harness.drag.toggleGridCard(GridFixture.repoTools)
+        await settle(window)
+        let expanded = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(expanded.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-expanded.png"))
+        }
+        assertGridSamples(expanded, theme: .tokyoNight)
+        window.close()
+    }
+
+    /// Points are top-left in the 900x560 window: the title bar, the grid
+    /// header over its rule, the canvas margin, and the first card's border,
+    /// fill and focused accent bar.
+    private func assertGridSamples(_ image: NSBitmapImageRep, theme: Theme) {
+        let roles = theme.palette.chromeRoles
+        let samples: [(String, CGPoint, RGB)] = [
+            ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
+            ("chrome/header", CGPoint(x: 450, y: 28), roles.chrome),
+            ("rule/header", CGPoint(x: 450, y: 62.25), roles.rule),
+            ("canvas/margin", CGPoint(x: 5, y: 120), roles.canvas),
+            ("paneBorder/card", CGPoint(x: 13.25, y: 150), roles.paneBorder),
+            ("pane/card", CGPoint(x: 18, y: 80), roles.pane),
+            ("accent/focusedBar", CGPoint(x: 27.5, y: 94), roles.accent),
+        ]
+        for (name, point, expected) in samples {
+            XCTAssertEqual(hex(image, point), expected.hex, "\(theme.id) \(name) at \(point)")
+        }
+    }
+
     // MARK: - Helpers
 
     private func settle(_ window: NSWindow) async {
@@ -221,7 +282,10 @@ private struct Harness {
     let dividerDrag: DividerDragCoordinator
     let viewModel: SessionViewModel
 
-    init(theme: Theme) async throws {
+    init(
+        theme: Theme, model: SessionModel? = nil, client: any HerdrCommandClient = OfflineHerdrClient(),
+        attaching panes: [PaneID] = Fixture.canvasPanes
+    ) async throws {
         ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
         themeStore = ThemeStore(userDefaults: defaults)
@@ -235,9 +299,9 @@ private struct Harness {
             springLoadAction: { _ in }
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
-        viewModel = SessionViewModel(client: OfflineHerdrClient(), ghosttyFactory: GroundSurfaceFactory())
-        viewModel.update(model: try Fixture.model(), connection: .live)
-        for pane in Fixture.canvasPanes {
+        viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory())
+        viewModel.update(model: try model ?? Fixture.model(), connection: .live)
+        for pane in panes {
             _ = await viewModel.attachPane(pane)
         }
     }
@@ -286,6 +350,115 @@ private struct GroundSurfaceFactory: GhosttyPaneFactory {
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
         GroundSurface()
+    }
+}
+
+/// Answers the hover card's last-line read and nothing else.
+private struct GridFixtureClient: HerdrCommandClient {
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.read" else { throw OfflineHerdrClient.Offline() }
+        return Data(#"{"result":{"text":"Editing lib/daemon.ts\n"}}"#.utf8)
+    }
+}
+
+/// Six workspaces, one with nine tabs and one with six, over split layouts
+/// and every agent status.
+private enum GridFixture {
+    static let repoTools = WorkspaceID(rawValue: "w1")
+    static let agentsTab = TabID(rawValue: "w1:t1")
+    static let claudePane = PaneID(rawValue: "w1:p1")
+
+    private typealias Rect = (x: Int, y: Int, width: Int, height: Int)
+    private static let whole: [Rect] = [(0, 0, 80, 24)]
+    private static let sideBySide: [Rect] = [(0, 0, 40, 24), (40, 0, 40, 24)]
+    private static let stacked: [Rect] = [(0, 0, 80, 12), (0, 12, 80, 12)]
+    private static let leftAndStack: [Rect] = [(0, 0, 40, 24), (40, 0, 40, 12), (40, 12, 40, 12)]
+
+    private static let workspaces: [(label: String, status: String, tabs: [(label: String, status: String, shape: [Rect], panes: [(String, String)])])] = [
+        ("repo-tools", "working", [
+            ("agents", "working", leftAndStack, [("claude", "working"), ("bun test", "done"), ("nvim", "idle")]),
+            ("server", "blocked", whole, [("codex", "blocked")]),
+            ("scratch", "idle", stacked, [("bun dev", "working"), ("zsh", "idle")]),
+            ("tests", "idle", sideBySide, [("bun test", "done"), ("nvim", "idle")]),
+            ("docs", "blocked", whole, [("claude", "working")]),
+            ("release", "idle", stacked, [("bun test", "done"), ("nvim", "idle")]),
+            ("bench", "working", sideBySide, [("codex", "blocked"), ("bun dev", "working")]),
+            ("ci", "idle", leftAndStack, [("zsh", "idle"), ("tail -f", "idle"), ("claude", "working")]),
+            ("notes", "done", whole, [("zsh", "idle")]),
+        ]),
+        ("paddock", "blocked", [
+            ("migration", "working", whole, [("zsh", "idle")]),
+            ("tests", "idle", sideBySide, [("tail -f", "idle"), ("claude", "working")]),
+            ("design", "done", stacked, [("bun test", "done"), ("nvim", "idle")]),
+            ("bridge", "idle", whole, [("zsh", "idle")]),
+            ("logs", "blocked", whole, [("tail -f", "blocked")]),
+            ("review", "idle", whole, [("codex", "idle")]),
+        ]),
+        ("mattstack-apps", "done", [
+            ("tray", "working", whole, [("codex", "blocked")]),
+            ("console", "idle", sideBySide, [("bun dev", "working"), ("zsh", "idle")]),
+            ("deck", "done", stacked, [("tail -f", "idle"), ("claude", "working")]),
+            ("board", "idle", leftAndStack, [("bun test", "done"), ("nvim", "idle"), ("codex", "blocked")]),
+        ]),
+        ("herdr", "idle", [
+            ("src", "working", whole, [("bun dev", "working")]),
+            ("build", "idle", sideBySide, [("zsh", "idle"), ("tail -f", "idle")]),
+            ("issues", "done", stacked, [("claude", "working"), ("bun test", "done")]),
+        ]),
+        ("console", "working", [
+            ("dev", "idle", whole, [("nvim", "idle")]),
+            ("storybook", "working", sideBySide, [("codex", "blocked"), ("bun dev", "working")]),
+        ]),
+        ("glance", "idle", [
+            ("shell", "idle", whole, [("zsh", "idle")]),
+        ]),
+    ]
+
+    static func model() throws -> SessionModel {
+        var workspaceRows: [[String: Any]] = []
+        var tabRows: [[String: Any]] = []
+        var paneRows: [[String: Any]] = []
+        var layouts: [[String: Any]] = []
+        for (workspaceIndex, workspace) in workspaces.enumerated() {
+            let workspaceID = "w\(workspaceIndex + 1)"
+            workspaceRows.append([
+                "workspace_id": workspaceID, "label": workspace.label, "number": workspaceIndex + 1,
+                "active_tab_id": "\(workspaceID):t1", "agent_status": workspace.status,
+            ])
+            var paneNumber = 0
+            for (tabIndex, tab) in workspace.tabs.enumerated() {
+                let tabID = "\(workspaceID):t\(tabIndex + 1)"
+                tabRows.append([
+                    "tab_id": tabID, "workspace_id": workspaceID, "label": tab.label, "number": tabIndex + 1,
+                    "pane_count": tab.panes.count, "agent_status": tab.status,
+                ])
+                var rects: [[String: Any]] = []
+                for (rect, pane) in zip(tab.shape, tab.panes) {
+                    paneNumber += 1
+                    let paneID = "\(workspaceID):p\(paneNumber)"
+                    paneRows.append([
+                        "pane_id": paneID, "workspace_id": workspaceID, "tab_id": tabID, "focused": paneID == "w1:p1",
+                        "agent_status": pane.1, "revision": 1, "terminal_title_stripped": pane.0,
+                        "cwd": NSHomeDirectory() + "/Documents/GitHub/\(workspace.label)",
+                    ])
+                    rects.append([
+                        "pane_id": paneID, "focused": false,
+                        "rect": ["x": rect.x, "y": rect.y, "width": rect.width, "height": rect.height],
+                    ])
+                }
+                layouts.append([
+                    "workspace_id": workspaceID, "tab_id": tabID, "zoomed": false,
+                    "area": ["x": 0, "y": 0, "width": 80, "height": 24], "panes": rects, "splits": [],
+                ])
+            }
+        }
+        let snapshot: [String: Any] = [
+            "version": "0.8.0", "protocol": 22, "focused_workspace_id": "w1", "focused_tab_id": "w1:t1",
+            "focused_pane_id": "w1:p1", "workspaces": workspaceRows, "tabs": tabRows, "panes": paneRows,
+            "layouts": layouts,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: snapshot)
+        return SessionModel(snapshot: try JSONDecoder().decode(SessionSnapshot.self, from: data))
     }
 }
 
