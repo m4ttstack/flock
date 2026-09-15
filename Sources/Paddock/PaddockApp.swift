@@ -109,6 +109,7 @@ struct PaddockApp: App {
         // for why plain `UserDefaults` is what does this rather than
         // `NSWindow`'s own `setFrameAutosaveName`/`saveFrame(usingName:)`.
         UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
+        ChromeType.registerBundledFonts()
         let socketPath = Self.resolveSocketPath()
         // A plain local, not `self.themeStore`: an escaping closure built
         // here (below) cannot capture any part of `self` before every stored

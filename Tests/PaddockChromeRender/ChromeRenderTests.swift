@@ -40,6 +40,21 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// A face that failed to register resolves to the system font with no
+    /// error, so only a lookup by name shows the chrome is really in Inter.
+    func testChromeFacesResolveToInterWithDistinctWeights() throws {
+        ChromeType.registerBundledFonts()
+        var weights: [CGFloat] = []
+        for weight in ChromeType.Weight.allCases {
+            let font = try XCTUnwrap(NSFont(name: weight.postScriptName, size: 14), weight.postScriptName)
+            XCTAssertEqual(font.familyName, "Inter", weight.postScriptName)
+            let traits = try XCTUnwrap(CTFontCopyTraits(font) as? [CFString: Any])
+            weights.append(try XCTUnwrap(traits[kCTFontWeightTrait] as? CGFloat, weight.postScriptName))
+        }
+        XCTAssertEqual(weights, weights.sorted())
+        XCTAssertEqual(Set(weights).count, weights.count, "\(weights)")
+    }
+
     func testWindowButtonsCenterOnTheTitleBarAndStayThereAfterAResize() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let window = harness.makeWindow(size: Self.windowSize)
@@ -203,6 +218,7 @@ private struct Harness {
     let viewModel: SessionViewModel
 
     init(theme: Theme) async throws {
+        ChromeType.registerBundledFonts()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
         themeStore = ThemeStore(userDefaults: defaults)
         themeStore.select(theme)

@@ -82,6 +82,8 @@ targets:
           - PaddockApp.swift
           - Info.plist
           - Resources
+      - path: Sources/Paddock/Resources/Fonts
+        buildPhase: resources
       - Tests/PaddockChromeRender
     dependencies:
       - target: PaddockCore
