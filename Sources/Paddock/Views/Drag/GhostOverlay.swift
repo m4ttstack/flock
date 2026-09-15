@@ -35,7 +35,9 @@ struct GhostOverlay: View {
             height: max(size.height, Self.minimumSize.height),
             alignment: .topLeading
         )
-        .background(theme.paneHeaderBg, in: RoundedRectangle(cornerRadius: 9))
+        // Translucent so the tab or row under the pointer stays readable
+        // through the proxy while it is being targeted.
+        .background(theme.paneHeaderBg.opacity(0.7), in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent, lineWidth: 2).opacity(settling ? 0 : 1))
         .shadow(color: theme.railBg.opacity(0.5), radius: 14, y: 8)
     }

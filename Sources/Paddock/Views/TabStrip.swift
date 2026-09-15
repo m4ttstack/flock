@@ -96,6 +96,9 @@ private struct TabPill: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        // A one-character label would otherwise make a pill barely wider
+        // than its dot: too small to aim a drop at, or to read at a glance.
+        .frame(minWidth: 72)
         .background(
             // The selected pill's own surface role -- see `Theme`'s doc on
             // `tabPillSelectedBg`/`tabPillSelectedBorder` for why these are

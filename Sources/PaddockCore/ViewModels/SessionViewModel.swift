@@ -719,7 +719,10 @@ public final class SessionViewModel {
         guard planExecutor != nil else { return .notAttempted }
         guard let undoJournal else {
             guard let model, let planExecutor else { return .notAttempted }
-            return await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: noticeSink) { _ in }
+            return await Self.perform(
+                subject: subject, target: target, model: model, executor: planExecutor, notify: noticeSink,
+                record: { _ in }, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
+            )
         }
         // Reads `model` fresh once this closure actually runs, not at the
         // moment `perform` was called: queued behind an in-flight
@@ -729,14 +732,18 @@ public final class SessionViewModel {
         var outcome = DragOutcome.notAttempted
         await undoJournal.runExclusively { [weak self] in
             guard let self, let model = self.model, let planExecutor = self.planExecutor else { return }
-            outcome = await Self.perform(subject: subject, target: target, model: model, executor: planExecutor, notify: self.noticeSink, record: undoJournal.record)
+            outcome = await Self.perform(
+                subject: subject, target: target, model: model, executor: planExecutor, notify: self.noticeSink,
+                record: undoJournal.record, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
+            )
         }
         return outcome
     }
 
     private static func perform(
         subject: DragSubject, target: DropTarget, model: SessionModel,
-        executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void
+        executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void,
+        follow: @MainActor (PaneID) async -> Void
     ) async -> DragOutcome {
         switch plan(dragging: subject, onto: target, model: model) {
         case .failure(.noOp):
@@ -749,6 +756,14 @@ public final class SessionViewModel {
             switch result {
             case .success(let executed):
                 record(executed)
+                if case .pane(let pane) = subject, target.takesThePaneOffItsTab {
+                    // The pane went somewhere the user is not looking; follow
+                    // it there. Focusing it in herdr moves herdr's focused tab,
+                    // which paddock's own selection already follows. A move
+                    // across workspaces re-keys the pane, so the id to focus is
+                    // the one herdr assigned.
+                    await follow(executed.paneIDRemap[pane] ?? pane)
+                }
                 return .committed
             case .failure(let failure):
                 let message = "\(opPlan.label) failed: \(failure.message)"
@@ -769,5 +784,18 @@ public final class SessionViewModel {
         struct Result: Decodable { let pane: PanePayload }
         struct Envelope: Decodable { let result: Result }
         return try? JSONDecoder().decode(Envelope.self, from: data).result.pane.paneID
+    }
+}
+
+extension DropTarget {
+    /// A drop that moves a pane out of the tab it is in, so the pane is no
+    /// longer on screen once the drop commits.
+    var takesThePaneOffItsTab: Bool {
+        switch self {
+        case .tabThumbnail, .newTab, .workspaceThumbnail, .newWorkspace:
+            return true
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail:
+            return false
+        }
     }
 }

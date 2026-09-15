@@ -1548,4 +1548,85 @@ final class SessionViewModelTests: XCTestCase {
         calls = await layoutExportClient.calls
         XCTAssertEqual(calls, [tabID, tabID])
     }
+    // MARK: - following a pane after a drop
+
+    private static func focusedPaneIDs(_ client: RecordingCommandClient) async -> [String] {
+        await client.calls.compactMap { call in
+            guard call.method == "pane.focus", case .string(let id)? = call.params["pane_id"] else { return nil }
+            return id
+        }
+    }
+
+    @MainActor
+    private func viewModelWithSecondTab(executor: FakePlanExecutor, client: RecordingCommandClient) -> SessionViewModel {
+        let journal = UndoJournal(executor: executor, model: { makeModel() }, notify: { _ in })
+        let viewModel = SessionViewModel(client: client, planExecutor: executor, undoJournal: journal)
+        var model = makeModel()
+        model.tabs[WorkspaceID(rawValue: "w1")]?.append(TabRecord(
+            tabID: TabID(rawValue: "w1:t2"), workspaceID: WorkspaceID(rawValue: "w1"),
+            label: "second", number: 2, paneCount: 0, agentStatus: .unknown
+        ))
+        viewModel.update(model: model, connection: .live)
+        return viewModel
+    }
+
+    @MainActor
+    func testAPaneDroppedIntoAnotherTabIsFocusedSoPaddockFollowsIt() async {
+        let executor = FakePlanExecutor()
+        let client = RecordingCommandClient()
+        let viewModel = viewModelWithSecondTab(executor: executor, client: client)
+
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
+
+        XCTAssertEqual(outcome, .committed)
+        let focused = await Self.focusedPaneIDs(client)
+        XCTAssertEqual(focused, ["w1:p1"])
+    }
+
+    /// A move across workspaces re-keys the pane, so the id herdr assigned is
+    /// the only one that still names it.
+    @MainActor
+    func testFollowingARekeyedPaneFocusesTheIdHerdrAssigned() async {
+        let executor = FakePlanExecutor()
+        executor.nextResult = .success(ExecutedPlan(
+            plan: OpPlan(ops: [], label: "Move pane into tab"),
+            inverse: OpPlan(ops: [], label: "Undo Move pane into tab"),
+            paneIDRemap: [PaneID(rawValue: "w1:p1"): PaneID(rawValue: "w2:p9")]
+        ))
+        let client = RecordingCommandClient()
+        let viewModel = viewModelWithSecondTab(executor: executor, client: client)
+
+        _ = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
+
+        let focused = await Self.focusedPaneIDs(client)
+        XCTAssertEqual(focused, ["w2:p9"])
+    }
+
+    @MainActor
+    func testAFailedDropFollowsNothing() async {
+        let executor = FakePlanExecutor()
+        executor.nextResult = .failure(OpFailure(
+            failedOp: .focusTab(TabID(rawValue: "w1:t2")), code: "boom", message: "boom", executed: [], partialInverse: OpPlan(ops: [], label: "")
+        ))
+        let client = RecordingCommandClient()
+        let viewModel = viewModelWithSecondTab(executor: executor, client: client)
+
+        _ = await viewModel.perform(subject: .pane(PaneID(rawValue: "w1:p1")), target: .tabThumbnail(TabID(rawValue: "w1:t2")))
+
+        let focused = await Self.focusedPaneIDs(client)
+        XCTAssertEqual(focused, [])
+    }
+
+    func testOnlyDropsThatLeaveTheTabFollowThePane() {
+        let pane = PaneID(rawValue: "w1:p1")
+        XCTAssertTrue(DropTarget.tabThumbnail(TabID(rawValue: "w1:t2")).takesThePaneOffItsTab)
+        XCTAssertTrue(DropTarget.newTab(WorkspaceID(rawValue: "w1")).takesThePaneOffItsTab)
+        XCTAssertTrue(DropTarget.workspaceThumbnail(WorkspaceID(rawValue: "w2")).takesThePaneOffItsTab)
+        XCTAssertTrue(DropTarget.newWorkspace.takesThePaneOffItsTab)
+        XCTAssertFalse(DropTarget.paneEdge(pane, .left).takesThePaneOffItsTab)
+        XCTAssertFalse(DropTarget.paneInterior(pane).takesThePaneOffItsTab)
+        XCTAssertFalse(DropTarget.tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0).takesThePaneOffItsTab)
+        XCTAssertFalse(DropTarget.workspaceRail(insertIndex: 0).takesThePaneOffItsTab)
+    }
+
 }
