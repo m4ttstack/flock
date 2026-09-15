@@ -19,9 +19,8 @@ struct TabStrip: View {
         VStack(spacing: 0) {
             HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
                 // Tabs scroll once they overflow; the readout never does. The
-                // leading padding lives inside the content so overflowing tabs
-                // scroll to the rail's rule, and at rest the tabs sit exactly
-                // where an unscrolled row put them.
+                // leading padding is scroll content, so overflowing tabs scroll
+                // to the rail's rule while a strip that fits keeps its inset.
                 ScrollView(.horizontal) {
                     HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
                         ForEach(Array(tabs.enumerated()), id: \.element.tabID) { index, tab in

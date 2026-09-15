@@ -5,8 +5,9 @@ import CoreGraphics
 ///
 /// Scrolling changes only the content origin, never a content-space frame,
 /// so every on-screen frame follows a scroll at once with no item reporting
-/// again. That holds while a reorder has frozen item reports too, which is
-/// exactly when an auto-scroll runs. The origin and the item frames are
+/// again. That holds while a reorder has frozen item reports too, so a list
+/// auto-scrolling during a reorder still resolves drops against where its
+/// items really are. The origin and the item frames are
 /// independent reports, so the order they arrive in within a frame cannot
 /// leave an item misplaced.
 public struct ScrolledItemFrames<ID: Hashable & Sendable>: Equatable, Sendable {

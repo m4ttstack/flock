@@ -17,56 +17,60 @@ struct WorkspaceRail: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // The heading and both paddings scroll with the rows, so the scroll
-            // view spans the whole rail and, at rest, every row sits exactly
-            // where the unscrolled column put it.
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
-                    Text("WORKSPACES")
-                        .font(ChromeType.railHeading)
-                        .tracking(ChromeType.railHeadingTracking)
-                        .foregroundStyle(theme.textLabel)
-                    Spacer()
-                        .frame(height: ChromeMetrics.Rail.headingGap)
-
-                    ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
-                        WorkspaceRow(
-                            theme: theme,
-                            workspace: workspace,
-                            paneCount: viewModel.paneCount(for: workspace.workspaceID),
-                            isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
-                            isMultiSelected: drag.isWorkspaceMultiSelected(workspace.workspaceID),
-                            displacement: drag.workspaceDisplacement(at: index),
-                            isGhosted: drag.isDragging(workspace: workspace.workspaceID)
-                        )
-                        // Outside the row, which offsets its own content: the
-                        // frame published here is the row's resting place, which
-                        // is what the insertion index is measured against.
-                        .reportsFrame(in: DragSpace.railContent) { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
-                        .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
-                        .onTapGesture {
-                            let commandHeld = NSEvent.modifierFlags.contains(.command)
-                            if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld) {
-                                onSelect(workspace.workspaceID)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("WORKSPACES")
+                    .font(ChromeType.railHeading)
+                    .tracking(ChromeType.railHeadingTracking)
+                    .foregroundStyle(theme.textLabel)
+                    .padding(.top, ChromeMetrics.Rail.verticalPadding)
+                    .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+                // Only the rows scroll. The gap below the heading is scroll
+                // content, so rows scroll up to the heading's edge, and the
+                // horizontal padding is too, so the viewport keeps the rail's
+                // full width for the insertion bar.
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
+                        ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
+                            WorkspaceRow(
+                                theme: theme,
+                                workspace: workspace,
+                                paneCount: viewModel.paneCount(for: workspace.workspaceID),
+                                isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
+                                isMultiSelected: drag.isWorkspaceMultiSelected(workspace.workspaceID),
+                                displacement: drag.workspaceDisplacement(at: index),
+                                isGhosted: drag.isDragging(workspace: workspace.workspaceID)
+                            )
+                            // Outside the row, which offsets its own content: the
+                            // frame published here is the row's resting place,
+                            // which is what the insertion index is measured
+                            // against.
+                            .reportsFrame(in: DragSpace.railContent) { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
+                            .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
+                            .onTapGesture {
+                                let commandHeld = NSEvent.modifierFlags.contains(.command)
+                                if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld) {
+                                    onSelect(workspace.workspaceID)
+                                }
                             }
+                            .simultaneousGesture(rowDrag(workspace))
                         }
-                        .simultaneousGesture(rowDrag(workspace))
                     }
+                    .padding(.top, ChromeMetrics.Rail.headingToFirstRow)
+                    .padding(.bottom, ChromeMetrics.Rail.verticalPadding)
+                    .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+                    .frame(width: ChromeMetrics.Rail.width, alignment: .leading)
+                    .coordinateSpace(.named(DragSpace.railContent))
+                    .reportsDragFrame { drag.setRailContentOrigin($0.origin) }
                 }
-                .padding(.vertical, ChromeMetrics.Rail.verticalPadding)
-                .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
-                .frame(width: ChromeMetrics.Rail.width, alignment: .leading)
-                .coordinateSpace(.named(DragSpace.railContent))
-                .reportsDragFrame { drag.setRailContentOrigin($0.origin) }
+                .scrollIndicators(.never)
+                .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+                .scrollPosition($scrollPosition)
+                .reportsScrollExtent(.vertical) { drag.setRailScroll(offset: $0, maximumOffset: $1) }
+                .frame(maxHeight: .infinity)
+                .reportsDragFrame { drag.railViewport = $0 }
+                .onAppear { drag.railScroller = { y in scrollPosition.scrollTo(y: y) } }
             }
-            .scrollIndicators(.never)
-            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-            .scrollPosition($scrollPosition)
-            .reportsScrollExtent(.vertical) { drag.setRailScroll(offset: $0, maximumOffset: $1) }
             .frame(width: ChromeMetrics.Rail.width)
-            .frame(maxHeight: .infinity)
-            .reportsDragFrame { drag.railViewport = $0 }
-            .onAppear { drag.railScroller = { y in scrollPosition.scrollTo(y: y) } }
             Rectangle()
                 .fill(theme.rule)
                 .frame(width: ChromeMetrics.ruleWidth)

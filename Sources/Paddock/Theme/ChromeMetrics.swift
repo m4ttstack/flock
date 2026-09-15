@@ -32,6 +32,9 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 10
         static let rowGap: CGFloat = 1
         static let headingGap: CGFloat = 8
+        /// The heading's bottom to the first row's top: the heading gap with a
+        /// row gap either side of it.
+        static let headingToFirstRow: CGFloat = rowGap + headingGap + rowGap
     }
 
     enum WorkspaceRow {
