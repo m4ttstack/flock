@@ -94,7 +94,7 @@ public protocol GhosttyPaneFactory {
     /// either path) is the surface's own signal to stop polling for this
     /// pane's whole remaining life.
     func makeSurface(
-        for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void,
+        for pane: PaneID, onUserInput: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface
 }

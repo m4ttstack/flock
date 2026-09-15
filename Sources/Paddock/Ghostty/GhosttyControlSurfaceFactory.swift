@@ -36,7 +36,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     }
 
     func makeSurface(
-        for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void,
+        for pane: PaneID, onUserInput: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
         // `nil` when the FIFO cannot be created (`PaneControlChannel.init?`'s
@@ -58,8 +58,6 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         let argv = BridgeOptions.argv(
             executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0],
             target: pane.rawValue,
-            cols: cols,
-            rows: rows,
             socketPath: socketPath,
             herdrBinary: herdrBinaryOverride,
             controlPipe: channel?.path,

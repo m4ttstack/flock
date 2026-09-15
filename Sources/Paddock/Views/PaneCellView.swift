@@ -122,13 +122,13 @@ struct PaneCellView: View {
             .simultaneousGesture(paneDrag, including: rearrangeMode.active ? .all : .subviews)
         // One task per pane identity, never keyed on the grid or focus: the
         // pane gets exactly one surface for its whole visible life, created
-        // here on first visibility with the grid of that moment. A later box
-        // change resizes the surface through its frame, so nothing here ever
-        // restarts the attach. `attachPane` is chained through the view
-        // model's own `paneWork`, so this body always reads back the single
-        // surface for this pane whatever else was queued.
+        // here on first visibility. Every box change resizes the surface
+        // through its frame, so nothing here ever restarts the attach.
+        // `attachPane` is chained through the view model's own `paneWork`, so
+        // this body always reads back the single surface for this pane
+        // whatever else was queued.
         .task(id: pane.paneID) {
-            ghosttySurface = await viewModel.attachPane(pane.paneID, cols: grid.cols, rows: grid.rows)
+            ghosttySurface = await viewModel.attachPane(pane.paneID)
         }
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }

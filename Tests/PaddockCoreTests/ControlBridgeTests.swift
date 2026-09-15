@@ -22,15 +22,12 @@ final class ControlBridgeTests: XCTestCase {
     func testBridgeOptionsParsesAllFlags() {
         let options = BridgeOptions(arguments: [
             "--bridge", "w1:p1",
-            "--cols", "120", "--rows", "40",
             "--socket", "/tmp/a.sock",
             "--herdr-bin", "/opt/homebrew/bin/herdr",
             "--control-pipe", "/tmp/ctl.fifo",
             "--status-pipe", "/tmp/status.fifo",
         ], environment: [:])
         XCTAssertEqual(options.target, "w1:p1")
-        XCTAssertEqual(options.cols, 120)
-        XCTAssertEqual(options.rows, 40)
         XCTAssertEqual(options.socketPath, "/tmp/a.sock")
         XCTAssertEqual(options.herdrBinary, "/opt/homebrew/bin/herdr")
         XCTAssertEqual(options.controlPipe, "/tmp/ctl.fifo")
@@ -46,8 +43,6 @@ final class ControlBridgeTests: XCTestCase {
             PaneStatusChannel.environmentKey: "/tmp/env-status.fifo",
         ])
         XCTAssertEqual(options.target, "w2:p3")
-        XCTAssertNil(options.cols)
-        XCTAssertNil(options.rows)
         XCTAssertEqual(options.socketPath, "/tmp/env.sock")
         XCTAssertEqual(options.herdrBinary, "/usr/local/bin/herdr")
         XCTAssertEqual(options.controlPipe, "/tmp/env-ctl.fifo")
@@ -63,7 +58,7 @@ final class ControlBridgeTests: XCTestCase {
     }
 
     func testBridgeOptionsMissingTargetIsEmpty() {
-        let options = BridgeOptions(arguments: ["--cols", "80"], environment: [:])
+        let options = BridgeOptions(arguments: ["--socket", "/tmp/a.sock"], environment: [:])
         XCTAssertEqual(options.target, "")
     }
 
@@ -71,8 +66,6 @@ final class ControlBridgeTests: XCTestCase {
         let argv = BridgeOptions.argv(
             executablePath: "/Applications/Paddock.app/Contents/MacOS/Paddock",
             target: "w3:p2",
-            cols: 100,
-            rows: 30,
             socketPath: "/tmp/round.sock",
             herdrBinary: "/opt/homebrew/bin/herdr",
             controlPipe: "/tmp/round-ctl.fifo",
@@ -82,8 +75,6 @@ final class ControlBridgeTests: XCTestCase {
         // only ever parses arguments AFTER argv[0].
         let options = BridgeOptions(arguments: Array(argv.dropFirst()), environment: [:])
         XCTAssertEqual(options.target, "w3:p2")
-        XCTAssertEqual(options.cols, 100)
-        XCTAssertEqual(options.rows, 30)
         XCTAssertEqual(options.socketPath, "/tmp/round.sock")
         XCTAssertEqual(options.herdrBinary, "/opt/homebrew/bin/herdr")
         XCTAssertEqual(options.controlPipe, "/tmp/round-ctl.fifo")

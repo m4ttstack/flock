@@ -14,8 +14,6 @@ import Darwin
 /// against a newer bridge.
 public struct BridgeOptions: Equatable, Sendable {
     public var target: String
-    public var cols: Int?
-    public var rows: Int?
     public var socketPath: String?
     public var herdrBinary: String?
     public var controlPipe: String?
@@ -46,8 +44,6 @@ public struct BridgeOptions: Equatable, Sendable {
         }
 
         target = pick("--bridge", "HERDR_TERM_TARGET") ?? ""
-        cols = values["--cols"].flatMap(Int.init)
-        rows = values["--rows"].flatMap(Int.init)
         socketPath = pick("--socket", "HERDR_SOCKET_PATH")
         herdrBinary = pick("--herdr-bin", "HERDR_BIN")
         controlPipe = pick("--control-pipe", PaneControlChannel.environmentKey)
@@ -62,18 +58,12 @@ public struct BridgeOptions: Equatable, Sendable {
     public static func argv(
         executablePath: String,
         target: String,
-        cols: Int,
-        rows: Int,
         socketPath: String,
         herdrBinary: String? = nil,
         controlPipe: String? = nil,
         statusPipe: String? = nil
     ) -> [String] {
-        var argv = [
-            executablePath, "--bridge", target,
-            "--cols", "\(cols)", "--rows", "\(rows)",
-            "--socket", socketPath,
-        ]
+        var argv = [executablePath, "--bridge", target, "--socket", socketPath]
         if let herdrBinary, !herdrBinary.isEmpty {
             argv += ["--herdr-bin", herdrBinary]
         }
@@ -160,10 +150,10 @@ public enum ControlBridge {
 
         let cookedTerminal = enterRawMode()
         // herdr starts at the PTY's size, the grid libghostty parses frames
-        // into; argv's grid only covers a run with no tty behind it.
+        // into; 80x24 only covers a run with no tty behind it.
         var size = currentWinSize(fd: STDIN_FILENO)
-        if size.cols <= 0 { size.cols = options.cols.flatMap { $0 > 0 ? $0 : nil } ?? 80 }
-        if size.rows <= 0 { size.rows = options.rows.flatMap { $0 > 0 ? $0 : nil } ?? 24 }
+        if size.cols <= 0 { size.cols = 80 }
+        if size.rows <= 0 { size.rows = 24 }
 
         let proc = Process()
         proc.executableURL = executableURL

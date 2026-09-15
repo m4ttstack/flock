@@ -327,24 +327,23 @@ public final class SessionViewModel {
 
     /// Creates `pane`'s ghostty surface the first time or unparks a warm
     /// (previously parked) one; never a second surface for a pane that
-    /// already has one, warm or not. `cols`/`rows` only seed a new surface's
-    /// bridge; its size afterward is its view's frame. Chained through
-    /// `paneWork` (see its own doc comment), so a second attach racing a
-    /// fresh one for the same pane can never reach the factory concurrently.
-    /// Returns the surface (new, warm, or already
-    /// visible) so a caller can hand it to `@State`, reading `ghosttySurface
-    /// (for:)` back out independently would depend on whether a dictionary
-    /// mutation buried inside a method call still registers as an
-    /// `@Observable` access, which this sidesteps entirely.
+    /// already has one, warm or not. A surface's size is its view's frame,
+    /// never anything handed in here. Chained through `paneWork` (see its own
+    /// doc comment), so a second attach racing a fresh one for the same pane
+    /// can never reach the factory concurrently. Returns the surface (new,
+    /// warm, or already visible) so a caller can hand it to `@State`; reading
+    /// `ghosttySurface(for:)` back out independently would depend on whether
+    /// a dictionary mutation buried inside a method call still registers as
+    /// an `@Observable` access, which this sidesteps entirely.
     @discardableResult
-    public func attachPane(_ pane: PaneID, cols: Int, rows: Int) async -> (any GhosttyPaneSurface)? {
-        guard let ghosttyFactory, cols > 0, rows > 0 else { return nil }
+    public func attachPane(_ pane: PaneID) async -> (any GhosttyPaneSurface)? {
+        guard let ghosttyFactory else { return nil }
         parkedPanes.removeAll { $0 == pane }
         let previous = paneWork[pane]
         let task = Task { [weak self] in
             _ = await previous?.value
             guard let self else { return }
-            await self.performAttach(pane: pane, cols: cols, rows: rows, factory: ghosttyFactory)
+            await self.performAttach(pane: pane, factory: ghosttyFactory)
         }
         paneWork[pane] = task
         await task.value
@@ -379,7 +378,7 @@ public final class SessionViewModel {
         ghosttySurfaces[pane]
     }
 
-    private func performAttach(pane: PaneID, cols: Int, rows: Int, factory: any GhosttyPaneFactory) async {
+    private func performAttach(pane: PaneID, factory: any GhosttyPaneFactory) async {
         // also removed here, inside the chain -- `attachPane`'s own
         // synchronous removal (before this step even runs) closes the
         // common case, but a park enqueued for the SAME pane can still be
@@ -403,7 +402,7 @@ public final class SessionViewModel {
         // one) has hidden the pane, every later call is a cheap no-op that
         // also tells the surface to stop reporting for good.
         let surface = await factory.makeSurface(
-            for: pane, cols: cols, rows: rows,
+            for: pane,
             onUserInput: { [weak self] in self?.recordLauncherKeystroke(pane) },
             onScreenActivity: { [weak self] nonEmptyRowCount in
                 guard let self, self.isPristineLauncherPane(pane) else { return false }

@@ -135,10 +135,10 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
 /// `FakeGhosttyPaneSurface` per pane. `makeSurface` can be held open one
 /// call at a time, the same shape as `RecordingCommandClient.hold`/
 /// `releaseNext`, so a test can pin a first attach mid-creation while a
-/// resize races it.
+/// second attach races it.
 @MainActor
 private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
-    private(set) var makeSurfaceCalls: [(pane: PaneID, cols: Int, rows: Int)] = []
+    private(set) var makeSurfaceCalls: [PaneID] = []
     private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
     private(set) var onUserInputHandlers: [PaneID: () -> Void] = [:]
     private(set) var onScreenActivityHandlers: [PaneID: (Int) -> Bool] = [:]
@@ -155,10 +155,10 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     }
 
     func makeSurface(
-        for pane: PaneID, cols: Int, rows: Int, onUserInput: @escaping () -> Void,
+        for pane: PaneID, onUserInput: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
-        makeSurfaceCalls.append((pane, cols, rows))
+        makeSurfaceCalls.append(pane)
         onUserInputHandlers[pane] = onUserInput
         onScreenActivityHandlers[pane] = onScreenActivity
         if holdEnabled {
@@ -568,7 +568,7 @@ final class SessionViewModelTests: XCTestCase {
         let newPane = PaneID(rawValue: "w1:p2")
         // No focus is ever set on this view model, so the new pane is never
         // the resolved-focused one for the whole test.
-        _ = await viewModel.attachPane(newPane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(newPane)
         XCTAssertNotEqual(viewModel.resolvedFocusedPaneID, newPane)
         XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
 
@@ -588,7 +588,7 @@ final class SessionViewModelTests: XCTestCase {
     func testAttachIsANoOpWithNoFactoryInjected() async {
         let viewModel = SessionViewModel(client: RecordingCommandClient())
 
-        let surface = await viewModel.attachPane(PaneID(rawValue: "w1:p1"), cols: 80, rows: 24)
+        let surface = await viewModel.attachPane(PaneID(rawValue: "w1:p1"))
 
         XCTAssertNil(surface)
     }
@@ -599,13 +599,13 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        let first = await viewModel.attachPane(pane, cols: 80, rows: 24)
-        let second = await viewModel.attachPane(pane, cols: 100, rows: 30)
+        let first = await viewModel.attachPane(pane)
+        let second = await viewModel.attachPane(pane)
 
         XCTAssertNotNil(first)
         XCTAssertNotNil(second)
-        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "a resize must never spawn a second surface for the same pane")
-        XCTAssertTrue(first === second, "the same surface instance is handed back across a resize")
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "a second attach must never spawn a second surface for the same pane")
+        XCTAssertTrue(first === second, "the same surface instance is handed back to a second attach")
     }
 
     // MARK: - per-pane scroll feed (armed while visible only)
@@ -617,14 +617,14 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, paneScrollSubscriber: scroll)
         let pane = PaneID(rawValue: "w1:p1")
 
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane)
         XCTAssertEqual(scroll.subscribed, [pane])
         XCTAssertTrue(scroll.unsubscribed.isEmpty)
 
         await viewModel.detachPane(pane)
         XCTAssertEqual(scroll.unsubscribed, [pane])
 
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane)
         XCTAssertEqual(scroll.subscribed, [pane, pane], "a warm reattach re-arms the feed")
     }
 
@@ -635,7 +635,7 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, paneScrollSubscriber: scroll)
         let pane = PaneID(rawValue: "w1:p1")
         viewModel.update(model: makeModel(), connection: .live)
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane)
 
         var closed = makeModel()
         closed.panes.removeValue(forKey: pane)
@@ -656,7 +656,7 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane)
         let surface = try XCTUnwrap(factory.surfaces[pane])
         await viewModel.detachPane(pane)
 
@@ -674,9 +674,9 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        let first = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        let first = await viewModel.attachPane(pane)
         await viewModel.detachPane(pane)
-        let second = await viewModel.attachPane(pane, cols: 100, rows: 30)
+        let second = await viewModel.attachPane(pane)
 
         XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "a reattach after a park must never create a second surface")
         XCTAssertTrue(first === second, "the same surface instance comes back")
@@ -697,7 +697,7 @@ final class SessionViewModelTests: XCTestCase {
         let panes = (1...13).map { PaneID(rawValue: "w1:p\($0)") }
 
         for pane in panes {
-            _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+            _ = await viewModel.attachPane(pane)
         }
         for pane in panes.reversed() {
             await viewModel.detachPane(pane)
@@ -729,7 +729,7 @@ final class SessionViewModelTests: XCTestCase {
         let panes = (1...13).map { PaneID(rawValue: "w1:p\($0)") }
 
         for pane in panes {
-            _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+            _ = await viewModel.attachPane(pane)
         }
         for pane in panes {
             await viewModel.detachPane(pane)
@@ -738,7 +738,7 @@ final class SessionViewModelTests: XCTestCase {
         let evictedPane = panes[0]
         XCTAssertNil(viewModel.ghosttySurface(for: evictedPane), "the oldest-parked pane was evicted")
 
-        let reattached = await viewModel.attachPane(evictedPane, cols: 80, rows: 24)
+        let reattached = await viewModel.attachPane(evictedPane)
 
         XCTAssertNotNil(reattached)
         XCTAssertEqual(factory.makeSurfaceCalls.count, 14, "the evicted pane's reattach must create a NEW surface, not reuse the torn-down one")
@@ -764,13 +764,13 @@ final class SessionViewModelTests: XCTestCase {
         let factory = FakeGhosttyPaneFactory()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane)
 
         // Neither call is awaited before the next fires -- both `Task { }`
         // closures are simply created back to back, exactly like the two
         // independent SwiftUI-driven call sites do in production.
         let parkTask = Task { await viewModel.detachPane(pane) }
-        let attachTask = Task { _ = await viewModel.attachPane(pane, cols: 80, rows: 24) }
+        let attachTask = Task { _ = await viewModel.attachPane(pane) }
         await parkTask.value
         await attachTask.value
 
@@ -780,7 +780,7 @@ final class SessionViewModelTests: XCTestCase {
         // confirming this one is never swept up as if it were still parked.
         let otherPanes = (2...13).map { PaneID(rawValue: "w1:p\($0)") }
         for other in otherPanes {
-            _ = await viewModel.attachPane(other, cols: 80, rows: 24)
+            _ = await viewModel.attachPane(other)
         }
         for other in otherPanes {
             await viewModel.detachPane(other)
@@ -811,7 +811,7 @@ final class SessionViewModelTests: XCTestCase {
         )
         viewModel.update(model: modelBefore, connection: .live)
 
-        _ = await viewModel.attachPane(oldPane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(oldPane)
         let oldSurface = try XCTUnwrap(factory.surfaces[oldPane])
         await viewModel.detachPane(oldPane)
         XCTAssertEqual(oldSurface.detachCallCount, 0, "parked, not torn down, yet")
@@ -830,7 +830,7 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(oldSurface.detachCallCount, 1, "the old id must be torn down for real once it vanishes from the model")
         XCTAssertNil(viewModel.ghosttySurface(for: oldPane))
 
-        let newSurface = await viewModel.attachPane(newPane, cols: 80, rows: 24)
+        let newSurface = await viewModel.attachPane(newPane)
         XCTAssertNotNil(newSurface)
         XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "the new id attaches cold -- a brand new surface, never reusing the old id's")
     }
@@ -856,8 +856,8 @@ final class SessionViewModelTests: XCTestCase {
         }
         viewModel.update(model: modelWithTab, connection: .live)
 
-        _ = await viewModel.attachPane(paneA, cols: 80, rows: 24)
-        _ = await viewModel.attachPane(paneB, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(paneA)
+        _ = await viewModel.attachPane(paneB)
         let surfaceA = try XCTUnwrap(factory.surfaces[paneA])
         let surfaceB = try XCTUnwrap(factory.surfaces[paneB])
         await viewModel.detachPane(paneA)
@@ -889,7 +889,7 @@ final class SessionViewModelTests: XCTestCase {
         )
         viewModel.update(model: modelWithBothPanes, connection: .live)
 
-        _ = await viewModel.attachPane(closingPane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(closingPane)
         let surface = try XCTUnwrap(factory.surfaces[closingPane])
         await viewModel.detachPane(closingPane)
         XCTAssertEqual(surface.detachCallCount, 0, "parked, not torn down, until herdr stops reporting it")
@@ -914,13 +914,13 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane)
         let surface = try XCTUnwrap(factory.surfaces[pane])
         XCTAssertFalse(surface.hasFirstFrame, "a cold attach starts without a first frame -- the card shows")
 
         surface.hasFirstFrame = true
         await viewModel.detachPane(pane)
-        let reattached = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        let reattached = await viewModel.attachPane(pane)
 
         XCTAssertTrue(reattached === surface)
         XCTAssertEqual(reattached?.hasFirstFrame, true, "a warm reattach's surface already carries its first frame -- the card never comes back")
@@ -936,10 +936,10 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
         let pane = PaneID(rawValue: "w1:p1")
 
-        let firstTask = Task { await viewModel.attachPane(pane, cols: 80, rows: 24) }
+        let firstTask = Task { await viewModel.attachPane(pane) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
-        let secondTask = Task { await viewModel.attachPane(pane, cols: 100, rows: 30) }
+        let secondTask = Task { await viewModel.attachPane(pane) }
         try? await Task.sleep(nanoseconds: 20_000_000)
 
         factory.releaseNext()
@@ -949,14 +949,14 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNotNil(firstSurface, "the first-ever attach for this pane returns the real surface")
         XCTAssertNotNil(secondSurface, "the second attach resolves too, once creation settles")
         XCTAssertTrue(firstSurface === secondSurface, "no stale second surface may exist for the same pane")
-        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "only ONE makeSurface call, even though a resize arrived mid-creation")
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "only ONE makeSurface call, even though a second attach arrived mid-creation")
 
         let surface = try XCTUnwrap(factory.surfaces[pane])
 
         // The actual discriminator: without `paneWork` serialization, the
         // second attach could race ahead of the held creation and see no
         // surface yet, spawning its OWN second one.
-        let noop = await viewModel.attachPane(pane, cols: 100, rows: 30)
+        let noop = await viewModel.attachPane(pane)
         XCTAssertTrue(noop === surface)
         XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "still only one surface ever created for this pane")
     }
@@ -974,7 +974,7 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
         XCTAssertTrue(viewModel.isPristineLauncherPane(pane), "a freshly paddock-created pane starts pristine")
 
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane)
         let onUserInput = try XCTUnwrap(factory.onUserInputHandlers[pane])
 
         onUserInput()
@@ -1001,7 +1001,7 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
         XCTAssertTrue(viewModel.isPristineLauncherPane(pane))
 
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
+        _ = await viewModel.attachPane(pane)
         let onScreenActivity = try XCTUnwrap(factory.onScreenActivityHandlers[pane])
 
         // At most the bare prompt (<=2 non-empty rows): still pristine, and
