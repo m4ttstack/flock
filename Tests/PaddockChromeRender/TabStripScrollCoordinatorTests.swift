@@ -75,16 +75,24 @@ final class TabStripScrollCoordinatorTests: XCTestCase {
         XCTAssertEqual(scrolledTo, [ChromeMetrics.Strip.wheelLineStep])
     }
 
-    /// The strip's frames outlive it under a shown grid, so the wheel has to
-    /// check the grid rather than the frames.
-    func testAWheelIsNotTheStripsWhileTheGridCoversIt() {
+    /// The strip's frames outlive the strip under a shown grid, so a reveal
+    /// has to check the grid rather than the frames: its scroller still holds
+    /// a torn-down scroll position.
+    func testARevealIsNotTheStripsWhileTheGridCoversIt() {
         let drag = makeCoordinator()
-        var scrolledTo: [CGFloat] = []
-        drag.stripScroller = { scrolledTo.append($0) }
+        var revealedTo: [CGFloat] = []
+        drag.stripRevealScroller = { revealedTo.append($0) }
+        drag.setTabOrder([Self.first, Self.created])
+        drag.setTabFrame(CGRect(x: 800, y: 0, width: 100, height: 28), for: Self.created)
         drag.toggleGrid()
 
-        drag.revealTab(Self.first)
-        XCTAssertTrue(scrolledTo.isEmpty)
+        drag.revealTab(Self.created)
+        XCTAssertTrue(revealedTo.isEmpty)
+
+        // Nor is it held for later: the selection that asked for it is long
+        // over by the time the grid closes.
+        drag.setTabFrame(CGRect(x: 810, y: 0, width: 100, height: 28), for: Self.created)
+        XCTAssertTrue(revealedTo.isEmpty)
     }
 
     /// A tab is selected in the same update pass that inserts it, so its frame
