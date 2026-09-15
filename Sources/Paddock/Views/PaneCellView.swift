@@ -49,10 +49,8 @@ struct PaneCellView: View {
     let pane: PaneRecord
     let isFocused: Bool
     let lastLine: String?
-    /// The whole-cell grid this pane's own box holds: what the surface is laid
-    /// out at and, through `SessionViewModel`, the size herdr is asked for. A
-    /// later change reaches the surface through the view model's dims path,
-    /// never through a reattach.
+    /// The whole-cell grid this pane's own box holds, which `surfaceSize`
+    /// lays the surface out at. herdr hears it only through the PTY.
     let grid: PTYSize
     /// Exactly `grid.cols x grid.rows` cells: the surface's frame, top-left in
     /// the box's content area, any remainder left as ground.
@@ -125,17 +123,12 @@ struct PaneCellView: View {
         // One task per pane identity, never keyed on the grid or focus: the
         // pane gets exactly one surface for its whole visible life, created
         // here on first visibility with the grid of that moment. A later box
-        // change reaches the surface through `setPaneBoxDims` below, so
-        // nothing here ever restarts the attach. `attachPane` is chained
-        // through the view model's own `paneWork`, so this body always reads
-        // back the single surface for this pane whatever else was queued.
+        // change resizes the surface through its frame, so nothing here ever
+        // restarts the attach. `attachPane` is chained through the view
+        // model's own `paneWork`, so this body always reads back the single
+        // surface for this pane whatever else was queued.
         .task(id: pane.paneID) {
             ghosttySurface = await viewModel.attachPane(pane.paneID, cols: grid.cols, rows: grid.rows)
-        }
-        // The box moved (a window resize, a split appearing, a divider drag):
-        // the view model records it and sends it if the grid changed.
-        .onChange(of: grid) { _, new in
-            viewModel.setPaneBoxDims(pane.paneID, cols: new.cols, rows: new.rows)
         }
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }
@@ -348,7 +341,7 @@ struct PaneCellView: View {
         if let ghosttySurface {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
-                    surface: ghosttySurface, theme: theme, isFocused: isFocused,
+                    surface: ghosttySurface, grid: grid, theme: theme, isFocused: isFocused,
                     fontSizePoints: fontSizePoints, rearrangeActive: rearrangeMode.active,
                     paneDragInProgress: drag.isPaneDragInFlight,
                     isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),

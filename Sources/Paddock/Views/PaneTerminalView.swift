@@ -12,6 +12,8 @@ import SwiftUI
 /// theme changes.
 struct GhosttyPaneTerminalView: View {
     let surface: any GhosttyPaneSurface
+    /// The box grid the surface is framed at, for the grid log only.
+    let grid: PTYSize
     let theme: Theme
     let isFocused: Bool
     /// The Terminal Text size every pane shares.
@@ -44,12 +46,13 @@ struct GhosttyPaneTerminalView: View {
     let onBodyDragBegan: (CGPoint) -> Void
 
     init(
-        surface: any GhosttyPaneSurface, theme: Theme, isFocused: Bool, fontSizePoints: Double,
+        surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
         rearrangeActive: Bool = false, paneDragInProgress: Bool = false, isPristineLauncherPane: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
         self.surface = surface
+        self.grid = grid
         self.theme = theme
         self.isFocused = isFocused
         self.fontSizePoints = fontSizePoints
@@ -63,7 +66,7 @@ struct GhosttyPaneTerminalView: View {
 
     var body: some View {
         GhosttySurfaceRepresentable(
-            surface: surface, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
+            surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
             rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress,
             isPristineLauncherPane: isPristineLauncherPane, onPrimaryClick: onPrimaryClick,
             menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
@@ -79,6 +82,7 @@ struct GhosttyPaneTerminalView: View {
 /// allowed to see.
 private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let surface: any GhosttyPaneSurface
+    let grid: PTYSize
     let theme: Theme
     let isFocused: Bool
     let fontSizePoints: Double
@@ -121,6 +125,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             return PlaceholderGhosttyHostView(background: theme.terminalGround)
         }
         let session = handle.session
+        session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
         if let existingView = session.view {
             // unparked here, synchronously, rather than waiting for
             // `SessionViewModel.attachPane`'s own chained `existing.unpark()`
@@ -162,6 +167,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let ghosttyView = nsView as? GhosttySurfaceView else { return }
+        ghosttyView.session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
         if context.coordinator.lastAppliedThemeID != theme.id || context.coordinator.lastAppliedFontSize != fontSizePoints {
             context.coordinator.lastAppliedThemeID = theme.id
             context.coordinator.lastAppliedFontSize = fontSizePoints

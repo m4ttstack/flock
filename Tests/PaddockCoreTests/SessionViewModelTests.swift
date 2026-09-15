@@ -103,7 +103,6 @@ private final class NoticeRecorder {
 @MainActor
 private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Sendable {
     let pane: PaneID
-    private(set) var resizeCalls: [(cols: Int, rows: Int)] = []
     private(set) var detachCallCount = 0
     private(set) var parkCallCount = 0
     private(set) var unparkCallCount = 0
@@ -114,10 +113,6 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
 
     init(pane: PaneID) {
         self.pane = pane
-    }
-
-    func resize(cols: Int, rows: Int) {
-        resizeCalls.append((cols, rows))
     }
 
     func detach() async {
@@ -613,214 +608,6 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(first === second, "the same surface instance is handed back across a resize")
     }
 
-    /// `SessionViewModel` forwards a dims change to the existing surface's
-    /// `resize(cols:rows:)`; production's conformance turns that into the
-    /// pane's `paddock.dims` line, the one size herdr is ever told.
-    @MainActor
-    func testAttachForwardsResizeCallToTheExistingSurface() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-
-        _ = await viewModel.attachPane(pane, cols: 80, rows: 24)
-        _ = await viewModel.attachPane(pane, cols: 100, rows: 30)
-
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100])
-        XCTAssertEqual(surface.resizeCalls.map(\.rows), [30])
-    }
-
-    // MARK: - a pane's dims come from its own box, never from herdr's rect
-
-    /// A box resize reaches the pane's surface as a dims change through
-    /// `resize(cols:rows:)`: no second surface, no park, no teardown.
-    @MainActor
-    func testBoxResizeEmitsOneDimsCallForThatPane() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
-
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [30])
-        XCTAssertEqual(surface.resizeCalls.map(\.rows), [40])
-        XCTAssertEqual(factory.makeSurfaceCalls.count, 1)
-        XCTAssertEqual(surface.parkCallCount, 0)
-        XCTAssertEqual(surface.detachCallCount, 0)
-    }
-
-    /// No clock stands between a box change and its send: the resize is
-    /// issued before `setPaneBoxDims` returns, with nothing awaited.
-    @MainActor
-    func testABoxChangeSendsBeforeSetPaneBoxDimsReturns() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-
-        viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
-
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [45], "the send must not wait for a timer or a later main-actor turn")
-    }
-
-    @MainActor
-    func testABurstOfBoxChangesOnTheSameGridSendsOnce() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-
-        for _ in 0..<5 {
-            viewModel.setPaneBoxDims(pane, cols: 45, rows: 40)
-        }
-
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [45])
-    }
-
-    /// A divider drag's live preview moves a box one cell crossing at a time:
-    /// each distinct grid reaches herdr while the drag is still live, and a
-    /// cancelled drag's revert sends the pre-drag grid through the same path.
-    @MainActor
-    func testEachIntermediateGridOfADividerDragSends() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-
-        for cols in [58, 58, 52, 47, 47, 41] {
-            viewModel.setPaneBoxDims(pane, cols: cols, rows: 40)
-        }
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [58, 52, 47, 41])
-
-        viewModel.setPaneBoxDims(pane, cols: 60, rows: 40)
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [58, 52, 47, 41, 60])
-    }
-
-    @MainActor
-    func testUnchangedBoxDimsEmitNothing() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.setPaneBoxDims(pane, cols: 60, rows: 40)
-
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertTrue(surface.resizeCalls.isEmpty, "the surface already runs at its attach dims")
-    }
-
-    /// Only the pane whose box moved is resized: a second pane reporting in
-    /// the same layout pass must not be swept along with it.
-    @MainActor
-    func testAPaneWhoseBoxDidNotChangeEmitsNothing() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let moved = PaneID(rawValue: "w1:p1")
-        let still = PaneID(rawValue: "w1:p2")
-        _ = await viewModel.attachPane(moved, cols: 60, rows: 40)
-        _ = await viewModel.attachPane(still, cols: 60, rows: 40)
-
-        viewModel.setPaneBoxDims(moved, cols: 30, rows: 40)
-        viewModel.setPaneBoxDims(still, cols: 60, rows: 40)
-
-        XCTAssertEqual(factory.surfaces[moved]?.resizeCalls.map(\.cols), [30])
-        XCTAssertEqual(factory.surfaces[still]?.resizeCalls.count, 0)
-    }
-
-    /// herdr's own layout rect is no longer a size source at all: paddock
-    /// owns every pane's grid, so a `layout.updated` that moves a visible
-    /// pane's cell rect must not resize anything by itself.
-    @MainActor
-    func testALayoutRectChangeNeverResizesAPaneByItself() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-        viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 60, height: 40)), connection: .live)
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-
-        viewModel.update(model: makeModel(paneRect: CellRect(x: 0, y: 0, width: 30, height: 40)), connection: .live)
-
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertTrue(surface.resizeCalls.isEmpty, "herdr's rect is a proportion, never a size")
-    }
-
-    /// A box change that lands while the pane's FIRST-EVER attach is still
-    /// suspended inside `makeSurface` has no surface to reach yet. It must be
-    /// applied the moment the surface registers instead of being dropped:
-    /// nothing later re-reports a box size that did not change again.
-    @MainActor
-    func testABoxChangeDuringAnInFlightAttachIsAppliedWhenTheSurfaceRegisters() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        factory.hold()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-
-        let attachTask = Task { await viewModel.attachPane(pane, cols: 80, rows: 24) }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-        viewModel.setPaneBoxDims(pane, cols: 100, rows: 30)
-
-        factory.releaseNext()
-        _ = await attachTask.value
-
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertEqual(
-            surface.resizeCalls.map(\.cols), [100],
-            "the box grid recorded mid-creation must reach the surface as soon as it exists")
-        XCTAssertEqual(surface.resizeCalls.map(\.rows), [30])
-    }
-
-    /// Several box changes landing before the surface exists send nothing
-    /// anywhere; the newest is the one the surface receives on registering,
-    /// and from then on a change sends directly.
-    @MainActor
-    func testTheNewestGridRecordedBeforeASurfaceExistsIsTheOneItReceives() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        factory.hold()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-
-        let attachTask = Task { await viewModel.attachPane(pane, cols: 80, rows: 24) }
-        for _ in 0..<1_000 where factory.makeSurfaceCalls.isEmpty {
-            await Task.yield()
-        }
-        XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "precondition: the attach is suspended inside makeSurface")
-        for cols in [90, 95, 100] {
-            viewModel.setPaneBoxDims(pane, cols: cols, rows: 30)
-        }
-
-        factory.releaseNext()
-        _ = await attachTask.value
-
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100])
-
-        viewModel.setPaneBoxDims(pane, cols: 70, rows: 30)
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100, 70])
-    }
-
-    /// A parked pane's box dims are re-sent by its next warm reattach, not
-    /// while it sits in the pool with nothing on screen.
-    @MainActor
-    func testBoxDimsForAParkedPaneWaitForTheReattach() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p1")
-        _ = await viewModel.attachPane(pane, cols: 60, rows: 40)
-        await viewModel.detachPane(pane)
-
-        viewModel.setPaneBoxDims(pane, cols: 30, rows: 40)
-        let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertTrue(surface.resizeCalls.isEmpty, "a parked pane gets no dims while parked")
-
-        _ = await viewModel.attachPane(pane, cols: 30, rows: 40)
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [30])
-    }
-
     // MARK: - per-pane scroll feed (armed while visible only)
 
     @MainActor
@@ -895,7 +682,6 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(first === second, "the same surface instance comes back")
         let surface = try XCTUnwrap(factory.surfaces[pane])
         XCTAssertEqual(surface.unparkCallCount, 1, "a warm reattach unparks the surface")
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100], "the reattach's own dims still resize it")
     }
 
     /// The warm cap: parking a 13th pane (cap is 12) evicts the FIRST
@@ -1140,11 +926,11 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(reattached?.hasFirstFrame, true, "a warm reattach's surface already carries its first frame -- the card never comes back")
     }
 
-    /// A resize arriving while the FIRST-EVER attach for a pane is still
-    /// awaiting `makeSurface` must not spawn (or leave reachable) a second
-    /// surface at the stale, superseded dims.
+    /// A second attach arriving while the FIRST-EVER attach for a pane is
+    /// still awaiting `makeSurface` must not spawn (or leave reachable) a
+    /// second surface.
     @MainActor
-    func testResizeDuringInFlightFirstAttachEndsAtNewestDimsWithNoStaleSurfaceLeaked() async throws {
+    func testASecondAttachDuringAnInFlightFirstAttachLeaksNoStaleSurface() async throws {
         let factory = FakeGhosttyPaneFactory()
         factory.hold()
         let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
@@ -1161,17 +947,15 @@ final class SessionViewModelTests: XCTestCase {
         let secondSurface = await secondTask.value
 
         XCTAssertNotNil(firstSurface, "the first-ever attach for this pane returns the real surface")
-        XCTAssertNotNil(secondSurface, "the resize resolves too, once creation settles")
+        XCTAssertNotNil(secondSurface, "the second attach resolves too, once creation settles")
         XCTAssertTrue(firstSurface === secondSurface, "no stale second surface may exist for the same pane")
         XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "only ONE makeSurface call, even though a resize arrived mid-creation")
 
         let surface = try XCTUnwrap(factory.surfaces[pane])
-        XCTAssertEqual(surface.resizeCalls.map(\.cols), [100], "the newest dims are applied via resize once creation settles")
-        XCTAssertEqual(surface.resizeCalls.map(\.rows), [30])
 
         // The actual discriminator: without `paneWork` serialization, the
-        // resize could race ahead of the held creation and see no surface
-        // yet, spawning its OWN second one at the stale dims.
+        // second attach could race ahead of the held creation and see no
+        // surface yet, spawning its OWN second one.
         let noop = await viewModel.attachPane(pane, cols: 100, rows: 30)
         XCTAssertTrue(noop === surface)
         XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "still only one surface ever created for this pane")

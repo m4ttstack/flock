@@ -34,14 +34,6 @@ public final class FirstFrameLatch {
 /// is `@unchecked Sendable` for that reason, never touched off `@MainActor`.
 @MainActor
 public protocol GhosttyPaneSurface: AnyObject, Sendable {
-    /// The grid paddock's own pane box holds: sent on every warm reattach and
-    /// on every box change. The real conformance relays it to the bridge as
-    /// `paddock.dims`, which resizes the pane's real runtime, and records the
-    /// grid the surface is expected to settle at; the surface's pixel size
-    /// itself is the view's business (`PaneCellView` sizes it to exactly
-    /// cols x rows cells).
-    func resize(cols: Int, rows: Int)
-
     /// Tears the surface down: frees the libghostty surface, which ends the
     /// bridge's PTY and, with it, the bridge process and its own herdr
     /// control child. `async` so a real teardown that needs to wait on
@@ -56,9 +48,8 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// surface is current whenever it is looked at again.
     func park()
 
-    /// Reverses `park()`. Idempotent, the same as `resize`/`attach` are:
-    /// calling it on a surface that was never parked (an ordinary resize) is
-    /// a harmless no-op.
+    /// Reverses `park()`. Idempotent: calling it on a surface that was never
+    /// parked is a harmless no-op.
     func unpark()
 
     /// Whether the bridge has reported this surface's first full-frame paint,

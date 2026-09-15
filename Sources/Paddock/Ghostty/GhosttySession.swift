@@ -100,11 +100,9 @@ final class GhosttySession {
     /// client never negotiates pixel mouse, so herdr always reports it false.
     private(set) var mouseCaptureEnabled = false
 
-    /// The grid paddock's pane box holds: the size the view lays the surface
-    /// out at and the only size the bridge ever tells herdr. Set through
-    /// `setExpectedGrid` on attach and on every box change;
-    /// `verifyExpectedGrid` checks the live surface against it after each
-    /// layout pass.
+    /// The grid paddock's pane box holds, which the view lays the surface out
+    /// at. Kept only so `verifyExpectedGrid` can log whether libghostty's live
+    /// grid matches it.
     private(set) var expectedGrid: (cols: Int, rows: Int)?
     private var lastVerifiedGrid: (cols: Int, rows: Int)?
 
@@ -147,8 +145,9 @@ final class GhosttySession {
     /// `ghostty_surface_config_s` has no size field: a new surface is always
     /// born at libghostty's own internal placeholder size, so every attach
     /// (first or not) resizes to the view's real bounds unconditionally. The
-    /// bounds are `PaneCellView`'s exact cols x rows cells, so the grid this
-    /// produces is herdr's grid; `verifyExpectedGrid` confirms that.
+    /// bounds are `PaneCellView`'s exact cols x rows cells. libghostty resizes
+    /// the PTY only once it applies the grid, and the bridge's SIGWINCH is what
+    /// tells herdr, so nothing here may send a size of its own.
     func resize(to size: CGSize) {
         guard let surface else { return }
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return }
@@ -157,24 +156,20 @@ final class GhosttySession {
         verifyExpectedGrid()
     }
 
-    /// Records the grid paddock's box holds for this pane and relays it to
-    /// the bridge as `paddock.dims` (the one size it ever sends herdr),
-    /// skipping a repeat of the dims already sent.
+    /// Records the grid paddock's box holds for this pane, for the grid log.
     func setExpectedGrid(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         if let expectedGrid, expectedGrid.cols == cols, expectedGrid.rows == rows { return }
         expectedGrid = (cols, rows)
         lastVerifiedGrid = nil
-        controlChannel?.setDims(cols: cols, rows: rows)
         verifyExpectedGrid()
     }
 
     /// Runs whenever libghostty's live grid may have changed: logs, once per
-    /// (expected, actual) change, whether it equals the grid paddock asked
-    /// herdr for. A mismatch after the font has settled means
-    /// `TerminalCellMetrics` disagrees with the cell libghostty actually
-    /// loaded, which is the one thing that can put the surface and the real
-    /// pane out of step.
+    /// (expected, actual) change, whether it equals the box grid. A mismatch
+    /// after the font has settled means `TerminalCellMetrics` disagrees with
+    /// the cell libghostty actually loaded, and herdr then runs at
+    /// libghostty's grid rather than the box's.
     private func verifyExpectedGrid() {
         guard let expectedGrid, let geometry = surfaceGeometry() else { return }
         let actual = (geometry.grid.columns, geometry.grid.rows)
@@ -439,9 +434,9 @@ final class GhosttySession {
     /// so a theme OR font-size change repaints every pane without tearing
     /// its bridge down. A font-size change recomputes the surface's cell
     /// size and, with it, its grid from the view's unchanged pixel size
-    /// (`Surface.zig`'s `setFontSize` -> `setCellSize`); the bridge ignores
-    /// the resulting PTY winsize change, since herdr only ever hears the
-    /// pane's real dims. Ported from Herdglass's `TerminalSession.updateConfig`
+    /// (`Surface.zig`'s `setFontSize` -> `setCellSize`); the resulting PTY
+    /// winsize change reaches herdr through the bridge's SIGWINCH like any
+    /// other. Ported from Herdglass's `TerminalSession.updateConfig`
     /// (BSL-1.1, attributed): push, then re-apply the light/dark scheme the
     /// same way `attach` does, since a config push does not imply one.
     @discardableResult

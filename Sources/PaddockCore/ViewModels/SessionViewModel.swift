@@ -29,14 +29,13 @@ public final class SessionViewModel {
     public private(set) var lastLines: [PaneID: String] = [:]
 
     private var lastLineRevisions: [PaneID: Int] = [:]
-    // One chained task per pane: every attach/resize/detach request for a pane
-    // waits for whatever request came immediately before it (for that SAME
-    // pane only -- other panes are unaffected) before touching
+    // One chained task per pane: every attach/park/teardown request for a
+    // pane waits for whatever request came immediately before it (for that
+    // SAME pane only; other panes are unaffected) before touching
     // `ghosttySurfaces`. This is what actually closes the reentrancy hole a
-    // simple "recheck after await" guard cannot: a resize arriving mid-attach,
-    // or a teardown arriving mid-attach, must never reach the surface
-    // concurrently with whatever request is already in flight for the same
-    // pane. Not pruned as requests settle -- bounded by how many distinct
+    // simple "recheck after await" guard cannot: a second attach or a
+    // teardown arriving mid-attach must never reach the surface concurrently
+    // with whatever request is already in flight for the same pane. Not pruned as requests settle -- bounded by how many distinct
     // panes have ever existed in the session, not by request volume, so this
     // does not grow unbounded in practice.
     private var paneWork: [PaneID: Task<Void, Never>] = [:]
@@ -45,9 +44,7 @@ public final class SessionViewModel {
     // Every visible pane's live surface, keyed by pane -- created exactly
     // once per pane, on first visibility, and torn down only when the pane
     // leaves the visible set entirely. Attach/park/teardown for a given pane
-    // always goes through `paneWork`. A box resize is sent synchronously
-    // instead, and only to a surface already registered here; one still
-    // being created picks the grid up from `paneBoxDims` in `performAttach`.
+    // always goes through `paneWork`.
     // `@ObservationIgnored`: `PaneCellView.init` reads this once (via
     // `ghosttySurface(for:)`) to seed its own `@State`, and that read runs
     // as part of `PaneCanvas.body` building its children -- without this,
@@ -83,17 +80,6 @@ public final class SessionViewModel {
     /// superset of anything attached in practice; it exists as a safety
     /// valve against attaching a pane the model never described at all.
     private var everKnownPaneIDs: Set<PaneID> = []
-    // Every pane's own box grid as the canvas last laid it out, recorded
-    // whether or not the pane has a surface yet: the single source of truth
-    // for the size herdr is told. A pane whose surface is still being created
-    // gets its recorded grid applied the moment the surface registers, so a
-    // box change landing inside that window is never lost -- nothing re-reports
-    // a size that did not change again.
-    private var paneBoxDims: [PaneID: PTYSize] = [:]
-    // The grid each pane's surface was last actually told, so an unchanged
-    // grid costs nothing. Cleared on teardown along with `paneBoxDims`: a
-    // fresh surface has been told nothing yet.
-    private var lastSentDims: [PaneID: PTYSize] = [:]
 
     private let paneLauncherRegistry = PaneLauncherRegistry()
     // Armed per visible pane on attach, disarmed on park and teardown, so a
@@ -172,28 +158,6 @@ public final class SessionViewModel {
         }
         refreshLayoutExports()
         reconcileClosedPanes()
-    }
-
-    // MARK: - pane dims (paddock's own box grid, sent on change)
-
-    /// The canvas laid `pane`'s box out at `cols` x `rows` whole cells. This
-    /// is the ONLY size source: herdr's own layout rect is a proportion the
-    /// canvas divides the window by, never a pane's real size.
-    ///
-    /// Sent the moment the grid changes, mid divider drag or not. A box only
-    /// changes grid when it crosses a cell boundary, so sends are bounded by
-    /// cell crossings rather than by frames. The record is written first and
-    /// unconditionally, so a pane whose surface does not exist yet still
-    /// carries its newest grid into `performAttach`. A parked pane is not
-    /// sent to: its next warm reattach applies the same record.
-    public func setPaneBoxDims(_ pane: PaneID, cols: Int, rows: Int) {
-        guard cols > 0, rows > 0 else { return }
-        let size = PTYSize(cols: cols, rows: rows)
-        guard paneBoxDims[pane] != size else { return }
-        paneBoxDims[pane] = size
-        guard !parkedPanes.contains(pane), let surface = ghosttySurfaces[pane], lastSentDims[pane] != size else { return }
-        lastSentDims[pane] = size
-        surface.resize(cols: size.cols, rows: size.rows)
     }
 
     /// Any pane herdr no longer reports (closed, or the model went nil) has
@@ -361,12 +325,13 @@ public final class SessionViewModel {
 
     // MARK: - ghostty pane attach (every visible pane, one surface for its whole life; parked when not visible)
 
-    /// Creates `pane`'s ghostty surface the first time, unparks and resizes
-    /// a warm (previously parked) one, or just resizes an already-visible
-    /// one -- never a second surface for a pane that already has one, warm
-    /// or not. Chained through `paneWork` (see its own doc comment), so a
-    /// resize racing a fresh attach for the same pane can never reach the
-    /// factory concurrently. Returns the surface (new, warm, or already
+    /// Creates `pane`'s ghostty surface the first time or unparks a warm
+    /// (previously parked) one; never a second surface for a pane that
+    /// already has one, warm or not. `cols`/`rows` only seed a new surface's
+    /// bridge; its size afterward is its view's frame. Chained through
+    /// `paneWork` (see its own doc comment), so a second attach racing a
+    /// fresh one for the same pane can never reach the factory concurrently.
+    /// Returns the surface (new, warm, or already
     /// visible) so a caller can hand it to `@State`, reading `ghosttySurface
     /// (for:)` back out independently would depend on whether a dictionary
     /// mutation buried inside a method call still registers as an
@@ -375,9 +340,6 @@ public final class SessionViewModel {
     public func attachPane(_ pane: PaneID, cols: Int, rows: Int) async -> (any GhosttyPaneSurface)? {
         guard let ghosttyFactory, cols > 0, rows > 0 else { return nil }
         parkedPanes.removeAll { $0 == pane }
-        // The caller is the canvas, handing over the box grid it just laid
-        // out, so this is the freshest record there is at call time.
-        paneBoxDims[pane] = PTYSize(cols: cols, rows: rows)
         let previous = paneWork[pane]
         let task = Task { [weak self] in
             _ = await previous?.value
@@ -429,16 +391,8 @@ public final class SessionViewModel {
         // the race: whichever of park/attach for this pane runs LAST always
         // leaves `parkedPanes` agreeing with reality.
         parkedPanes.removeAll { $0 == pane }
-        // Re-read rather than trusting the caller's `cols`/`rows`: a box
-        // change that landed while this step waited its turn on the chain has
-        // nowhere else to be applied from.
-        let dims = paneBoxDims[pane] ?? PTYSize(cols: cols, rows: rows)
         if let existing = ghosttySurfaces[pane] {
             existing.unpark()
-            if lastSentDims[pane] != dims {
-                existing.resize(cols: dims.cols, rows: dims.rows)
-                lastSentDims[pane] = dims
-            }
             paneScrollSubscriber?.subscribe(pane: pane)
             return
         }
@@ -458,16 +412,6 @@ public final class SessionViewModel {
             }
         )
         ghosttySurfaces[pane] = surface
-        // The surface was created at the caller's dims; the record may have
-        // moved on while `makeSurface` was in flight, and a box grid that
-        // changed once is never reported again, so this is that change's only
-        // chance to land.
-        lastSentDims[pane] = PTYSize(cols: cols, rows: rows)
-        let latest = paneBoxDims[pane] ?? PTYSize(cols: cols, rows: rows)
-        if latest != lastSentDims[pane] {
-            surface.resize(cols: latest.cols, rows: latest.rows)
-            lastSentDims[pane] = latest
-        }
         paneScrollSubscriber?.subscribe(pane: pane)
     }
 
@@ -513,8 +457,6 @@ public final class SessionViewModel {
     private func performTeardown(pane: PaneID) async {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
         paneScrollSubscriber?.unsubscribe(pane: pane)
-        lastSentDims.removeValue(forKey: pane)
-        paneBoxDims.removeValue(forKey: pane)
         parkedPanes.removeAll { $0 == pane }
         await surface.detach()
     }

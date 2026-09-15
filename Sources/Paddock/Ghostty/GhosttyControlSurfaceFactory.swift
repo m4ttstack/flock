@@ -40,14 +40,12 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
         // `nil` when the FIFO cannot be created (`PaneControlChannel.init?`'s
-        // documented failure case): the bridge then never hears a
-        // `paddock.dims` line, so the pane is frozen at its creation grid for
-        // its whole life and no window resize reaches it. Logged, not silently
-        // degraded: a pane whose size can never follow its box is a
-        // user-visible defect, not a cosmetic one.
+        // documented failure case): the pane still resizes through its PTY,
+        // but no mouse or scroll event reaches herdr, which is a user-visible
+        // loss and so logged.
         let channel = PaneControlChannel()
         if channel == nil {
-            FileHandle.standardError.write(Data("paddock: failed to create control channel for pane \(pane.rawValue); its size will never follow its box\n".utf8))
+            FileHandle.standardError.write(Data("paddock: failed to create control channel for pane \(pane.rawValue); mouse and scroll forwarding disabled for it\n".utf8))
         }
         // `nil` (`PaneStatusChannel.init?` failing) is graceful, unlike a nil
         // control channel: the pane simply never learns its mouse-capture
@@ -75,7 +73,6 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         session.onScreenActivity = onScreenActivity
         session.controlChannel = channel
         session.statusChannel = statusChannel
-        session.setExpectedGrid(cols: cols, rows: rows)
         // without a status channel at all, the bridge has no way to
         // ever tell this session about a first frame -- the card would
         // otherwise wait forever for a signal that structurally cannot
@@ -130,14 +127,6 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
 
     init(session: GhosttySession) {
         self.session = session
-    }
-
-    /// The grid paddock's pane box holds: recorded as the grid the surface
-    /// must settle at and relayed to the bridge as `paddock.dims`. The
-    /// surface's pixel size itself still comes from its NSView's layout,
-    /// which `PaneCellView` sizes to exactly these cols x rows cells.
-    func resize(cols: Int, rows: Int) {
-        session.setExpectedGrid(cols: cols, rows: rows)
     }
 
     /// Drops paddock's only strong reference to the session, AND -- since
