@@ -3,9 +3,10 @@ import CoreGraphics
 @testable import PaddockCore
 
 final class InsertionBarGeometryTests: XCTestCase {
-    /// Three pills, 100 wide with a 10pt gap between them, inside a 42pt strip.
+    /// Three tabs, 100 wide with a 10pt gap between them, inside a strip with
+    /// room above and below them.
     private let strip = CGRect(x: 0, y: 0, width: 600, height: 42)
-    private var pills: [CGRect] {
+    private var tabs: [CGRect] {
         [
             CGRect(x: 12, y: 7, width: 100, height: 28),
             CGRect(x: 122, y: 7, width: 100, height: 28),
@@ -22,24 +23,24 @@ final class InsertionBarGeometryTests: XCTestCase {
         ]
     }
 
-    func testBarSitsInTheGapBetweenTwoPills() {
-        let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: pills, container: strip, axis: .vertical)
+    func testBarSitsInTheGapBetweenTwoTabs() {
+        let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: tabs, container: strip, axis: .vertical)
         XCTAssertEqual(bar.midX, 117, accuracy: 0.001)
         XCTAssertEqual(bar.width, InsertionBarGeometry.thickness)
     }
 
-    func testBarSitsBeforeTheFirstPillForIndexZero() {
-        let bar = InsertionBarGeometry.bar(atInsertIndex: 0, items: pills, container: strip, axis: .vertical)
+    func testBarSitsBeforeTheFirstTabForIndexZero() {
+        let bar = InsertionBarGeometry.bar(atInsertIndex: 0, items: tabs, container: strip, axis: .vertical)
         XCTAssertEqual(bar.midX, 7, accuracy: 0.001)
     }
 
-    func testBarSitsAfterTheLastPillForTheEndIndex() {
-        let bar = InsertionBarGeometry.bar(atInsertIndex: 3, items: pills, container: strip, axis: .vertical)
+    func testBarSitsAfterTheLastTabForTheEndIndex() {
+        let bar = InsertionBarGeometry.bar(atInsertIndex: 3, items: tabs, container: strip, axis: .vertical)
         XCTAssertEqual(bar.midX, 337, accuracy: 0.001)
     }
 
-    func testBarSpansThePillsCrossExtentNotTheWholeStrip() {
-        let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: pills, container: strip, axis: .vertical)
+    func testBarSpansTheTabsCrossExtentNotTheWholeStrip() {
+        let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: tabs, container: strip, axis: .vertical)
         XCTAssertEqual(bar.minY, 4, accuracy: 0.001)
         XCTAssertEqual(bar.maxY, 38, accuracy: 0.001)
     }
@@ -72,7 +73,7 @@ final class InsertionBarGeometryTests: XCTestCase {
 
     /// Gaps of 30 then 10: the end gaps take the SMALLEST measured gap, not
     /// the first one and not an average, so a strip with one wide gap does not
-    /// push the leading bar clear off the first pill.
+    /// push the leading bar clear off the first tab.
     func testEndGapsUseTheSmallestMeasuredGap() {
         let uneven = [
             CGRect(x: 12, y: 7, width: 100, height: 28),
@@ -100,11 +101,28 @@ final class InsertionBarGeometryTests: XCTestCase {
     }
 
     func testEndDotCapsTheBarsLeadingEnd() {
-        let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: pills, container: strip, axis: .vertical)
+        let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: tabs, container: strip, axis: .vertical)
         let dot = InsertionBarGeometry.endDot(for: bar, axis: .vertical)
         XCTAssertEqual(dot.width, InsertionBarGeometry.dotDiameter)
         XCTAssertEqual(dot.midX, bar.midX, accuracy: 0.001)
         XCTAssertEqual(dot.midY, bar.minY, accuracy: 0.001)
+    }
+
+    /// Tabs flush with the bottom of a strip that has a title bar just above
+    /// it: the bar must not cross the strip's bottom edge, and its end dot
+    /// must not rise above the strip's top.
+    func testBarAndDotStayInsideAStripWhoseTabsSitFlushOnItsEdge() {
+        let tightStrip = CGRect(x: 151, y: 20, width: 749, height: 28)
+        let flushTabs = [
+            CGRect(x: 159, y: 26, width: 78, height: 22),
+            CGRect(x: 239, y: 26, width: 78, height: 22)
+        ]
+        let bar = InsertionBarGeometry.bar(atInsertIndex: 1, items: flushTabs, container: tightStrip, axis: .vertical)
+        let dot = InsertionBarGeometry.endDot(for: bar, axis: .vertical)
+        XCTAssertEqual(bar.maxY, tightStrip.maxY, accuracy: 0.001)
+        XCTAssertEqual(dot.minY, tightStrip.minY, accuracy: 0.001)
+        XCTAssertTrue(tightStrip.contains(bar))
+        XCTAssertTrue(tightStrip.contains(dot))
     }
 
     func testEndDotCapsTheRailBarsLeftEnd() {

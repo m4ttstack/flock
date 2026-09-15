@@ -70,14 +70,19 @@ public enum InsertionBarGeometry {
         return min(max(center, containerLeading + thickness / 2), containerTrailing - thickness / 2)
     }
 
+    /// The outset never carries the bar past the container, and the leading
+    /// end stays half a dot inside it so the end dot is not drawn over the
+    /// chrome beyond: items can sit flush with the container's edges.
     private static func crossExtent(items: [CGRect], container: CGRect, axis: Axis) -> (CGFloat, CGFloat) {
         let mins = items.map { axis == .vertical ? $0.minY : $0.minX }
         let maxes = items.map { axis == .vertical ? $0.maxY : $0.maxX }
+        let containerLow = axis == .vertical ? container.minY : container.minX
+        let containerHigh = axis == .vertical ? container.maxY : container.maxX
         guard let low = mins.min(), let high = maxes.max() else {
-            let containerLow = axis == .vertical ? container.minY : container.minX
-            let containerHigh = axis == .vertical ? container.maxY : container.maxX
             return (containerLow + assumedGap, containerHigh - assumedGap)
         }
-        return (low - crossOutset, high + crossOutset)
+        let clampedLow = max(low - crossOutset, containerLow + dotDiameter / 2)
+        let clampedHigh = min(high + crossOutset, containerHigh)
+        return (clampedLow, max(clampedLow, clampedHigh))
     }
 }
