@@ -1,4 +1,3 @@
-import AppKit
 import CoreText
 import Foundation
 import PaddockCore
@@ -31,11 +30,6 @@ public enum TerminalFont {
     private static var terminalConfigURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/ghostty/config")
     }
-
-    /// True where a glyph gets no subpixel budget: macOS draws grayscale
-    /// antialiased text, so at 1x a thin stem lands on one pixel and reads
-    /// as faint. Read once, like the face.
-    public static let thickensStrokes: Bool = (NSScreen.main?.backingScaleFactor ?? 2) < 2
 
     private static func resolve() -> String {
         let text = try? String(contentsOf: terminalConfigURL, encoding: .utf8)
