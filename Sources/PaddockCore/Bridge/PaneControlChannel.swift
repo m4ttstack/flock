@@ -80,10 +80,13 @@ public final class PaneControlChannel {
     /// `ControlBridge.parseForwardableControlCommand` can never mistake it for
     /// a forwardable command. The bridge turns it into the one
     /// `terminal.resize` it ever sends, which resizes the pane's real runtime:
-    /// this is the single path any size reaches herdr by.
-    public func setDims(cols: Int, rows: Int) {
+    /// this is the single path any size reaches herdr by. `repaint` asks for a
+    /// full frame at these dims even when they are unchanged.
+    public func setDims(cols: Int, rows: Int, repaint: Bool = false) {
         guard cols > 0, rows > 0 else { return }
-        send(["type": "paddock.dims", "cols": cols, "rows": rows])
+        var command: [String: Any] = ["type": "paddock.dims", "cols": cols, "rows": rows]
+        if repaint { command["repaint"] = true }
+        send(command)
     }
 
     /// A `terminal.scroll` line: moves the pane's real, shared herdr

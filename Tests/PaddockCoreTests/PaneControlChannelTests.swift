@@ -27,6 +27,20 @@ final class PaneControlChannelTests: XCTestCase {
         XCTAssertEqual(object["rows"] as? Int, 40)
     }
 
+    func testSetDimsCarriesTheRepaintFlagTheBridgeReads() throws {
+        let channel = try XCTUnwrap(PaneControlChannel())
+        defer { channel.close() }
+        let readerFD = open(channel.path, O_RDONLY | O_NONBLOCK)
+        XCTAssertGreaterThanOrEqual(readerFD, 0)
+        defer { close(readerFD) }
+
+        channel.setDims(cols: 80, rows: 24)
+        channel.setDims(cols: 80, rows: 24, repaint: true)
+
+        let lines = try waitForNonEmptyReadFromFIFO(readerFD).split(separator: 0x0A)
+        XCTAssertEqual(lines.map { ControlBridge.parseDimsCommand(Data($0))?.repaint }, [false, true])
+    }
+
     /// Matches Herdglass's own `PaneControlChannel.scroll` wire shape
     /// (`Sources/HerdrClient/PaneControlChannel.swift`): `type`, `direction`,
     /// `lines`, and a `source` that defaults to `"wheel"`.
