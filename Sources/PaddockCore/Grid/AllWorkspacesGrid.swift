@@ -1,0 +1,156 @@
+import CoreGraphics
+
+/// One slot in a workspace card of the All Workspaces grid.
+public enum GridCell: Hashable, Sendable {
+    case tab(TabID)
+    /// Stands in for the tabs a resting card does not show.
+    case moreTabs(hidden: Int)
+    /// Ends an expanded card and folds it back to rest.
+    case collapse
+}
+
+/// Which tabs a workspace card shows and how they wrap.
+public enum GridCardLayout {
+    public static let tabsPerRow = 4
+    /// A resting card spends its last slot on the +N tile.
+    public static let restingTabCount = tabsPerRow - 1
+    public static let columns = 2
+
+    /// A workspace whose tabs fit one row shows every tab and has nothing to
+    /// expand.
+    public static func cells(tabs: [TabID], expanded: Bool) -> [GridCell] {
+        guard tabs.count > tabsPerRow else { return tabs.map(GridCell.tab) }
+        guard expanded else {
+            return tabs.prefix(restingTabCount).map(GridCell.tab) + [.moreTabs(hidden: tabs.count - restingTabCount)]
+        }
+        return tabs.map(GridCell.tab) + [.collapse]
+    }
+
+    public static func rows(tabs: [TabID], expanded: Bool) -> [[GridCell]] {
+        chunked(cells(tabs: tabs, expanded: expanded), by: tabsPerRow)
+    }
+
+    /// Cards in rail order, `columns` to a row.
+    public static func cardRows<Item>(_ items: [Item]) -> [[Item]] {
+        chunked(items, by: columns)
+    }
+
+    static func chunked<Item>(_ items: [Item], by size: Int) -> [[Item]] {
+        stride(from: 0, to: items.count, by: size).map { Array(items[$0..<min($0 + size, items.count)]) }
+    }
+}
+
+/// The grid's own state: whether it covers the window, which cards are
+/// expanded, and which mini pane the pointer rests on.
+public struct AllWorkspacesGridState: Equatable, Sendable {
+    public struct Hover: Equatable, Sendable {
+        public let pane: PaneID
+        /// The hovered mini pane's frame in the grid's own space.
+        public let anchor: CGRect
+
+        public init(pane: PaneID, anchor: CGRect) {
+            self.pane = pane
+            self.anchor = anchor
+        }
+    }
+
+    public private(set) var isShown = false
+    public private(set) var expanded: Set<WorkspaceID> = []
+    public private(set) var hover: Hover?
+
+    public init() {}
+
+    public mutating func open() {
+        isShown = true
+    }
+
+    /// A grid opened again starts at rest.
+    public mutating func close() {
+        isShown = false
+        expanded.removeAll()
+        hover = nil
+    }
+
+    public mutating func toggle() {
+        if isShown {
+            close()
+        } else {
+            open()
+        }
+    }
+
+    public func isExpanded(_ workspace: WorkspaceID) -> Bool {
+        expanded.contains(workspace)
+    }
+
+    public mutating func toggleExpanded(_ workspace: WorkspaceID) {
+        if expanded.contains(workspace) {
+            expanded.remove(workspace)
+        } else {
+            expanded.insert(workspace)
+        }
+    }
+
+    /// Forgets every workspace `order` no longer carries.
+    public mutating func retain(_ order: [WorkspaceID]) {
+        expanded.formIntersection(Set(order))
+    }
+
+    public mutating func hoverBegan(pane: PaneID, anchor: CGRect) {
+        hover = Hover(pane: pane, anchor: anchor)
+    }
+
+    /// Only the pane still hovered clears it: moving onto a neighbor can
+    /// report the neighbor's entry before this pane's exit.
+    public mutating func hoverEnded(pane: PaneID) {
+        guard hover?.pane == pane else { return }
+        hover = nil
+    }
+
+    /// Hover reports stop while the button is held, so whatever was hovered
+    /// when a drag began is stale by the time it ends.
+    public mutating func dragBegan() {
+        hover = nil
+    }
+
+    /// Never while a drag is in flight, when the card would cover the
+    /// thumbnails the drop is aimed at.
+    public func hoverCard(dragInFlight: Bool) -> Hover? {
+        dragInFlight ? nil : hover
+    }
+
+    /// What a fired dwell does to the grid. A thumbnail reveals its tab in
+    /// the window, so the grid gives way to it; the tab selection itself is
+    /// the view model's.
+    public mutating func springLoaded(_ target: DropTarget) {
+        switch target {
+        case .allWorkspaces:
+            open()
+        case .moreTabs(let workspace):
+            guard isShown else { return }
+            expanded.insert(workspace)
+        case .tabThumbnail:
+            guard isShown else { return }
+            close()
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
+            break
+        }
+    }
+}
+
+/// Who an Esc belongs to.
+public enum EscapeRoute: Equatable, Sendable {
+    case drag
+    case grid
+    case railSelection
+    case focusedView
+
+    /// A live drag owns Esc as its cancel. The grid covers the rail, so it
+    /// outranks the rail's selection, and what is left reaches the focused
+    /// terminal.
+    public static func route(dragIdle: Bool, gridShown: Bool, railTakesEscape: Bool) -> EscapeRoute {
+        guard dragIdle else { return .drag }
+        if gridShown { return .grid }
+        return railTakesEscape ? .railSelection : .focusedView
+    }
+}

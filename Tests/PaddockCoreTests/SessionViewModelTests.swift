@@ -306,6 +306,53 @@ final class SessionViewModelTests: XCTestCase {
             "herdr's focused tab changed, so paddock's selection follows it")
     }
 
+    private static func twoWorkspaceModel() -> SessionModel {
+        let json = #"""
+        {"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"one","number":1,"active_tab_id":"w1:t1","agent_status":"idle"},{"workspace_id":"w2","label":"two","number":2,"active_tab_id":"w2:t1","agent_status":"idle"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"a","number":1,"pane_count":1,"agent_status":"idle"},{"tab_id":"w2:t1","workspace_id":"w2","label":"b","number":1,"pane_count":1,"agent_status":"idle"},{"tab_id":"w2:t2","workspace_id":"w2","label":"c","number":2,"pane_count":1,"agent_status":"idle"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"idle","revision":0,"cwd":"/tmp"}],"layouts":[]}
+        """#
+        return SessionModel(snapshot: try! JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8)))
+    }
+
+    /// The strip shows only the selected workspace's tabs, so a tab picked
+    /// from another workspace (a grid thumbnail, or its dwell) brings its
+    /// workspace with it.
+    @MainActor
+    func testSelectingATabOfAnotherWorkspaceSelectsThatWorkspaceToo() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
+
+        viewModel.select(tab: TabID(rawValue: "w2:t2"))
+
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t2"))
+        XCTAssertEqual(viewModel.tabsForSelectedWorkspace.map(\.tabID), [TabID(rawValue: "w2:t1"), TabID(rawValue: "w2:t2")])
+    }
+
+    @MainActor
+    func testSelectingATabTheModelDoesNotListKeepsTheWorkspace() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
+
+        viewModel.select(tab: TabID(rawValue: "w9:t9"))
+
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w1"))
+    }
+
+    @MainActor
+    func testJumpingToAnotherWorkspacesTabFocusesItInHerdrAndShowsItsWorkspace() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
+
+        await viewModel.jumpToHerdr(tab: TabID(rawValue: "w2:t1"))
+
+        let calls = await client.calls
+        XCTAssertEqual(calls.map(\.method), ["tab.focus"])
+        guard case .string(let tabID)? = calls.first?.params["tab_id"] else { return XCTFail("tab.focus carried no tab_id") }
+        XCTAssertEqual(tabID, "w2:t1")
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
+    }
+
     @MainActor
     func testJumpToHerdrPaneSendsPaneFocusWithExactID() async {
         let client = RecordingCommandClient()
@@ -1338,6 +1385,8 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(DropTarget.paneInterior(pane).takesThePaneOffItsTab)
         XCTAssertFalse(DropTarget.tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0).takesThePaneOffItsTab)
         XCTAssertFalse(DropTarget.workspaceRail(insertIndex: 0).takesThePaneOffItsTab)
+        XCTAssertFalse(DropTarget.allWorkspaces.takesThePaneOffItsTab)
+        XCTAssertFalse(DropTarget.moreTabs(WorkspaceID(rawValue: "w1")).takesThePaneOffItsTab)
     }
 
 }

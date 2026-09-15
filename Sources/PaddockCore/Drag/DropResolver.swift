@@ -22,8 +22,29 @@ public struct WorkspaceItemFrame: Equatable, Sendable {
     }
 }
 
+/// The All Workspaces grid while it covers the window, every frame in the
+/// drag space. `viewport` is the grid's scroll view: a thumbnail or tile
+/// scrolled out of it is not there to hit.
+public struct GridDropSurfaces: Equatable, Sendable {
+    public let viewport: CGRect
+    public let thumbnails: [TabItemFrame]
+    public let moreTiles: [WorkspaceItemFrame]
+
+    public init(viewport: CGRect, thumbnails: [TabItemFrame], moreTiles: [WorkspaceItemFrame]) {
+        self.viewport = viewport
+        self.thumbnails = thumbnails
+        self.moreTiles = moreTiles
+    }
+}
+
 /// Every on-screen surface `resolveDropTarget` can hit-test against for one
 /// frame of a drag gesture.
+///
+/// `grid` is set only while the grid covers the window. The rail, strip and
+/// canvas keep their last reported frames underneath it, so a set `grid` is
+/// the whole answer and those frames are never consulted.
+/// `allWorkspacesEntry` is the rail's pinned "All workspaces" row, present
+/// only while a pane drag shows it.
 ///
 /// `stripWorkspace` is the workspace `tabFrames` belongs to: `DropTarget`'s
 /// `.tabStrip`/`.newTab` cases carry a workspace id that the frames
@@ -53,6 +74,8 @@ public struct DropSurfaces: Equatable, Sendable {
     public let railViewport: CGRect?
     public let newTabZone: CGRect?
     public let newWorkspaceZone: CGRect?
+    public let grid: GridDropSurfaces?
+    public let allWorkspacesEntry: CGRect?
 
     public init(
         canvas: CanvasGeometry,
@@ -64,8 +87,12 @@ public struct DropSurfaces: Equatable, Sendable {
         stripViewport: CGRect? = nil,
         railViewport: CGRect? = nil,
         newTabZone: CGRect?,
-        newWorkspaceZone: CGRect?
+        newWorkspaceZone: CGRect?,
+        grid: GridDropSurfaces? = nil,
+        allWorkspacesEntry: CGRect? = nil
     ) {
+        self.grid = grid
+        self.allWorkspacesEntry = allWorkspacesEntry
         self.canvas = canvas
         self.stripWorkspace = stripWorkspace
         self.tabFrames = tabFrames
@@ -86,8 +113,10 @@ public let edgeBandFraction: CGFloat = 0.20
 /// Resolves one drag frame's drop target from a point plus the surfaces it
 /// could land on.
 ///
-/// Precedence when surfaces overlap on screen: the new-tab/new-workspace
-/// zones, then the workspace rail, then the tab strip, then the canvas. Each
+/// A shown grid answers alone (see `DropSurfaces`). Otherwise, precedence
+/// when surfaces overlap on screen: the rail's "All workspaces" row, which
+/// sits over the rail's free run, then the new-tab/new-workspace zones, then
+/// the workspace rail, then the tab strip, then the canvas. Each
 /// tier that contains the point owns the result outright, including `nil`
 /// for a subject that tier does not accept -- the point never falls through
 /// to a lower tier once a higher one contains it, since that would let (say)
@@ -99,6 +128,14 @@ public let edgeBandFraction: CGFloat = 0.20
 /// what a drop that means nothing should do. A target the planner cannot serve
 /// would instead reach the user as a "Can't move there" rejection.
 public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
+    if let grid = surfaces.grid {
+        return resolveGrid(at: point, dragging: dragging, grid: grid)
+    }
+
+    if case .pane = dragging, let entry = surfaces.allWorkspacesEntry, entry.contains(point) {
+        return .allWorkspaces
+    }
+
     if let zone = resolveZone(at: point, dragging: dragging, surfaces: surfaces) {
         return zone
     }
@@ -137,6 +174,19 @@ private func resolveZone(at point: CGPoint, dragging: DragSubject, surfaces: Dro
     }
     if let newWorkspaceZone = surfaces.newWorkspaceZone, newWorkspaceZone.contains(point) {
         return .newWorkspace
+    }
+    return nil
+}
+
+/// The grid serves pane drops only: a thumbnail moves the pane into that tab,
+/// and a +N tile is where a dwell uncovers the tabs it stands for.
+private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDropSurfaces) -> DropTarget? {
+    guard case .pane = dragging, grid.viewport.contains(point) else { return nil }
+    if let hit = grid.thumbnails.first(where: { $0.frame.contains(point) }) {
+        return .tabThumbnail(hit.id)
+    }
+    if let hit = grid.moreTiles.first(where: { $0.frame.contains(point) }) {
+        return .moreTabs(hit.id)
     }
     return nil
 }

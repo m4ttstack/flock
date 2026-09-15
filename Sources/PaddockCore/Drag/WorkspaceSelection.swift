@@ -75,12 +75,15 @@ public struct WorkspaceSelection: Equatable, Sendable {
         isRailEngaged = false
     }
 
+    /// Whether an Esc with no drag live would be the rail's.
+    public var takesEscape: Bool { isRailEngaged && !ids.isEmpty }
+
     /// Whether the rail takes this Esc, clearing the selection as it does.
     /// Never while a drag is live, which owns Esc as its cancel. When this
     /// returns false nothing has changed and the Esc must reach the focused
     /// view.
     public mutating func escapePressed(dragIdle: Bool) -> Bool {
-        guard dragIdle, isRailEngaged, !ids.isEmpty else { return false }
+        guard dragIdle, takesEscape else { return false }
         ids.removeAll()
         isRailEngaged = false
         return true

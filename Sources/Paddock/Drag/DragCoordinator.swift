@@ -134,6 +134,7 @@ final class DragCoordinator {
     /// Set by the strip and the rail; each scrolls its own list to an offset.
     @ObservationIgnored var stripScroller: ((CGFloat) -> Void)?
     @ObservationIgnored var railScroller: ((CGFloat) -> Void)?
+    @ObservationIgnored var gridScroller: ((CGFloat) -> Void)?
     @ObservationIgnored private var stripScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
     @ObservationIgnored private var railScrollExtent = (offset: CGFloat(0), maximum: CGFloat(0))
 
@@ -630,6 +631,7 @@ final class DragCoordinator {
             switch step.surface {
             case .strip: stripScroller?(step.offset)
             case .rail: railScroller?(step.offset)
+            case .grid: gridScroller?(step.offset)
             }
         }
         if !autoScroller.pointerMoved(to: pointer, regions: scrollRegions) {
@@ -775,7 +777,7 @@ final class DragCoordinator {
         switch target {
         case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
             return dropTargetRect(for: target, surfaces: surfaces)
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail:
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .allWorkspaces, .moreTabs:
             return nil
         }
     }

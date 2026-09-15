@@ -28,7 +28,9 @@ public final class SessionViewModel {
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
 
-    private var lastLineRevisions: [PaneID: Int] = [:]
+    /// Written from inside view bodies, which must not invalidate the views
+    /// reading it; `lastLines` is what they observe.
+    @ObservationIgnored private var lastLineRequests = LastLineRequests()
     // One chained task per pane: every attach/park/teardown request for a
     // pane waits for whatever request came immediately before it (for that
     // SAME pane only; other panes are unaffected) before touching
@@ -253,7 +255,13 @@ public final class SessionViewModel {
         selectedTabID = model?.workspaces.first { $0.workspaceID == id }?.activeTabID
     }
 
+    /// A tab can belong to a workspace other than the selected one (a grid
+    /// thumbnail), and the strip shows only the selected workspace's tabs, so
+    /// its workspace is selected along with it.
     public func select(tab id: TabID) {
+        if let owner = model?.tabs.first(where: { $0.value.contains { $0.tabID == id } })?.key, owner != selectedWorkspaceID {
+            selectedWorkspaceID = owner
+        }
         selectedTabID = id
     }
 
@@ -294,9 +302,9 @@ public final class SessionViewModel {
     }
 
     private func ensureLastLineLoaded(for pane: PaneRecord) {
-        if lastLineRevisions[pane.paneID] == pane.revision { return }
-        lastLineRevisions[pane.paneID] = pane.revision
+        guard lastLineRequests.begin(pane: pane.paneID, revision: pane.revision) else { return }
         let paneID = pane.paneID
+        let revision = pane.revision
         Task { @MainActor [weak self] in
             guard let self else { return }
             let params: [String: JSONValue] = [
@@ -305,7 +313,8 @@ public final class SessionViewModel {
                 "lines": .int(1),
             ]
             guard let data = try? await self.client.requestRaw("pane.read", params),
-                  let line = Self.extractLastLine(data)
+                  let line = Self.extractLastLine(data),
+                  self.lastLineRequests.accepts(pane: paneID, revision: revision)
             else { return }
             self.lastLines[paneID] = line
         }
@@ -724,7 +733,7 @@ extension DropTarget {
         switch self {
         case .tabThumbnail, .newTab, .workspaceThumbnail, .newWorkspace:
             return true
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail:
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .allWorkspaces, .moreTabs:
             return false
         }
     }

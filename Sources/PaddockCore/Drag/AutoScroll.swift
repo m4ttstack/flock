@@ -50,6 +50,7 @@ public struct AutoScroller: Equatable, Sendable {
     public enum Surface: Hashable, Sendable {
         case strip
         case rail
+        case grid
     }
 
     public struct Region: Equatable, Sendable {

@@ -52,7 +52,7 @@ public enum DropPreview {
         case .paneInterior(let targetPane):
             guard targetPane != paneID, let frame = current.paneFrames[targetPane] else { return nil }
             return DropPreviewFrames(incoming: box(frame))
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .allWorkspaces, .moreTabs:
             return nil
         }
     }
@@ -84,7 +84,7 @@ public enum DropPreview {
                 return swapping(pane, targetPane, in: root)
             }
             return replacingLeaf(targetPane, in: root) { _ in .pane(ExportedLayoutPane(paneID: pane)) }
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .allWorkspaces, .moreTabs:
             return nil
         }
     }
@@ -173,9 +173,10 @@ public enum DropPreview {
 /// can land in: an insertion bar marks a gap that stops meaning anything the
 /// moment the items close over it, so lighting it for 700ms would leave a
 /// sliver burning at a position the new arrangement has already moved past.
+/// The dwell-only targets never take a drop, so there is nothing to flash.
 public func dropFlashRect(for target: DropTarget, surfaces: DropSurfaces) -> CGRect? {
     switch target {
-    case .tabStrip, .workspaceRail:
+    case .tabStrip, .workspaceRail, .allWorkspaces, .moreTabs:
         return nil
     case .paneEdge, .paneInterior, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
         return dropTargetRect(for: target, surfaces: surfaces)
@@ -193,7 +194,14 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
         guard let frame = surfaces.canvas.paneFrames[pane] else { return nil }
         return DropPreview.incomingRect(in: frame, edge: edge)
     case .tabThumbnail(let tab):
+        if let grid = surfaces.grid {
+            return grid.thumbnails.first { $0.id == tab }?.frame
+        }
         return surfaces.tabFrames.first { $0.id == tab }?.frame
+    case .moreTabs(let workspace):
+        return surfaces.grid?.moreTiles.first { $0.id == workspace }?.frame
+    case .allWorkspaces:
+        return surfaces.allWorkspacesEntry
     case .workspaceThumbnail(let workspace):
         return surfaces.workspaceFrames.first { $0.id == workspace }?.frame
     case .newTab:

@@ -35,6 +35,9 @@ public func plan(dragging subject: DragSubject, onto target: DropTarget, model: 
     case let (.workspaces(block), .workspaceRail(insertIndex)):
         return planWorkspaceBlockReorder(block: block, insertIndex: insertIndex, model: model)
 
+    case (_, .allWorkspaces), (_, .moreTabs):
+        return .failure(.noOp)
+
     default:
         return .failure(.invalidCombination)
     }
