@@ -220,8 +220,10 @@ final class ChromeRenderTests: XCTestCase {
             at: CGPoint(x: sourcePanes.minX + claude.frame.midX, y: sourcePanes.minY + claude.frame.midY)
         )
 
+        // The tab's handle strip, which is the one part of a thumbnail that
+        // still means the whole tab: a point over a mini pane names that pane.
         let target = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.migrationTab }?.frame)
-        harness.drag.move(to: CGPoint(x: target.midX, y: target.midY))
+        harness.drag.move(to: CGPoint(x: target.midX, y: target.minY + ChromeMetrics.Grid.tabStripHeight / 2))
         XCTAssertEqual(harness.drag.target, .tabThumbnail(GridFixture.migrationTab))
         await settle(window)
         let overThumbnail = try snapshot(window)
@@ -449,6 +451,123 @@ final class ChromeRenderTests: XCTestCase {
             hex(mid, Self.focusBarPoint(of: cells[1].frame)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
             "a cell slid for a drop that moves nothing"
         )
+        window.close()
+    }
+
+    /// A pane aimed INSIDE another tab's thumbnail: the mini pane under the
+    /// pointer answers, on the canvas's own rules, and the slot the thumbnail
+    /// opens is the one that aim produces. Two aims, two renders: a mini
+    /// pane's top edge, and the middle of the same pane.
+    func testAPaneAimedAtAMiniPaneOpensTheSlotThatAimProduces() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+        let grabbed = try XCTUnwrap(
+            harness.drag.surfaces?.grid?.miniPaneFrame(of: GridFixture.claudePane), "the pane being dragged"
+        )
+        let target = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.testsTab }?.frame)
+        XCTAssertEqual(target.height, ChromeMetrics.Grid.thumbnailHeight)
+        XCTAssertEqual(target.width, 93, accuracy: 1, "the thumbnail the pure band tests are sized against")
+
+        // The view's own published boxes, not a second layout pass: this is
+        // what the resolver is actually hit-testing against.
+        let drawn = try XCTUnwrap(harness.drag.surfaces?.grid?.miniPanes.first { $0.tab == GridFixture.testsTab })
+        XCTAssertEqual(drawn.panes.count, 2, "the fixture's tests tab draws two mini panes")
+        let left = try XCTUnwrap(drawn.panes.min { $0.frame.minX < $1.frame.minX })
+        let right = try XCTUnwrap(drawn.panes.max { $0.frame.minX < $1.frame.minX })
+        let leftBox = left.frame.offsetBy(dx: target.minX, dy: target.minY)
+
+        let area = MiniPaneLayout.paneArea(in: target, stripHeight: ChromeMetrics.Grid.tabStripHeight)
+        func boxes(arriving: MiniPaneLayout.Arrival?) -> [MiniPaneLayout.Placed] {
+            MiniPaneLayout.boxes(
+                layout: model.layouts[GridFixture.testsTab], exported: nil, fallbackPanes: [], size: area.size,
+                padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2,
+                arriving: arriving
+            )
+        }
+        func inWindow(_ box: CGRect) -> CGRect { box.offsetBy(dx: area.minX, dy: area.minY) }
+        let resting = boxes(arriving: nil)
+
+        // The proxy is the mini pane's own footprint, as the grid's pane drag
+        // makes it: a thumbnail-sized one would cover the panes being sampled.
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.claudePane),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: grabbed.size, isCompact: true),
+            at: CGPoint(x: grabbed.midX, y: grabbed.midY)
+        )
+        XCTAssertTrue(source.contains(grabbed), "the grabbed pane is drawn in its own tab's thumbnail")
+
+        /// Drives one aim to its render, and returns the slot the drop opens
+        /// and the pane it opened it inside.
+        func aim(
+            at point: CGPoint, expecting expected: DropTarget, render: String, line: UInt = #line
+        ) async throws -> (opened: CGRect, kept: CGRect) {
+            harness.drag.move(to: point)
+            XCTAssertEqual(harness.drag.target, expected, "the aim did not resolve", line: line)
+            let arrival = try XCTUnwrap(MiniPaneLayout.arrival(
+                of: harness.drag.activeSubject, onto: harness.drag.target, tab: GridFixture.testsTab, model: model
+            ), "nothing previewed", line: line)
+            XCTAssertEqual(arrival.target, expected, "the preview left the aim behind", line: line)
+            await settle(window)
+
+            let landing = boxes(arriving: arrival)
+            let opened = try XCTUnwrap(landing.first { $0.pane == arrival.pane }).frame
+            let kept = try XCTUnwrap(landing.first { $0.pane == left.pane }).frame
+            XCTAssertEqual(
+                landing.first { $0.pane == right.pane }?.frame, resting.first { $0.pane == right.pane }?.frame,
+                "the pane the drop was not aimed at moved", line: line
+            )
+
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(render))
+            }
+            let slot = inWindow(opened)
+            let untouched = inWindow(try XCTUnwrap(landing.first { $0.pane == right.pane }).frame)
+            // Sampled at the bottom of each box, clear of the proxy the
+            // pointer carries and of a mini pane's own title row.
+            XCTAssertLessThanOrEqual(
+                channelDistance(
+                    hex(image, CGPoint(x: slot.midX, y: slot.maxY - 10)), hex(image, CGPoint(x: slot.midX, y: slot.maxY - 4))
+                ),
+                Self.washDither, "the slot the arriving pane takes is not one wash", line: line
+            )
+            XCTAssertGreaterThan(
+                channelDistance(
+                    hex(image, CGPoint(x: slot.midX, y: slot.maxY - 4)),
+                    hex(image, CGPoint(x: untouched.midX, y: untouched.maxY - 4))
+                ),
+                Self.washDither, "the slot reads the same as a mini pane still standing there", line: line
+            )
+            return (opened, kept)
+        }
+
+        // The top edge of the left mini pane: the slot opens across the top
+        // of that pane alone, which no whole-thumbnail drop can produce.
+        let edge = try await aim(
+            at: CGPoint(x: leftBox.midX, y: leftBox.minY + 2),
+            expecting: .paneEdge(left.pane, .top),
+            render: "grid-drag-pane-onto-mini-pane-edge.png"
+        )
+        XCTAssertLessThan(edge.opened.maxY, edge.kept.minY, "the pane made room above itself")
+        XCTAssertEqual(edge.opened.minX, left.frame.minX, accuracy: 1, "inside the aimed pane's own column")
+
+        // The middle of the same pane: across tabs that is a `pane.move`
+        // naming it, so it divides on the right instead.
+        let interior = try await aim(
+            at: CGPoint(x: leftBox.midX, y: leftBox.midY),
+            expecting: .paneInterior(left.pane),
+            render: "grid-drag-pane-onto-mini-pane-interior.png"
+        )
+        XCTAssertLessThan(interior.kept.maxX, interior.opened.minX, "the pane made room beside itself")
+        XCTAssertLessThan(interior.opened.maxX, right.frame.minX, "still inside the aimed pane's own column")
         window.close()
     }
 
@@ -912,6 +1031,13 @@ final class ChromeRenderTests: XCTestCase {
 
     /// Straight from the bitmap's bytes, with no color-space conversion on the
     /// way out.
+    /// How far apart two sampled colours may be and still be the same
+    /// surface. A low-opacity wash over a dark ground does not composite to
+    /// one exact byte across a region, so an exact comparison reads the
+    /// renderer's own dither as a difference; a genuinely different surface
+    /// is tens of units away.
+    private static let washDither = 2
+
     private func hex(_ image: NSBitmapImageRep, _ point: CGPoint, scale: CGFloat = 2) -> String {
         guard let data = image.bitmapData else { return "?" }
         let x = Int(point.x * scale)
