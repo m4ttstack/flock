@@ -115,6 +115,153 @@ final class GridGeometryTests: XCTestCase {
         }
     }
 
+    // MARK: - a pane landing in a tab
+
+    private let arriving = PaneID(rawValue: "w2:p1")
+
+    private func landingBoxes(_ layout: LayoutSnapshot, exported: ExportedLayoutDescription? = nil) -> [MiniPaneLayout.Placed] {
+        MiniPaneLayout.boxes(
+            layout: layout, exported: exported, fallbackPanes: [], size: thumbnail, padding: 4, gap: 4, displayScale: 2,
+            arriving: MiniPaneLayout.Arrival(pane: arriving, besideFocused: p1)
+        )
+    }
+
+    /// One pane holding the whole tab: the arriving pane takes the right half
+    /// of it, which is what `pane.move` with no target pane does to a tab
+    /// whose focused pane is the only one there is.
+    func testAPaneLandingInAOnePaneTabSplitsThatPaneInHalf() throws {
+        let whole = layout([(p1, CellRect(x: 0, y: 0, width: 80, height: 24))])
+        let boxes = landingBoxes(whole)
+        XCTAssertEqual(boxes.map(\.pane), [p1, arriving])
+        XCTAssertEqual(boxes[0].frame, CGRect(x: 4, y: 4, width: 44, height: 74))
+        XCTAssertEqual(boxes[1].frame, CGRect(x: 52, y: 4, width: 44, height: 74))
+
+        let atRest = MiniPaneLayout.boxes(layout: whole, exported: nil, fallbackPanes: [], size: thumbnail, padding: 4, gap: 4, displayScale: 2)
+        XCTAssertEqual(atRest.map(\.pane), [p1])
+        XCTAssertEqual(atRest[0].frame.width, 92, "the pane really did have to make room")
+    }
+
+    /// Two panes side by side: only the focused one divides, and the pane
+    /// beside it does not move at all, because a `pane.move` only ever
+    /// divides the region it is aimed at.
+    func testOnlyTheFocusedPaneMakesRoomInATwoPaneTab() throws {
+        let boxes = landingBoxes(sideBySide)
+        XCTAssertEqual(boxes.map(\.pane), [p1, arriving, p2])
+        let resting = MiniPaneLayout.boxes(layout: sideBySide, exported: nil, fallbackPanes: [], size: thumbnail, padding: 4, gap: 4, displayScale: 2)
+        XCTAssertEqual(try XCTUnwrap(boxes.first { $0.pane == p2 }).frame, try XCTUnwrap(resting.first { $0.pane == p2 }).frame)
+        let focused = try XCTUnwrap(boxes.first { $0.pane == p1 })
+        let landed = try XCTUnwrap(boxes.first { $0.pane == arriving })
+        XCTAssertLessThan(focused.frame.maxX, landed.frame.minX, "the arriving pane takes the right half")
+        XCTAssertEqual(landed.frame.minY, focused.frame.minY)
+        XCTAssertEqual(landed.frame.height, focused.frame.height)
+        XCTAssertEqual(focused.frame.width + landed.frame.width + 4, try XCTUnwrap(resting.first { $0.pane == p1 }).frame.width, accuracy: 1)
+    }
+
+    /// Three panes, the focused one down the left: it halves, the two on the
+    /// right stay exactly where they were.
+    func testAThreePaneTabOnlyDividesTheFocusedPanesOwnRegion() throws {
+        let leftAndStack = layout([
+            (p1, CellRect(x: 0, y: 0, width: 40, height: 24)),
+            (p2, CellRect(x: 40, y: 0, width: 40, height: 12)),
+            (p3, CellRect(x: 40, y: 12, width: 40, height: 12)),
+        ])
+        let boxes = landingBoxes(leftAndStack)
+        let resting = MiniPaneLayout.boxes(layout: leftAndStack, exported: nil, fallbackPanes: [], size: thumbnail, padding: 4, gap: 4, displayScale: 2)
+        XCTAssertEqual(boxes.count, 4)
+        for pane in [p2, p3] {
+            XCTAssertEqual(
+                try XCTUnwrap(boxes.first { $0.pane == pane }).frame,
+                try XCTUnwrap(resting.first { $0.pane == pane }).frame, pane.rawValue
+            )
+        }
+        let landed = try XCTUnwrap(boxes.first { $0.pane == arriving })
+        let focused = try XCTUnwrap(boxes.first { $0.pane == p1 })
+        XCTAssertLessThan(focused.frame.maxX, landed.frame.minX)
+        XCTAssertLessThan(landed.frame.maxX, try XCTUnwrap(boxes.first { $0.pane == p2 }).frame.minX, "both stay inside the focused pane's own column")
+    }
+
+    /// herdr's own split tree decides the shape wherever one is cached, and
+    /// the arriving pane is grafted into it by the same transform the canvas
+    /// previews an edge drop with, so the two cannot drift.
+    func testACachedTreeDecidesWhereTheArrivingPaneLands() throws {
+        let stacked = ExportedLayoutDescription(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"), zoomed: false, focusedPaneID: p1,
+            root: .split(direction: .down, ratio: 0.5, first: .pane(ExportedLayoutPane(paneID: p2)), second: .pane(ExportedLayoutPane(paneID: p1)))
+        )
+        let boxes = landingBoxes(sideBySide, exported: stacked)
+        XCTAssertEqual(boxes.map(\.pane), [p2, p1, arriving], "drawn order under the tree, not the snapshot's rects")
+        let focused = try XCTUnwrap(boxes.first { $0.pane == p1 })
+        let landed = try XCTUnwrap(boxes.first { $0.pane == arriving })
+        XCTAssertEqual(landed.frame.minY, focused.frame.minY, "beside the focused pane, in its own row")
+        XCTAssertLessThan(focused.frame.maxX, landed.frame.minX)
+        XCTAssertEqual(
+            try XCTUnwrap(boxes.first { $0.pane == p2 }).frame.width, 92, "the untouched half of the tree keeps the full width"
+        )
+    }
+
+    /// A pane already in this tab is a drop herdr refuses outright, so
+    /// nothing is previewed for it; so is a tab that is not the one the drag
+    /// is over, and a subject that is not a pane at all.
+    func testOnlyADropThatCommitsPreviewsAnArrival() {
+        let tabID = TabID(rawValue: "w1:t1")
+        let otherTab = TabID(rawValue: "w1:t2")
+        let model = model()
+        XCTAssertNil(
+            MiniPaneLayout.arrival(of: .pane(p1), onto: .tabThumbnail(tabID), tab: tabID, model: model),
+            "a pane dropped on its own tab"
+        )
+        XCTAssertNil(
+            MiniPaneLayout.arrival(of: .pane(p1), onto: .tabThumbnail(otherTab), tab: tabID, model: model),
+            "another tab's thumbnail"
+        )
+        XCTAssertNil(MiniPaneLayout.arrival(of: .tab(otherTab), onto: .tabThumbnail(tabID), tab: tabID, model: model))
+        XCTAssertNil(MiniPaneLayout.arrival(of: nil, onto: nil, tab: tabID, model: model))
+    }
+
+    /// The pane the arrival splits is the one herdr would: the target tab's
+    /// own focused pane, whichever pane of another tab is coming in.
+    func testAnArrivalLandsBesideTheTargetTabsFocusedPane() throws {
+        let second = TabID(rawValue: "w1:t2")
+        let model = model()
+        let arrival = try XCTUnwrap(MiniPaneLayout.arrival(of: .pane(p1), onto: .tabThumbnail(second), tab: second, model: model))
+        XCTAssertEqual(arrival.pane, p1)
+        XCTAssertEqual(arrival.besideFocused, PaneID(rawValue: "w1:p4"), "the second tab's own pane, not the drag's")
+        XCTAssertNil(
+            MiniPaneLayout.arrival(of: .pane(PaneID(rawValue: "w1:p4")), onto: .tabThumbnail(second), tab: second, model: model),
+            "a pane already in the tab it is over"
+        )
+    }
+
+    /// A target tab paddock has no layout for yet cannot say where a pane
+    /// would land, so it previews nothing rather than guessing at a split.
+    func testATabWithNoLayoutYetPreviewsNoArrival() {
+        let bare = TabID(rawValue: "w1:t3")
+        XCTAssertNil(MiniPaneLayout.arrival(of: .pane(p1), onto: .tabThumbnail(bare), tab: bare, model: model()))
+    }
+
+    /// The fallbacks, in order: the layout's own id, then the rect herdr
+    /// flagged, then the first pane there is.
+    func testTheFocusedPaneFallsBackThroughTheRectFlagToTheFirstPane() {
+        let named = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"), zoomed: false,
+            area: CellRect(x: 0, y: 0, width: 80, height: 24), focusedPaneID: p2,
+            panes: [PaneRect(paneID: p1, focused: true, rect: CellRect(x: 0, y: 0, width: 80, height: 24))], splits: []
+        )
+        XCTAssertEqual(named.focusedPane, p2)
+
+        let flagged = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"), zoomed: false,
+            area: CellRect(x: 0, y: 0, width: 80, height: 24), focusedPaneID: nil,
+            panes: [
+                PaneRect(paneID: p1, focused: false, rect: CellRect(x: 0, y: 0, width: 40, height: 24)),
+                PaneRect(paneID: p2, focused: true, rect: CellRect(x: 40, y: 0, width: 40, height: 24)),
+            ],
+            splits: []
+        )
+        XCTAssertEqual(flagged.focusedPane, p2)
+        XCTAssertEqual(sideBySide.focusedPane, p1, "nothing marked at all")
+    }
+
     // MARK: - hover card content
 
     private func model(title: String? = "claude", label: String? = "agent-1") -> SessionModel {
@@ -133,22 +280,33 @@ final class GridGeometryTests: XCTestCase {
             "tabs": [
                 ["tab_id": "w1:t1", "workspace_id": "w1", "label": "agents", "number": 1, "pane_count": 3, "agent_status": "working"],
                 ["tab_id": "w1:t2", "workspace_id": "w1", "label": "server", "number": 2, "pane_count": 1, "agent_status": "idle"],
+                ["tab_id": "w1:t3", "workspace_id": "w1", "label": "scratch", "number": 3, "pane_count": 1, "agent_status": "idle"],
             ],
             "panes": [
                 pane("w1:p3", status: "idle", title: "nvim", label: nil, cwd: "/tmp"),
                 pane("w1:p2", status: "working", title: title, label: label, cwd: "/Users/matt/Documents/GitHub/repo-tools"),
                 pane("w1:p1", status: "blocked", title: "codex", label: nil, cwd: "/Users/matt"),
+                ["pane_id": "w1:p4", "workspace_id": "w1", "tab_id": "w1:t2", "focused": false,
+                 "agent_status": "idle", "revision": 1, "cwd": "/tmp", "terminal_title_stripped": "zsh"],
             ],
-            "layouts": [[
-                "workspace_id": "w1", "tab_id": "w1:t1", "zoomed": false,
-                "area": ["x": 0, "y": 0, "width": 80, "height": 24], "focused_pane_id": "w1:p1",
-                "panes": [
-                    ["pane_id": "w1:p3", "focused": false, "rect": ["x": 0, "y": 12, "width": 80, "height": 12]],
-                    ["pane_id": "w1:p2", "focused": false, "rect": ["x": 40, "y": 0, "width": 40, "height": 12]],
-                    ["pane_id": "w1:p1", "focused": true, "rect": ["x": 0, "y": 0, "width": 40, "height": 12]],
+            "layouts": [
+                [
+                    "workspace_id": "w1", "tab_id": "w1:t1", "zoomed": false,
+                    "area": ["x": 0, "y": 0, "width": 80, "height": 24], "focused_pane_id": "w1:p1",
+                    "panes": [
+                        ["pane_id": "w1:p3", "focused": false, "rect": ["x": 0, "y": 12, "width": 80, "height": 12]],
+                        ["pane_id": "w1:p2", "focused": false, "rect": ["x": 40, "y": 0, "width": 40, "height": 12]],
+                        ["pane_id": "w1:p1", "focused": true, "rect": ["x": 0, "y": 0, "width": 40, "height": 12]],
+                    ],
+                    "splits": [],
                 ],
-                "splits": [],
-            ]],
+                [
+                    "workspace_id": "w1", "tab_id": "w1:t2", "zoomed": false,
+                    "area": ["x": 0, "y": 0, "width": 80, "height": 24], "focused_pane_id": "w1:p4",
+                    "panes": [["pane_id": "w1:p4", "focused": true, "rect": ["x": 0, "y": 0, "width": 80, "height": 24]]],
+                    "splits": [],
+                ],
+            ],
         ]
         let data = try! JSONSerialization.data(withJSONObject: snapshot)
         return SessionModel(snapshot: try! JSONDecoder().decode(SessionSnapshot.self, from: data))
