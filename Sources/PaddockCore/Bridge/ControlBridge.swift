@@ -458,6 +458,13 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         /// start. It is what lets an early exit be read as herdr refusing the
         /// retake rather than as the pane failing to attach at all.
         let fromTake: Bool
+        /// The hold epoch this child was spawned under, so a retry after it is
+        /// refused is checked against the attempt that failed rather than
+        /// against whatever the epoch has become by the time the retry is
+        /// armed. Re-deriving it later would adopt an intervening release's own
+        /// epoch as the retry's baseline, and the retry would then pass its
+        /// check and retake the pane behind an app that had let go.
+        let epoch: Int
         let startedAt: Date
     }
 
@@ -472,6 +479,12 @@ final class BridgeChildSupervisor: @unchecked Sendable {
     private let ptySize: () -> PTYSize
     private let now: () -> Date
     private let scheduleRetry: (TimeInterval, @escaping () -> Void) -> Void
+    /// Runs between a refusal being classified and the retry being armed.
+    /// Empty in production, and injected only by this class's own tests: that
+    /// window is a few instructions wide, so a release landing inside it cannot
+    /// be driven any other way, and it is the window in which the retry's
+    /// baseline epoch would go wrong.
+    private let afterRefusalObserved: () -> Void
     private var io: BridgeIO?
     private var current: Child?
     private var hold = BridgeHoldState()
@@ -504,11 +517,13 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         scheduleRetry: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay, execute: work)
         },
+        afterRefusalObserved: @escaping () -> Void = {},
         spawn: @escaping (PTYSize) -> Spawned?
     ) {
         self.ptySize = ptySize
         self.now = now
         self.scheduleRetry = scheduleRetry
+        self.afterRefusalObserved = afterRefusalObserved
         self.spawn = spawn
     }
 
@@ -638,7 +653,7 @@ final class BridgeChildSupervisor: @unchecked Sendable {
             let superseded = spawnEpoch != holdEpoch || finished
             if !superseded { _ = hold.release() }
             lock.unlock()
-            if !superseded { retryOrGiveUp() }
+            if !superseded { retryOrGiveUp(epoch: spawnEpoch) }
             return
         }
         // Input first, so the rearm's resize reaches the new child and not a
@@ -667,7 +682,7 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         let child = Child(
             owner: owner, process: spawned.process,
             input: spawned.input, output: spawned.output, size: size, generation: generation,
-            fromTake: fromTake, startedAt: now()
+            fromTake: fromTake, epoch: epoch, startedAt: now()
         )
         current = child
         lock.broadcast()
@@ -678,8 +693,17 @@ final class BridgeChildSupervisor: @unchecked Sendable {
     /// A refused take: schedule the next attempt, or stop and tell the app the
     /// pane has no hold, so it can mark it rather than keep showing a frame
     /// that is quietly no longer live.
-    private func retryOrGiveUp() {
+    ///
+    /// `epoch` is the one the FAILED attempt was made under, carried in rather
+    /// than read here. A release landing between that failure and this call has
+    /// already decided the pane is not ours: it must cancel the retry, and it
+    /// must not raise a hold-lost card for a pane the app let go on purpose.
+    private func retryOrGiveUp(epoch: Int) {
         lock.lock()
+        guard epoch == holdEpoch, !finished else {
+            lock.unlock()
+            return
+        }
         failedTakes += 1
         let delay = BridgeHoldState.retryDelay(afterFailedTakes: failedTakes)
         lock.unlock()
@@ -689,9 +713,6 @@ final class BridgeChildSupervisor: @unchecked Sendable {
             io?.sendStatus(["type": HoldStatus.lost.rawValue])
             return
         }
-        lock.lock()
-        let epoch = holdEpoch
-        lock.unlock()
         scheduleRetry(delay) { [weak self] in
             self?.take(isRetry: true, epoch: epoch)
         }
@@ -755,7 +776,8 @@ final class BridgeChildSupervisor: @unchecked Sendable {
                 expectedOutputGeneration = 0
                 lock.unlock()
                 io?.swapHerdrInput(to: nil)
-                retryOrGiveUp()
+                afterRefusalObserved()
+                retryOrGiveUp(epoch: child.epoch)
             } else {
                 lock.unlock()
             }

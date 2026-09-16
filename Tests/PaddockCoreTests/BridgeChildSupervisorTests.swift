@@ -116,7 +116,8 @@ final class BridgeChildSupervisorTests: XCTestCase {
         retries: LockedBox<[TimeInterval]>? = nil,
         runRetries: Bool = true,
         clock: LockedBox<Date>? = nil,
-        retryDelayInTest: TimeInterval = 0.01
+        retryDelayInTest: TimeInterval = 0.01,
+        afterRefusalObserved: @escaping () -> Void = {}
     ) -> Rig {
         let supervisor = BridgeChildSupervisor(
             ptySize: { PTYSize(cols: 80, rows: 24) },
@@ -126,6 +127,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
                 guard runRetries else { return }
                 DispatchQueue.global().asyncAfter(deadline: .now() + retryDelayInTest, execute: work)
             },
+            afterRefusalObserved: afterRefusalObserved,
             spawn: { spawner.spawn($0) }
         )
         let first = supervisor.startFirstChild()
@@ -358,6 +360,79 @@ final class BridgeChildSupervisorTests: XCTestCase {
         waitUntil("its child to be running") { spawner.isRunning(2) }
         XCTAssertEqual(spawner.liveCount, 1)
         XCTAssertFalse(supervisor.isFinished)
+    }
+
+    /// The narrow residual of the same finding: a release landing between a
+    /// refusal being classified and the retry being armed. Re-reading the epoch
+    /// at arming time would adopt that release's own epoch as the retry's
+    /// baseline, so the retry would pass its check when it fired and retake the
+    /// pane behind an app that had genuinely let go. Carrying the epoch from
+    /// the attempt that failed is what closes it.
+    ///
+    /// The window is a few instructions wide, so the release is landed inside
+    /// it through the supervisor's own `afterRefusalObserved` seam rather than
+    /// by racing it.
+    func testAReleaseLandingBetweenTheRefusalAndTheRetryStillCancelsIt() {
+        // The retake is refused; the retry after it would succeed, so only a
+        // correctly cancelled retry keeps the pane released.
+        let spawner = Spawner(scripts: ["cat > \"$SINK\"", "exit 1"])
+        defer { spawner.terminateAll() }
+        let status = Pipe()
+        let delays = LockedBox([TimeInterval]())
+        let released = LockedBox(false)
+        let holder = LockedBox<BridgeChildSupervisor?>(nil)
+        let rig = makeSupervisor(
+            spawner: spawner, status: status, retries: delays, retryDelayInTest: 0.2,
+            afterRefusalObserved: {
+                // Once, and only for the refusal this test is about.
+                guard !released.value else { return }
+                released.mutate { $0 = true }
+                holder.value?.handle(.release)
+            }
+        )
+        holder.mutate { $0 = rig.supervisor }
+        let supervisor = rig.supervisor
+
+        supervisor.handle(.release)
+        waitUntil("the first child to exit") { !spawner.isRunning(0) }
+        supervisor.handle(.take)
+
+        waitUntil("the refusal to be observed") { released.value }
+        // Well past when a retry, had one been armed, would have fired.
+        usleep(800_000)
+
+        XCTAssertEqual(delays.value, [], "a retry was armed against the release's own epoch")
+        XCTAssertEqual(spawner.spawnCount, 2, "the retry spawned a herdr client after the release")
+        XCTAssertEqual(spawner.liveCount, 0, "a child is holding the pane after a release")
+        XCTAssertFalse(supervisor.isFinished)
+        // The pane has no herdr client because the app asked for that, not
+        // because the bridge gave up on it. Guaranteed twice over, since the
+        // release also resets the retry budget, so this cannot be the
+        // assertion that catches a missing epoch guard.
+        let written = readAllAvailableForTest(status.fileHandleForReading.fileDescriptor)
+        let lost = written.split(separator: 0x0A).filter { PaneStatusChannel.parseHoldLost(Data($0)) }
+        XCTAssertEqual(lost.count, 0, "a pane the app released was marked as having lost its hold")
+    }
+
+    /// The app's own take carries no epoch, so `finished` is the only thing
+    /// standing between a `paddock.take_hold` that arrives after the bridge is
+    /// done and a wasted herdr client. Released first, deliberately: a bridge
+    /// that still holds would refuse the take on `hold.take()` alone and the
+    /// guard under test would never be reached.
+    func testAnAppTakeAfterShutdownSpawnsNothing() {
+        let spawner = Spawner(scripts: [])
+        defer { spawner.terminateAll() }
+        let supervisor = makeSupervisor(spawner: spawner).supervisor
+
+        supervisor.handle(.release)
+        waitUntil("the released child to exit") { !spawner.isRunning(0) }
+        supervisor.shutdown()
+        waitUntil("the bridge to finish") { supervisor.isFinished }
+
+        supervisor.handle(.take)
+        usleep(300_000)
+        XCTAssertEqual(spawner.spawnCount, 1, "a take after shutdown spawned a herdr client")
+        XCTAssertEqual(spawner.liveCount, 0, "a child outlived the bridge")
     }
 
     /// A shutdown has to stop a pending retry too, or the bridge exits with a
