@@ -8,6 +8,11 @@ public enum MiniPaneLayout {
     public struct Placed: Equatable, Sendable {
         public let pane: PaneID
         public let frame: CGRect
+
+        public init(pane: PaneID, frame: CGRect) {
+            self.pane = pane
+            self.frame = frame
+        }
     }
 
     /// A pane a drop would land in this tab, for the preview.

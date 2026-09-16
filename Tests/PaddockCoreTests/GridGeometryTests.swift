@@ -888,6 +888,58 @@ final class GridGeometryTests: XCTestCase {
         )
     }
 
+    /// Bringing a pane back to the tab it came from. Every point on that
+    /// thumbnail resolves, and only two of them mean anything: an edge band or
+    /// the interior of a DIFFERENT pane of the tab, which is a reposition the
+    /// user aimed at. Its own mini pane, the tab's handle strip and the
+    /// padding around the mini panes all name a move herdr would refuse, so
+    /// they plan nothing and mark nothing.
+    func testComingBackToItsOwnTabPlansNothingUnlessItNamesAnotherPane() throws {
+        let model = model()
+        let surfaces = thumbnailSurfaces(try tabLayout("w1:t1"))
+        let thumbnail = try XCTUnwrap(surfaces.grid?.thumbnails.first?.frame)
+        let own = try drawnBox(p1, in: surfaces)
+        let other = try drawnBox(p2, in: surfaces)
+        let whole = DropTarget.tabThumbnail(TabID(rawValue: "w1:t1"))
+
+        let nothing: [(String, CGPoint, DropTarget)] = [
+            ("its own mini pane's left band", CGPoint(x: own.minX + 1, y: own.midY), .paneEdge(p1, .left)),
+            ("its own mini pane's top band", CGPoint(x: own.midX, y: own.minY + 1), .paneEdge(p1, .top)),
+            ("its own mini pane's interior", CGPoint(x: own.midX, y: own.midY), .paneInterior(p1)),
+            ("the tab's handle strip", CGPoint(x: thumbnail.midX, y: thumbnail.minY + 1), whole),
+            ("the padding beside the mini panes", CGPoint(x: thumbnail.minX + 1, y: own.midY), whole),
+            ("the gutter between two mini panes", CGPoint(x: (own.maxX + other.minX) / 2, y: own.midY), whole),
+        ]
+        for (name, point, expected) in nothing {
+            XCTAssertEqual(resolveDropTarget(at: point, dragging: pane, surfaces: surfaces), expected, name)
+            guard case .failure(.noOp) = plan(dragging: pane, onto: expected, model: model) else {
+                return XCTFail("\(name) has to spring home silently")
+            }
+            XCTAssertNil(
+                MiniPaneLayout.targetedTab(of: expected, dragging: pane, model: model), "\(name) marked a tab"
+            )
+            XCTAssertNil(
+                MiniPaneLayout.arrival(of: pane, onto: expected, tab: TabID(rawValue: "w1:t1"), model: model),
+                "\(name) previewed a split"
+            )
+        }
+
+        let repositions: [(String, CGPoint, DropTarget)] = [
+            ("another pane's left band", CGPoint(x: other.minX + 1, y: other.midY), .paneEdge(p2, .left)),
+            ("another pane's interior", CGPoint(x: other.midX, y: other.midY), .paneInterior(p2)),
+        ]
+        for (name, point, expected) in repositions {
+            XCTAssertEqual(resolveDropTarget(at: point, dragging: pane, surfaces: surfaces), expected, name)
+            guard case .success(let committed) = plan(dragging: pane, onto: expected, model: model) else {
+                return XCTFail("\(name) is a reposition and has to commit")
+            }
+            XCTAssertFalse(committed.ops.isEmpty, name)
+            XCTAssertNotNil(
+                MiniPaneLayout.arrival(of: pane, onto: expected, tab: TabID(rawValue: "w1:t1"), model: model), name
+            )
+        }
+    }
+
     // MARK: - the preview the resolved target produces
 
     private func landing(_ layout: LayoutSnapshot, arriving: MiniPaneLayout.Arrival?) -> [MiniPaneLayout.Placed] {

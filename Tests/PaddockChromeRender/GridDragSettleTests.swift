@@ -11,8 +11,11 @@ final class GridDragSettleTests: XCTestCase {
     private static let pane = PaneID(rawValue: "w1:p1")
     private static let card = CGRect(x: 10, y: 10, width: 500, height: 200)
     private static let thumbnail = CGRect(x: 20, y: 60, width: 100, height: 82)
+    private static let neighbour = PaneID(rawValue: "w1:p2")
     /// One mini pane inside the thumbnail, stated in the thumbnail's space.
     private static let miniPaneBox = CGRect(x: 4, y: 4, width: 45, height: 74)
+    /// Its neighbour, the other half of the same thumbnail.
+    private static let neighbourBox = CGRect(x: 53, y: 4, width: 43, height: 74)
     private static var miniPane: CGRect {
         CGRect(
             x: thumbnail.minX + miniPaneBox.minX, y: thumbnail.minY + miniPaneBox.minY,
@@ -43,6 +46,15 @@ final class GridDragSettleTests: XCTestCase {
         drag.setGridOrder([.card(Self.workspace), .tab(Self.tab)])
         drag.setGridItemFrame(Self.card, for: .card(Self.workspace))
         drag.setGridItemFrame(Self.thumbnail, for: .tab(Self.tab))
+        // Two mini panes, so a point inside the thumbnail names one of them
+        // the way a real thumbnail's does.
+        drag.setGridMiniPanes(
+            [
+                MiniPaneLayout.Placed(pane: Self.pane, frame: Self.miniPaneBox),
+                MiniPaneLayout.Placed(pane: Self.neighbour, frame: Self.neighbourBox),
+            ],
+            for: Self.tab
+        )
         return drag
     }
 
@@ -243,13 +255,41 @@ final class GridDragSettleTests: XCTestCase {
             .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size),
             at: CGPoint(x: 30, y: 70), home: paneHome
         )
-        drag.move(to: CGPoint(x: 90, y: 120))
+        // The tab's own handle strip, above every mini pane.
+        drag.move(to: CGPoint(x: 90, y: Self.thumbnail.minY + 1))
         XCTAssertEqual(drag.target, .tabThumbnail(Self.tab))
 
         drag.release()
         await awaitSettle(drag)
         XCTAssertTrue(drag.isSettling)
         XCTAssertEqual(drag.ghostTopLeft, Self.miniPane.origin)
+    }
+
+    /// Brought back onto its OWN mini pane, band or interior: the drop names
+    /// that pane, the planner refuses it, and the proxy goes straight back to
+    /// the box it was picked up from rather than into the half of itself the
+    /// band would have split.
+    func testAPaneDroppedOnItsOwnMiniPaneSpringsStraightHome() async {
+        for point in [
+            CGPoint(x: Self.miniPane.minX + 1, y: Self.miniPane.midY),
+            CGPoint(x: Self.miniPane.midX, y: Self.miniPane.midY),
+        ] {
+            let drag = makeCoordinator()
+            drag.beginIfIdle(
+                .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size),
+                at: CGPoint(x: Self.miniPane.midX, y: Self.miniPane.midY), home: paneHome
+            )
+            drag.move(to: CGPoint(x: 300, y: 150))
+            drag.move(to: point)
+            switch drag.target {
+            case .paneEdge(Self.pane, _)?, .paneInterior(Self.pane)?: break
+            default: XCTFail("\(point) resolved to \(String(describing: drag.target))")
+            }
+
+            drag.release()
+            await awaitSettle(drag)
+            XCTAssertEqual(drag.ghostTopLeft, Self.miniPane.origin, "\(point)")
+        }
     }
 
     /// A tab over its own card is a reorder, so a drop the commit seam
