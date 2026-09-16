@@ -359,6 +359,14 @@ struct BridgeHoldState: Equatable, Sendable {
 
     /// A retake's child that exits within this of its spawn is read as a
     /// refusal rather than as the pane's end.
+    ///
+    /// herdr refuses by dropping the connection, which takes milliseconds, so
+    /// the width is all headroom against a loaded machine. Too narrow and a
+    /// refusal that arrives late reads as the pane ending: the bridge
+    /// finishes, and the surface is frozen with nothing left to rebuild it.
+    /// Too wide costs only the opposite case, a pane whose own program exits
+    /// just after a retake, which is retried the two times the backoff allows
+    /// and then reported as a lost hold.
     static let refusedTakeWindow: TimeInterval = 2
 
     /// The waits before a refused take is tried again, in order. Running out

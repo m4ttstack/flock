@@ -38,6 +38,15 @@ public final class HerdrStore {
     private let socketPath: String
     private let resnapshotInterval: Duration
     private let backoffSchedule: (Int) -> Duration
+    /// How long an optimistic overlay waits for the live event that confirms
+    /// its plan landed before reverting and re-snapshotting. A confirming
+    /// event for an op herdr accepted comes back over a local socket in
+    /// milliseconds, so the width is headroom: too narrow and a busy server's
+    /// late event costs a revert, a re-snapshot and a layout that visibly
+    /// snaps back and then forward again over an op that did land. Too wide
+    /// and an op herdr accepted but never confirmed leaves the canvas showing
+    /// a layout herdr does not have for that whole window, with only the
+    /// `resnapshotInterval` backstop behind it.
     private let overlayConvergenceTimeout: Duration
 
     private var runLoopTask: Task<Void, Never>?

@@ -90,6 +90,12 @@ public final class UndoJournal {
     /// too (all four mutate the same two stacks and the same live model).
     /// `isBusy` covers the whole chain, not just undo/redo, so a consumer
     /// (the Edit menu) can disable itself for the width of ANY in-flight step.
+    ///
+    /// Nothing bounds a step. A step waits on the executor, which waits on a
+    /// herdr request that carries no deadline of its own, so a server that
+    /// accepts the connection and then answers nothing parks this chain and
+    /// every mutation queued behind it, with `isBusy` true, until the socket
+    /// closes.
     public func runExclusively(_ body: @escaping () async -> Void) async {
         let previous = chain
         let task = Task { [weak self] in
