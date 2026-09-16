@@ -68,12 +68,10 @@ public final class HerdrPaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
             }
             // A refusal ends this pane's feed for good, but the slot must not
             // stay occupied by a finished task: `subscribe` is a no-op while
-            // anything is in it, so the pane could never be armed again. That
-            // matters more here than on the scroll feed this is modelled on,
-            // which only ever arms the handful of visible panes; this one
-            // arms every pane in the session, and a pane herdr refused once
-            // (mid-close, say) is one the very next snapshot may well report
-            // again.
+            // anything is in it, so the pane could never be armed again.
+            // Every pane in the session is armed here, and a pane herdr
+            // refused once (mid-close, say) is one the very next snapshot may
+            // well report again.
             self?.retire(pane: pane, arming: arming)
         }
     }

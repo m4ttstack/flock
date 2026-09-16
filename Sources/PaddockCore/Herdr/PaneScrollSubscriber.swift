@@ -31,6 +31,11 @@ public final class HerdrPaneScrollSubscriber: PaneScrollSubscribing {
     private let onChange: @MainActor (PaneID, ScrollInfo) -> Void
     private let retryDelay: Duration
     private var feeds: [PaneID: Task<Void, Never>] = [:]
+    /// Which arming a pane's slot currently holds, so a feed that ends can
+    /// clear its own slot without ever clearing a newer one that a
+    /// re-`subscribe` has already installed.
+    private var armings: [PaneID: Int] = [:]
+    private var nextArming = 0
 
     public init(
         socketPath: String,
@@ -47,17 +52,33 @@ public final class HerdrPaneScrollSubscriber: PaneScrollSubscribing {
         let socketPath = socketPath
         let retryDelay = retryDelay
         let onChange = onChange
-        feeds[pane] = Task { @MainActor in
+        nextArming += 1
+        let arming = nextArming
+        armings[pane] = arming
+        feeds[pane] = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 let refused = await Self.runFeed(pane: pane, socketPath: socketPath, onChange: onChange)
-                if refused || Task.isCancelled { return }
+                if refused || Task.isCancelled { break }
                 try? await Task.sleep(for: retryDelay)
             }
+            // A refusal ends this pane's feed for good, but the slot must not
+            // stay occupied by a finished task: `subscribe` is a no-op while
+            // anything is in it, so the pane could never be armed again. The
+            // next attach of a pane herdr refused once (mid-close, say) is
+            // exactly that second arming.
+            self?.retire(pane: pane, arming: arming)
         }
     }
 
     public func unsubscribe(pane: PaneID) {
+        armings.removeValue(forKey: pane)
         feeds.removeValue(forKey: pane)?.cancel()
+    }
+
+    private func retire(pane: PaneID, arming: Int) {
+        guard armings[pane] == arming else { return }
+        armings.removeValue(forKey: pane)
+        feeds.removeValue(forKey: pane)
     }
 
     /// Returns `true` when herdr refused the subscription, `false` when the
