@@ -58,6 +58,28 @@ final class GridDragSettleTests: XCTestCase {
         return drag
     }
 
+    /// A second tab beside the first, one `tabGap` along, so the card has two
+    /// cells for a reorder to move between.
+    private static let secondTab = TabID(rawValue: "w1:t2")
+    private static let secondThumbnail = CGRect(x: 130, y: 60, width: 100, height: 82)
+
+    private func makeCoordinatorWithTwoTabs(outcome: DragOutcome) -> DragCoordinator {
+        let drag = makeCoordinator(outcome: outcome)
+        drag.setGridOrder([.card(Self.workspace), .tab(Self.tab), .tab(Self.secondTab)])
+        drag.setGridItemFrame(Self.thumbnail, for: .tab(Self.tab))
+        drag.setGridItemFrame(Self.secondThumbnail, for: .tab(Self.secondTab))
+        return drag
+    }
+
+    private static func tabGhost(asMiniature: Bool = false) -> DragCoordinator.Ghost {
+        DragCoordinator.Ghost(
+            title: "agents", symbol: "rectangle.stack", originSize: thumbnail.size, isCompact: true,
+            tabMiniature: asMiniature
+                ? DragCoordinator.Ghost.TabMiniature(title: "agents", status: .idle, isFocusedTab: false, panes: [])
+                : nil
+        )
+    }
+
     private var paneHome: DragCoordinator.DragHome {
         Self.home(box: Self.miniPaneBox, item: .tab(Self.tab))
     }
@@ -84,11 +106,7 @@ final class GridDragSettleTests: XCTestCase {
         XCTAssertFalse(drag.holdsGrabCursor)
 
         drag.beginIfIdle(
-            .tab(Self.tab),
-            ghost: DragCoordinator.Ghost(
-                title: "agents", symbol: "rectangle.stack", originSize: Self.thumbnail.size, isCompact: true
-            ),
-            at: CGPoint(x: 40, y: 80),
+            .tab(Self.tab), ghost: Self.tabGhost(), at: CGPoint(x: 40, y: 80),
             home: Self.home(box: CGRect(origin: .zero, size: Self.thumbnail.size), item: .tab(Self.tab))
         )
         XCTAssertTrue(drag.holdsGrabCursor)
@@ -106,13 +124,7 @@ final class GridDragSettleTests: XCTestCase {
         let drag = makeCoordinator()
         drag.closeGrid()
 
-        drag.beginIfIdle(
-            .tab(Self.tab),
-            ghost: DragCoordinator.Ghost(
-                title: "agents", symbol: "rectangle.stack", originSize: Self.thumbnail.size, isCompact: true
-            ),
-            at: CGPoint(x: 40, y: 80)
-        )
+        drag.beginIfIdle(.tab(Self.tab), ghost: Self.tabGhost(), at: CGPoint(x: 40, y: 80))
         XCTAssertFalse(drag.holdsGrabCursor)
     }
 
@@ -240,22 +252,89 @@ final class GridDragSettleTests: XCTestCase {
         XCTAssertEqual(drag.ghostTopLeft, Self.miniPane.origin)
     }
 
-    func testATabDroppedOnItsOwnWorkspacesCardSpringsBackOntoItsThumbnail() async {
+    /// A tab over its own card is a reorder, so a drop the commit seam
+    /// refuses still springs the proxy back onto the thumbnail it left.
+    func testATabWhoseReorderCommitsNothingSpringsBackOntoItsThumbnail() async {
         let drag = makeCoordinator()
         drag.beginIfIdle(
-            .tab(Self.tab),
-            ghost: DragCoordinator.Ghost(
-                title: "agents", symbol: "rectangle.stack", originSize: Self.thumbnail.size, isCompact: true
-            ),
-            at: CGPoint(x: 40, y: 80),
+            .tab(Self.tab), ghost: Self.tabGhost(), at: CGPoint(x: 40, y: 80),
             home: Self.home(box: CGRect(origin: .zero, size: Self.thumbnail.size), item: .tab(Self.tab))
         )
         drag.move(to: CGPoint(x: 400, y: 180))
-        XCTAssertEqual(drag.target, .workspaceThumbnail(Self.workspace))
+        XCTAssertEqual(drag.target, .tabStrip(workspace: Self.workspace, insertIndex: 1))
 
         drag.release()
         await awaitSettle(drag)
         XCTAssertEqual(drag.ghostTopLeft, Self.thumbnail.origin)
+    }
+
+    /// Two tabs in one card, the first dragged past the second's centre: the
+    /// card previews the whole post-drop arrangement, and the committed drop
+    /// settles the proxy on the slot its own thumbnail slid to rather than on
+    /// a bar in the strip the grid is covering.
+    func testATabReorderedInsideItsCardSettlesOnTheSlotItSlidTo() async {
+        let drag = makeCoordinatorWithTwoTabs(outcome: .committed)
+        drag.beginIfIdle(
+            .tab(Self.tab), ghost: Self.tabGhost(),
+            at: CGPoint(x: Self.thumbnail.minX + 20, y: Self.thumbnail.minY + 10),
+            home: Self.home(box: CGRect(origin: .zero, size: Self.thumbnail.size), item: .tab(Self.tab))
+        )
+        drag.move(to: CGPoint(x: Self.secondThumbnail.midX + 10, y: Self.secondThumbnail.midY))
+        XCTAssertEqual(drag.target, .tabStrip(workspace: Self.workspace, insertIndex: 2))
+        XCTAssertNil(drag.insertionMark, "the card opens the slot; the covered strip draws no bar")
+
+        let slide = Self.secondThumbnail.minX - Self.thumbnail.minX
+        let displacements = drag.gridTabDisplacements(inCardFor: Self.workspace)
+        XCTAssertEqual(displacements[Self.tab], CGSize(width: slide, height: 0))
+        XCTAssertEqual(displacements[Self.secondTab], CGSize(width: -slide, height: 0))
+
+        drag.release()
+        await awaitSettle(drag)
+        XCTAssertEqual(drag.ghostTopLeft, Self.secondThumbnail.origin)
+    }
+
+    /// The index is measured against where the cells REST, so a cell that has
+    /// slid must never report its shifted place back in and move the very gap
+    /// that shifted it.
+    func testACellThatHasSlidCannotReportItsShiftedPlace() {
+        let drag = makeCoordinatorWithTwoTabs(outcome: .committed)
+        drag.beginIfIdle(
+            .tab(Self.tab), ghost: Self.tabGhost(), at: CGPoint(x: Self.thumbnail.minX + 20, y: Self.thumbnail.minY + 10),
+            home: Self.home(box: CGRect(origin: .zero, size: Self.thumbnail.size), item: .tab(Self.tab))
+        )
+        drag.move(to: CGPoint(x: Self.secondThumbnail.midX + 10, y: Self.secondThumbnail.midY))
+
+        drag.setGridItemFrame(Self.thumbnail.offsetBy(dx: 110, dy: 0), for: .tab(Self.tab))
+        XCTAssertEqual(
+            drag.surfaces?.grid?.thumbnails.first { $0.id == Self.tab }?.frame, Self.thumbnail,
+            "the reshuffled cell moved the frame the insert index is counted against"
+        )
+    }
+
+    /// A tab is picked up by its handle strip, so its miniature hangs from
+    /// that strip: the proxy covers the thumbnail it came from on the press
+    /// and travels exactly as far as the pointer does from there. A pane
+    /// proxy stays centred on the pointer, which is what keeps what the
+    /// pointer is over and what the drop resolves against the same thing.
+    func testATabMiniatureHangsFromTheStripItWasGrabbedBy() {
+        let drag = makeCoordinator()
+        let grab = CGPoint(x: Self.thumbnail.minX + 20, y: Self.thumbnail.minY + 10)
+        drag.beginIfIdle(
+            .tab(Self.tab), ghost: Self.tabGhost(asMiniature: true), at: grab,
+            home: Self.home(box: CGRect(origin: .zero, size: Self.thumbnail.size), item: .tab(Self.tab))
+        )
+        XCTAssertEqual(drag.ghostTopLeft, Self.thumbnail.origin)
+        drag.move(to: CGPoint(x: grab.x + 30, y: grab.y + 40))
+        XCTAssertEqual(drag.ghostTopLeft, CGPoint(x: Self.thumbnail.minX + 30, y: Self.thumbnail.minY + 40))
+        drag.release()
+
+        let pane = makeCoordinator()
+        pane.beginIfIdle(
+            .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size), at: CGPoint(x: 200, y: 200), home: paneHome
+        )
+        XCTAssertEqual(
+            pane.ghostTopLeft, CGPoint(x: 200 - Self.miniPane.width / 2, y: 200 - Self.miniPane.height / 2)
+        )
     }
 
     /// Released in the gap between cards, where nothing resolves at all: the

@@ -249,6 +249,151 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A tab dragged over its own card: the card opens the slot the drop will
+    /// land it in, on the strip's rule, and the cells it passes come back the
+    /// other way. Read through the focus bar, which is drawn in one strip
+    /// only: where it sits is where that tab is.
+    func testACardOpensTheSlotATabReorderWillLandIn() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.repoTools })
+        XCTAssertEqual(card.tabs.map(\.id.rawValue), ["w1:t1", "w1:t2", "w1:t3"], "the three tabs a resting card draws")
+        let first = card.tabs[0].frame
+        let second = card.tabs[1].frame
+        let cardFrame = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
+
+        let atRest = try snapshot(window)
+        XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.accent.hex, "the focused tab's own bar")
+        XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: second)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex, "and no other")
+
+        harness.drag.beginIfIdle(
+            .tab(GridFixture.agentsTab),
+            ghost: DragCoordinator.Ghost(
+                title: "agents", symbol: "rectangle.stack", originSize: first.size, isCompact: true,
+                tabMiniature: .init(title: "agents", status: .working, isFocusedTab: true, panes: [])
+            ),
+            at: CGPoint(x: first.midX, y: first.minY + ChromeMetrics.Grid.tabStripHeight / 2),
+            home: DragCoordinator.DragHome(atStart: first, item: .tab(GridFixture.agentsTab), boxInItem: CGRect(origin: .zero, size: first.size))
+        )
+        harness.drag.move(to: CGPoint(x: second.midX + 10, y: second.midY))
+        XCTAssertEqual(harness.drag.target, .tabStrip(workspace: GridFixture.repoTools, insertIndex: 2))
+        await settle(window)
+
+        let slide = second.minX - first.minX
+        let displacements = harness.drag.gridTabDisplacements(inCardFor: GridFixture.repoTools)
+        XCTAssertEqual(displacements[GridFixture.agentsTab], CGSize(width: slide, height: 0))
+        XCTAssertEqual(displacements[TabID(rawValue: "w1:t2")], CGSize(width: -slide, height: 0))
+        XCTAssertEqual(displacements[TabID(rawValue: "w1:t3")], .zero, "a cell the drag never passed")
+        XCTAssertEqual(
+            harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame, cardFrame,
+            "a reorder opens no row: the card is the shape it was"
+        )
+
+        let mid = try snapshot(window)
+        XCTAssertEqual(
+            hex(mid, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            "the first slot still holds the focused tab, so nothing slid"
+        )
+        XCTAssertNotEqual(
+            hex(mid, Self.focusBarPoint(of: second)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            "the dragged tab did not slide into the slot it is about to take"
+        )
+        if let directory {
+            try XCTUnwrap(mid.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-reorder.png"))
+        }
+        window.close()
+    }
+
+    /// A pane dragged over another tab's thumbnail: that tab's mini panes
+    /// make room where herdr will really put it, beside the tab's focused
+    /// pane, and the space they give up is drawn as the arriving pane's slot.
+    func testAThumbnailOpensTheSplitAnArrivingPaneWillTake() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+        let target = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.testsTab }?.frame)
+        let area = MiniPaneLayout.paneArea(in: target, stripHeight: ChromeMetrics.Grid.tabStripHeight)
+        func boxes(arriving: MiniPaneLayout.Arrival?) -> [MiniPaneLayout.Placed] {
+            MiniPaneLayout.boxes(
+                layout: model.layouts[GridFixture.testsTab], exported: nil, fallbackPanes: [], size: area.size,
+                padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2,
+                arriving: arriving
+            )
+        }
+        func inWindow(_ box: CGRect) -> CGRect { box.offsetBy(dx: area.minX, dy: area.minY) }
+
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.claudePane),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: source.size, isCompact: true),
+            at: CGPoint(x: source.midX, y: source.midY)
+        )
+        // Aimed at the target's handle strip rather than its middle: the
+        // proxy is centred on the pointer and a thumbnail's own size, so a
+        // pointer in the middle would cover the very panes being sampled.
+        harness.drag.move(to: CGPoint(x: target.midX, y: target.minY + ChromeMetrics.Grid.tabStripHeight / 2))
+        XCTAssertEqual(harness.drag.target, .tabThumbnail(GridFixture.testsTab))
+        let arrival = try XCTUnwrap(MiniPaneLayout.arrival(
+            of: harness.drag.activeSubject, onto: harness.drag.target, tab: GridFixture.testsTab, model: model
+        ))
+        XCTAssertEqual(arrival.besideFocused, try XCTUnwrap(model.layouts[GridFixture.testsTab]?.focusedPane))
+        await settle(window)
+
+        let resting = boxes(arriving: nil)
+        let landing = boxes(arriving: arrival)
+        let gaveUp = try XCTUnwrap(resting.first { $0.pane == arrival.besideFocused }).frame
+        let kept = try XCTUnwrap(landing.first { $0.pane == arrival.besideFocused }).frame
+        let landed = try XCTUnwrap(landing.first { $0.pane == arrival.pane }).frame
+        XCTAssertLessThan(kept.width, gaveUp.width, "the focused pane did not make room")
+
+        let image = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-pane-into-tab.png"))
+        }
+
+        let opened = inWindow(landed)
+        let untouched = inWindow(try XCTUnwrap(landing.first { ![arrival.pane, arrival.besideFocused].contains($0.pane) }).frame)
+        // Both samples sit in the bottom of their box, below the proxy and
+        // below a mini pane's own title row.
+        XCTAssertEqual(
+            hex(image, CGPoint(x: opened.midX, y: opened.maxY - 14)), hex(image, CGPoint(x: opened.midX, y: opened.maxY - 4)),
+            "the slot the arriving pane takes is one flat wash"
+        )
+        XCTAssertNotEqual(
+            hex(image, CGPoint(x: opened.midX, y: opened.maxY - 4)), hex(image, CGPoint(x: untouched.midX, y: untouched.maxY - 4)),
+            "the slot reads the same as a mini pane still standing there"
+        )
+        window.close()
+    }
+
+    /// The focus bar's own pixel inside a thumbnail's handle strip: the bar
+    /// is drawn at the strip's leading edge, inside its padding.
+    private static func focusBarPoint(of thumbnail: CGRect) -> CGPoint {
+        CGPoint(
+            x: thumbnail.minX + ChromeMetrics.Grid.tabStripHorizontalPadding + ChromeMetrics.Grid.tabStripIndicatorSize.width / 2,
+            y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2
+        )
+    }
+
+    /// A box's own middle, which for a mini pane is clear of its border and
+    /// of the title along its top.
+    private static func groundPointInside(_ box: CGRect) -> CGPoint {
+        CGPoint(x: box.midX, y: box.maxY - 4)
+    }
+
     /// The placeholder's frame against the frame the real tab takes, from
     /// real reported frames on both sides. The expanded card's collapse tile
     /// sits in exactly the slot the tenth tab will land in, so its rect
@@ -404,40 +549,50 @@ final class ChromeRenderTests: XCTestCase {
         harness.drag.toggleGrid()
         await settle(window)
 
-        // A tab over its OWN workspace: `planTabMigration` answers no-op, so
-        // the card may not outline, wash or open a slot.
-        let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.glance }?.frame)
-        let ground = CGPoint(
-            x: card.midX,
-            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
-        )
-        let atRest = hex(try snapshot(window), ground)
-        let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
+        // A multi-pane tab into ANOTHER workspace: this fixture carries no
+        // split tree, so `planTabMigration` refuses the shape outright and
+        // the card may not outline, wash or open a slot for it.
+        let other = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
+        let refusedGround = Self.headerGround(of: other)
+        // Clear of the proxy, which hangs from the pointer: the card's own
+        // fill at its leading edge, on the same row.
+        let refusedSample = CGPoint(x: other.minX + ChromeMetrics.Grid.cardHorizontalPadding / 2, y: refusedGround.y)
+        let refusedAtRest = hex(try snapshot(window), refusedSample)
+        let multiPane = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         harness.drag.beginIfIdle(
-            .tab(GridFixture.glanceTab),
+            .tab(GridFixture.agentsTab),
             ghost: DragCoordinator.Ghost(
-                title: "shell", symbol: "rectangle.stack", originSize: source.size, isCompact: true,
-                tabMiniature: .init(title: "shell", status: .idle, isFocusedTab: false, panes: [])
+                title: "agents", symbol: "rectangle.stack", originSize: multiPane.size, isCompact: true,
+                tabMiniature: .init(title: "agents", status: .working, isFocusedTab: true, panes: [])
             ),
-            at: CGPoint(x: source.midX, y: source.midY)
+            at: CGPoint(x: multiPane.midX, y: multiPane.minY + ChromeMetrics.Grid.tabStripHeight / 2)
         )
-        harness.drag.move(to: ground)
-        XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.glance), "it still resolves to the card")
+        harness.drag.move(to: refusedGround)
+        XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.mattstackApps), "it still resolves to the card")
+        guard case .failure = plan(dragging: .tab(GridFixture.agentsTab), onto: .workspaceThumbnail(GridFixture.mattstackApps), model: model) else {
+            return XCTFail("the fixture grew a split tree, so this drop now commits and previews nothing wrongly")
+        }
         await settle(window)
-        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.glance)), "a no-op may not promise a tab")
-        XCTAssertEqual(hex(try snapshot(window), ground), atRest, "nor wash the card it will not change")
+        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.mattstackApps)), "a refused plan may not promise a tab")
+        XCTAssertEqual(hex(try snapshot(window), refusedSample), refusedAtRest, "nor wash the card it will not change")
+        // Released over the gap between the cards, where nothing resolves:
+        // this harness has no commit seam to run a real drop through.
+        harness.drag.move(to: CGPoint(x: 5, y: 120))
+        XCTAssertNil(harness.drag.target)
         harness.drag.release()
         await settle(window)
 
         // A pane lifted out of a single-pane tab of the SAME card: the plan
         // commits, but the card ends the drop with the tab count it started
         // with, so no slot can stand in for the new tab.
+        let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.glance }?.frame)
+        let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
         harness.drag.beginIfIdle(
             .pane(GridFixture.glancePane),
             ghost: DragCoordinator.Ghost(title: "zsh", symbol: "macwindow", originSize: source.size, isCompact: true),
             at: CGPoint(x: source.midX, y: source.midY)
         )
-        harness.drag.move(to: ground)
+        harness.drag.move(to: Self.headerGround(of: card))
         XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.glance))
         await settle(window)
         XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.glance)), "the drop closes the tab it draws from")
@@ -470,9 +625,13 @@ final class ChromeRenderTests: XCTestCase {
         assertGridSamples(image, theme: theme)
 
         // The strip is a band, not the body it sits on: sampled inside a
-        // thumbnail's strip and inside the same thumbnail's ground.
+        // thumbnail's strip and inside the same thumbnail's ground. The
+        // sample sits in the run between the title and the status dot, clear
+        // of both, since either would be its own colour.
         let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
-        let strip = hex(image, CGPoint(x: thumbnail.midX, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2))
+        let beforeTheDot = ChromeMetrics.Grid.tabStripHorizontalPadding
+            + ChromeMetrics.Grid.labelStatusDot + ChromeMetrics.Grid.tabStripSpacing
+        let strip = hex(image, CGPoint(x: thumbnail.maxX - beforeTheDot, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2))
         XCTAssertEqual(strip, theme.palette.chromeRoles.tabStripFill.hex, "\(id): the strip carries the role it was given")
         XCTAssertNotEqual(strip, theme.palette.chromeRoles.canvas.hex, "\(id): and it is not the thumbnail body")
         window.close()
@@ -563,12 +722,18 @@ final class ChromeRenderTests: XCTestCase {
     /// row: no thumbnail or tile covers it.
     private func overEmptySpace(of workspace: WorkspaceID, harness: Harness, window: NSWindow) async throws {
         let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
-        harness.drag.move(to: CGPoint(
-            x: card.midX,
-            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
-        ))
+        harness.drag.move(to: Self.headerGround(of: card))
         XCTAssertEqual(harness.drag.target, .workspaceThumbnail(workspace))
         await settle(window)
+    }
+
+    /// A card's own empty space: the middle of its header row, which no
+    /// thumbnail or tile covers.
+    private static func headerGround(of card: CGRect) -> CGPoint {
+        CGPoint(
+            x: card.midX,
+            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
+        )
     }
 
     /// Two cells of one row: same top edge and height, one `tabGap` apart.
@@ -802,6 +967,9 @@ private enum GridFixture {
     static let glancePane = PaneID(rawValue: "w6:p1")
     static let agentsTab = TabID(rawValue: "w1:t1")
     static let migrationTab = TabID(rawValue: "w2:t1")
+    /// Two panes side by side: a tab with a pane to make room and a pane that
+    /// must not move.
+    static let testsTab = TabID(rawValue: "w2:t2")
     static let claudePane = PaneID(rawValue: "w1:p1")
 
     private typealias Rect = (x: Int, y: Int, width: Int, height: Int)
