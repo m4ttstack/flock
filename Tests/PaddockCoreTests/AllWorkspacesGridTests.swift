@@ -48,17 +48,19 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// Where the placeholder actually lands, read off the card's own rows --
     /// the same rows the card draws, so nothing here is a parallel model of
     /// the geometry.
-    private func placeholderSlot(tabs list: [TabID], expanded: Bool) -> (row: Int, column: Int)? {
-        let rows = GridCardLayout.rows(tabs: list, expanded: expanded, newTab: true)
+    private func placeholderSlot(tabs list: [TabID], expanded: Bool, closing: TabID? = nil) -> (row: Int, column: Int)? {
+        let rows = GridCardLayout.rows(GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: closing))
         for (row, cells) in rows.enumerated() {
             if let column = cells.firstIndex(of: .newTab) { return (row, column) }
         }
         return nil
     }
 
-    /// Where the real tab lands, from the same function with one more tab.
-    private func landingSlot(tabs list: [TabID], expanded: Bool) -> (row: Int, column: Int)? {
-        let added = list + [TabID(rawValue: "w1:tNEW")]
+    /// Where the real tab lands, from the same function over the tabs the
+    /// card is left holding: the one the drop empties gone, the created one
+    /// appended.
+    private func landingSlot(tabs list: [TabID], expanded: Bool, closing: TabID? = nil) -> (row: Int, column: Int)? {
+        let added = GridCardLayout.surviving(list, closing: closing) + [TabID(rawValue: "w1:tNEW")]
         let rows = GridCardLayout.rows(tabs: added, expanded: expanded)
         for (row, cells) in rows.enumerated() {
             if let column = cells.firstIndex(of: .tab(TabID(rawValue: "w1:tNEW"))) { return (row, column) }
@@ -66,9 +68,9 @@ final class AllWorkspacesGridTests: XCTestCase {
         return nil
     }
 
-    private func assertPlaceholderMatchesTheLanding(tabs list: [TabID], expanded: Bool, file: StaticString = #filePath, line: UInt = #line) {
-        let placeholder = placeholderSlot(tabs: list, expanded: expanded)
-        let landing = landingSlot(tabs: list, expanded: expanded)
+    private func assertPlaceholderMatchesTheLanding(tabs list: [TabID], expanded: Bool, closing: TabID? = nil, file: StaticString = #filePath, line: UInt = #line) {
+        let placeholder = placeholderSlot(tabs: list, expanded: expanded, closing: closing)
+        let landing = landingSlot(tabs: list, expanded: expanded, closing: closing)
         XCTAssertNotNil(placeholder, "no placeholder drawn", file: file, line: line)
         XCTAssertNotNil(landing, "the tab is not drawn after the drop", file: file, line: line)
         XCTAssertEqual(placeholder?.row, landing?.row, file: file, line: line)
@@ -154,6 +156,100 @@ final class AllWorkspacesGridTests: XCTestCase {
                 assertPlaceholderMatchesTheLanding(tabs: tabs(count), expanded: expanded)
             }
         }
+    }
+
+    // MARK: - a drop that empties one of the card's own tabs
+
+    /// The three ways a pane can arrive in a card's empty space. A pane from
+    /// another workspace and a pane from a multi-pane tab of this one leave
+    /// every tab standing; the last pane of a tab of this one takes that tab
+    /// with it. All three land a tab in this card, so all three draw the
+    /// placeholder, and the pane's origin is not what decides it.
+    func testAPaneLandsATabInThisCardWhereverItCameFrom() {
+        let all = tabs(3)
+        let fromElsewhere = GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: nil)
+        XCTAssertEqual(fromElsewhere, [.tab(all[0]), .tab(all[1]), .tab(all[2]), .newTab])
+        XCTAssertEqual(
+            GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: all[0]),
+            [.tab(all[1]), .tab(all[2]), .newTab],
+            "the tab the drop empties is gone, and the created one takes the slot it leaves"
+        )
+        XCTAssertNotNil(placeholderSlot(tabs: all, expanded: false, closing: all[0]))
+    }
+
+    /// The slot the placeholder names is the slot the created tab really
+    /// takes once the emptied one is gone, at every shape a card can have.
+    func testThePlaceholderTakesTheLandingSlotWhenTheDropEmptiesATab() {
+        for count in 1...12 {
+            for expanded in [false, true] {
+                let list = tabs(count)
+                for closing in [list[0], list[count - 1]] {
+                    guard placeholderSlot(tabs: list, expanded: expanded, closing: closing) != nil else { continue }
+                    assertPlaceholderMatchesTheLanding(tabs: list, expanded: expanded, closing: closing)
+                }
+            }
+        }
+    }
+
+    /// A card whose only tab is the one being emptied ends the drop with one
+    /// tab again, in the slot that tab holds now.
+    func testACardOfOneTabPreviewsTheDropInThatTabsOwnSlot() {
+        let only = tabs(1)
+        XCTAssertEqual(GridCardLayout.cells(tabs: only, expanded: false, newTab: true, closing: only[0]), [.newTab])
+        assertPlaceholderMatchesTheLanding(tabs: only, expanded: false, closing: only[0])
+    }
+
+    /// Wherever a placeholder is drawn at all, the preview is the card the
+    /// drop leaves behind, cell for cell, with the created tab drawn as the
+    /// placeholder: the tabs that survive, the trailing tile the post-drop
+    /// count calls for, and nothing else. Over every shape, with and without
+    /// one of the card's own tabs closing.
+    func testAPreviewDrawsTheCardTheDropLeavesBehind() {
+        let created = TabID(rawValue: "w1:tNEW")
+        for count in 1...12 {
+            for expanded in [false, true] {
+                let list = tabs(count)
+                for closing in [nil, list[0], list[count - 1]] as [TabID?] {
+                    let preview = GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: closing)
+                    guard preview.contains(.newTab) else { continue }
+                    let afterTheDrop = GridCardLayout.cells(
+                        tabs: GridCardLayout.surviving(list, closing: closing) + [created], expanded: expanded
+                    )
+                    XCTAssertEqual(
+                        preview.map { $0 == .newTab ? GridCell.tab(created) : $0 }, afterTheDrop,
+                        "\(count) tabs, expanded: \(expanded), closing: \(String(describing: closing))"
+                    )
+                }
+            }
+        }
+    }
+
+    /// A drop that empties one of the card's own tabs costs the card no cell:
+    /// the created tab takes the slot the emptied one leaves, which is what
+    /// lets the placeholder be drawn inside the rows the card already has.
+    func testAPreviewForADropThatEmptiesATabCostsTheCardNoCell() {
+        for count in 1...12 {
+            for expanded in [false, true] {
+                let list = tabs(count)
+                XCTAssertEqual(
+                    GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: list[0]).count,
+                    GridCardLayout.cells(tabs: list, expanded: expanded).count,
+                    "\(count) tabs, expanded: \(expanded)"
+                )
+            }
+        }
+    }
+
+    /// A card that cannot draw the created tab is left exactly as it stands,
+    /// emptied tab included: its tile carries the drop instead, and nothing
+    /// slides for a shape the drop does not leave behind.
+    func testACardThatDrawsNoPlaceholderKeepsTheTabTheDropWillEmpty() {
+        let all = tabs(9)
+        XCTAssertEqual(
+            GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: all[0]),
+            GridCardLayout.cells(tabs: all, expanded: false)
+        )
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: GridCardLayout.surviving(all, closing: all[0]).count, expanded: false))
     }
 
     // MARK: - what a card that draws no placeholder previews instead

@@ -84,9 +84,8 @@ struct AllWorkspacesGrid: View {
             let expanded = drag.expandedGridCards.contains(workspace.workspaceID)
             let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
             let preview = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
-            let cells = GridCardLayout.cells(tabs: tabs, expanded: expanded, newTab: preview.addsATab)
-            let tileCarriesIt = preview.addsATab
-                && GridCardLayout.tilePreviewsTheDrop(tabs: tabs.count, expanded: expanded)
+            let cells = preview.cells(of: tabs, expanded: expanded)
+            let tileCarriesIt = preview.tileCarriesTheDrop(of: tabs, expanded: expanded)
             return [.card(workspace.workspaceID)]
                 + (tileCarriesIt ? [.newTab(workspace.workspaceID)] : [])
                 + cells.map { cell -> GridItemID in
@@ -110,12 +109,10 @@ private struct CardDropPreview {
     /// target alone: a tab dragged over its own workspace resolves to that
     /// card and plans nothing at all.
     let takesTheDrop: Bool
-    /// The drop leaves this card one tab richer, so a cell can honestly stand
-    /// in for that tab. False when the same drop also closes one of this
-    /// card's tabs: a pane lifted out of a single-pane tab empties it, so the
-    /// count does not change and the created tab lands one slot earlier than
-    /// the card's current shape shows.
-    let addsATab: Bool
+    /// A tab of THIS card the same drop takes away: the pane being dropped is
+    /// the last one in it, so that tab is gone by the time the created one
+    /// lands and the card lays the preview out without it.
+    let closingTab: TabID?
 
     init(workspace: WorkspaceID, drag: DragCoordinator, model: SessionModel?) {
         let target = DropTarget.workspaceThumbnail(workspace)
@@ -123,20 +120,36 @@ private struct CardDropPreview {
               case .success = plan(dragging: subject, onto: target, model: model)
         else {
             takesTheDrop = false
-            addsATab = false
+            closingTab = nil
             return
         }
         takesTheDrop = true
-        addsATab = !Self.alsoClosesATab(of: workspace, dragging: subject, model: model)
+        closingTab = Self.tabEmptiedBy(subject, of: workspace, model: model)
     }
 
-    private static func alsoClosesATab(of workspace: WorkspaceID, dragging subject: DragSubject, model: SessionModel) -> Bool {
+    /// The cells this card draws while the drop is previewed. Read by both the
+    /// card and the grid's item order, so the two cannot disagree about which
+    /// slot stands in for the created tab.
+    func cells(of tabs: [TabID], expanded: Bool) -> [GridCell] {
+        GridCardLayout.cells(tabs: tabs, expanded: expanded, newTab: takesTheDrop, closing: closingTab)
+    }
+
+    /// Whether the card's trailing tile carries the preview instead, which is
+    /// what a card that cannot draw a placeholder has to say the drop with.
+    func tileCarriesTheDrop(of tabs: [TabID], expanded: Bool) -> Bool {
+        takesTheDrop && GridCardLayout.tilePreviewsTheDrop(
+            tabs: GridCardLayout.surviving(tabs, closing: closingTab).count, expanded: expanded
+        )
+    }
+
+    private static func tabEmptiedBy(_ subject: DragSubject, of workspace: WorkspaceID, model: SessionModel) -> TabID? {
         guard case .pane(let pane) = subject, let record = model.panes[pane],
-              model.tabs[workspace]?.contains(where: { $0.tabID == record.tabID }) == true
+              model.tabs[workspace]?.contains(where: { $0.tabID == record.tabID }) == true,
+              model.panes.values.filter({ $0.tabID == record.tabID }).count == 1
         else {
-            return false
+            return nil
         }
-        return model.panes.values.filter { $0.tabID == record.tabID }.count == 1
+        return record.tabID
     }
 }
 
@@ -175,8 +188,7 @@ private struct WorkspaceCard: View {
     var body: some View {
         let tabs = viewModel.model?.tabs[workspace.workspaceID] ?? []
         let rows = GridCardLayout.rows(
-            tabs: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
-            newTab: preview.addsATab
+            preview.cells(of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID))
         )
         // Read once per card rather than per cell: only the card a reorder is
         // over, and only while that reorder commits, has any to report.
@@ -261,9 +273,9 @@ private struct WorkspaceCard: View {
                 .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(id)) }
             }
         case .moreTabs(let hidden):
-            tile(title: "+\(hidden)", label: "more tabs", tabCount: tabs.count)
+            tile(title: "+\(hidden)", label: "more tabs", tabs: tabs)
         case .collapse:
-            tile(title: "fewer", label: "fewer tabs", tabCount: tabs.count)
+            tile(title: "fewer", label: "fewer tabs", tabs: tabs)
         case .newTab:
             NewTabPlaceholder(theme: theme, workspace: workspace.workspaceID)
         }
@@ -277,8 +289,8 @@ private struct WorkspaceCard: View {
     /// visibly changes. It then reports its frame as the new tab's too, since
     /// that cell is where the created tab lands and so where a committed drop
     /// has to settle.
-    private func tile(title: String, label: String, tabCount: Int) -> some View {
-        let carriesTheCardsDrop = carriesTheCardsDrop(tabCount: tabCount)
+    private func tile(title: String, label: String, tabs: [TabRecord]) -> some View {
+        let carriesTheCardsDrop = carriesTheCardsDrop(tabs: tabs)
         return GridTile(
             theme: theme, title: title, label: label,
             isTargeted: drag.target == .moreTabs(workspace.workspaceID) || carriesTheCardsDrop,
@@ -289,9 +301,9 @@ private struct WorkspaceCard: View {
         }
     }
 
-    private func carriesTheCardsDrop(tabCount: Int) -> Bool {
-        preview.addsATab && GridCardLayout.tilePreviewsTheDrop(
-            tabs: tabCount, expanded: drag.expandedGridCards.contains(workspace.workspaceID)
+    private func carriesTheCardsDrop(tabs: [TabRecord]) -> Bool {
+        preview.tileCarriesTheDrop(
+            of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID)
         )
     }
 

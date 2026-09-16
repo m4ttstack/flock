@@ -37,15 +37,45 @@ public enum GridCardLayout {
     /// ordered, which is BEFORE the trailing tile, never after it: a tile
     /// always ends the list, so the slot past it is one no tab can reach.
     ///
-    /// It is shown at all only while the preview's own rows are rows the drop
-    /// leaves behind (`previewKeepsItsRows`). A card that would gain a row on
-    /// hover and lose it again on drop shows nothing, and its accent outline
-    /// marks it the way it marks every other card-level drop target.
-    public static func cells(tabs: [TabID], expanded: Bool, newTab: Bool = false) -> [GridCell] {
-        var cells = settled(tabs: tabs, expanded: expanded)
-        guard newTab, previewKeepsItsRows(tabs: tabs.count, expanded: expanded) else { return cells }
-        cells.insert(.newTab, at: cells.firstIndex(where: \.isTile) ?? cells.count)
-        return cells
+    /// `closing` is a tab of this card the same drop takes away (the pane
+    /// being dropped is the last one in it), so the card lays the preview out
+    /// without it and the created tab takes the slot it leaves. A card that
+    /// draws no placeholder is left exactly as it stands instead, since a
+    /// hover that reshuffles cells it cannot explain is worse than one that
+    /// shows nothing.
+    ///
+    /// The placeholder is shown at all only while the preview's own rows are
+    /// rows the drop leaves behind (`previewKeepsItsRows`). A card that would
+    /// gain a row on hover and lose it again on drop shows nothing, and its
+    /// accent outline marks it the way it marks every other card-level drop
+    /// target.
+    public static func cells(tabs: [TabID], expanded: Bool, newTab: Bool = false, closing: TabID? = nil) -> [GridCell] {
+        let surviving = surviving(tabs, closing: closing)
+        guard newTab, previewKeepsItsRows(tabs: surviving.count, expanded: expanded) else {
+            return settled(tabs: tabs, expanded: expanded)
+        }
+        // The shape the card takes once the drop lands, with the tab it
+        // creates drawn as the placeholder. Laid out over the post-drop list
+        // rather than over the surviving tabs alone, so the trailing tile is
+        // the one the drop leaves: five expanded tabs losing one still end
+        // the drop with five and the collapse tile they need.
+        return settled(tabs: surviving + [createdTab], expanded: expanded)
+            .map { $0 == .tab(createdTab) ? .newTab : $0 }
+    }
+
+    /// Stands in for the tab a previewed drop creates while the post-drop
+    /// shape is laid out. Replaced by `.newTab` before the cells leave
+    /// `cells`, so it reaches no view and no frame report; the id shape is
+    /// one herdr never issues.
+    private static let createdTab = TabID(rawValue: "paddock.preview.created-tab")
+
+    /// The tabs a card is left holding once the drop lands: a pane leaving
+    /// the last pane of its tab takes that tab with it, and herdr appends the
+    /// tab it creates, so the created tab takes the slot the closing one
+    /// vacates rather than the slot after it.
+    public static func surviving(_ tabs: [TabID], closing: TabID?) -> [TabID] {
+        guard let closing else { return tabs }
+        return tabs.filter { $0 != closing }
     }
 
     /// Whether the card's trailing tile carries the drop preview in place of
@@ -110,7 +140,12 @@ public enum GridCardLayout {
     }
 
     public static func rows(tabs: [TabID], expanded: Bool, newTab: Bool = false) -> [[GridCell]] {
-        chunked(cells(tabs: tabs, expanded: expanded, newTab: newTab), by: tabsPerRow)
+        rows(cells(tabs: tabs, expanded: expanded, newTab: newTab))
+    }
+
+    /// Cells a card has already decided on, wrapped into its rows.
+    public static func rows(_ cells: [GridCell]) -> [[GridCell]] {
+        chunked(cells, by: tabsPerRow)
     }
 
     /// Cards in rail order, `columns` to a row.

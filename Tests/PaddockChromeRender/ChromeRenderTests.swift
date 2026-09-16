@@ -311,6 +311,90 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A pane dropped in a card's empty space makes a tab there wherever the
+    /// pane came from, so the card previews the slot that tab lands in all
+    /// three ways it can arrive: from another workspace, from a multi-pane
+    /// tab of this card, and from the only pane of a tab of this card, which
+    /// the same drop takes away.
+    func testACardPreviewsTheNewTabWhereverThePaneCameFrom() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        // Three tabs, none hidden, so every slot the card draws is a real one.
+        let cells = try XCTUnwrap(harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.herdr }?.tabs)
+        XCTAssertEqual(cells.map(\.id), [GridFixture.srcTab, GridFixture.buildTab, GridFixture.issuesTab])
+        let slots = cells.map(\.frame)
+
+        // From another workspace: the card keeps its three tabs and the
+        // created one takes the next slot.
+        try await assertNewTabSlot(
+            of: GridFixture.herdr, dragging: GridFixture.claudePane, harness: harness, window: window,
+            follows: slots[2], render: nil, directory: nil
+        )
+        // From a multi-pane tab of this very card: the same slot, since the
+        // tab the pane leaves keeps its other panes.
+        try await assertNewTabSlot(
+            of: GridFixture.herdr, dragging: GridFixture.buildPane, harness: harness, window: window,
+            follows: slots[2], render: nil, directory: nil
+        )
+        // From the only pane of a tab of this card: that tab goes with it, so
+        // the created tab lands one slot earlier, on the slot the emptied tab
+        // holds now.
+        try await assertNewTabSlot(
+            of: GridFixture.herdr, dragging: GridFixture.srcPane, harness: harness, window: window,
+            lands: slots[2], render: "grid-drag-new-tab-same-workspace.png", directory: directory
+        )
+        // The smallest shape of the same case: a card whose ONLY tab is the
+        // one the drop empties ends with one tab again, in the slot that tab
+        // holds now.
+        let only = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
+        try await assertNewTabSlot(
+            of: GridFixture.glance, dragging: GridFixture.glancePane, harness: harness, window: window,
+            lands: only, render: nil, directory: nil
+        )
+        window.close()
+    }
+
+    /// Drives one pane drag onto a card's empty space and pins where the
+    /// placeholder stands: either in the slot after `follows`, or exactly on
+    /// `lands`.
+    private func assertNewTabSlot(
+        of workspace: WorkspaceID, dragging pane: PaneID, harness: Harness, window: NSWindow,
+        follows previous: CGRect? = nil, lands: CGRect? = nil, render: String?, directory: String?
+    ) async throws {
+        harness.drag.beginIfIdle(
+            .pane(pane), ghost: DragCoordinator.Ghost(title: "pane", symbol: "macwindow", originSize: CGSize(width: 40, height: 40), isCompact: true),
+            at: CGPoint(x: 10, y: 10)
+        )
+        try await overEmptySpace(of: workspace, harness: harness, window: window)
+        let slot = try XCTUnwrap(
+            harness.drag.gridItemFrame(for: .newTab(workspace)), "\(pane.rawValue): no slot was previewed at all"
+        )
+        if let previous {
+            assertSlotFollows(slot, previous, "\(pane.rawValue): the card's last tab")
+        }
+        if let lands {
+            XCTAssertEqual(slot.minX, lands.minX, accuracy: 0.5, "\(pane.rawValue)")
+            XCTAssertEqual(slot.minY, lands.minY, accuracy: 0.5, "\(pane.rawValue)")
+            XCTAssertEqual(slot.width, lands.width, accuracy: 0.5, "\(pane.rawValue)")
+        }
+        if let directory, let render {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent(render))
+        }
+        // Released over the gap between the cards, where nothing resolves:
+        // this harness has no commit seam to run a real drop through.
+        harness.drag.move(to: CGPoint(x: 5, y: 120))
+        XCTAssertNil(harness.drag.target)
+        harness.drag.release()
+        await settle(window)
+    }
+
     /// A tab dropped back in its own gap commits nothing, so its card
     /// previews nothing: no cell slides and the card does not outline itself,
     /// even though the drag still resolves to that card. The preview keys on
@@ -588,11 +672,10 @@ final class ChromeRenderTests: XCTestCase {
         CGPoint(x: cell.minX + 2, y: cell.maxY - 2)
     }
 
-    /// A drop the planner refuses, and one that takes a tab away as it adds
-    /// one, must promise nothing: no placeholder, and for the refused one no
-    /// wash either. Both resolve to the card, so a preview keyed on the
-    /// resolved target alone draws for both.
-    func testACardPreviewsNothingForADropThatAddsItNoTab() async throws {
+    /// A drop the planner refuses must promise nothing: no placeholder and no
+    /// wash. It resolves to the card like any other, so a preview keyed on the
+    /// resolved target alone would draw for it.
+    func testACardPreviewsNothingForADropThePlannerRefuses() async throws {
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
         let window = harness.makeWindow(size: Self.windowSize)
@@ -633,20 +716,6 @@ final class ChromeRenderTests: XCTestCase {
         harness.drag.release()
         await settle(window)
 
-        // A pane lifted out of a single-pane tab of the SAME card: the plan
-        // commits, but the card ends the drop with the tab count it started
-        // with, so no slot can stand in for the new tab.
-        let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.glance }?.frame)
-        let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
-        harness.drag.beginIfIdle(
-            .pane(GridFixture.glancePane),
-            ghost: DragCoordinator.Ghost(title: "zsh", symbol: "macwindow", originSize: source.size, isCompact: true),
-            at: CGPoint(x: source.midX, y: source.midY)
-        )
-        harness.drag.move(to: Self.headerGround(of: card))
-        XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.glance))
-        await settle(window)
-        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.glance)), "the drop closes the tab it draws from")
         window.close()
     }
 
@@ -1010,8 +1079,14 @@ private enum GridFixture {
     /// Six tabs: a resting card already over its cap, so it draws a "+N" tile.
     static let paddock = WorkspaceID(rawValue: "w2")
     static let mattstackApps = WorkspaceID(rawValue: "w3")
-    /// Three tabs: a resting card still under its visible-tab cap.
+    /// Three tabs: a resting card still under its visible-tab cap. `src`
+    /// holds one pane (a drop from it empties the tab), `build` holds two.
     static let herdr = WorkspaceID(rawValue: "w4")
+    static let srcTab = TabID(rawValue: "w4:t1")
+    static let buildTab = TabID(rawValue: "w4:t2")
+    static let issuesTab = TabID(rawValue: "w4:t3")
+    static let srcPane = PaneID(rawValue: "w4:p1")
+    static let buildPane = PaneID(rawValue: "w4:p2")
     /// One tab holding one pane: the card whose own drop adds it nothing.
     static let glance = WorkspaceID(rawValue: "w6")
     static let glanceTab = TabID(rawValue: "w6:t1")
