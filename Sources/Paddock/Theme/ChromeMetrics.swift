@@ -156,6 +156,11 @@ enum ChromeMetrics {
         /// that width. 93 is the widest that would have kept four, and the
         /// cost of keeping it is a thumbnail too narrow to read.
         static let thumbnailWidth: CGFloat = 120
+        /// The most slots a card's row is ever divided into, however wide the
+        /// window. Width alone would lay seven or more across a 2000pt window
+        /// in one line; past four the card stops reading as a card, so the
+        /// extra width wraps the tabs instead of stretching the row.
+        static let maxTabsPerRow = 4
         /// The tab's handle: a band across the top of its thumbnail, holding
         /// the title and status dot.
         static let tabStripHeight: CGFloat = 15

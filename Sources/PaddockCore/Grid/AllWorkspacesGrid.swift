@@ -32,17 +32,21 @@ extension GridCell {
 public enum GridCardLayout {
     public static let columns = 2
 
-    /// How many thumbnails of `width` one row of `rowWidth` holds. A
-    /// thumbnail is the same size at every window, so a wider window buys
-    /// slots and a narrower one gives them up, and whatever is left over sits
-    /// at the end of the row.
+    /// How many thumbnails of `width` one row of `rowWidth` holds, never more
+    /// than `cap`. A thumbnail is the same size at every window, so a wider
+    /// window buys slots and a narrower one gives them up, and whatever is
+    /// left over sits at the end of the row.
+    ///
+    /// Past `cap` the extra width buys nothing and the card wraps instead: a
+    /// row of seven or more reads as a filmstrip rather than a card.
     ///
     /// Never zero: a row too narrow for even one thumbnail still draws one,
     /// overflowing its card rather than drawing a card whose tabs cannot be
     /// seen, reached or dropped on at all.
-    public static func tabsPerRow(rowWidth: CGFloat, width: CGFloat, gap: CGFloat) -> Int {
+    public static func tabsPerRow(rowWidth: CGFloat, width: CGFloat, gap: CGFloat, cap: Int) -> Int {
         guard rowWidth > 0, width > 0 else { return 1 }
-        return max(1, Int(((rowWidth + gap) / (width + gap)).rounded(.down)))
+        let fits = Int(((rowWidth + gap) / (width + gap)).rounded(.down))
+        return max(1, min(fits, cap))
     }
 
     /// The width one card draws its thumbnails across, given the width the

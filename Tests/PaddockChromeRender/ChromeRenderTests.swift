@@ -473,10 +473,10 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// A thumbnail is the same size at every window and the row holds as many
-    /// as fit. Driven at three window widths through the real view, so the
-    /// arithmetic that derives the slot count cannot drift from the width the
-    /// cards are actually given.
-    func testAThumbnailIsTheSameWidthAtEveryWindowAndTheRowHoldsWhatFits() async throws {
+    /// as fit, up to the cap. Driven at four window widths through the real
+    /// view, so the arithmetic that derives the slot count cannot drift from
+    /// the width the cards are actually given.
+    func testAThumbnailIsTheSameWidthAtEveryWindowAndTheRowHoldsWhatFitsUpToTheCap() async throws {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
 
@@ -499,8 +499,10 @@ final class ChromeRenderTests: XCTestCase {
         // is a width whose row is a few points short of a fifth slot: it is
         // rendered like the rest but it is here for the overrun check, since
         // that is where an over-generous slot count shows up as real points.
-        let rendered: Set<CGFloat> = [Self.windowSize.width, 1200, 1600]
-        for width in [Self.windowSize.width, 1090, 1200, 1600] as [CGFloat] {
+        // 2000 is the very wide case: its row fits well past the cap, so what
+        // it draws is the cap's answer rather than the row's.
+        let rendered: Set<CGFloat> = [Self.windowSize.width, 1200, 1600, 2000]
+        for width in [Self.windowSize.width, 1090, 1200, 1600, 2000] as [CGFloat] {
             let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
             let window = harness.makeWindow(size: CGSize(width: width, height: Self.windowSize.height))
             await settle(window)
@@ -551,9 +553,12 @@ final class ChromeRenderTests: XCTestCase {
         let design = try XCTUnwrap(drawn[Self.windowSize.width])
         let middle = try XCTUnwrap(drawn[1200])
         let wide = try XCTUnwrap(drawn[1600])
+        let veryWide = try XCTUnwrap(drawn[2000])
         XCTAssertEqual(design.count, 3, "the narrowest window the app allows lost its shape")
         XCTAssertGreaterThan(middle.count, design.count, "a wider window drew no more cells")
-        XCTAssertGreaterThan(wide.count, middle.count, "a wider window still drew no more cells")
+        XCTAssertEqual(middle.count, ChromeMetrics.Grid.maxTabsPerRow, "1200 is the width that first reaches the cap")
+        XCTAssertEqual(wide.count, middle.count, "a window past the cap kept buying slots")
+        XCTAssertEqual(veryWide.count, middle.count, "a very wide window kept buying slots")
         XCTAssertEqual(
             Set(drawn.values.flatMap { $0 }.map { ($0.width * 100).rounded() }).count, 1,
             "a thumbnail changed size between windows"

@@ -29,7 +29,8 @@ struct AllWorkspacesGrid: View {
                 cardGap: ChromeMetrics.Grid.cardGap, cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
             ),
             width: ChromeMetrics.Grid.thumbnailWidth,
-            gap: ChromeMetrics.Grid.tabGap
+            gap: ChromeMetrics.Grid.tabGap,
+            cap: ChromeMetrics.Grid.maxTabsPerRow
         )
     }
 
