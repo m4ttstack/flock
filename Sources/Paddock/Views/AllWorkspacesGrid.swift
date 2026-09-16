@@ -480,7 +480,7 @@ struct TabHandleStrip: View {
         HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
             Text(title)
                 .font(ChromeType.gridTabLabel(selected: isFocusedTab))
-                .foregroundStyle(theme.textStrong)
+                .foregroundStyle(theme.tabStripTitle)
                 .lineLimit(1)
             Spacer(minLength: 0)
             StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
@@ -488,7 +488,7 @@ struct TabHandleStrip: View {
         .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: ChromeMetrics.Grid.tabStripHeight)
-        .background(theme.paneBorder)
+        .background(theme.tabStripFill)
     }
 }
 

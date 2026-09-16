@@ -116,6 +116,27 @@ final class GridDragSettleTests: XCTestCase {
         XCTAssertFalse(drag.holdsGrabCursor)
     }
 
+    /// A tab drag begun before its thumbnail has reported a frame has no
+    /// footprint to be drawn at. Exact bounds would resolve that to nothing at
+    /// all, so it falls back to the ordinary bounds, whose floor is what keeps
+    /// the proxy on screen.
+    func testATabProxyWithNoReportedFrameStillHasASize() {
+        let miniature = DragCoordinator.Ghost.TabMiniature(title: "agents", status: .idle, isFocusedTab: false, panes: [])
+        let sized = DragCoordinator.Ghost(
+            title: "agents", symbol: "rectangle.stack", originSize: Self.thumbnail.size, isCompact: true,
+            tabMiniature: miniature
+        )
+        XCTAssertEqual(DragVisuals.ghostSize(forOrigin: sized.originSize, bounds: sized.bounds), Self.thumbnail.size)
+
+        let unsized = DragCoordinator.Ghost(
+            title: "agents", symbol: "rectangle.stack", originSize: .zero, isCompact: true, tabMiniature: miniature
+        )
+        let size = DragVisuals.ghostSize(forOrigin: unsized.originSize, bounds: unsized.bounds)
+        XCTAssertEqual(size, DragVisuals.compactGhostBounds.minimum)
+        XCTAssertGreaterThan(size.width, 0)
+        XCTAssertGreaterThan(size.height, 0)
+    }
+
     /// A pane drag still carries it wherever it starts, grid or canvas.
     func testAPaneDragHoldsTheGrabCursorWithOrWithoutTheGrid() {
         let drag = makeCoordinator()

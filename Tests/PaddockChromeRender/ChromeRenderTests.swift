@@ -361,6 +361,17 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The largest per-channel gap between two sampled hexes. A blend against
+    /// whatever is behind moves every channel; a shadow's bleed moves them by
+    /// a unit or two, which is what this has to stay clear of.
+    private func channelDistance(_ lhs: String, _ rhs: String) -> Int {
+        func channels(_ hex: String) -> [Int] {
+            let digits = Array(hex.dropFirst())
+            return stride(from: 0, to: 6, by: 2).map { Int(String(digits[$0...$0 + 1]), radix: 16) ?? 0 }
+        }
+        return zip(channels(lhs), channels(rhs)).map { abs($0 - $1) }.max() ?? 0
+    }
+
     /// A cell's own ground: the BOTTOM-left corner, two points in. A
     /// thumbnail's top is its handle strip and its middle is mini panes, so
     /// only the padding below them is the ground a tile can be compared with.
@@ -449,7 +460,7 @@ final class ChromeRenderTests: XCTestCase {
         // thumbnail's strip and inside the same thumbnail's ground.
         let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         let strip = hex(image, CGPoint(x: thumbnail.midX, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2))
-        XCTAssertEqual(strip, theme.palette.chromeRoles.paneBorder.hex, "\(id): the strip carries the role it was given")
+        XCTAssertEqual(strip, theme.palette.chromeRoles.tabStripFill.hex, "\(id): the strip carries the role it was given")
         XCTAssertNotEqual(strip, theme.palette.chromeRoles.canvas.hex, "\(id): and it is not the thumbnail body")
         window.close()
     }
@@ -515,10 +526,23 @@ final class ChromeRenderTests: XCTestCase {
             return XCTFail("a single-pane tab migrating into another workspace has to commit")
         }
         await settle(window)
+        let image = try snapshot(window)
         if let directory {
-            try XCTUnwrap(snapshot(window).representation(using: .png, properties: [:]))
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-tab.png"))
         }
+
+        // The proxy is a thumbnail's size and centred on the pointer, so it
+        // covers what it is aimed at: its own band has to let that through.
+        // An opaque one would paint the fill role exactly.
+        // Clear of both the title and the status dot, so the sample is the
+        // band's own fill rather than an antialiased glyph edge.
+        let proxy = try XCTUnwrap(harness.drag.ghostTopLeft)
+        let band = CGPoint(x: proxy.x + source.width - 18, y: proxy.y + ChromeMetrics.Grid.tabStripHeight / 2)
+        XCTAssertGreaterThan(
+            channelDistance(hex(image, band), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex), 8,
+            "the proxy's band reads as its own opaque fill, so nothing under the proxy shows through"
+        )
         window.close()
     }
 

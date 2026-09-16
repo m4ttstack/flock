@@ -69,6 +69,14 @@ public struct ChromeRoles: Equatable, Sendable {
     public let textLabel: RGB
     public let accent: RGB
 
+    /// The grid's tab handle strip, as one pair. The band has to read against
+    /// a thumbnail's `canvas` body, which only `paneBorder` does; the title on
+    /// it has to clear AA in every theme, which only `textStrong` does
+    /// (`textDim` falls to 4.27:1 on nord). Named here rather than spelled in
+    /// the view so the pairing the AA gate checks is the pairing drawn.
+    public var tabStripFill: RGB { paneBorder }
+    public var tabStripTitle: RGB { textStrong }
+
     static let chromeOffset = (-6, -6, -11)
     static let ruleOffset = (28, 30, 34)
     static let canvasOffset = (20, 21, 23)

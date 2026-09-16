@@ -34,6 +34,10 @@ public struct Theme: Identifiable, Equatable, Sendable {
     public let pane: Color
     public let paneBorder: Color
     public let tabRest: Color
+    /// The grid's tab handle strip, as one pair: `ChromeRoles` names both so
+    /// the AA gate checks the pairing this actually draws.
+    public let tabStripFill: Color
+    public let tabStripTitle: Color
     /// The selected tab and the selected workspace row.
     public let selection: Color
     public let textStrong: Color
@@ -68,6 +72,8 @@ public struct Theme: Identifiable, Equatable, Sendable {
         pane = Color(roles.pane)
         paneBorder = Color(roles.paneBorder)
         tabRest = Color(roles.tabRest)
+        tabStripFill = Color(roles.tabStripFill)
+        tabStripTitle = Color(roles.tabStripTitle)
         selection = Color(roles.selection)
         textStrong = Color(roles.textStrong)
         textDim = Color(roles.textDim)
