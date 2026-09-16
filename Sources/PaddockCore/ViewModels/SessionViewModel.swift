@@ -580,9 +580,8 @@ public final class SessionViewModel {
     /// Splits `pane` rightward via `pane.split` and focuses the new pane,
     /// registering it as paddock-created so the launcher can show on it --
     /// a "Split Right" context-menu command exercising the provenance
-    /// registry live. `cwd` carries the source pane's own, as the model
-    /// reports it; a pane the model does not carry sends no `cwd` key at all
-    /// rather than an empty one, which leaves herdr its own follow policy.
+    /// registry live; `cwd` is deliberately omitted so herdr follows the
+    /// source pane's own cwd.
     public func splitRight(from pane: PaneID) async {
         await performSplit(from: pane, direction: "right")
     }
@@ -595,13 +594,10 @@ public final class SessionViewModel {
     }
 
     private func performSplit(from pane: PaneID, direction: String) async {
-        var params: [String: JSONValue] = [
-            "target_pane_id": .string(pane.rawValue), "direction": .string(direction), "focus": .bool(true),
-        ]
-        if let cwd = model?.panes[pane]?.cwd, !cwd.isEmpty {
-            params["cwd"] = .string(cwd)
-        }
-        guard let data = try? await client.requestRaw("pane.split", params) else { return }
+        guard let data = try? await client.requestRaw(
+            "pane.split",
+            ["target_pane_id": .string(pane.rawValue), "direction": .string(direction), "focus": .bool(true)]
+        ) else { return }
         guard let newPaneID = Self.extractSplitPaneID(data) else { return }
         paneLauncherRegistry.registerPaddockCreated(newPaneID)
         launcherRegistryVersion += 1

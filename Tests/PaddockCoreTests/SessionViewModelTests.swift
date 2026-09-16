@@ -629,10 +629,7 @@ final class SessionViewModelTests: XCTestCase {
         let splitCall = try? XCTUnwrap(calls.first { $0.method == "pane.split" })
         XCTAssertEqual(stringParam(splitCall?.params ?? [:], "target_pane_id"), "w1:p1")
         XCTAssertEqual(stringParam(splitCall?.params ?? [:], "direction"), "right")
-        XCTAssertNil(
-            splitCall?.params["cwd"] ?? nil,
-            "no model, so no cwd to send: an absent key leaves herdr its own follow policy, an empty one would not"
-        )
+        XCTAssertNil(splitCall?.params["cwd"] ?? nil, "cwd is omitted so herdr follows the source pane's own cwd")
 
         XCTAssertTrue(viewModel.isPristineLauncherPane(PaneID(rawValue: "w1:p2")))
         XCTAssertFalse(
@@ -2042,21 +2039,6 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(harness.viewModel.renameTarget, .workspace(WorkspaceID(rawValue: "w1")))
     }
 
-    // MARK: - Split cwd
-
-    /// The brief's spelling: `pane.split` carries the source pane's own cwd
-    /// as the model reports it.
-    @MainActor
-    func testSplittingSendsTheSourcePanesOwnCwd() async {
-        let client = StubSplitCommandClient(newPaneID: "w1:p9")
-        let viewModel = SessionViewModel(client: client)
-        viewModel.update(model: makeModel(), connection: .live)
-
-        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
-
-        let calls = await client.calls
-        XCTAssertEqual(stringParam(calls.first { $0.method == "pane.split" }?.params ?? [:], "cwd"), "/tmp")
-    }
 
     @MainActor
     func testTheKeyboardMoveActsOnHerdrsFocusedPane() async {
