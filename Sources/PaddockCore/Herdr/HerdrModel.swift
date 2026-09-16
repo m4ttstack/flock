@@ -173,6 +173,14 @@ public struct LayoutSnapshot: Codable, Equatable, Sendable {
         case panes
         case splits
     }
+
+    /// The pane herdr acts on when a verb names this tab but no pane of it:
+    /// what a pane moved in splits, and what an unzoom lands on. The rect's
+    /// own flag answers a snapshot that carries no `focused_pane_id`, and the
+    /// first pane answers one that marks none at all.
+    public var focusedPane: PaneID? {
+        focusedPaneID ?? panes.first(where: \.focused)?.paneID ?? panes.first?.paneID
+    }
 }
 
 public struct SessionSnapshot: Codable, Sendable {

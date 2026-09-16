@@ -457,17 +457,32 @@ final class DragCoordinator {
         var tiles: [WorkspaceItemFrame] = []
         var cards: [WorkspaceItemFrame] = []
         var newTabSlots: [WorkspaceItemFrame] = []
+        // The grid's items arrive grouped by card, each group led by its own
+        // `.card` item (`AllWorkspacesGrid.itemOrder`), so the card a
+        // thumbnail belongs to is the last one seen before it and the cells
+        // come out in the order that card draws them.
+        var cardOrder: [WorkspaceID] = []
+        var drawnTabs: [WorkspaceID: [TabItemFrame]] = [:]
+        var currentCard: WorkspaceID?
         for item in gridItems.onScreen {
             switch item.id {
-            case .tab(let id): thumbnails.append(TabItemFrame(id: id, frame: item.frame))
+            case .tab(let id):
+                thumbnails.append(TabItemFrame(id: id, frame: item.frame))
+                if let currentCard {
+                    drawnTabs[currentCard, default: []].append(TabItemFrame(id: id, frame: item.frame))
+                }
             case .tile(let id): tiles.append(WorkspaceItemFrame(id: id, frame: item.frame))
-            case .card(let id): cards.append(WorkspaceItemFrame(id: id, frame: item.frame))
+            case .card(let id):
+                cards.append(WorkspaceItemFrame(id: id, frame: item.frame))
+                cardOrder.append(id)
+                currentCard = id
             case .newTab(let id): newTabSlots.append(WorkspaceItemFrame(id: id, frame: item.frame))
             }
         }
         return GridDropSurfaces(
             viewport: gridViewport ?? .zero, thumbnails: thumbnails, tiles: tiles, cards: cards,
-            newTabSlots: newTabSlots
+            newTabSlots: newTabSlots,
+            cardTabs: cardOrder.map { GridCardTabs(workspace: $0, tabs: drawnTabs[$0] ?? []) }
         )
     }
 
@@ -566,7 +581,7 @@ final class DragCoordinator {
         pendingStripScroll = nil
         activeSubject = subject
         self.ghost = ghost
-        ghostTopLeft = ghostTopLeft(centeredOn: point)
+        ghostTopLeft = ghostTopLeft(at: point)
         controller.began(subject, at: point)
         target = nil
         updateGrid { $0.dragBegan() }
@@ -602,7 +617,7 @@ final class DragCoordinator {
     }
 
     private func resolve(at point: CGPoint) {
-        ghostTopLeft = ghostTopLeft(centeredOn: point)
+        ghostTopLeft = ghostTopLeft(at: point)
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
         let resolved: DropTarget?
@@ -625,8 +640,12 @@ final class DragCoordinator {
             return
         }
         let surfaces = surfaces
-        let settleRect = landingTarget.flatMap { resolved in surfaces.flatMap { dropTargetRect(for: resolved, surfaces: $0) } }
-        let flashRect = landingTarget.flatMap { resolved in surfaces.flatMap { dropFlashRect(for: resolved, surfaces: $0) } }
+        let settleRect = landingTarget.flatMap { resolved in
+            gridLandingRect(for: resolved) ?? surfaces.flatMap { dropTargetRect(for: resolved, surfaces: $0) }
+        }
+        let flashRect = landingTarget.flatMap { resolved in
+            gridLandingRect(for: resolved) ?? surfaces.flatMap { dropFlashRect(for: resolved, surfaces: $0) }
+        }
         let started = generation
         Task { [weak self] in
             await self?.controller.ended()
@@ -728,9 +747,23 @@ final class DragCoordinator {
     /// The ghost's top-left for a pointer at `point`, sized from whatever
     /// this drag is carrying. A drag with no ghost yet cannot be positioned
     /// against one, so the pointer itself is the answer.
-    private func ghostTopLeft(centeredOn point: CGPoint) -> CGPoint {
+    private func ghostTopLeft(at point: CGPoint) -> CGPoint {
         guard let ghost else { return point }
-        return DragVisuals.ghostTopLeft(forCursor: point, ghostSize: ghostSize(ghost))
+        return DragVisuals.ghostTopLeft(forCursor: point, ghostSize: ghostSize(ghost), anchor: ghostAnchor(ghost))
+    }
+
+    /// Where the pointer holds this proxy, in the proxy's own space. A tab is
+    /// picked up by its handle and proxied as a miniature of its own
+    /// thumbnail, so it hangs from that strip the way a window hangs from its
+    /// title bar; everything else stays centred on the pointer, which is what
+    /// keeps what the pointer is over and what the drop resolves against the
+    /// same thing.
+    private func ghostAnchor(_ ghost: Ghost) -> CGPoint? {
+        guard ghost.tabMiniature != nil, let home = dragHome else { return nil }
+        return DragVisuals.stripAnchor(
+            grabbedAt: CGPoint(x: grabPoint.x - home.atStart.minX, y: grabPoint.y - home.atStart.minY),
+            in: ghostSize(ghost), stripHeight: ChromeMetrics.Grid.tabStripHeight
+        )
     }
 
     /// The spring back onto the item the drag came from, for every ending that
@@ -741,12 +774,16 @@ final class DragCoordinator {
     }
 
     /// Centered on `region`, or on the press point when the drag has none.
+    /// A proxy that hangs from its strip lands the same way instead, so the
+    /// spring back and the landing agree with where it hung.
     private func settle(onto region: CGRect?) {
         guard let ghost else {
             settle(to: region?.origin ?? grabPoint)
             return
         }
-        settle(to: DragVisuals.settleTopLeft(on: region, grabPoint: grabPoint, ghostSize: ghostSize(ghost)))
+        settle(to: DragVisuals.settleTopLeft(
+            on: region, grabPoint: grabPoint, ghostSize: ghostSize(ghost), anchor: ghostAnchor(ghost)
+        ))
     }
 
     /// The home where it is NOW: the grid scrolls and reflows under a drag, so
@@ -1047,7 +1084,12 @@ final class DragCoordinator {
         writeIfChanged(\.gridItems) { $0.setOrder(order) }
     }
 
+    /// Frozen while a card is showing a reorder, for the reason the strip's
+    /// own reports are (`setTabFrame`): the insert index is measured against
+    /// where the cells REST, so a cell that has slid must never report its
+    /// shifted place back in and move the very gap that shifted it.
     func setGridItemFrame(_ frame: CGRect, for id: GridItemID) {
+        guard !isReorderingTabs else { return }
         writeIfChanged(\.gridItems) { $0.setContentFrame(frame, for: id) }
     }
 
@@ -1112,6 +1154,10 @@ final class DragCoordinator {
     }
 
     var insertionMark: InsertionMark? {
+        // A reorder inside the grid is marked by the card opening the slot
+        // itself; the strip the bar would be placed in is unmounted, and its
+        // last frames sit wherever the window left them.
+        guard !grid.isShown else { return nil }
         switch target {
         case .tabStrip(_, let insertIndex):
             guard let container = stripViewport ?? stripFrame else { return nil }
@@ -1144,6 +1190,45 @@ final class DragCoordinator {
         case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .moreTabs:
             return nil
         }
+    }
+
+    /// How far each of one card's thumbnails slides while a reorder inside
+    /// that card is previewing: the strip's own rule, over slots that wrap,
+    /// so a tab crossing a row end moves down as well as along. Empty for
+    /// every card but the one the drag is over.
+    func gridTabDisplacements(inCardFor workspace: WorkspaceID) -> [TabID: CGSize] {
+        gridTabDisplacements(inCardFor: workspace, whileTargeting: target)
+    }
+
+    private func gridTabDisplacements(inCardFor workspace: WorkspaceID, whileTargeting target: DropTarget?) -> [TabID: CGSize] {
+        guard case .tabStrip(let reordering, let insertIndex)? = target, reordering == workspace,
+              case .tab(let dragged)? = activeSubject,
+              let card = gridSurfaces?.cardTabs.first(where: { $0.workspace == workspace })
+        else {
+            return [:]
+        }
+        let slots = card.tabs.map(\.frame)
+        let draggingIndex = card.tabs.firstIndex { $0.id == dragged }
+        return Dictionary(uniqueKeysWithValues: card.tabs.indices.map { index in
+            (card.tabs[index].id, ReshuffleOffset.slotOffset(
+                forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex, slots: slots
+            ))
+        })
+    }
+
+    /// Where a grid drop lands, for the settle and the flash. Only a reorder
+    /// inside a card needs an answer of its own: `dropTargetRect` has none
+    /// for a `.tabStrip` target under a shown grid, and the slot a reordered
+    /// tab lands in is exactly the one its own thumbnail has already slid to.
+    private func gridLandingRect(for target: DropTarget) -> CGRect? {
+        guard grid.isShown, case .tabStrip(let workspace, _) = target,
+              case .tab(let dragged)? = activeSubject,
+              let frame = gridItemFrame(for: .tab(dragged)),
+              let offset = gridTabDisplacements(inCardFor: workspace, whileTargeting: target)[dragged]
+        else {
+            return nil
+        }
+        return frame.offsetBy(dx: offset.width, dy: offset.height)
     }
 
     func tabDisplacement(at index: Int) -> CGFloat {

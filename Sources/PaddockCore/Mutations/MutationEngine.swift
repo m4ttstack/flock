@@ -358,8 +358,7 @@ public actor MutationEngine {
     }
 
     private static func unzoomTarget(forTab tabID: TabID, model: SessionModel) -> PaneID? {
-        guard let layout = model.layouts[tabID] else { return nil }
-        return layout.focusedPaneID ?? layout.panes.first?.paneID
+        model.layouts[tabID]?.focusedPane
     }
 
     private static func isTabNotFound(_ error: Error) -> Bool {

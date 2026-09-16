@@ -346,8 +346,9 @@ indirect enum SplitTree {
     /// Matches `CanvasGeometry`'s own child-region rounding exactly (integer
     /// cell grid, `.rounded()` on the first child's size) so the tree
     /// reconstructed here lines up with the same regions herdr's layout
-    /// actually used.
-    private static func childRegions(of rect: CellRect, direction: SplitDirection, ratio: Double) -> (first: CellRect, second: CellRect) {
+    /// actually used. Internal, not private: a thumbnail previewing a pane
+    /// landing in a tab divides a region by the same rule.
+    static func childRegions(of rect: CellRect, direction: SplitDirection, ratio: Double) -> (first: CellRect, second: CellRect) {
         switch direction {
         case .right:
             let firstWidth = Int((Double(rect.width) * ratio).rounded())

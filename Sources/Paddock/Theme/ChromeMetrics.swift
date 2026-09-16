@@ -150,6 +150,13 @@ enum ChromeMetrics {
         static let tabStripHeight: CGFloat = 15
         static let tabStripHorizontalPadding: CGFloat = 5
         static let tabStripSpacing: CGFloat = 5
+        /// herdr's focused tab is marked the way the rail marks its focused
+        /// workspace: the same bar, holding the same share of the row it sits
+        /// in.
+        static let tabStripIndicatorSize = CGSize(
+            width: WorkspaceRow.indicatorSize.width,
+            height: (tabStripHeight * WorkspaceRow.indicatorSize.height / WorkspaceRow.contentHeight).rounded()
+        )
         static let thumbnailCornerRadius: CGFloat = 3
         static let thumbnailPadding: CGFloat = 4
         static let miniPaneGap: CGFloat = 4

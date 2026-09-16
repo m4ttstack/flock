@@ -153,6 +153,9 @@ private struct WorkspaceCard: View {
             tabs: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
             newTab: preview.addsATab
         )
+        // Read once per card rather than per cell: only the card a reorder is
+        // over has any to report.
+        let displacements = drag.gridTabDisplacements(inCardFor: workspace.workspaceID)
         VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardSpacing) {
             header(tabCount: tabs.count)
             VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabGap) {
@@ -162,7 +165,7 @@ private struct WorkspaceCard: View {
                     HStack(alignment: .top, spacing: ChromeMetrics.Grid.tabGap) {
                         ForEach(0..<GridCardLayout.tabsPerRow, id: \.self) { slot in
                             if slot < row.count {
-                                cell(row[slot], tabs: tabs)
+                                cell(row[slot], tabs: tabs, displacements: displacements)
                             } else {
                                 Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
                             }
@@ -215,11 +218,14 @@ private struct WorkspaceCard: View {
     }
 
     @ViewBuilder
-    private func cell(_ cell: GridCell, tabs: [TabRecord]) -> some View {
+    private func cell(_ cell: GridCell, tabs: [TabRecord], displacements: [TabID: CGSize]) -> some View {
         switch cell {
         case .tab(let id):
             if let tab = tabs.first(where: { $0.tabID == id }) {
-                TabThumbnail(theme: theme, viewModel: viewModel, tab: tab, isTargeted: drag.target == .tabThumbnail(id))
+                TabThumbnail(
+                    theme: theme, viewModel: viewModel, tab: tab, isTargeted: drag.target == .tabThumbnail(id),
+                    displacement: displacements[id] ?? .zero
+                )
             }
         case .moreTabs(let hidden):
             tile(title: "+\(hidden)", label: "more tabs", tabCount: tabs.count)
@@ -257,11 +263,13 @@ private struct WorkspaceCard: View {
     }
 
     /// The accent outline: on whichever card owns the target, whether that is
-    /// one of its thumbnails, its tile, or the card itself.
+    /// one of its thumbnails, its tile, a reorder among its own cells, or the
+    /// card itself.
     private func isTargeted(_ tabs: [TabRecord]) -> Bool {
         switch drag.target {
         case .tabThumbnail(let id)?: tabs.contains { $0.tabID == id }
         case .moreTabs(let id)?: id == workspace.workspaceID
+        case .tabStrip(let id, _)?: id == workspace.workspaceID
         default: takesTheDrop
         }
     }
@@ -281,6 +289,9 @@ private struct TabThumbnail: View {
     let viewModel: SessionViewModel
     let tab: TabRecord
     let isTargeted: Bool
+    /// How far this thumbnail slides to open the slot a reorder inside its
+    /// card would land the dragged tab in.
+    var displacement: CGSize = .zero
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
@@ -296,6 +307,12 @@ private struct TabThumbnail: View {
         .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
+        // Inside the frame report, which is what keeps the published frame
+        // this thumbnail's RESTING place: an offset leaves the layout frame
+        // alone, and the insertion index has to be measured against where the
+        // cells rest.
+        .offset(x: displacement.width, y: displacement.height)
+        .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
         // One frame for the whole thumbnail, strip included: a drop anywhere
         // on it is a drop on this tab, so the strip never resolves as a
         // target of its own.
@@ -406,7 +423,7 @@ private struct TabThumbnail: View {
 
     /// This tab's mini panes inside a pane area of `size`. Shared with the
     /// drag proxy, so the proxy's panes land exactly where the thumbnail's do.
-    private func paneBoxes(size: CGSize) -> [MiniPaneLayout.Placed] {
+    private func paneBoxes(size: CGSize, arriving: MiniPaneLayout.Arrival? = nil) -> [MiniPaneLayout.Placed] {
         let model = viewModel.model
         let tabPanes = (model?.panes.values.filter { $0.tabID == tab.tabID } ?? [])
             .map(\.paneID)
@@ -418,16 +435,34 @@ private struct TabThumbnail: View {
             size: size,
             padding: ChromeMetrics.Grid.thumbnailPadding,
             gap: ChromeMetrics.Grid.miniPaneGap,
-            displayScale: displayScale > 0 ? displayScale : 2
+            displayScale: displayScale > 0 ? displayScale : 2,
+            arriving: arriving
         )
     }
 
+    /// The pane a live drag would land in this tab, or nil when none would.
+    private var arrival: MiniPaneLayout.Arrival? {
+        MiniPaneLayout.arrival(of: drag.activeSubject, onto: drag.target, tab: tab.tabID, model: viewModel.model)
+    }
+
+    /// While a pane is about to land here the boxes are the ones the drop
+    /// leaves behind, so the panes make room where it will really go and the
+    /// slot it takes is drawn in the canvas's own preview language: the wash
+    /// alone, a second coat over the one the targeted thumbnail already
+    /// carries.
     private func miniPanes(size: CGSize) -> some View {
         let model = viewModel.model
-        let boxes = paneBoxes(size: size)
+        let arriving = arrival
+        let boxes = paneBoxes(size: size, arriving: arriving)
         return ZStack(alignment: .topLeading) {
             ForEach(boxes, id: \.pane) { placed in
-                if let pane = model?.panes[placed.pane] {
+                if placed.pane == arriving?.pane {
+                    RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
+                        .fill(theme.accent.opacity(DragVisuals.dropWashOpacity))
+                        .frame(width: placed.frame.width, height: placed.frame.height)
+                        .offset(x: placed.frame.minX, y: placed.frame.minY)
+                        .allowsHitTesting(false)
+                } else if let pane = model?.panes[placed.pane] {
                     MiniPane(theme: theme, title: pane.displayTitle, status: pane.agentStatus)
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
@@ -446,6 +481,7 @@ private struct TabThumbnail: View {
                                 GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor)
                             }
                         }
+                        .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: placed.frame)
                 }
             }
         }
@@ -467,10 +503,12 @@ private struct TabThumbnail: View {
 /// The title is `textStrong` whether or not the tab is focused. `textDim` on
 /// this band falls under 4.5:1 in three of the seventeen builtin themes
 /// (nord, one-dark, dracula), and no role that separates from the body keeps
-/// it above AA everywhere; `textStrong` clears at 5.07:1 at worst. That
-/// leaves the weight `ChromeType.gridTabLabel(selected:)` sets as the ONLY
-/// focus signal here: the status dot beside it encodes agent status and
-/// nothing else.
+/// it above AA everywhere; `textStrong` clears at 5.07:1 at worst. Focus is
+/// carried by the accent bar at the leading edge, which is the rail's own
+/// mark for its focused workspace, and by the weight
+/// `ChromeType.gridTabLabel(selected:)` sets; the status dot encodes agent
+/// status and nothing else. The bar's slot is present on every strip, clear
+/// where there is nothing to mark, so titles stay aligned across a card.
 struct TabHandleStrip: View {
     let theme: Theme
     let title: String
@@ -479,6 +517,12 @@ struct TabHandleStrip: View {
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
+            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.tabStripIndicatorSize.width / 2)
+                .fill(isFocusedTab ? theme.accent : .clear)
+                .frame(
+                    width: ChromeMetrics.Grid.tabStripIndicatorSize.width,
+                    height: ChromeMetrics.Grid.tabStripIndicatorSize.height
+                )
             Text(title)
                 .font(ChromeType.gridTabLabel(selected: isFocusedTab))
                 .foregroundStyle(theme.tabStripTitle)
@@ -588,6 +632,9 @@ private struct NewTabPlaceholder: View {
                 .font(ChromeType.gridTabLabel(selected: false))
                 .foregroundStyle(theme.textDim)
                 .lineLimit(1)
+                // Past the slot a real strip keeps for its focus bar, so the
+                // placeholder's title lines up with the titles beside it.
+                .padding(.leading, ChromeMetrics.Grid.tabStripIndicatorSize.width + ChromeMetrics.Grid.tabStripSpacing)
                 .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: ChromeMetrics.Grid.tabStripHeight)
