@@ -9,9 +9,12 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         model.panes[pane.paneID] = pane
 
     case .paneClosed(let paneID):
-        model.panes.removeValue(forKey: paneID)
+        let closed = model.panes.removeValue(forKey: paneID)
         for tabID in model.layouts.keys {
             model.layouts[tabID]?.panes.removeAll { $0.paneID == paneID }
+        }
+        if let closed {
+            reaggregateAgentStatus(tab: closed.tabID, workspace: closed.workspaceID, in: &model)
         }
 
     case .paneFocused(let paneID):
@@ -32,6 +35,12 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         if let closedWorkspaceID = payload.closedWorkspaceID {
             removeWorkspace(closedWorkspaceID, from: &model)
         }
+        // Both ends, and after the structural changes: the source loses
+        // whatever the moved pane was contributing, the destination gains it,
+        // and a source that the move emptied has already been removed, which
+        // the helper simply skips.
+        reaggregateAgentStatus(tab: payload.previousTabID, workspace: payload.previousWorkspaceID, in: &model)
+        reaggregateAgentStatus(tab: payload.pane.tabID, workspace: payload.pane.workspaceID, in: &model)
 
     case .paneScrollChanged(let paneID, let scroll):
         model.panes[paneID]?.scroll = scroll

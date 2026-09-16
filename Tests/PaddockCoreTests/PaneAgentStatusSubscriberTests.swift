@@ -99,6 +99,67 @@ final class PaneAgentStatusSubscriberTests: XCTestCase {
         XCTAssertTrue(received.entries.isEmpty)
     }
 
+    /// A refusal ends that pane's feed, and the slot it was holding has to go
+    /// with it: `subscribe` is a no-op while anything occupies the slot, so a
+    /// finished task left behind would make the pane unarmable for the life
+    /// of the app. Every pane in the session is armed here, and a pane herdr
+    /// refuses once (mid-close, say) is one the next snapshot may report
+    /// again.
+    @MainActor
+    func testAPaneWhoseSubscriptionWasRefusedCanBeArmedAgain() async throws {
+        let fake = FakeHerdrServer()
+        try fake.start()
+        defer { fake.stop() }
+        fake.failNext(method: "events.subscribe", code: "pane_not_found", message: "gone")
+        let received = AgentStatusLog()
+        let subscriber = HerdrPaneAgentStatusSubscriber(
+            socketPath: fake.socketPath, probeTimeout: .milliseconds(50)
+        ) { pane, status in
+            received.append(pane, status)
+        }
+        let pane = PaneID(rawValue: "w1:p2")
+
+        subscriber.subscribe(pane: pane)
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "events.subscribe" } }
+        // Long enough for the seed probe to give up and the refusal to be
+        // read off the subscription socket, which is what ends the feed.
+        try await Task.sleep(for: .milliseconds(400))
+
+        subscriber.subscribe(pane: pane)
+        try await waitUntil { fake.receivedRequests.filter { $0.method == "events.subscribe" }.count == 2 }
+
+        fake.pushEventLine(#"{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p2","workspace_id":"w1","agent_status":"blocked"}}"#)
+        try await waitUntil { received.entries.contains { $0.status == .blocked } }
+    }
+
+    /// The seed sits between the subscribe and the read loop, so a `pane.get`
+    /// that connects and never answers would park this pane's whole feed with
+    /// no retry behind it. Every pane in the session arms one of these at
+    /// once; one unanswerable pane must not take its own feed down.
+    @MainActor
+    func testAProbeThatNeverAnswersDoesNotParkTheFeed() async throws {
+        let fake = FakeHerdrServer()
+        try fake.start()
+        defer { fake.stop() }
+        let release = fake.holdNext(method: "pane.get")
+        defer { release() }
+        let received = AgentStatusLog()
+        let subscriber = HerdrPaneAgentStatusSubscriber(
+            socketPath: fake.socketPath, probeTimeout: .milliseconds(150)
+        ) { pane, status in
+            received.append(pane, status)
+        }
+
+        subscriber.subscribe(pane: PaneID(rawValue: "w1:p2"))
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "pane.get" } }
+
+        // The probe is still held. The feed has to have reached its read loop
+        // anyway, which is the only thing that can relay this frame.
+        try await Task.sleep(for: .milliseconds(250))
+        fake.pushEventLine(#"{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p2","workspace_id":"w1","agent_status":"done"}}"#)
+        try await waitUntil { received.entries.contains { $0.status == .done } }
+    }
+
     /// Both pane-scoped feeds decode off the same envelope shape, so each has
     /// to reject the other's frames rather than half-decoding them.
     func testStatusDecoderReadsItsOwnFramesAndNobodyElses() throws {

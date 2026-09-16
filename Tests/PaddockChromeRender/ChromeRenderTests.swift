@@ -1391,7 +1391,11 @@ final class ChromeRenderTests: XCTestCase {
         settled.panes[PaneID(rawValue: "w4:p1")]?.agentStatus = .done
         settled.panes[PaneID(rawValue: "w4:p2")]?.agentStatus = .idle
 
-        let harness = try await Harness(theme: .tokyoNight, model: working)
+        // Frozen: two of these four toasts are `finished`, and a machine that
+        // took six seconds to build and settle both windows would otherwise
+        // sweep them away before the snapshot.
+        let frozen = Date(timeIntervalSince1970: 1_000_000)
+        let harness = try await Harness(theme: .tokyoNight, model: working, now: { frozen })
         harness.viewModel.update(model: settled, connection: .live)
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
@@ -1470,7 +1474,12 @@ private struct Harness {
 
     init(
         theme: Theme, model: SessionModel? = nil, client: any HerdrCommandClient = OfflineHerdrClient(),
-        attaching panes: [PaneID] = Fixture.canvasPanes
+        attaching panes: [PaneID] = Fixture.canvasPanes,
+        // Frozen by any test that renders the attention stack: a finished
+        // toast expires six seconds after it is raised, and a render that
+        // read the wall clock would flip on a loaded machine that took that
+        // long to build and settle two windows.
+        now: @escaping @MainActor () -> Date = { Date() }
     ) async throws {
         ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -1485,7 +1494,7 @@ private struct Harness {
             reveal: { _ in }
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
-        viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory())
+        viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory(), now: now)
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
         for pane in panes {
             _ = await viewModel.attachPane(pane)

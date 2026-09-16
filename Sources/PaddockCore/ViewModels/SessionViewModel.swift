@@ -252,11 +252,23 @@ public final class SessionViewModel {
         }
     }
 
-    /// Drops every finished toast whose six seconds are up. The stack's own
-    /// ticker calls this; a hovered stack stops calling it, which is what
-    /// hover-pauses-auto-dismiss means.
+    /// Drops every finished toast whose six seconds are up, then re-runs the
+    /// withdrawal pass. The stack's own ticker calls this; a hovered stack
+    /// stops calling it, which is what hover-pauses-auto-dismiss means.
+    ///
+    /// The second half is not a tidy-up: "no longer blocked" only withdraws a
+    /// toast once it is older than the coalescing window, and the snapshot
+    /// that reported the pane calming down can easily arrive inside that
+    /// window. Nothing else re-examines the toast when the grace expires, so
+    /// without this a question the user answered in the herdr TUI a second
+    /// after it was asked stays on screen until some unrelated event or the
+    /// five-minute resnapshot moves the model.
     public func sweepAttentionToasts() {
-        attentionToasts.expire(at: now())
+        let at = now()
+        attentionToasts.expire(at: at)
+        if let model {
+            withdrawSettledAttentionToasts(model: model, at: at)
+        }
     }
 
     public func dismissAttentionToast(pane: PaneID) {

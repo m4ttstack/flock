@@ -806,6 +806,7 @@ final class SessionViewModelTests: XCTestCase {
 
         viewModel.update(model: nil, connection: .reconnecting(attempt: 1))
 
+        XCTAssertEqual(status.unsubscribed.count, 3, "an equality of two empty sets would prove nothing")
         XCTAssertEqual(Set(status.unsubscribed), Set(status.subscribed))
     }
 

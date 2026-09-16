@@ -29,15 +29,23 @@ public final class HerdrPaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
     private let socketPath: String
     private let onChange: @MainActor (PaneID, AgentStatus) -> Void
     private let retryDelay: Duration
+    private let probeTimeout: Duration
     private var feeds: [PaneID: Task<Void, Never>] = [:]
+    /// Which arming a pane's slot currently holds, so a feed that ends can
+    /// clear its own slot without ever clearing a newer one that a
+    /// re-`subscribe` has already installed.
+    private var armings: [PaneID: Int] = [:]
+    private var nextArming = 0
 
     public init(
         socketPath: String,
         retryDelay: Duration = .seconds(2),
+        probeTimeout: Duration = .seconds(3),
         onChange: @escaping @MainActor (PaneID, AgentStatus) -> Void
     ) {
         self.socketPath = socketPath
         self.retryDelay = retryDelay
+        self.probeTimeout = probeTimeout
         self.onChange = onChange
     }
 
@@ -45,24 +53,47 @@ public final class HerdrPaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
         guard feeds[pane] == nil else { return }
         let socketPath = socketPath
         let retryDelay = retryDelay
+        let probeTimeout = probeTimeout
         let onChange = onChange
-        feeds[pane] = Task { @MainActor in
+        nextArming += 1
+        let arming = nextArming
+        armings[pane] = arming
+        feeds[pane] = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                let refused = await Self.runFeed(pane: pane, socketPath: socketPath, onChange: onChange)
-                if refused || Task.isCancelled { return }
+                let refused = await Self.runFeed(
+                    pane: pane, socketPath: socketPath, probeTimeout: probeTimeout, onChange: onChange
+                )
+                if refused || Task.isCancelled { break }
                 try? await Task.sleep(for: retryDelay)
             }
+            // A refusal ends this pane's feed for good, but the slot must not
+            // stay occupied by a finished task: `subscribe` is a no-op while
+            // anything is in it, so the pane could never be armed again. That
+            // matters more here than on the scroll feed this is modelled on,
+            // which only ever arms the handful of visible panes; this one
+            // arms every pane in the session, and a pane herdr refused once
+            // (mid-close, say) is one the very next snapshot may well report
+            // again.
+            self?.retire(pane: pane, arming: arming)
         }
     }
 
     public func unsubscribe(pane: PaneID) {
+        armings.removeValue(forKey: pane)
         feeds.removeValue(forKey: pane)?.cancel()
+    }
+
+    private func retire(pane: PaneID, arming: Int) {
+        guard armings[pane] == arming else { return }
+        armings.removeValue(forKey: pane)
+        feeds.removeValue(forKey: pane)
     }
 
     /// Returns `true` when herdr refused the subscription, `false` when the
     /// connection simply ended or failed to open (both retryable).
     private static func runFeed(
-        pane: PaneID, socketPath: String, onChange: @MainActor (PaneID, AgentStatus) -> Void
+        pane: PaneID, socketPath: String, probeTimeout: Duration,
+        onChange: @MainActor (PaneID, AgentStatus) -> Void
     ) async -> Bool {
         guard let socket = try? await LineSocket(path: socketPath) else { return false }
         defer { Task { await socket.close() } }
@@ -73,7 +104,7 @@ public final class HerdrPaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
         // value when the subscription is created, so anything that changes
         // between these two reads still arrives as a frame. Probing first
         // would leave that window unreported by either side.
-        if let seed = await probeStatus(pane: pane, socketPath: socketPath), !Task.isCancelled {
+        if let seed = await probeStatus(pane: pane, socketPath: socketPath, timeout: probeTimeout), !Task.isCancelled {
             onChange(pane, seed)
         }
         do {
@@ -95,7 +126,27 @@ public final class HerdrPaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
     /// answers one request per connection and treats any inbound byte on a
     /// subscription connection as the peer disconnecting, so this can never
     /// share the feed's socket. A failure at any step simply yields no seed.
-    private static func probeStatus(pane: PaneID, socketPath: String) async -> AgentStatus? {
+    ///
+    /// Bounded, because the seed sits between the subscribe and the read
+    /// loop: a `pane.get` that connects and then never answers would park
+    /// that pane's whole feed with no retry behind it. Every pane in the
+    /// session arms one of these at once, so one unanswerable pane must not
+    /// be able to take its feed down with it. Giving up just means no seed --
+    /// the model's own snapshot value stands until the first live frame.
+    private static func probeStatus(pane: PaneID, socketPath: String, timeout: Duration) async -> AgentStatus? {
+        await withTaskGroup(of: AgentStatus?.self) { group in
+            group.addTask { await readProbe(pane: pane, socketPath: socketPath) }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private static func readProbe(pane: PaneID, socketPath: String) async -> AgentStatus? {
         guard let socket = try? await LineSocket(path: socketPath) else { return nil }
         defer { Task { await socket.close() } }
         guard let request = probeLine(pane: pane), (try? await socket.send(line: request)) != nil else {

@@ -209,6 +209,17 @@ final class FakeHerdrServer: @unchecked Sendable {
         }
 
         if request.method == "events.subscribe" {
+            // A pane-scoped subscription can be refused outright -- herdr
+            // probes the pane when the subscription is created and errors if
+            // it is gone -- and it answers with an error envelope on the same
+            // connection, then ends it. Without this branch `failNext` was
+            // silently ignored for subscribes and that path was untestable.
+            if let failure = lock.withLock({ pendingFailures.removeValue(forKey: request.method) }) {
+                let error = #"{"id":"\#(request.id)","error":{"code":"\#(failure.code)","message":"\#(failure.message)"}}"#
+                writeLine(error, to: fd)
+                Foundation.close(fd)
+                return
+            }
             let ack = #"{"id":"\#(request.id)","result":{"type":"subscription_started"}}"#
             guard writeLine(ack, to: fd) else {
                 Foundation.close(fd)

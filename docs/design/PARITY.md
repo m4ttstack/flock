@@ -30,10 +30,16 @@ views. Task reviewers treat a missing row or an unsampled claim as a finding.
 | working | yellow | filled |
 | blocked | red | filled (+ glow when attention) |
 | done | teal | filled |
-| idle | green | HOLLOW ring (1.5px stroke) |
-| unknown | overlay0 | small centered dot |
+| idle | green | HOLLOW ring, stroke a quarter of the dot |
+| unknown | overlay0 | centered dot at half the size |
 
 Sizes: 8px pane header / rail, 7px tab pill / titlebar, 6px thumbnails.
+The two resting shapes are fractions of whatever size the dot is asked for, not
+fixed points: the same rule has to read at 4px on a grid mini pane and at 8px on
+a rail row, and a fixed 1.5px stroke (what the artboards drew at their own scale)
+is nearly the whole radius at the small end. One implementation for every
+surface, `StatusDot`; `ChromeRenderTests` samples each state's center and its
+ring stroke.
 Titlebar connection dot is filled green (connection health, not agent status).
 Zoom badge: mauve, never a status color.
 

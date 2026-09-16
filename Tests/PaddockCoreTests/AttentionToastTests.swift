@@ -208,6 +208,29 @@ final class AttentionToastTests: XCTestCase {
         XCTAssertTrue(viewModel.attentionToasts.isEmpty)
     }
 
+    /// The snapshot that reports a pane calming down usually arrives INSIDE
+    /// the coalescing window (Matt answers in the herdr TUI a second after
+    /// the toast went up), and inside the window that reads as a flap, so the
+    /// toast is kept. Nothing else re-examines it when the grace expires: if
+    /// the sweep does not, a question that was answered in a second stays on
+    /// screen until an unrelated event or the resnapshot moves the model.
+    @MainActor
+    func testANeedsInputToastIsWithdrawnWhenTheGraceExpiresWithNoFurtherEvents() {
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(model: attentionModel(), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .blocked]), connection: .live)
+
+        clock.advance(1.5)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
+        XCTAssertFalse(viewModel.attentionToasts.isEmpty, "inside the window this is a flap, not an answer")
+
+        clock.advance(0.6)
+        viewModel.sweepAttentionToasts()
+
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
     @MainActor
     func testAToastIsWithdrawnOnceItsPaneIsTheFocusedOne() {
         let clock = TestClock()

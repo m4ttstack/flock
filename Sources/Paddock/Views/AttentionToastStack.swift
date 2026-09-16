@@ -13,9 +13,6 @@ struct AttentionToastStackView: View {
     @State private var isHovering = false
 
     private var stack: AttentionToastStack { viewModel.attentionToasts }
-    /// Only a finished toast has a clock, so the sweep runs only while one is
-    /// up rather than for the window's whole life.
-    private var needsSweep: Bool { stack.toasts.contains { $0.kind == .finished } }
 
     var body: some View {
         if !stack.isEmpty {
@@ -33,8 +30,12 @@ struct AttentionToastStackView: View {
             // The whole stack, not one card: cards vanishing out from under a
             // pointer that is reading them is what the pause exists to stop.
             .onHover { isHovering = $0 }
-            .task(id: needsSweep) {
-                guard needsSweep else { return }
+            // Runs for as long as anything is on screen, not just while a
+            // finished toast is counting down: the sweep is also what notices
+            // that a "needs input" toast's coalescing grace has expired, and
+            // that toast has no clock of its own. Bound to this branch of the
+            // `if`, so an empty stack costs nothing.
+            .task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: ChromeMetrics.AttentionToast.sweepInterval)
                     if Task.isCancelled { return }
