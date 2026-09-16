@@ -343,9 +343,22 @@ final class ChromeRenderTests: XCTestCase {
         )
 
         try await overEmptySpace(of: workspace, harness: harness, window: window)
-        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(workspace)), "\(workspace.rawValue)")
         let after = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
         XCTAssertEqual(after.height, before.height, accuracy: 0.5, "\(workspace.rawValue) grew a row the drop will not keep")
+
+        // Whatever stands in for the created tab is also where a committed
+        // drop lands. A card with a tile publishes the tile's own rect under
+        // that id, from the real view rather than a written-in frame; a card
+        // with nothing to stand in has no rect at all and falls back to
+        // itself.
+        if let tile {
+            XCTAssertEqual(
+                harness.drag.gridItemFrame(for: .newTab(workspace)), tile,
+                "\(workspace.rawValue)'s tile carries the drop but never published its rect for it"
+            )
+        } else {
+            XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(workspace)), "\(workspace.rawValue)")
+        }
 
         let image = try snapshot(window)
         let lit = hex(image, groundPoint(of: try XCTUnwrap(lights)))

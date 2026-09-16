@@ -467,9 +467,10 @@ private struct TabThumbnail: View {
 /// The title is `textStrong` whether or not the tab is focused. `textDim` on
 /// this band falls under 4.5:1 in three of the seventeen builtin themes
 /// (nord, one-dark, dracula), and no role that separates from the body keeps
-/// it above AA everywhere; `textStrong` clears at 5.07:1 at worst. Focus is
-/// carried by the weight `ChromeType.gridTabLabel(selected:)` already sets,
-/// and by the status dot beside it.
+/// it above AA everywhere; `textStrong` clears at 5.07:1 at worst. That
+/// leaves the weight `ChromeType.gridTabLabel(selected:)` sets as the ONLY
+/// focus signal here: the status dot beside it encodes agent status and
+/// nothing else.
 struct TabHandleStrip: View {
     let theme: Theme
     let title: String
@@ -552,11 +553,17 @@ private struct GridTile: View {
         .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
         .background {
-            Color.clear.reportsFrame(in: DragSpace.gridContent) { frame in
-                drag.setGridItemFrame(frame, for: reportsAs)
-                if let alsoReportsAs {
-                    drag.setGridItemFrame(frame, for: alsoReportsAs)
-                }
+            Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
+        }
+        // A SECOND reporter rather than a second call inside the first: a
+        // frame report fires on appear and on a geometry change, and this
+        // tile's geometry is exactly what does NOT change when it starts
+        // standing in for a new tab (that is why it carries the preview at
+        // all). Inserting a view when the id appears is what makes its own
+        // appear fire and publish the rect.
+        .background {
+            if let alsoReportsAs {
+                Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: alsoReportsAs) }
             }
         }
         .contentShape(Rectangle())
