@@ -348,10 +348,12 @@ final class ChromeRenderTests: XCTestCase {
         )
         // From the only pane of a tab of this card: that tab goes with the
         // drop, and it STAYS DRAWN in its own slot until then, so the
-        // placeholder takes the same free slot as the other two.
+        // placeholder takes the same free slot as the other two. The created
+        // tab lands one cell earlier though, in the slot the emptied tab
+        // vacates, which is the rect the ghost and the flash have to use.
         try await assertNewTabSlot(
             of: GridFixture.herdr, dragging: GridFixture.srcPane, harness: harness, window: window,
-            follows: slots[2], render: "grid-drag-new-tab-same-workspace.png", directory: directory
+            lands: slots[2], render: "grid-drag-new-tab-same-workspace.png", directory: directory
         )
         XCTAssertEqual(
             harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.herdr }?.tabs.map(\.frame), slots,
@@ -363,7 +365,7 @@ final class ChromeRenderTests: XCTestCase {
         let only = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
         try await assertNewTabSlot(
             of: GridFixture.glance, dragging: GridFixture.glancePane, harness: harness, window: window,
-            follows: only, render: nil, directory: nil
+            lands: only, render: nil, directory: nil
         )
         XCTAssertEqual(
             harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame, only,

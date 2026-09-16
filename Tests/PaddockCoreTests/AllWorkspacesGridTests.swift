@@ -91,6 +91,18 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertGreaterThan(slots(gridWidth: 1600), 4, "a wide window gained nothing")
     }
 
+    /// The floor `tabsPerRow` keeps is only worth keeping if a card at it
+    /// still draws a tab: a row of one slot that spends it on the tile is the
+    /// very state the floor exists to prevent.
+    func testACardAtTheOneSlotFloorStillDrawsATab() {
+        XCTAssertEqual(
+            GridCardLayout.cells(tabs: tabs(5), expanded: false, perRow: 1),
+            [.tab(tabs(5)[0]), .moreTabs(hidden: 4)]
+        )
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(5), expanded: false, perRow: 1).map(\.count), [1, 1])
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(2), expanded: false, perRow: 0).map(\.count), [1, 1], "a zero never strides")
+    }
+
     /// The slot count is what the tile, the placeholder and the wrapping all
     /// read, so a row at a wider window really does hold more tabs before it
     /// wraps and spends its last slot on the tile at the same place.
@@ -325,9 +337,9 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// Where the placeholder and the landing slot disagree, and why. With no
     /// tab closing they are the same slot at every shape; when the drop
     /// empties one of the card's own tabs the created tab really lands in the
-    /// slot that tab vacates, one earlier than the free slot the preview uses.
-    /// The user asked for the tabs to stay put, so the preview keeps the free
-    /// slot and the created tab moves back one when the drop lands.
+    /// slot that tab vacates, one CELL earlier than the free slot the preview
+    /// uses. The user asked for the tabs to stay put, so the preview keeps the
+    /// free slot and `landingSlot` is what the ghost and the flash use.
     func testThePlaceholderIsTheLandingSlotUnlessTheDropEmptiesATab() {
         for count in 1...12 {
             for expanded in [false, true] {
@@ -338,6 +350,59 @@ final class AllWorkspacesGridTests: XCTestCase {
         let all = tabs(3)
         XCTAssertEqual(placeholderSlot(tabs: all, expanded: false, closing: all[0])?.column, 3)
         XCTAssertEqual(landingSlot(tabs: all, expanded: false, closing: all[0])?.column, 2)
+    }
+
+    /// `landingSlot` is where the created tab really ends up, at every shape:
+    /// the index it names in the card's own cells is the index that tab takes
+    /// once the drop lands, and nil exactly when the card will not be drawing
+    /// that tab at all. Swept over the closing cases the placeholder's own
+    /// slot cannot cover, since those are the ones where the two differ.
+    func testTheLandingSlotIsWhereTheCreatedTabReallyEndsUp() {
+        let created = TabID(rawValue: "w1:tNEW")
+        for slots in [2, 4, 6] {
+            for count in 1...16 {
+                for expanded in [false, true] {
+                    let list = tabs(count)
+                    for closing in [nil, list[0], list[count - 1]] as [TabID?] {
+                        let shape = "\(count) tabs at \(slots) per row, expanded: \(expanded), closing: \(String(describing: closing))"
+                        let after = GridCardLayout.cells(
+                            tabs: GridCardLayout.surviving(list, closing: closing) + [created],
+                            expanded: expanded, perRow: slots
+                        )
+                        XCTAssertEqual(
+                            GridCardLayout.landingSlot(tabs: list, expanded: expanded, closing: closing, perRow: slots),
+                            after.firstIndex(of: .tab(created)),
+                            "the landing slot is not where the created tab lands: \(shape)"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// The gap the ghost and the flash have to bridge is one CELL, which is a
+    /// whole ROW on screen whenever that cell ends a row. The review's own
+    /// worked example: an expanded card of eight tabs at four per row draws
+    /// nine cells, so the placeholder opens the third row while the created
+    /// tab lands at the end of the second.
+    func testTheLandingSlotCrossesARowWhenTheFreeSlotOpensOne() {
+        let all = tabs(8)
+        XCTAssertEqual(placeholderSlot(tabs: all, expanded: true, closing: all[0]).map { [$0.row, $0.column] }, [2, 0])
+        XCTAssertEqual(
+            GridCardLayout.landingSlot(tabs: all, expanded: true, closing: all[0], perRow: perRow), 7,
+            "the created tab takes the eighth cell, which is row 1 column 3"
+        )
+        XCTAssertEqual(landingSlot(tabs: all, expanded: true, closing: all[0]).map { [$0.row, $0.column] }, [1, 3])
+        for count in [8, 12, 16] {
+            let list = tabs(count)
+            let cells = GridCardLayout.cells(tabs: list, expanded: true, perRow: perRow)
+            XCTAssertEqual(cells.count % perRow, 1, "\(count): the premise, a card whose cells end a row with one over")
+            let slot = try? XCTUnwrap(GridCardLayout.landingSlot(tabs: list, expanded: true, closing: list[0], perRow: perRow))
+            XCTAssertNotEqual(
+                (slot ?? -1) / perRow, placeholderSlot(tabs: list, expanded: true, closing: list[0])?.row,
+                "\(count): the two are in the same row, so this shape proves nothing"
+            )
+        }
     }
 
     /// A card that cannot draw the created tab is left exactly as it stands,
@@ -371,15 +436,20 @@ final class AllWorkspacesGridTests: XCTestCase {
     func testOnlyACardWithNoSlotForTheTabPutsItOnItsTile() {
         XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(9), expanded: false, perRow: perRow))
         XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(5), expanded: false, perRow: perRow))
-        for count in 5...16 {
-            XCTAssertFalse(
-                GridCardLayout.tilePreviewsTheDrop(tabs: tabs(count), expanded: true, perRow: perRow),
-                "\(count) expanded: an expanded card has a slot for the tab, so its collapse tile is never the drop's"
-            )
-            XCTAssertTrue(
-                GridCardLayout.cells(tabs: tabs(count), expanded: true, newTab: true, perRow: perRow).contains(.newTab),
-                "\(count) expanded: and that slot has to be a real one"
-            )
+        // At every row width, not just the design window's: `perRow` is the
+        // window's answer now, and this claim is what makes the collapse tile
+        // half of the preview unreachable.
+        for slots in [2, 4, 6] {
+            for count in (slots + 1)...16 {
+                XCTAssertFalse(
+                    GridCardLayout.tilePreviewsTheDrop(tabs: tabs(count), expanded: true, perRow: slots),
+                    "\(count) expanded at \(slots) per row: an expanded card has a slot, so its tile is never the drop's"
+                )
+                XCTAssertTrue(
+                    GridCardLayout.cells(tabs: tabs(count), expanded: true, newTab: true, perRow: slots).contains(.newTab),
+                    "\(count) expanded at \(slots) per row: and that slot has to be a real one"
+                )
+            }
         }
         XCTAssertFalse(
             GridCardLayout.tilePreviewsTheDrop(tabs: tabs(3), expanded: false, perRow: perRow),
@@ -405,7 +475,7 @@ final class AllWorkspacesGridTests: XCTestCase {
                     .contains(.newTab)
                 let tilePreviews = GridCardLayout.tilePreviewsTheDrop(tabs: tabs(count), expanded: expanded, perRow: perRow)
                 XCTAssertFalse(drawsPlaceholder && tilePreviews, "\(count) tabs, expanded: \(expanded)")
-                if GridCardLayout.hasTile(tabs: count, perRow: perRow) {
+                if GridCardLayout.cells(tabs: tabs(count), expanded: expanded, perRow: perRow).contains(where: \.isTile) {
                     XCTAssertTrue(drawsPlaceholder || tilePreviews, "\(count) tabs, expanded: \(expanded)")
                 }
             }

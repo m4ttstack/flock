@@ -107,14 +107,18 @@ struct AllWorkspacesGrid: View {
             let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
             let preview = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
             let cells = preview.cells(of: tabs, expanded: expanded, perRow: slotsPerRow)
-            let tileCarriesIt = preview.tileCarriesTheDrop(of: tabs, expanded: expanded, perRow: slotsPerRow)
+            let lands = preview.landingSlot(of: tabs, expanded: expanded, perRow: slotsPerRow) != nil
+            // The created tab's id is published once, wherever its slot turns
+            // out to be: the card hangs the reporter on that cell rather than
+            // on the placeholder, which is drawn somewhere else whenever the
+            // drop also empties one of this card's tabs.
             return [.card(workspace.workspaceID)]
-                + (tileCarriesIt ? [.newTab(workspace.workspaceID)] : [])
-                + cells.map { cell -> GridItemID in
+                + (lands ? [.newTab(workspace.workspaceID)] : [])
+                + cells.compactMap { cell -> GridItemID? in
                     switch cell {
                     case .tab(let id): .tab(id)
                     case .moreTabs, .collapse: .tile(workspace.workspaceID)
-                    case .newTab: .newTab(workspace.workspaceID)
+                    case .newTab: nil
                     }
                 }
         }
@@ -162,6 +166,22 @@ private struct CardDropPreview {
         takesTheDrop && GridCardLayout.tilePreviewsTheDrop(
             tabs: tabs, expanded: expanded, closing: closingTab, perRow: perRow
         )
+    }
+
+    /// The cell a committed drop actually lands in, as an index into the cells
+    /// the card draws: the slot the created tab takes, or the trailing tile
+    /// when the card will not be drawing that tab at all, since the tile's own
+    /// count is then the only trace the drop leaves. Nil when the card has
+    /// neither, and so nothing honest to settle or flash on.
+    func landingSlot(of tabs: [TabID], expanded: Bool, perRow: Int) -> Int? {
+        guard takesTheDrop else { return nil }
+        let cells = cells(of: tabs, expanded: expanded, perRow: perRow)
+        if let slot = GridCardLayout.landingSlot(
+            tabs: tabs, expanded: expanded, closing: closingTab, perRow: perRow
+        ), cells.indices.contains(slot) {
+            return slot
+        }
+        return cells.firstIndex(where: \.isTile)
     }
 
     private static func tabEmptiedBy(_ subject: DragSubject, of workspace: WorkspaceID, model: SessionModel) -> TabID? {
@@ -225,7 +245,7 @@ private struct WorkspaceCard: View {
         VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardSpacing) {
             header(tabCount: tabs.count)
             VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabGap) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
                     // Every row keeps all its slots, so a short row's tabs are
                     // as wide as a full row's.
                     HStack(alignment: .top, spacing: ChromeMetrics.Grid.tabGap) {
@@ -233,9 +253,11 @@ private struct WorkspaceCard: View {
                         // the placeholder are always the same size and a row
                         // that does not fill its card leaves the slack at its
                         // own trailing edge.
-                        ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                            self.cell(cell, tabs: tabs, displacements: displacements)
-                                .frame(width: ChromeMetrics.Grid.thumbnailWidth)
+                        ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
+                            self.cell(
+                                cell, at: rowIndex * slotsPerRow + column, tabs: tabs, displacements: displacements
+                            )
+                            .frame(width: ChromeMetrics.Grid.thumbnailWidth)
                         }
                     }
                 }
@@ -284,8 +306,34 @@ private struct WorkspaceCard: View {
         .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
     }
 
+    /// One cell, plus the reporter for the slot a committed drop lands in
+    /// when that slot is this one. The reporter is a view of its own rather
+    /// than a second call inside the cell's: a frame report fires on appear
+    /// and on a geometry change, and a cell's geometry is exactly what does
+    /// NOT change when it becomes the drop's landing slot.
+    private func cell(
+        _ cell: GridCell, at index: Int, tabs: [TabRecord], displacements: [TabID: CGSize]
+    ) -> some View {
+        content(cell, tabs: tabs, displacements: displacements)
+            .background {
+                if index == landingSlot(tabs) {
+                    Color.clear.reportsFrame(in: DragSpace.gridContent) {
+                        drag.setGridItemFrame($0, for: .newTab(workspace.workspaceID))
+                    }
+                }
+            }
+    }
+
+    /// Which of this card's cells a committed drop lands in, if any.
+    private func landingSlot(_ tabs: [TabRecord]) -> Int? {
+        preview.landingSlot(
+            of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
+            perRow: slotsPerRow
+        )
+    }
+
     @ViewBuilder
-    private func cell(_ cell: GridCell, tabs: [TabRecord], displacements: [TabID: CGSize]) -> some View {
+    private func content(_ cell: GridCell, tabs: [TabRecord], displacements: [TabID: CGSize]) -> some View {
         switch cell {
         case .tab(let id):
             if let tab = tabs.first(where: { $0.tabID == id }) {
@@ -328,11 +376,10 @@ private struct WorkspaceCard: View {
     private func tile(title: String, label: String, tabs: [TabRecord]) -> some View {
         let carriesTheCardsDrop = carriesTheCardsDrop(tabs: tabs)
         return GridTile(
-            theme: theme, title: title, label: label,
+            theme: theme, title: title, label: label, workspace: workspace.workspaceID,
             isTargeted: drag.target == .moreTabs(workspace.workspaceID),
             previewsNewTab: carriesTheCardsDrop,
-            reportsAs: .tile(workspace.workspaceID),
-            alsoReportsAs: carriesTheCardsDrop ? .newTab(workspace.workspaceID) : nil
+            reportsAs: .tile(workspace.workspaceID)
         ) {
             drag.toggleGridCard(workspace.workspaceID)
         }
@@ -672,15 +719,13 @@ private struct GridTile: View {
     let theme: Theme
     let title: String
     let label: String
+    let workspace: WorkspaceID
     let isTargeted: Bool
     /// The card this tile ends is taking a drop with nowhere else to draw the
     /// tab it creates, so this cell IS that tab's slot for as long as the drop
     /// is live and wears the new tab's face in place of its own.
     var previewsNewTab = false
     let reportsAs: GridItemID
-    /// A second id for the same rect, for when this tile is standing in for
-    /// the tab a card drop will create: that is the rect the drop lands in.
-    var alsoReportsAs: GridItemID?
     let action: () -> Void
 
     @Environment(DragCoordinator.self) private var drag
@@ -690,17 +735,6 @@ private struct GridTile: View {
         .background {
             Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
         }
-        // A SECOND reporter rather than a second call inside the first: a
-        // frame report fires on appear and on a geometry change, and this
-        // tile's geometry is exactly what does NOT change when it starts
-        // standing in for a new tab (that is why it carries the preview at
-        // all). Inserting a view when the id appears is what makes its own
-        // appear fire and publish the rect.
-        .background {
-            if let alsoReportsAs {
-                Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: alsoReportsAs) }
-            }
-        }
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -709,7 +743,7 @@ private struct GridTile: View {
     @ViewBuilder
     private var face: some View {
         if previewsNewTab {
-            NewTabFace(theme: theme)
+            NewTabFace(theme: theme, workspace: workspace)
         } else {
             VStack(spacing: ChromeMetrics.Grid.tabLabelGap) {
                 Text(title)
@@ -733,8 +767,13 @@ private struct GridTile: View {
 /// wash alone, never a stroke, which is how the canvas previews a drop; the
 /// strip band takes a second coat of it so the tab's own handle shape still
 /// reads inside an otherwise empty slot.
+///
+/// Over `canvas`, which is the ground a real thumbnail's own wash lands on, so
+/// a slot standing in for a tab and a thumbnail taking a drop are the same
+/// drawing over the same ground wherever either is drawn.
 private struct NewTabFace: View {
     let theme: Theme
+    let workspace: WorkspaceID
 
     var body: some View {
         VStack(spacing: 0) {
@@ -754,7 +793,9 @@ private struct NewTabFace: View {
         .frame(maxWidth: .infinity)
         .frame(height: ChromeMetrics.Grid.thumbnailHeight)
         .background(theme.accent.opacity(DragVisuals.dropWashOpacity), in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .accessibilityIdentifier("paddock.grid.newTab.\(workspace.rawValue)")
     }
 }
 
@@ -769,10 +810,8 @@ private struct NewTabPlaceholder: View {
     @Environment(DragCoordinator.self) private var drag
 
     var body: some View {
-        NewTabFace(theme: theme)
-            .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .newTab(workspace)) }
+        NewTabFace(theme: theme, workspace: workspace)
             .allowsHitTesting(false)
-            .accessibilityIdentifier("paddock.grid.newTab.\(workspace.rawValue)")
     }
 }
 

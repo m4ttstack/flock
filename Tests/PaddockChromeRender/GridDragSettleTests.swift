@@ -16,6 +16,9 @@ final class GridDragSettleTests: XCTestCase {
     private static let miniPaneBox = CGRect(x: 4, y: 4, width: 45, height: 74)
     /// Its neighbour, the other half of the same thumbnail.
     private static let neighbourBox = CGRect(x: 53, y: 4, width: 43, height: 74)
+    private static var neighbourOnScreen: CGRect {
+        neighbourBox.offsetBy(dx: thumbnail.minX, dy: thumbnail.minY)
+    }
     private static var miniPane: CGRect {
         CGRect(
             x: thumbnail.minX + miniPaneBox.minX, y: thumbnail.minY + miniPaneBox.minY,
@@ -265,15 +268,18 @@ final class GridDragSettleTests: XCTestCase {
         XCTAssertEqual(drag.ghostTopLeft, Self.miniPane.origin)
     }
 
-    /// Brought back onto its OWN mini pane, band or interior: the drop names
-    /// that pane, the planner refuses it, and the proxy goes straight back to
-    /// the box it was picked up from rather than into the half of itself the
-    /// band would have split.
+    /// Brought back onto its own tab's thumbnail: a band there is withdrawn
+    /// and reads as the tab itself, its own mini pane's middle names that pane
+    /// and the planner refuses it, and either way the proxy goes straight back
+    /// to the box it was picked up from rather than into the half of itself
+    /// the band would have split.
     func testAPaneDroppedOnItsOwnMiniPaneSpringsStraightHome() async {
-        for point in [
-            CGPoint(x: Self.miniPane.minX + 1, y: Self.miniPane.midY),
-            CGPoint(x: Self.miniPane.midX, y: Self.miniPane.midY),
-        ] {
+        let expected: [(CGPoint, DropTarget)] = [
+            (CGPoint(x: Self.miniPane.minX + 1, y: Self.miniPane.midY), .tabThumbnail(Self.tab)),
+            (CGPoint(x: Self.miniPane.midX, y: Self.miniPane.midY), .paneInterior(Self.pane)),
+            (CGPoint(x: Self.neighbourOnScreen.minX + 1, y: Self.neighbourOnScreen.midY), .tabThumbnail(Self.tab)),
+        ]
+        for (point, target) in expected {
             let drag = makeCoordinator()
             drag.beginIfIdle(
                 .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size),
@@ -281,10 +287,7 @@ final class GridDragSettleTests: XCTestCase {
             )
             drag.move(to: CGPoint(x: 300, y: 150))
             drag.move(to: point)
-            switch drag.target {
-            case .paneEdge(Self.pane, _)?, .paneInterior(Self.pane)?: break
-            default: XCTFail("\(point) resolved to \(String(describing: drag.target))")
-            }
+            XCTAssertEqual(drag.target, target, "\(point)")
 
             drag.release()
             await awaitSettle(drag)

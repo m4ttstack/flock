@@ -279,7 +279,7 @@ private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDro
     switch dragging {
     case .pane:
         if let hit = grid.thumbnails.first(where: { $0.frame.contains(point) }) {
-            return resolveThumbnail(at: point, tab: hit.id, frame: hit.frame, grid: grid)
+            return resolveThumbnail(at: point, tab: hit.id, frame: hit.frame, dragging: dragging, grid: grid)
         }
         if let hit = grid.tiles.first(where: { $0.frame.contains(point) }) {
             return .moreTabs(hit.id)
@@ -303,11 +303,31 @@ private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDro
 /// One thumbnail's answer for a pane. The mini panes go through the canvas's
 /// own `resolveCanvas`, so a grid drop and a canvas drop of the same aim are
 /// one rule rather than two; a point no mini pane covers is the tab itself.
-private func resolveThumbnail(at point: CGPoint, tab: TabID, frame: CGRect, grid: GridDropSurfaces) -> DropTarget {
+///
+/// Inside a pane's OWN tab the bands are withdrawn: at thumbnail scale the two
+/// bands either side of a gutter make the widest target in a thumbnail, and a
+/// pane aimed back at the tab it came from means to go back, not to re-split
+/// beside a sibling. Only the middle of another pane of that tab means
+/// anything there, and it swaps the two. A band falls through to the tab
+/// itself, which for the pane's own tab is the same nothing the handle strip
+/// and the padding already mean.
+///
+/// This is the grid's rule alone, and it is decided here rather than in the
+/// planner because it is thumbnail scale that makes those bands a trap: on the
+/// canvas a same-tab band is how a pane is rearranged inside its tab at all.
+private func resolveThumbnail(
+    at point: CGPoint, tab: TabID, frame: CGRect, dragging: DragSubject, grid: GridDropSurfaces
+) -> DropTarget {
     guard let drawn = grid.miniPanes.first(where: { $0.tab == tab }) else { return .tabThumbnail(tab) }
     let boxes = drawn.panes.map { ($0.pane, $0.frame.offsetBy(dx: frame.minX, dy: frame.minY)) }
     guard let hit = boxes.first(where: { $0.1.contains(point) }) else { return .tabThumbnail(tab) }
-    return resolveCanvas(at: point, paneID: hit.0, frame: hit.1)
+    let target = resolveCanvas(at: point, paneID: hit.0, frame: hit.1)
+    guard case .paneEdge = target, case .pane(let dragged) = dragging,
+          drawn.panes.contains(where: { $0.pane == dragged })
+    else {
+        return target
+    }
+    return .tabThumbnail(tab)
 }
 
 private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {

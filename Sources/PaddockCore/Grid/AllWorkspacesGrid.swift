@@ -13,9 +13,10 @@ public enum GridCell: Hashable, Sendable {
 }
 
 extension GridCell {
-    /// The trailing control a card can end with. It is not a tab, so it is
-    /// never the slot a new tab lands in.
-    var isTile: Bool {
+    /// The trailing control a card can end with. It is not a tab, so a card
+    /// only ever lands a drop on it when the tab that drop creates is one the
+    /// card will not be drawing at all.
+    public var isTile: Bool {
         switch self {
         case .moreTabs, .collapse: true
         case .tab, .newTab: false
@@ -58,8 +59,10 @@ public enum GridCardLayout {
         return max(0, card - cardPadding * 2)
     }
 
-    /// A resting card spends its last slot on the +N tile.
-    public static func restingTabCount(perRow: Int) -> Int { perRow - 1 }
+    /// A resting card spends its last slot on the +N tile, but never its only
+    /// one: a card drawing a tile and no tab at all is the very state
+    /// `tabsPerRow`'s own floor exists to prevent.
+    public static func restingTabCount(perRow: Int) -> Int { max(1, perRow - 1) }
 
     /// A workspace whose tabs fit one row shows every tab and has nothing to
     /// expand.
@@ -109,6 +112,27 @@ public enum GridCardLayout {
         return cells.dropLast() + [.newTab] + cells.suffix(1)
     }
 
+    /// Which of the card's own cells the tab this drop creates really lands
+    /// in, as an index into the cells the card is drawing now, or nil when the
+    /// card will not be drawing that tab at all once the drop lands.
+    ///
+    /// This is NOT always where the placeholder is drawn. A card with a free
+    /// slot keeps its own tabs in place and spends the slot after them, while
+    /// herdr appends the created tab once the tab the drop empties is gone, so
+    /// the two are one cell apart in the linear order whenever a tab closes,
+    /// which is a whole ROW apart on screen whenever that cell ends a row. The
+    /// ghost and the landing flash have to use this one, or they settle and
+    /// burn where nothing appears.
+    ///
+    /// Slot `i` is the same place on screen in both shapes: the cells are one
+    /// fixed size laid out `perRow` to a row, so a preview that is a row
+    /// taller than the card the drop leaves still puts slot `i` where slot `i`
+    /// will be.
+    public static func landingSlot(tabs: [TabID], expanded: Bool, closing: TabID?, perRow: Int) -> Int? {
+        settled(tabs: surviving(tabs, closing: closing) + [createdTab], expanded: expanded, perRow: perRow)
+            .firstIndex(of: .tab(createdTab))
+    }
+
     /// Stands in for the tab a previewed drop creates while the post-drop
     /// shape is laid out. Replaced by `.newTab` before the cells leave
     /// `cells`, so it reaches no view and no frame report; the id shape is
@@ -137,10 +161,6 @@ public enum GridCardLayout {
         let preview = cells(tabs: tabs, expanded: expanded, newTab: true, closing: closing, perRow: perRow)
         return !preview.contains(.newTab) && preview.contains { $0.isTile }
     }
-
-    /// A card draws a tile only once its tabs outrun a single row: `+N` at
-    /// rest, `fewer` once expanded.
-    static func hasTile(tabs: Int, perRow: Int) -> Bool { tabs > perRow }
 
     /// The gap a point names among cells that wrap: rows top to bottom, cells
     /// left to right inside a row. A cell comes before the point when the
@@ -204,8 +224,11 @@ public enum GridCardLayout {
         chunked(items, by: columns)
     }
 
+    /// `size` is clamped: `rows(_:perRow:)` is public, and a stride of zero
+    /// traps rather than returning nothing.
     static func chunked<Item>(_ items: [Item], by size: Int) -> [[Item]] {
-        stride(from: 0, to: items.count, by: size).map { Array(items[$0..<min($0 + size, items.count)]) }
+        let step = max(1, size)
+        return stride(from: 0, to: items.count, by: step).map { Array(items[$0..<min($0 + step, items.count)]) }
     }
 }
 

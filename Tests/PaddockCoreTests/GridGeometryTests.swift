@@ -477,6 +477,9 @@ final class GridGeometryTests: XCTestCase {
 
     private let pane = DragSubject.pane(PaneID(rawValue: "w1:p1"))
     private let tab = DragSubject.tab(TabID(rawValue: "w1:t1"))
+    /// A pane of another tab, which is what the band rules are about: inside
+    /// its own tab a pane is offered no bands at all.
+    private var visitor: DragSubject { .pane(arriving) }
 
     /// A thumbnail whose mini panes have not been reported yet has nothing
     /// finer to aim at, so the whole of it still means its tab.
@@ -802,20 +805,20 @@ final class GridGeometryTests: XCTestCase {
 
         for y in [box.minY + 1, box.maxY - 1] {
             XCTAssertEqual(
-                resolveDropTarget(at: CGPoint(x: box.midX, y: y), dragging: pane, surfaces: surfaces),
+                resolveDropTarget(at: CGPoint(x: box.midX, y: y), dragging: visitor, surfaces: surfaces),
                 .paneInterior(p2), "a 3pt band may not decide a split"
             )
         }
         XCTAssertEqual(
-            resolveDropTarget(at: CGPoint(x: box.minX + 1, y: box.midY), dragging: pane, surfaces: surfaces),
+            resolveDropTarget(at: CGPoint(x: box.minX + 1, y: box.midY), dragging: visitor, surfaces: surfaces),
             .paneEdge(p2, .left)
         )
         XCTAssertEqual(
-            resolveDropTarget(at: CGPoint(x: box.maxX - 1, y: box.midY), dragging: pane, surfaces: surfaces),
+            resolveDropTarget(at: CGPoint(x: box.maxX - 1, y: box.midY), dragging: visitor, surfaces: surfaces),
             .paneEdge(p2, .right)
         )
         XCTAssertEqual(
-            resolveDropTarget(at: CGPoint(x: box.minX + 1, y: box.minY + 1), dragging: pane, surfaces: surfaces),
+            resolveDropTarget(at: CGPoint(x: box.minX + 1, y: box.minY + 1), dragging: visitor, surfaces: surfaces),
             .paneEdge(p2, .left), "a corner falls to the axis that still has a band"
         )
     }
@@ -844,7 +847,7 @@ final class GridGeometryTests: XCTestCase {
             CGPoint(x: box.midX, y: box.midY),
         ]
         for point in corners {
-            XCTAssertEqual(resolveDropTarget(at: point, dragging: pane, surfaces: surfaces), .paneInterior(p2), "\(point)")
+            XCTAssertEqual(resolveDropTarget(at: point, dragging: visitor, surfaces: surfaces), .paneInterior(p2), "\(point)")
         }
     }
 
@@ -889,12 +892,12 @@ final class GridGeometryTests: XCTestCase {
     }
 
     /// Bringing a pane back to the tab it came from. Every point on that
-    /// thumbnail resolves, and only two of them mean anything: an edge band or
-    /// the interior of a DIFFERENT pane of the tab, which is a reposition the
-    /// user aimed at. Its own mini pane, the tab's handle strip and the
-    /// padding around the mini panes all name a move herdr would refuse, so
-    /// they plan nothing and mark nothing.
-    func testComingBackToItsOwnTabPlansNothingUnlessItNamesAnotherPane() throws {
+    /// thumbnail resolves, and exactly ONE of them means anything: the middle
+    /// of a DIFFERENT pane of that tab, which swaps the two. The bands are
+    /// withdrawn inside a pane's own tab, so they fall through to the tab
+    /// itself and mean the same nothing its own mini pane, the handle strip
+    /// and the padding already mean.
+    func testComingBackToItsOwnTabPlansNothingUnlessItNamesAnotherPanesMiddle() throws {
         let model = model()
         let surfaces = thumbnailSurfaces(try tabLayout("w1:t1"))
         let thumbnail = try XCTUnwrap(surfaces.grid?.thumbnails.first?.frame)
@@ -903,9 +906,11 @@ final class GridGeometryTests: XCTestCase {
         let whole = DropTarget.tabThumbnail(TabID(rawValue: "w1:t1"))
 
         let nothing: [(String, CGPoint, DropTarget)] = [
-            ("its own mini pane's left band", CGPoint(x: own.minX + 1, y: own.midY), .paneEdge(p1, .left)),
-            ("its own mini pane's top band", CGPoint(x: own.midX, y: own.minY + 1), .paneEdge(p1, .top)),
+            ("its own mini pane's left band", CGPoint(x: own.minX + 1, y: own.midY), whole),
+            ("its own mini pane's top band", CGPoint(x: own.midX, y: own.minY + 1), whole),
             ("its own mini pane's interior", CGPoint(x: own.midX, y: own.midY), .paneInterior(p1)),
+            ("another pane's left band", CGPoint(x: other.minX + 1, y: other.midY), whole),
+            ("another pane's bottom band", CGPoint(x: other.midX, y: other.maxY - 1), whole),
             ("the tab's handle strip", CGPoint(x: thumbnail.midX, y: thumbnail.minY + 1), whole),
             ("the padding beside the mini panes", CGPoint(x: thumbnail.minX + 1, y: own.midY), whole),
             ("the gutter between two mini panes", CGPoint(x: (own.maxX + other.minX) / 2, y: own.midY), whole),
@@ -924,20 +929,29 @@ final class GridGeometryTests: XCTestCase {
             )
         }
 
-        let repositions: [(String, CGPoint, DropTarget)] = [
-            ("another pane's left band", CGPoint(x: other.minX + 1, y: other.midY), .paneEdge(p2, .left)),
-            ("another pane's interior", CGPoint(x: other.midX, y: other.midY), .paneInterior(p2)),
-        ]
-        for (name, point, expected) in repositions {
-            XCTAssertEqual(resolveDropTarget(at: point, dragging: pane, surfaces: surfaces), expected, name)
-            guard case .success(let committed) = plan(dragging: pane, onto: expected, model: model) else {
-                return XCTFail("\(name) is a reposition and has to commit")
-            }
-            XCTAssertFalse(committed.ops.isEmpty, name)
-            XCTAssertNotNil(
-                MiniPaneLayout.arrival(of: pane, onto: expected, tab: TabID(rawValue: "w1:t1"), model: model), name
-            )
+        let middle = CGPoint(x: other.midX, y: other.midY)
+        XCTAssertEqual(resolveDropTarget(at: middle, dragging: pane, surfaces: surfaces), .paneInterior(p2))
+        guard case .success(let swap) = plan(dragging: pane, onto: .paneInterior(p2), model: model) else {
+            return XCTFail("the middle of another pane of the same tab has to swap them")
         }
+        XCTAssertEqual(swap.ops, [.swapPanes(p1, p2)])
+        XCTAssertNotNil(MiniPaneLayout.arrival(of: pane, onto: .paneInterior(p2), tab: TabID(rawValue: "w1:t1"), model: model))
+    }
+
+    /// The bands are withdrawn only for the pane's own tab: a pane visiting
+    /// another tab's thumbnail still splits it on whichever side it is aimed
+    /// at, and the canvas's own same-tab bands are untouched by any of this.
+    func testAnotherTabsThumbnailStillOffersItsBands() throws {
+        let surfaces = thumbnailSurfaces(try tabLayout("w1:t1"))
+        let other = try drawnBox(p2, in: surfaces)
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: other.minX + 1, y: other.midY), dragging: visitor, surfaces: surfaces),
+            .paneEdge(p2, .left)
+        )
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: other.midX, y: other.midY), dragging: visitor, surfaces: surfaces),
+            .paneInterior(p2)
+        )
     }
 
     // MARK: - the preview the resolved target produces
