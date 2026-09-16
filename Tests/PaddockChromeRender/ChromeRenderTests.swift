@@ -1213,11 +1213,13 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// The three places the one inline rename editor opens, and the zoom
-    /// badge -- every state Task 28 adds that paints anything. Each is
-    /// compared against the SAME window at rest: the editor (or badge) has to
-    /// change its own surface and leave the other two alone, which is what
-    /// says it opened where it was asked to and nowhere else. PNGs are
-    /// written only when `PADDOCK_CHROME_RENDER_DIR` is set.
+    /// badge. Each is compared against the SAME window at rest: the editor
+    /// has to change its own surface and leave the other two alone, which is
+    /// what says it opened where it was asked to and nowhere else. The badge
+    /// is checked by its own color inside the legend it rides, since a
+    /// whole-image comparison between two separately built windows would pass
+    /// on any incidental difference. PNGs are written only when
+    /// `PADDOCK_CHROME_RENDER_DIR` is set.
     func testEachRenameEditorAndTheZoomBadgePaintOnlyTheirOwnSurface() async throws {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         // The selected tab's own midpoint, the selected rail row's, and a
@@ -1281,8 +1283,17 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(pane.restSamples[0], pane.changedSamples[0], "renaming a pane repainted the strip")
         XCTAssertEqual(pane.restSamples[1], pane.changedSamples[1], "renaming a pane repainted the rail")
 
-        // The badge rides the same legend, so it is read the same way: a
-        // zoomed tab's canvas differs, and nothing else does.
+        // The badge is its own color and nothing else in the chrome is: the
+        // parity checklist reserves mauve for it, never a status. So the
+        // check is that mauve appears inside the focused pane's legend when
+        // the tab is zoomed and nowhere in that band when it is not -- an
+        // assertion that cannot pass unless the badge actually painted.
+        let legend = CGRect(x: 552, y: 66, width: 342, height: 26)
+        let mauve = Theme.tokyoNight.palette.mauve.hex
+        let resting = try await Harness(theme: .tokyoNight, model: try Fixture.model())
+        let restingWindow = resting.makeWindow(size: Self.windowSize)
+        await settle(restingWindow)
+        let restingImage = try snapshot(restingWindow)
         let zoomed = try await Harness(theme: .tokyoNight, model: try Fixture.model(zoomed: true))
         let zoomedWindow = zoomed.makeWindow(size: Self.windowSize)
         await settle(zoomedWindow)
@@ -1291,13 +1302,31 @@ final class ChromeRenderTests: XCTestCase {
             try XCTUnwrap(zoomedImage.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent("zoom-badge.png"))
         }
-        XCTAssertNotEqual(
-            try XCTUnwrap(zoomedImage.representation(using: .png, properties: [:])), pane.rest,
-            "a zoomed tab renders exactly as an unzoomed one, so the badge is not drawn"
+        XCTAssertNil(
+            firstPoint(in: legend, matching: mauve, of: restingImage),
+            "the unzoomed legend already carries the badge color, so the check below proves nothing"
+        )
+        XCTAssertNotNil(
+            firstPoint(in: legend, matching: mauve, of: zoomedImage),
+            "no \(mauve) anywhere in the focused pane's legend: the zoom badge did not paint"
         )
         XCTAssertEqual(hex(zoomedImage, tabPoint), tab.restSamples[0], "the badge repainted the strip")
         XCTAssertEqual(hex(zoomedImage, railPoint), tab.restSamples[1], "the badge repainted the rail")
         zoomedWindow.close()
+        restingWindow.close()
+    }
+
+    /// The first point of `rect` (top-left, window points) whose pixel is
+    /// exactly `hex`, or `nil` when none is. Used for a mark too small and
+    /// too antialiased at its edges to name a single reliable pixel for.
+    private func firstPoint(in rect: CGRect, matching target: String, of image: NSBitmapImageRep) -> CGPoint? {
+        for y in stride(from: rect.minY, to: rect.maxY, by: 0.5) {
+            for x in stride(from: rect.minX, to: rect.maxX, by: 0.5) {
+                let point = CGPoint(x: x, y: y)
+                if hex(image, point) == target { return point }
+            }
+        }
+        return nil
     }
 
     private func assertButtonsCentered(in window: NSWindow, file: StaticString = #filePath, line: UInt = #line) {

@@ -58,7 +58,7 @@ public struct PaneMenuEntry: Equatable, Sendable {
 /// the spec's keyboard/accessibility parity path for every drag outcome, and
 /// it sits between Zoom and Close Pane so every row paddock shares with herdr
 /// keeps herdr's relative order. herdr's right-click passthrough toggle is
-/// absent: Task 18n settled the disposition per click (plain goes to the pane
+/// absent: paddock decides the disposition per click (plain goes to the pane
 /// app whenever it is listening, Option always opens this menu), so there is
 /// no per-pane mode for a row to flip.
 public enum PaneMenuModel {

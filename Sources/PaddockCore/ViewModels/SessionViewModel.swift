@@ -163,8 +163,18 @@ public final class SessionViewModel {
         if optimisticFocusedPaneID != nil, model?.focusedPaneID == optimisticFocusedPaneID {
             optimisticFocusedPaneID = nil
         }
+        reconcileRenameTarget()
         refreshLayoutExports()
         reconcileClosedPanes()
+    }
+
+    /// Closes the editor when herdr no longer carries what it is open on. A
+    /// nil model is NOT that: it is a transient gap in the connection, the
+    /// same reading `UndoJournal` gives it, so the editor survives a
+    /// reconnect rather than losing a half-typed name to it.
+    private func reconcileRenameTarget() {
+        guard let renameTarget, let model, !renameTarget.exists(in: model) else { return }
+        self.renameTarget = nil
     }
 
     /// Any pane herdr no longer reports (closed, or the model went nil) has
@@ -570,8 +580,9 @@ public final class SessionViewModel {
     /// Splits `pane` rightward via `pane.split` and focuses the new pane,
     /// registering it as paddock-created so the launcher can show on it --
     /// a "Split Right" context-menu command exercising the provenance
-    /// registry live; `cwd` is deliberately omitted so herdr follows the
-    /// source pane's own cwd.
+    /// registry live. `cwd` carries the source pane's own, as the model
+    /// reports it; a pane the model does not carry sends no `cwd` key at all
+    /// rather than an empty one, which leaves herdr its own follow policy.
     public func splitRight(from pane: PaneID) async {
         await performSplit(from: pane, direction: "right")
     }
@@ -584,10 +595,13 @@ public final class SessionViewModel {
     }
 
     private func performSplit(from pane: PaneID, direction: String) async {
-        guard let data = try? await client.requestRaw(
-            "pane.split",
-            ["target_pane_id": .string(pane.rawValue), "direction": .string(direction), "focus": .bool(true)]
-        ) else { return }
+        var params: [String: JSONValue] = [
+            "target_pane_id": .string(pane.rawValue), "direction": .string(direction), "focus": .bool(true),
+        ]
+        if let cwd = model?.panes[pane]?.cwd, !cwd.isEmpty {
+            params["cwd"] = .string(cwd)
+        }
+        guard let data = try? await client.requestRaw("pane.split", params) else { return }
         guard let newPaneID = Self.extractSplitPaneID(data) else { return }
         paneLauncherRegistry.registerPaddockCreated(newPaneID)
         launcherRegistryVersion += 1
@@ -767,11 +781,41 @@ public final class SessionViewModel {
 
     /// The workspace whose plain `workspace.close` came back
     /// `workspace_group_close_required`, held while the confirmation is up.
-    /// `confirmPendingGroupClose` re-asks with `closeGroup: true`.
-    public private(set) var pendingGroupClose: WorkspaceID?
+    /// `confirmGroupClose(_:)` re-asks with `closeGroup: true`. It carries the
+    /// label so the prompt can name what it is about to destroy without a
+    /// second model read in the view.
+    public struct PendingGroupClose: Equatable, Identifiable, Sendable {
+        public let workspaceID: WorkspaceID
+        public let label: String
+
+        public var id: WorkspaceID { workspaceID }
+
+        public init(workspaceID: WorkspaceID, label: String) {
+            self.workspaceID = workspaceID
+            self.label = label
+        }
+    }
+
+    public private(set) var pendingGroupClose: PendingGroupClose?
 
     public func beginRename(_ target: RenameTarget) {
         renameTarget = target
+    }
+
+    /// What the rename key opens on right now, or `nil` when nothing is
+    /// selected -- the menu item reads this both to enable itself and to know
+    /// what to open.
+    public var renameShortcutTarget: RenameTarget? {
+        RenameShortcut.target(
+            focusedPane: resolvedFocusedPaneID, selectedTab: selectedTabID, selectedWorkspace: selectedWorkspaceID
+        )
+    }
+
+    /// The rename key's whole behavior: open the editor on whatever
+    /// `renameShortcutTarget` names, or do nothing.
+    public func beginRenameFromShortcut() {
+        guard let target = renameShortcutTarget else { return }
+        beginRename(target)
     }
 
     public func cancelRename() {
@@ -818,14 +862,18 @@ public final class SessionViewModel {
     /// for a group primary with open linked-worktree workspaces
     /// (`workspace_group_close_required`), which is the one failure this
     /// raises no notice for: it parks the workspace in `pendingGroupClose`
-    /// for the view to confirm, and `confirmPendingGroupClose` re-asks with
-    /// the group included.
+    /// for the view to confirm, and `confirmGroupClose` re-asks with the
+    /// group included.
     public func closeWorkspace(_ workspace: WorkspaceID) async {
         await closeWorkspace(workspace, closeGroup: false)
     }
 
-    public func confirmPendingGroupClose() async {
-        guard let workspace = pendingGroupClose else { return }
+    /// Re-asks for `workspace` with its group included. The id is a
+    /// PARAMETER, never read back off `pendingGroupClose`: a confirmation
+    /// dialog clears its own presentation state as it dismisses, which runs
+    /// before this call's async work does, so reading the latch here would
+    /// find it already nil and close nothing at all.
+    public func confirmGroupClose(_ workspace: WorkspaceID) async {
         pendingGroupClose = nil
         await closeWorkspace(workspace, closeGroup: true)
     }
@@ -839,9 +887,10 @@ public final class SessionViewModel {
             ops: [.closeWorkspace(workspace, closeGroup: closeGroup)],
             label: closeGroup ? "Close workspace group" : "Close workspace"
         )
+        let label = model?.workspaces.first { $0.workspaceID == workspace }?.label ?? workspace.rawValue
         await run(plan) { [weak self] failure in
             guard failure.code == "workspace_group_close_required" else { return false }
-            self?.pendingGroupClose = workspace
+            self?.pendingGroupClose = PendingGroupClose(workspaceID: workspace, label: label)
             return true
         }
     }
@@ -849,9 +898,13 @@ public final class SessionViewModel {
     /// Creation is a direct client call, not a planned op: herdr has no
     /// inverse for it that paddock could journal (closing a tab it created is
     /// not the same as never having created it), so v1 leaves it out of undo
-    /// entirely rather than record an entry that cannot be undone.
+    /// entirely rather than record an entry that cannot be undone. The
+    /// FAILURE still goes through `noticeSink` like every other mutation:
+    /// the strip and rail create from a zone that draws nothing, so a
+    /// swallowed failure is indistinguishable from a click that missed, and
+    /// the natural retry spawns a second real shell.
     public func createTab(in workspace: WorkspaceID) async {
-        await send("tab.create", ["workspace_id": .string(workspace.rawValue), "focus": .bool(true)])
+        await create("tab.create", ["workspace_id": .string(workspace.rawValue), "focus": .bool(true)], label: "New tab")
     }
 
     /// `source_workspace_id` is what herdr reads the new workspace's cwd
@@ -862,32 +915,73 @@ public final class SessionViewModel {
         if let source = selectedWorkspaceID {
             params["source_workspace_id"] = .string(source.rawValue)
         }
-        await send("workspace.create", params)
+        await create("workspace.create", params, label: "New workspace")
     }
 
-    // MARK: - keyboard move (the drag's own targets, compiled by the planner)
+    private func create(_ method: String, _ params: [String: JSONValue], label: String) async {
+        do {
+            _ = try await client.requestRaw(method, params)
+        } catch {
+            noticeSink("\(label) failed: \(Self.describe(error))")
+        }
+    }
+
+    private static func describe(_ error: Error) -> String {
+        guard let clientError = error as? HerdrClientError else { return String(describing: error) }
+        switch clientError {
+        case let .server(code, message): return message.isEmpty ? code : message
+        case let .transport(message): return message
+        case let .protocolTooOld(found, required): return "protocol \(found), need \(required)"
+        }
+    }
+
+    // MARK: - keyboard move and swap (the drag's own targets, compiled by the planner)
 
     /// Moves `pane` against its neighbor on `direction`'s side, through the
     /// same planner and executor a drag onto that neighbor's edge uses.
     /// Silent when nothing lies that way.
     public func movePane(_ pane: PaneID, toward direction: PaneDirection) async {
-        guard let tab = model?.panes[pane]?.tabID, let layout = model?.layouts[tab],
-              let target = PaneNeighbors.moveTarget(for: pane, toward: direction, in: layout)
-        else { return }
-        await perform(subject: .pane(pane), target: target)
+        await aim(pane, toward: direction, using: PaneNeighbors.moveTarget)
     }
 
-    /// The menu-command form: whichever pane is focused right now.
+    /// Trades `pane` with its neighbor on `direction`'s side. Same neighbor
+    /// as a move, read as a pane interior, which the planner turns into a
+    /// same-tab `pane.swap` rather than the move's temp-tab bounce.
+    public func swapPane(_ pane: PaneID, toward direction: PaneDirection) async {
+        await aim(pane, toward: direction, using: PaneNeighbors.swapTarget)
+    }
+
+    /// The menu-command forms: whichever pane is focused right now.
     public func moveFocusedPane(toward direction: PaneDirection) async {
         guard let pane = resolvedFocusedPaneID else { return }
         await movePane(pane, toward: direction)
     }
 
-    /// Whether a keyboard move in `direction` has anything to land against,
-    /// so the menu item can disable itself rather than fail silently.
-    public func canMoveFocusedPane(toward direction: PaneDirection) -> Bool {
-        guard let pane = resolvedFocusedPaneID, let tab = model?.panes[pane]?.tabID, let layout = model?.layouts[tab] else { return false }
+    public func swapFocusedPane(toward direction: PaneDirection) async {
+        guard let pane = resolvedFocusedPaneID else { return }
+        await swapPane(pane, toward: direction)
+    }
+
+    /// Whether the focused pane has a neighbor on `direction`'s side at all,
+    /// so both keyboard commands can disable themselves rather than fail
+    /// silently. One predicate for both: a move and a swap aim at the same
+    /// neighbor and differ only in what they do once there.
+    public func focusedPaneHasNeighbor(toward direction: PaneDirection) -> Bool {
+        guard let pane = resolvedFocusedPaneID, let layout = layout(holding: pane) else { return false }
         return PaneNeighbors.pane(pane, toward: direction, in: layout) != nil
+    }
+
+    private func aim(
+        _ pane: PaneID, toward direction: PaneDirection,
+        using target: (PaneID, PaneDirection, LayoutSnapshot) -> DropTarget?
+    ) async {
+        guard let layout = layout(holding: pane), let target = target(pane, direction, layout) else { return }
+        await perform(subject: .pane(pane), target: target)
+    }
+
+    private func layout(holding pane: PaneID) -> LayoutSnapshot? {
+        guard let tab = model?.panes[pane]?.tabID else { return nil }
+        return model?.layouts[tab]
     }
 
     // MARK: - shared plan execution for hand-built plans

@@ -33,6 +33,15 @@ private actor FailingCommandClient: HerdrCommandClient {
     }
 }
 
+/// Answers every call with herdr's own error envelope shape, so a caller that
+/// surfaces failures is checked against the message a real rejection carries
+/// rather than a Swift type's description.
+private actor ServerErrorCommandClient: HerdrCommandClient {
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        throw HerdrClientError.server(code: "workspace_not_found", message: "no such workspace")
+    }
+}
+
 private actor FakeLayoutExportClient: LayoutExportClient {
     private(set) var calls: [TabID] = []
     private let result: ExportedLayoutDescription
@@ -620,7 +629,10 @@ final class SessionViewModelTests: XCTestCase {
         let splitCall = try? XCTUnwrap(calls.first { $0.method == "pane.split" })
         XCTAssertEqual(stringParam(splitCall?.params ?? [:], "target_pane_id"), "w1:p1")
         XCTAssertEqual(stringParam(splitCall?.params ?? [:], "direction"), "right")
-        XCTAssertNil(splitCall?.params["cwd"] ?? nil, "cwd is omitted so herdr follows the source pane's own cwd")
+        XCTAssertNil(
+            splitCall?.params["cwd"] ?? nil,
+            "no model, so no cwd to send: an absent key leaves herdr its own follow policy, an empty one would not"
+        )
 
         XCTAssertTrue(viewModel.isPristineLauncherPane(PaneID(rawValue: "w1:p2")))
         XCTAssertFalse(
@@ -1669,14 +1681,14 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testClearPaneNameSendsANullLabelOnlyForAPaneThatHasOne() async {
+    func testClearPaneNameSendsANullLabelOnlyForAPaneThatHasOne() async throws {
         let unlabelled = renameHarness()
         await unlabelled.viewModel.clearPaneName(PaneID(rawValue: "w1:p1"))
         XCTAssertTrue(unlabelled.executor.executedPlans.isEmpty, "nothing to clear")
 
         var model = makeModel()
         let pane = PaneID(rawValue: "w1:p1")
-        let existing = try! XCTUnwrap(model.panes[pane])
+        let existing = try XCTUnwrap(model.panes[pane])
         model.panes[pane] = PaneRecord(
             paneID: existing.paneID, workspaceID: existing.workspaceID, tabID: existing.tabID, focused: existing.focused,
             agentStatus: existing.agentStatus, revision: existing.revision, terminalTitleStripped: existing.terminalTitleStripped,
@@ -1731,22 +1743,34 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNil(harness.viewModel.pendingGroupClose)
     }
 
-    /// herdr refuses a plain close on a group primary with open linked
-    /// worktrees. That one failure raises no toast: it parks the workspace
-    /// for the confirmation instead.
+    /// Drives the refusal herdr gives a group primary with open linked
+    /// worktrees, so each test below starts from a parked prompt.
     @MainActor
-    func testAGroupCloseRequiredRefusalParksTheWorkspaceAndRaisesNoNotice() async {
-        let harness = renameHarness()
-        let workspace = WorkspaceID(rawValue: "w1")
+    private func parkedGroupClose(
+        _ harness: (viewModel: SessionViewModel, executor: FakePlanExecutor, journal: UndoJournal, notices: NoticeRecorder),
+        workspace: WorkspaceID
+    ) async {
         harness.executor.nextResult = .failure(OpFailure(
             failedOp: .closeWorkspace(workspace, closeGroup: false),
             code: "workspace_group_close_required", message: "workspace_group_close_required",
             executed: [], partialInverse: OpPlan(ops: [], label: "Undo Close workspace")
         ))
-
         await harness.viewModel.closeWorkspace(workspace)
+        harness.executor.nextResult = nil
+    }
 
-        XCTAssertEqual(harness.viewModel.pendingGroupClose, workspace)
+    /// herdr refuses a plain close on a group primary with open linked
+    /// worktrees. That one failure raises no toast: it parks the workspace
+    /// for the confirmation instead, with the label the prompt prints.
+    @MainActor
+    func testAGroupCloseRequiredRefusalParksTheWorkspaceAndRaisesNoNotice() async {
+        let harness = renameHarness()
+        let workspace = WorkspaceID(rawValue: "w1")
+
+        await parkedGroupClose(harness, workspace: workspace)
+
+        XCTAssertEqual(harness.viewModel.pendingGroupClose?.workspaceID, workspace)
+        XCTAssertEqual(harness.viewModel.pendingGroupClose?.label, "seed", "the prompt has to name what it is about to close")
         XCTAssertTrue(harness.notices.messages.isEmpty, "the prompt is the answer, not a toast")
         XCTAssertFalse(harness.journal.canUndo)
     }
@@ -1755,15 +1779,9 @@ final class SessionViewModelTests: XCTestCase {
     func testConfirmingTheGroupCloseReAsksWithTheGroupIncluded() async {
         let harness = renameHarness()
         let workspace = WorkspaceID(rawValue: "w1")
-        harness.executor.nextResult = .failure(OpFailure(
-            failedOp: .closeWorkspace(workspace, closeGroup: false),
-            code: "workspace_group_close_required", message: "workspace_group_close_required",
-            executed: [], partialInverse: OpPlan(ops: [], label: "Undo Close workspace")
-        ))
-        await harness.viewModel.closeWorkspace(workspace)
-        harness.executor.nextResult = nil
+        await parkedGroupClose(harness, workspace: workspace)
 
-        await harness.viewModel.confirmPendingGroupClose()
+        await harness.viewModel.confirmGroupClose(workspace)
 
         XCTAssertEqual(harness.executor.executedPlans.map(\.ops), [
             [.closeWorkspace(workspace, closeGroup: false)],
@@ -1773,19 +1791,34 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNil(harness.viewModel.pendingGroupClose)
     }
 
+    /// The ordering a real confirmation dialog produces: it clears its own
+    /// presentation state as it dismisses, which runs BEFORE the button's
+    /// enqueued work does. The confirm therefore takes the workspace as a
+    /// parameter and must not read the latch back -- if it did, this would
+    /// close nothing at all, silently.
+    @MainActor
+    func testTheConfirmRunsEvenThoughTheDismissalAlreadyClearedTheLatch() async {
+        let harness = renameHarness()
+        let workspace = WorkspaceID(rawValue: "w1")
+        await parkedGroupClose(harness, workspace: workspace)
+
+        harness.viewModel.cancelPendingGroupClose()
+        XCTAssertNil(harness.viewModel.pendingGroupClose, "the dialog's own dismissal ran first")
+        await harness.viewModel.confirmGroupClose(workspace)
+
+        XCTAssertEqual(
+            harness.executor.executedPlans.last?.ops, [.closeWorkspace(workspace, closeGroup: true)],
+            "the confirm read the workspace back off the cleared latch instead of its parameter"
+        )
+    }
+
     @MainActor
     func testDecliningTheGroupCloseClosesNothing() async {
         let harness = renameHarness()
         let workspace = WorkspaceID(rawValue: "w1")
-        harness.executor.nextResult = .failure(OpFailure(
-            failedOp: .closeWorkspace(workspace, closeGroup: false),
-            code: "workspace_group_close_required", message: "workspace_group_close_required",
-            executed: [], partialInverse: OpPlan(ops: [], label: "Undo Close workspace")
-        ))
-        await harness.viewModel.closeWorkspace(workspace)
+        await parkedGroupClose(harness, workspace: workspace)
 
         harness.viewModel.cancelPendingGroupClose()
-        await harness.viewModel.confirmPendingGroupClose()
 
         XCTAssertEqual(harness.executor.executedPlans.count, 1, "only the refused first ask ever ran")
         XCTAssertNil(harness.viewModel.pendingGroupClose)
@@ -1810,6 +1843,21 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     // MARK: - Creation (direct client calls, never planned ops)
+
+    /// The strip and rail create from a zone that draws nothing, so a
+    /// swallowed failure is indistinguishable from a click that missed, and
+    /// the retry it invites spawns a second real shell.
+    @MainActor
+    func testACreationFailureRaisesItsOwnNotice() async {
+        let notices = NoticeRecorder()
+        let viewModel = SessionViewModel(client: ServerErrorCommandClient(), noticeSink: { notices.record($0) })
+        viewModel.update(model: makeModel(), connection: .live)
+
+        await viewModel.createTab(in: WorkspaceID(rawValue: "w1"))
+        await viewModel.createWorkspace()
+
+        XCTAssertEqual(notices.messages, ["New tab failed: no such workspace", "New workspace failed: no such workspace"])
+    }
 
     @MainActor
     func testCreatingATabAndAWorkspaceAreDirectClientCallsWithNoPlanAndNoUndo() async {
@@ -1885,17 +1933,129 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(harness.executor.executedPlans, [expected])
     }
 
+    /// The swap binding aims at the SAME neighbor and differs only in what it
+    /// does there: an interior, which the planner turns into `pane.swap`
+    /// rather than the move's temp-tab bounce.
+    @MainActor
+    func testAKeyboardSwapCompilesTheSamePlanAsADropOnThatNeighborsInterior() async {
+        let model = Self.sideBySideModel()
+        let harness = renameHarness(model: model)
+        let pane = PaneID(rawValue: "w1:p2")
+        let target = DropTarget.paneInterior(PaneID(rawValue: "w1:p1"))
+        guard case .success(let expected) = plan(dragging: .pane(pane), onto: target, model: model) else {
+            return XCTFail("the fixture drag plans nothing, so this proves nothing")
+        }
+        XCTAssertEqual(expected.ops, [.swapPanes(pane, PaneID(rawValue: "w1:p1"))], "a same-tab interior is a swap, not a move")
+
+        await harness.viewModel.swapFocusedPane(toward: .left)
+
+        XCTAssertEqual(harness.executor.executedPlans, [expected])
+    }
+
     @MainActor
     func testAKeyboardMoveWithNothingThatWayRunsNothingAndReportsItselfUnavailable() async {
         let harness = renameHarness(model: Self.sideBySideModel())
 
-        XCTAssertTrue(harness.viewModel.canMoveFocusedPane(toward: .left), "w1:p2 is focused with w1:p1 to its left")
-        XCTAssertFalse(harness.viewModel.canMoveFocusedPane(toward: .right))
-        XCTAssertFalse(harness.viewModel.canMoveFocusedPane(toward: .up))
+        XCTAssertTrue(harness.viewModel.focusedPaneHasNeighbor(toward: .left), "w1:p2 is focused with w1:p1 to its left")
+        XCTAssertFalse(harness.viewModel.focusedPaneHasNeighbor(toward: .right))
+        XCTAssertFalse(harness.viewModel.focusedPaneHasNeighbor(toward: .up))
 
         await harness.viewModel.moveFocusedPane(toward: .right)
+        await harness.viewModel.swapFocusedPane(toward: .right)
 
-        XCTAssertTrue(harness.executor.executedPlans.isEmpty)
+        XCTAssertTrue(harness.executor.executedPlans.isEmpty, "neither binding fires where there is no neighbor")
+    }
+
+    // MARK: - The rename key (F2)
+
+    @MainActor
+    func testTheRenameKeyTakesTheInnermostSelection() {
+        let harness = renameHarness(model: Self.sideBySideModel())
+
+        XCTAssertEqual(harness.viewModel.renameShortcutTarget, .pane(PaneID(rawValue: "w1:p2")))
+
+        harness.viewModel.beginRenameFromShortcut()
+
+        XCTAssertEqual(harness.viewModel.renameTarget, .pane(PaneID(rawValue: "w1:p2")))
+    }
+
+    /// The fallbacks, decided in `RenameShortcut` and read through the view
+    /// model's own selection, so the key still renames something when no pane
+    /// is focused.
+    @MainActor
+    func testTheRenameKeyFallsBackToTheTabThenTheWorkspaceThenNothing() {
+        XCTAssertEqual(
+            RenameShortcut.target(focusedPane: nil, selectedTab: TabID(rawValue: "w1:t1"), selectedWorkspace: WorkspaceID(rawValue: "w1")),
+            .tab(TabID(rawValue: "w1:t1"))
+        )
+        XCTAssertEqual(
+            RenameShortcut.target(focusedPane: nil, selectedTab: nil, selectedWorkspace: WorkspaceID(rawValue: "w1")),
+            .workspace(WorkspaceID(rawValue: "w1"))
+        )
+        XCTAssertNil(RenameShortcut.target(focusedPane: nil, selectedTab: nil, selectedWorkspace: nil))
+    }
+
+    @MainActor
+    func testTheRenameKeyOpensNothingWithNoSelectionAtAll() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+
+        XCTAssertNil(viewModel.renameShortcutTarget, "the menu item disables itself on this")
+        viewModel.beginRenameFromShortcut()
+
+        XCTAssertNil(viewModel.renameTarget)
+    }
+
+    // MARK: - The editor closes when what it names goes away
+
+    @MainActor
+    func testAnOpenEditorClosesWhenHerdrNoLongerCarriesItsTarget() {
+        let harness = renameHarness()
+        harness.viewModel.beginRename(.tab(TabID(rawValue: "w1:t1")))
+
+        var withoutTheTab = makeModel()
+        withoutTheTab.tabs[WorkspaceID(rawValue: "w1")] = []
+        harness.viewModel.update(model: withoutTheTab, connection: .live)
+
+        XCTAssertNil(harness.viewModel.renameTarget)
+    }
+
+    /// A dropped connection is a transient gap, not evidence the target is
+    /// gone -- the same reading the undo journal gives a nil model. Losing a
+    /// half-typed name to a reconnect would be the worse answer.
+    @MainActor
+    func testAnOpenEditorSurvivesTheModelGoingNil() {
+        let harness = renameHarness()
+        harness.viewModel.beginRename(.tab(TabID(rawValue: "w1:t1")))
+
+        harness.viewModel.update(model: nil, connection: .reconnecting(attempt: 1))
+
+        XCTAssertEqual(harness.viewModel.renameTarget, .tab(TabID(rawValue: "w1:t1")))
+    }
+
+    @MainActor
+    func testAnOpenEditorSurvivesAnUpdateThatStillCarriesItsTarget() {
+        let harness = renameHarness()
+        harness.viewModel.beginRename(.workspace(WorkspaceID(rawValue: "w1")))
+
+        harness.viewModel.update(model: makeModel(), connection: .live)
+
+        XCTAssertEqual(harness.viewModel.renameTarget, .workspace(WorkspaceID(rawValue: "w1")))
+    }
+
+    // MARK: - Split cwd
+
+    /// The brief's spelling: `pane.split` carries the source pane's own cwd
+    /// as the model reports it.
+    @MainActor
+    func testSplittingSendsTheSourcePanesOwnCwd() async {
+        let client = StubSplitCommandClient(newPaneID: "w1:p9")
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: makeModel(), connection: .live)
+
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+
+        let calls = await client.calls
+        XCTAssertEqual(stringParam(calls.first { $0.method == "pane.split" }?.params ?? [:], "cwd"), "/tmp")
     }
 
     @MainActor

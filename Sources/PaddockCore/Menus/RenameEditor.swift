@@ -6,6 +6,20 @@ public enum RenameTarget: Hashable, Sendable {
     case pane(PaneID)
     case tab(TabID)
     case workspace(WorkspaceID)
+
+    /// Whether `model` still carries what this editor is open on. An editor
+    /// left open on something herdr has since closed has nothing to commit
+    /// to, so the session closes it rather than hold the latch forever.
+    public func exists(in model: SessionModel) -> Bool {
+        switch self {
+        case .pane(let pane):
+            return model.panes[pane] != nil
+        case .tab(let tab):
+            return model.tabs.values.contains { $0.contains { $0.tabID == tab } }
+        case .workspace(let workspace):
+            return model.workspaces.contains { $0.workspaceID == workspace }
+        }
+    }
 }
 
 /// The rename editor's pure rules: what text it opens with, and which

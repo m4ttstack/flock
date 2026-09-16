@@ -69,7 +69,7 @@ struct PaneCellView: View {
     /// synthesized init would have given it, so this changes nothing for
     /// that case.
     init(
-        theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool, isZoomed: Bool = false,
+        theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool, isZoomed: Bool,
         lastLine: String?, grid: PTYSize, surfaceSize: CGSize, fontSizePoints: Double
     ) {
         self.theme = theme

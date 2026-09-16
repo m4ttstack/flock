@@ -68,8 +68,17 @@ struct InlineRenameField: View {
                 // AppKit has finished handing focus over, which is after this
                 // run loop pass; selecting the whole name is what lets the
                 // next keystroke replace it rather than append to it.
+                //
+                // The responder is checked to be a field editor holding this
+                // field's own text before anything is selected: focus may not
+                // have landed, or another window may be key, and selecting
+                // all in whatever text view happens to answer there would be
+                // a silent edit of something else entirely.
                 DispatchQueue.main.async {
-                    (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
+                    guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView,
+                          editor.isFieldEditor, editor.string == text
+                    else { return }
+                    editor.selectAll(nil)
                 }
             }
             .accessibilityIdentifier(accessibilityIdentifier)

@@ -58,22 +58,33 @@ struct MainWindow: View {
         .background(TitlebarConfigurator(windowBg: theme.chrome))
         // herdr refuses a plain close on a workspace that is a worktree
         // group's primary; this is that refusal, asked rather than reported.
+        //
+        // `presenting:` is what makes the confirm correct, not just tidier:
+        // the dialog clears its own presentation state as it dismisses, which
+        // runs before the button's enqueued work does, so an action that read
+        // the workspace back off `pendingGroupClose` would find it already
+        // nil. The presented value is captured when the prompt goes up, and
+        // it is also what lets the message name what is about to close.
         .confirmationDialog(
             "Close this workspace and its worktrees?",
             isPresented: Binding(
                 get: { viewModel.pendingGroupClose != nil },
                 set: { shown in if !shown { viewModel.cancelPendingGroupClose() } }
             ),
-            titleVisibility: .visible
-        ) {
+            titleVisibility: .visible,
+            presenting: viewModel.pendingGroupClose
+        ) { pending in
             Button("Close Group", role: .destructive) {
-                Task { await viewModel.confirmPendingGroupClose() }
+                Task { await viewModel.confirmGroupClose(pending.workspaceID) }
             }
             .accessibilityIdentifier("paddock.workspace.closeGroup.confirm")
             Button("Cancel", role: .cancel) { viewModel.cancelPendingGroupClose() }
                 .accessibilityIdentifier("paddock.workspace.closeGroup.cancel")
-        } message: {
-            Text("herdr keeps this workspace and its linked worktree workspaces together. Closing it closes all of them.")
+        } message: { pending in
+            Text(
+                "herdr keeps \"\(pending.label)\" and its linked worktree workspaces together. "
+                    + "Closing it closes all of them."
+            )
         }
     }
 }

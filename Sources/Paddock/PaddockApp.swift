@@ -66,20 +66,50 @@ final class PaddockAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// One "Move Pane <direction>" menu item: its title, the arrow that runs it
-/// under Command+Option, and which way it aims.
-struct PaneMoveCommand {
+/// One directional pane command: its title, the arrow that runs it, the
+/// modifiers it runs under, and whether it moves the pane past its neighbor
+/// or trades places with it. Both families aim at the same neighbor, so both
+/// are enabled by the same predicate.
+struct PaneDirectionCommand {
+    enum Kind { case move, swap }
+
     let title: String
     let key: KeyEquivalent
+    let modifiers: EventModifiers
     let direction: PaneDirection
+    let kind: Kind
     let accessibilityIdentifier: String
 
-    static let all = [
-        PaneMoveCommand(title: "Move Pane Left", key: .leftArrow, direction: .left, accessibilityIdentifier: "paddock.view.movePane.left"),
-        PaneMoveCommand(title: "Move Pane Right", key: .rightArrow, direction: .right, accessibilityIdentifier: "paddock.view.movePane.right"),
-        PaneMoveCommand(title: "Move Pane Up", key: .upArrow, direction: .up, accessibilityIdentifier: "paddock.view.movePane.up"),
-        PaneMoveCommand(title: "Move Pane Down", key: .downArrow, direction: .down, accessibilityIdentifier: "paddock.view.movePane.down"),
-    ]
+    /// Command+Option+arrow moves, Command+Option+Shift+arrow swaps. Neither
+    /// combination is claimed by the system, and Shift reading as "and take
+    /// the other pane with you" is the same relationship the two gestures
+    /// have on the canvas.
+    static let all: [PaneDirectionCommand] = {
+        let directions: [(String, KeyEquivalent, PaneDirection)] = [
+            ("Left", .leftArrow, .left), ("Right", .rightArrow, .right),
+            ("Up", .upArrow, .up), ("Down", .downArrow, .down),
+        ]
+        let moves = directions.map { name, key, direction in
+            PaneDirectionCommand(
+                title: "Move Pane \(name)", key: key, modifiers: [.command, .option], direction: direction,
+                kind: .move, accessibilityIdentifier: "paddock.view.movePane.\(name.lowercased())"
+            )
+        }
+        let swaps = directions.map { name, key, direction in
+            PaneDirectionCommand(
+                title: "Swap Pane \(name)", key: key, modifiers: [.command, .option, .shift], direction: direction,
+                kind: .swap, accessibilityIdentifier: "paddock.view.swapPane.\(name.lowercased())"
+            )
+        }
+        return moves + swaps
+    }()
+}
+
+/// F2. There is no `KeyEquivalent` case for a function key, so it is the
+/// scalar AppKit itself uses (`NSF2FunctionKey`); the menu equivalent takes
+/// no modifier.
+extension KeyEquivalent {
+    static let f2 = KeyEquivalent("\u{F705}")
 }
 
 struct PaddockApp: App {
@@ -256,14 +286,19 @@ struct PaddockApp: App {
             CommandGroup(after: .sidebar) {
                 Divider()
                 // The spec's keyboard-parity half of the drag inventory: each
-                // one compiles the same plan a drag onto that neighbor's edge
-                // would, through the same planner.
-                ForEach(PaneMoveCommand.all, id: \.title) { command in
+                // one compiles the same plan the equivalent drag would,
+                // through the same planner.
+                ForEach(PaneDirectionCommand.all, id: \.title) { command in
                     Button(command.title) {
-                        Task { await viewModel.moveFocusedPane(toward: command.direction) }
+                        Task {
+                            switch command.kind {
+                            case .move: await viewModel.moveFocusedPane(toward: command.direction)
+                            case .swap: await viewModel.swapFocusedPane(toward: command.direction)
+                            }
+                        }
                     }
-                    .keyboardShortcut(command.key, modifiers: [.command, .option])
-                    .disabled(!viewModel.canMoveFocusedPane(toward: command.direction))
+                    .keyboardShortcut(command.key, modifiers: command.modifiers)
+                    .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction))
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
                 Divider()
@@ -296,6 +331,16 @@ struct PaddockApp: App {
                 // punctuation key equivalent.
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .accessibilityIdentifier("paddock.view.allWorkspaces")
+            }
+            // Rename's macOS home, and the only route to the editor that is
+            // not a double-click on the thing itself. It renames the
+            // innermost selection, which is the same thing a double-click on
+            // that surface would have renamed.
+            CommandGroup(after: .pasteboard) {
+                Button("Rename") { viewModel.beginRenameFromShortcut() }
+                    .keyboardShortcut(.f2, modifiers: [])
+                    .disabled(viewModel.renameShortcutTarget == nil)
+                    .accessibilityIdentifier("paddock.edit.rename")
             }
             CommandGroup(replacing: .undoRedo) {
                 Button(undoJournal.undoLabel.map { "Undo \($0)" } ?? "Undo") {

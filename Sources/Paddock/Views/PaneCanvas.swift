@@ -63,8 +63,13 @@ struct PaneCanvas: View {
                                 isFocused: pane.paneID == viewModel.resolvedFocusedPaneID,
                                 // herdr's zoom holds one pane of the tab
                                 // open; the canvas still draws them all, so
-                                // the badge is what says so.
-                                isZoomed: layout.zoomed && layout.focusedPane == pane.paneID,
+                                // the badge is what says so. Read from
+                                // `focusedPaneID`, never `focusedPane`: that
+                                // one falls back to the first pane when the
+                                // snapshot names none, which is a
+                                // mutation-target rule and would paint the
+                                // badge on an arbitrary pane here.
+                                isZoomed: layout.zoomed && layout.focusedPaneID == pane.paneID,
                                 lastLine: viewModel.lastLine(for: pane),
                                 grid: PTYSize(cols: fit.cols, rows: fit.rows),
                                 surfaceSize: fit.size,

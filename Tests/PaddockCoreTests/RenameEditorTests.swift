@@ -104,6 +104,20 @@ final class RenameEditorTests: XCTestCase {
         XCTAssertNil(RenameEditor.commit("api", for: .tab(Self.tab), model: nil))
     }
 
+    // MARK: - Existence (what closes an open editor)
+
+    func testATargetTheModelCarriesExistsAtEveryLevel() {
+        XCTAssertTrue(RenameTarget.pane(Self.pane).exists(in: model()))
+        XCTAssertTrue(RenameTarget.tab(Self.tab).exists(in: model()))
+        XCTAssertTrue(RenameTarget.workspace(Self.workspace).exists(in: model()))
+    }
+
+    func testATargetTheModelHasLostDoesNotExistAtAnyLevel() {
+        XCTAssertFalse(RenameTarget.pane(PaneID(rawValue: "ghost")).exists(in: model()))
+        XCTAssertFalse(RenameTarget.tab(TabID(rawValue: "ghost")).exists(in: model()))
+        XCTAssertFalse(RenameTarget.workspace(WorkspaceID(rawValue: "ghost")).exists(in: model()))
+    }
+
     func testEachLevelCarriesItsOwnUndoLabel() {
         XCTAssertEqual(RenameEditor.planLabel(for: .pane(Self.pane)), "Rename pane")
         XCTAssertEqual(RenameEditor.planLabel(for: .tab(Self.tab)), "Rename tab")
