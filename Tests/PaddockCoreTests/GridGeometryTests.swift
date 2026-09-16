@@ -6,6 +6,9 @@ final class GridGeometryTests: XCTestCase {
     private let p1 = PaneID(rawValue: "w1:p1")
     private let p2 = PaneID(rawValue: "w1:p2")
     private let p3 = PaneID(rawValue: "w1:p3")
+    /// The second tab's only pane, so a thumbnail of it draws one mini pane
+    /// over the whole pane area.
+    private let p4 = PaneID(rawValue: "w1:p4")
     private let thumbnail = CGSize(width: 100, height: 82)
 
     private func layout(_ panes: [(PaneID, CellRect)], tab: String = "w1:t1") -> LayoutSnapshot {
@@ -475,7 +478,9 @@ final class GridGeometryTests: XCTestCase {
     private let pane = DragSubject.pane(PaneID(rawValue: "w1:p1"))
     private let tab = DragSubject.tab(TabID(rawValue: "w1:t1"))
 
-    func testAPaneOverAGridThumbnailTargetsThatTab() {
+    /// A thumbnail whose mini panes have not been reported yet has nothing
+    /// finer to aim at, so the whole of it still means its tab.
+    func testAThumbnailWithNoMiniPanesReportedIsStillAWholeTabTarget() {
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 60, y: 100), dragging: pane, surfaces: surfaces(grid: true)), .tabThumbnail(TabID(rawValue: "w1:t2")))
     }
 
@@ -680,6 +685,320 @@ final class GridGeometryTests: XCTestCase {
     func testTheDwellOnlyTargetHasARectButNeverFlashes() {
         XCTAssertEqual(dropTargetRect(for: .moreTabs(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)), plusTile.frame)
         XCTAssertNil(dropFlashRect(for: .moreTabs(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)))
+    }
+
+    // MARK: - a pane aimed inside a thumbnail
+
+    /// The thumbnail the grid really draws: `ChromeMetrics.Grid`'s fixed
+    /// 101pt height and 15pt handle strip, and the 93pt width two cards of
+    /// four tabs leave across a 900pt window. Spelled out here because those
+    /// values belong to the view layer; every box below comes from the view's
+    /// own pipeline over them, so nothing here is a parallel model of the
+    /// geometry.
+    private static let drawnThumbnail = CGSize(width: 93, height: 101)
+    private static let drawnStrip: CGFloat = 15
+    private static let drawnPadding: CGFloat = 4
+    private static let drawnGap: CGFloat = 4
+
+    /// One thumbnail's mini panes exactly as `TabThumbnail` publishes them:
+    /// the pane area's own layout pass, crossed into the thumbnail's space.
+    private func drawnPanes(_ layout: LayoutSnapshot) -> [MiniPaneLayout.Placed] {
+        let area = MiniPaneLayout.paneArea(
+            in: CGRect(origin: .zero, size: Self.drawnThumbnail), stripHeight: Self.drawnStrip
+        )
+        return MiniPaneLayout.boxesInThumbnail(
+            MiniPaneLayout.boxes(
+                layout: layout, exported: nil, fallbackPanes: [], size: area.size,
+                padding: Self.drawnPadding, gap: Self.drawnGap, displayScale: 2
+            ),
+            stripHeight: Self.drawnStrip
+        )
+    }
+
+    /// A grid drawing one card and one thumbnail of `layout`'s tab, with the
+    /// canvas still carrying its own frames underneath as it does while the
+    /// grid covers it.
+    private func thumbnailSurfaces(_ layout: LayoutSnapshot, origin: CGPoint = CGPoint(x: 20, y: 60)) -> DropSurfaces {
+        let frame = CGRect(origin: origin, size: Self.drawnThumbnail)
+        let base = surfaces(grid: true)
+        return DropSurfaces(
+            canvas: base.canvas, stripWorkspace: base.stripWorkspace, tabFrames: base.tabFrames,
+            workspaceFrames: base.workspaceFrames, stripFrame: base.stripFrame, railFrame: base.railFrame,
+            newTabZone: base.newTabZone, newWorkspaceZone: base.newWorkspaceZone,
+            grid: GridDropSurfaces(
+                viewport: viewport,
+                thumbnails: [TabItemFrame(id: layout.tabID, frame: frame)],
+                tiles: [],
+                cards: [WorkspaceItemFrame(id: layout.workspaceID, frame: frame.insetBy(dx: -10, dy: -10))],
+                miniPanes: [GridThumbnailPanes(tab: layout.tabID, panes: drawnPanes(layout))]
+            )
+        )
+    }
+
+    private func drawnBox(_ pane: PaneID, in surfaces: DropSurfaces) throws -> CGRect {
+        try XCTUnwrap(surfaces.grid?.miniPaneFrame(of: pane))
+    }
+
+    private func tabLayout(_ tab: String) throws -> LayoutSnapshot {
+        try XCTUnwrap(model().layouts[TabID(rawValue: tab)])
+    }
+
+    /// A thumbnail of one pane: it covers the whole pane area, so all four of
+    /// its sides are reachable and the middle of it is its interior.
+    func testEveryEdgeOfALoneMiniPaneIsReachable() throws {
+        let surfaces = thumbnailSurfaces(try tabLayout("w1:t2"))
+        let box = try drawnBox(p4, in: surfaces)
+        let samples: [(Edge, CGPoint)] = [
+            (.left, CGPoint(x: box.minX + 1, y: box.midY)),
+            (.right, CGPoint(x: box.maxX - 1, y: box.midY)),
+            (.top, CGPoint(x: box.midX, y: box.minY + 1)),
+            (.bottom, CGPoint(x: box.midX, y: box.maxY - 1)),
+        ]
+        for (edge, point) in samples {
+            XCTAssertEqual(resolveDropTarget(at: point, dragging: pane, surfaces: surfaces), .paneEdge(p4, edge), "\(edge)")
+        }
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: box.midX, y: box.midY), dragging: pane, surfaces: surfaces),
+            .paneInterior(p4)
+        )
+    }
+
+    /// The tab's handle strip is the tab's own grab area, and the padding the
+    /// mini panes are inset by belongs to no pane, so both still mean the
+    /// whole tab rather than the nearest pane.
+    func testTheHandleStripAndTheSpaceBetweenMiniPanesStillMeanTheWholeTab() throws {
+        let surfaces = thumbnailSurfaces(try tabLayout("w1:t1"))
+        let thumbnail = try XCTUnwrap(surfaces.grid?.thumbnails.first?.frame)
+        let left = try drawnBox(p1, in: surfaces)
+        let right = try drawnBox(p2, in: surfaces)
+        let whole = DropTarget.tabThumbnail(TabID(rawValue: "w1:t1"))
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: thumbnail.midX, y: thumbnail.minY + 1), dragging: pane, surfaces: surfaces),
+            whole, "the tab's own handle"
+        )
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: thumbnail.minX + 1, y: left.midY), dragging: pane, surfaces: surfaces),
+            whole, "the padding outside the mini panes"
+        )
+        XCTAssertLessThan(left.maxX, right.minX)
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: (left.maxX + right.minX) / 2, y: left.midY), dragging: pane, surfaces: surfaces),
+            whole, "the gutter between two mini panes"
+        )
+    }
+
+    /// Four panes stacked: at the thumbnail's own height each is about 16pt
+    /// tall, so the fraction's band there is about 3pt and that axis offers
+    /// no sides at all. The long axis is untouched, which is the aim a
+    /// stacked thumbnail is asked for most.
+    func testAMiniPaneTooShallowForABandOffersNoneOnThatAxis() throws {
+        let stacked = layout((0..<4).map { row in
+            (PaneID(rawValue: "w1:p\(row + 1)"), CellRect(x: 0, y: row * 6, width: 80, height: 6))
+        })
+        let surfaces = thumbnailSurfaces(stacked)
+        let box = try drawnBox(p2, in: surfaces)
+        XCTAssertLessThan(box.height * edgeBandFraction, minimumEdgeBand, "the premise: the short axis is under the floor")
+        XCTAssertGreaterThanOrEqual(box.width * edgeBandFraction, minimumEdgeBand, "the premise: the long axis is not")
+
+        for y in [box.minY + 1, box.maxY - 1] {
+            XCTAssertEqual(
+                resolveDropTarget(at: CGPoint(x: box.midX, y: y), dragging: pane, surfaces: surfaces),
+                .paneInterior(p2), "a 3pt band may not decide a split"
+            )
+        }
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: box.minX + 1, y: box.midY), dragging: pane, surfaces: surfaces),
+            .paneEdge(p2, .left)
+        )
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: box.maxX - 1, y: box.midY), dragging: pane, surfaces: surfaces),
+            .paneEdge(p2, .right)
+        )
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: box.minX + 1, y: box.minY + 1), dragging: pane, surfaces: surfaces),
+            .paneEdge(p2, .left), "a corner falls to the axis that still has a band"
+        )
+    }
+
+    /// The smallest the grid draws: a tab split four across and four down
+    /// leaves every mini pane under the floor on both axes, so the whole of
+    /// each is its interior. That still commits the drop onto the pane the
+    /// pointer is over, which is where it was aimed.
+    func testAMiniPaneTooShallowOnBothAxesIsAllInterior() throws {
+        var cells: [(PaneID, CellRect)] = []
+        for row in 0..<4 {
+            for column in 0..<4 {
+                cells.append((
+                    PaneID(rawValue: "w1:p\(row * 4 + column + 1)"),
+                    CellRect(x: column * 20, y: row * 6, width: 20, height: 6)
+                ))
+            }
+        }
+        let surfaces = thumbnailSurfaces(layout(cells))
+        let box = try drawnBox(p2, in: surfaces)
+        XCTAssertLessThan(box.width * edgeBandFraction, minimumEdgeBand)
+        XCTAssertLessThan(box.height * edgeBandFraction, minimumEdgeBand)
+        let corners = [
+            CGPoint(x: box.minX + 1, y: box.minY + 1), CGPoint(x: box.maxX - 1, y: box.minY + 1),
+            CGPoint(x: box.minX + 1, y: box.maxY - 1), CGPoint(x: box.maxX - 1, y: box.maxY - 1),
+            CGPoint(x: box.midX, y: box.midY),
+        ]
+        for point in corners {
+            XCTAssertEqual(resolveDropTarget(at: point, dragging: pane, surfaces: surfaces), .paneInterior(p2), "\(point)")
+        }
+    }
+
+    /// The boxes are stated in the thumbnail's own space, so a grid that has
+    /// scrolled carries them with the thumbnail and nothing is re-reported.
+    func testAMiniPaneIsHitThroughItsThumbnailsLiveFrame() throws {
+        let resting = thumbnailSurfaces(try tabLayout("w1:t2"))
+        let scrolled = thumbnailSurfaces(try tabLayout("w1:t2"), origin: CGPoint(x: 120, y: 90))
+        let box = try drawnBox(p4, in: resting)
+        let moved = try drawnBox(p4, in: scrolled)
+        XCTAssertEqual(moved, box.offsetBy(dx: 100, dy: 30))
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: moved.minX + 1, y: moved.midY), dragging: pane, surfaces: scrolled),
+            .paneEdge(p4, .left)
+        )
+        XCTAssertNil(
+            resolveDropTarget(at: CGPoint(x: box.minX + 1, y: box.midY), dragging: pane, surfaces: scrolled),
+            "the thumbnail is not there any more"
+        )
+    }
+
+    /// A pane target names a mini pane while the grid is up, so the ghost
+    /// settles on the box the thumbnail drew rather than on the canvas frame
+    /// the covered window left behind.
+    func testAGridPaneTargetSettlesOnTheMiniPaneNotTheCanvasUnderneath() throws {
+        let surfaces = thumbnailSurfaces(try tabLayout("w1:t2"))
+        let box = try drawnBox(p4, in: surfaces)
+        XCTAssertEqual(dropTargetRect(for: .paneInterior(p4), surfaces: surfaces), box)
+        XCTAssertEqual(
+            dropTargetRect(for: .paneEdge(p4, .right), surfaces: surfaces),
+            DropPreview.incomingRect(in: box, edge: .right)
+        )
+        XCTAssertEqual(
+            dropFlashRect(for: .paneEdge(p4, .right), surfaces: surfaces),
+            DropPreview.incomingRect(in: box, edge: .right)
+        )
+        XCTAssertNotNil(surfaces.canvas.paneFrames[p1], "the covered canvas still carries its own frames")
+        XCTAssertNil(
+            dropTargetRect(for: .paneInterior(p1), surfaces: surfaces),
+            "a pane no thumbnail is drawing has no box in the grid to settle on"
+        )
+    }
+
+    // MARK: - the preview the resolved target produces
+
+    private func landing(_ layout: LayoutSnapshot, arriving: MiniPaneLayout.Arrival?) -> [MiniPaneLayout.Placed] {
+        MiniPaneLayout.boxes(
+            layout: layout, exported: nil, fallbackPanes: [], size: thumbnail, padding: 4, gap: 4, displayScale: 2,
+            arriving: arriving
+        )
+    }
+
+    /// The pane makes room on the side the drop was aimed at, and only inside
+    /// the target pane's own region: a `pane.move` divides the one region it
+    /// names and leaves every other pane exactly where it was.
+    func testTheMakeWayPreviewOpensTheSideTheDropWasAimedAt() throws {
+        let tab = try tabLayout("w1:t1")
+        let resting = landing(tab, arriving: nil)
+        let before = try XCTUnwrap(resting.first { $0.pane == p1 }).frame
+        for edge in Edge.allCases {
+            let boxes = landing(tab, arriving: MiniPaneLayout.Arrival(pane: arriving, target: .paneEdge(p1, edge)))
+            let target = try XCTUnwrap(boxes.first { $0.pane == p1 }).frame
+            let landed = try XCTUnwrap(boxes.first { $0.pane == arriving }).frame
+            switch edge {
+            case .left:
+                XCTAssertLessThan(landed.maxX, target.minX, "\(edge)")
+                XCTAssertLessThan(target.width, before.width, "\(edge)")
+            case .right:
+                XCTAssertLessThan(target.maxX, landed.minX, "\(edge)")
+                XCTAssertLessThan(target.width, before.width, "\(edge)")
+            case .top:
+                XCTAssertLessThan(landed.maxY, target.minY, "\(edge)")
+                XCTAssertLessThan(target.height, before.height, "\(edge)")
+            case .bottom:
+                XCTAssertLessThan(target.maxY, landed.minY, "\(edge)")
+                XCTAssertLessThan(target.height, before.height, "\(edge)")
+            }
+            for other in [p2, p3] {
+                XCTAssertEqual(
+                    boxes.first { $0.pane == other }?.frame, resting.first { $0.pane == other }?.frame,
+                    "\(other.rawValue) moved for a split of \(p1.rawValue)'s own region on \(edge)"
+                )
+            }
+        }
+    }
+
+    /// An interior drop inside one tab trades the two panes' boxes and
+    /// changes nothing else, which is exactly the `swapPanes` the plan sends.
+    func testAnInteriorDropInsideOneTabPreviewsTheSwapThePlanSends() throws {
+        let tab = try tabLayout("w1:t1")
+        let resting = landing(tab, arriving: nil)
+        let boxes = landing(tab, arriving: MiniPaneLayout.Arrival(pane: p3, target: .paneInterior(p1)))
+        XCTAssertEqual(boxes.first { $0.pane == p3 }?.frame, resting.first { $0.pane == p1 }?.frame)
+        XCTAssertEqual(boxes.first { $0.pane == p1 }?.frame, resting.first { $0.pane == p3 }?.frame)
+        XCTAssertEqual(boxes.first { $0.pane == p2 }?.frame, resting.first { $0.pane == p2 }?.frame)
+        guard case .success(let swap) = plan(dragging: .pane(p3), onto: .paneInterior(p1), model: model()) else {
+            return XCTFail("a swap inside one tab has to commit")
+        }
+        XCTAssertEqual(swap.ops, [.swapPanes(p3, p1)])
+    }
+
+    /// Across tabs there is nothing to swap with: the plan's `pane.move`
+    /// names the target pane and divides that pane's own region, target
+    /// first, so the preview opens the right half rather than promising the
+    /// target's disappearance.
+    func testAnInteriorDropFromAnotherTabPreviewsTheDivideThePlanSends() throws {
+        let tab = try tabLayout("w1:t1")
+        let resting = landing(tab, arriving: nil)
+        let before = try XCTUnwrap(resting.first { $0.pane == p1 }).frame
+        let boxes = landing(tab, arriving: MiniPaneLayout.Arrival(pane: p4, target: .paneInterior(p1)))
+        let target = try XCTUnwrap(boxes.first { $0.pane == p1 }).frame
+        let landed = try XCTUnwrap(boxes.first { $0.pane == p4 }).frame
+        XCTAssertLessThan(target.maxX, landed.minX, "the arriving pane takes the right half")
+        XCTAssertLessThan(target.width, before.width, "the pane it landed on is still there, narrower")
+        XCTAssertEqual(boxes.first { $0.pane == p2 }?.frame, resting.first { $0.pane == p2 }?.frame)
+        guard case .success(let move) = plan(dragging: .pane(p4), onto: .paneInterior(p1), model: model()) else {
+            return XCTFail("a pane from another tab has to commit")
+        }
+        XCTAssertEqual(
+            move.ops, [.movePaneToTab(p4, tab: TabID(rawValue: "w1:t1"), target: p1, split: .right, ratio: 0.5)]
+        )
+    }
+
+    /// The arrival carries the target the drop actually resolved to, and only
+    /// while the planner commits something: a pane dropped on its own mini
+    /// pane is a no-op, and a thumbnail that is not drawing the target pane
+    /// previews nothing.
+    func testAnArrivalCarriesTheTargetTheDropResolvedTo() throws {
+        let model = model()
+        let first = TabID(rawValue: "w1:t1")
+        for target in [DropTarget.paneEdge(p1, .top), .paneInterior(p2)] {
+            let arrival = try XCTUnwrap(MiniPaneLayout.arrival(of: .pane(p4), onto: target, tab: first, model: model))
+            XCTAssertEqual(arrival.pane, p4)
+            XCTAssertEqual(arrival.target, target)
+        }
+        XCTAssertNil(
+            MiniPaneLayout.arrival(of: .pane(p1), onto: .paneEdge(p1, .left), tab: first, model: model),
+            "a pane onto its own mini pane commits nothing"
+        )
+        XCTAssertNil(
+            MiniPaneLayout.arrival(of: .pane(p4), onto: .paneEdge(p1, .left), tab: TabID(rawValue: "w1:t2"), model: model),
+            "another tab's thumbnail does not draw this split"
+        )
+    }
+
+    /// Which tab a grid drop belongs to, whichever shape its target took:
+    /// what the card outlines itself on and the thumbnail washes itself on.
+    func testAPaneTargetBelongsToTheTabDrawingThatPane() {
+        let model = model()
+        XCTAssertEqual(MiniPaneLayout.targetedTab(of: .paneEdge(p1, .left), model: model), TabID(rawValue: "w1:t1"))
+        XCTAssertEqual(MiniPaneLayout.targetedTab(of: .paneInterior(p4), model: model), TabID(rawValue: "w1:t2"))
+        XCTAssertEqual(MiniPaneLayout.targetedTab(of: .tabThumbnail(TabID(rawValue: "w1:t3")), model: model), TabID(rawValue: "w1:t3"))
+        XCTAssertNil(MiniPaneLayout.targetedTab(of: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), model: model))
+        XCTAssertNil(MiniPaneLayout.targetedTab(of: nil, model: model))
     }
 
     // MARK: - planner
