@@ -42,11 +42,16 @@ cleanup() {
   trap - EXIT INT TERM
   # Before the session stop, never after: the control loop's whole job is to
   # start a server back up, and it would happily undo the teardown.
+  #
+  # The listener has to die before the loop is waited on. A non-interactive
+  # bash acts on a signal only once its foreground command returns, and the
+  # loop's foreground command is a `nc` that blocks until someone connects, so
+  # killing the loop alone leaves the wait blocked for as long as nothing does.
   if [ -n "$CONTROL_PID" ]; then
     kill "$CONTROL_PID" 2>/dev/null || true
+    pkill -f -- "-lU $CONTROL_SOCKET" 2>/dev/null || true
     wait "$CONTROL_PID" 2>/dev/null || true
   fi
-  pkill -f -- "-lU $CONTROL_SOCKET" 2>/dev/null || true
   rm -f "$CONTROL_SOCKET"
   if [ -n "$SESSION_STARTED" ]; then
     "$LIB/scratch-session.sh" stop "$SESSION_NAME" >/dev/null 2>&1 || true
@@ -79,6 +84,9 @@ SEED_IDS=$("$LIB/seed-layout.sh" "$SOCKET" | jq -c .)
 # Dropping the session directory resets herdr's own numbering, which is what
 # keeps the seed ids stable across a reseed.
 control_loop() {
+  # A subshell inherits the traps set before it forked, and this one must not
+  # run the teardown: it would stop the session out from under the tests.
+  trap - EXIT INT TERM
   while :; do
     rm -f "$CONTROL_SOCKET"
     request="$(nc -lU "$CONTROL_SOCKET" 2>/dev/null || true)"
