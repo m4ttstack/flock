@@ -239,9 +239,10 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertNil(MiniPaneLayout.arrival(of: .pane(p1), onto: .tabThumbnail(bare), tab: bare, model: model()))
     }
 
-    /// The fallbacks, in order: the layout's own id, then the rect herdr
-    /// flagged, then the first pane there is.
-    func testTheFocusedPaneFallsBackThroughTheRectFlagToTheFirstPane() {
+    /// Two rungs and no more: the layout's own id, then the first pane there
+    /// is. A rect's `focused` flag is not one of them, so sharing this read
+    /// with the mutation path cannot move which pane a zoom comes back onto.
+    func testTheFocusedPaneIsTheLayoutsOwnIdThenItsFirstPane() {
         let named = LayoutSnapshot(
             workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"), zoomed: false,
             area: CellRect(x: 0, y: 0, width: 80, height: 24), focusedPaneID: p2,
@@ -258,7 +259,7 @@ final class GridGeometryTests: XCTestCase {
             ],
             splits: []
         )
-        XCTAssertEqual(flagged.focusedPane, p2)
+        XCTAssertEqual(flagged.focusedPane, p1, "the flagged rect is not a rung")
         XCTAssertEqual(sideBySide.focusedPane, p1, "nothing marked at all")
     }
 
@@ -594,10 +595,15 @@ final class GridGeometryTests: XCTestCase {
             .tabStrip(workspace: workspace, insertIndex: 1), "past the card's only drawn tab"
         )
 
-        guard case .success(let plan) = plan(dragging: own, onto: .tabStrip(workspace: workspace, insertIndex: 1), model: model()) else {
+        // w1:t2 is the workspace's second tab, so the gap before it is a real
+        // move and the gap after it is the place it already has.
+        guard case .success(let moved) = plan(dragging: own, onto: .tabStrip(workspace: workspace, insertIndex: 0), model: model()) else {
             return XCTFail("a tab reordered inside its own card has to commit a move")
         }
-        XCTAssertEqual(plan.ops, [.moveTab(gridThumbnail.id, insertIndex: 1)])
+        XCTAssertEqual(moved.ops, [.moveTab(gridThumbnail.id, insertIndex: 0)])
+        guard case .failure(.noOp) = plan(dragging: own, onto: .tabStrip(workspace: workspace, insertIndex: 2), model: model()) else {
+            return XCTFail("a tab dropped back in its own gap must commit nothing")
+        }
     }
 
     /// A tab the card is not drawing (a hidden one behind a "+N" tile, or a

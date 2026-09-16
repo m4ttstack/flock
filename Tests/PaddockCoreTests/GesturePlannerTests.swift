@@ -361,6 +361,37 @@ final class GesturePlannerTests: XCTestCase {
         XCTAssertEqual(opPlan.ops, [.moveTab(TabID(rawValue: "w1:t2"), insertIndex: 0)])
     }
 
+    /// Both gaps either side of a tab's own slot name the place it already
+    /// has, so a drop there changes nothing and must not reach herdr. The
+    /// preview slides nothing at those gaps for the same reason, from the
+    /// same rule.
+    func testATabDroppedInItsOwnGapPlansNothing() {
+        let model = twoTabModel()
+        let workspace = WorkspaceID(rawValue: "w1")
+        for insertIndex in [1, 2] {
+            guard case .failure(.noOp) = plan(dragging: .tab(TabID(rawValue: "w1:t2")), onto: .tabStrip(workspace: workspace, insertIndex: insertIndex), model: model) else {
+                return XCTFail("gap \(insertIndex) is w1:t2's own place")
+            }
+        }
+        for insertIndex in [0, 1] {
+            guard case .failure(.noOp) = plan(dragging: .tab(TabID(rawValue: "w1:t1")), onto: .tabStrip(workspace: workspace, insertIndex: insertIndex), model: model) else {
+                return XCTFail("gap \(insertIndex) is w1:t1's own place")
+            }
+        }
+        guard case .success = plan(dragging: .tab(TabID(rawValue: "w1:t1")), onto: .tabStrip(workspace: workspace, insertIndex: 2), model: model) else {
+            return XCTFail("one slot over still moves")
+        }
+    }
+
+    func testATabThatIsNotInTheWorkspaceItIsReorderedInIsRefused() {
+        guard case .failure(.invalidCombination) = plan(
+            dragging: .tab(TabID(rawValue: "w1:t2")), onto: .tabStrip(workspace: WorkspaceID(rawValue: "w2"), insertIndex: 0),
+            model: twoTabModel()
+        ) else {
+            return XCTFail("a tab can only be reordered inside the workspace holding it")
+        }
+    }
+
     func testWorkspaceToRailMovesWorkspace() {
         let model = twoTabModel()
         let result = plan(dragging: .workspace(WorkspaceID(rawValue: "w2")), onto: .workspaceRail(insertIndex: 0), model: model)

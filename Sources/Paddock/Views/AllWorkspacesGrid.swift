@@ -140,6 +140,31 @@ private struct CardDropPreview {
     }
 }
 
+/// What one card previews while a tab is dragged among its own cells. Keyed on
+/// the plan like every other grid preview: a drop that commits nothing slides
+/// no cell and outlines no card, whether that is a tab dropped back in its own
+/// gap or a tab the model has moved out of this workspace under the drag.
+@MainActor
+private struct CardReorderPreview {
+    let takesTheDrop: Bool
+    /// How far each of this card's thumbnails slides, empty unless the drop
+    /// commits.
+    let displacements: [TabID: CGSize]
+
+    init(workspace: WorkspaceID, drag: DragCoordinator, model: SessionModel?) {
+        guard let target = drag.target, case .tabStrip(let reordering, _) = target, reordering == workspace,
+              let subject = drag.activeSubject, case .tab = subject,
+              let model, case .success = plan(dragging: subject, onto: target, model: model)
+        else {
+            takesTheDrop = false
+            displacements = [:]
+            return
+        }
+        takesTheDrop = true
+        displacements = drag.gridTabDisplacements(inCardFor: workspace)
+    }
+}
+
 private struct WorkspaceCard: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -154,8 +179,8 @@ private struct WorkspaceCard: View {
             newTab: preview.addsATab
         )
         // Read once per card rather than per cell: only the card a reorder is
-        // over has any to report.
-        let displacements = drag.gridTabDisplacements(inCardFor: workspace.workspaceID)
+        // over, and only while that reorder commits, has any to report.
+        let displacements = reorder.displacements
         VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardSpacing) {
             header(tabCount: tabs.count)
             VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabGap) {
@@ -226,6 +251,14 @@ private struct WorkspaceCard: View {
                     theme: theme, viewModel: viewModel, tab: tab, isTargeted: drag.target == .tabThumbnail(id),
                     displacement: displacements[id] ?? .zero
                 )
+                // One frame for the whole thumbnail, strip included: a drop
+                // anywhere on it is a drop on this tab, so the strip never
+                // resolves as a target of its own. Reported from OUTSIDE the
+                // thumbnail, which offsets its own content, so the report is
+                // its resting place; the coordinator's freeze while a reorder
+                // is live is what actually guarantees that, since the
+                // insertion index is counted against resting cells.
+                .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(id)) }
             }
         case .moreTabs(let hidden):
             tile(title: "+\(hidden)", label: "more tabs", tabCount: tabs.count)
@@ -269,7 +302,7 @@ private struct WorkspaceCard: View {
         switch drag.target {
         case .tabThumbnail(let id)?: tabs.contains { $0.tabID == id }
         case .moreTabs(let id)?: id == workspace.workspaceID
-        case .tabStrip(let id, _)?: id == workspace.workspaceID
+        case .tabStrip?: reorder.takesTheDrop
         default: takesTheDrop
         }
     }
@@ -279,6 +312,10 @@ private struct WorkspaceCard: View {
     /// commits nothing at all.
     private var preview: CardDropPreview {
         CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
+    }
+
+    private var reorder: CardReorderPreview {
+        CardReorderPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
     }
 
     private var takesTheDrop: Bool { preview.takesTheDrop }
@@ -307,16 +344,6 @@ private struct TabThumbnail: View {
         .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
-        // Inside the frame report, which is what keeps the published frame
-        // this thumbnail's RESTING place: an offset leaves the layout frame
-        // alone, and the insertion index has to be measured against where the
-        // cells rest.
-        .offset(x: displacement.width, y: displacement.height)
-        .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
-        // One frame for the whole thumbnail, strip included: a drop anywhere
-        // on it is a drop on this tab, so the strip never resolves as a
-        // target of its own.
-        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(tab.tabID)) }
         .contentShape(Rectangle())
         // Selected before the grid closes, so the window never draws the
         // previously selected tab in between.
@@ -332,6 +359,11 @@ private struct TabThumbnail: View {
         // mini pane does not cover drags the tab. A mini pane's own gesture
         // is a descendant's, so it takes the press where it sits.
         .gesture(tabDrag)
+        // Last, so everything above moves together and the frame the card
+        // publishes from outside this view is the layout frame an offset
+        // cannot touch. This is the strip's own shape (`TabBlock`).
+        .offset(x: displacement.width, y: displacement.height)
+        .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
     }
 
     private var titleStrip: some View {

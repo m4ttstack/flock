@@ -311,6 +311,63 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A tab dropped back in its own gap commits nothing, so its card
+    /// previews nothing: no cell slides and the card does not outline itself,
+    /// even though the drag still resolves to that card. The preview keys on
+    /// the plan, the way every other grid preview does.
+    func testACardPreviewsNothingForAReorderThatMovesNoTab() async throws {
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
+        let cells = try XCTUnwrap(harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.repoTools }?.tabs)
+        let first = cells[0].frame
+        // The card's own border, on the edge furthest from the proxy: accent
+        // while the card takes a drop, `paneBorder` otherwise.
+        let border = CGPoint(x: card.maxX - ChromeMetrics.ruleWidth / 4, y: card.midY)
+        let atRest = try snapshot(window)
+        XCTAssertEqual(hex(atRest, border), Theme.tokyoNight.palette.chromeRoles.paneBorder.hex)
+
+        harness.drag.beginIfIdle(
+            .tab(GridFixture.agentsTab),
+            ghost: DragCoordinator.Ghost(
+                title: "agents", symbol: "rectangle.stack", originSize: first.size, isCompact: true,
+                tabMiniature: .init(title: "agents", status: .working, isFocusedTab: true, panes: [])
+            ),
+            at: CGPoint(x: first.midX, y: first.minY + ChromeMetrics.Grid.tabStripHeight / 2),
+            home: DragCoordinator.DragHome(atStart: first, item: .tab(GridFixture.agentsTab), boxInItem: CGRect(origin: .zero, size: first.size))
+        )
+        // Left of its own centre: the gap before the slot it already holds.
+        let target = DropTarget.tabStrip(workspace: GridFixture.repoTools, insertIndex: 0)
+        harness.drag.move(to: CGPoint(x: first.midX - 10, y: first.midY))
+        XCTAssertEqual(harness.drag.target, target, "it still resolves to a reorder in this card")
+        guard case .failure(.noOp) = plan(dragging: .tab(GridFixture.agentsTab), onto: target, model: model) else {
+            return XCTFail("a tab dropped in its own gap has to plan nothing, or this test proves nothing")
+        }
+        await settle(window)
+
+        XCTAssertEqual(
+            hex(try snapshot(window), border), hex(atRest, border),
+            "the card outlined itself for a drop that commits nothing"
+        )
+        // The focused tab is still in slot 1 (its bar is there, faded with the
+        // origin) and slot 2 still carries no bar at all.
+        let mid = try snapshot(window)
+        XCTAssertNotEqual(
+            hex(mid, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            "the focused tab left the slot it still holds"
+        )
+        XCTAssertEqual(
+            hex(mid, Self.focusBarPoint(of: cells[1].frame)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            "a cell slid for a drop that moves nothing"
+        )
+        window.close()
+    }
+
     /// A pane dragged over another tab's thumbnail: that tab's mini panes
     /// make room where herdr will really put it, beside the tab's focused
     /// pane, and the space they give up is drawn as the arriving pane's slot.
@@ -386,12 +443,6 @@ final class ChromeRenderTests: XCTestCase {
             x: thumbnail.minX + ChromeMetrics.Grid.tabStripHorizontalPadding + ChromeMetrics.Grid.tabStripIndicatorSize.width / 2,
             y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2
         )
-    }
-
-    /// A box's own middle, which for a mini pane is clear of its border and
-    /// of the title along its top.
-    private static func groundPointInside(_ box: CGRect) -> CGPoint {
-        CGPoint(x: box.midX, y: box.maxY - 4)
     }
 
     /// The placeholder's frame against the frame the real tab takes, from

@@ -99,6 +99,34 @@ final class MutationEngineTests: XCTestCase {
         XCTAssertEqual(fake.receivedRequests[1].method, "pane.focus")
     }
 
+    /// A layout that names no focused pane of its own: the unzoom comes back
+    /// onto the tab's FIRST pane, whichever rect herdr flagged. The shared
+    /// `LayoutSnapshot.focusedPane` is what answers here, so this is the rung
+    /// that pins the engine's behavior against a reading that takes the flag
+    /// instead.
+    func testAnUnzoomWithNoFocusedPaneInTheLayoutTakesItsFirstPane() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.zoom", withResultJSON: "{}")
+        fake.respond(to: "pane.focus", withResultJSON: "{}")
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let unflaggedFirst = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 2)],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1"), paneRecord("w1:p2", workspace: "w1", tab: "w1:t1", focused: true)],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", zoomed: true, area: rect(0, 0, 80, 24), focusedPane: nil,
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24)), paneRect("w1:p2", rect(40, 0, 40, 24), focused: true)],
+                splits: [splitInfo("s1", .right, 0.5, rect(0, 0, 80, 24))]
+            )]
+        )
+        let plan = OpPlan(ops: [.focusPane(PaneID(rawValue: "w1:p1"))], label: "Focus", needsUnzoom: [TabID(rawValue: "w1:t1")])
+        _ = expectSuccess(await engine.execute(plan, model: unflaggedFirst))
+
+        XCTAssertEqual(fake.receivedRequests[0].method, "pane.zoom")
+        XCTAssertEqual(requestParams(fake.receivedRequests[0])["pane_id"] as? String, "w1:p1")
+    }
+
     // MARK: - Named test 2: cross-workspace move threads the new id forward
 
     func testIdThreadingAcrossCrossWorkspaceMove() async throws {

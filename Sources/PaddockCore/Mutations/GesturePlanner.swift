@@ -173,9 +173,17 @@ private func planPaneToNewWorkspace(pane: PaneID, model: SessionModel) -> Result
 
 // MARK: - tab subject
 
+/// An insert index counts gaps, and the two gaps either side of a tab's own
+/// slot both name the place it already has: `ReshuffleOffset.landedSlot` is
+/// the one rule that says so, and it is the same rule the strip and the grid
+/// slide their items by, so a preview that moves nothing and a plan that does
+/// nothing cannot disagree.
 private func planTabReorder(tab: TabID, workspace: WorkspaceID, insertIndex: Int, model: SessionModel) -> Result<OpPlan, PlanError> {
-    guard model.tabs[workspace]?.contains(where: { $0.tabID == tab }) == true else {
+    guard let index = model.tabs[workspace]?.firstIndex(where: { $0.tabID == tab }) else {
         return .failure(.invalidCombination)
+    }
+    guard ReshuffleOffset.landedSlot(forItemAt: index, draggingIndex: index, insertIndex: insertIndex) != index else {
+        return .failure(.noOp)
     }
     return .success(OpPlan(
         ops: [.moveTab(tab, insertIndex: insertIndex)],

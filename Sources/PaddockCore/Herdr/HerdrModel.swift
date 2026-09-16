@@ -175,11 +175,16 @@ public struct LayoutSnapshot: Codable, Equatable, Sendable {
     }
 
     /// The pane herdr acts on when a verb names this tab but no pane of it:
-    /// what a pane moved in splits, and what an unzoom lands on. The rect's
-    /// own flag answers a snapshot that carries no `focused_pane_id`, and the
-    /// first pane answers one that marks none at all.
+    /// what a pane moved in splits, and what an unzoom lands on.
+    ///
+    /// A pane rect's own `focused` flag is deliberately NOT a rung between the
+    /// two. It would only ever be reached by a snapshot that carries no
+    /// `focused_pane_id` and still flags a rect, and the only evidence for
+    /// what herdr does there is this read itself, which the mutation path has
+    /// always made: adding the flag would move which pane a zoom comes back
+    /// onto.
     public var focusedPane: PaneID? {
-        focusedPaneID ?? panes.first(where: \.focused)?.paneID ?? panes.first?.paneID
+        focusedPaneID ?? panes.first?.paneID
     }
 }
 
