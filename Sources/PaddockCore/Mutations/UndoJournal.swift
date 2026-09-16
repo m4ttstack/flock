@@ -91,11 +91,12 @@ public final class UndoJournal {
     /// `isBusy` covers the whole chain, not just undo/redo, so a consumer
     /// (the Edit menu) can disable itself for the width of ANY in-flight step.
     ///
-    /// Nothing bounds a step. A step waits on the executor, which waits on a
-    /// herdr request that carries no deadline of its own, so a server that
-    /// accepts the connection and then answers nothing parks this chain and
-    /// every mutation queued behind it, with `isBusy` true, until the socket
-    /// closes.
+    /// The chain sets no bound of its own: a step is as wide as the work
+    /// inside it, and every later step waits behind it. What bounds it in
+    /// practice is the request underneath (`HerdrClient.defaultRequestTimeout`),
+    /// so the worst case for a herdr that answers nothing is two of those --
+    /// the request, then the re-snapshot its failure triggers -- and never the
+    /// permanent park that a step with no deadline under it would be.
     public func runExclusively(_ body: @escaping () async -> Void) async {
         let previous = chain
         let task = Task { [weak self] in

@@ -44,18 +44,14 @@ public enum HerdrClientError: Error, Sendable {
 public actor HerdrClient {
     public static let minimumProtocol = 22
 
-    /// How long a request waits for its answer before it fails.
+    /// How long a request waits for its answer before it fails. Wide because
+    /// a deadline that fires on a herdr merely under load would turn a slow
+    /// mutation into a wrong one; fifteen seconds on a local socket is past
+    /// any load and into "this server is not answering", which is the reading
+    /// Herdglass's own client settled on for the same server.
     ///
-    /// Every request is bounded, and only requests are: a subscription never
-    /// runs through this type (`HerdrStore.bootstrapAndRun` and both
-    /// pane-scoped feeds open their own `LineSocket`), and a subscription that
-    /// stays quiet for an hour is correct. What this catches is the other
-    /// shape entirely, a herdr that accepts the connection and then answers
-    /// nothing: unbounded, that parks the caller for good, and since every
-    /// mutation runs through one serial chain, it parks every later one with
-    /// it. The width is the same one Herdglass's own client uses, and a herdr
-    /// that has not answered a local socket in fifteen seconds is not going
-    /// to.
+    /// A subscription is exempt by construction rather than by choice: one
+    /// never runs through this type, and a stream that stays quiet is correct.
     public static let defaultRequestTimeout: Duration = .seconds(15)
 
     private let socketPath: String

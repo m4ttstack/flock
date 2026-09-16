@@ -931,7 +931,11 @@ final class HerdrStoreTests: XCTestCase {
         }
 
         XCTAssertTrue(outcome.done, "the unanswered mutation parked the chain")
-        XCTAssertFalse(journal.isBusy, "the chain is still marked busy, so every later mutation is locked out")
+        // Polled, not read once: the step's own completion and the journal's
+        // `isBusy` write are two separate hops on this actor, so a single read
+        // right after the step finishes is a question about ordering rather
+        // than about the chain being free.
+        try await waitUntil(timeout: 2) { !journal.isBusy }
         guard case .failure(let failure)? = outcome.result else {
             return XCTFail("expected the plan to fail, got \(String(describing: outcome.result))")
         }
