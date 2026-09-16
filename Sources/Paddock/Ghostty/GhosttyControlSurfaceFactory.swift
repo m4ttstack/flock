@@ -153,5 +153,13 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
         session.setOccluded(false)
     }
 
+    func releaseHerdrHold() {
+        session.sendHold(.release)
+    }
+
+    func takeHerdrHold() {
+        session.sendHold(.take)
+    }
+
     var hasFirstFrame: Bool { session.hasFirstFrame }
 }

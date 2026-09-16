@@ -1309,6 +1309,8 @@ private final class GroundSurface: GhosttyPaneSurface {
     func detach() async {}
     func park() {}
     func unpark() {}
+    func releaseHerdrHold() {}
+    func takeHerdrHold() {}
     var hasFirstFrame: Bool { true }
 }
 

@@ -52,6 +52,19 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// parked is a harmless no-op.
     func unpark()
 
+    /// Drops paddock's herdr control client for this pane, which drops the
+    /// pane's `direct_attach_resize_lock` with it, so herdr sizes the pane for
+    /// its own shell clients again. The surface, its PTY, its scrollback, the
+    /// pane's program and this pane's place in the warm cache all survive:
+    /// only the herdr client goes. Until `takeHerdrHold()`, the pane's frames
+    /// stop arriving, so what the surface shows is the last frame it was sent.
+    func releaseHerdrHold()
+
+    /// Reverses `releaseHerdrHold()`: a new control client at the PTY's
+    /// current size, which retakes the lock and is answered with a full frame.
+    /// Idempotent, like `unpark()`.
+    func takeHerdrHold()
+
     /// Whether the bridge has reported this surface's first full-frame paint,
     /// ever, over the status FIFO's `paddock.first_frame` line. `PaneCellView`
     /// reads this to decide whether a cold attach still shows the status card;

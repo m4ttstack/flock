@@ -394,6 +394,13 @@ final class GhosttySession {
         controlChannel?.scroll(direction: direction, lines: lines)
     }
 
+    /// Tells the bridge to drop, or retake, its herdr control client. Nothing
+    /// on this side is torn down or rebuilt: the surface, its PTY and its
+    /// scrollback are untouched either way.
+    func sendHold(_ command: HoldCommand) {
+        controlChannel?.hold(command)
+    }
+
     /// The surface's live grid and cell, read from libghostty
     /// (`ghostty_surface_size`) rather than from the action-delivered
     /// `state.cellSize`, so the clamp and the cell divisor come from the same

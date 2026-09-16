@@ -86,6 +86,13 @@ public final class PaneControlChannel {
         ])
     }
 
+    /// A hold command. Unlike everything else on this channel these are acted
+    /// on by the bridge itself rather than forwarded to herdr, which is why
+    /// they are `paddock.`-namespaced (see `HoldCommand`).
+    public func hold(_ command: HoldCommand) {
+        send(command.json)
+    }
+
     public func close() {
         guard fd >= 0 else { return }
         Foundation.close(fd)

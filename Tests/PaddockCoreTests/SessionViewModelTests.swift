@@ -106,6 +106,9 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     private(set) var detachCallCount = 0
     private(set) var parkCallCount = 0
     private(set) var unparkCallCount = 0
+    /// Every hold command this surface was sent, in order, so a test can
+    /// assert both that a pane was handed back and that it was taken again.
+    private(set) var holdCalls: [HoldCommand] = []
     /// Test-driven, like a real bridge's status FIFO would flip it: starts
     /// `false`, and a test flips it directly to simulate the bridge's
     /// `paddock.first_frame` line landing.
@@ -125,6 +128,14 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
 
     func unpark() {
         unparkCallCount += 1
+    }
+
+    func releaseHerdrHold() {
+        holdCalls.append(.release)
+    }
+
+    func takeHerdrHold() {
+        holdCalls.append(.take)
     }
 }
 
@@ -724,6 +735,101 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.waitForClosedPaneTeardown()
 
         XCTAssertEqual(scroll.unsubscribed, [pane])
+    }
+
+    // MARK: - handing the panes back to herdr while paddock is not in front
+
+    /// Parked panes are the point, not an afterthought: a parked surface keeps
+    /// its bridge attached, so it holds that pane's resize lock exactly as a
+    /// visible one does.
+    @MainActor
+    func testReleasingTheHoldReachesEveryPaneIncludingTheParkedOnes() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let visible = PaneID(rawValue: "w1:p1")
+        let parked = PaneID(rawValue: "w1:p2")
+
+        _ = await viewModel.attachPane(visible)
+        _ = await viewModel.attachPane(parked)
+        await viewModel.detachPane(parked)
+
+        viewModel.releaseHerdrHold()
+
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[visible]).holdCalls, [.release])
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[parked]).holdCalls, [.release], "a parked pane kept its lock")
+    }
+
+    @MainActor
+    func testTakingTheHoldBackReachesEveryPaneItWasReleasedFor() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let visible = PaneID(rawValue: "w1:p1")
+        let parked = PaneID(rawValue: "w1:p2")
+
+        _ = await viewModel.attachPane(visible)
+        _ = await viewModel.attachPane(parked)
+        await viewModel.detachPane(parked)
+
+        viewModel.releaseHerdrHold()
+        viewModel.takeHerdrHold()
+
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[visible]).holdCalls, [.release, .take])
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[parked]).holdCalls, [.release, .take])
+    }
+
+    /// Nothing may be lost across the handoff. What that means on this side is
+    /// that a release creates, parks and tears down nothing: the same surfaces
+    /// come back, still warm, still in the same park order, and paddock's own
+    /// selection is where it was.
+    @MainActor
+    func testAHandoffCreatesParksAndTearsDownNothing() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let visible = PaneID(rawValue: "w1:p1")
+        let parked = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(visible)
+        _ = await viewModel.attachPane(parked)
+        await viewModel.detachPane(parked)
+        viewModel.select(workspace: WorkspaceID(rawValue: "w1"))
+        let selectedBefore = viewModel.selectedWorkspaceID
+        let visibleSurface = try XCTUnwrap(factory.surfaces[visible])
+        let parkedSurface = try XCTUnwrap(factory.surfaces[parked])
+
+        viewModel.releaseHerdrHold()
+        viewModel.takeHerdrHold()
+
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "the handoff built a surface")
+        for surface in [visibleSurface, parkedSurface] {
+            XCTAssertEqual(surface.detachCallCount, 0, "the handoff tore a surface down")
+        }
+        XCTAssertEqual(visibleSurface.parkCallCount, 0, "the handoff parked a visible pane")
+        XCTAssertEqual(parkedSurface.parkCallCount, 1, "the handoff re-parked an already parked pane")
+        XCTAssertEqual(parkedSurface.unparkCallCount, 0, "the handoff woke a parked pane")
+        XCTAssertTrue(viewModel.ghosttySurface(for: visible) === visibleSurface)
+        XCTAssertTrue(viewModel.ghosttySurface(for: parked) === parkedSurface, "the warm cache lost a pane")
+        XCTAssertEqual(viewModel.selectedWorkspaceID, selectedBefore)
+    }
+
+    /// A pane whose surface was already torn down (the warm cap's eviction, or
+    /// herdr closing it) has no hold to give back, and must not be reached.
+    @MainActor
+    func testAToreDownPaneIsNotSentAHoldCommand() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let panes = (1...13).map { PaneID(rawValue: "w1:p\($0)") }
+        for pane in panes {
+            _ = await viewModel.attachPane(pane)
+        }
+        for pane in panes {
+            await viewModel.detachPane(pane)
+        }
+        let evicted = try XCTUnwrap(factory.surfaces[panes[0]])
+
+        viewModel.releaseHerdrHold()
+
+        XCTAssertEqual(evicted.detachCallCount, 1, "the cap did not evict the pane this test is about")
+        XCTAssertEqual(evicted.holdCalls, [], "a torn-down pane was sent a hold command")
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[panes[12]]).holdCalls, [.release])
     }
 
     // MARK: - warm surface pool (park, not teardown, across a tab switch)

@@ -77,6 +77,8 @@ struct PaddockApp: App {
     @State private var rearrangeMode: RearrangeMode
     @State private var dragCoordinator: DragCoordinator
     @State private var dividerDragCoordinator: DividerDragCoordinator
+    /// Held for the app's life so its notification observers outlive `init`.
+    @State private var herdrHoldCoordinator: HerdrHoldCoordinator
 
     private let sessionLabel: String
 
@@ -168,6 +170,7 @@ struct PaddockApp: App {
             noticeSink: { message in toastCenter.show(message, kind: .info) }
         )
         _viewModel = State(initialValue: viewModel)
+        _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
         let rearrangeMode = RearrangeMode()
         _rearrangeMode = State(initialValue: rearrangeMode)
         _dragCoordinator = State(initialValue: DragCoordinator(

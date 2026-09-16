@@ -159,29 +159,38 @@ public enum ControlBridge {
         }
 
         let cookedTerminal = enterRawMode()
-        let size = spawnSize(ptyWinsize: currentWinSize(fd: STDIN_FILENO))
-
-        let proc = Process()
-        proc.executableURL = executableURL
-        // Target before flags: herdr's CLI mis-parses a leading `--takeover`
-        // as an unknown option.
-        proc.arguments = prefixArguments + childArgv(target: options.target, cols: size.cols, rows: size.rows)
         var processEnv = ProcessInfo.processInfo.environment
         if let socket = options.socketPath { processEnv["HERDR_SOCKET_PATH"] = socket }
-        proc.environment = processEnv
 
-        let toHerdr = Pipe()
-        let fromHerdr = Pipe()
-        proc.standardInput = toHerdr
-        proc.standardOutput = fromHerdr
-        proc.standardError = FileHandle.standardError
+        // Every child, the first and every retake, is spawned the same way and
+        // at whatever the PTY reports right then: the size herdr is told still
+        // comes only from this process's own tty.
+        let supervisor = BridgeChildSupervisor(
+            ptySize: { spawnSize(ptyWinsize: currentWinSize(fd: STDIN_FILENO)) },
+            spawn: { size in
+                let proc = Process()
+                proc.executableURL = executableURL
+                // Target before flags: herdr's CLI mis-parses a leading
+                // `--takeover` as an unknown option.
+                proc.arguments = prefixArguments
+                    + childArgv(target: options.target, cols: size.cols, rows: size.rows)
+                proc.environment = processEnv
+                let toHerdr = Pipe()
+                let fromHerdr = Pipe()
+                proc.standardInput = toHerdr
+                proc.standardOutput = fromHerdr
+                proc.standardError = FileHandle.standardError
+                do {
+                    try proc.run()
+                } catch {
+                    fputs("paddock-bridge: failed to spawn herdr: \(error)\n", stderr)
+                    return nil
+                }
+                return (proc, toHerdr.fileHandleForWriting.fileDescriptor, fromHerdr.fileHandleForReading)
+            }
+        )
 
-        do {
-            try proc.run()
-        } catch {
-            fputs("paddock-bridge: failed to spawn herdr: \(error)\n", stderr)
-            exit(1)
-        }
+        guard let first = supervisor.startFirstChild() else { exit(1) }
 
         // The app holds this FIFO's read end open (`PaneStatusChannel`), so
         // O_RDWR|O_NONBLOCK never blocks and never sees EOF; -1 (no pipe, or
@@ -192,24 +201,25 @@ public enum ControlBridge {
             fputs("paddock-bridge: cannot open status pipe \(statusPipe)\n", stderr)
         }
 
-        let owner = BridgeChildOwner(process: proc)
         let io = BridgeIO(
-            herdrInFD: toHerdr.fileHandleForWriting.fileDescriptor, statusFD: statusFD,
-            spawnedSize: size, onPeerGone: { owner.terminate() }
+            herdrInFD: first.input, statusFD: statusFD, spawnedSize: first.size,
+            onHold: { supervisor.handle($0) },
+            onSurfaceGone: { supervisor.shutdown() },
+            onPeerGone: { supervisor.herdrOutputEnded() }
         )
+        supervisor.attach(io: io)
 
         io.startStdin()
         io.startPTYSizeRelay()
-        io.startHerdrOutput(fromHerdr.fileHandleForReading)
+        io.startHerdrOutput(first.output)
         if let controlPipe = options.controlPipe {
             io.startControlPipe(at: controlPipe)
         }
 
-        proc.waitUntilExit()
+        let status = supervisor.wait()
         io.close()
         if statusFD >= 0 { Foundation.close(statusFD) }
         if var cookedTerminal { tcsetattr(STDIN_FILENO, TCSAFLUSH, &cookedTerminal) }
-        let status = proc.terminationStatus
         exit(status == 0 ? 0 : max(Int32(status), 1))
     }
 
@@ -272,6 +282,17 @@ public enum ControlBridge {
         return command
     }
 
+    /// The hold command on a control-FIFO line, or nil for anything else.
+    /// Pure so the two commands the app can send can be tested apart from the
+    /// child they drive.
+    static func parseHoldCommand(_ line: Data) -> HoldCommand? {
+        guard
+            let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+            let type = command["type"] as? String
+        else { return nil }
+        return HoldCommand(rawValue: type)
+    }
+
     /// The NDJSON line for one control-channel object, or nil if it cannot
     /// be encoded.
     static func encodeLine(_ object: [String: Any]) -> Data? {
@@ -308,6 +329,35 @@ struct PTYResizeRelay: Sendable {
     }
 }
 
+/// Whether the bridge's herdr child is paddock's to keep.
+///
+/// A child that exits while paddock holds the pane means herdr or the pane
+/// itself is gone, and the bridge is finished with it. A child that exits
+/// after a release IS the release: the bridge stays up, keeping the surface,
+/// its PTY and its scrollback, and waits for the take that spawns the next
+/// one. Pure, so both readings are testable without a real child.
+struct BridgeHoldState: Equatable, Sendable {
+    private(set) var isHolding = true
+
+    /// Whether a release should actually be performed. A second release for
+    /// an already released pane decides nothing.
+    mutating func release() -> Bool {
+        guard isHolding else { return false }
+        isHolding = false
+        return true
+    }
+
+    /// Whether a child should actually be spawned.
+    mutating func take() -> Bool {
+        guard !isHolding else { return false }
+        isHolding = true
+        return true
+    }
+
+    /// Whether a child exiting right now ends the bridge process.
+    var childExitEndsTheBridge: Bool { isHolding }
+}
+
 /// The bridge's one herdr child, terminated exactly once.
 ///
 /// `@unchecked Sendable`: `terminated` is read and written only inside
@@ -330,6 +380,201 @@ final class BridgeChildOwner: @unchecked Sendable {
         terminated = true
         guard process.isRunning else { return }
         terminateWithBoundedEscalation(process)
+    }
+}
+
+/// The bridge's herdr child across releases and retakes.
+///
+/// One child at a time. `release` ends the current one WITHOUT ending the
+/// bridge: this process, the surface it is the PTY child of, that surface's
+/// scrollback and the pane's own program all stay, and herdr drops the pane's
+/// `direct_attach_resize_lock` along with the client. `take` starts a
+/// replacement at the PTY's current size, which retakes the lock and answers
+/// with a full frame.
+///
+/// `@unchecked Sendable`: every mutable field is read and written only inside
+/// `lock`. `io` is the one exception: written once by `attach(io:)` before
+/// `wait()` and any FIFO command can reach `handle`, and only read after. The
+/// cycle it reintroduces is inherent -- the IO routes hold commands here, and
+/// a retake has to rewire that same IO onto the new child.
+final class BridgeChildSupervisor: @unchecked Sendable {
+    /// One spawned child: the fd herdr-bound lines are written to, the handle
+    /// its NDJSON arrives on, and the size it was told at spawn.
+    struct Child {
+        let owner: BridgeChildOwner
+        let process: Process
+        let input: Int32
+        let output: FileHandle
+        let size: PTYSize
+        let generation: Int
+    }
+
+    private let lock = NSLock()
+    private let spawn: (PTYSize) -> (process: Process, input: Int32, output: FileHandle)?
+    private let ptySize: () -> PTYSize
+    private var io: BridgeIO?
+    private var current: Child?
+    private var hold = BridgeHoldState()
+    private var finished = false
+    private var generation = 0
+    private var exitStatus: Int32 = 0
+    /// Signalled once, when the bridge is finished.
+    private let done = DispatchSemaphore(value: 0)
+    /// Signalled when a take has a child for a parked waiter to watch.
+    private let childReady = DispatchSemaphore(value: 0)
+
+    init(
+        ptySize: @escaping () -> PTYSize,
+        spawn: @escaping (PTYSize) -> (process: Process, input: Int32, output: FileHandle)?
+    ) {
+        self.ptySize = ptySize
+        self.spawn = spawn
+    }
+
+    /// The first child, spawned before any IO exists so `run` can wire the IO
+    /// to its pipes. Returns nil when the spawn itself failed.
+    func startFirstChild() -> Child? {
+        let size = ptySize()
+        guard let spawned = spawn(size) else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        generation += 1
+        let child = Child(
+            owner: BridgeChildOwner(process: spawned.process), process: spawned.process,
+            input: spawned.input, output: spawned.output, size: size, generation: generation
+        )
+        current = child
+        return child
+    }
+
+    func attach(io: BridgeIO) {
+        self.io = io
+    }
+
+    func handle(_ command: HoldCommand) {
+        switch command {
+        case .release: release()
+        case .take: take()
+        }
+    }
+
+    /// The herdr child's output ended. While paddock holds the pane that means
+    /// herdr or the pane is gone; after a release it is the release itself.
+    func herdrOutputEnded() {
+        lock.lock()
+        let holding = hold.isHolding
+        lock.unlock()
+        guard holding else { return }
+        shutdown()
+    }
+
+    /// The PTY went away: the bridge is finished whether or not it holds.
+    func shutdown() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let child = current
+        lock.unlock()
+        child?.owner.terminate()
+        // A waiter parked between children would otherwise never look again.
+        childReady.signal()
+    }
+
+    private func release() {
+        lock.lock()
+        guard hold.release(), let child = current else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+        // In this order: herdr is told to let the pane go while its stdin is
+        // still open, the pipe then closes (which is the same detach a second
+        // time, harmless), and the terminate is only the backstop for a child
+        // that answers neither.
+        io?.send(["type": "terminal.release"])
+        io?.swapHerdrInput(to: -1)
+        child.owner.terminate()
+    }
+
+    private func take() {
+        lock.lock()
+        guard hold.take() else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+        let size = ptySize()
+        guard let spawned = spawn(size) else {
+            // Nothing to hold the pane with. Stay released rather than claim a
+            // lock that does not exist; the next take tries again.
+            lock.lock()
+            _ = hold.release()
+            lock.unlock()
+            return
+        }
+        lock.lock()
+        generation += 1
+        let child = Child(
+            owner: BridgeChildOwner(process: spawned.process), process: spawned.process,
+            input: spawned.input, output: spawned.output, size: size, generation: generation
+        )
+        current = child
+        lock.unlock()
+        // Input first, so the rearm's resize reaches the new child and not a
+        // closed fd; then the output, whose generation bump makes the previous
+        // handle inert.
+        io?.swapHerdrInput(to: child.input)
+        io?.startHerdrOutput(child.output)
+        io?.rearmSpawnSize(size)
+        childReady.signal()
+    }
+
+    /// Blocks until the bridge is finished, and returns the exit status of the
+    /// child that finished it. Runs the watch loop on a thread of its own so
+    /// the caller's own thread is free.
+    func wait() -> Int32 {
+        let watcher = Thread { [self] in watchChildren() }
+        watcher.start()
+        done.wait()
+        lock.lock()
+        defer { lock.unlock() }
+        return exitStatus
+    }
+
+    private func watchChildren() {
+        lock.lock()
+        var watched = current
+        lock.unlock()
+        while let child = watched {
+            child.process.waitUntilExit()
+            lock.lock()
+            if finished {
+                lock.unlock()
+                break
+            }
+            // A take that beat this wakeup already replaced the child: watch
+            // the newer one instead of reading this exit as the bridge's.
+            if current?.generation != child.generation {
+                watched = current
+                lock.unlock()
+                continue
+            }
+            if hold.childExitEndsTheBridge {
+                exitStatus = child.process.terminationStatus
+                finished = true
+                lock.unlock()
+                break
+            }
+            lock.unlock()
+            childReady.wait()
+            lock.lock()
+            watched = finished ? nil : current
+            lock.unlock()
+        }
+        done.signal()
     }
 }
 
@@ -457,6 +702,14 @@ final class BridgeIO: @unchecked Sendable {
     /// alongside the frame writes.
     private let statusFD: Int32
     private let onPeerGone: () -> Void
+    /// The PTY went away, which is final: the surface this bridge exists for
+    /// is gone. Distinct from `onPeerGone` (the herdr child's output ending),
+    /// which is exactly what a release looks like and must not end the bridge.
+    private let onSurfaceGone: () -> Void
+    /// Called for a `paddock.*` hold command read off the control FIFO. A
+    /// closure rather than a direct call into the supervisor so the FIFO's
+    /// parse-and-route can be driven over a plain pipe in tests.
+    private let onHold: (HoldCommand) -> Void
     private let writeLock = NSLock()
     /// Guards `stdoutFD` writes AND `herdrOutputGeneration` together (see
     /// `startHerdrOutput`): every write checks the generation it was
@@ -483,8 +736,12 @@ final class BridgeIO: @unchecked Sendable {
     init(
         herdrInFD: Int32, stdinFD: Int32 = STDIN_FILENO, stdoutFD: Int32 = STDOUT_FILENO,
         statusFD: Int32 = -1, spawnedSize: PTYSize? = nil, ptySize: (() -> PTYSize?)? = nil,
+        onHold: @escaping (HoldCommand) -> Void = { _ in },
+        onSurfaceGone: (() -> Void)? = nil,
         onPeerGone: @escaping () -> Void
     ) {
+        self.onHold = onHold
+        self.onSurfaceGone = onSurfaceGone ?? onPeerGone
         self.herdrInFD = herdrInFD
         self.stdinFD = stdinFD
         self.stdoutFD = stdoutFD
@@ -525,6 +782,29 @@ final class BridgeIO: @unchecked Sendable {
         relayPTYSize()
     }
 
+    /// Points the herdr-bound writes at a new child's stdin, closing the old
+    /// one. `-1` parks the writes: `write()` to it fails immediately, which is
+    /// what a released pane's stray `terminal.resize` needs to do.
+    func swapHerdrInput(to fd: Int32) {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        let previous = herdrInFD
+        herdrInFD = fd
+        if previous >= 0 { Foundation.close(previous) }
+    }
+
+    /// Reseeds the relay to the size a freshly spawned child was given, then
+    /// sends whatever the PTY has become since that size was read. Without the
+    /// reseed the relay would still be comparing against the size the PREVIOUS
+    /// child was told, and a retake at an unchanged size would send herdr a
+    /// resize it did not need.
+    func rearmSpawnSize(_ size: PTYSize) {
+        resizeLock.lock()
+        resizeRelay = PTYResizeRelay(spawned: size)
+        resizeLock.unlock()
+        relayPTYSize()
+    }
+
     /// Sends herdr the PTY's current size unless herdr already has it.
     private func relayPTYSize() {
         resizeLock.lock()
@@ -549,7 +829,7 @@ final class BridgeIO: @unchecked Sendable {
             guard let data = readAvailable(fd, into: &buffer) else {
                 send(["type": "terminal.release"])
                 source.cancel()
-                onPeerGone()
+                onSurfaceGone()
                 return
             }
             send(ControlBridge.encodeInput(data))
@@ -582,6 +862,14 @@ final class BridgeIO: @unchecked Sendable {
             guard n > 0 else { return }
             commands.append(Data(buffer.prefix(n)))
             while let line = commands.popLine() {
+                // Hold commands are read here and never forwarded: they are
+                // `paddock.*`, which `parseForwardableControlCommand` already
+                // refuses, so the order of these two is not what keeps them
+                // off herdr's wire.
+                if let hold = ControlBridge.parseHoldCommand(line) {
+                    onHold(hold)
+                    continue
+                }
                 guard let command = ControlBridge.parseForwardableControlCommand(line) else { continue }
                 send(command)
             }

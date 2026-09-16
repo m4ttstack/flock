@@ -566,6 +566,75 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(object["type"] as? String, "terminal.input")
     }
 
+    // MARK: - the hold commands on the control FIFO
+
+    /// The two hold commands are read by the bridge and acted on there. They
+    /// are never forwarded, and the ordinary control traffic around them still
+    /// is.
+    func testTheControlPipeRoutesHoldCommandsAndForwardsNeitherOfThem() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        let held = LockedBox([HoldCommand]())
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
+            onHold: { command in held.mutate { $0.append(command) } },
+            onPeerGone: {}
+        )
+        defer { io.close() }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(HoldCommand.release.json)!)
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(HoldCommand.take.json)!)
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "terminal.input", "bytes": "aGk="])!)
+
+        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        try await Task.sleep(for: .milliseconds(80))
+        let lines = (forwarded + readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor))
+            .split(separator: 0x0A)
+        XCTAssertEqual(lines.count, 1, "a hold command was sent on to herdr")
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "terminal.input")
+        XCTAssertEqual(held.value, [.release, .take])
+    }
+
+    /// What a retake rewires: herdr-bound writes follow the new child, and the
+    /// relay is reseeded to the size that child was spawned at, so an
+    /// unchanged PTY sends it nothing and a changed one sends it the change.
+    func testSwappingTheHerdrInputMovesTheWritesAndTheRearmedRelayToTheNewChild() async throws {
+        let first = Pipe()
+        let second = Pipe()
+        let winsize = LockedBox(PTYSize(cols: 30, rows: 40))
+        let io = BridgeIO(
+            herdrInFD: first.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
+            onPeerGone: {}
+        )
+        defer { io.close() }
+
+        io.swapHerdrInput(to: second.fileHandleForWriting.fileDescriptor)
+        io.rearmSpawnSize(PTYSize(cols: 30, rows: 40))
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(
+            readAllAvailableForTest(second.fileHandleForReading.fileDescriptor).count, 0,
+            "the new child was spawned at the PTY's size and told it again")
+
+        winsize.mutate { $0 = PTYSize(cols: 61, rows: 42) }
+        io.send(["type": "terminal.input", "bytes": "aGk="])
+        kill(getpid(), SIGWINCH)
+        io.startPTYSizeRelay()
+
+        let sent = try await waitForNonEmptyReadOfAtLeast(second.fileHandleForReading.fileDescriptor, lines: 2)
+        let types = sent.split(separator: 0x0A).compactMap { line in
+            (try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any])??["type"] as? String
+        }
+        XCTAssertEqual(types, ["terminal.input", "terminal.resize"])
+    }
+
     // MARK: - BridgeChildOwner (one child, terminated once)
 
     /// The child outlives the assertion window by seconds, so a `terminate()`

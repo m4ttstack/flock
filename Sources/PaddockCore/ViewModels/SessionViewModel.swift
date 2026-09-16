@@ -392,6 +392,27 @@ public final class SessionViewModel {
         ghosttySurfaces[pane]
     }
 
+    /// Hands every pane paddock holds back to herdr's own clients. PARKED
+    /// panes are included and are the point: a parked surface keeps its bridge
+    /// attached, so it holds that pane's resize lock just as a visible one
+    /// does, and a workspace the user is looking at in the terminal is far
+    /// more likely to be one of paddock's parked tabs than its visible one.
+    ///
+    /// Not routed through `paneWork`: a hold command is one FIFO line with no
+    /// reply, so it cannot race the attach/park chain the way a surface
+    /// lifecycle step can, and making it wait behind an in-flight attach would
+    /// only delay the handoff. Nothing here creates, parks or tears down a
+    /// surface, so `ghosttySurfaces` and `parkedPanes` are untouched.
+    public func releaseHerdrHold() {
+        for surface in ghosttySurfaces.values { surface.releaseHerdrHold() }
+    }
+
+    /// Takes every pane back at paddock's own sizes. The counterpart of
+    /// `releaseHerdrHold()`, over the same set.
+    public func takeHerdrHold() {
+        for surface in ghosttySurfaces.values { surface.takeHerdrHold() }
+    }
+
     private func performAttach(pane: PaneID, factory: any GhosttyPaneFactory) async {
         // also removed here, inside the chain -- `attachPane`'s own
         // synchronous removal (before this step even runs) closes the
