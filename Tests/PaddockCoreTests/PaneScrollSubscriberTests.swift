@@ -140,6 +140,38 @@ final class PaneScrollSubscriberTests: XCTestCase {
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "events.subscribe" }.count, 1)
     }
 
+    /// The seed sits between the subscribe and the read loop, so a `pane.get`
+    /// that connects and never answers would park this pane's whole feed with
+    /// no retry behind it: no frame would ever reach the indicator again until
+    /// the pane was attached afresh.
+    @MainActor
+    func testAProbeThatNeverAnswersDoesNotParkTheFeed() async throws {
+        let fake = FakeHerdrServer()
+        try fake.start()
+        defer { fake.stop() }
+        let release = fake.holdNext(method: "pane.get")
+        defer { release() }
+        let received = ScrollLog()
+        let subscriber = HerdrPaneScrollSubscriber(
+            socketPath: fake.socketPath, probeTimeout: .milliseconds(150)
+        ) { pane, scroll in
+            received.append(pane, scroll)
+        }
+
+        subscriber.subscribe(pane: PaneID(rawValue: "w1:p2"))
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "pane.get" } }
+
+        // The probe is still held. The feed has to have reached its read loop
+        // anyway, which is the only thing that can relay this frame.
+        try await Task.sleep(for: .milliseconds(250))
+        fake.pushEventLine(#"{"event":"pane.scroll_changed","data":{"pane_id":"w1:p2","workspace_id":"w1","scroll":{"offset_from_bottom":4,"max_offset_from_bottom":60,"viewport_rows":20}}}"#)
+        try await waitUntil { !received.entries.isEmpty }
+
+        XCTAssertEqual(
+            received.entries.last?.scroll,
+            ScrollInfo(offsetFromBottom: 4, maxOffsetFromBottom: 60, viewportRows: 20))
+    }
+
     /// A refusal ends that pane's feed, and the slot it was holding has to go
     /// with it: `subscribe` is a no-op while anything occupies the slot, so a
     /// finished task left behind would make the pane unarmable for the life of
