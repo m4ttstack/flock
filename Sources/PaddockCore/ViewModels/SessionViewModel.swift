@@ -699,7 +699,7 @@ public final class SessionViewModel {
             switch result {
             case .success(let executed):
                 record(executed)
-                if case .pane(let pane) = subject, target.takesThePaneOffItsTab {
+                if case .pane(let pane) = subject, target.takesThePaneOffItsTab(pane, model: model) {
                     // The pane went somewhere the user is not looking; follow
                     // it there. Focusing it in herdr moves herdr's focused tab,
                     // which paddock's own selection already follows. A move
@@ -731,13 +731,20 @@ public final class SessionViewModel {
 }
 
 extension DropTarget {
-    /// A drop that moves a pane out of the tab it is in, so the pane is no
+    /// A drop that moves `pane` out of the tab it is in, so the pane is no
     /// longer on screen once the drop commits.
-    var takesThePaneOffItsTab: Bool {
+    ///
+    /// A pane target names a pane rather than a tab, and the grid can aim one
+    /// at a mini pane of any tab, so which tab it lands in is the model's
+    /// answer and not the target's shape alone.
+    func takesThePaneOffItsTab(_ pane: PaneID, model: SessionModel) -> Bool {
         switch self {
         case .tabThumbnail, .newTab, .workspaceThumbnail, .newWorkspace:
             return true
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .moreTabs:
+        case .paneEdge(let target, _), .paneInterior(let target):
+            guard let from = model.panes[pane]?.tabID, let into = model.panes[target]?.tabID else { return false }
+            return from != into
+        case .tabStrip, .workspaceRail, .moreTabs:
             return false
         }
     }

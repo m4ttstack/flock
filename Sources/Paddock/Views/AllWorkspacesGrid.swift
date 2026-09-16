@@ -260,7 +260,8 @@ private struct WorkspaceCard: View {
         case .tab(let id):
             if let tab = tabs.first(where: { $0.tabID == id }) {
                 TabThumbnail(
-                    theme: theme, viewModel: viewModel, tab: tab, isTargeted: drag.target == .tabThumbnail(id),
+                    theme: theme, viewModel: viewModel, tab: tab,
+                    isTargeted: MiniPaneLayout.targetedTab(of: drag.target, model: viewModel.model) == id,
                     displacement: displacements[id] ?? .zero
                 )
                 // One frame for the whole thumbnail, strip included: a drop
@@ -312,10 +313,12 @@ private struct WorkspaceCard: View {
     /// card itself.
     private func isTargeted(_ tabs: [TabRecord]) -> Bool {
         switch drag.target {
-        case .tabThumbnail(let id)?: tabs.contains { $0.tabID == id }
-        case .moreTabs(let id)?: id == workspace.workspaceID
-        case .tabStrip?: reorder.takesTheDrop
-        default: takesTheDrop
+        case .tabThumbnail?, .paneEdge?, .paneInterior?:
+            let targeted = MiniPaneLayout.targetedTab(of: drag.target, model: viewModel.model)
+            return tabs.contains { $0.tabID == targeted }
+        case .moreTabs(let id)?: return id == workspace.workspaceID
+        case .tabStrip?: return reorder.takesTheDrop
+        default: return takesTheDrop
         }
     }
 
@@ -498,6 +501,7 @@ private struct TabThumbnail: View {
         let model = viewModel.model
         let arriving = arrival
         let boxes = paneBoxes(size: size, arriving: arriving)
+        let resting = arriving == nil ? boxes : paneBoxes(size: size)
         return ZStack(alignment: .topLeading) {
             ForEach(boxes, id: \.pane) { placed in
                 if placed.pane == arriving?.pane {
@@ -530,6 +534,20 @@ private struct TabThumbnail: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        // Published as data rather than as reported frames: a drop resolves
+        // against where the mini panes REST, and every frame drawn here is
+        // already the preview's answer to that resolution.
+        .onAppear { publish(resting) }
+        .onChange(of: resting) { _, boxes in publish(boxes) }
+    }
+
+    /// The boxes a drop inside this thumbnail is hit-tested against, in the
+    /// thumbnail's own space: the strip above the pane area is what separates
+    /// the two, and a point it covers is the tab's own handle.
+    private func publish(_ boxes: [MiniPaneLayout.Placed]) {
+        drag.setGridMiniPanes(
+            MiniPaneLayout.boxesInThumbnail(boxes, stripHeight: ChromeMetrics.Grid.tabStripHeight), for: tab.tabID
+        )
     }
 }
 

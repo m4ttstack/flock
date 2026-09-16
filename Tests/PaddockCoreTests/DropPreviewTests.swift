@@ -87,9 +87,18 @@ final class DropPreviewTests: XCTestCase {
         XCTAssertEqual(panes(of: preview), [Self.p3, Self.p2, Self.p1])
     }
 
-    func testInteriorDropFromAnotherTabTakesTheTargetsPlace() throws {
+    /// From another tab there is no leaf to trade with, and the plan is not a
+    /// swap either: `planPaneInterior` sends a `pane.move` naming the target
+    /// pane, which divides that pane's own region and keeps the target first.
+    /// A preview that replaced the target would promise the target's
+    /// disappearance, which no drop ever performs.
+    func testInteriorDropFromAnotherTabDividesTheTargetsRegion() throws {
         let preview = try XCTUnwrap(DropPreview.root(root, dropping: Self.visitor, onto: .paneInterior(Self.p2)))
-        XCTAssertEqual(panes(of: preview), [Self.p1, Self.visitor, Self.p3])
+        XCTAssertEqual(panes(of: preview), [Self.p1, Self.p2, Self.visitor, Self.p3])
+        XCTAssertEqual(
+            preview, DropPreview.root(root, dropping: Self.visitor, onto: .paneEdge(Self.p2, .right)),
+            "the same split the plan's own pane.move makes"
+        )
     }
 
     func testInteriorDropOntoItselfPreviewsNothing() {

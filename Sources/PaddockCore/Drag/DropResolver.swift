@@ -38,6 +38,24 @@ public struct GridCardTabs: Equatable, Sendable {
     }
 }
 
+/// One thumbnail's mini panes, in drawing order, each box stated in THAT
+/// THUMBNAIL's own space rather than on screen.
+///
+/// The grid scrolls and reflows under a drag, and a thumbnail's own frame is
+/// already republished when it does, so a box tied to the thumbnail follows it
+/// with nothing to re-report. It is also the space a mini pane's spring-back
+/// home is recorded in (`DragHome.boxInItem`), so both readings of a mini
+/// pane's place are stated the same way.
+public struct GridThumbnailPanes: Equatable, Sendable {
+    public let tab: TabID
+    public let panes: [MiniPaneLayout.Placed]
+
+    public init(tab: TabID, panes: [MiniPaneLayout.Placed]) {
+        self.tab = tab
+        self.panes = panes
+    }
+}
+
 /// The All Workspaces grid while it covers the window, every frame in the
 /// drag space. `viewport` is the grid's scroll view: a thumbnail or tile
 /// scrolled out of it is not there to hit.
@@ -64,10 +82,15 @@ public struct GridDropSurfaces: Equatable, Sendable {
     /// The same thumbnails, grouped by the card drawing them and kept in card
     /// order: what a tab reordered inside its own card is placed among.
     public let cardTabs: [GridCardTabs]
+    /// The mini panes each thumbnail draws at rest, which is what a pane drop
+    /// inside a thumbnail resolves against. At rest, never mid-preview: the
+    /// boxes a preview animates to are derived FROM this resolution, so
+    /// publishing the moved ones would let a preview decide its own target.
+    public let miniPanes: [GridThumbnailPanes]
 
     public init(
         viewport: CGRect, thumbnails: [TabItemFrame], tiles: [WorkspaceItemFrame], cards: [WorkspaceItemFrame],
-        newTabSlots: [WorkspaceItemFrame] = [], cardTabs: [GridCardTabs] = []
+        newTabSlots: [WorkspaceItemFrame] = [], cardTabs: [GridCardTabs] = [], miniPanes: [GridThumbnailPanes] = []
     ) {
         self.viewport = viewport
         self.thumbnails = thumbnails
@@ -75,6 +98,21 @@ public struct GridDropSurfaces: Equatable, Sendable {
         self.cards = cards
         self.newTabSlots = newTabSlots
         self.cardTabs = cardTabs
+        self.miniPanes = miniPanes
+    }
+
+    /// One mini pane's box on screen: the box inside its thumbnail, moved into
+    /// the drag space by that thumbnail's own live frame.
+    public func miniPaneFrame(of pane: PaneID) -> CGRect? {
+        for thumbnail in miniPanes {
+            guard let box = thumbnail.panes.first(where: { $0.pane == pane }),
+                  let frame = thumbnails.first(where: { $0.id == thumbnail.tab })?.frame
+            else {
+                continue
+            }
+            return box.frame.offsetBy(dx: frame.minX, dy: frame.minY)
+        }
+        return nil
     }
 }
 
@@ -145,6 +183,17 @@ public struct DropSurfaces: Equatable, Sendable {
 /// The outer band of a pane frame, per side, that resolves to `.paneEdge`
 /// instead of `.paneInterior`.
 public let edgeBandFraction: CGFloat = 0.20
+
+/// The shallowest band a pane's side may offer, whatever the fraction works
+/// out to. A pointer is aimed into a band on purpose; below this depth it is
+/// only ever slipped into, and the side would decide a split the user did not
+/// ask for. A side under it offers no band at all and reads as interior, which
+/// still lands the pane on the pane the pointer is over.
+///
+/// At the canvas's own fraction this is the band of a 30pt box, which no
+/// canvas pane is ever close to (its chrome alone spends 26pt across) and a
+/// mini pane reaches as soon as a tab splits three deep on one axis.
+public let minimumEdgeBand: CGFloat = 6
 
 /// Resolves one drag frame's drop target from a point plus the surfaces it
 /// could land on.
@@ -218,8 +267,10 @@ private func resolveZone(at point: CGPoint, dragging: DragSubject, surfaces: Dro
 /// tab moved within its workspace. A workspace drag has nothing to land on
 /// here.
 ///
-/// A thumbnail is a whole-tab target with no edge bands: it is far too small
-/// to divide into four zones, so nothing in the grid ever splits a pane.
+/// A pane inside a thumbnail lands where it is aimed: the mini pane under the
+/// pointer answers on the canvas's own rules, and everything else about the
+/// thumbnail (its handle strip, the padding around the mini panes) is the
+/// tab's own handle and means the whole tab.
 private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDropSurfaces) -> DropTarget? {
     guard grid.viewport.contains(point) else { return nil }
     func card() -> DropTarget? {
@@ -228,7 +279,7 @@ private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDro
     switch dragging {
     case .pane:
         if let hit = grid.thumbnails.first(where: { $0.frame.contains(point) }) {
-            return .tabThumbnail(hit.id)
+            return resolveThumbnail(at: point, tab: hit.id, frame: hit.frame, grid: grid)
         }
         if let hit = grid.tiles.first(where: { $0.frame.contains(point) }) {
             return .moreTabs(hit.id)
@@ -247,6 +298,16 @@ private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDro
     case .workspace, .workspaces:
         return nil
     }
+}
+
+/// One thumbnail's answer for a pane. The mini panes go through the canvas's
+/// own `resolveCanvas`, so a grid drop and a canvas drop of the same aim are
+/// one rule rather than two; a point no mini pane covers is the tab itself.
+private func resolveThumbnail(at point: CGPoint, tab: TabID, frame: CGRect, grid: GridDropSurfaces) -> DropTarget {
+    guard let drawn = grid.miniPanes.first(where: { $0.tab == tab }) else { return .tabThumbnail(tab) }
+    let boxes = drawn.panes.map { ($0.pane, $0.frame.offsetBy(dx: frame.minX, dy: frame.minY)) }
+    guard let hit = boxes.first(where: { $0.1.contains(point) }) else { return .tabThumbnail(tab) }
+    return resolveCanvas(at: point, paneID: hit.0, frame: hit.1)
 }
 
 private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
@@ -302,15 +363,15 @@ private func unionRect(_ rects: [CGRect]) -> CGRect? {
 }
 
 /// The edge whose outer `edgeBandFraction` band contains `point`, or `nil`
-/// for the inner 80% interior.
+/// for the inner interior.
 ///
 /// A corner sits inside two bands at once; the tie breaks on whichever band
 /// the point is proportionally deeper into (distance to that edge divided by
 /// that band's own depth), not on raw pixel distance, so a short axis and a
 /// long axis stay comparable.
 private func edgeBand(at point: CGPoint, in frame: CGRect) -> Edge? {
-    let bandX = frame.width * edgeBandFraction
-    let bandY = frame.height * edgeBandFraction
+    let bandX = edgeBandDepth(across: frame.width)
+    let bandY = edgeBandDepth(across: frame.height)
 
     var candidates: [(Edge, ratio: CGFloat)] = []
     let left = point.x - frame.minX
@@ -318,12 +379,22 @@ private func edgeBand(at point: CGPoint, in frame: CGRect) -> Edge? {
     let top = point.y - frame.minY
     let bottom = frame.maxY - point.y
 
-    if left <= bandX { candidates.append((.left, ratio(left, bandX))) }
-    if right <= bandX { candidates.append((.right, ratio(right, bandX))) }
-    if top <= bandY { candidates.append((.top, ratio(top, bandY))) }
-    if bottom <= bandY { candidates.append((.bottom, ratio(bottom, bandY))) }
+    if let bandX, left <= bandX { candidates.append((.left, ratio(left, bandX))) }
+    if let bandX, right <= bandX { candidates.append((.right, ratio(right, bandX))) }
+    if let bandY, top <= bandY { candidates.append((.top, ratio(top, bandY))) }
+    if let bandY, bottom <= bandY { candidates.append((.bottom, ratio(bottom, bandY))) }
 
     return candidates.min(by: { $0.ratio < $1.ratio })?.0
+}
+
+/// How deep the two bands on one axis run, or `nil` when the fraction's own
+/// band there is under `minimumEdgeBand`: that axis then offers no sides and
+/// the whole of it reads as interior. Per axis rather than per box, so a mini
+/// pane that is wide and short still splits left and right, which is the aim
+/// a stacked thumbnail is asked for most.
+private func edgeBandDepth(across extent: CGFloat) -> CGFloat? {
+    let depth = extent * edgeBandFraction
+    return depth >= minimumEdgeBand ? depth : nil
 }
 
 private func ratio(_ distance: CGFloat, _ band: CGFloat) -> CGFloat {

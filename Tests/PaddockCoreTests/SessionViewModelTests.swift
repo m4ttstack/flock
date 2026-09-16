@@ -219,6 +219,24 @@ private func makeModelWithNestedSplit() -> SessionModel {
     return model
 }
 
+/// Two tabs of `w1`: `w1:t1` holds `w1:p1` and `w1:p2`, `w1:t2` holds
+/// `w1:p3`. What a target naming a pane has to be weighed against to say
+/// whether the drop crosses a tab boundary.
+private func makeModelWithAPaneInASecondTab() -> SessionModel {
+    var model = makeModel()
+    model.tabs[WorkspaceID(rawValue: "w1")]?.append(TabRecord(
+        tabID: TabID(rawValue: "w1:t2"), workspaceID: WorkspaceID(rawValue: "w1"),
+        label: "second", number: 2, paneCount: 1, agentStatus: .unknown
+    ))
+    for (pane, tab) in [("w1:p2", "w1:t1"), ("w1:p3", "w1:t2")] {
+        model.panes[PaneID(rawValue: pane)] = PaneRecord(
+            paneID: PaneID(rawValue: pane), workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: tab),
+            focused: false, agentStatus: .unknown, revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp"
+        )
+    }
+    return model
+}
+
 private func stringParam(_ params: [String: JSONValue], _ key: String) -> String? {
     guard case .string(let value)? = params[key] else { return nil }
     return value
@@ -1391,17 +1409,28 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(focused, [])
     }
 
+    /// A pane target names a pane, never a tab, so whether the drop leaves the
+    /// tab is the model's answer. On the canvas the target is always a pane of
+    /// the drag's own tab; a grid drop can aim one at any tab's mini pane.
     func testOnlyDropsThatLeaveTheTabFollowThePane() {
         let pane = PaneID(rawValue: "w1:p1")
-        XCTAssertTrue(DropTarget.tabThumbnail(TabID(rawValue: "w1:t2")).takesThePaneOffItsTab)
-        XCTAssertTrue(DropTarget.newTab(WorkspaceID(rawValue: "w1")).takesThePaneOffItsTab)
-        XCTAssertTrue(DropTarget.workspaceThumbnail(WorkspaceID(rawValue: "w2")).takesThePaneOffItsTab)
-        XCTAssertTrue(DropTarget.newWorkspace.takesThePaneOffItsTab)
-        XCTAssertFalse(DropTarget.paneEdge(pane, .left).takesThePaneOffItsTab)
-        XCTAssertFalse(DropTarget.paneInterior(pane).takesThePaneOffItsTab)
-        XCTAssertFalse(DropTarget.tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0).takesThePaneOffItsTab)
-        XCTAssertFalse(DropTarget.workspaceRail(insertIndex: 0).takesThePaneOffItsTab)
-        XCTAssertFalse(DropTarget.moreTabs(WorkspaceID(rawValue: "w1")).takesThePaneOffItsTab)
+        let sibling = PaneID(rawValue: "w1:p2")
+        let elsewhere = PaneID(rawValue: "w1:p3")
+        let model = makeModelWithAPaneInASecondTab()
+        XCTAssertTrue(DropTarget.tabThumbnail(TabID(rawValue: "w1:t2")).takesThePaneOffItsTab(pane, model: model))
+        XCTAssertTrue(DropTarget.newTab(WorkspaceID(rawValue: "w1")).takesThePaneOffItsTab(pane, model: model))
+        XCTAssertTrue(DropTarget.workspaceThumbnail(WorkspaceID(rawValue: "w2")).takesThePaneOffItsTab(pane, model: model))
+        XCTAssertTrue(DropTarget.newWorkspace.takesThePaneOffItsTab(pane, model: model))
+        XCTAssertFalse(DropTarget.paneEdge(sibling, .left).takesThePaneOffItsTab(pane, model: model))
+        XCTAssertFalse(DropTarget.paneInterior(sibling).takesThePaneOffItsTab(pane, model: model))
+        XCTAssertTrue(
+            DropTarget.paneEdge(elsewhere, .left).takesThePaneOffItsTab(pane, model: model),
+            "a mini pane of another tab takes the pane off this one"
+        )
+        XCTAssertTrue(DropTarget.paneInterior(elsewhere).takesThePaneOffItsTab(pane, model: model))
+        XCTAssertFalse(DropTarget.tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0).takesThePaneOffItsTab(pane, model: model))
+        XCTAssertFalse(DropTarget.workspaceRail(insertIndex: 0).takesThePaneOffItsTab(pane, model: model))
+        XCTAssertFalse(DropTarget.moreTabs(WorkspaceID(rawValue: "w1")).takesThePaneOffItsTab(pane, model: model))
     }
 
 }

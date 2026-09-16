@@ -489,13 +489,14 @@ final class ChromeRenderTests: XCTestCase {
         let arrival = try XCTUnwrap(MiniPaneLayout.arrival(
             of: harness.drag.activeSubject, onto: harness.drag.target, tab: GridFixture.testsTab, model: model
         ))
-        XCTAssertEqual(arrival.besideFocused, try XCTUnwrap(model.layouts[GridFixture.testsTab]?.focusedPane))
+        let focused = try XCTUnwrap(model.layouts[GridFixture.testsTab]?.focusedPane)
+        XCTAssertEqual(arrival.target, .paneEdge(focused, .right))
         await settle(window)
 
         let resting = boxes(arriving: nil)
         let landing = boxes(arriving: arrival)
-        let gaveUp = try XCTUnwrap(resting.first { $0.pane == arrival.besideFocused }).frame
-        let kept = try XCTUnwrap(landing.first { $0.pane == arrival.besideFocused }).frame
+        let gaveUp = try XCTUnwrap(resting.first { $0.pane == focused }).frame
+        let kept = try XCTUnwrap(landing.first { $0.pane == focused }).frame
         let landed = try XCTUnwrap(landing.first { $0.pane == arrival.pane }).frame
         XCTAssertLessThan(kept.width, gaveUp.width, "the focused pane did not make room")
 
@@ -506,7 +507,7 @@ final class ChromeRenderTests: XCTestCase {
         }
 
         let opened = inWindow(landed)
-        let untouched = inWindow(try XCTUnwrap(landing.first { ![arrival.pane, arrival.besideFocused].contains($0.pane) }).frame)
+        let untouched = inWindow(try XCTUnwrap(landing.first { ![arrival.pane, focused].contains($0.pane) }).frame)
         // Both samples sit in the bottom of their box, below the proxy and
         // below a mini pane's own title row.
         XCTAssertEqual(

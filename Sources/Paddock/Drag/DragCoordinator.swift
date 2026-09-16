@@ -198,6 +198,11 @@ final class DragCoordinator {
     private var tabItems = ScrolledItemFrames<TabID>()
     private var workspaceItems = ScrolledItemFrames<WorkspaceID>()
     private var gridItems = ScrolledItemFrames<GridItemID>()
+    /// Each drawn thumbnail's resting mini panes, in that thumbnail's own
+    /// space. Held per tab rather than as frames of their own: the boxes only
+    /// change when the tab's layout or the thumbnail's size does, and the
+    /// thumbnail's own frame already carries every scroll and reflow.
+    private var gridMiniPanes: [TabID: [MiniPaneLayout.Placed]] = [:]
 
     var tabOrder: [TabID] { tabItems.order }
     var workspaceOrder: [WorkspaceID] { workspaceItems.order }
@@ -482,7 +487,12 @@ final class DragCoordinator {
         return GridDropSurfaces(
             viewport: gridViewport ?? .zero, thumbnails: thumbnails, tiles: tiles, cards: cards,
             newTabSlots: newTabSlots,
-            cardTabs: cardOrder.map { GridCardTabs(workspace: $0, tabs: drawnTabs[$0] ?? []) }
+            cardTabs: cardOrder.map { GridCardTabs(workspace: $0, tabs: drawnTabs[$0] ?? []) },
+            // Built from the thumbnails actually drawn, so a tab whose
+            // thumbnail has gone cannot leave boxes behind to be hit.
+            miniPanes: thumbnails.compactMap { thumbnail in
+                gridMiniPanes[thumbnail.id].map { GridThumbnailPanes(tab: thumbnail.id, panes: $0) }
+            }
         )
     }
 
@@ -1082,6 +1092,20 @@ final class DragCoordinator {
 
     func setGridOrder(_ order: [GridItemID]) {
         writeIfChanged(\.gridItems) { $0.setOrder(order) }
+        let drawn = Set(order.compactMap { item -> TabID? in
+            guard case .tab(let id) = item else { return nil }
+            return id
+        })
+        guard gridMiniPanes.keys.contains(where: { !drawn.contains($0) }) else { return }
+        gridMiniPanes = gridMiniPanes.filter { drawn.contains($0.key) }
+    }
+
+    /// One thumbnail's mini panes where they REST, in its own space. The
+    /// preview moves them, and the preview is derived from what a drop
+    /// resolves to, so only the resting boxes may ever be reported.
+    func setGridMiniPanes(_ panes: [MiniPaneLayout.Placed], for tab: TabID) {
+        guard gridMiniPanes[tab] != panes else { return }
+        gridMiniPanes[tab] = panes
     }
 
     /// Frozen while a card is showing a reorder, for the reason the strip's

@@ -51,6 +51,12 @@ public enum DropPreview {
             return DropPreviewFrames(incoming: box(incomingRect(in: frame, edge: edge)))
         case .paneInterior(let targetPane):
             guard targetPane != paneID, let frame = current.paneFrames[targetPane] else { return nil }
+            // A pane of this tab trades places with the target and takes its
+            // whole box; one arriving from another tab divides that box
+            // instead, which is the same answer `root` gives with a tree.
+            guard layout.panes.contains(where: { $0.paneID == paneID }) else {
+                return DropPreviewFrames(incoming: box(incomingRect(in: frame, edge: .right)))
+            }
             return DropPreviewFrames(incoming: box(frame))
         case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .moreTabs:
             return nil
@@ -78,12 +84,15 @@ public enum DropPreview {
             guard targetPane != pane else { return nil }
             guard contains(targetPane, in: root) else { return nil }
             // Same tab is a swap, so both leaves keep their place and only
-            // the ids trade; a pane arriving from another tab has no leaf of
-            // its own here and simply takes the target's.
+            // the ids trade. From another tab there is nothing to trade with:
+            // `planPaneInterior` sends a `pane.move` naming the target pane,
+            // and that divides the target's own region, target first.
             if contains(pane, in: root) {
                 return swapping(pane, targetPane, in: root)
             }
-            return replacingLeaf(targetPane, in: root) { _ in .pane(ExportedLayoutPane(paneID: pane)) }
+            return replacingLeaf(targetPane, in: root) { existing in
+                split(incoming: .pane(ExportedLayoutPane(paneID: pane)), existing: existing, on: .right)
+            }
         case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .moreTabs:
             return nil
         }
@@ -187,11 +196,17 @@ public func dropFlashRect(for target: DropTarget, surfaces: DropSurfaces) -> CGR
 /// `nil` when the surfaces do not carry a frame for the target (a tab or
 /// workspace that is not on screen).
 public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CGRect? {
+    // A pane target names a mini pane while the grid covers the window: the
+    // canvas is unmounted and its frames sit wherever the window left them.
+    func paneFrame(_ pane: PaneID) -> CGRect? {
+        guard let grid = surfaces.grid else { return surfaces.canvas.paneFrames[pane] }
+        return grid.miniPaneFrame(of: pane)
+    }
     switch target {
     case .paneInterior(let pane):
-        return surfaces.canvas.paneFrames[pane]
+        return paneFrame(pane)
     case .paneEdge(let pane, let edge):
-        guard let frame = surfaces.canvas.paneFrames[pane] else { return nil }
+        guard let frame = paneFrame(pane) else { return nil }
         return DropPreview.incomingRect(in: frame, edge: edge)
     case .tabThumbnail(let tab):
         if let grid = surfaces.grid {

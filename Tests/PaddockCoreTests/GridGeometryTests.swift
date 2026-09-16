@@ -122,7 +122,7 @@ final class GridGeometryTests: XCTestCase {
     private func landingBoxes(_ layout: LayoutSnapshot, exported: ExportedLayoutDescription? = nil) -> [MiniPaneLayout.Placed] {
         MiniPaneLayout.boxes(
             layout: layout, exported: exported, fallbackPanes: [], size: thumbnail, padding: 4, gap: 4, displayScale: 2,
-            arriving: MiniPaneLayout.Arrival(pane: arriving, besideFocused: p1)
+            arriving: MiniPaneLayout.Arrival(pane: arriving, target: .paneEdge(p1, .right))
         )
     }
 
@@ -225,7 +225,7 @@ final class GridGeometryTests: XCTestCase {
         let model = model()
         let arrival = try XCTUnwrap(MiniPaneLayout.arrival(of: .pane(p1), onto: .tabThumbnail(second), tab: second, model: model))
         XCTAssertEqual(arrival.pane, p1)
-        XCTAssertEqual(arrival.besideFocused, PaneID(rawValue: "w1:p4"), "the second tab's own pane, not the drag's")
+        XCTAssertEqual(arrival.target, .paneEdge(PaneID(rawValue: "w1:p4"), .right), "the second tab's own pane, not the drag's")
         XCTAssertNil(
             MiniPaneLayout.arrival(of: .pane(PaneID(rawValue: "w1:p4")), onto: .tabThumbnail(second), tab: second, model: model),
             "a pane already in the tab it is over"

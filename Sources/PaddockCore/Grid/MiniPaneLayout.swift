@@ -10,40 +10,63 @@ public enum MiniPaneLayout {
         public let frame: CGRect
     }
 
-    /// A pane a drop would land in this tab, for the preview. herdr splits
-    /// the tab's focused pane when a `pane.move` names the tab and no pane of
-    /// it, and a `movePaneToTab` split always keeps the target as the first
-    /// child, so the arriving pane takes the right half of whatever the
-    /// focused pane occupies.
+    /// A pane a drop would land in this tab, for the preview.
     public struct Arrival: Equatable, Sendable {
         public let pane: PaneID
-        public let besideFocused: PaneID
-
-        public init(pane: PaneID, besideFocused: PaneID) {
-            self.pane = pane
-            self.besideFocused = besideFocused
-        }
-
         /// The split the drop produces, stated as the canvas's own drop
-        /// target so the preview and a canvas edge drop are the same
-        /// transform.
-        var target: DropTarget { .paneEdge(besideFocused, .right) }
+        /// target so the preview and a canvas drop are the same transform.
+        public let target: DropTarget
+
+        public init(pane: PaneID, target: DropTarget) {
+            self.pane = pane
+            self.target = target
+        }
     }
 
     /// What a live drag would land in `tab`, or nil when nothing does: no
-    /// drag, a drag aimed elsewhere, a subject that is not a pane, or a pane
-    /// already in this tab, which herdr refuses outright (`same_tab`). Keyed
-    /// on the planned outcome rather than on the resolved target, so a drop
-    /// that commits nothing previews nothing.
+    /// drag, a drag aimed elsewhere, a subject that is not a pane, or a drop
+    /// the planner refuses (a pane onto its own tab's handle, or onto its own
+    /// mini pane). Keyed on the planned outcome rather than on the resolved
+    /// target, so a drop that commits nothing previews nothing.
     public static func arrival(of subject: DragSubject?, onto target: DropTarget?, tab: TabID, model: SessionModel?) -> Arrival? {
-        guard let target, case .tabThumbnail(let hit) = target, hit == tab,
-              let subject, case .pane(let pane) = subject,
-              let model, case .success = plan(dragging: subject, onto: target, model: model),
-              let focused = model.layouts[tab]?.focusedPane
+        guard let target, let subject, case .pane(let pane) = subject, let model,
+              let landing = canvasTarget(of: target, in: tab, model: model),
+              case .success = plan(dragging: subject, onto: target, model: model)
         else {
             return nil
         }
-        return Arrival(pane: pane, besideFocused: focused)
+        return Arrival(pane: pane, target: landing)
+    }
+
+    /// The tab a grid drop is aimed at, whichever shape the target took: a
+    /// whole thumbnail, or one of the mini panes drawn inside one. What the
+    /// card and the thumbnail read to know they are the drop's target.
+    public static func targetedTab(of target: DropTarget?, model: SessionModel?) -> TabID? {
+        switch target {
+        case .tabThumbnail(let tab):
+            return tab
+        case .paneEdge(let pane, _), .paneInterior(let pane):
+            return model?.panes[pane]?.tabID
+        default:
+            return nil
+        }
+    }
+
+    /// Where a resolved grid target lands inside `tab`, as one of the canvas's
+    /// own targets. A mini pane names itself; the tab's own handle names no
+    /// pane, and herdr splits the tab's focused pane when a `pane.move` names
+    /// a tab and no pane of it, keeping the target as the first child.
+    private static func canvasTarget(of target: DropTarget, in tab: TabID, model: SessionModel) -> DropTarget? {
+        switch target {
+        case .tabThumbnail(let hit):
+            guard hit == tab, let focused = model.layouts[tab]?.focusedPane else { return nil }
+            return .paneEdge(focused, .right)
+        case .paneEdge(let pane, _), .paneInterior(let pane):
+            guard model.panes[pane]?.tabID == tab else { return nil }
+            return target
+        default:
+            return nil
+        }
     }
 
     /// What is left of a thumbnail for its mini panes, once the tab's own
@@ -65,6 +88,12 @@ public enum MiniPaneLayout {
     public static func boxInThumbnail(_ box: CGRect, stripHeight: CGFloat) -> CGRect {
         let area = paneArea(in: .zero, stripHeight: stripHeight)
         return box.offsetBy(dx: area.minX, dy: area.minY)
+    }
+
+    /// Every box of one thumbnail crossed into the thumbnail's own space,
+    /// which is where a drop is hit-tested against them.
+    public static func boxesInThumbnail(_ boxes: [Placed], stripHeight: CGFloat) -> [Placed] {
+        boxes.map { Placed(pane: $0.pane, frame: boxInThumbnail($0.frame, stripHeight: stripHeight)) }
     }
 
     /// Every pane's box inside a thumbnail of `size`, top to bottom and then
@@ -111,11 +140,11 @@ public enum MiniPaneLayout {
 
     /// The tab's panes as the drop leaves them. herdr's own split tree is the
     /// exact answer wherever one is cached: the arriving pane is grafted on
-    /// by `DropPreview`, which is the transform the canvas previews an edge
-    /// drop with, and the same geometry pass lays the result out.
+    /// by `DropPreview`, which is the transform the canvas previews a drop
+    /// with, and the same geometry pass lays the result out.
     ///
     /// Without a tree the snapshot's own rects carry it: a `pane.move` only
-    /// ever divides the one region it is aimed at, so splitting the focused
+    /// ever divides the one region it is aimed at, so dividing the target
     /// pane's cell rect leaves every other pane exactly where it was.
     private static func landing(
         _ arriving: Arrival, in layout: LayoutSnapshot, exported: ExportedLayoutDescription?, grid: CanvasGrid, gap: CGFloat
@@ -126,16 +155,64 @@ public enum MiniPaneLayout {
                 exportedRoot: root, area: layout.area, tabID: layout.tabID, grid: grid, dividerThickness: gap
             ).paneFrames
         }
-        guard let focused = layout.panes.first(where: { $0.paneID == arriving.besideFocused }) else {
+        guard let landed = landed(arriving, in: layout) else {
             return CanvasGeometry.resolved(layout: layout, exported: exported, grid: grid, dividerThickness: gap).paneFrames
         }
-        let regions = SplitTree.childRegions(of: focused.rect, direction: .right, ratio: 0.5)
+        return CanvasGeometry.resolved(layout: landed, exported: nil, grid: grid, dividerThickness: gap).paneFrames
+    }
+
+    /// The snapshot the drop leaves behind, or nil when its target is not a
+    /// pane of this layout.
+    private static func landed(_ arriving: Arrival, in layout: LayoutSnapshot) -> LayoutSnapshot? {
+        switch arriving.target {
+        case .paneEdge(let targetPane, let edge):
+            return dividing(targetPane, on: edge, for: arriving.pane, in: layout)
+        case .paneInterior(let targetPane):
+            guard targetPane != arriving.pane, let target = layout.panes.first(where: { $0.paneID == targetPane })
+            else {
+                return nil
+            }
+            // A pane of another tab has no rect here to trade with, and the
+            // `pane.move` the plan sends divides the target's region instead,
+            // target first.
+            guard let moving = layout.panes.first(where: { $0.paneID == arriving.pane }) else {
+                return dividing(targetPane, on: .right, for: arriving.pane, in: layout)
+            }
+            var preview = layout
+            preview.panes = layout.panes.filter { $0.paneID != arriving.pane && $0.paneID != targetPane }
+                + [
+                    PaneRect(paneID: targetPane, focused: target.focused, rect: moving.rect),
+                    PaneRect(paneID: arriving.pane, focused: moving.focused, rect: target.rect),
+                ]
+            return preview
+        default:
+            return nil
+        }
+    }
+
+    /// `targetPane`'s own cell rect halved, the arriving pane taking the side
+    /// `edge` names and the target keeping the other.
+    private static func dividing(
+        _ targetPane: PaneID, on edge: Edge, for arriving: PaneID, in layout: LayoutSnapshot
+    ) -> LayoutSnapshot? {
+        guard targetPane != arriving, let target = layout.panes.first(where: { $0.paneID == targetPane }) else {
+            return nil
+        }
+        let direction: SplitDirection
+        let arrivingLeads: Bool
+        switch edge {
+        case .left: direction = .right; arrivingLeads = true
+        case .right: direction = .right; arrivingLeads = false
+        case .top: direction = .down; arrivingLeads = true
+        case .bottom: direction = .down; arrivingLeads = false
+        }
+        let regions = SplitTree.childRegions(of: target.rect, direction: direction, ratio: 0.5)
         var preview = layout
-        preview.panes = layout.panes.filter { $0.paneID != arriving.pane && $0.paneID != focused.paneID }
+        preview.panes = layout.panes.filter { $0.paneID != arriving && $0.paneID != targetPane }
             + [
-                PaneRect(paneID: focused.paneID, focused: focused.focused, rect: regions.first),
-                PaneRect(paneID: arriving.pane, focused: false, rect: regions.second),
+                PaneRect(paneID: targetPane, focused: target.focused, rect: arrivingLeads ? regions.second : regions.first),
+                PaneRect(paneID: arriving, focused: false, rect: arrivingLeads ? regions.first : regions.second),
             ]
-        return CanvasGeometry.resolved(layout: preview, exported: nil, grid: grid, dividerThickness: gap).paneFrames
+        return preview
     }
 }
