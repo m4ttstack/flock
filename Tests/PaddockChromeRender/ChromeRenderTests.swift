@@ -323,8 +323,20 @@ final class ChromeRenderTests: XCTestCase {
         on workspace: WorkspaceID, harness: Harness, window: NSWindow, directory: String?, render: String?
     ) async throws {
         let before = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
+        // A sibling thumbnail's own ground is the control: it carries the
+        // card's wash and nothing else, so the tile can only differ from it by
+        // taking a second one. Both are the same role at rest, which the
+        // before-sample pins rather than assumes.
         let tile = harness.drag.surfaces?.grid?.tiles.first { $0.id == workspace }?.frame
-        let tileBefore = try tile.map { hex(try snapshot(window), CGPoint(x: $0.midX, y: $0.midY)) }
+        let sibling = harness.drag.surfaces?.grid?.thumbnails
+            .first { $0.id.rawValue.hasPrefix("\(workspace.rawValue):") }?.frame
+        let atRest = try snapshot(window)
+        if let tile, let sibling {
+            XCTAssertEqual(
+                hex(atRest, groundPoint(of: tile)), hex(atRest, groundPoint(of: sibling)),
+                "\(workspace.rawValue): tile and thumbnail do not share a ground at rest, so the wash check below proves nothing"
+            )
+        }
 
         try await overEmptySpace(of: workspace, harness: harness, window: window)
         XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(workspace)), "\(workspace.rawValue)")
@@ -332,19 +344,23 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(after.height, before.height, accuracy: 0.5, "\(workspace.rawValue) grew a row the drop will not keep")
 
         let image = try snapshot(window)
-        if let tile, let tileBefore {
-            let lit = hex(image, CGPoint(x: tile.midX, y: tile.midY))
-            XCTAssertNotEqual(lit, tileBefore, "\(workspace.rawValue)'s tile did not take the drop wash")
-            let cardGround = hex(image, CGPoint(
-                x: after.midX,
-                y: after.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
-            ))
-            XCTAssertNotEqual(lit, cardGround, "the tile reads no differently from the card it sits on")
+        if let tile, let sibling {
+            XCTAssertNotEqual(
+                hex(image, groundPoint(of: tile)), hex(image, groundPoint(of: sibling)),
+                "\(workspace.rawValue)'s tile did not take the drop wash the card's other cells do without"
+            )
         }
         if let directory, let render {
             try XCTUnwrap(image.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent(render))
         }
+    }
+
+    /// A cell's own ground: the BOTTOM-left corner, two points in. A
+    /// thumbnail's top is its handle strip and its middle is mini panes, so
+    /// only the padding below them is the ground a tile can be compared with.
+    private func groundPoint(of cell: CGRect) -> CGPoint {
+        CGPoint(x: cell.minX + 2, y: cell.maxY - 2)
     }
 
     /// The grid in a light theme. The handle strip's fill has to separate
