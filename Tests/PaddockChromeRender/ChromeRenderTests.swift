@@ -299,15 +299,15 @@ final class ChromeRenderTests: XCTestCase {
         assertSlotFollows(resting, lastHerdrTab, "the card's last tab")
 
         // A resting card whose row is already full hides the tab it would
-        // create, so it shows no placeholder and keeps its single row.
+        // create, so it shows no placeholder and keeps its single row. It has
+        // no tile either, so nothing carries the preview but its outline.
         try await assertNoPlaceholderAndNoNewRow(
             on: GridFixture.mattstackApps, harness: harness, window: window, directory: nil, render: nil
         )
 
-        // The same for a resting card already over its cap: its row holds
-        // three tabs and a "+N" tile, and it redraws to that same single row
-        // however many tabs it gains, so a placeholder in the tile's slot
-        // would push the tile into a row the drop takes straight back.
+        // A resting card already over its cap draws no tab either, but it has
+        // a "+N" tile, and that count is the one thing the drop visibly
+        // changes: the tile takes the wash a targeted thumbnail gets.
         try await assertNoPlaceholderAndNoNewRow(
             on: GridFixture.paddock, harness: harness, window: window,
             directory: directory, render: "grid-drag-resting-card.png"
@@ -316,19 +316,114 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// Moves the drag onto a card that will not draw the tab it creates, and
-    /// pins that the card shows no placeholder and does not grow.
+    /// pins that the card shows no placeholder and does not grow. A card with
+    /// a tile also has to light that tile, which is the only preview such a
+    /// drop can honestly carry.
     private func assertNoPlaceholderAndNoNewRow(
         on workspace: WorkspaceID, harness: Harness, window: NSWindow, directory: String?, render: String?
     ) async throws {
         let before = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
+        let tile = harness.drag.surfaces?.grid?.tiles.first { $0.id == workspace }?.frame
+        let tileBefore = try tile.map { hex(try snapshot(window), CGPoint(x: $0.midX, y: $0.midY)) }
+
         try await overEmptySpace(of: workspace, harness: harness, window: window)
         XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(workspace)), "\(workspace.rawValue)")
         let after = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
         XCTAssertEqual(after.height, before.height, accuracy: 0.5, "\(workspace.rawValue) grew a row the drop will not keep")
+
+        let image = try snapshot(window)
+        if let tile, let tileBefore {
+            let lit = hex(image, CGPoint(x: tile.midX, y: tile.midY))
+            XCTAssertNotEqual(lit, tileBefore, "\(workspace.rawValue)'s tile did not take the drop wash")
+            let cardGround = hex(image, CGPoint(
+                x: after.midX,
+                y: after.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
+            ))
+            XCTAssertNotEqual(lit, cardGround, "the tile reads no differently from the card it sits on")
+        }
         if let directory, let render {
-            try XCTUnwrap(snapshot(window).representation(using: .png, properties: [:]))
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent(render))
         }
+    }
+
+    /// The grid in a light theme. The handle strip's fill has to separate
+    /// from the thumbnail body on both sides of the ladder, and only a light
+    /// palette shows whether the role picked for it reads as a band there
+    /// too; every other grid render is Tokyo Night.
+    func testTheGridRendersInALightTheme() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })
+        let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let image = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-latte.png"))
+        }
+        assertGridSamples(image, theme: theme)
+
+        // The strip is a band, not the body it sits on: sampled inside a
+        // thumbnail's strip and inside the same thumbnail's ground.
+        let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+        let strip = hex(image, CGPoint(x: thumbnail.midX, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2))
+        XCTAssertEqual(strip, theme.palette.chromeRoles.paneBorder.hex, "the strip carries the role it was given")
+        XCTAssertNotEqual(strip, theme.palette.chromeRoles.canvas.hex, "and it is not the thumbnail body")
+        window.close()
+    }
+
+    /// A whole tab dragged by its handle strip is proxied as a miniature of
+    /// its own thumbnail, at that thumbnail's exact frame. The compact cap
+    /// would shrink it, which would read as a different tab than the one the
+    /// drop is aimed beside.
+    func testATabDraggedFromItsHandleStripIsProxiedAsAMiniatureOfItself() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let harness = try await Harness(theme: .tokyoNight, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let model = try GridFixture.model()
+        let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+        let area = MiniPaneLayout.paneArea(
+            in: CGRect(origin: .zero, size: source.size), stripHeight: ChromeMetrics.Grid.tabStripHeight
+        )
+        let panes = MiniPaneLayout.boxes(
+            layout: model.layouts[GridFixture.agentsTab], exported: nil, fallbackPanes: [], size: area.size,
+            padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
+        ).compactMap { placed -> DragCoordinator.Ghost.TabMiniature.Pane? in
+            guard let pane = model.panes[placed.pane] else { return nil }
+            return .init(title: pane.displayTitle, status: pane.agentStatus, box: placed.frame)
+        }
+        XCTAssertEqual(panes.count, 3, "the fixture tab's own three panes")
+
+        harness.drag.beginIfIdle(
+            .tab(GridFixture.agentsTab),
+            ghost: DragCoordinator.Ghost(
+                title: "agents", symbol: "rectangle.stack", originSize: source.size, isCompact: true,
+                tabMiniature: .init(title: "agents", status: .working, isFocusedTab: true, panes: panes)
+            ),
+            at: CGPoint(x: source.midX, y: source.minY + ChromeMetrics.Grid.tabStripHeight / 2)
+        )
+        let ghost = try XCTUnwrap(harness.drag.ghost)
+        XCTAssertEqual(
+            DragVisuals.ghostSize(forOrigin: ghost.originSize, bounds: ghost.bounds), source.size,
+            "the proxy is the thumbnail it was picked up from, one to one"
+        )
+
+        let target = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
+        harness.drag.move(to: CGPoint(x: target.midX, y: target.midY))
+        await settle(window)
+        if let directory {
+            try XCTUnwrap(snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-tab.png"))
+        }
+        window.close()
     }
 
     /// Moves the live drag onto a card's own empty space, which is its header

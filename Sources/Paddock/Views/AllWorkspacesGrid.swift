@@ -176,9 +176,9 @@ private struct WorkspaceCard: View {
                 TabThumbnail(theme: theme, viewModel: viewModel, tab: tab, isTargeted: drag.target == .tabThumbnail(id))
             }
         case .moreTabs(let hidden):
-            tile(title: "+\(hidden)", label: "more tabs")
+            tile(title: "+\(hidden)", label: "more tabs", tabCount: tabs.count)
         case .collapse:
-            tile(title: "fewer", label: "fewer tabs")
+            tile(title: "fewer", label: "fewer tabs", tabCount: tabs.count)
         case .newTab:
             NewTabPlaceholder(theme: theme, workspace: workspace.workspaceID)
         }
@@ -186,14 +186,25 @@ private struct WorkspaceCard: View {
 
     /// Either tile a card can show. Neither takes a drop, so both refuse one
     /// visibly rather than letting the card behind them make a tab.
-    private func tile(title: String, label: String) -> some View {
+    ///
+    /// The tile also carries the card's OWN drop preview when the card cannot
+    /// draw a placeholder: its hidden count is the only thing such a drop
+    /// visibly changes. Bound to `drag.target` like every other preview, so
+    /// leave, drop and cancel all clear it.
+    private func tile(title: String, label: String, tabCount: Int) -> some View {
         GridTile(
             theme: theme, title: title, label: label,
-            isTargeted: drag.target == .moreTabs(workspace.workspaceID),
+            isTargeted: drag.target == .moreTabs(workspace.workspaceID) || carriesTheCardsDrop(tabCount: tabCount),
             reportsAs: .tile(workspace.workspaceID)
         ) {
             drag.toggleGridCard(workspace.workspaceID)
         }
+    }
+
+    private func carriesTheCardsDrop(tabCount: Int) -> Bool {
+        takesTheDrop && GridCardLayout.tilePreviewsTheDrop(
+            tabs: tabCount, expanded: drag.expandedGridCards.contains(workspace.workspaceID)
+        )
     }
 
     /// The accent outline: on whichever card owns the target, whether that is
@@ -254,22 +265,11 @@ private struct TabThumbnail: View {
         .gesture(tabDrag)
     }
 
-    /// The tab's handle: a band a step above the pane fill across the top of
-    /// the thumbnail, carrying the title the label row under it used to.
     private var titleStrip: some View {
-        let isFocusedTab = tab.tabID == viewModel.model?.focusedTabID
-        return HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
-            Text(tab.label)
-                .font(ChromeType.gridTabLabel(selected: isFocusedTab))
-                .foregroundStyle(isFocusedTab ? theme.textStrong : theme.textDim)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
-        }
-        .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: ChromeMetrics.Grid.tabStripHeight)
-        .background(theme.tabRest)
+        TabHandleStrip(
+            theme: theme, title: tab.label, status: tab.agentStatus,
+            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID
+        )
         .onHover { hovering in
             GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
         }
@@ -279,16 +279,36 @@ private struct TabThumbnail: View {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
                 let thumbnail = thumbnailFrame
+                let size = thumbnail?.size ?? .zero
                 drag.beginIfIdle(
                     .tab(tab.tabID),
                     ghost: DragCoordinator.Ghost(
                         title: tab.label, symbol: "rectangle.stack",
-                        originSize: thumbnail?.size ?? .zero, isCompact: true
+                        originSize: size, isCompact: true, tabMiniature: miniature(size: size)
                     ),
                     at: value.startLocation,
-                    home: home(box: CGRect(origin: .zero, size: thumbnail?.size ?? .zero))
+                    home: home(box: CGRect(origin: .zero, size: size))
                 )
             }
+    }
+
+    /// The tab as it looked when it was picked up, for a proxy that is a
+    /// miniature of this very thumbnail. Its mini panes are laid out at the
+    /// thumbnail's own pane area, so the proxy's panes land where the
+    /// thumbnail's do.
+    private func miniature(size: CGSize) -> DragCoordinator.Ghost.TabMiniature {
+        let model = viewModel.model
+        let paneArea = MiniPaneLayout.paneArea(
+            in: CGRect(origin: .zero, size: size), stripHeight: ChromeMetrics.Grid.tabStripHeight
+        )
+        let panes = paneBoxes(size: paneArea.size).compactMap { placed -> DragCoordinator.Ghost.TabMiniature.Pane? in
+            guard let pane = model?.panes[placed.pane] else { return nil }
+            return .init(title: pane.displayTitle, status: pane.agentStatus, box: placed.frame)
+        }
+        return DragCoordinator.Ghost.TabMiniature(
+            title: tab.label, status: tab.agentStatus,
+            isFocusedTab: tab.tabID == model?.focusedTabID, panes: panes
+        )
     }
 
     /// On screen, in the drag space: what a mini pane's own frame is measured
@@ -332,12 +352,14 @@ private struct TabThumbnail: View {
             }
     }
 
-    private func miniPanes(size: CGSize) -> some View {
+    /// This tab's mini panes inside a pane area of `size`. Shared with the
+    /// drag proxy, so the proxy's panes land exactly where the thumbnail's do.
+    private func paneBoxes(size: CGSize) -> [MiniPaneLayout.Placed] {
         let model = viewModel.model
         let tabPanes = (model?.panes.values.filter { $0.tabID == tab.tabID } ?? [])
             .map(\.paneID)
             .sorted { $0.rawValue < $1.rawValue }
-        let boxes = MiniPaneLayout.boxes(
+        return MiniPaneLayout.boxes(
             layout: model?.layouts[tab.tabID],
             exported: viewModel.exportedLayout(for: tab.tabID),
             fallbackPanes: tabPanes,
@@ -346,10 +368,15 @@ private struct TabThumbnail: View {
             gap: ChromeMetrics.Grid.miniPaneGap,
             displayScale: displayScale > 0 ? displayScale : 2
         )
+    }
+
+    private func miniPanes(size: CGSize) -> some View {
+        let model = viewModel.model
+        let boxes = paneBoxes(size: size)
         return ZStack(alignment: .topLeading) {
             ForEach(boxes, id: \.pane) { placed in
                 if let pane = model?.panes[placed.pane] {
-                    MiniPane(theme: theme, pane: pane)
+                    MiniPane(theme: theme, title: pane.displayTitle, status: pane.agentStatus)
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
@@ -374,15 +401,51 @@ private struct TabThumbnail: View {
     }
 }
 
-/// A pane in miniature: its title and status dot, nothing else.
-private struct MiniPane: View {
+/// A tab's handle: a band across the top of its thumbnail carrying the title
+/// and status dot. Shared with the drag proxy, which draws a whole tab as a
+/// miniature of its own thumbnail and has to use the same roles.
+///
+/// Filled with `paneBorder` rather than a lighter step: the thumbnail's body
+/// is `canvas`, and the roles between the two (`tabRest`, `rule`) land within
+/// about 1.1:1 of it in both a dark and a light theme, which reads as the
+/// same surface. `paneBorder` is the nearest role that separates (1.77:1 on
+/// Tokyo Night, 1.49:1 on Catppuccin Latte) and it is already the role a box
+/// edge takes, so a solid band of it reads as structure. The title clears AA
+/// on it either way (4.89:1 dim on Tokyo Night, 5.51:1 on Catppuccin Latte).
+struct TabHandleStrip: View {
     let theme: Theme
-    let pane: PaneRecord
+    let title: String
+    let status: AgentStatus
+    let isFocusedTab: Bool
+
+    var body: some View {
+        HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
+            Text(title)
+                .font(ChromeType.gridTabLabel(selected: isFocusedTab))
+                .foregroundStyle(isFocusedTab ? theme.textStrong : theme.textDim)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
+        }
+        .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: ChromeMetrics.Grid.tabStripHeight)
+        .background(theme.paneBorder)
+    }
+}
+
+/// A pane in miniature: its title and status dot, nothing else. Takes the two
+/// values rather than a `PaneRecord` so the drag proxy, which carries a
+/// snapshot of what was picked up, can draw the same box.
+struct MiniPane: View {
+    let theme: Theme
+    let title: String
+    let status: AgentStatus
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
-            StatusDot(status: pane.agentStatus, theme: theme, size: ChromeMetrics.Grid.miniPaneStatusDot)
-            Text(pane.displayTitle)
+            StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.miniPaneStatusDot)
+            Text(title)
                 .font(ChromeType.gridMiniPaneTitle)
                 .foregroundStyle(theme.textStrong)
                 .lineLimit(1)

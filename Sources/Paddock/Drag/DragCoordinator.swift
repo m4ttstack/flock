@@ -56,15 +56,38 @@ final class DragCoordinator {
     /// The floating proxy: a title, a glyph, and the size of the item it
     /// stands for (which `DragVisuals.ghostSize` scales down).
     struct Ghost: Equatable {
+        /// A whole tab drawn as a miniature of its own thumbnail: the handle
+        /// strip over the mini pane layout, in the roles the thumbnail uses.
+        /// Captured at the press, so the proxy is the tab as it was picked
+        /// up rather than a live view that reflows under the drag.
+        struct TabMiniature: Equatable {
+            struct Pane: Equatable {
+                let title: String
+                let status: AgentStatus
+                /// In the mini pane AREA's space, as `MiniPaneLayout` states
+                /// it; the strip above it is what the miniature adds back.
+                let box: CGRect
+            }
+
+            let title: String
+            let status: AgentStatus
+            let isFocusedTab: Bool
+            let panes: [Pane]
+        }
+
         let title: String
         let symbol: String
         let originSize: CGSize
         /// A drag that started inside the All Workspaces grid, where a
         /// window-scale proxy would cover the thumbnail it is aimed at.
         var isCompact = false
+        var tabMiniature: TabMiniature?
 
+        /// A miniature is drawn at its own footprint: it stands for a
+        /// thumbnail, so anything but one to one reads as the wrong tab.
         var bounds: DragVisuals.GhostBounds {
-            isCompact ? DragVisuals.compactGhostBounds : DragVisuals.ghostBounds
+            if tabMiniature != nil { return DragVisuals.exactBounds(originSize) }
+            return isCompact ? DragVisuals.compactGhostBounds : DragVisuals.ghostBounds
         }
     }
 

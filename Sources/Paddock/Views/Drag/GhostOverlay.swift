@@ -14,9 +14,56 @@ struct GhostOverlay: View {
 
     var body: some View {
         let size = DragVisuals.ghostSize(forOrigin: ghost.originSize, bounds: ghost.bounds)
+        content(size: size)
+            .frame(width: size.width, height: size.height, alignment: ghost.isCompact ? .leading : .topLeading)
+            // Translucent so the tab or row under the pointer stays readable
+            // through the proxy while it is being targeted.
+            .background(theme.chrome.opacity(0.7), in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+            .clipShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
+                    .strokeBorder(theme.accent, lineWidth: 1)
+                    .opacity(settling ? 0 : 1)
+            )
+            .shadow(color: theme.chrome.opacity(0.5), radius: ChromeMetrics.Ghost.shadowRadius, y: ChromeMetrics.Ghost.shadowY)
+    }
+
+    @ViewBuilder
+    private func content(size: CGSize) -> some View {
+        if let miniature = ghost.tabMiniature {
+            self.miniature(miniature, size: size)
+        } else {
+            block(size: size)
+        }
+    }
+
+    /// A whole tab is drawn as what it is: its handle strip over its own mini
+    /// pane layout, in the roles the thumbnail uses, at the thumbnail's own
+    /// size. A generic block would read as the wrong thing entirely, since
+    /// the target it is aimed at is another tab's thumbnail.
+    private func miniature(_ miniature: DragCoordinator.Ghost.TabMiniature, size: CGSize) -> some View {
+        VStack(spacing: 0) {
+            TabHandleStrip(
+                theme: theme, title: miniature.title, status: miniature.status,
+                isFocusedTab: miniature.isFocusedTab
+            )
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(miniature.panes.enumerated()), id: \.offset) { _, pane in
+                    MiniPane(theme: theme, title: pane.title, status: pane.status)
+                        .frame(width: pane.box.width, height: pane.box.height)
+                        .offset(x: pane.box.minX, y: pane.box.minY)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(width: size.width, height: size.height)
+        .background(theme.canvas)
+    }
+
+    private func block(size: CGSize) -> some View {
         let compact = ghost.isCompact
         let labelled = carriesLabel(width: size.width)
-        VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: compact ? ChromeMetrics.Ghost.compactSpacing : ChromeMetrics.Ghost.spacing) {
                 Image(systemName: ghost.symbol)
                     .font(compact ? ChromeType.ghostCompactSymbol : ChromeType.ghostSymbol)
@@ -33,16 +80,6 @@ struct GhostOverlay: View {
             }
         }
         .padding(compact ? ChromeMetrics.Ghost.compactPadding : ChromeMetrics.Ghost.padding)
-        .frame(width: size.width, height: size.height, alignment: compact ? .leading : .topLeading)
-        // Translucent so the tab or row under the pointer stays readable
-        // through the proxy while it is being targeted.
-        .background(theme.chrome.opacity(0.7), in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
-                .strokeBorder(theme.accent, lineWidth: 1)
-                .opacity(settling ? 0 : 1)
-        )
-        .shadow(color: theme.chrome.opacity(0.5), radius: ChromeMetrics.Ghost.shadowRadius, y: ChromeMetrics.Ghost.shadowY)
     }
 
     /// A proxy sized from a narrow mini pane has no room for a title, and it
