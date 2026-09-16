@@ -121,6 +121,81 @@ final class DragVisualsTests: XCTestCase {
         XCTAssertEqual(top, CGPoint(x: 75, y: 235))
     }
 
+    // MARK: - a proxy that hangs from its strip
+
+    private let thumbnail = CGRect(x: 200, y: 120, width: 103, height: 101)
+    private let stripHeight: CGFloat = 15
+
+    /// The pointer keeps the place in the strip it grabbed, so the proxy
+    /// covers the thumbnail it came from on the press and travels exactly as
+    /// far as the pointer does from there.
+    func testATabProxyHangsFromTheStripWhereverInItTheGrabLanded() {
+        for x in [2.0, 51.5, 101.0] as [CGFloat] {
+            let inItem = CGPoint(x: x, y: 9)
+            let anchor = DragVisuals.stripAnchor(grabbedAt: inItem, in: thumbnail.size, stripHeight: stripHeight)
+            XCTAssertEqual(anchor, inItem, "\(x)")
+            XCTAssertLessThanOrEqual(anchor.y, stripHeight, "the pointer left the strip at \(x)")
+
+            let grab = CGPoint(x: thumbnail.minX + inItem.x, y: thumbnail.minY + inItem.y)
+            let top = DragVisuals.ghostTopLeft(forCursor: grab, ghostSize: thumbnail.size, anchor: anchor)
+            XCTAssertEqual(top, thumbnail.origin, "the proxy jumped off its own thumbnail at \(x)")
+            let moved = DragVisuals.ghostTopLeft(
+                forCursor: CGPoint(x: grab.x + 7, y: grab.y - 3), ghostSize: thumbnail.size, anchor: anchor
+            )
+            XCTAssertEqual(moved, CGPoint(x: top.x + 7, y: top.y - 3), "the first move moved the proxy by more than the pointer at \(x)")
+        }
+    }
+
+    /// A tab is 101pt tall and its strip 15: a grab on the body hangs the
+    /// proxy from the strip's lower edge rather than leaving the pointer over
+    /// the mini panes.
+    func testAGrabBelowTheStripIsPulledUpIntoItOnATallTab() {
+        let anchor = DragVisuals.stripAnchor(grabbedAt: CGPoint(x: 60, y: 88), in: thumbnail.size, stripHeight: stripHeight)
+        XCTAssertEqual(anchor, CGPoint(x: 60, y: stripHeight))
+        XCTAssertLessThanOrEqual(anchor.y, stripHeight)
+        let grab = CGPoint(x: thumbnail.minX + 60, y: thumbnail.minY + 88)
+        let top = DragVisuals.ghostTopLeft(forCursor: grab, ghostSize: thumbnail.size, anchor: anchor)
+        XCTAssertEqual(top.y, grab.y - stripHeight, "the strip is under the pointer")
+        XCTAssertEqual(
+            DragVisuals.ghostTopLeft(forCursor: CGPoint(x: grab.x + 4, y: grab.y + 4), ghostSize: thumbnail.size, anchor: anchor),
+            CGPoint(x: top.x + 4, y: top.y + 4)
+        )
+    }
+
+    /// A tab whose thumbnail never reported a frame is proxied at the
+    /// ordinary bounds instead of its own size, so the grab can fall outside
+    /// the proxy entirely.
+    func testAGrabOutsideASmallerProxyIsPulledInsideIt() {
+        let anchor = DragVisuals.stripAnchor(
+            grabbedAt: CGPoint(x: 99, y: 12), in: CGSize(width: 44, height: 22), stripHeight: stripHeight
+        )
+        XCTAssertEqual(anchor, CGPoint(x: 44, y: 12))
+    }
+
+    /// The landing and the spring back hold the proxy the way the drag did:
+    /// the point the pointer held goes to the same place in the region, which
+    /// puts a tab's own strip over the strip of the slot it landed in.
+    func testAnAnchoredProxySettlesTheWayItHung() {
+        let anchor = CGPoint(x: 51.5, y: 9)
+        let slot = CGRect(x: 400, y: 260, width: 103, height: 101)
+        XCTAssertEqual(DragVisuals.settleTopLeft(on: slot, grabPoint: .zero, ghostSize: slot.size, anchor: anchor), slot.origin)
+
+        let shorter = CGRect(x: 400, y: 260, width: 60, height: 40)
+        XCTAssertEqual(
+            DragVisuals.settleTopLeft(on: shorter, grabPoint: .zero, ghostSize: slot.size, anchor: anchor), shorter.origin,
+            "a region of another size still takes the proxy by its strip"
+        )
+        XCTAssertEqual(
+            DragVisuals.settleTopLeft(on: nil, grabPoint: CGPoint(x: 10, y: 20), ghostSize: slot.size, anchor: anchor),
+            CGPoint(x: 10 - anchor.x, y: 20 - anchor.y)
+        )
+        XCTAssertNotEqual(
+            DragVisuals.settleTopLeft(on: shorter, grabPoint: .zero, ghostSize: slot.size, anchor: anchor),
+            DragVisuals.settleTopLeft(on: shorter, grabPoint: .zero, ghostSize: slot.size),
+            "a centred settle and an anchored one agree only where the two sizes match"
+        )
+    }
+
     func testThresholdRejectsAPressThatBarelyMoves() {
         XCTAssertFalse(DragThreshold.passed(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 12, y: 12)))
     }
@@ -227,6 +302,84 @@ final class DragVisualsTests: XCTestCase {
         XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 0, draggingIndex: nil, insertIndex: 1, extent: extent), 0)
         XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 1, draggingIndex: nil, insertIndex: 1, extent: extent), 60)
         XCTAssertEqual(ReshuffleOffset.displacement(forItemAt: 2, draggingIndex: nil, insertIndex: 1, extent: extent), 60)
+    }
+
+    // MARK: - wrapped slots
+
+    /// Eight card slots, four to a row: 90 wide on a 100pt pitch, 101 tall on
+    /// a 111pt one.
+    private let cardSlots = (0..<8).map {
+        CGRect(x: 10 + CGFloat($0 % 4) * 100, y: 50 + CGFloat($0 / 4) * 111, width: 90, height: 101)
+    }
+
+    /// One rule, two shapes of list: over slots that do not wrap, the vector
+    /// form is the strip's own extent form, for every item and every gap.
+    func testASlotOffsetIsTheStripsOwnRuleWhereTheSlotsDoNotWrap() {
+        let row = Array(cardSlots.prefix(4))
+        let subjects: [Int?] = [nil] + row.indices.map { $0 }
+        for dragging in subjects {
+            for insertIndex in 0...row.count {
+                for index in row.indices {
+                    let offset = ReshuffleOffset.slotOffset(
+                        forItemAt: index, draggingIndex: dragging, insertIndex: insertIndex, slots: row
+                    )
+                    let expected = ReshuffleOffset.displacement(
+                        forItemAt: index, draggingIndex: dragging, insertIndex: insertIndex, extent: 100
+                    )
+                    // The arriving-item case has no slot past the last one to
+                    // move the tail into, which is what a card previews with a
+                    // placeholder instead.
+                    guard dragging != nil || index + 1 < row.count || insertIndex > index else {
+                        XCTAssertEqual(offset, .zero, "item \(index), gap \(insertIndex)")
+                        continue
+                    }
+                    XCTAssertEqual(offset.width, expected, "item \(index), dragging \(String(describing: dragging)), gap \(insertIndex)")
+                    XCTAssertEqual(offset.height, 0)
+                }
+            }
+        }
+    }
+
+    /// A tab dragged past the end of its row lands on the next row, so its
+    /// own slide is up or down as well as along, and the tab it displaces
+    /// comes back the other way.
+    func testATabCrossingARowEndMovesDownAsWellAsAlong() {
+        let toNextRow = ReshuffleOffset.slotOffset(forItemAt: 0, draggingIndex: 0, insertIndex: 5, slots: cardSlots)
+        XCTAssertEqual(toNextRow, CGSize(width: 0, height: 111), "slot 0 to slot 4, the first of the next row")
+
+        let displaced = ReshuffleOffset.slotOffset(forItemAt: 4, draggingIndex: 0, insertIndex: 5, slots: cardSlots)
+        XCTAssertEqual(displaced, CGSize(width: 300, height: -111), "slot 4 back to slot 3, the last of the first row")
+
+        let untouched = ReshuffleOffset.slotOffset(forItemAt: 5, draggingIndex: 0, insertIndex: 5, slots: cardSlots)
+        XCTAssertEqual(untouched, .zero)
+    }
+
+    /// Exactly one cell per slot, at every gap: the previewed positions are
+    /// the resting positions, reordered, so a card mid-reorder never draws
+    /// two thumbnails on top of each other or leaves a hole.
+    func testAPreviewedCardFillsEverySlotExactlyOnce() {
+        let resting = cardSlots.map { CGPoint(x: $0.minX, y: $0.minY) }
+        for dragging in cardSlots.indices {
+            for insertIndex in 0...cardSlots.count {
+                let landed = cardSlots.indices.map { index -> CGPoint in
+                    let offset = ReshuffleOffset.slotOffset(
+                        forItemAt: index, draggingIndex: dragging, insertIndex: insertIndex, slots: cardSlots
+                    )
+                    return CGPoint(x: cardSlots[index].minX + offset.width, y: cardSlots[index].minY + offset.height)
+                }
+                XCTAssertEqual(
+                    landed.sorted { ($0.y, $0.x) < ($1.y, $1.x) }, resting,
+                    "dragging \(dragging) at gap \(insertIndex)"
+                )
+            }
+        }
+    }
+
+    /// A card draws only the slots it has: an index the arrangement does not
+    /// carry moves nothing rather than reading past the end.
+    func testASlotTheCardDoesNotDrawMovesNothing() {
+        XCTAssertEqual(ReshuffleOffset.slotOffset(forItemAt: 9, draggingIndex: 0, insertIndex: 2, slots: cardSlots), .zero)
+        XCTAssertEqual(ReshuffleOffset.slotOffset(forItemAt: 0, draggingIndex: nil, insertIndex: 0, slots: []), .zero)
     }
 
     // MARK: - block reshuffle

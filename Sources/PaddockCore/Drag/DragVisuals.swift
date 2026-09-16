@@ -30,11 +30,30 @@ public enum DragVisuals {
     /// included.
     public static let ghostOpacity: Double = 0.7
 
-    /// The ghost's top-left for a cursor at `point`, both in the same space:
-    /// the proxy is centered on the pointer, so what the pointer is over is
-    /// what the drop resolves against.
-    public static func ghostTopLeft(forCursor point: CGPoint, ghostSize: CGSize) -> CGPoint {
-        CGPoint(x: point.x - ghostSize.width / 2, y: point.y - ghostSize.height / 2)
+    /// The ghost's top-left for a cursor at `point`, both in the same space.
+    /// `anchor` is the point of the proxy the pointer holds, in the proxy's
+    /// own space; without one the proxy is centered on the pointer, so what
+    /// the pointer is over is what the drop resolves against.
+    public static func ghostTopLeft(forCursor point: CGPoint, ghostSize: CGSize, anchor: CGPoint? = nil) -> CGPoint {
+        let hold = anchor ?? CGPoint(x: ghostSize.width / 2, y: ghostSize.height / 2)
+        return CGPoint(x: point.x - hold.x, y: point.y - hold.y)
+    }
+
+    /// Where the pointer holds a proxy that hangs from a title strip: the
+    /// place it was grabbed, kept inside the strip band, so a tab hangs below
+    /// the pointer the way a window dragged by its title bar does.
+    ///
+    /// `grabbedAt` is in the ORIGIN item's space and the proxy is that item's
+    /// own size, so holding the grab offset is also what keeps the proxy from
+    /// jumping out from under the pointer between the press and the first
+    /// move. A grab below the strip (a tab picked up by its body) is pulled
+    /// up into it; a grab outside a proxy that is not its origin's size is
+    /// pulled inside it.
+    public static func stripAnchor(grabbedAt point: CGPoint, in ghostSize: CGSize, stripHeight: CGFloat) -> CGPoint {
+        CGPoint(
+            x: min(max(point.x, 0), max(0, ghostSize.width)),
+            y: min(max(point.y, 0), max(0, min(stripHeight, ghostSize.height)))
+        )
     }
 
     /// What a proxy may not outgrow, and what it may not shrink below.
@@ -96,9 +115,17 @@ public enum DragVisuals {
     /// size, so matching their origins instead would hang it off one corner
     /// (a 261pt rail-row proxy against the 172pt row it lands on). Without a
     /// region the press point is the best available stand-in.
-    public static func settleTopLeft(on region: CGRect?, grabPoint: CGPoint, ghostSize: CGSize) -> CGPoint {
-        let center = region.map { CGPoint(x: $0.midX, y: $0.midY) } ?? grabPoint
-        return ghostTopLeft(forCursor: center, ghostSize: ghostSize)
+    ///
+    /// A proxy held by an `anchor` lands the way it hung instead: the point
+    /// the pointer held goes to the same place in the region, which puts a
+    /// tab's strip over the strip of the slot it landed in.
+    public static func settleTopLeft(on region: CGRect?, grabPoint: CGPoint, ghostSize: CGSize, anchor: CGPoint? = nil) -> CGPoint {
+        guard let anchor else {
+            let center = region.map { CGPoint(x: $0.midX, y: $0.midY) } ?? grabPoint
+            return ghostTopLeft(forCursor: center, ghostSize: ghostSize)
+        }
+        let hold = region.map { CGPoint(x: $0.minX + anchor.x, y: $0.minY + anchor.y) } ?? grabPoint
+        return ghostTopLeft(forCursor: hold, ghostSize: ghostSize, anchor: anchor)
     }
 }
 
@@ -144,26 +171,49 @@ public enum ReshuffleOffset {
     /// item of its own in this list to take the extent from.
     public static let defaultExtent: CGFloat = 72
 
-    public static func displacement(forItemAt index: Int, draggingIndex: Int?, insertIndex: Int, extent: CGFloat) -> CGFloat {
+    /// The slot an item ends up in once the drop commits. Everything that
+    /// previews a reorder derives from this one answer: a strip slides by the
+    /// slots crossed times one extent, a card reads the two slots' own
+    /// frames, so the two can never disagree about which item goes where.
+    public static func landedSlot(forItemAt index: Int, draggingIndex: Int?, insertIndex: Int) -> Int {
         // Nothing of this list is moving, so the gap is simply opened at the
         // insertion point for the arriving item.
         guard let draggingIndex else {
-            return index >= insertIndex ? extent : 0
+            return index >= insertIndex ? index + 1 : index
         }
         // `insertIndex` counts gaps, so a gap past the origin names a
         // destination one slot lower once the origin itself has moved out of
         // the way.
         let destination = insertIndex > draggingIndex ? insertIndex - 1 : insertIndex
         if index == draggingIndex {
-            return CGFloat(destination - draggingIndex) * extent
+            return destination
         }
         if index > draggingIndex, index <= destination {
-            return -extent
+            return index - 1
         }
         if index < draggingIndex, index >= destination {
-            return extent
+            return index + 1
         }
-        return 0
+        return index
+    }
+
+    public static func displacement(forItemAt index: Int, draggingIndex: Int?, insertIndex: Int, extent: CGFloat) -> CGFloat {
+        CGFloat(landedSlot(forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex) - index) * extent
+    }
+
+    /// The same rule where the slots wrap. A card's thumbnails sit in rows,
+    /// so an item's slide is the vector between two slot origins rather than
+    /// a multiple of one extent, and a tab crossing a row end moves up or
+    /// down as well as along.
+    ///
+    /// `slots` are the items' RESTING frames in the order they are drawn,
+    /// which is what an insert index is counted against. A landed slot
+    /// outside them is one this arrangement does not draw, and nothing moves
+    /// for it.
+    public static func slotOffset(forItemAt index: Int, draggingIndex: Int?, insertIndex: Int, slots: [CGRect]) -> CGSize {
+        let landed = landedSlot(forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex)
+        guard slots.indices.contains(index), slots.indices.contains(landed) else { return .zero }
+        return CGSize(width: slots[landed].minX - slots[index].minX, height: slots[landed].minY - slots[index].minY)
     }
 
     /// The same invariant for a block: its members leave their slots, land
