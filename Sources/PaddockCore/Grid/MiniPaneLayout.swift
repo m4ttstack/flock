@@ -29,9 +29,9 @@ public enum MiniPaneLayout {
     /// mini pane). Keyed on the planned outcome rather than on the resolved
     /// target, so a drop that commits nothing previews nothing.
     public static func arrival(of subject: DragSubject?, onto target: DropTarget?, tab: TabID, model: SessionModel?) -> Arrival? {
-        guard let target, let subject, case .pane(let pane) = subject, let model,
-              let landing = canvasTarget(of: target, in: tab, model: model),
-              case .success = plan(dragging: subject, onto: target, model: model)
+        guard let target, let model, case .pane(let pane)? = subject,
+              targetedTab(of: target, dragging: subject, model: model) == tab,
+              let landing = canvasTarget(of: target, in: tab, model: model)
         else {
             return nil
         }
@@ -41,12 +41,21 @@ public enum MiniPaneLayout {
     /// The tab a grid drop is aimed at, whichever shape the target took: a
     /// whole thumbnail, or one of the mini panes drawn inside one. What the
     /// card and the thumbnail read to know they are the drop's target.
-    public static func targetedTab(of target: DropTarget?, model: SessionModel?) -> TabID? {
+    ///
+    /// Nil for a drop the planner refuses, which is the same gate the arrival
+    /// preview passes through: a pane dropped on its own tab, or on its own
+    /// mini pane, commits nothing and so marks nothing.
+    public static func targetedTab(of target: DropTarget?, dragging subject: DragSubject?, model: SessionModel?) -> TabID? {
+        guard let target, let subject, let model,
+              case .success = plan(dragging: subject, onto: target, model: model)
+        else {
+            return nil
+        }
         switch target {
         case .tabThumbnail(let tab):
             return tab
         case .paneEdge(let pane, _), .paneInterior(let pane):
-            return model?.panes[pane]?.tabID
+            return model.panes[pane]?.tabID
         default:
             return nil
         }

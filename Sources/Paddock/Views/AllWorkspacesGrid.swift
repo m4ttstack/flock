@@ -261,7 +261,7 @@ private struct WorkspaceCard: View {
             if let tab = tabs.first(where: { $0.tabID == id }) {
                 TabThumbnail(
                     theme: theme, viewModel: viewModel, tab: tab,
-                    isTargeted: MiniPaneLayout.targetedTab(of: drag.target, model: viewModel.model) == id,
+                    isTargeted: MiniPaneLayout.targetedTab(of: drag.target, dragging: drag.activeSubject, model: viewModel.model) == id,
                     displacement: displacements[id] ?? .zero
                 )
                 // One frame for the whole thumbnail, strip included: a drop
@@ -314,7 +314,7 @@ private struct WorkspaceCard: View {
     private func isTargeted(_ tabs: [TabRecord]) -> Bool {
         switch drag.target {
         case .tabThumbnail?, .paneEdge?, .paneInterior?:
-            let targeted = MiniPaneLayout.targetedTab(of: drag.target, model: viewModel.model)
+            let targeted = MiniPaneLayout.targetedTab(of: drag.target, dragging: drag.activeSubject, model: viewModel.model)
             return tabs.contains { $0.tabID == targeted }
         case .moreTabs(let id)?: return id == workspace.workspaceID
         case .tabStrip?: return reorder.takesTheDrop

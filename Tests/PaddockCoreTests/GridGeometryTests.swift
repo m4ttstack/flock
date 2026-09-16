@@ -992,13 +992,30 @@ final class GridGeometryTests: XCTestCase {
 
     /// Which tab a grid drop belongs to, whichever shape its target took:
     /// what the card outlines itself on and the thumbnail washes itself on.
-    func testAPaneTargetBelongsToTheTabDrawingThatPane() {
+    /// A drop the planner refuses belongs to none of them, so nothing marks
+    /// itself for it.
+    func testAPaneTargetBelongsToTheTabDrawingThatPaneAndOnlyWhenItCommits() {
         let model = model()
-        XCTAssertEqual(MiniPaneLayout.targetedTab(of: .paneEdge(p1, .left), model: model), TabID(rawValue: "w1:t1"))
-        XCTAssertEqual(MiniPaneLayout.targetedTab(of: .paneInterior(p4), model: model), TabID(rawValue: "w1:t2"))
-        XCTAssertEqual(MiniPaneLayout.targetedTab(of: .tabThumbnail(TabID(rawValue: "w1:t3")), model: model), TabID(rawValue: "w1:t3"))
-        XCTAssertNil(MiniPaneLayout.targetedTab(of: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), model: model))
-        XCTAssertNil(MiniPaneLayout.targetedTab(of: nil, model: model))
+        let visitor = DragSubject.pane(p4)
+        XCTAssertEqual(MiniPaneLayout.targetedTab(of: .paneEdge(p1, .left), dragging: visitor, model: model), TabID(rawValue: "w1:t1"))
+        XCTAssertEqual(
+            MiniPaneLayout.targetedTab(of: .paneInterior(p1), dragging: visitor, model: model), TabID(rawValue: "w1:t1")
+        )
+        XCTAssertEqual(
+            MiniPaneLayout.targetedTab(of: .tabThumbnail(TabID(rawValue: "w1:t1")), dragging: visitor, model: model),
+            TabID(rawValue: "w1:t1")
+        )
+        XCTAssertNil(
+            MiniPaneLayout.targetedTab(of: .paneEdge(p4, .left), dragging: visitor, model: model),
+            "a pane onto its own mini pane"
+        )
+        XCTAssertNil(
+            MiniPaneLayout.targetedTab(of: .tabThumbnail(TabID(rawValue: "w1:t2")), dragging: visitor, model: model),
+            "a pane onto the handle of the tab it is already in"
+        )
+        XCTAssertNil(MiniPaneLayout.targetedTab(of: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), dragging: visitor, model: model))
+        XCTAssertNil(MiniPaneLayout.targetedTab(of: nil, dragging: visitor, model: model))
+        XCTAssertNil(MiniPaneLayout.targetedTab(of: .paneEdge(p1, .left), dragging: nil, model: model))
     }
 
     // MARK: - planner
