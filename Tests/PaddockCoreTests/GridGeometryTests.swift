@@ -261,6 +261,24 @@ final class GridGeometryTests: XCTestCase {
     /// after its tile. Drawn in the card's empty space and hit-tested by
     /// nothing.
     private let newTabSlot = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 20, y: 150, width: 90, height: 40))
+    /// Card w3's own tile, standing in for the tab its drop will create: the
+    /// same rect reported under the new tab's id as well.
+    private let tileAsNewTab = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w3"), frame: CGRect(x: 130, y: 360, width: 90, height: 82))
+
+    private func surfacesWithTheTileCarryingTheDrop() -> DropSurfaces {
+        let base = surfaces(grid: true)
+        let grid = base.grid
+        return DropSurfaces(
+            canvas: base.canvas, stripWorkspace: base.stripWorkspace, tabFrames: base.tabFrames,
+            workspaceFrames: base.workspaceFrames, stripFrame: base.stripFrame, railFrame: base.railFrame,
+            newTabZone: base.newTabZone, newWorkspaceZone: base.newWorkspaceZone,
+            grid: GridDropSurfaces(
+                viewport: grid?.viewport ?? .zero, thumbnails: grid?.thumbnails ?? [],
+                tiles: (grid?.tiles ?? []) + [tileAsNewTab], cards: grid?.cards ?? [],
+                newTabSlots: (grid?.newTabSlots ?? []) + [tileAsNewTab]
+            )
+        )
+    }
 
     /// Points inside a card that no thumbnail or tile covers.
     private var cardOneEmptySpace: CGPoint { CGPoint(x: 250, y: 180) }
@@ -347,6 +365,18 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(
             dropFlashRect(for: .workspaceThumbnail(workspace), surfaces: surfaces(grid: true)), newTabSlot.frame
         )
+    }
+
+    /// A resting card over its cap draws no placeholder and lights its tile
+    /// instead, so the tile is the cell the created tab lands in. It reports
+    /// its own rect under both ids, and the landing rect reads the same
+    /// `newTabSlots` either way.
+    func testTheLandingRectForACardPreviewingOnItsTileIsThatTile() {
+        let workspace = WorkspaceID(rawValue: "w3")
+        let surfaces = surfacesWithTheTileCarryingTheDrop()
+        XCTAssertEqual(dropTargetRect(for: .workspaceThumbnail(workspace), surfaces: surfaces), tileAsNewTab.frame)
+        XCTAssertEqual(dropFlashRect(for: .workspaceThumbnail(workspace), surfaces: surfaces), tileAsNewTab.frame)
+        XCTAssertNotEqual(tileAsNewTab.frame, cardThree.frame, "the tile is not the card")
     }
 
     /// The gaps between cards, the header strip and the canvas margin are not

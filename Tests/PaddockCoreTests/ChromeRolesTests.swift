@@ -75,6 +75,11 @@ final class ChromeRolesTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(roles.textStrong.contrastRatio(with: roles.selection), 4.5, "\(palette.id): textStrong on selection")
             XCTAssertGreaterThanOrEqual(roles.textLabel.contrastRatio(with: roles.chrome), 4.5, "\(palette.id): textLabel on chrome")
             XCTAssertGreaterThanOrEqual(roles.textDim.contrastRatio(with: roles.tabRest), 4.5, "\(palette.id): textDim on tabRest")
+            // The grid's tab handle strip: `paneBorder` is the only role that
+            // reads as a band against a thumbnail's `canvas` body, and
+            // `textStrong` is the only text role that clears AA on it in every
+            // theme, which is why the strip does not dim an unfocused title.
+            XCTAssertGreaterThanOrEqual(roles.textStrong.contrastRatio(with: roles.paneBorder), 4.5, "\(palette.id): textStrong on paneBorder")
         }
     }
 

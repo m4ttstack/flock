@@ -18,8 +18,7 @@ struct GhostOverlay: View {
             .frame(width: size.width, height: size.height, alignment: ghost.isCompact ? .leading : .topLeading)
             // Translucent so the tab or row under the pointer stays readable
             // through the proxy while it is being targeted.
-            .background(theme.chrome.opacity(0.7), in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
-            .clipShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+            .background(theme.chrome.opacity(DragVisuals.ghostOpacity), in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
                     .strokeBorder(theme.accent, lineWidth: 1)
@@ -41,6 +40,13 @@ struct GhostOverlay: View {
     /// pane layout, in the roles the thumbnail uses, at the thumbnail's own
     /// size. A generic block would read as the wrong thing entirely, since
     /// the target it is aimed at is another tab's thumbnail.
+    ///
+    /// Held at the same opacity as any proxy's ground, and given no ground of
+    /// its own: a tab proxy is exactly a thumbnail's size and centered on the
+    /// pointer, so an opaque one would cover the thumbnail it is aimed at
+    /// along with that thumbnail's drop wash. The clip belongs here rather
+    /// than on the shared chain, where it would silently bound a block proxy
+    /// nothing asked to clip.
     private func miniature(_ miniature: DragCoordinator.Ghost.TabMiniature, size: CGSize) -> some View {
         VStack(spacing: 0) {
             TabHandleStrip(
@@ -57,7 +63,8 @@ struct GhostOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: size.width, height: size.height)
-        .background(theme.canvas)
+        .opacity(DragVisuals.ghostOpacity)
+        .clipShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
     }
 
     private func block(size: CGSize) -> some View {

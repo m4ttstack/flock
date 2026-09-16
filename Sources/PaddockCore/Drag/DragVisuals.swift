@@ -24,6 +24,11 @@ public enum DragVisuals {
     /// The accent laid over whatever a pane drop is aimed at: the canvas
     /// preview and a targeted grid thumbnail.
     public static let dropWashOpacity: Double = 0.22
+    /// How opaque a drag proxy's own surfaces are. A proxy is centered on the
+    /// pointer and a tab's is the size of a thumbnail, so an opaque one
+    /// covers the very target it is aimed at, the target's own drop wash
+    /// included.
+    public static let ghostOpacity: Double = 0.7
 
     /// The ghost's top-left for a cursor at `point`, both in the same space:
     /// the proxy is centered on the pointer, so what the pointer is over is

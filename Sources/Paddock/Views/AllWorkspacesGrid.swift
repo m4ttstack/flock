@@ -75,22 +75,68 @@ struct AllWorkspacesGrid: View {
     }
 
     /// The items a drop can hit, in grid order: what turns their frames back
-    /// into a list and drops the frame of an item no longer shown.
+    /// into a list and drops the frame of an item no longer shown. The
+    /// placeholder and the tile that stands in for it are both tracked as
+    /// `.newTab`, since what that id names is the rect the created tab lands
+    /// in, whichever cell is drawing it.
     private var itemOrder: [GridItemID] {
         workspaces.flatMap { workspace in
+            let expanded = drag.expandedGridCards.contains(workspace.workspaceID)
             let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
-            let cells = GridCardLayout.cells(
-                tabs: tabs, expanded: drag.expandedGridCards.contains(workspace.workspaceID),
-                newTab: drag.target == .workspaceThumbnail(workspace.workspaceID)
-            )
-            return [.card(workspace.workspaceID)] + cells.map { cell -> GridItemID in
-                switch cell {
-                case .tab(let id): .tab(id)
-                case .moreTabs, .collapse: .tile(workspace.workspaceID)
-                case .newTab: .newTab(workspace.workspaceID)
+            let preview = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
+            let cells = GridCardLayout.cells(tabs: tabs, expanded: expanded, newTab: preview.addsATab)
+            let tileCarriesIt = preview.addsATab
+                && GridCardLayout.tilePreviewsTheDrop(tabs: tabs.count, expanded: expanded)
+            return [.card(workspace.workspaceID)]
+                + (tileCarriesIt ? [.newTab(workspace.workspaceID)] : [])
+                + cells.map { cell -> GridItemID in
+                    switch cell {
+                    case .tab(let id): .tab(id)
+                    case .moreTabs, .collapse: .tile(workspace.workspaceID)
+                    case .newTab: .newTab(workspace.workspaceID)
+                    }
                 }
-            }
         }
+    }
+}
+
+/// What one card previews while a drag is live. Decided once and read by both
+/// the card and the grid's item order, so the two cannot disagree about
+/// whether a cell is standing in for a tab.
+@MainActor
+private struct CardDropPreview {
+    /// The card is the resolved target AND the planner commits something, so
+    /// the card is outlined and washed. Keyed on the plan rather than on the
+    /// target alone: a tab dragged over its own workspace resolves to that
+    /// card and plans nothing at all.
+    let takesTheDrop: Bool
+    /// The drop leaves this card one tab richer, so a cell can honestly stand
+    /// in for that tab. False when the same drop also closes one of this
+    /// card's tabs: a pane lifted out of a single-pane tab empties it, so the
+    /// count does not change and the created tab lands one slot earlier than
+    /// the card's current shape shows.
+    let addsATab: Bool
+
+    init(workspace: WorkspaceID, drag: DragCoordinator, model: SessionModel?) {
+        let target = DropTarget.workspaceThumbnail(workspace)
+        guard drag.target == target, let subject = drag.activeSubject, let model,
+              case .success = plan(dragging: subject, onto: target, model: model)
+        else {
+            takesTheDrop = false
+            addsATab = false
+            return
+        }
+        takesTheDrop = true
+        addsATab = !Self.alsoClosesATab(of: workspace, dragging: subject, model: model)
+    }
+
+    private static func alsoClosesATab(of workspace: WorkspaceID, dragging subject: DragSubject, model: SessionModel) -> Bool {
+        guard case .pane(let pane) = subject, let record = model.panes[pane],
+              model.tabs[workspace]?.contains(where: { $0.tabID == record.tabID }) == true
+        else {
+            return false
+        }
+        return model.panes.values.filter { $0.tabID == record.tabID }.count == 1
     }
 }
 
@@ -105,7 +151,7 @@ private struct WorkspaceCard: View {
         let tabs = viewModel.model?.tabs[workspace.workspaceID] ?? []
         let rows = GridCardLayout.rows(
             tabs: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
-            newTab: takesTheDrop
+            newTab: preview.addsATab
         )
         VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardSpacing) {
             header(tabCount: tabs.count)
@@ -189,20 +235,23 @@ private struct WorkspaceCard: View {
     ///
     /// The tile also carries the card's OWN drop preview when the card cannot
     /// draw a placeholder: its hidden count is the only thing such a drop
-    /// visibly changes. Bound to `drag.target` like every other preview, so
-    /// leave, drop and cancel all clear it.
+    /// visibly changes. It then reports its frame as the new tab's too, since
+    /// that cell is where the created tab lands and so where a committed drop
+    /// has to settle.
     private func tile(title: String, label: String, tabCount: Int) -> some View {
-        GridTile(
+        let carriesTheCardsDrop = carriesTheCardsDrop(tabCount: tabCount)
+        return GridTile(
             theme: theme, title: title, label: label,
-            isTargeted: drag.target == .moreTabs(workspace.workspaceID) || carriesTheCardsDrop(tabCount: tabCount),
-            reportsAs: .tile(workspace.workspaceID)
+            isTargeted: drag.target == .moreTabs(workspace.workspaceID) || carriesTheCardsDrop,
+            reportsAs: .tile(workspace.workspaceID),
+            alsoReportsAs: carriesTheCardsDrop ? .newTab(workspace.workspaceID) : nil
         ) {
             drag.toggleGridCard(workspace.workspaceID)
         }
     }
 
     private func carriesTheCardsDrop(tabCount: Int) -> Bool {
-        takesTheDrop && GridCardLayout.tilePreviewsTheDrop(
+        preview.addsATab && GridCardLayout.tilePreviewsTheDrop(
             tabs: tabCount, expanded: drag.expandedGridCards.contains(workspace.workspaceID)
         )
     }
@@ -217,11 +266,14 @@ private struct WorkspaceCard: View {
         }
     }
 
-    /// The card itself is the target: a drop lands in a new tab of this
-    /// workspace, or migrates a whole tab into it.
-    private var takesTheDrop: Bool {
-        drag.target == .workspaceThumbnail(workspace.workspaceID)
+    /// What this card previews, keyed on the plan rather than on the resolved
+    /// target: a tab dragged over its own workspace resolves to this card and
+    /// commits nothing at all.
+    private var preview: CardDropPreview {
+        CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
     }
+
+    private var takesTheDrop: Bool { preview.takesTheDrop }
 }
 
 private struct TabThumbnail: View {
@@ -407,11 +459,17 @@ private struct TabThumbnail: View {
 ///
 /// Filled with `paneBorder` rather than a lighter step: the thumbnail's body
 /// is `canvas`, and the roles between the two (`tabRest`, `rule`) land within
-/// about 1.1:1 of it in both a dark and a light theme, which reads as the
-/// same surface. `paneBorder` is the nearest role that separates (1.77:1 on
-/// Tokyo Night, 1.49:1 on Catppuccin Latte) and it is already the role a box
-/// edge takes, so a solid band of it reads as structure. The title clears AA
-/// on it either way (4.89:1 dim on Tokyo Night, 5.51:1 on Catppuccin Latte).
+/// about 1.1:1 of it in every builtin theme, which reads as the same surface.
+/// `paneBorder` is the nearest role that separates (1.49:1 at worst, on
+/// Catppuccin Latte) and it is already the role a box edge takes, so a solid
+/// band of it reads as structure.
+///
+/// The title is `textStrong` whether or not the tab is focused. `textDim` on
+/// this band falls under 4.5:1 in three of the seventeen builtin themes
+/// (nord, one-dark, dracula), and no role that separates from the body keeps
+/// it above AA everywhere; `textStrong` clears at 5.07:1 at worst. Focus is
+/// carried by the weight `ChromeType.gridTabLabel(selected:)` already sets,
+/// and by the status dot beside it.
 struct TabHandleStrip: View {
     let theme: Theme
     let title: String
@@ -422,7 +480,7 @@ struct TabHandleStrip: View {
         HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
             Text(title)
                 .font(ChromeType.gridTabLabel(selected: isFocusedTab))
-                .foregroundStyle(isFocusedTab ? theme.textStrong : theme.textDim)
+                .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
             Spacer(minLength: 0)
             StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
@@ -472,6 +530,9 @@ private struct GridTile: View {
     let label: String
     let isTargeted: Bool
     let reportsAs: GridItemID
+    /// A second id for the same rect, for when this tile is standing in for
+    /// the tab a card drop will create: that is the rect the drop lands in.
+    var alsoReportsAs: GridItemID?
     let action: () -> Void
 
     @Environment(DragCoordinator.self) private var drag
@@ -491,7 +552,12 @@ private struct GridTile: View {
         .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
         .background {
-            Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
+            Color.clear.reportsFrame(in: DragSpace.gridContent) { frame in
+                drag.setGridItemFrame(frame, for: reportsAs)
+                if let alsoReportsAs {
+                    drag.setGridItemFrame(frame, for: alsoReportsAs)
+                }
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: action)

@@ -327,16 +327,20 @@ final class ChromeRenderTests: XCTestCase {
         // card's wash and nothing else, so the tile can only differ from it by
         // taking a second one. Both are the same role at rest, which the
         // before-sample pins rather than assumes.
+        // The cell that should light, and a control that should not: two cells
+        // of the same card sharing a ground, so only a second wash can part
+        // them. A card with no tile has nothing that may light, so the two
+        // controls have to stay equal instead.
+        let siblings = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails
+            .filter { $0.id.rawValue.hasPrefix("\(workspace.rawValue):") }.map(\.frame))
         let tile = harness.drag.surfaces?.grid?.tiles.first { $0.id == workspace }?.frame
-        let sibling = harness.drag.surfaces?.grid?.thumbnails
-            .first { $0.id.rawValue.hasPrefix("\(workspace.rawValue):") }?.frame
+        let lights = tile ?? siblings.first
+        let control = try XCTUnwrap(tile == nil ? siblings.dropFirst().first : siblings.first)
         let atRest = try snapshot(window)
-        if let tile, let sibling {
-            XCTAssertEqual(
-                hex(atRest, groundPoint(of: tile)), hex(atRest, groundPoint(of: sibling)),
-                "\(workspace.rawValue): tile and thumbnail do not share a ground at rest, so the wash check below proves nothing"
-            )
-        }
+        XCTAssertEqual(
+            hex(atRest, groundPoint(of: try XCTUnwrap(lights))), hex(atRest, groundPoint(of: control)),
+            "\(workspace.rawValue): the two sampled cells do not share a ground at rest, so the check below proves nothing"
+        )
 
         try await overEmptySpace(of: workspace, harness: harness, window: window)
         XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(workspace)), "\(workspace.rawValue)")
@@ -344,11 +348,12 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(after.height, before.height, accuracy: 0.5, "\(workspace.rawValue) grew a row the drop will not keep")
 
         let image = try snapshot(window)
-        if let tile, let sibling {
-            XCTAssertNotEqual(
-                hex(image, groundPoint(of: tile)), hex(image, groundPoint(of: sibling)),
-                "\(workspace.rawValue)'s tile did not take the drop wash the card's other cells do without"
-            )
+        let lit = hex(image, groundPoint(of: try XCTUnwrap(lights)))
+        let unlit = hex(image, groundPoint(of: control))
+        if tile == nil {
+            XCTAssertEqual(unlit, lit, "\(workspace.rawValue) has no tile, so nothing inside it may take a second wash")
+        } else {
+            XCTAssertNotEqual(lit, unlit, "\(workspace.rawValue)'s tile did not take the drop wash the card's other cells do without")
         }
         if let directory, let render {
             try XCTUnwrap(image.representation(using: .png, properties: [:]))
@@ -363,13 +368,70 @@ final class ChromeRenderTests: XCTestCase {
         CGPoint(x: cell.minX + 2, y: cell.maxY - 2)
     }
 
-    /// The grid in a light theme. The handle strip's fill has to separate
-    /// from the thumbnail body on both sides of the ladder, and only a light
-    /// palette shows whether the role picked for it reads as a band there
-    /// too; every other grid render is Tokyo Night.
-    func testTheGridRendersInALightTheme() async throws {
+    /// A drop the planner refuses, and one that takes a tab away as it adds
+    /// one, must promise nothing: no placeholder, and for the refused one no
+    /// wash either. Both resolve to the card, so a preview keyed on the
+    /// resolved target alone draws for both.
+    func testACardPreviewsNothingForADropThatAddsItNoTab() async throws {
+        let model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        // A tab over its OWN workspace: `planTabMigration` answers no-op, so
+        // the card may not outline, wash or open a slot.
+        let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.glance }?.frame)
+        let ground = CGPoint(
+            x: card.midX,
+            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
+        )
+        let atRest = hex(try snapshot(window), ground)
+        let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
+        harness.drag.beginIfIdle(
+            .tab(GridFixture.glanceTab),
+            ghost: DragCoordinator.Ghost(
+                title: "shell", symbol: "rectangle.stack", originSize: source.size, isCompact: true,
+                tabMiniature: .init(title: "shell", status: .idle, isFocusedTab: false, panes: [])
+            ),
+            at: CGPoint(x: source.midX, y: source.midY)
+        )
+        harness.drag.move(to: ground)
+        XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.glance), "it still resolves to the card")
+        await settle(window)
+        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.glance)), "a no-op may not promise a tab")
+        XCTAssertEqual(hex(try snapshot(window), ground), atRest, "nor wash the card it will not change")
+        harness.drag.release()
+        await settle(window)
+
+        // A pane lifted out of a single-pane tab of the SAME card: the plan
+        // commits, but the card ends the drop with the tab count it started
+        // with, so no slot can stand in for the new tab.
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.glancePane),
+            ghost: DragCoordinator.Ghost(title: "zsh", symbol: "macwindow", originSize: source.size, isCompact: true),
+            at: CGPoint(x: source.midX, y: source.midY)
+        )
+        harness.drag.move(to: ground)
+        XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.glance))
+        await settle(window)
+        XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.glance)), "the drop closes the tab it draws from")
+        window.close()
+    }
+
+    /// The grid on the other side of the ladder, and on the theme where the
+    /// handle strip's title has the least headroom of the seventeen. Every
+    /// other grid render is Tokyo Night, which is where the strip's role was
+    /// measured, so neither of these is the theme the choice was made on.
+    func testTheGridRendersInALightThemeAndInTheTightestDarkOne() async throws {
+        try await renderGrid(themed: "catppuccin-latte", into: "grid-rest-latte.png")
+        try await renderGrid(themed: "nord", into: "grid-rest-nord.png")
+    }
+
+    private func renderGrid(themed id: String, into file: String) async throws {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let theme = try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })
+        let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
         let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
@@ -379,7 +441,7 @@ final class ChromeRenderTests: XCTestCase {
         let image = try snapshot(window)
         if let directory {
             try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-latte.png"))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
         }
         assertGridSamples(image, theme: theme)
 
@@ -387,8 +449,8 @@ final class ChromeRenderTests: XCTestCase {
         // thumbnail's strip and inside the same thumbnail's ground.
         let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         let strip = hex(image, CGPoint(x: thumbnail.midX, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2))
-        XCTAssertEqual(strip, theme.palette.chromeRoles.paneBorder.hex, "the strip carries the role it was given")
-        XCTAssertNotEqual(strip, theme.palette.chromeRoles.canvas.hex, "and it is not the thumbnail body")
+        XCTAssertEqual(strip, theme.palette.chromeRoles.paneBorder.hex, "\(id): the strip carries the role it was given")
+        XCTAssertNotEqual(strip, theme.palette.chromeRoles.canvas.hex, "\(id): and it is not the thumbnail body")
         window.close()
     }
 
@@ -433,7 +495,25 @@ final class ChromeRenderTests: XCTestCase {
         )
 
         let target = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
-        harness.drag.move(to: CGPoint(x: target.midX, y: target.midY))
+        harness.drag.move(to: CGPoint(
+            x: target.midX,
+            y: target.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
+        ))
+        XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.mattstackApps))
+        // This fixture's tabs carry no split tree, so a MULTI-pane tab cannot
+        // be migrated and the card it is over is left unlit. That is the
+        // preview keying on the plan; the render is here for the proxy, and
+        // a single-pane tab is what proves the lit path.
+        guard case .failure = plan(
+            dragging: .tab(GridFixture.agentsTab), onto: .workspaceThumbnail(GridFixture.mattstackApps), model: model
+        ) else {
+            return XCTFail("the fixture grew a split tree, so this render's card would now light")
+        }
+        guard case .success = plan(
+            dragging: .tab(GridFixture.glanceTab), onto: .workspaceThumbnail(GridFixture.mattstackApps), model: model
+        ) else {
+            return XCTFail("a single-pane tab migrating into another workspace has to commit")
+        }
         await settle(window)
         if let directory {
             try XCTUnwrap(snapshot(window).representation(using: .png, properties: [:]))
@@ -679,6 +759,10 @@ private enum GridFixture {
     static let mattstackApps = WorkspaceID(rawValue: "w3")
     /// Three tabs: a resting card still under its visible-tab cap.
     static let herdr = WorkspaceID(rawValue: "w4")
+    /// One tab holding one pane: the card whose own drop adds it nothing.
+    static let glance = WorkspaceID(rawValue: "w6")
+    static let glanceTab = TabID(rawValue: "w6:t1")
+    static let glancePane = PaneID(rawValue: "w6:p1")
     static let agentsTab = TabID(rawValue: "w1:t1")
     static let migrationTab = TabID(rawValue: "w2:t1")
     static let claudePane = PaneID(rawValue: "w1:p1")

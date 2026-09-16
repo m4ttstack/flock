@@ -142,13 +142,16 @@ final class AllWorkspacesGridTests: XCTestCase {
     }
 
     /// The whole rule, over every card shape: a preview may never stand in
-    /// more rows than the card has once the drop lands.
+    /// more rows than the card has once the drop lands, and wherever a
+    /// placeholder IS drawn it stands in the slot the tab really takes.
     func testThePreviewNeverOpensARowTheDropWillNotLeaveBehind() {
         for count in 0...12 {
             for expanded in [false, true] {
                 let previewed = GridCardLayout.rows(tabs: tabs(count), expanded: expanded, newTab: true).count
                 let afterDrop = GridCardLayout.rows(tabs: tabs(count + 1), expanded: expanded).count
                 XCTAssertLessThanOrEqual(previewed, afterDrop, "\(count) tabs, expanded: \(expanded)")
+                guard placeholderSlot(tabs: tabs(count), expanded: expanded) != nil else { continue }
+                assertPlaceholderMatchesTheLanding(tabs: tabs(count), expanded: expanded)
             }
         }
     }

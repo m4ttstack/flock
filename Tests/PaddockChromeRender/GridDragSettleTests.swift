@@ -148,6 +148,27 @@ final class GridDragSettleTests: XCTestCase {
         XCTAssertEqual(drag.ghostTopLeft, Self.newTabSlot.origin)
     }
 
+    /// A resting card over its cap draws no placeholder and lights its tile
+    /// instead, so the tile is the cell the created tab lands in and the
+    /// ghost has to settle there rather than on the card's centre.
+    func testACommittedDropOnACardPreviewingOnItsTileSettlesOnTheTile() async {
+        let drag = makeCoordinator(outcome: .committed)
+        drag.setGridOrder([.card(Self.workspace), .tab(Self.tab), .tile(Self.workspace), .newTab(Self.workspace)])
+        drag.setGridItemFrame(Self.newTabSlot, for: .tile(Self.workspace))
+        drag.setGridItemFrame(Self.newTabSlot, for: .newTab(Self.workspace))
+
+        drag.beginIfIdle(
+            .pane(Self.pane), ghost: paneGhost(originSize: Self.newTabSlot.size),
+            at: CGPoint(x: 30, y: 70), home: paneHome
+        )
+        drag.move(to: CGPoint(x: 400, y: 180))
+        XCTAssertEqual(drag.target, .workspaceThumbnail(Self.workspace))
+
+        drag.release()
+        await awaitSettle(drag)
+        XCTAssertEqual(drag.ghostTopLeft, Self.newTabSlot.origin)
+    }
+
     /// A release inside the placeholder itself is a release on the card
     /// behind it, so it commits and settles exactly the same way.
     func testAReleaseInsideThePlaceholderLandsInItsOwnSlot() async {

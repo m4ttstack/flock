@@ -53,8 +53,10 @@ enum GridItemID: Hashable, Sendable {
 @MainActor
 @Observable
 final class DragCoordinator {
-    /// The floating proxy: a title, a glyph, and the size of the item it
-    /// stands for (which `DragVisuals.ghostSize` scales down).
+    /// The floating proxy, in one of two shapes. A `tabMiniature` draws the
+    /// tab itself at the thumbnail's own size, and reads neither `title` nor
+    /// `symbol`; everything else is a block carrying those two, sized from
+    /// `originSize` through `DragVisuals.ghostSize`'s cap and floor.
     struct Ghost: Equatable {
         /// A whole tab drawn as a miniature of its own thumbnail: the handle
         /// strip over the mini pane layout, in the roles the thumbnail uses.
@@ -84,9 +86,14 @@ final class DragCoordinator {
         var tabMiniature: TabMiniature?
 
         /// A miniature is drawn at its own footprint: it stands for a
-        /// thumbnail, so anything but one to one reads as the wrong tab.
+        /// thumbnail, so anything but one to one reads as the wrong tab. A
+        /// footprint of zero (no frame reported for the source thumbnail yet)
+        /// takes the ordinary bounds instead, whose floor is what keeps the
+        /// proxy visible at all.
         var bounds: DragVisuals.GhostBounds {
-            if tabMiniature != nil { return DragVisuals.exactBounds(originSize) }
+            if tabMiniature != nil, originSize.width > 0, originSize.height > 0 {
+                return DragVisuals.exactBounds(originSize)
+            }
             return isCompact ? DragVisuals.compactGhostBounds : DragVisuals.ghostBounds
         }
     }
