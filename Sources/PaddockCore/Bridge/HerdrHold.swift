@@ -18,6 +18,14 @@ public enum HoldCommand: String, Equatable, Sendable, CaseIterable {
     public var json: [String: Any] { ["type": rawValue] }
 }
 
+/// What a bridge tells the app about its hold, on the status FIFO.
+public enum HoldStatus: String, Equatable, Sendable, CaseIterable {
+    /// Every retake herdr would accept has been tried and refused. The pane has
+    /// no herdr client at all and no further attempt is pending, so the app
+    /// shows its status card rather than a frame that is no longer live.
+    case lost = "paddock.hold_lost"
+}
+
 /// When paddock holds herdr's panes and when it hands them back, from the
 /// app's active state alone.
 ///
@@ -30,16 +38,10 @@ public enum HoldCommand: String, Equatable, Sendable, CaseIterable {
 /// looking at paddock by then, and a pane that is neither sized nor streaming
 /// is visible for exactly as long as the retake is put off.
 public struct HoldPolicy: Equatable, Sendable {
-    /// How long paddock stays inactive before it hands the panes back.
-    ///
-    /// The cost of releasing too eagerly is a round trip, not a wasted
-    /// message: herdr resizes every pane to the terminal's layout, then
-    /// paddock's retake resizes them all back, and both reflows are visible
-    /// to every client of the session. Twelve panes measured 204ms from the
-    /// retake to their last full frame, so this is a shade over twice that:
-    /// a Cmd+Tab bounce or a click through paddock cannot outrun the work it
-    /// would cause, and a real switch to the terminal pays under half a
-    /// second before the panes are its own size.
+    /// How long paddock stays inactive before it hands the panes back. Must
+    /// outlast a full retake of every pane, so a switch away and back cannot
+    /// outrun the round trip it would cause, and stay short enough that a real
+    /// switch to the terminal is not left waiting to be sized.
     public static let releaseDelay: TimeInterval = 0.4
 
     public enum Event: Equatable, Sendable {
@@ -80,11 +82,17 @@ public struct HoldPolicy: Equatable, Sendable {
             isHolding = false
             return .release
         case .becameActive:
+            // A cancel is the one edge that asserts nothing: no release was
+            // sent, so every pane provably still holds and there is nothing a
+            // take could heal.
             if isReleaseScheduled {
                 isReleaseScheduled = false
                 return .cancelScheduledRelease
             }
-            guard !isHolding else { return .none }
+            // Asserted even when this policy believes it already holds. The
+            // belief can be wrong in one direction: a command dropped on a
+            // full FIFO leaves that pane released with no later edge to
+            // correct it. A bridge that already holds ignores the repeat.
             isHolding = true
             return .take
         }

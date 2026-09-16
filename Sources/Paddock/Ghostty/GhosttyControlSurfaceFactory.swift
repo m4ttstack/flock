@@ -100,6 +100,11 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
                 MainActor.assumeIsolated {
                     session?.markFirstFrameReceived()
                 }
+            },
+            onHoldLost: { [weak session] in
+                MainActor.assumeIsolated {
+                    session?.markHoldLost()
+                }
             }
         ) { [weak session] enabled, _ in
             MainActor.assumeIsolated {

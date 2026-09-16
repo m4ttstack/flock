@@ -186,7 +186,7 @@ public enum ControlBridge {
                     fputs("paddock-bridge: failed to spawn herdr: \(error)\n", stderr)
                     return nil
                 }
-                return (proc, toHerdr.fileHandleForWriting.fileDescriptor, fromHerdr.fileHandleForReading)
+                return (proc, toHerdr.fileHandleForWriting, fromHerdr.fileHandleForReading)
             }
         )
 
@@ -202,21 +202,25 @@ public enum ControlBridge {
         }
 
         let io = BridgeIO(
-            herdrInFD: first.input, statusFD: statusFD, spawnedSize: first.size,
+            herdrInFD: -1, statusFD: statusFD, spawnedSize: first.size,
             onHold: { supervisor.handle($0) },
             onSurfaceGone: { supervisor.shutdown() },
-            onPeerGone: { supervisor.herdrOutputEnded() }
+            onPeerGone: { generation in supervisor.herdrOutputEnded(generation: generation) }
         )
         supervisor.attach(io: io)
+        // Through the swap, not the initializer, so the IO owns the handle it
+        // will have to close when the first retake replaces it.
+        io.swapHerdrInput(to: first.input)
 
         io.startStdin()
         io.startPTYSizeRelay()
-        io.startHerdrOutput(first.output)
+        supervisor.installOutput(for: first)
         if let controlPipe = options.controlPipe {
             io.startControlPipe(at: controlPipe)
         }
 
-        let status = supervisor.wait()
+        supervisor.startWatching()
+        let status = supervisor.waitUntilFinished()
         io.close()
         if statusFD >= 0 { Foundation.close(statusFD) }
         if var cookedTerminal { tcsetattr(STDIN_FILENO, TCSAFLUSH, &cookedTerminal) }
@@ -337,6 +341,30 @@ struct PTYResizeRelay: Sendable {
 /// its PTY and its scrollback, and waits for the take that spawns the next
 /// one. Pure, so both readings are testable without a real child.
 struct BridgeHoldState: Equatable, Sendable {
+    /// How a child's exit is read.
+    enum ChildExit: Equatable, Sendable {
+        /// Paddock had let the pane go. The bridge stays up and waits.
+        case expectedRelease
+        /// The take never got a client. herdr refuses an attach by shutting the
+        /// connection down (a pane with an alt-screen read in progress, or a
+        /// session handoff rejecting every pending connection), which at this
+        /// end looks exactly like a child exiting; only how soon after the take
+        /// it happened tells them apart. A pane whose own program ended cannot
+        /// land in this window, because paddock only ever takes a pane whose
+        /// frames it was already being sent.
+        case refusedTake
+        /// herdr or the pane is gone, and so is the bridge's reason to exist.
+        case bridgeIsFinished
+    }
+
+    /// A retake's child that exits within this of its spawn is read as a
+    /// refusal rather than as the pane's end.
+    static let refusedTakeWindow: TimeInterval = 2
+
+    /// The waits before a refused take is tried again, in order. Running out
+    /// is what ends the retries.
+    static let takeRetryBackoff: [TimeInterval] = [0.25, 1]
+
     private(set) var isHolding = true
 
     /// Whether a release should actually be performed. A second release for
@@ -354,8 +382,22 @@ struct BridgeHoldState: Equatable, Sendable {
         return true
     }
 
-    /// Whether a child exiting right now ends the bridge process.
-    var childExitEndsTheBridge: Bool { isHolding }
+    /// `fromTake` separates a retake's child from the bridge's first one: the
+    /// first child is spawned for a pane paddock has never seen, so its early
+    /// exit really is "this pane cannot be attached" and must still end the
+    /// bridge, exactly as it did before retakes existed.
+    func reading(fromTake: Bool, childAge: TimeInterval) -> ChildExit {
+        guard isHolding else { return .expectedRelease }
+        guard fromTake, childAge < Self.refusedTakeWindow else { return .bridgeIsFinished }
+        return .refusedTake
+    }
+
+    /// How long to wait before trying a refused take again, or nil when the
+    /// bridge should stop trying and say so.
+    static func retryDelay(afterFailedTakes failures: Int) -> TimeInterval? {
+        guard failures >= 1, failures <= takeRetryBackoff.count else { return nil }
+        return takeRetryBackoff[failures - 1]
+    }
 }
 
 /// The bridge's one herdr child, terminated exactly once.
@@ -398,26 +440,50 @@ final class BridgeChildOwner: @unchecked Sendable {
 /// cycle it reintroduces is inherent -- the IO routes hold commands here, and
 /// a retake has to rewire that same IO onto the new child.
 final class BridgeChildSupervisor: @unchecked Sendable {
-    /// One spawned child: the fd herdr-bound lines are written to, the handle
-    /// its NDJSON arrives on, and the size it was told at spawn.
+    /// One spawned child: the handles its lines are written to and arrive on,
+    /// the size it was told at spawn, and when it started.
+    ///
+    /// The handles are held, not their descriptor numbers: a `Pipe`'s handle
+    /// owns its descriptor and closes it on dealloc, so a number taken out of
+    /// one and closed by hand is a number the next `pipe()` can reclaim and the
+    /// original handle can then close out from under it.
     struct Child {
         let owner: BridgeChildOwner
         let process: Process
-        let input: Int32
+        let input: FileHandle
         let output: FileHandle
         let size: PTYSize
         let generation: Int
+        /// Whether a take spawned this one, as opposed to the bridge's own
+        /// start. It is what lets an early exit be read as herdr refusing the
+        /// retake rather than as the pane failing to attach at all.
+        let fromTake: Bool
+        let startedAt: Date
     }
 
+    typealias Spawned = (process: Process, input: FileHandle, output: FileHandle)
+
     private let lock = NSLock()
-    private let spawn: (PTYSize) -> (process: Process, input: Int32, output: FileHandle)?
+    private let spawn: (PTYSize) -> Spawned?
     private let ptySize: () -> PTYSize
+    private let now: () -> Date
+    private let scheduleRetry: (TimeInterval, @escaping () -> Void) -> Void
     private var io: BridgeIO?
     private var current: Child?
     private var hold = BridgeHoldState()
     private var finished = false
     private var generation = 0
-    private var exitStatus: Int32 = 0
+    /// The output generation whose EOF is meaningful. Zero while no output is
+    /// installed, which is the window a take opens between claiming the hold
+    /// and wiring the new child: an EOF arriving from the PREVIOUS child in
+    /// that window would otherwise read as this one dying.
+    private var expectedOutputGeneration = 0
+    private var failedTakes = 0
+    /// Set only by the watcher, which is the one place that reads a child's
+    /// exit as the bridge's. A shutdown from the PTY side leaves it nil and the
+    /// status is taken from the child itself, which is what `run` did directly
+    /// before the bridge could outlive a child at all.
+    private var exitStatus: Int32?
     /// Signalled once, when the bridge is finished.
     private let done = DispatchSemaphore(value: 0)
     /// Signalled when a take has a child for a parked waiter to watch.
@@ -425,25 +491,22 @@ final class BridgeChildSupervisor: @unchecked Sendable {
 
     init(
         ptySize: @escaping () -> PTYSize,
-        spawn: @escaping (PTYSize) -> (process: Process, input: Int32, output: FileHandle)?
+        now: @escaping () -> Date = Date.init,
+        scheduleRetry: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay, execute: work)
+        },
+        spawn: @escaping (PTYSize) -> Spawned?
     ) {
         self.ptySize = ptySize
+        self.now = now
+        self.scheduleRetry = scheduleRetry
         self.spawn = spawn
     }
 
     /// The first child, spawned before any IO exists so `run` can wire the IO
     /// to its pipes. Returns nil when the spawn itself failed.
     func startFirstChild() -> Child? {
-        let size = ptySize()
-        guard let spawned = spawn(size) else { return nil }
-        lock.lock()
-        defer { lock.unlock() }
-        generation += 1
-        let child = Child(
-            owner: BridgeChildOwner(process: spawned.process), process: spawned.process,
-            input: spawned.input, output: spawned.output, size: size, generation: generation
-        )
-        current = child
+        guard let child = spawnChild(fromTake: false) else { return nil }
         return child
     }
 
@@ -451,20 +514,37 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         self.io = io
     }
 
+    /// Arms the IO on a child's output and records the generation, so an EOF
+    /// can be matched against the handle it came from.
+    func installOutput(for child: Child) {
+        let generation = io?.startHerdrOutput(child.output) ?? 0
+        lock.lock()
+        expectedOutputGeneration = generation
+        lock.unlock()
+    }
+
     func handle(_ command: HoldCommand) {
         switch command {
         case .release: release()
-        case .take: take()
+        case .take: take(isRetry: false)
         }
     }
 
-    /// The herdr child's output ended. While paddock holds the pane that means
-    /// herdr or the pane is gone; after a release it is the release itself.
-    func herdrOutputEnded() {
+    /// The herdr child's output ended. This path only ever escalates the
+    /// unambiguous reading: an EOF from a superseded handle decides nothing,
+    /// and neither does one inside the refusal window, because the watcher owns
+    /// that case and the exit that makes it a refusal is what wakes it. Reading
+    /// a refusal here instead would end the bridge before the retry could run.
+    func herdrOutputEnded(generation: Int) {
         lock.lock()
-        let holding = hold.isHolding
+        let stale = generation != expectedOutputGeneration
+        let reading = current.map { child in
+            hold.reading(
+                fromTake: child.fromTake, childAge: now().timeIntervalSince(child.startedAt)
+            )
+        }
         lock.unlock()
-        guard holding else { return }
+        guard !stale, reading == .bridgeIsFinished else { return }
         shutdown()
     }
 
@@ -489,59 +569,113 @@ final class BridgeChildSupervisor: @unchecked Sendable {
             lock.unlock()
             return
         }
+        // A fresh budget for the next take, and no EOF from this child is
+        // meaningful from here on.
+        failedTakes = 0
+        expectedOutputGeneration = 0
         lock.unlock()
         // In this order: herdr is told to let the pane go while its stdin is
         // still open, the pipe then closes (which is the same detach a second
         // time, harmless), and the terminate is only the backstop for a child
         // that answers neither.
         io?.send(["type": "terminal.release"])
-        io?.swapHerdrInput(to: -1)
+        io?.swapHerdrInput(to: nil)
         child.owner.terminate()
     }
 
-    private func take() {
+    private func take(isRetry: Bool) {
         lock.lock()
         guard hold.take() else {
             lock.unlock()
             return
         }
+        // A take the app asked for starts the retry budget over: the user has
+        // switched back, whatever refused the last one is likely gone.
+        if !isRetry { failedTakes = 0 }
+        // Nothing is installed until the new child's output is, so an EOF from
+        // the previous one cannot be read as this child dying.
+        expectedOutputGeneration = 0
         lock.unlock()
-        let size = ptySize()
-        guard let spawned = spawn(size) else {
+        guard let child = spawnChild(fromTake: true) else {
             // Nothing to hold the pane with. Stay released rather than claim a
-            // lock that does not exist; the next take tries again.
+            // lock that does not exist, and treat it as a refusal so the same
+            // bounded retry applies.
             lock.lock()
             _ = hold.release()
             lock.unlock()
+            retryOrGiveUp()
             return
         }
-        lock.lock()
-        generation += 1
-        let child = Child(
-            owner: BridgeChildOwner(process: spawned.process), process: spawned.process,
-            input: spawned.input, output: spawned.output, size: size, generation: generation
-        )
-        current = child
-        lock.unlock()
         // Input first, so the rearm's resize reaches the new child and not a
-        // closed fd; then the output, whose generation bump makes the previous
-        // handle inert.
+        // closed handle; then the output, whose generation bump makes the
+        // previous handle inert.
         io?.swapHerdrInput(to: child.input)
-        io?.startHerdrOutput(child.output)
-        io?.rearmSpawnSize(size)
+        installOutput(for: child)
+        io?.rearmSpawnSize(child.size)
         childReady.signal()
     }
 
-    /// Blocks until the bridge is finished, and returns the exit status of the
-    /// child that finished it. Runs the watch loop on a thread of its own so
-    /// the caller's own thread is free.
-    func wait() -> Int32 {
-        let watcher = Thread { [self] in watchChildren() }
-        watcher.start()
-        done.wait()
+    private func spawnChild(fromTake: Bool) -> Child? {
+        let size = ptySize()
+        guard let spawned = spawn(size) else { return nil }
         lock.lock()
         defer { lock.unlock() }
-        return exitStatus
+        generation += 1
+        let child = Child(
+            owner: BridgeChildOwner(process: spawned.process), process: spawned.process,
+            input: spawned.input, output: spawned.output, size: size, generation: generation,
+            fromTake: fromTake, startedAt: now()
+        )
+        current = child
+        return child
+    }
+
+    /// A refused take: schedule the next attempt, or stop and tell the app the
+    /// pane has no hold, so it can mark it rather than keep showing a frame
+    /// that is quietly no longer live.
+    private func retryOrGiveUp() {
+        lock.lock()
+        failedTakes += 1
+        let delay = BridgeHoldState.retryDelay(afterFailedTakes: failedTakes)
+        lock.unlock()
+        guard let delay else {
+            // The next full frame has to be able to clear the card this puts up.
+            io?.rearmFirstFrame()
+            io?.sendStatus(["type": HoldStatus.lost.rawValue])
+            return
+        }
+        scheduleRetry(delay) { [weak self] in
+            guard let self else { return }
+            lock.lock()
+            let stop = finished
+            lock.unlock()
+            guard !stop else { return }
+            take(isRetry: true)
+        }
+    }
+
+    /// Starts the watch loop on a thread of its own so the caller's is free.
+    func startWatching() {
+        Thread { [self] in watchChildren() }.start()
+    }
+
+    /// Blocks until the bridge is finished, and returns the exit status of the
+    /// child that finished it.
+    func waitUntilFinished() -> Int32 {
+        done.wait()
+        lock.lock()
+        let recorded = exitStatus
+        let child = current
+        lock.unlock()
+        if let recorded { return recorded }
+        guard let child, !child.process.isRunning else { return 0 }
+        return child.process.terminationStatus
+    }
+
+    var isFinished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return finished
     }
 
     private func watchChildren() {
@@ -550,25 +684,40 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         lock.unlock()
         while let child = watched {
             child.process.waitUntilExit()
+            let exitedAt = now()
             lock.lock()
             if finished {
                 lock.unlock()
                 break
             }
             // A take that beat this wakeup already replaced the child: watch
-            // the newer one instead of reading this exit as the bridge's.
+            // the newer one instead of reading this exit as the bridge's. The
+            // signal that take posted is consumed here rather than left to
+            // satisfy a later park.
             if current?.generation != child.generation {
                 watched = current
                 lock.unlock()
+                _ = childReady.wait(timeout: .now())
                 continue
             }
-            if hold.childExitEndsTheBridge {
+            let reading = hold.reading(
+                fromTake: child.fromTake, childAge: exitedAt.timeIntervalSince(child.startedAt)
+            )
+            if reading == .bridgeIsFinished {
                 exitStatus = child.process.terminationStatus
                 finished = true
                 lock.unlock()
                 break
             }
-            lock.unlock()
+            if reading == .refusedTake {
+                _ = hold.release()
+                expectedOutputGeneration = 0
+                lock.unlock()
+                io?.swapHerdrInput(to: nil)
+                retryOrGiveUp()
+            } else {
+                lock.unlock()
+            }
             childReady.wait()
             lock.lock()
             watched = finished ? nil : current
@@ -695,13 +844,22 @@ private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
 /// `resizeLock`, which is held across the resize it emits.
 final class BridgeIO: @unchecked Sendable {
     private var herdrInFD: Int32
+    /// Set only when this IO owns the handle behind `herdrInFD` and so must
+    /// close it on the next swap. Nil for the bare-descriptor form the tests
+    /// use, which owns nothing.
+    private var herdrInHandle: FileHandle?
     private let stdinFD: Int32
     private let stdoutFD: Int32
     /// The bridge -> app status FIFO (`--status-pipe`), write-only from here,
     /// or -1 when no status pipe was configured. Written under `stdoutLock`
     /// alongside the frame writes.
     private let statusFD: Int32
-    private let onPeerGone: () -> Void
+    /// The herdr child's output ended, carrying the generation the handler was
+    /// installed under so a stale handle's EOF can be told from the current
+    /// child's. The IO's own generation check only suppresses a SUPERSEDED
+    /// handler; the supervisor needs the number to decide the case where no
+    /// handler has been installed yet.
+    private let onPeerGone: (Int) -> Void
     /// The PTY went away, which is final: the surface this bridge exists for
     /// is gone. Distinct from `onPeerGone` (the herdr child's output ending),
     /// which is exactly what a release looks like and must not end the bridge.
@@ -738,10 +896,10 @@ final class BridgeIO: @unchecked Sendable {
         statusFD: Int32 = -1, spawnedSize: PTYSize? = nil, ptySize: (() -> PTYSize?)? = nil,
         onHold: @escaping (HoldCommand) -> Void = { _ in },
         onSurfaceGone: (() -> Void)? = nil,
-        onPeerGone: @escaping () -> Void
+        onPeerGone: @escaping (Int) -> Void
     ) {
         self.onHold = onHold
-        self.onSurfaceGone = onSurfaceGone ?? onPeerGone
+        self.onSurfaceGone = onSurfaceGone ?? { onPeerGone(0) }
         self.herdrInFD = herdrInFD
         self.stdinFD = stdinFD
         self.stdoutFD = stdoutFD
@@ -782,15 +940,31 @@ final class BridgeIO: @unchecked Sendable {
         relayPTYSize()
     }
 
-    /// Points the herdr-bound writes at a new child's stdin, closing the old
-    /// one. `-1` parks the writes: `write()` to it fails immediately, which is
-    /// what a released pane's stray `terminal.resize` needs to do.
-    func swapHerdrInput(to fd: Int32) {
+    /// Points the herdr-bound writes at a new child's stdin, closing the
+    /// previous child's. `nil` parks the writes: the descriptor becomes -1 and
+    /// `write()` to it fails immediately, which is what a released pane's stray
+    /// `terminal.resize` needs to do.
+    ///
+    /// Closed through the handle, never by descriptor number: the number
+    /// belongs to a live `Pipe` whose own `FileHandle` (`closeOnDealloc`) would
+    /// close it a second time when the previous child is finally released, and
+    /// the next child's `pipe()` has already reclaimed that number by then.
+    /// `closeFile()` marks the handle closed, so the deinit does not repeat it.
+    func swapHerdrInput(to handle: FileHandle?) {
         writeLock.lock()
         defer { writeLock.unlock() }
-        let previous = herdrInFD
-        herdrInFD = fd
-        if previous >= 0 { Foundation.close(previous) }
+        herdrInHandle?.closeFile()
+        herdrInHandle = handle
+        herdrInFD = handle?.fileDescriptor ?? -1
+    }
+
+    /// The descriptor herdr-bound lines are written to. Read by the
+    /// supervisor's own tests, which assert that a descriptor installed by a
+    /// retake is still open once the previous child has been reaped.
+    var herdrInputDescriptor: Int32 {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        return herdrInFD
     }
 
     /// Reseeds the relay to the size a freshly spawned child was given, then
@@ -890,7 +1064,11 @@ final class BridgeIO: @unchecked Sendable {
     /// handle's callback, however far into an already-started invocation it
     /// was, can write nothing once a newer generation exists, and cannot
     /// interleave with the current handle's own writes either.
-    func startHerdrOutput(_ herdrOut: FileHandle) {
+    ///
+    /// Returns the generation it installed under, which the supervisor keeps so
+    /// an EOF can be matched against the handle it came from.
+    @discardableResult
+    func startHerdrOutput(_ herdrOut: FileHandle) -> Int {
         let lines = BridgeLineBuffer()
         let generation: Int = {
             stdoutLock.lock()
@@ -905,7 +1083,7 @@ final class BridgeIO: @unchecked Sendable {
                 stdoutLock.lock()
                 let stillCurrent = herdrOutputGeneration == generation
                 stdoutLock.unlock()
-                if stillCurrent { onPeerGone() }
+                if stillCurrent { onPeerGone(generation) }
                 return
             }
             lines.append(data)
@@ -937,6 +1115,26 @@ final class BridgeIO: @unchecked Sendable {
                 }
             }
         }
+        return generation
+    }
+
+    /// One app-bound line on the status FIFO for something the frame stream
+    /// cannot carry. Under `stdoutLock`, like the other two status writes.
+    func sendStatus(_ object: [String: Any]) {
+        guard statusFD >= 0, let payload = ControlBridge.encodeLine(object) else { return }
+        stdoutLock.lock()
+        defer { stdoutLock.unlock() }
+        writeIgnoringBrokenPipe(statusFD, payload)
+    }
+
+    /// Un-latches the first-frame gate so the next full frame announces itself
+    /// again. Only the give-up path calls this: the app puts a pane's status
+    /// card back when its hold is lost for good, and that card has to be able
+    /// to go away again when a later take succeeds.
+    func rearmFirstFrame() {
+        stdoutLock.lock()
+        defer { stdoutLock.unlock() }
+        firstFrameSent = false
     }
 }
 

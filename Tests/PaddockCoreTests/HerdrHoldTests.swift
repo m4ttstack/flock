@@ -72,10 +72,23 @@ final class HerdrHoldTests: XCTestCase {
         XCTAssertTrue(policy.isHolding)
     }
 
-    func testBecomingActiveWhileAlreadyHoldingTakesNothing() {
+    /// Re-asserted rather than deduped: this policy's belief that it holds can
+    /// be wrong in one direction (a command dropped on a full FIFO leaves that
+    /// pane released with no later edge to correct it), and a bridge that
+    /// already holds ignores the repeat.
+    func testBecomingActiveWhileAlreadyHoldingRepeatsTheTake() {
         var policy = HoldPolicy()
-        XCTAssertEqual(policy.handle(.becameActive), .none)
+        XCTAssertEqual(policy.handle(.becameActive), .take)
+        XCTAssertEqual(policy.handle(.becameActive), .take)
         XCTAssertTrue(policy.isHolding)
+    }
+
+    /// The exception, and the only edge that asserts nothing: no release was
+    /// ever sent, so every pane provably still holds.
+    func testCancellingAScheduledReleaseAssertsNothing() {
+        var policy = HoldPolicy()
+        _ = policy.handle(.resignedActive)
+        XCTAssertEqual(policy.handle(.becameActive), .cancelScheduledRelease)
     }
 
     /// A full round trip, and then a second one, so the machine is not a
@@ -89,9 +102,42 @@ final class HerdrHoldTests: XCTestCase {
         }
     }
 
-    /// The delay is a real wait, and long enough to outlast the work a
-    /// needless round trip would cause (twelve panes measured 204ms from the
-    /// take to their last full frame).
+    /// The status the bridge sends when it stops trying. Namespaced like the
+    /// commands, and distinct from every other line the status FIFO carries,
+    /// so the app's own parsers cannot confuse the three.
+    func testTheHoldLostStatusIsItsOwnLineAndNoOtherParserClaimsIt() throws {
+        let line = try XCTUnwrap(ControlBridge.encodeLine(["type": HoldStatus.lost.rawValue]))
+        XCTAssertTrue(PaneStatusChannel.parseHoldLost(line))
+        XCTAssertFalse(PaneStatusChannel.parseFirstFrame(line))
+        XCTAssertNil(PaneStatusChannel.parseMouseCapture(line))
+        XCTAssertNil(ControlBridge.parseHoldCommand(line), "a status read back as a command")
+
+        let firstFrame = try XCTUnwrap(ControlBridge.encodeLine(["type": "paddock.first_frame"]))
+        XCTAssertFalse(PaneStatusChannel.parseHoldLost(firstFrame))
+        XCTAssertFalse(PaneStatusChannel.parseHoldLost(Data("not json".utf8)))
+    }
+
+    /// The latch is monotonic within a hold, which is what keeps a resize's
+    /// full frame from re-showing the card, and is cleared by exactly one
+    /// thing: the bridge giving up.
+    @MainActor
+    func testTheFirstFrameLatchClearsOnlyWhenAHoldIsLostAndCanBeSetAgain() {
+        let latch = FirstFrameLatch()
+        XCTAssertFalse(latch.received)
+        latch.markHoldLost()
+        XCTAssertFalse(latch.received, "a pane with no frame yet gained one")
+        latch.markReceived()
+        latch.markReceived()
+        XCTAssertTrue(latch.received)
+        latch.markHoldLost()
+        XCTAssertFalse(latch.received, "the card cannot come back for a dead pane")
+        latch.markReceived()
+        XCTAssertTrue(latch.received, "a later take could never clear the card again")
+    }
+
+    /// Pins the constant, not a behavior: the measurement it has to outlast
+    /// (twelve panes, 204ms from the take to their last full frame) cannot be
+    /// taken in a unit test, so the bound is asserted rather than derived.
     func testTheReleaseDelayOutlastsTheRoundTripItExistsToPrevent() {
         XCTAssertGreaterThan(HoldPolicy.releaseDelay, 0.204)
         XCTAssertLessThanOrEqual(HoldPolicy.releaseDelay, 1.0, "a switch to the terminal waits this long to be sized")
@@ -130,14 +176,51 @@ final class HerdrHoldTests: XCTestCase {
 
     /// The one thing that makes a release survivable: a child that exits
     /// because paddock asked it to is not the pane dying.
-    func testAChildExitEndsTheBridgeOnlyWhilePaddockHolds() {
+    func testAChildExitIsTheExpectedReleaseOnlyWhilePaddockDoesNotHold() {
         var state = BridgeHoldState()
-        XCTAssertTrue(state.isHolding)
-        XCTAssertTrue(state.childExitEndsTheBridge)
+        let old = BridgeHoldState.refusedTakeWindow + 1
+        XCTAssertEqual(state.reading(fromTake: false, childAge: old), .bridgeIsFinished)
         XCTAssertTrue(state.release())
-        XCTAssertFalse(state.childExitEndsTheBridge, "the release would have killed the bridge")
+        XCTAssertEqual(
+            state.reading(fromTake: true, childAge: old), .expectedRelease,
+            "the release would have killed the bridge"
+        )
+        XCTAssertEqual(state.reading(fromTake: false, childAge: 0), .expectedRelease)
         XCTAssertTrue(state.take())
-        XCTAssertTrue(state.childExitEndsTheBridge)
+        XCTAssertEqual(state.reading(fromTake: true, childAge: old), .bridgeIsFinished)
+    }
+
+    /// herdr refuses an attach by shutting the connection down, which at the
+    /// bridge looks exactly like the child exiting. Only how soon after the
+    /// take tells them apart, and only for a child a take spawned: the
+    /// bridge's FIRST child exiting early is a pane that could not be attached
+    /// at all, which must still end the bridge as it always did.
+    func testAnEarlyExitAfterATakeIsARefusalAndOneAfterTheFirstSpawnIsNot() {
+        let state = BridgeHoldState()
+        let early = BridgeHoldState.refusedTakeWindow / 2
+        let late = BridgeHoldState.refusedTakeWindow + 0.001
+        XCTAssertEqual(state.reading(fromTake: true, childAge: early), .refusedTake)
+        XCTAssertEqual(state.reading(fromTake: true, childAge: late), .bridgeIsFinished)
+        XCTAssertEqual(
+            state.reading(fromTake: false, childAge: early), .bridgeIsFinished,
+            "a first child that could not attach must still end the bridge"
+        )
+    }
+
+    /// The retries are bounded, so a pane herdr will never hand back does not
+    /// spawn forever; running out is what makes the app say so.
+    func testTheTakeRetriesAreBoundedAndThenStop() {
+        var delays: [TimeInterval] = []
+        var failures = 1
+        while let delay = BridgeHoldState.retryDelay(afterFailedTakes: failures) {
+            delays.append(delay)
+            failures += 1
+            XCTAssertLessThan(failures, 10, "the retries never stop")
+        }
+        XCTAssertEqual(delays, BridgeHoldState.takeRetryBackoff)
+        XCTAssertFalse(delays.isEmpty, "a refused take is never retried at all")
+        XCTAssertEqual(delays, delays.sorted(), "the backoff does not back off")
+        XCTAssertNil(BridgeHoldState.retryDelay(afterFailedTakes: 0), "a take that did not fail")
     }
 
     /// Repeats decide nothing, so a duplicated command cannot leave two

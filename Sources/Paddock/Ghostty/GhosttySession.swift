@@ -378,6 +378,13 @@ final class GhosttySession {
         firstFrameLatch.markReceived()
     }
 
+    /// Called from `statusChannel`'s reader when the bridge gives up retaking
+    /// its herdr hold. The pane's status card comes back, because the frame on
+    /// screen is no longer live and nothing further is pending.
+    func markHoldLost() {
+        firstFrameLatch.markHoldLost()
+    }
+
     /// Sends one structured mouse event to the pane's own program over the
     /// control FIFO. The only path to the app's mouse handling, since
     /// paddock's libghostty is never in reporting mode.

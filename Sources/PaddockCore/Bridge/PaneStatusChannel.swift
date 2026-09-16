@@ -64,6 +64,7 @@ public final class PaneStatusChannel {
     public func start(
         queue: DispatchQueue,
         onFirstFrame: @escaping @Sendable () -> Void = {},
+        onHoldLost: @escaping @Sendable () -> Void = {},
         onCapture: @escaping @Sendable (Bool, Bool) -> Void
     ) {
         guard fd >= 0, source == nil else { return }
@@ -81,6 +82,10 @@ public final class PaneStatusChannel {
                 }
                 if PaneStatusChannel.parseFirstFrame(line) {
                     onFirstFrame()
+                    continue
+                }
+                if PaneStatusChannel.parseHoldLost(line) {
+                    onHoldLost()
                 }
             }
         }
@@ -106,6 +111,14 @@ public final class PaneStatusChannel {
     public static func parseFirstFrame(_ line: Data) -> Bool {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }
         return object["type"] as? String == "paddock.first_frame"
+    }
+
+    /// Whether a line is the bridge's `paddock.hold_lost` status line: every
+    /// retake was refused and none is pending, so the pane has no herdr client
+    /// at all. Pure, so the parse is testable without a FIFO.
+    public static func parseHoldLost(_ line: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }
+        return object["type"] as? String == HoldStatus.lost.rawValue
     }
 
     /// Once started, the fd belongs to the source's cancel handler (see

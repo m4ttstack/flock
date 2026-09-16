@@ -19,6 +19,18 @@ public final class FirstFrameLatch {
         guard !received else { return }
         received = true
     }
+
+    /// The pane's bridge gave up retaking its herdr hold, so what the surface
+    /// is showing is a frame that is no longer live. The one thing that clears
+    /// this latch, and the reason it is monotonic only WITHIN a hold: the
+    /// status card is the app's existing way of saying a pane has no content
+    /// yet, and a pane with no herdr client at all is in exactly that state.
+    /// The bridge re-arms its own first-frame gate at the same moment, so a
+    /// later take's full frame sets this again and the card crossfades away.
+    public func markHoldLost() {
+        guard received else { return }
+        received = false
+    }
 }
 
 /// One pane's live control-plane surface: a real libghostty surface whose PTY

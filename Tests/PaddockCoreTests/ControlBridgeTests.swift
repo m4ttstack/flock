@@ -237,7 +237,7 @@ final class ControlBridgeTests: XCTestCase {
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         io.startHerdrOutput(fromHerdr.fileHandleForReading)
 
@@ -273,7 +273,7 @@ final class ControlBridgeTests: XCTestCase {
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
             statusFD: statusCapture.fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         io.startHerdrOutput(fromHerdr.fileHandleForReading)
 
@@ -312,7 +312,7 @@ final class ControlBridgeTests: XCTestCase {
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
             statusFD: statusCapture.fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         io.startHerdrOutput(fromHerdr.fileHandleForReading)
 
@@ -353,7 +353,7 @@ final class ControlBridgeTests: XCTestCase {
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         io.startHerdrOutput(fromHerdr.fileHandleForReading)
 
@@ -376,7 +376,7 @@ final class ControlBridgeTests: XCTestCase {
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
 
@@ -407,7 +407,7 @@ final class ControlBridgeTests: XCTestCase {
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: stdinStandIn.fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         io.startStdin()
 
@@ -430,7 +430,7 @@ final class ControlBridgeTests: XCTestCase {
             herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         io.close()
         io.send(["type": "terminal.resize", "cols": 80, "rows": 24])
@@ -453,7 +453,7 @@ final class ControlBridgeTests: XCTestCase {
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 60, rows: 41) },
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         defer { io.close() }
 
@@ -475,7 +475,7 @@ final class ControlBridgeTests: XCTestCase {
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         defer { io.close() }
 
@@ -493,7 +493,7 @@ final class ControlBridgeTests: XCTestCase {
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         defer { io.close() }
         io.startPTYSizeRelay()
@@ -517,7 +517,7 @@ final class ControlBridgeTests: XCTestCase {
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         defer { io.close() }
         io.startPTYSizeRelay()
@@ -550,7 +550,7 @@ final class ControlBridgeTests: XCTestCase {
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
 
@@ -581,7 +581,7 @@ final class ControlBridgeTests: XCTestCase {
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
             onHold: { command in held.mutate { $0.append(command) } },
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         defer { io.close() }
         io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
@@ -612,11 +612,11 @@ final class ControlBridgeTests: XCTestCase {
             stdinFD: Pipe().fileHandleForReading.fileDescriptor,
             stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
             spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
-            onPeerGone: {}
+            onPeerGone: { _ in }
         )
         defer { io.close() }
 
-        io.swapHerdrInput(to: second.fileHandleForWriting.fileDescriptor)
+        io.swapHerdrInput(to: second.fileHandleForWriting)
         io.rearmSpawnSize(PTYSize(cols: 30, rows: 40))
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(
@@ -698,7 +698,7 @@ final class ControlBridgeTests: XCTestCase {
         let newOut = Pipe()
         let io = BridgeIO(
             herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
-            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor, onPeerGone: { _ in })
         io.startHerdrOutput(oldOut.fileHandleForReading)
 
         oldOut.fileHandleForWriting.write(Data(#"{"type":"terminal.frame","#.utf8))
@@ -726,7 +726,7 @@ final class ControlBridgeTests: XCTestCase {
         let newOut = Pipe()
         let io = BridgeIO(
             herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
-            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor, onPeerGone: {})
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor, onPeerGone: { _ in })
         io.startHerdrOutput(oldOut.fileHandleForReading)
         io.startHerdrOutput(newOut.fileHandleForReading)
 
@@ -819,7 +819,7 @@ private func waitForNonEmptyReadOfAtLeast(_ fd: Int32, lines: Int, timeout: Dura
     }
 }
 
-private func readAllAvailableForTest(_ fd: Int32) -> Data {
+func readAllAvailableForTest(_ fd: Int32) -> Data {
     let flags = fcntl(fd, F_GETFL, 0)
     if flags & O_NONBLOCK == 0 {
         _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)

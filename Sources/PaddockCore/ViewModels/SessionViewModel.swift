@@ -392,6 +392,15 @@ public final class SessionViewModel {
         ghosttySurfaces[pane]
     }
 
+    /// What paddock currently wants of its bridges, so a surface registered
+    /// after the decision was made can be told as it appears. A bridge spawns
+    /// HOLDING, so a pane first attached while paddock is in the background
+    /// would otherwise take that pane's lock and keep it until the next full
+    /// activate-then-deactivate cycle: one pane refusing to follow the
+    /// terminal while every other pane does, with nothing on screen to say so.
+    @ObservationIgnored
+    private var herdrHoldIntent: HoldCommand = .take
+
     /// Hands every pane paddock holds back to herdr's own clients. PARKED
     /// panes are included and are the point: a parked surface keeps its bridge
     /// attached, so it holds that pane's resize lock just as a visible one
@@ -401,15 +410,23 @@ public final class SessionViewModel {
     /// Not routed through `paneWork`: a hold command is one FIFO line with no
     /// reply, so it cannot race the attach/park chain the way a surface
     /// lifecycle step can, and making it wait behind an in-flight attach would
-    /// only delay the handoff. Nothing here creates, parks or tears down a
-    /// surface, so `ghosttySurfaces` and `parkedPanes` are untouched.
+    /// only delay the handoff. `herdrHoldIntent` is what covers the surfaces
+    /// that chain has not registered yet. Nothing here creates, parks or tears
+    /// down a surface, so `ghosttySurfaces` and `parkedPanes` are untouched.
     public func releaseHerdrHold() {
+        herdrHoldIntent = .release
         for surface in ghosttySurfaces.values { surface.releaseHerdrHold() }
     }
 
     /// Takes every pane back at paddock's own sizes. The counterpart of
     /// `releaseHerdrHold()`, over the same set.
+    ///
+    /// Re-asserted on every activation rather than only on the edge out of a
+    /// release: a command dropped on a full FIFO (`PaneControlChannel.send`
+    /// discards silently) would otherwise leave that one pane frozen with no
+    /// later edge to correct it. A bridge that already holds ignores a repeat.
     public func takeHerdrHold() {
+        herdrHoldIntent = .take
         for surface in ghosttySurfaces.values { surface.takeHerdrHold() }
     }
 
@@ -446,6 +463,10 @@ public final class SessionViewModel {
             }
         )
         ghosttySurfaces[pane] = surface
+        // Only the release is asserted here: a bridge spawns holding, so a
+        // take at registration would be a command every cold attach sends for
+        // nothing.
+        if herdrHoldIntent == .release { surface.releaseHerdrHold() }
         paneScrollSubscriber?.subscribe(pane: pane)
     }
 

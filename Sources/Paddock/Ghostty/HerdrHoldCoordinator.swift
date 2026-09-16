@@ -22,7 +22,11 @@ final class HerdrHoldCoordinator {
     private var releaseTimer: Timer?
     private var observers: [NSObjectProtocol] = []
 
-    init(viewModel: SessionViewModel, notificationCenter: NotificationCenter = .default) {
+    init(
+        viewModel: SessionViewModel,
+        notificationCenter: NotificationCenter = .default,
+        isActiveAtLaunch: Bool = NSApp?.isActive ?? false
+    ) {
         self.viewModel = viewModel
         observers = [
             notificationCenter.addObserver(
@@ -36,6 +40,12 @@ final class HerdrHoldCoordinator {
                 Task { @MainActor [weak self] in self?.apply(.resignedActive) }
             },
         ]
+        // `HoldPolicy` starts holding, and an app that launches WITHOUT
+        // activating (`open -g`, or a launch the user clicks straight past)
+        // never posts `didResignActive`, so nothing would ever tell it to let
+        // go. Seeding from the real state is what keeps the feature from being
+        // silently off for that whole launch.
+        if !isActiveAtLaunch { apply(.resignedActive) }
     }
 
     /// No teardown counterpart: one of these is built in `PaddockApp.init` and
@@ -47,9 +57,14 @@ final class HerdrHoldCoordinator {
             break
         case .scheduleRelease(let delay):
             releaseTimer?.invalidate()
-            releaseTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.apply(.releaseDeadline) }
             }
+            // `.common`, not the default mode `scheduledTimer` would give it: a
+            // release scheduled while the run loop is in a tracking mode would
+            // otherwise wait for that mode to end.
+            RunLoop.main.add(timer, forMode: .common)
+            releaseTimer = timer
         case .cancelScheduledRelease:
             releaseTimer?.invalidate()
             releaseTimer = nil
