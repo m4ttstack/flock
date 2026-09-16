@@ -240,85 +240,114 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     // MARK: - a drop that empties one of the card's own tabs
 
-    /// The three ways a pane can arrive in a card's empty space. A pane from
-    /// another workspace and a pane from a multi-pane tab of this one leave
-    /// every tab standing; the last pane of a tab of this one takes that tab
-    /// with it. All three land a tab in this card, so all three draw the
-    /// placeholder, and the pane's origin is not what decides it.
-    func testAPaneLandsATabInThisCardWhereverItCameFrom() {
+    /// The three ways a pane can arrive in a card's empty space. Every tab
+    /// the card is drawing stays exactly where it is in all three, the tab
+    /// the drop empties included: a card is what the user is aiming at, and a
+    /// preview that takes one of its tabs away takes away the thing being
+    /// aimed at.
+    func testEveryDrawnTabKeepsItsSlotWhateverTheDropEmpties() {
         let all = tabs(3)
-        let fromElsewhere = GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: nil, perRow: perRow)
-        XCTAssertEqual(fromElsewhere, [.tab(all[0]), .tab(all[1]), .tab(all[2]), .newTab])
-        XCTAssertEqual(
-            GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: all[0], perRow: perRow),
-            [.tab(all[1]), .tab(all[2]), .newTab],
-            "the tab the drop empties is gone, and the created one takes the slot it leaves"
-        )
-        XCTAssertNotNil(placeholderSlot(tabs: all, expanded: false, closing: all[0]))
-    }
-
-    /// The slot the placeholder names is the slot the created tab really
-    /// takes once the emptied one is gone, at every shape a card can have.
-    func testThePlaceholderTakesTheLandingSlotWhenTheDropEmptiesATab() {
-        for count in 1...12 {
-            for expanded in [false, true] {
-                let list = tabs(count)
-                for closing in [list[0], list[count - 1]] {
-                    guard placeholderSlot(tabs: list, expanded: expanded, closing: closing) != nil else { continue }
-                    assertPlaceholderMatchesTheLanding(tabs: list, expanded: expanded, closing: closing)
-                }
-            }
+        let standing: [GridCell] = [.tab(all[0]), .tab(all[1]), .tab(all[2]), .newTab]
+        for closing in [nil, all[0], all[2]] as [TabID?] {
+            XCTAssertEqual(
+                GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: closing, perRow: perRow),
+                standing, "closing: \(String(describing: closing))"
+            )
         }
     }
 
-    /// A card whose only tab is the one being emptied ends the drop with one
-    /// tab again, in the slot that tab holds now.
-    func testACardOfOneTabPreviewsTheDropInThatTabsOwnSlot() {
+    /// The user's own case: a card of one tab, whose only pane is the one
+    /// being dragged. The tab it came from stays drawn in its own slot, so
+    /// there is still something to drop back onto, and the placeholder takes
+    /// the free slot beside it.
+    func testACardOfOneTabKeepsThatTabAndPutsThePlaceholderBesideIt() {
         let only = tabs(1)
-        XCTAssertEqual(GridCardLayout.cells(tabs: only, expanded: false, newTab: true, closing: only[0], perRow: perRow), [.newTab])
-        assertPlaceholderMatchesTheLanding(tabs: only, expanded: false, closing: only[0])
+        XCTAssertEqual(
+            GridCardLayout.cells(tabs: only, expanded: false, newTab: true, closing: only[0], perRow: perRow),
+            [.tab(only[0]), .newTab]
+        )
+        XCTAssertEqual(placeholderSlot(tabs: only, expanded: false, closing: only[0])?.column, 1)
     }
 
-    /// Wherever a placeholder is drawn at all, the preview is the card the
-    /// drop leaves behind, cell for cell, with the created tab drawn as the
-    /// placeholder: the tabs that survive, the trailing tile the post-drop
-    /// count calls for, and nothing else. Over every shape, with and without
-    /// one of the card's own tabs closing.
-    func testAPreviewDrawsTheCardTheDropLeavesBehind() {
+    /// The whole rule, over every card shape. A card whose last row still has
+    /// a free slot keeps every drawn cell exactly where it is and spends that
+    /// one slot on the placeholder; only a card whose row is full falls back
+    /// to the post-drop shape, which is the one path that may take the
+    /// emptied tab away. A tile stays last either way.
+    func testAFreeSlotKeepsEveryDrawnCellAndOnlyAFullRowFallsBack() {
         let created = TabID(rawValue: "w1:tNEW")
         for count in 1...12 {
             for expanded in [false, true] {
                 let list = tabs(count)
                 for closing in [nil, list[0], list[count - 1]] as [TabID?] {
-                    let preview = GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: closing, perRow: perRow)
-                    guard preview.contains(.newTab) else { continue }
-                    let afterTheDrop = GridCardLayout.cells(
-                        tabs: GridCardLayout.surviving(list, closing: closing) + [created], expanded: expanded,
-                        perRow: perRow
+                    let drawn = GridCardLayout.cells(tabs: list, expanded: expanded, perRow: perRow)
+                    let preview = GridCardLayout.cells(
+                        tabs: list, expanded: expanded, newTab: true, closing: closing, perRow: perRow
                     )
+                    let shape = "\(count) tabs, expanded: \(expanded), closing: \(String(describing: closing))"
+                    guard preview.contains(.newTab) else {
+                        XCTAssertEqual(preview, drawn, "a card with no placeholder must be left as it stands: \(shape)")
+                        continue
+                    }
+                    XCTAssertFalse(preview.dropLast().contains { $0.isTile }, "a tile did not stay last: \(shape)")
+                    if drawn.count.isMultiple(of: perRow) {
+                        XCTAssertEqual(
+                            preview.map { $0 == .newTab ? GridCell.tab(created) : $0 },
+                            GridCardLayout.cells(
+                                tabs: GridCardLayout.surviving(list, closing: closing) + [created],
+                                expanded: expanded, perRow: perRow
+                            ),
+                            "a full row must fall back to the card the drop leaves behind: \(shape)"
+                        )
+                        continue
+                    }
+                    XCTAssertEqual(preview.count, drawn.count + 1, "the preview cost more than one cell: \(shape)")
                     XCTAssertEqual(
-                        preview.map { $0 == .newTab ? GridCell.tab(created) : $0 }, afterTheDrop,
-                        "\(count) tabs, expanded: \(expanded), closing: \(String(describing: closing))"
+                        preview.filter { $0 != .newTab }, drawn,
+                        "a drawn cell moved, changed or vanished for a card with a free slot: \(shape)"
                     )
                 }
             }
         }
     }
 
-    /// A drop that empties one of the card's own tabs costs the card no cell:
-    /// the created tab takes the slot the emptied one leaves, which is what
-    /// lets the placeholder be drawn inside the rows the card already has.
-    func testAPreviewForADropThatEmptiesATabCostsTheCardNoCell() {
+    /// A preview only ever adds to the row the card's cells already end on.
+    /// When that row is full the card falls back to the post-drop shape, which
+    /// is the only way a placeholder can still be drawn there.
+    func testAFullRowFallsBackToThePostDropShape() {
+        // Seven tabs and the collapse tile fill two rows exactly, so there is
+        // no free slot and the post-drop shape opens the third row the drop
+        // really leaves behind.
+        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(7), expanded: true, perRow: perRow).count, 8)
+        let full = GridCardLayout.cells(tabs: tabs(7), expanded: true, newTab: true, perRow: perRow)
+        XCTAssertEqual(full.suffix(2), [.newTab, .collapse])
+        XCTAssertEqual(GridCardLayout.rows(full, perRow: perRow).count, 3)
+        assertPlaceholderMatchesTheLanding(tabs: tabs(7), expanded: true)
+
+        // A resting card at the cap has a full row and a post-drop shape that
+        // hides the created tab, so it previews nothing at all.
+        XCTAssertEqual(
+            GridCardLayout.cells(tabs: tabs(4), expanded: false, newTab: true, perRow: perRow),
+            GridCardLayout.cells(tabs: tabs(4), expanded: false, perRow: perRow)
+        )
+    }
+
+    /// Where the placeholder and the landing slot disagree, and why. With no
+    /// tab closing they are the same slot at every shape; when the drop
+    /// empties one of the card's own tabs the created tab really lands in the
+    /// slot that tab vacates, one earlier than the free slot the preview uses.
+    /// The user asked for the tabs to stay put, so the preview keeps the free
+    /// slot and the created tab moves back one when the drop lands.
+    func testThePlaceholderIsTheLandingSlotUnlessTheDropEmptiesATab() {
         for count in 1...12 {
             for expanded in [false, true] {
-                let list = tabs(count)
-                XCTAssertEqual(
-                    GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: list[0], perRow: perRow).count,
-                    GridCardLayout.cells(tabs: list, expanded: expanded, perRow: perRow).count,
-                    "\(count) tabs, expanded: \(expanded)"
-                )
+                guard placeholderSlot(tabs: tabs(count), expanded: expanded) != nil else { continue }
+                assertPlaceholderMatchesTheLanding(tabs: tabs(count), expanded: expanded)
             }
         }
+        let all = tabs(3)
+        XCTAssertEqual(placeholderSlot(tabs: all, expanded: false, closing: all[0])?.column, 3)
+        XCTAssertEqual(landingSlot(tabs: all, expanded: false, closing: all[0])?.column, 2)
     }
 
     /// A card that cannot draw the created tab is left exactly as it stands,
@@ -330,7 +359,7 @@ final class AllWorkspacesGridTests: XCTestCase {
             GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: all[0], perRow: perRow),
             GridCardLayout.cells(tabs: all, expanded: false, perRow: perRow)
         )
-        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: GridCardLayout.surviving(all, closing: all[0]).count, expanded: false, perRow: perRow))
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: all, expanded: false, closing: all[0], perRow: perRow))
     }
 
     // MARK: - what a card that draws no placeholder previews instead
@@ -339,16 +368,16 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// visibly changes, so the tile carries the preview the placeholder
     /// cannot.
     func testARestingCardOverItsCapPreviewsTheDropOnItsTile() {
-        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: 9, expanded: false, perRow: perRow))
-        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: 5, expanded: false, perRow: perRow))
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(9), expanded: false, perRow: perRow))
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(5), expanded: false, perRow: perRow))
     }
 
     /// A card that draws the tab needs no stand-in, and a card with no tile
     /// has nothing that could carry one.
     func testEveryOtherCardPreviewsNothingOnATile() {
-        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 4, expanded: false, perRow: perRow), "at the cap, but no tile to wash")
-        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 2, expanded: false, perRow: perRow), "draws the tab itself")
-        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 9, expanded: true, perRow: perRow), "draws the tab itself")
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(4), expanded: false, perRow: perRow), "at the cap, but no tile to wash")
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(2), expanded: false, perRow: perRow), "draws the tab itself")
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(9), expanded: true, perRow: perRow), "draws the tab itself")
     }
 
     /// The two previews are alternatives, never both and never a card left
@@ -358,7 +387,7 @@ final class AllWorkspacesGridTests: XCTestCase {
             for expanded in [false, true] {
                 let drawsPlaceholder = GridCardLayout.cells(tabs: tabs(count), expanded: expanded, newTab: true, perRow: perRow)
                     .contains(.newTab)
-                let tilePreviews = GridCardLayout.tilePreviewsTheDrop(tabs: count, expanded: expanded, perRow: perRow)
+                let tilePreviews = GridCardLayout.tilePreviewsTheDrop(tabs: tabs(count), expanded: expanded, perRow: perRow)
                 XCTAssertFalse(drawsPlaceholder && tilePreviews, "\(count) tabs, expanded: \(expanded)")
                 if GridCardLayout.hasTile(tabs: count, perRow: perRow) {
                     XCTAssertTrue(drawsPlaceholder || tilePreviews, "\(count) tabs, expanded: \(expanded)")

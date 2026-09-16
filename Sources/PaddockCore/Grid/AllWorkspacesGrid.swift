@@ -60,16 +60,21 @@ public enum GridCardLayout {
     /// A workspace whose tabs fit one row shows every tab and has nothing to
     /// expand.
     ///
-    /// `newTab` inserts the drop placeholder where the tab itself will be
-    /// ordered, which is BEFORE the trailing tile, never after it: a tile
-    /// always ends the list, so the slot past it is one no tab can reach.
+    /// `newTab` adds the drop placeholder in the FREE SLOT the card's own
+    /// cells end on, leaving every drawn tab exactly where it is. A card is a
+    /// place the user is aiming at, and a preview that moves or removes one of
+    /// its tabs takes away the thing being aimed at: a one-tab card whose only
+    /// pane is being dragged would draw the placeholder over that very tab,
+    /// leaving nothing to drop back onto.
     ///
-    /// `closing` is a tab of this card the same drop takes away (the pane
-    /// being dropped is the last one in it), so the card lays the preview out
-    /// without it and the created tab takes the slot it leaves. A card that
-    /// draws no placeholder is left exactly as it stands instead, since a
-    /// hover that reshuffles cells it cannot explain is worse than one that
-    /// shows nothing.
+    /// It still goes BEFORE a trailing tile, never after it: a tile always ends
+    /// the list, so the slot past it is one no tab can reach.
+    ///
+    /// Only when the card's last row has no free slot does the POST-DROP shape
+    /// decide instead, and `closing` (a tab of this card the same drop takes
+    /// away) is what that shape is laid out without. A card that can draw
+    /// neither is left exactly as it stands, since a hover that reshuffles
+    /// cells it cannot explain is worse than one that shows nothing.
     ///
     /// The placeholder is shown at all only while the preview's own rows are
     /// rows the drop leaves behind (`previewKeepsItsRows`). A card that would
@@ -77,10 +82,11 @@ public enum GridCardLayout {
     /// accent outline marks it the way it marks every other card-level drop
     /// target.
     public static func cells(tabs: [TabID], expanded: Bool, newTab: Bool = false, closing: TabID? = nil, perRow: Int) -> [GridCell] {
+        let drawn = settled(tabs: tabs, expanded: expanded, perRow: perRow)
+        guard newTab else { return drawn }
+        if let free = inFreeSlot(of: drawn, perRow: perRow) { return free }
         let surviving = surviving(tabs, closing: closing)
-        guard newTab, previewKeepsItsRows(tabs: surviving.count, expanded: expanded, perRow: perRow) else {
-            return settled(tabs: tabs, expanded: expanded, perRow: perRow)
-        }
+        guard previewKeepsItsRows(tabs: surviving.count, expanded: expanded, perRow: perRow) else { return drawn }
         // The shape the card takes once the drop lands, with the tab it
         // creates drawn as the placeholder. Laid out over the post-drop list
         // rather than over the surviving tabs alone, so the trailing tile is
@@ -88,6 +94,15 @@ public enum GridCardLayout {
         // the drop with five and the collapse tile they need.
         return settled(tabs: surviving + [createdTab], expanded: expanded, perRow: perRow)
             .map { $0 == .tab(createdTab) ? .newTab : $0 }
+    }
+
+    /// `cells` with the placeholder added in the free slot the row they end on
+    /// still has, or nil when that row is full. Nothing already drawn moves:
+    /// only a trailing tile slides along, since a tile must stay last.
+    private static func inFreeSlot(of cells: [GridCell], perRow: Int) -> [GridCell]? {
+        guard perRow > 0, !cells.count.isMultiple(of: perRow) else { return nil }
+        guard cells.last?.isTile == true else { return cells + [.newTab] }
+        return cells.dropLast() + [.newTab] + cells.suffix(1)
     }
 
     /// Stands in for the tab a previewed drop creates while the post-drop
@@ -106,13 +121,17 @@ public enum GridCardLayout {
     }
 
     /// Whether the card's trailing tile carries the drop preview in place of
-    /// a placeholder. A resting card over its cap draws no new tab at all,
-    /// and the tile is the one cell the drop visibly changes: its hidden
-    /// count grows by one. A card with no tile has nothing to carry it (the
-    /// only slot that changes is a real tab's, whose wash already means that
-    /// tab takes the drop), so it previews nothing.
-    public static func tilePreviewsTheDrop(tabs: Int, expanded: Bool, perRow: Int) -> Bool {
-        !previewKeepsItsRows(tabs: tabs, expanded: expanded, perRow: perRow) && hasTile(tabs: tabs, perRow: perRow)
+    /// a placeholder: exactly when no placeholder is drawn and there is a tile
+    /// to carry it. Its hidden count is the one cell such a drop visibly
+    /// changes. A card with no tile has nothing to carry it (the only slot
+    /// that changes is a real tab's, whose wash already means that tab takes
+    /// the drop), so it previews nothing.
+    ///
+    /// Read off `cells` rather than restating its rule, so the placeholder and
+    /// the tile can never both claim the drop or both refuse it.
+    public static func tilePreviewsTheDrop(tabs: [TabID], expanded: Bool, closing: TabID? = nil, perRow: Int) -> Bool {
+        let preview = cells(tabs: tabs, expanded: expanded, newTab: true, closing: closing, perRow: perRow)
+        return !preview.contains(.newTab) && preview.contains { $0.isTile }
     }
 
     /// A card draws a tile only once its tabs outrun a single row: `+N` at

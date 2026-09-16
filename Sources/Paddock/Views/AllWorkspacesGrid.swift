@@ -158,7 +158,7 @@ private struct CardDropPreview {
     /// what a card that cannot draw a placeholder has to say the drop with.
     func tileCarriesTheDrop(of tabs: [TabID], expanded: Bool, perRow: Int) -> Bool {
         takesTheDrop && GridCardLayout.tilePreviewsTheDrop(
-            tabs: GridCardLayout.surviving(tabs, closing: closingTab).count, expanded: expanded, perRow: perRow
+            tabs: tabs, expanded: expanded, closing: closingTab, perRow: perRow
         )
     }
 

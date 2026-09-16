@@ -314,10 +314,12 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// A pane dropped in a card's empty space makes a tab there wherever the
-    /// pane came from, so the card previews the slot that tab lands in all
+    /// pane came from, and the card's own tabs stay where they are in all
     /// three ways it can arrive: from another workspace, from a multi-pane
     /// tab of this card, and from the only pane of a tab of this card, which
-    /// the same drop takes away.
+    /// the same drop takes away. The placeholder takes the free slot after
+    /// them every time, so a card always keeps the tab the drag came from to
+    /// drop back onto.
     func testACardPreviewsTheNewTabWhereverThePaneCameFrom() async throws {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
@@ -344,20 +346,28 @@ final class ChromeRenderTests: XCTestCase {
             of: GridFixture.herdr, dragging: GridFixture.buildPane, harness: harness, window: window,
             follows: slots[2], render: nil, directory: nil
         )
-        // From the only pane of a tab of this card: that tab goes with it, so
-        // the created tab lands one slot earlier, on the slot the emptied tab
-        // holds now.
+        // From the only pane of a tab of this card: that tab goes with the
+        // drop, and it STAYS DRAWN in its own slot until then, so the
+        // placeholder takes the same free slot as the other two.
         try await assertNewTabSlot(
             of: GridFixture.herdr, dragging: GridFixture.srcPane, harness: harness, window: window,
-            lands: slots[2], render: "grid-drag-new-tab-same-workspace.png", directory: directory
+            follows: slots[2], render: "grid-drag-new-tab-same-workspace.png", directory: directory
         )
-        // The smallest shape of the same case: a card whose ONLY tab is the
-        // one the drop empties ends with one tab again, in the slot that tab
-        // holds now.
+        XCTAssertEqual(
+            harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.herdr }?.tabs.map(\.frame), slots,
+            "a card's own tabs moved for a drop it was only being hovered with"
+        )
+        // The smallest shape of the same case: a card of ONE tab, whose only
+        // pane is the one being dragged. The tab it came from is still there
+        // to drop back onto, and the placeholder stands beside it.
         let only = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
         try await assertNewTabSlot(
             of: GridFixture.glance, dragging: GridFixture.glancePane, harness: harness, window: window,
-            lands: only, render: nil, directory: nil
+            follows: only, render: nil, directory: nil
+        )
+        XCTAssertEqual(
+            harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame, only,
+            "the one-tab card lost the very tab the drag came from"
         )
         window.close()
     }
