@@ -265,7 +265,7 @@ struct PaneCellView: View {
                 onCommit: { text in Task { await viewModel.commitRename(text, for: .pane(pane.paneID)) } },
                 onCancel: { viewModel.cancelRename() }
             )
-            .frame(height: PaneChrome.titleRowHeight)
+            .frame(width: ChromeMetrics.Rename.paneWidth, height: PaneChrome.titleRowHeight)
             .padding(.top, PaneChrome.verticalPadding)
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {

@@ -93,6 +93,11 @@ enum ChromeMetrics {
         /// Narrow enough for a rail row, wide enough that a two-word name is
         /// not scrolling as it is typed.
         static let minimumWidth: CGFloat = 72
+        /// The pane's editor stands in an overlay on the legend, which gives
+        /// it the whole box's width unless something caps it; a field running
+        /// the length of the pane reads as a search bar, not a rename. The
+        /// tab and rail editors need no cap: their rows already are one.
+        static let paneWidth: CGFloat = 160
     }
 
     /// The hover-reveal close control on a tab and a rail row.

@@ -1212,6 +1212,94 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The three places the one inline rename editor opens, and the zoom
+    /// badge -- every state Task 28 adds that paints anything. Each is
+    /// compared against the SAME window at rest: the editor (or badge) has to
+    /// change its own surface and leave the other two alone, which is what
+    /// says it opened where it was asked to and nowhere else. PNGs are
+    /// written only when `PADDOCK_CHROME_RENDER_DIR` is set.
+    func testEachRenameEditorAndTheZoomBadgePaintOnlyTheirOwnSurface() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        // The selected tab's own midpoint, the selected rail row's, and a
+        // point inside the focused pane -- the three sampled in `assertSamples`.
+        let tabPoint = CGPoint(x: 459, y: 40)
+        let railPoint = CGPoint(x: 100, y: 64)
+        let panePoint = CGPoint(x: 700, y: 400)
+
+        /// Renders `model` with `open` applied, against the same window at
+        /// rest, and returns both images' data plus the three samples.
+        func render(
+            _ name: String, model: SessionModel, open: (Harness) -> Void
+        ) async throws -> (rest: Data, changed: Data, restSamples: [String], changedSamples: [String]) {
+            let harness = try await Harness(theme: .tokyoNight, model: model)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let rest = try snapshot(window)
+            let restSamples = [tabPoint, railPoint, panePoint].map { hex(rest, $0) }
+
+            open(harness)
+            await settle(window)
+            let changed = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(changed.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(name))
+            }
+            let changedSamples = [tabPoint, railPoint, panePoint].map { hex(changed, $0) }
+            window.close()
+            return (
+                try XCTUnwrap(rest.representation(using: .png, properties: [:])),
+                try XCTUnwrap(changed.representation(using: .png, properties: [:])),
+                restSamples, changedSamples
+            )
+        }
+
+        // Each editor is read the same way: the window as a whole has to
+        // change, and the two surfaces it did not open on have to sample
+        // exactly as they did at rest. The three points are the surfaces, not
+        // the editors -- a rail row's field lands on the very fill its own
+        // sample point reads, and a pane's stands on a one-point legend band
+        // no sample point reaches, so only the image carries those.
+        let tab = try await render("rename-tab.png", model: try Fixture.model()) { harness in
+            harness.viewModel.beginRename(.tab(TabID(rawValue: "w1:t3")))
+        }
+        XCTAssertNotEqual(tab.rest, tab.changed, "the editor did not open on the tab")
+        XCTAssertNotEqual(tab.restSamples[0], tab.changedSamples[0], "the tab's own label is not where it opened")
+        XCTAssertEqual(tab.restSamples[1], tab.changedSamples[1], "renaming a tab repainted the rail")
+        XCTAssertEqual(tab.restSamples[2], tab.changedSamples[2], "renaming a tab repainted the canvas")
+
+        let workspace = try await render("rename-workspace.png", model: try Fixture.model()) { harness in
+            harness.viewModel.beginRename(.workspace(WorkspaceID(rawValue: "w1")))
+        }
+        XCTAssertNotEqual(workspace.rest, workspace.changed, "the editor did not open on the rail row")
+        XCTAssertEqual(workspace.restSamples[0], workspace.changedSamples[0], "renaming a workspace repainted the strip")
+        XCTAssertEqual(workspace.restSamples[2], workspace.changedSamples[2], "renaming a workspace repainted the canvas")
+
+        let pane = try await render("rename-pane.png", model: try Fixture.model()) { harness in
+            harness.viewModel.beginRename(.pane(PaneID(rawValue: "w1:p2")))
+        }
+        XCTAssertNotEqual(pane.rest, pane.changed, "the editor did not open on the pane")
+        XCTAssertEqual(pane.restSamples[0], pane.changedSamples[0], "renaming a pane repainted the strip")
+        XCTAssertEqual(pane.restSamples[1], pane.changedSamples[1], "renaming a pane repainted the rail")
+
+        // The badge rides the same legend, so it is read the same way: a
+        // zoomed tab's canvas differs, and nothing else does.
+        let zoomed = try await Harness(theme: .tokyoNight, model: try Fixture.model(zoomed: true))
+        let zoomedWindow = zoomed.makeWindow(size: Self.windowSize)
+        await settle(zoomedWindow)
+        let zoomedImage = try snapshot(zoomedWindow)
+        if let directory {
+            try XCTUnwrap(zoomedImage.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("zoom-badge.png"))
+        }
+        XCTAssertNotEqual(
+            try XCTUnwrap(zoomedImage.representation(using: .png, properties: [:])), pane.rest,
+            "a zoomed tab renders exactly as an unzoomed one, so the badge is not drawn"
+        )
+        XCTAssertEqual(hex(zoomedImage, tabPoint), tab.restSamples[0], "the badge repainted the strip")
+        XCTAssertEqual(hex(zoomedImage, railPoint), tab.restSamples[1], "the badge repainted the rail")
+        zoomedWindow.close()
+    }
+
     private func assertButtonsCentered(in window: NSWindow, file: StaticString = #filePath, line: UInt = #line) {
         let buttons = WindowButtonCentering.buttons(of: window)
         XCTAssertEqual(buttons.count, 3, file: file, line: line)
@@ -1455,7 +1543,7 @@ private enum GridFixture {
 private enum Fixture {
     static let canvasPanes = [PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")]
 
-    static func model() throws -> SessionModel {
+    static func model(zoomed: Bool = false) throws -> SessionModel {
         let workspaces: [(id: String, label: String, panes: Int, status: String)] = [
             ("w1", "paddock", 5, "idle"), ("w2", "repo-tools", 3, "blocked"), ("w3", "board", 2, "working"),
             ("w4", "mattstack-apps", 4, "done"), ("w5", "herdr", 1, "idle"),
@@ -1488,7 +1576,7 @@ private enum Fixture {
         }
         let area: [String: Int] = ["x": 0, "y": 0, "width": 120, "height": 40]
         let layout: [String: Any] = [
-            "workspace_id": "w1", "tab_id": "w1:t3", "zoomed": false, "area": area, "focused_pane_id": "w1:p2",
+            "workspace_id": "w1", "tab_id": "w1:t3", "zoomed": zoomed, "area": area, "focused_pane_id": "w1:p2",
             "panes": [
                 ["pane_id": "w1:p1", "focused": false, "rect": ["x": 0, "y": 0, "width": 60, "height": 40]],
                 ["pane_id": "w1:p2", "focused": true, "rect": ["x": 60, "y": 0, "width": 60, "height": 40]],
