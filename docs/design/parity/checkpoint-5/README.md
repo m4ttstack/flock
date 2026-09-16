@@ -4,7 +4,9 @@ The complete v1 surface before the end-to-end suite. Task 28b added the top-righ
 attention stack and made the workspace rail's status legible; this is what both
 looked like when Matt tried them by hand.
 
-Produced at `9a7dae3` (task 28b plus its first fix round) unless noted. The nine
+Produced at `2b5869a`, except `rail-before-tokyo-night.png`, which is the rail as it
+stood at `7bc827e`. The fix round that followed (`9a7dae3`) moved no pixel, so these
+are also what the app draws there. The nine
 `chrome-*.png` and `attention-stack.png` come from the `PaddockChromeRender` scheme
 rendering the real `MainWindow` offscreen at 900x560 from fixture data, with
 `TEST_RUNNER_PADDOCK_CHROME_RENDER_DIR` set. `grid-status-dots.png` comes from the
