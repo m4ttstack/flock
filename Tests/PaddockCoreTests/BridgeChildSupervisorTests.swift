@@ -98,20 +98,33 @@ final class BridgeChildSupervisorTests: XCTestCase {
         }
     }
 
+    /// What `makeSupervisor` hands back: the pieces a test drives plus the
+    /// output generation the first child was installed under, which is what an
+    /// EOF has to carry to count as current.
+    private struct Rig {
+        let supervisor: BridgeChildSupervisor
+        let io: BridgeIO
+        let firstOutputGeneration: Int
+    }
+
     /// A supervisor with its first child already spawned and its IO attached,
-    /// wired the way `ControlBridge.run` wires them.
+    /// wired the way `ControlBridge.run` wires them. `clock` lets a test age a
+    /// child past `refusedTakeWindow` without waiting for it.
     private func makeSupervisor(
         spawner: Spawner,
         status: Pipe? = nil,
         retries: LockedBox<[TimeInterval]>? = nil,
-        runRetries: Bool = true
-    ) -> (BridgeChildSupervisor, BridgeIO) {
+        runRetries: Bool = true,
+        clock: LockedBox<Date>? = nil,
+        retryDelayInTest: TimeInterval = 0.01
+    ) -> Rig {
         let supervisor = BridgeChildSupervisor(
             ptySize: { PTYSize(cols: 80, rows: 24) },
+            now: { clock?.value ?? Date() },
             scheduleRetry: { delay, work in
                 retries?.mutate { $0.append(delay) }
                 guard runRetries else { return }
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.01, execute: work)
+                DispatchQueue.global().asyncAfter(deadline: .now() + retryDelayInTest, execute: work)
             },
             spawn: { spawner.spawn($0) }
         )
@@ -129,9 +142,9 @@ final class BridgeChildSupervisorTests: XCTestCase {
         )
         supervisor.attach(io: io)
         io.swapHerdrInput(to: first!.input)
-        supervisor.installOutput(for: first!)
+        let generation = supervisor.installOutput(for: first!)
         supervisor.startWatching()
-        return (supervisor, io)
+        return Rig(supervisor: supervisor, io: io, firstOutputGeneration: generation)
     }
 
     private func waitUntil(
@@ -156,7 +169,8 @@ final class BridgeChildSupervisorTests: XCTestCase {
     func testARetakeInstallsALiveDescriptorThatReachesTheNewChild() {
         let spawner = Spawner(scripts: [])
         defer { spawner.terminateAll() }
-        let (supervisor, io) = makeSupervisor(spawner: spawner)
+        let rig = makeSupervisor(spawner: spawner)
+        let (supervisor, io) = (rig.supervisor, rig.io)
 
         supervisor.handle(.release)
         waitUntil("the released child to exit") { spawner.spawnCount == 1 && !spawner.isRunning(0) }
@@ -187,7 +201,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
     func testAChildThatExitsWhileReleasedLeavesTheBridgeRunning() {
         let spawner = Spawner(scripts: [])
         defer { spawner.terminateAll() }
-        let (supervisor, _) = makeSupervisor(spawner: spawner)
+        let supervisor = makeSupervisor(spawner: spawner).supervisor
 
         supervisor.handle(.release)
         waitUntil("the released child to exit") { !spawner.isRunning(0) }
@@ -201,7 +215,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
     func testAChildThatExitsWhileHoldingFinishesTheBridgeWithItsStatus() {
         let spawner = Spawner(scripts: ["exit 7"])
         defer { spawner.terminateAll() }
-        let (supervisor, _) = makeSupervisor(spawner: spawner)
+        let supervisor = makeSupervisor(spawner: spawner).supervisor
 
         waitUntil("the bridge to finish") { supervisor.isFinished }
         XCTAssertEqual(supervisor.waitUntilFinished(), 7, "the child's own status is not what the bridge returns")
@@ -218,7 +232,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
         defer { spawner.terminateAll() }
         let status = Pipe()
         let delays = LockedBox([TimeInterval]())
-        let (supervisor, _) = makeSupervisor(spawner: spawner, status: status, retries: delays)
+        let supervisor = makeSupervisor(spawner: spawner, status: status, retries: delays).supervisor
 
         supervisor.handle(.release)
         waitUntil("the released child to exit") { !spawner.isRunning(0) }
@@ -239,26 +253,134 @@ final class BridgeChildSupervisorTests: XCTestCase {
     }
 
     /// I1: an EOF from a handle that is no longer installed decides nothing,
-    /// even when paddock is holding again by the time it arrives.
-    func testAStaleOutputEOFDoesNotEndTheBridge() {
+    /// and the one from the installed handle still ends the bridge.
+    ///
+    /// The clock is advanced past `refusedTakeWindow` first, deliberately: with
+    /// a young child every EOF reads `.refusedTake` and returns before the
+    /// staleness check is reached, so the test would pass with that check
+    /// deleted. Aged, the staleness check is the ONLY thing separating the two
+    /// calls below.
+    func testAStaleOutputEOFDecidesNothingAndTheCurrentOneEndsTheBridge() {
         let spawner = Spawner(scripts: [])
         defer { spawner.terminateAll() }
-        let (supervisor, _) = makeSupervisor(spawner: spawner)
+        let clock = LockedBox(Date())
+        let rig = makeSupervisor(spawner: spawner, clock: clock)
+        let supervisor = rig.supervisor
 
-        supervisor.handle(.release)
-        waitUntil("the released child to exit") { !spawner.isRunning(0) }
-        supervisor.handle(.take)
-        waitUntil("the retake to spawn") { spawner.spawnCount == 2 }
+        clock.mutate { $0 = $0.addingTimeInterval(BridgeHoldState.refusedTakeWindow + 1) }
 
-        // The first child's output generation, replayed after the retake.
-        supervisor.herdrOutputEnded(generation: 1)
+        supervisor.herdrOutputEnded(generation: rig.firstOutputGeneration + 99)
         usleep(150_000)
         XCTAssertFalse(supervisor.isFinished, "a superseded handle's EOF ended the bridge")
 
-        // The window the real race lives in: nothing installed yet.
+        // The window the real race lives in: a take has claimed the hold but
+        // nothing is installed yet, so every generation is stale.
         supervisor.herdrOutputEnded(generation: 0)
         usleep(100_000)
         XCTAssertFalse(supervisor.isFinished)
+
+        supervisor.herdrOutputEnded(generation: rig.firstOutputGeneration)
+        waitUntil("the current handle's EOF to end the bridge") { supervisor.isFinished }
+    }
+
+    /// N5's half of the lost-status bug: a shutdown, not the watcher, is what
+    /// finishes the bridge here, and the status still has to be the child's.
+    /// The child traps SIGTERM and exits 7, so the ordering is forced rather
+    /// than raced: `shutdown()` is the only thing that ends it.
+    func testAShutdownStillReportsTheChildsOwnExitStatus() {
+        let spawner = Spawner(scripts: ["trap 'exit 7' TERM; echo ready > \"$SINK\"; while true; do sleep 0.05; done"])
+        defer { spawner.terminateAll() }
+        let supervisor = makeSupervisor(spawner: spawner).supervisor
+        waitUntil("the child to install its trap") { spawner.sink(0).contains("ready") }
+
+        supervisor.shutdown()
+
+        waitUntil("the bridge to finish") { supervisor.isFinished }
+        XCTAssertEqual(
+            supervisor.waitUntilFinished(), 7,
+            "a shutdown reported its own nothing instead of the child's status"
+        )
+    }
+
+    // MARK: - a release against a pending retry
+
+    /// N1: while a retry is armed the bridge is already in the released state,
+    /// so an app release arriving then has no hold to drop. It must still stop
+    /// the retry, or a refused pane takes herdr's lock back behind an app that
+    /// has let go, which is the very drift the intent reconciliation exists to
+    /// prevent.
+    func testAReleaseWhileARetryIsPendingStopsItFromTakingThePaneBack() {
+        // The retake is refused once; the retry after it would succeed, so only
+        // the release can stop it.
+        let spawner = Spawner(scripts: ["cat > \"$SINK\"", "exit 1"])
+        defer { spawner.terminateAll() }
+        let delays = LockedBox([TimeInterval]())
+        // Long enough for the release to land inside the armed window.
+        let supervisor = makeSupervisor(
+            spawner: spawner, retries: delays, retryDelayInTest: 0.5
+        ).supervisor
+
+        supervisor.handle(.release)
+        waitUntil("the first child to exit") { !spawner.isRunning(0) }
+        supervisor.handle(.take)
+        waitUntil("the retake to be refused and a retry armed") { delays.value.count == 1 }
+
+        supervisor.handle(.release)
+
+        // Well past when the retry would have fired.
+        usleep(900_000)
+        XCTAssertEqual(spawner.spawnCount, 2, "the cancelled retry spawned a herdr client anyway")
+        XCTAssertEqual(spawner.liveCount, 0, "a child is holding the pane after a release")
+        XCTAssertEqual(delays.value.count, 1, "the cancelled retry armed another one")
+        XCTAssertFalse(supervisor.isFinished)
+    }
+
+    /// The other order: the release lands first and the take that follows is
+    /// the app's own, so it must go through. A cancelled retry must not poison
+    /// the next real take.
+    func testATakeAfterAReleaseThatCancelledARetryStillWorks() {
+        let spawner = Spawner(scripts: ["cat > \"$SINK\"", "exit 1"])
+        defer { spawner.terminateAll() }
+        let delays = LockedBox([TimeInterval]())
+        let supervisor = makeSupervisor(
+            spawner: spawner, retries: delays, retryDelayInTest: 0.5
+        ).supervisor
+
+        supervisor.handle(.release)
+        waitUntil("the first child to exit") { !spawner.isRunning(0) }
+        supervisor.handle(.take)
+        waitUntil("a retry to be armed") { delays.value.count == 1 }
+        supervisor.handle(.release)
+        usleep(700_000)
+
+        supervisor.handle(.take)
+        waitUntil("the app's own take to spawn") { spawner.spawnCount == 3 }
+        waitUntil("its child to be running") { spawner.isRunning(2) }
+        XCTAssertEqual(spawner.liveCount, 1)
+        XCTAssertFalse(supervisor.isFinished)
+    }
+
+    /// A shutdown has to stop a pending retry too, or the bridge exits with a
+    /// herdr client it spawned on the way out.
+    func testAShutdownWhileARetryIsPendingSpawnsNothingFurther() {
+        let spawner = Spawner(scripts: ["cat > \"$SINK\"", "exit 1"])
+        defer { spawner.terminateAll() }
+        let delays = LockedBox([TimeInterval]())
+        let supervisor = makeSupervisor(
+            spawner: spawner, retries: delays, retryDelayInTest: 0.5
+        ).supervisor
+
+        supervisor.handle(.release)
+        waitUntil("the first child to exit") { !spawner.isRunning(0) }
+        supervisor.handle(.take)
+        waitUntil("a retry to be armed") { delays.value.count == 1 }
+
+        supervisor.shutdown()
+        usleep(900_000)
+
+        XCTAssertTrue(supervisor.isFinished)
+        XCTAssertEqual(spawner.spawnCount, 2, "a retry spawned a child after the bridge was finished")
+        XCTAssertEqual(spawner.liveCount, 0, "a child outlived the bridge")
     }
 
     /// Only one child holds the pane at a time, so two clients can never race
@@ -266,7 +388,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
     func testOnlyOneChildIsAliveAcrossTwoRoundTrips() {
         let spawner = Spawner(scripts: [])
         defer { spawner.terminateAll() }
-        let (supervisor, _) = makeSupervisor(spawner: spawner)
+        let supervisor = makeSupervisor(spawner: spawner).supervisor
 
         for round in 1...2 {
             supervisor.handle(.release)
@@ -292,7 +414,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
     func testRepeatedCommandsSpawnNothingExtra() {
         let spawner = Spawner(scripts: [])
         defer { spawner.terminateAll() }
-        let (supervisor, _) = makeSupervisor(spawner: spawner)
+        let supervisor = makeSupervisor(spawner: spawner).supervisor
 
         supervisor.handle(.take)
         XCTAssertEqual(spawner.spawnCount, 1, "a take for a pane already held spawned a second child")
@@ -311,7 +433,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
     func testShutdownFinishesTheBridgeEvenWhileReleased() {
         let spawner = Spawner(scripts: [])
         defer { spawner.terminateAll() }
-        let (supervisor, _) = makeSupervisor(spawner: spawner)
+        let supervisor = makeSupervisor(spawner: spawner).supervisor
 
         supervisor.handle(.release)
         waitUntil("the released child to exit") { !spawner.isRunning(0) }

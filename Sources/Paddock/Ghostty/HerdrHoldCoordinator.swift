@@ -25,7 +25,7 @@ final class HerdrHoldCoordinator {
     init(
         viewModel: SessionViewModel,
         notificationCenter: NotificationCenter = .default,
-        isActiveAtLaunch: Bool = NSApp?.isActive ?? false
+        isActive: @escaping () -> Bool = { NSApp?.isActive ?? false }
     ) {
         self.viewModel = viewModel
         observers = [
@@ -43,9 +43,14 @@ final class HerdrHoldCoordinator {
         // `HoldPolicy` starts holding, and an app that launches WITHOUT
         // activating (`open -g`, or a launch the user clicks straight past)
         // never posts `didResignActive`, so nothing would ever tell it to let
-        // go. Seeding from the real state is what keeps the feature from being
-        // silently off for that whole launch.
-        if !isActiveAtLaunch { apply(.resignedActive) }
+        // go. Deferred a turn rather than read here: this runs from
+        // `PaddockApp.init`, BEFORE AppKit has activated anything, so
+        // `NSApp.isActive` is false for a foreground launch too and seeding
+        // from it there would arm a release on every single launch.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !isActive() else { return }
+            apply(.resignedActive)
+        }
     }
 
     /// No teardown counterpart: one of these is built in `PaddockApp.init` and
