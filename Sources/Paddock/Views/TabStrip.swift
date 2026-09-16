@@ -1,3 +1,4 @@
+import AppKit
 import PaddockCore
 import SwiftUI
 
@@ -47,8 +48,19 @@ struct TabStrip: View {
                             .reportsFrame(in: DragSpace.stripContent) { drag.setTabFrame($0, for: tab.tabID) }
                             .accessibilityIdentifier("paddock.strip.tab.\(tab.tabID.rawValue)")
                             .onHover { hoveredTabID = $0 ? tab.tabID : (hoveredTabID == tab.tabID ? nil : hoveredTabID) }
-                            .onTapGesture(count: 2) { viewModel.beginRename(.tab(tab.tabID)) }
-                            .onTapGesture { onSelect(tab.tabID) }
+                            // Both guarded: SwiftUI's tap gesture on macOS
+                            // fires for the secondary button too, so without
+                            // this a right-click selects the tab and two of
+                            // them open the rename editor, on top of the
+                            // context menu they were asking for.
+                            .onTapGesture(count: 2) {
+                                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+                                viewModel.beginRename(.tab(tab.tabID))
+                            }
+                            .onTapGesture {
+                                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+                                onSelect(tab.tabID)
+                            }
                             // Disarmed while this tab is being renamed: a press
                             // inside the field must reach the text, not start a
                             // drag.
@@ -126,7 +138,10 @@ struct TabStrip: View {
         if let workspace {
             Color.clear
                 .contentShape(Rectangle())
-                .onTapGesture { Task { await viewModel.createTab(in: workspace) } }
+                .onTapGesture {
+                    guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+                    Task { await viewModel.createTab(in: workspace) }
+                }
                 .accessibilityIdentifier("paddock.strip.newTab")
         }
     }

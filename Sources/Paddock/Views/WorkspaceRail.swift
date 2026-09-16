@@ -68,8 +68,17 @@ struct WorkspaceRail: View {
                                     ? workspace.workspaceID
                                     : (hoveredWorkspaceID == workspace.workspaceID ? nil : hoveredWorkspaceID)
                             }
-                            .onTapGesture(count: 2) { viewModel.beginRename(.workspace(workspace.workspaceID)) }
+                            // Both guarded: SwiftUI's tap gesture on macOS
+                            // fires for the secondary button too, so without
+                            // this a right-click moves the rail's selection
+                            // and two of them open the rename editor, on top
+                            // of the context menu they were asking for.
+                            .onTapGesture(count: 2) {
+                                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+                                viewModel.beginRename(.workspace(workspace.workspaceID))
+                            }
                             .onTapGesture {
+                                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
                                 let commandHeld = NSEvent.modifierFlags.contains(.command)
                                 if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld, current: viewModel.selectedWorkspaceID) {
                                     onSelect(workspace.workspaceID)
@@ -125,7 +134,10 @@ struct WorkspaceRail: View {
     private var newWorkspaceZone: some View {
         Color.clear
             .contentShape(Rectangle())
-            .onTapGesture { Task { await viewModel.createWorkspace() } }
+            .onTapGesture {
+                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+                Task { await viewModel.createWorkspace() }
+            }
             .accessibilityIdentifier("paddock.rail.newWorkspace")
     }
 

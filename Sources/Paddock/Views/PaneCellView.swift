@@ -509,20 +509,6 @@ private struct PaneMenuModifier<Leaf: View>: ViewModifier {
     }
 }
 
-private extension NSEvent {
-    static func isSecondaryButtonEvent(_ event: NSEvent?) -> Bool {
-        guard let event else { return false }
-        switch event.type {
-        case .rightMouseDown, .rightMouseUp, .rightMouseDragged:
-            return true
-        case .leftMouseDown, .leftMouseUp:
-            return event.modifierFlags.contains(.control)
-        default:
-            return false
-        }
-    }
-}
-
 /// The "Copied" whisper, shown only in the pane the copy happened in.
 private struct PaneCopiedToastPill: View {
     let theme: Theme

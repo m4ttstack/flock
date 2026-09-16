@@ -2039,7 +2039,6 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(harness.viewModel.renameTarget, .workspace(WorkspaceID(rawValue: "w1")))
     }
 
-
     @MainActor
     func testTheKeyboardMoveActsOnHerdrsFocusedPane() async {
         let model = Self.sideBySideModel()
