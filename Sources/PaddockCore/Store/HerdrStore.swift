@@ -614,15 +614,7 @@ public final class HerdrStore {
         do {
             try await socket.send(line: try Self.subscribeRequestLine())
 
-            var ackLine: Data?
-            for try await line in socket.lines {
-                ackLine = line
-                break
-            }
-            guard let ackLine else {
-                throw HerdrClientError.transport("subscription connection closed before ack")
-            }
-            try Self.validateAck(ackLine)
+            try Self.validateAck(try await Self.awaitAck(on: socket, within: requestTimeout))
 
             let socketLines = socket.lines
             let task = Task {
@@ -674,6 +666,32 @@ public final class HerdrStore {
             if activeSubscribeSocket === socket { activeSubscribeSocket = nil }
             await readingTask?.value
             throw error
+        }
+    }
+
+    /// The ack is a request in everything but which connection it rides:
+    /// herdr answers it at once, and it is the STREAM after it that may sit
+    /// quiet for hours. Unbounded, a server that accepts the subscribe
+    /// connection and then never acks leaves the store at `.connecting` with
+    /// nothing to drive a reconnect; bounded, it fails like any other request
+    /// and the run loop's own backoff picks it up.
+    private static func awaitAck(on socket: LineSocket, within timeout: Duration) async throws -> Data {
+        try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask {
+                for try await line in socket.lines {
+                    return line
+                }
+                throw HerdrClientError.transport("subscription connection closed before ack")
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw HerdrClientError.timedOut(method: "events.subscribe")
+            }
+            defer { group.cancelAll() }
+            guard let line = try await group.next() else {
+                throw HerdrClientError.transport("subscription connection closed before ack")
+            }
+            return line
         }
     }
 

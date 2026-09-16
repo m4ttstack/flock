@@ -938,6 +938,38 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(failure.code, "timed_out")
         XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID, TabID(rawValue: "w1:t1"), "the overlay was left showing a move that never happened")
     }
+    /// The subscribe ack is the one request-shaped wait that rides the
+    /// subscription connection, and it is expected in milliseconds: the stream
+    /// AFTER it is what may sit quiet for hours. Unbounded, a herdr that takes
+    /// the connection and never acks left the store at `.connecting` with
+    /// nothing to drive a retry, so the app sat there with no session and no
+    /// error. `holdNext` parks the fake before it writes its ack, which is
+    /// exactly that server.
+    @MainActor
+    func testASubscribeThatIsNeverAckedRetriesInsteadOfSittingAtConnecting() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: snapshotResultJSON())
+        let releaseAck = fake.holdNext(method: "events.subscribe")
+        defer { releaseAck() }
+
+        let store = HerdrStore(
+            socketPath: fake.socketPath,
+            backoffSchedule: { _ in .milliseconds(20) },
+            requestTimeout: .milliseconds(150)
+        )
+        await store.start()
+        defer { store.stop() }
+
+        try await waitUntil(timeout: 5) {
+            if case .reconnecting = store.connection { return true }
+            return false
+        }
+        // And the retry is a real one: the hold was one-shot, so the next
+        // subscribe is acked and the store reaches a live session.
+        try await waitUntil(timeout: 5) { store.connection == .live }
+        XCTAssertNotNil(store.model)
+    }
 }
 
 /// Carries one chained step's outcome out of the `Task` that runs it.
