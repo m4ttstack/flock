@@ -936,6 +936,175 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(geometry.paneFrames[right]).minX, 140, accuracy: 0.01)
     }
 
+    // MARK: - a real three-pane row, against herdr's own tree
+
+    /// `w2:tA` of the scratch session, read from `session.snapshot` and
+    /// `layout.export` on 2026-09-16: a three-pane row over two stacked
+    /// panes. herdr's own tree nests the row as `[[pA|pF] | pG]`, so the
+    /// boundary between pF and pG is the row's ROOT split and the one between
+    /// pA and pF is nested inside its first child. The split ids carry the
+    /// same answer (`split_1_0` -> `[false]`, `split_2_00` -> `[false, false]`),
+    /// which is the polarity `set_ratio_at` in herdr reads: `true` descends
+    /// into `second`.
+    private var threePaneRow: (layout: LayoutSnapshot, exported: ExportedLayoutDescription) {
+        let workspace = WorkspaceID(rawValue: "w2")
+        let tab = TabID(rawValue: "w2:tA")
+        let area = CellRect(x: 0, y: 0, width: 120, height: 40)
+        func pane(_ id: String) -> PaneID { PaneID(rawValue: id) }
+        let layout = LayoutSnapshot(
+            workspaceID: workspace, tabID: tab, zoomed: false, area: area, focusedPaneID: pane("w2:pF"),
+            panes: [
+                PaneRect(paneID: pane("w2:pA"), focused: false, rect: CellRect(x: 0, y: 0, width: 37, height: 20)),
+                PaneRect(paneID: pane("w2:pF"), focused: true, rect: CellRect(x: 37, y: 0, width: 38, height: 20)),
+                PaneRect(paneID: pane("w2:pG"), focused: false, rect: CellRect(x: 75, y: 0, width: 45, height: 20)),
+                PaneRect(paneID: pane("w2:pD"), focused: false, rect: CellRect(x: 0, y: 20, width: 120, height: 10)),
+                PaneRect(paneID: pane("w2:pE"), focused: false, rect: CellRect(x: 0, y: 30, width: 120, height: 10)),
+            ],
+            splits: [
+                SplitInfo(id: "split_0_root", direction: .down, ratio: 0.5, rect: area),
+                SplitInfo(id: "split_1_0", direction: .right, ratio: 0.6268372, rect: CellRect(x: 0, y: 0, width: 120, height: 20)),
+                SplitInfo(id: "split_2_00", direction: .right, ratio: 0.49073178, rect: CellRect(x: 0, y: 0, width: 75, height: 20)),
+                SplitInfo(id: "split_3_1", direction: .down, ratio: 0.5, rect: CellRect(x: 0, y: 20, width: 120, height: 20)),
+            ]
+        )
+        let exported = ExportedLayoutDescription(
+            workspaceID: workspace, tabID: tab, zoomed: false, focusedPaneID: pane("w2:pF"),
+            root: .split(
+                direction: .down, ratio: 0.5,
+                first: .split(
+                    direction: .right, ratio: 0.6268372,
+                    first: .split(
+                        direction: .right, ratio: 0.49073178,
+                        first: .pane(ExportedLayoutPane(paneID: pane("w2:pA"))),
+                        second: .pane(ExportedLayoutPane(paneID: pane("w2:pF")))
+                    ),
+                    second: .pane(ExportedLayoutPane(paneID: pane("w2:pG")))
+                ),
+                second: .split(
+                    direction: .down, ratio: 0.5,
+                    first: .pane(ExportedLayoutPane(paneID: pane("w2:pD"))),
+                    second: .pane(ExportedLayoutPane(paneID: pane("w2:pE")))
+                )
+            )
+        )
+        return (layout, exported)
+    }
+
+    private func rowDividers(ratios: [String: Double] = [:]) -> [DividerHandle] {
+        let fixture = threePaneRow
+        var layout = fixture.layout
+        if !ratios.isEmpty {
+            layout = LayoutSnapshot(
+                workspaceID: layout.workspaceID, tabID: layout.tabID, zoomed: false, area: layout.area,
+                focusedPaneID: layout.focusedPaneID, panes: layout.panes,
+                splits: layout.splits.map { split in
+                    guard let ratio = ratios[split.id] else { return split }
+                    return SplitInfo(id: split.id, direction: split.direction, ratio: ratio, rect: split.rect)
+                }
+            )
+        }
+        return CanvasGeometry.resolved(
+            layout: layout, exported: fixture.exported,
+            grid: grid(filling: CGSize(width: 1200, height: 400), scale: 1), dividerThickness: 6
+        ).dividers.filter(\.isVerticalLine)
+    }
+
+    /// Which on-screen boundary is the row's ROOT split. Inverting the path
+    /// polarity, or the order the exported tree is walked in, swaps these two
+    /// and every divider drag then resizes the other boundary's split.
+    func testTheRootSplitOfARealThreePaneRowIsItsRightHandBoundary() throws {
+        let dividers = rowDividers()
+        XCTAssertEqual(dividers.count, 2, "one vertical divider per boundary of the row")
+        let root = try XCTUnwrap(dividers.first { $0.path == [false] })
+        let nested = try XCTUnwrap(dividers.first { $0.path == [false, false] })
+        XCTAssertEqual(root.frame.midX, 750, accuracy: 1, "the boundary between the middle pane and the right one")
+        XCTAssertEqual(nested.frame.midX, 370, accuracy: 1, "the boundary between the left pane and the middle one")
+        XCTAssertGreaterThan(root.frame.midX, nested.frame.midX)
+        XCTAssertEqual(root.regionFrame.width, 1200, accuracy: 1, "the root split owns the whole row")
+        XCTAssertEqual(nested.regionFrame.width, 750, accuracy: 1, "the nested one owns the root's first child")
+    }
+
+    /// What that nesting means when each boundary is dragged, which is what
+    /// the eye sees: moving the ROOT boundary rescales the pair inside its
+    /// first child, so the other divider moves with it; moving the NESTED one
+    /// trades width between two panes and leaves the root boundary alone.
+    /// herdr's `set_ratio_at` does the same thing to the same tree.
+    func testDraggingTheRootBoundaryMovesTheNestedOneAndNotTheReverse() throws {
+        let atRest = rowDividers()
+        let rootAtRest = try XCTUnwrap(atRest.first { $0.path == [false] }).frame.midX
+        let nestedAtRest = try XCTUnwrap(atRest.first { $0.path == [false, false] }).frame.midX
+
+        let rootMoved = rowDividers(ratios: ["split_1_0": 0.8])
+        XCTAssertGreaterThan(try XCTUnwrap(rootMoved.first { $0.path == [false] }).frame.midX, rootAtRest)
+        XCTAssertGreaterThan(
+            try XCTUnwrap(rootMoved.first { $0.path == [false, false] }).frame.midX, nestedAtRest,
+            "the nested boundary keeps its share of a region that grew, so it moves too"
+        )
+
+        let nestedMoved = rowDividers(ratios: ["split_2_00": 0.8])
+        XCTAssertGreaterThan(try XCTUnwrap(nestedMoved.first { $0.path == [false, false] }).frame.midX, nestedAtRest)
+        XCTAssertEqual(
+            try XCTUnwrap(nestedMoved.first { $0.path == [false] }).frame.midX, rootAtRest, accuracy: 1,
+            "the root boundary is not inside the split that moved"
+        )
+    }
+
+    /// The same three panes, nested the other way (`[pA | [pF | pG]]`, which
+    /// is what herdr builds when each new pane splits the RIGHTMOST one).
+    /// Everything mirrors: the LEFT boundary is now the root and the right
+    /// one rides it. Which boundary feels "outer" is a property of how the
+    /// row was built, not of how either app maps a boundary to a split.
+    func testAMirroredThreePaneRowMirrorsWhichBoundaryCarriesTheOther() throws {
+        let workspace = WorkspaceID(rawValue: "w2")
+        let tab = TabID(rawValue: "w2:tM")
+        let area = CellRect(x: 0, y: 0, width: 120, height: 20)
+        func pane(_ id: String) -> PaneID { PaneID(rawValue: id) }
+        func dividers(rootRatio: Double, nestedRatio: Double) -> [DividerHandle] {
+            let layout = LayoutSnapshot(
+                workspaceID: workspace, tabID: tab, zoomed: false, area: area, focusedPaneID: pane("w2:pA"),
+                panes: [
+                    PaneRect(paneID: pane("w2:pA"), focused: true, rect: CellRect(x: 0, y: 0, width: 40, height: 20)),
+                    PaneRect(paneID: pane("w2:pF"), focused: false, rect: CellRect(x: 40, y: 0, width: 40, height: 20)),
+                    PaneRect(paneID: pane("w2:pG"), focused: false, rect: CellRect(x: 80, y: 0, width: 40, height: 20)),
+                ],
+                splits: [
+                    SplitInfo(id: "split_0_root", direction: .right, ratio: rootRatio, rect: area),
+                    SplitInfo(id: "split_1_1", direction: .right, ratio: nestedRatio, rect: CellRect(x: 40, y: 0, width: 80, height: 20)),
+                ]
+            )
+            let exported = ExportedLayoutDescription(
+                workspaceID: workspace, tabID: tab, zoomed: false, focusedPaneID: pane("w2:pA"),
+                root: .split(
+                    direction: .right, ratio: rootRatio,
+                    first: .pane(ExportedLayoutPane(paneID: pane("w2:pA"))),
+                    second: .split(
+                        direction: .right, ratio: nestedRatio,
+                        first: .pane(ExportedLayoutPane(paneID: pane("w2:pF"))),
+                        second: .pane(ExportedLayoutPane(paneID: pane("w2:pG")))
+                    )
+                )
+            )
+            return CanvasGeometry.resolved(
+                layout: layout, exported: exported,
+                grid: grid(filling: CGSize(width: 1200, height: 200), scale: 1), dividerThickness: 6
+            ).dividers
+        }
+
+        let atRest = dividers(rootRatio: 1.0 / 3, nestedRatio: 0.5)
+        let root = try XCTUnwrap(atRest.first { $0.path == [] })
+        let nested = try XCTUnwrap(atRest.first { $0.path == [true] })
+        XCTAssertLessThan(root.frame.midX, nested.frame.midX, "the root boundary is the LEFT one here")
+
+        let rootMoved = dividers(rootRatio: 0.5, nestedRatio: 0.5)
+        XCTAssertGreaterThan(try XCTUnwrap(rootMoved.first { $0.path == [true] }).frame.midX, nested.frame.midX)
+
+        let nestedMoved = dividers(rootRatio: 1.0 / 3, nestedRatio: 0.8)
+        XCTAssertEqual(
+            try XCTUnwrap(nestedMoved.first { $0.path == [] }).frame.midX, root.frame.midX, accuracy: 1,
+            "the root boundary is not inside the split that moved"
+        )
+    }
+
     func testARightSplitDividerIsAVerticalLine() {
         let divider = DividerHandle(
             tabID: TabID(rawValue: "w:t"), path: [], frame: .zero, direction: .right, regionFrame: .zero, cellExtent: 0
