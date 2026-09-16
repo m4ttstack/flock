@@ -58,6 +58,14 @@ public enum DragVisuals {
         maximum: CGSize(width: 112, height: 88), minimum: CGSize(width: 44, height: 22)
     )
 
+    /// The bounds a proxy drawn AS the thing it stands for takes: its own
+    /// footprint, exactly. `ghostSize` resolves these to scale 1, so a
+    /// miniature lines up one to one with the item it was picked up from
+    /// instead of being shrunk toward a generic block's bounds.
+    public static func exactBounds(_ size: CGSize) -> GhostBounds {
+        GhostBounds(maximum: size, minimum: size)
+    }
+
     /// The proxy's size: the origin at ONE scale factor, so the proxy is
     /// always the dragged item's own shape. Never a per-axis stretch, which
     /// hands a tall pane the same box as a wide one.

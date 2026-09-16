@@ -48,6 +48,20 @@ public enum GridCardLayout {
         return cells
     }
 
+    /// Whether the card's trailing tile carries the drop preview in place of
+    /// a placeholder. A resting card over its cap draws no new tab at all,
+    /// and the tile is the one cell the drop visibly changes: its hidden
+    /// count grows by one. A card with no tile has nothing to carry it (the
+    /// only slot that changes is a real tab's, whose wash already means that
+    /// tab takes the drop), so it previews nothing.
+    public static func tilePreviewsTheDrop(tabs: Int, expanded: Bool) -> Bool {
+        !previewKeepsItsRows(tabs: tabs, expanded: expanded) && hasTile(tabs: tabs)
+    }
+
+    /// A card draws a tile only once its tabs outrun a single row: `+N` at
+    /// rest, `fewer` once expanded.
+    static func hasTile(tabs: Int) -> Bool { tabs > tabsPerRow }
+
     /// A RESTING card over its cap redraws to the same single row however
     /// many tabs it gains, so a placeholder there opens a row that collapses
     /// again the moment the drop lands, whichever slot it takes. An EXPANDED

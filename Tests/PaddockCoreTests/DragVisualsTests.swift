@@ -47,6 +47,21 @@ final class DragVisualsTests: XCTestCase {
         XCTAssertEqual(DragVisuals.ghostSize(forOrigin: CGSize(width: 103, height: 82), bounds: compact), CGSize(width: 103, height: 82))
     }
 
+    /// A proxy drawn AS the thing it stands for is that thing's own size, at
+    /// any shape: a tab miniature has to line up one to one with the
+    /// thumbnail it left, which the compact cap would shrink (a 101pt-tall
+    /// thumbnail against an 88pt cap).
+    func testExactBoundsHoldAProxyAtItsOriginsOwnSize() {
+        for origin in [CGSize(width: 103, height: 101), CGSize(width: 45, height: 74), CGSize(width: 800, height: 400)] {
+            XCTAssertEqual(DragVisuals.ghostSize(forOrigin: origin, bounds: DragVisuals.exactBounds(origin)), origin)
+        }
+        XCTAssertNotEqual(
+            DragVisuals.ghostSize(forOrigin: CGSize(width: 103, height: 101), bounds: DragVisuals.compactGhostBounds),
+            CGSize(width: 103, height: 101),
+            "the compact cap is what a miniature has to escape"
+        )
+    }
+
     /// Wide, tall, square and pill, under both bounds: one scale factor, so
     /// the proxy is always the origin's own shape and never outgrows the cap.
     func testEveryProxyKeepsItsOriginsAspectAndStaysInsideTheCap() {

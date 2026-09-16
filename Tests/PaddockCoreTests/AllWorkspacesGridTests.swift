@@ -153,6 +153,40 @@ final class AllWorkspacesGridTests: XCTestCase {
         }
     }
 
+    // MARK: - what a card that draws no placeholder previews instead
+
+    /// The tile's hidden count is the one thing a drop on such a card
+    /// visibly changes, so the tile carries the preview the placeholder
+    /// cannot.
+    func testARestingCardOverItsCapPreviewsTheDropOnItsTile() {
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: 9, expanded: false))
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: 5, expanded: false))
+    }
+
+    /// A card that draws the tab needs no stand-in, and a card with no tile
+    /// has nothing that could carry one.
+    func testEveryOtherCardPreviewsNothingOnATile() {
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 4, expanded: false), "at the cap, but no tile to wash")
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 2, expanded: false), "draws the tab itself")
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 9, expanded: true), "draws the tab itself")
+    }
+
+    /// The two previews are alternatives, never both and never a card left
+    /// with neither while it still has a tile to say something with.
+    func testACardPreviewsOnItsTileExactlyWhenItDrawsNoPlaceholder() {
+        for count in 0...12 {
+            for expanded in [false, true] {
+                let drawsPlaceholder = GridCardLayout.cells(tabs: tabs(count), expanded: expanded, newTab: true)
+                    .contains(.newTab)
+                let tilePreviews = GridCardLayout.tilePreviewsTheDrop(tabs: count, expanded: expanded)
+                XCTAssertFalse(drawsPlaceholder && tilePreviews, "\(count) tabs, expanded: \(expanded)")
+                if GridCardLayout.hasTile(tabs: count) {
+                    XCTAssertTrue(drawsPlaceholder || tilePreviews, "\(count) tabs, expanded: \(expanded)")
+                }
+            }
+        }
+    }
+
     /// The row arithmetic the rule weighs is a second statement of what
     /// `cells` builds, so the two are checked against each other rather than
     /// left to drift.
