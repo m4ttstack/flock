@@ -454,6 +454,64 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A card's thumbnails stop growing at the cap, and the row buys slots
+    /// instead. Driven at two window widths through the real view, so the
+    /// arithmetic that derives the slot count cannot drift from the width the
+    /// cards are actually given.
+    func testAWideWindowFitsMoreThumbnailsRatherThanWiderOnes() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try GridFixture.model()
+
+        /// The cells one card draws in its first row, read off the frames the
+        /// view published: its thumbnails plus its trailing tile.
+        func firstRow(of harness: Harness, workspace: WorkspaceID, prefix: String) throws -> [CGRect] {
+            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
+            let card = try XCTUnwrap(grid.cards.first { $0.id == workspace }?.frame)
+            let tile = grid.tiles.first { $0.id == workspace }?.frame
+            let thumbnails = grid.thumbnails.filter { $0.id.rawValue.hasPrefix(prefix) }.map(\.frame)
+            let cells = thumbnails + (tile.map { [$0] } ?? [])
+            let top = try XCTUnwrap(cells.map(\.minY).min())
+            XCTAssertTrue(cells.allSatisfy { card.contains($0.origin) }, "a cell outside its own card")
+            return cells.filter { $0.minY == top }.sorted { $0.minX < $1.minX }
+        }
+
+        var drawn: [CGFloat: [CGRect]] = [:]
+        for width in [Self.windowSize.width, 1600] as [CGFloat] {
+            let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+            let window = harness.makeWindow(size: CGSize(width: width, height: Self.windowSize.height))
+            await settle(window)
+            harness.drag.toggleGrid()
+            await settle(window)
+            // The nine-tab card, which is over its cap at every width here, so
+            // its row is full and its last slot is the tile.
+            let row = try firstRow(of: harness, workspace: GridFixture.repoTools, prefix: "w1:")
+            drawn[width] = row
+            for cell in row {
+                XCTAssertLessThanOrEqual(
+                    cell.width, ChromeMetrics.Grid.thumbnailMaximumWidth + 0.5, "\(width): a thumbnail passed the cap"
+                )
+            }
+            XCTAssertEqual(
+                Set(row.map { ($0.width * 100).rounded() }).count, 1,
+                "\(width): the tile and the thumbnails are not the same width"
+            )
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-\(Int(width)).png"))
+            }
+            window.close()
+        }
+
+        let narrow = try XCTUnwrap(drawn[Self.windowSize.width])
+        let wide = try XCTUnwrap(drawn[1600])
+        XCTAssertEqual(narrow.count, GridCardLayout.minimumTabsPerRow, "the design window lost its shape")
+        XCTAssertGreaterThan(wide.count, narrow.count, "a wider window drew no more cells")
+        XCTAssertGreaterThan(
+            try XCTUnwrap(wide.first).width, try XCTUnwrap(narrow.first).width,
+            "the premise: the cap has not bitten at the narrow window"
+        )
+    }
+
     /// A pane aimed INSIDE another tab's thumbnail: the mini pane under the
     /// pointer answers, on the canvas's own rules, and the slot the thumbnail
     /// opens is the one that aim produces. Two aims, two renders: a mini

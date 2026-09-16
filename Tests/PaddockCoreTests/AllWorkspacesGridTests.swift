@@ -9,6 +9,10 @@ final class AllWorkspacesGridTests: XCTestCase {
     private let p2 = PaneID(rawValue: "w1:p2")
     private let p3 = PaneID(rawValue: "w1:p3")
 
+    /// The slot count a card row is divided into at the window paddock's
+    /// chrome is designed on, which is the floor every narrower window keeps.
+    private let perRow = GridCardLayout.minimumTabsPerRow
+
     private func tabs(_ count: Int) -> [TabID] {
         (1...max(count, 1)).prefix(count).map { TabID(rawValue: "w1:t\($0)") }
     }
@@ -16,31 +20,107 @@ final class AllWorkspacesGridTests: XCTestCase {
     // MARK: - card layout
 
     func testACardOfFourOrFewerTabsShowsThemAllWithNoTile() {
-        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(1), expanded: false), tabs(1).map(GridCell.tab))
-        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(4), expanded: false), tabs(4).map(GridCell.tab))
-        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(4), expanded: true), tabs(4).map(GridCell.tab), "nothing is hidden, so there is nothing to expand or collapse")
+        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(1), expanded: false, perRow: perRow), tabs(1).map(GridCell.tab))
+        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(4), expanded: false, perRow: perRow), tabs(4).map(GridCell.tab))
+        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(4), expanded: true, perRow: perRow), tabs(4).map(GridCell.tab), "nothing is hidden, so there is nothing to expand or collapse")
     }
 
     func testARestingCardOfFiveTabsShowsThreeAndATileForTheOtherTwo() {
         let all = tabs(5)
-        XCTAssertEqual(GridCardLayout.cells(tabs: all, expanded: false), [.tab(all[0]), .tab(all[1]), .tab(all[2]), .moreTabs(hidden: 2)])
+        XCTAssertEqual(GridCardLayout.cells(tabs: all, expanded: false, perRow: perRow), [.tab(all[0]), .tab(all[1]), .tab(all[2]), .moreTabs(hidden: 2)])
     }
 
     func testARestingCardOfNineTabsIsOneRowEndingInPlusSix() {
-        let rows = GridCardLayout.rows(tabs: tabs(9), expanded: false)
+        let rows = GridCardLayout.rows(tabs: tabs(9), expanded: false, perRow: perRow)
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows[0].last, .moreTabs(hidden: 6))
     }
 
     func testAnExpandedCardShowsEveryTabFourPerRowThenTheCollapseTile() {
         let all = tabs(9)
-        let rows = GridCardLayout.rows(tabs: all, expanded: true)
+        let rows = GridCardLayout.rows(tabs: all, expanded: true, perRow: perRow)
         XCTAssertEqual(rows.map(\.count), [4, 4, 2])
         XCTAssertEqual(rows.flatMap { $0 }, all.map(GridCell.tab) + [.collapse])
     }
 
     func testAnExpandedCardWhoseTabsAndTileFillRowsExactlyAddsNoEmptyRow() {
-        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(7), expanded: true).map(\.count), [4, 4])
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(7), expanded: true, perRow: perRow).map(\.count), [4, 4])
+    }
+
+    // MARK: - how many slots a row is divided into
+
+    /// The design's own window, spelled from `ChromeMetrics.Grid`: 900pt
+    /// across, 13pt of grid padding either side, two cards 13pt apart, each
+    /// spending 13pt of padding per side, thumbnails 10pt apart and capped at
+    /// 116pt.
+    private func rowWidth(gridWidth: CGFloat) -> CGFloat {
+        GridCardLayout.rowWidth(gridContentWidth: gridWidth - 26, cardGap: 13, cardPadding: 13)
+    }
+
+    private func slots(gridWidth: CGFloat) -> Int {
+        GridCardLayout.tabsPerRow(rowWidth: rowWidth(gridWidth: gridWidth), maximumWidth: 116, gap: 10)
+    }
+
+    /// The window the chrome is designed on draws exactly what it always did,
+    /// and every narrower one keeps that shape by shrinking its thumbnails
+    /// rather than dropping a slot.
+    func testANarrowWindowKeepsFourSlotsAndShrinksTheThumbnails() {
+        XCTAssertEqual(slots(gridWidth: 900), GridCardLayout.minimumTabsPerRow)
+        XCTAssertEqual(slots(gridWidth: 700), GridCardLayout.minimumTabsPerRow)
+        XCTAssertEqual(slots(gridWidth: 420), GridCardLayout.minimumTabsPerRow)
+        XCTAssertEqual(slots(gridWidth: 0), GridCardLayout.minimumTabsPerRow, "a card with no width yet still has a shape")
+        XCTAssertLessThan(
+            (rowWidth(gridWidth: 900) - 10 * 3) / 4, 116,
+            "the premise: at the design window a thumbnail is still under the cap"
+        )
+    }
+
+    /// A wider window buys slots instead of stretching the four it has: no
+    /// thumbnail ever passes the cap, the count never drops as the window
+    /// grows, and every slot past the minimum is one the row really had room
+    /// for at full width.
+    func testAWiderWindowBuysSlotsAndNoThumbnailPassesTheCap() {
+        /// What one slot is actually drawn at, which is its share of the row
+        /// held under the cap.
+        func drawn(gridWidth: CGFloat, slots count: Int) -> CGFloat {
+            min(116, (rowWidth(gridWidth: gridWidth) - 10 * CGFloat(count - 1)) / CGFloat(count))
+        }
+        var previous = GridCardLayout.minimumTabsPerRow
+        for width in stride(from: CGFloat(600), through: 2400, by: 25) {
+            let count = slots(gridWidth: width)
+            XCTAssertGreaterThanOrEqual(count, previous, "\(width): slots dropped as the window widened")
+            XCTAssertLessThanOrEqual(drawn(gridWidth: width, slots: count), 116, "\(width): a thumbnail passed the cap")
+            if count > GridCardLayout.minimumTabsPerRow {
+                XCTAssertEqual(
+                    drawn(gridWidth: width, slots: count), 116, accuracy: 0.001,
+                    "\(width): a slot past the minimum that is not at the cap is one slot too many"
+                )
+                XCTAssertLessThan(
+                    (rowWidth(gridWidth: width) - 10 * CGFloat(count)) / CGFloat(count + 1), 116,
+                    "\(width): the row had room for another slot"
+                )
+            }
+            previous = count
+        }
+        XCTAssertGreaterThan(slots(gridWidth: 1600), GridCardLayout.minimumTabsPerRow, "a wide window gained nothing")
+    }
+
+    /// The slot count is what the tile, the placeholder and the wrapping all
+    /// read, so a row at a wider window really does hold more tabs before it
+    /// wraps and spends its last slot on the tile at the same place.
+    func testEveryPartOfACardFollowsTheSlotCount() {
+        let wide = 6
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(6), expanded: false, perRow: wide).map(\.count), [6])
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(6), expanded: false, perRow: perRow).map(\.count), [4])
+        XCTAssertEqual(
+            GridCardLayout.cells(tabs: tabs(7), expanded: false, perRow: wide).last, .moreTabs(hidden: 2),
+            "a resting card over its cap still spends its last slot on the tile"
+        )
+        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(6), expanded: false, perRow: wide), tabs(6).map(GridCell.tab))
+        XCTAssertEqual(
+            GridCardLayout.rows(tabs: tabs(9), expanded: true, perRow: wide).map(\.count), [6, 4],
+            "ten cells over six slots"
+        )
     }
 
     // MARK: - the new-tab placeholder's slot
@@ -49,7 +129,7 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// the same rows the card draws, so nothing here is a parallel model of
     /// the geometry.
     private func placeholderSlot(tabs list: [TabID], expanded: Bool, closing: TabID? = nil) -> (row: Int, column: Int)? {
-        let rows = GridCardLayout.rows(GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: closing))
+        let rows = GridCardLayout.rows(GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: closing, perRow: perRow), perRow: perRow)
         for (row, cells) in rows.enumerated() {
             if let column = cells.firstIndex(of: .newTab) { return (row, column) }
         }
@@ -61,7 +141,7 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// appended.
     private func landingSlot(tabs list: [TabID], expanded: Bool, closing: TabID? = nil) -> (row: Int, column: Int)? {
         let added = GridCardLayout.surviving(list, closing: closing) + [TabID(rawValue: "w1:tNEW")]
-        let rows = GridCardLayout.rows(tabs: added, expanded: expanded)
+        let rows = GridCardLayout.rows(tabs: added, expanded: expanded, perRow: perRow)
         for (row, cells) in rows.enumerated() {
             if let column = cells.firstIndex(of: .tab(TabID(rawValue: "w1:tNEW"))) { return (row, column) }
         }
@@ -97,10 +177,10 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// placeholder takes the tile's slot and the tile moves along.
     func testThePlaceholderIsOrderedBeforeTheTrailingTile() {
         let all = tabs(9)
-        XCTAssertEqual(GridCardLayout.cells(tabs: all, expanded: true, newTab: true).suffix(2), [.newTab, .collapse])
-        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(5), expanded: true, newTab: true).suffix(2), [.newTab, .collapse])
+        XCTAssertEqual(GridCardLayout.cells(tabs: all, expanded: true, newTab: true, perRow: perRow).suffix(2), [.newTab, .collapse])
+        XCTAssertEqual(GridCardLayout.cells(tabs: tabs(5), expanded: true, newTab: true, perRow: perRow).suffix(2), [.newTab, .collapse])
         XCTAssertFalse(
-            GridCardLayout.cells(tabs: all, expanded: true, newTab: true).contains { $0.isTile && $0 != .collapse },
+            GridCardLayout.cells(tabs: all, expanded: true, newTab: true, perRow: perRow).contains { $0.isTile && $0 != .collapse },
             "the collapse tile is the only tile an expanded card draws"
         )
     }
@@ -113,7 +193,7 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertNil(landingSlot(tabs: tabs(4), expanded: false), "the fifth tab really is hidden after the drop")
         XCTAssertNil(placeholderSlot(tabs: tabs(4), expanded: false))
         XCTAssertEqual(
-            GridCardLayout.rows(tabs: tabs(4), expanded: false, newTab: true).count, 1,
+            GridCardLayout.rows(tabs: tabs(4), expanded: false, newTab: true, perRow: perRow).count, 1,
             "and the card keeps the single row it already had"
         )
     }
@@ -126,20 +206,20 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertNil(landingSlot(tabs: tabs(9), expanded: false), "the tenth tab really is hidden after the drop")
         XCTAssertNil(placeholderSlot(tabs: tabs(9), expanded: false))
         XCTAssertEqual(
-            GridCardLayout.cells(tabs: tabs(9), expanded: false, newTab: true),
-            GridCardLayout.cells(tabs: tabs(9), expanded: false),
+            GridCardLayout.cells(tabs: tabs(9), expanded: false, newTab: true, perRow: perRow),
+            GridCardLayout.cells(tabs: tabs(9), expanded: false, perRow: perRow),
             "the hovered card draws exactly what it drew at rest"
         )
-        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(9), expanded: false, newTab: true).count, 1)
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(9), expanded: false, newTab: true, perRow: perRow).count, 1)
     }
 
     /// The row an expanded card gains is one it keeps, so suppressing every
     /// added row would be wrong: seven tabs plus the collapse tile fill two
     /// rows exactly, and the drop really does open a third.
     func testAnExpandedCardStillOpensARowTheDropWillKeep() {
-        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(7), expanded: true).count, 2)
-        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(7), expanded: true, newTab: true).count, 3)
-        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(8), expanded: true).count, 3, "and the drop keeps it")
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(7), expanded: true, perRow: perRow).count, 2)
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(7), expanded: true, newTab: true, perRow: perRow).count, 3)
+        XCTAssertEqual(GridCardLayout.rows(tabs: tabs(8), expanded: true, perRow: perRow).count, 3, "and the drop keeps it")
         assertPlaceholderMatchesTheLanding(tabs: tabs(7), expanded: true)
     }
 
@@ -149,8 +229,8 @@ final class AllWorkspacesGridTests: XCTestCase {
     func testThePreviewNeverOpensARowTheDropWillNotLeaveBehind() {
         for count in 0...12 {
             for expanded in [false, true] {
-                let previewed = GridCardLayout.rows(tabs: tabs(count), expanded: expanded, newTab: true).count
-                let afterDrop = GridCardLayout.rows(tabs: tabs(count + 1), expanded: expanded).count
+                let previewed = GridCardLayout.rows(tabs: tabs(count), expanded: expanded, newTab: true, perRow: perRow).count
+                let afterDrop = GridCardLayout.rows(tabs: tabs(count + 1), expanded: expanded, perRow: perRow).count
                 XCTAssertLessThanOrEqual(previewed, afterDrop, "\(count) tabs, expanded: \(expanded)")
                 guard placeholderSlot(tabs: tabs(count), expanded: expanded) != nil else { continue }
                 assertPlaceholderMatchesTheLanding(tabs: tabs(count), expanded: expanded)
@@ -167,10 +247,10 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// placeholder, and the pane's origin is not what decides it.
     func testAPaneLandsATabInThisCardWhereverItCameFrom() {
         let all = tabs(3)
-        let fromElsewhere = GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: nil)
+        let fromElsewhere = GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: nil, perRow: perRow)
         XCTAssertEqual(fromElsewhere, [.tab(all[0]), .tab(all[1]), .tab(all[2]), .newTab])
         XCTAssertEqual(
-            GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: all[0]),
+            GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: all[0], perRow: perRow),
             [.tab(all[1]), .tab(all[2]), .newTab],
             "the tab the drop empties is gone, and the created one takes the slot it leaves"
         )
@@ -195,7 +275,7 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// tab again, in the slot that tab holds now.
     func testACardOfOneTabPreviewsTheDropInThatTabsOwnSlot() {
         let only = tabs(1)
-        XCTAssertEqual(GridCardLayout.cells(tabs: only, expanded: false, newTab: true, closing: only[0]), [.newTab])
+        XCTAssertEqual(GridCardLayout.cells(tabs: only, expanded: false, newTab: true, closing: only[0], perRow: perRow), [.newTab])
         assertPlaceholderMatchesTheLanding(tabs: only, expanded: false, closing: only[0])
     }
 
@@ -210,10 +290,11 @@ final class AllWorkspacesGridTests: XCTestCase {
             for expanded in [false, true] {
                 let list = tabs(count)
                 for closing in [nil, list[0], list[count - 1]] as [TabID?] {
-                    let preview = GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: closing)
+                    let preview = GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: closing, perRow: perRow)
                     guard preview.contains(.newTab) else { continue }
                     let afterTheDrop = GridCardLayout.cells(
-                        tabs: GridCardLayout.surviving(list, closing: closing) + [created], expanded: expanded
+                        tabs: GridCardLayout.surviving(list, closing: closing) + [created], expanded: expanded,
+                        perRow: perRow
                     )
                     XCTAssertEqual(
                         preview.map { $0 == .newTab ? GridCell.tab(created) : $0 }, afterTheDrop,
@@ -232,8 +313,8 @@ final class AllWorkspacesGridTests: XCTestCase {
             for expanded in [false, true] {
                 let list = tabs(count)
                 XCTAssertEqual(
-                    GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: list[0]).count,
-                    GridCardLayout.cells(tabs: list, expanded: expanded).count,
+                    GridCardLayout.cells(tabs: list, expanded: expanded, newTab: true, closing: list[0], perRow: perRow).count,
+                    GridCardLayout.cells(tabs: list, expanded: expanded, perRow: perRow).count,
                     "\(count) tabs, expanded: \(expanded)"
                 )
             }
@@ -246,10 +327,10 @@ final class AllWorkspacesGridTests: XCTestCase {
     func testACardThatDrawsNoPlaceholderKeepsTheTabTheDropWillEmpty() {
         let all = tabs(9)
         XCTAssertEqual(
-            GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: all[0]),
-            GridCardLayout.cells(tabs: all, expanded: false)
+            GridCardLayout.cells(tabs: all, expanded: false, newTab: true, closing: all[0], perRow: perRow),
+            GridCardLayout.cells(tabs: all, expanded: false, perRow: perRow)
         )
-        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: GridCardLayout.surviving(all, closing: all[0]).count, expanded: false))
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: GridCardLayout.surviving(all, closing: all[0]).count, expanded: false, perRow: perRow))
     }
 
     // MARK: - what a card that draws no placeholder previews instead
@@ -258,16 +339,16 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// visibly changes, so the tile carries the preview the placeholder
     /// cannot.
     func testARestingCardOverItsCapPreviewsTheDropOnItsTile() {
-        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: 9, expanded: false))
-        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: 5, expanded: false))
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: 9, expanded: false, perRow: perRow))
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: 5, expanded: false, perRow: perRow))
     }
 
     /// A card that draws the tab needs no stand-in, and a card with no tile
     /// has nothing that could carry one.
     func testEveryOtherCardPreviewsNothingOnATile() {
-        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 4, expanded: false), "at the cap, but no tile to wash")
-        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 2, expanded: false), "draws the tab itself")
-        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 9, expanded: true), "draws the tab itself")
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 4, expanded: false, perRow: perRow), "at the cap, but no tile to wash")
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 2, expanded: false, perRow: perRow), "draws the tab itself")
+        XCTAssertFalse(GridCardLayout.tilePreviewsTheDrop(tabs: 9, expanded: true, perRow: perRow), "draws the tab itself")
     }
 
     /// The two previews are alternatives, never both and never a card left
@@ -275,11 +356,11 @@ final class AllWorkspacesGridTests: XCTestCase {
     func testACardPreviewsOnItsTileExactlyWhenItDrawsNoPlaceholder() {
         for count in 0...12 {
             for expanded in [false, true] {
-                let drawsPlaceholder = GridCardLayout.cells(tabs: tabs(count), expanded: expanded, newTab: true)
+                let drawsPlaceholder = GridCardLayout.cells(tabs: tabs(count), expanded: expanded, newTab: true, perRow: perRow)
                     .contains(.newTab)
-                let tilePreviews = GridCardLayout.tilePreviewsTheDrop(tabs: count, expanded: expanded)
+                let tilePreviews = GridCardLayout.tilePreviewsTheDrop(tabs: count, expanded: expanded, perRow: perRow)
                 XCTAssertFalse(drawsPlaceholder && tilePreviews, "\(count) tabs, expanded: \(expanded)")
-                if GridCardLayout.hasTile(tabs: count) {
+                if GridCardLayout.hasTile(tabs: count, perRow: perRow) {
                     XCTAssertTrue(drawsPlaceholder || tilePreviews, "\(count) tabs, expanded: \(expanded)")
                 }
             }
@@ -292,14 +373,14 @@ final class AllWorkspacesGridTests: XCTestCase {
     func testTheSettledCountAgreesWithTheCellsItStandsFor() {
         for count in 0...12 {
             for expanded in [false, true] {
-                let built = GridCardLayout.cells(tabs: tabs(count), expanded: expanded)
+                let built = GridCardLayout.cells(tabs: tabs(count), expanded: expanded, perRow: perRow)
                 XCTAssertEqual(
-                    GridCardLayout.settledCount(tabs: count, expanded: expanded), built.count,
+                    GridCardLayout.settledCount(tabs: count, expanded: expanded, perRow: perRow), built.count,
                     "\(count) tabs, expanded: \(expanded)"
                 )
                 XCTAssertEqual(
-                    GridCardLayout.rowCount(built.count),
-                    GridCardLayout.rows(tabs: tabs(count), expanded: expanded).count,
+                    GridCardLayout.rowCount(built.count, perRow: perRow),
+                    GridCardLayout.rows(tabs: tabs(count), expanded: expanded, perRow: perRow).count,
                     "\(count) tabs, expanded: \(expanded)"
                 )
             }

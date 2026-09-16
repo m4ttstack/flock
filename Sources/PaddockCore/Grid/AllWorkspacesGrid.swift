@@ -24,11 +24,38 @@ extension GridCell {
 }
 
 /// Which tabs a workspace card shows and how they wrap.
+///
+/// How many thumbnails a row holds is the window's answer, not a constant:
+/// every function that shapes a card takes `perRow` so the cells, the rows,
+/// the tile and the placeholder are all laid out against the same count.
 public enum GridCardLayout {
-    public static let tabsPerRow = 4
-    /// A resting card spends its last slot on the +N tile.
-    public static let restingTabCount = tabsPerRow - 1
+    /// The fewest slots a card row is ever divided into. A window too narrow
+    /// to give that many slots the full thumbnail width shrinks them instead,
+    /// which is the shape the grid has always had; only a wider window buys
+    /// slots.
+    public static let minimumTabsPerRow = 4
     public static let columns = 2
+
+    /// How many thumbnails one row of `rowWidth` holds: as many as fit with
+    /// none of them passing `maximumWidth`, never fewer than
+    /// `minimumTabsPerRow`. Widening the window buys slots rather than
+    /// stretching every thumbnail.
+    public static func tabsPerRow(rowWidth: CGFloat, maximumWidth: CGFloat, gap: CGFloat) -> Int {
+        guard rowWidth > 0, maximumWidth > 0 else { return minimumTabsPerRow }
+        return max(minimumTabsPerRow, Int(((rowWidth + gap) / (maximumWidth + gap)).rounded(.down)))
+    }
+
+    /// The width one card draws its thumbnails across, given the grid's own
+    /// content width. The cards split that width evenly and each spends its
+    /// horizontal padding on both sides, so this is the only arithmetic
+    /// between what the grid measures and what a row is actually given.
+    public static func rowWidth(gridContentWidth: CGFloat, cardGap: CGFloat, cardPadding: CGFloat) -> CGFloat {
+        let card = (gridContentWidth - cardGap * CGFloat(columns - 1)) / CGFloat(columns)
+        return max(0, card - cardPadding * 2)
+    }
+
+    /// A resting card spends its last slot on the +N tile.
+    public static func restingTabCount(perRow: Int) -> Int { perRow - 1 }
 
     /// A workspace whose tabs fit one row shows every tab and has nothing to
     /// expand.
@@ -49,17 +76,17 @@ public enum GridCardLayout {
     /// gain a row on hover and lose it again on drop shows nothing, and its
     /// accent outline marks it the way it marks every other card-level drop
     /// target.
-    public static func cells(tabs: [TabID], expanded: Bool, newTab: Bool = false, closing: TabID? = nil) -> [GridCell] {
+    public static func cells(tabs: [TabID], expanded: Bool, newTab: Bool = false, closing: TabID? = nil, perRow: Int) -> [GridCell] {
         let surviving = surviving(tabs, closing: closing)
-        guard newTab, previewKeepsItsRows(tabs: surviving.count, expanded: expanded) else {
-            return settled(tabs: tabs, expanded: expanded)
+        guard newTab, previewKeepsItsRows(tabs: surviving.count, expanded: expanded, perRow: perRow) else {
+            return settled(tabs: tabs, expanded: expanded, perRow: perRow)
         }
         // The shape the card takes once the drop lands, with the tab it
         // creates drawn as the placeholder. Laid out over the post-drop list
         // rather than over the surviving tabs alone, so the trailing tile is
         // the one the drop leaves: five expanded tabs losing one still end
         // the drop with five and the collapse tile they need.
-        return settled(tabs: surviving + [createdTab], expanded: expanded)
+        return settled(tabs: surviving + [createdTab], expanded: expanded, perRow: perRow)
             .map { $0 == .tab(createdTab) ? .newTab : $0 }
     }
 
@@ -84,13 +111,13 @@ public enum GridCardLayout {
     /// count grows by one. A card with no tile has nothing to carry it (the
     /// only slot that changes is a real tab's, whose wash already means that
     /// tab takes the drop), so it previews nothing.
-    public static func tilePreviewsTheDrop(tabs: Int, expanded: Bool) -> Bool {
-        !previewKeepsItsRows(tabs: tabs, expanded: expanded) && hasTile(tabs: tabs)
+    public static func tilePreviewsTheDrop(tabs: Int, expanded: Bool, perRow: Int) -> Bool {
+        !previewKeepsItsRows(tabs: tabs, expanded: expanded, perRow: perRow) && hasTile(tabs: tabs, perRow: perRow)
     }
 
     /// A card draws a tile only once its tabs outrun a single row: `+N` at
     /// rest, `fewer` once expanded.
-    static func hasTile(tabs: Int) -> Bool { tabs > tabsPerRow }
+    static func hasTile(tabs: Int, perRow: Int) -> Bool { tabs > perRow }
 
     /// The gap a point names among cells that wrap: rows top to bottom, cells
     /// left to right inside a row. A cell comes before the point when the
@@ -114,38 +141,39 @@ public enum GridCardLayout {
     /// many tabs it gains, so a placeholder there opens a row that collapses
     /// again the moment the drop lands, whichever slot it takes. An EXPANDED
     /// card draws every tab, so a row it gains on hover is one it keeps.
-    private static func previewKeepsItsRows(tabs: Int, expanded: Bool) -> Bool {
-        rowCount(settledCount(tabs: tabs, expanded: expanded) + 1)
-            <= rowCount(settledCount(tabs: tabs + 1, expanded: expanded))
+    private static func previewKeepsItsRows(tabs: Int, expanded: Bool, perRow: Int) -> Bool {
+        rowCount(settledCount(tabs: tabs, expanded: expanded, perRow: perRow) + 1, perRow: perRow)
+            <= rowCount(settledCount(tabs: tabs + 1, expanded: expanded, perRow: perRow), perRow: perRow)
     }
 
-    /// `settled(tabs:expanded:).count` without building the cells, so the
-    /// shape a card takes AFTER a drop can be weighed against the one it has
-    /// now. The two must agree for every count.
-    static func settledCount(tabs: Int, expanded: Bool) -> Int {
-        guard tabs > tabsPerRow else { return tabs }
-        return expanded ? tabs + 1 : tabsPerRow
+    /// `settled(tabs:expanded:perRow:).count` without building the cells, so
+    /// the shape a card takes AFTER a drop can be weighed against the one it
+    /// has now. The two must agree for every count.
+    static func settledCount(tabs: Int, expanded: Bool, perRow: Int) -> Int {
+        guard tabs > perRow else { return tabs }
+        return expanded ? tabs + 1 : perRow
     }
 
-    static func rowCount(_ cells: Int) -> Int {
-        (cells + tabsPerRow - 1) / tabsPerRow
+    static func rowCount(_ cells: Int, perRow: Int) -> Int {
+        (cells + perRow - 1) / perRow
     }
 
-    private static func settled(tabs: [TabID], expanded: Bool) -> [GridCell] {
-        guard tabs.count > tabsPerRow else { return tabs.map(GridCell.tab) }
+    private static func settled(tabs: [TabID], expanded: Bool, perRow: Int) -> [GridCell] {
+        guard tabs.count > perRow else { return tabs.map(GridCell.tab) }
         guard expanded else {
-            return tabs.prefix(restingTabCount).map(GridCell.tab) + [.moreTabs(hidden: tabs.count - restingTabCount)]
+            let shown = restingTabCount(perRow: perRow)
+            return tabs.prefix(shown).map(GridCell.tab) + [.moreTabs(hidden: tabs.count - shown)]
         }
         return tabs.map(GridCell.tab) + [.collapse]
     }
 
-    public static func rows(tabs: [TabID], expanded: Bool, newTab: Bool = false) -> [[GridCell]] {
-        rows(cells(tabs: tabs, expanded: expanded, newTab: newTab))
+    public static func rows(tabs: [TabID], expanded: Bool, newTab: Bool = false, perRow: Int) -> [[GridCell]] {
+        rows(cells(tabs: tabs, expanded: expanded, newTab: newTab, perRow: perRow), perRow: perRow)
     }
 
     /// Cells a card has already decided on, wrapped into its rows.
-    public static func rows(_ cells: [GridCell]) -> [[GridCell]] {
-        chunked(cells, by: tabsPerRow)
+    public static func rows(_ cells: [GridCell], perRow: Int) -> [[GridCell]] {
+        chunked(cells, by: perRow)
     }
 
     /// Cards in rail order, `columns` to a row.

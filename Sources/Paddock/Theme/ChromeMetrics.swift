@@ -145,6 +145,13 @@ enum ChromeMetrics {
         /// than the block alone by exactly what the label row under it used
         /// to spend: a card's rows are the same height either way.
         static let thumbnailHeight: CGFloat = 101
+        /// As wide as a thumbnail is ever drawn. Past this a miniature stops
+        /// reading as one and starts reading as a small pane, so a wider
+        /// window buys a card more slots per row instead of stretching the
+        /// four it has. The design's own slot is about 93pt across, so this
+        /// leaves a step of growth before the cap bites and leaves the window
+        /// the chrome is designed on drawing exactly what it always did.
+        static let thumbnailMaximumWidth: CGFloat = 116
         /// The tab's handle: a band across the top of its thumbnail, holding
         /// the title and status dot.
         static let tabStripHeight: CGFloat = 15

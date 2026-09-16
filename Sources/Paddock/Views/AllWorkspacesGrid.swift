@@ -11,8 +11,25 @@ struct AllWorkspacesGrid: View {
 
     @Environment(DragCoordinator.self) private var drag
     @State private var scrollPosition = ScrollPosition()
+    /// The scroll content's own width, measured rather than assumed: it is
+    /// what decides how many slots a card row is divided into.
+    @State private var contentWidth: CGFloat = 0
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
+
+    /// Decided once for the whole grid and handed to every card, so the cells
+    /// a card draws and the ids the grid publishes for them cannot be laid
+    /// out against different counts.
+    private var slotsPerRow: Int {
+        GridCardLayout.tabsPerRow(
+            rowWidth: GridCardLayout.rowWidth(
+                gridContentWidth: contentWidth, cardGap: ChromeMetrics.Grid.cardGap,
+                cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
+            ),
+            maximumWidth: ChromeMetrics.Grid.thumbnailMaximumWidth,
+            gap: ChromeMetrics.Grid.tabGap
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +42,9 @@ struct AllWorkspacesGrid: View {
                     ForEach(Array(GridCardLayout.cardRows(workspaces).enumerated()), id: \.offset) { _, row in
                         HStack(alignment: .top, spacing: ChromeMetrics.Grid.cardGap) {
                             ForEach(row, id: \.workspaceID) { workspace in
-                                WorkspaceCard(theme: theme, viewModel: viewModel, workspace: workspace)
+                                WorkspaceCard(
+                                    theme: theme, viewModel: viewModel, workspace: workspace, slotsPerRow: slotsPerRow
+                                )
                             }
                             if row.count < GridCardLayout.columns {
                                 Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
@@ -39,6 +58,7 @@ struct AllWorkspacesGrid: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .coordinateSpace(.named(DragSpace.gridContent))
                 .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             }
             .scrollIndicators(.never)
             .scrollBounceBehavior(.basedOnSize, axes: .vertical)
@@ -84,8 +104,8 @@ struct AllWorkspacesGrid: View {
             let expanded = drag.expandedGridCards.contains(workspace.workspaceID)
             let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
             let preview = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
-            let cells = preview.cells(of: tabs, expanded: expanded)
-            let tileCarriesIt = preview.tileCarriesTheDrop(of: tabs, expanded: expanded)
+            let cells = preview.cells(of: tabs, expanded: expanded, perRow: slotsPerRow)
+            let tileCarriesIt = preview.tileCarriesTheDrop(of: tabs, expanded: expanded, perRow: slotsPerRow)
             return [.card(workspace.workspaceID)]
                 + (tileCarriesIt ? [.newTab(workspace.workspaceID)] : [])
                 + cells.map { cell -> GridItemID in
@@ -130,15 +150,15 @@ private struct CardDropPreview {
     /// The cells this card draws while the drop is previewed. Read by both the
     /// card and the grid's item order, so the two cannot disagree about which
     /// slot stands in for the created tab.
-    func cells(of tabs: [TabID], expanded: Bool) -> [GridCell] {
-        GridCardLayout.cells(tabs: tabs, expanded: expanded, newTab: takesTheDrop, closing: closingTab)
+    func cells(of tabs: [TabID], expanded: Bool, perRow: Int) -> [GridCell] {
+        GridCardLayout.cells(tabs: tabs, expanded: expanded, newTab: takesTheDrop, closing: closingTab, perRow: perRow)
     }
 
     /// Whether the card's trailing tile carries the preview instead, which is
     /// what a card that cannot draw a placeholder has to say the drop with.
-    func tileCarriesTheDrop(of tabs: [TabID], expanded: Bool) -> Bool {
+    func tileCarriesTheDrop(of tabs: [TabID], expanded: Bool, perRow: Int) -> Bool {
         takesTheDrop && GridCardLayout.tilePreviewsTheDrop(
-            tabs: GridCardLayout.surviving(tabs, closing: closingTab).count, expanded: expanded
+            tabs: GridCardLayout.surviving(tabs, closing: closingTab).count, expanded: expanded, perRow: perRow
         )
     }
 
@@ -182,13 +202,20 @@ private struct WorkspaceCard: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let workspace: WorkspaceRecord
+    /// The grid's own slot count, so every card in a row divides its width
+    /// the same way and the ids the grid publishes match the cells drawn.
+    let slotsPerRow: Int
 
     @Environment(DragCoordinator.self) private var drag
 
     var body: some View {
         let tabs = viewModel.model?.tabs[workspace.workspaceID] ?? []
         let rows = GridCardLayout.rows(
-            preview.cells(of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID))
+            preview.cells(
+                of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
+                perRow: slotsPerRow
+            ),
+            perRow: slotsPerRow
         )
         // Read once per card rather than per cell: only the card a reorder is
         // over, and only while that reorder commits, has any to report.
@@ -200,11 +227,16 @@ private struct WorkspaceCard: View {
                     // Every row keeps all its slots, so a short row's tabs are
                     // as wide as a full row's.
                     HStack(alignment: .top, spacing: ChromeMetrics.Grid.tabGap) {
-                        ForEach(0..<GridCardLayout.tabsPerRow, id: \.self) { slot in
+                        ForEach(0..<slotsPerRow, id: \.self) { slot in
+                            // One cap for every slot, filled or empty, so a
+                            // thumbnail, a tile and the placeholder are always
+                            // the same width and a wide window leaves its
+                            // slack at the end of the row.
                             if slot < row.count {
                                 cell(row[slot], tabs: tabs, displacements: displacements)
+                                    .frame(maxWidth: ChromeMetrics.Grid.thumbnailMaximumWidth)
                             } else {
-                                Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                                Color.clear.frame(maxWidth: ChromeMetrics.Grid.thumbnailMaximumWidth, maxHeight: 0)
                             }
                         }
                     }
@@ -304,7 +336,8 @@ private struct WorkspaceCard: View {
 
     private func carriesTheCardsDrop(tabs: [TabRecord]) -> Bool {
         preview.tileCarriesTheDrop(
-            of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID)
+            of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
+            perRow: slotsPerRow
         )
     }
 
