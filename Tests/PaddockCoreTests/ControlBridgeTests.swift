@@ -600,6 +600,49 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(held.value, [.release, .take])
     }
 
+    /// A swapped-away descriptor must be closed THROUGH its handle, because
+    /// the handle is what owns it: a `Pipe`'s `FileHandle` closes its own
+    /// descriptor on dealloc, so freeing the number by hand leaves that dealloc
+    /// to close whatever has reclaimed the number by then. Driven the
+    /// deterministic way round: the number is claimed here, on purpose, before
+    /// the pipe is allowed to go away.
+    func testSwappingAwayAnInputDoesNotLeaveItsPipeToCloseTheNumberAgain() throws {
+        var pipeBox: Pipe? = Pipe()
+        // Both boxes: the `FileHandle`, not the `Pipe`, is what closes the
+        // descriptor on dealloc, so a test holding the handle would keep the
+        // very deinit this is about from ever running.
+        var handleBox: FileHandle? = try XCTUnwrap(pipeBox).fileHandleForWriting
+        let number = try XCTUnwrap(handleBox).fileDescriptor
+        XCTAssertGreaterThanOrEqual(number, 0)
+        let io = BridgeIO(
+            herdrInFD: -1,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+
+        io.swapHerdrInput(to: try XCTUnwrap(handleBox))
+        XCTAssertEqual(io.herdrInputDescriptor, number)
+        io.swapHerdrInput(to: nil)
+        XCTAssertEqual(io.herdrInputDescriptor, -1, "the writes were not parked")
+
+        // Stand in for the next child's `pipe()`: take the freed number, on
+        // purpose rather than by luck, so what happens to it next is visible.
+        let spare = open("/dev/null", O_RDONLY)
+        XCTAssertGreaterThanOrEqual(spare, 0)
+        defer { close(spare) }
+        XCTAssertEqual(dup2(spare, number), number, "the swap never freed the number at all")
+
+        handleBox = nil
+        pipeBox = nil
+        XCTAssertNotEqual(
+            fcntl(number, F_GETFD), -1,
+            "the released pipe closed a descriptor that no longer belonged to it"
+        )
+        close(number)
+    }
+
     /// What a retake rewires: herdr-bound writes follow the new child, and the
     /// relay is reseeded to the size that child was spawned at, so an
     /// unchanged PTY sends it nothing and a changed one sends it the change.

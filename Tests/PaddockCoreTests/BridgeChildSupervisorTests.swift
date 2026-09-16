@@ -15,9 +15,12 @@ final class BridgeChildSupervisorTests: XCTestCase {
         private let lock = NSLock()
         private var scripts: [String]
         private(set) var spawns: [PTYSize] = []
-        /// Every child ever spawned, kept alive so a test can reap them and so
-        /// no `Pipe` deallocates earlier here than it would in the bridge.
-        private(set) var children: [Process] = []
+        /// Process IDs, never the `Process` objects. Holding those here would
+        /// keep every child's `Pipe` alive for the whole test, and a `Pipe`
+        /// that never deallocates is exactly the thing whose deinit closes a
+        /// descriptor the next child has already reclaimed. The supervisor's
+        /// own reference has to be the only one, as it is in the bridge.
+        private(set) var pids: [pid_t] = []
         /// Where each child's stdin is copied to, one file per child.
         private(set) var sinks: [URL] = []
 
@@ -47,7 +50,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
             proc.standardError = FileHandle.nullDevice
             guard (try? proc.run()) != nil else { return nil }
             lock.lock()
-            children.append(proc)
+            pids.append(proc.processIdentifier)
             lock.unlock()
             return (proc, toChild.fileHandleForWriting, fromChild.fileHandleForReading)
         }
@@ -56,6 +59,26 @@ final class BridgeChildSupervisorTests: XCTestCase {
             lock.lock()
             defer { lock.unlock() }
             return spawns.count
+        }
+
+        /// Reaped children answer ESRCH, which is what the supervisor's own
+        /// `waitUntilExit` leaves behind.
+        func isRunning(_ index: Int) -> Bool {
+            lock.lock()
+            guard index < pids.count else {
+                lock.unlock()
+                return false
+            }
+            let pid = pids[index]
+            lock.unlock()
+            return kill(pid, 0) == 0
+        }
+
+        var liveCount: Int {
+            lock.lock()
+            let all = pids
+            lock.unlock()
+            return all.filter { kill($0, 0) == 0 }.count
         }
 
         func sink(_ index: Int) -> String {
@@ -67,13 +90,10 @@ final class BridgeChildSupervisorTests: XCTestCase {
 
         func terminateAll() {
             lock.lock()
-            let running = children
+            let all = pids
             let files = sinks
             lock.unlock()
-            for proc in running where proc.isRunning {
-                proc.terminate()
-                proc.waitUntilExit()
-            }
+            for pid in all { kill(pid, SIGKILL) }
             for file in files { try? FileManager.default.removeItem(at: file) }
         }
     }
@@ -127,20 +147,25 @@ final class BridgeChildSupervisorTests: XCTestCase {
 
     // MARK: - release and take
 
-    /// The descriptor a retake installs belongs to the NEW child's pipe, and it
-    /// is still open once the previous child has been reaped. Closing the
-    /// previous descriptor by NUMBER rather than through its handle leaves the
-    /// old `Pipe`'s own handle to close that number a second time, after the
-    /// new child's `pipe()` has already reclaimed it.
-    func testARetakeLeavesItsOwnDescriptorOpenOnceThePreviousChildIsReaped() {
+    /// The descriptor a retake installs is live and reaches the new child, with
+    /// the previous one reaped and its pipe released. What makes the descriptor
+    /// SAFE to hand over is tested directly, and deterministically, by
+    /// `ControlBridgeTests.testSwappingAwayAnInputDoesNotLeaveItsPipeToClose...`;
+    /// whether a freed number is reclaimed here is up to the runtime, so this
+    /// covers the wiring rather than the ownership rule.
+    func testARetakeInstallsALiveDescriptorThatReachesTheNewChild() {
         let spawner = Spawner(scripts: [])
         defer { spawner.terminateAll() }
         let (supervisor, io) = makeSupervisor(spawner: spawner)
 
         supervisor.handle(.release)
-        waitUntil("the released child to exit") { spawner.spawnCount == 1 && !spawner.children[0].isRunning }
+        waitUntil("the released child to exit") { spawner.spawnCount == 1 && !spawner.isRunning(0) }
         supervisor.handle(.take)
         waitUntil("the retake to spawn") { spawner.spawnCount == 2 }
+        // The previous child is released in two steps (the supervisor's own
+        // reference, then the watcher's), and it is the second that runs the
+        // old pipe's deinit.
+        usleep(200_000)
 
         let installed = io.herdrInputDescriptor
         XCTAssertGreaterThanOrEqual(installed, 0, "the retake installed no descriptor at all")
@@ -165,7 +190,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
         let (supervisor, _) = makeSupervisor(spawner: spawner)
 
         supervisor.handle(.release)
-        waitUntil("the released child to exit") { !spawner.children[0].isRunning }
+        waitUntil("the released child to exit") { !spawner.isRunning(0) }
         // Long enough for a watcher that misread the exit to have finished.
         usleep(200_000)
         XCTAssertFalse(supervisor.isFinished)
@@ -196,7 +221,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
         let (supervisor, _) = makeSupervisor(spawner: spawner, status: status, retries: delays)
 
         supervisor.handle(.release)
-        waitUntil("the released child to exit") { !spawner.children[0].isRunning }
+        waitUntil("the released child to exit") { !spawner.isRunning(0) }
         supervisor.handle(.take)
 
         waitUntil("the retries to run out") { delays.value.count == BridgeHoldState.takeRetryBackoff.count }
@@ -221,7 +246,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
         let (supervisor, _) = makeSupervisor(spawner: spawner)
 
         supervisor.handle(.release)
-        waitUntil("the released child to exit") { !spawner.children[0].isRunning }
+        waitUntil("the released child to exit") { !spawner.isRunning(0) }
         supervisor.handle(.take)
         waitUntil("the retake to spawn") { spawner.spawnCount == 2 }
 
@@ -245,16 +270,16 @@ final class BridgeChildSupervisorTests: XCTestCase {
 
         for round in 1...2 {
             supervisor.handle(.release)
-            waitUntil("round \(round)'s child to exit") { !spawner.children[round - 1].isRunning }
+            waitUntil("round \(round)'s child to exit") { !spawner.isRunning(round - 1) }
             XCTAssertEqual(
-                spawner.children.filter(\.isRunning).count, 0,
+                spawner.liveCount, 0,
                 "round \(round): a child outlived its release"
             )
             supervisor.handle(.take)
             waitUntil("round \(round)'s retake") { spawner.spawnCount == round + 1 }
-            waitUntil("round \(round)'s new child to be running") { spawner.children[round].isRunning }
+            waitUntil("round \(round)'s new child to be running") { spawner.isRunning(round) }
             XCTAssertEqual(
-                spawner.children.filter(\.isRunning).count, 1,
+                spawner.liveCount, 1,
                 "round \(round): two children hold the pane at once"
             )
         }
@@ -273,7 +298,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
         XCTAssertEqual(spawner.spawnCount, 1, "a take for a pane already held spawned a second child")
         supervisor.handle(.release)
         supervisor.handle(.release)
-        waitUntil("the released child to exit") { !spawner.children[0].isRunning }
+        waitUntil("the released child to exit") { !spawner.isRunning(0) }
         supervisor.handle(.take)
         waitUntil("the retake") { spawner.spawnCount == 2 }
         supervisor.handle(.take)
@@ -289,7 +314,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
         let (supervisor, _) = makeSupervisor(spawner: spawner)
 
         supervisor.handle(.release)
-        waitUntil("the released child to exit") { !spawner.children[0].isRunning }
+        waitUntil("the released child to exit") { !spawner.isRunning(0) }
         XCTAssertFalse(supervisor.isFinished)
 
         supervisor.shutdown()
