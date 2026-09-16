@@ -58,11 +58,12 @@ final class AllWorkspacesGridTests: XCTestCase {
         GridCardLayout.rowWidth(gridWidth: gridWidth, canvasPadding: 13, cardGap: 13, cardPadding: 13)
     }
 
-    /// The cap `ChromeMetrics.Grid.maxTabsPerRow` carries, spelled here so the
-    /// sweep can say which widths are held by the row and which by the cap.
-    private let cap = 4
-
-    private func slots(gridWidth: CGFloat) -> Int {
+    /// The sweep takes its cap rather than spelling the production one: this
+    /// target cannot see `ChromeMetrics`, and a literal here would be a second
+    /// definition that kept passing after the real one moved.
+    /// `ChromeRenderTests` is what pins the production value, against the real
+    /// view.
+    private func slots(gridWidth: CGFloat, cap: Int) -> Int {
         GridCardLayout.tabsPerRow(rowWidth: rowWidth(gridWidth: gridWidth), width: 120, gap: 10, cap: cap)
     }
 
@@ -72,41 +73,45 @@ final class AllWorkspacesGridTests: XCTestCase {
     /// chosen width is worth paying: a fourth would need a slot too narrow to
     /// read as a tab.
     func testTheNarrowestWindowHoldsThreeThumbnailsAtTheirOwnWidth() {
-        XCTAssertEqual(slots(gridWidth: 900), 3)
+        XCTAssertEqual(slots(gridWidth: 900, cap: 4), 3)
         let filled = 120 * 3 + 10 * 2
         XCTAssertLessThanOrEqual(CGFloat(filled), rowWidth(gridWidth: 900))
         XCTAssertGreaterThan(CGFloat(filled + 10 + 120), rowWidth(gridWidth: 900), "a fourth slot would have fit")
-        XCTAssertEqual(slots(gridWidth: 1200), 4)
-        XCTAssertEqual(slots(gridWidth: 1600), 4, "the cap, not the row, decides a wide window")
-        XCTAssertEqual(slots(gridWidth: 2000), 4)
+        XCTAssertEqual(slots(gridWidth: 1200, cap: 4), 4)
+        XCTAssertEqual(slots(gridWidth: 1600, cap: 4), 4, "the cap, not the row, decides a wide window")
+        XCTAssertEqual(slots(gridWidth: 2000, cap: 4), 4)
     }
 
     /// A thumbnail is the same size at every window, so the row gains slots
     /// as the window widens and gives them up as it narrows, monotonically
     /// and never below one. Two things bound it: below the cap the row's own
     /// width does, and at the cap the cap does, so the extra width wraps.
+    /// Swept at three caps, so the relationship is what is pinned rather than
+    /// one chosen number.
     func testTheSlotCountFollowsTheWindowUpToTheCapAndNeverReachesZero() {
-        var previous = 0
-        var everCapped = false
-        for width in stride(from: CGFloat(200), through: 2400, by: 25) {
-            let count = slots(gridWidth: width)
-            XCTAssertGreaterThanOrEqual(count, 1, "\(width): a card with no slot at all")
-            XCTAssertLessThanOrEqual(count, cap, "\(width): a row wider than the cap allows")
-            XCTAssertGreaterThanOrEqual(count, previous, "\(width): slots dropped as the window widened")
-            let filled = CGFloat(count) * 120 + CGFloat(count - 1) * 10
-            if count > 1 {
-                XCTAssertLessThanOrEqual(filled, rowWidth(gridWidth: width), "\(width): the row cannot hold that many")
+        for cap in [2, 4, 6] {
+            var previous = 0
+            var everCapped = false
+            for width in stride(from: CGFloat(200), through: 2400, by: 25) {
+                let count = slots(gridWidth: width, cap: cap)
+                XCTAssertGreaterThanOrEqual(count, 1, "cap \(cap), \(width): a card with no slot at all")
+                XCTAssertLessThanOrEqual(count, cap, "cap \(cap), \(width): a row wider than the cap allows")
+                XCTAssertGreaterThanOrEqual(count, previous, "cap \(cap), \(width): slots dropped as the window widened")
+                let filled = CGFloat(count) * 120 + CGFloat(count - 1) * 10
+                if count > 1 {
+                    XCTAssertLessThanOrEqual(filled, rowWidth(gridWidth: width), "cap \(cap), \(width): the row cannot hold that many")
+                }
+                if count < cap {
+                    XCTAssertGreaterThan(filled + 10 + 120, rowWidth(gridWidth: width), "cap \(cap), \(width): another slot would have fit")
+                } else {
+                    everCapped = true
+                }
+                previous = count
             }
-            if count < cap {
-                XCTAssertGreaterThan(filled + 10 + 120, rowWidth(gridWidth: width), "\(width): another slot would have fit")
-            } else {
-                everCapped = true
-            }
-            previous = count
+            XCTAssertTrue(everCapped, "cap \(cap): no width in the sweep ever reached it")
         }
-        XCTAssertTrue(everCapped, "no width in the sweep ever reached the cap")
-        XCTAssertLessThan(slots(gridWidth: 700), 3, "a row too narrow for three gave up nothing")
-        XCTAssertGreaterThan(slots(gridWidth: 1600), 3, "a wide window gained nothing")
+        XCTAssertLessThan(slots(gridWidth: 700, cap: 4), 3, "a row too narrow for three gave up nothing")
+        XCTAssertGreaterThan(slots(gridWidth: 1600, cap: 4), 3, "a wide window gained nothing")
     }
 
     /// The width that would hold a fifth slot is held to four, and the width
@@ -115,9 +120,9 @@ final class AllWorkspacesGridTests: XCTestCase {
     func testAWindowWideEnoughForMoreThanTheCapIsHeldToIt() {
         let fiveFit = GridCardLayout.tabsPerRow(rowWidth: 120 * 7 + 10 * 6, width: 120, gap: 10, cap: 99)
         XCTAssertEqual(fiveFit, 7, "the uncapped row really did hold seven")
-        XCTAssertEqual(GridCardLayout.tabsPerRow(rowWidth: 120 * 7 + 10 * 6, width: 120, gap: 10, cap: cap), cap)
-        XCTAssertEqual(GridCardLayout.tabsPerRow(rowWidth: 120 * 3 + 10 * 2, width: 120, gap: 10, cap: cap), 3)
-        XCTAssertEqual(GridCardLayout.tabsPerRow(rowWidth: 0, width: 120, gap: 10, cap: cap), 1, "the floor outranks the cap")
+        XCTAssertEqual(GridCardLayout.tabsPerRow(rowWidth: 120 * 7 + 10 * 6, width: 120, gap: 10, cap: 4), 4)
+        XCTAssertEqual(GridCardLayout.tabsPerRow(rowWidth: 120 * 3 + 10 * 2, width: 120, gap: 10, cap: 4), 3)
+        XCTAssertEqual(GridCardLayout.tabsPerRow(rowWidth: 0, width: 120, gap: 10, cap: 4), 1, "the floor outranks the cap")
     }
 
     /// The floor `tabsPerRow` keeps is only worth keeping if a card at it

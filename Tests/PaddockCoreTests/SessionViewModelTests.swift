@@ -810,6 +810,48 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedWorkspaceID, selectedBefore)
     }
 
+    /// The release is deliberately not on the `paneWork` chain, so a surface
+    /// whose attach lands after it was sent never sees it. A bridge spawns
+    /// HOLDING, so that one pane would take its lock while paddock is supposed
+    /// to have let go: one pane refusing to follow the terminal while every
+    /// other pane does, with nothing on screen to say so and no edge to fix it
+    /// short of clicking into paddock and away again.
+    @MainActor
+    func testAPaneAttachedAfterAReleaseIsToldToLetGoAsItRegisters() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let early = PaneID(rawValue: "w1:p1")
+        let late = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(early)
+
+        viewModel.releaseHerdrHold()
+        _ = await viewModel.attachPane(late)
+
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[late]).holdCalls, [.release])
+        // And the take reaches it, so the pane is not left released either.
+        viewModel.takeHerdrHold()
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[late]).holdCalls, [.release, .take])
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[early]).holdCalls, [.release, .take])
+    }
+
+    /// The other direction: a bridge spawns holding, so a cold attach while
+    /// paddock is active must not be sent a take it does not need.
+    @MainActor
+    func testAPaneAttachedWhilePaddockHoldsIsSentNothing() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+
+        _ = await viewModel.attachPane(pane)
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[pane]).holdCalls, [])
+
+        viewModel.releaseHerdrHold()
+        viewModel.takeHerdrHold()
+        let after = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(after)
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[after]).holdCalls, [], "the intent did not follow the take")
+    }
+
     /// A pane whose surface was already torn down (the warm cap's eviction, or
     /// herdr closing it) has no hold to give back, and must not be reached.
     @MainActor
