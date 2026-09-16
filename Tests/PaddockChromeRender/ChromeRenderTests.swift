@@ -521,9 +521,12 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(row.last).maxX, card.maxX - ChromeMetrics.Grid.cardHorizontalPadding + 0.5,
                 "\(width): the row ran past its card"
             )
-            // And the derivation itself, against the card the view really
-            // laid out: this is the one piece of arithmetic between the width
-            // the grid measures and the width a row is given.
+            // And the derivation itself, against the card the view really laid
+            // out. The overrun check above is what pins the derived slot COUNT
+            // against real frames; this pins the width that count is derived
+            // from. It reads the viewport rather than the `contentWidth` the
+            // app measures, which are the same number for a grid that only
+            // scrolls vertically and hides its indicators.
             XCTAssertEqual(
                 GridCardLayout.rowWidth(
                     gridWidth: grid.viewport.width, canvasPadding: ChromeMetrics.Grid.canvasPadding,
