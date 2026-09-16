@@ -487,8 +487,12 @@ final class ChromeRenderTests: XCTestCase {
 
         var drawn: [CGFloat: [CGRect]] = [:]
         // 900 is the narrowest the app allows (`MainWindow` sets that
-        // minimum), so it is the narrow case as well as the design one.
-        for width in [Self.windowSize.width, 1200, 1600] as [CGFloat] {
+        // minimum), so it is the narrow case as well as the design one. 1090
+        // is a width whose row is a few points short of a fifth slot: it is
+        // rendered like the rest but it is here for the overrun check, since
+        // that is where an over-generous slot count shows up as real points.
+        let rendered: Set<CGFloat> = [Self.windowSize.width, 1200, 1600]
+        for width in [Self.windowSize.width, 1090, 1200, 1600] as [CGFloat] {
             let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
             let window = harness.makeWindow(size: CGSize(width: width, height: Self.windowSize.height))
             await settle(window)
@@ -504,14 +508,29 @@ final class ChromeRenderTests: XCTestCase {
                     "\(width): a cell is not the one thumbnail width"
                 )
             }
-            // One slot too many overflows the card by real points, which is
-            // what pins the derived count against the width a row is given.
-            let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
+            // One slot too many costs real points: the cells run past their
+            // card's padding, and the cards then run past the grid's. Both
+            // ends are checked, since SwiftUI spends the overrun on whichever
+            // has slack. This is what pins the derived slot count against the
+            // width a row is actually given.
+            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
+            let card = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.repoTools }?.frame)
             XCTAssertLessThanOrEqual(
                 try XCTUnwrap(row.last).maxX, card.maxX - ChromeMetrics.Grid.cardHorizontalPadding + 0.5,
                 "\(width): the row ran past its card"
             )
-            if let directory {
+            // And the derivation itself, against the card the view really
+            // laid out: this is the one piece of arithmetic between the width
+            // the grid measures and the width a row is given.
+            XCTAssertEqual(
+                GridCardLayout.rowWidth(
+                    gridWidth: grid.viewport.width, canvasPadding: ChromeMetrics.Grid.canvasPadding,
+                    cardGap: ChromeMetrics.Grid.cardGap, cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
+                ),
+                card.width - ChromeMetrics.Grid.cardHorizontalPadding * 2, accuracy: 0.5,
+                "\(width): the derived row width is not the width a card gives its row"
+            )
+            if let directory, rendered.contains(width) {
                 try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-\(Int(width)).png"))
             }
@@ -525,7 +544,7 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertGreaterThan(middle.count, design.count, "a wider window drew no more cells")
         XCTAssertGreaterThan(wide.count, middle.count, "a wider window still drew no more cells")
         XCTAssertEqual(
-            Set((design + middle + wide).map { ($0.width * 100).rounded() }).count, 1,
+            Set(drawn.values.flatMap { $0 }.map { ($0.width * 100).rounded() }).count, 1,
             "a thumbnail changed size between windows"
         )
     }
