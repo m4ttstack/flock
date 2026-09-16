@@ -102,6 +102,12 @@ final class FakeHerdrServer: @unchecked Sendable {
     /// Blocks the connection thread for the next request matching `method`
     /// until the returned closure runs, so a test can pin an exact
     /// interleaving against an already-open subscription stream.
+    ///
+    /// The request is recorded in `receivedRequests` BEFORE the block, which
+    /// is what lets a test wait for the method to arrive and still know
+    /// nothing has been answered yet. Only that one request is held; a test
+    /// that never releases leaves that connection's thread parked for the
+    /// rest of the process, so release it on a `defer`.
     func holdNext(method: String) -> () -> Void {
         let sem = DispatchSemaphore(value: 0)
         lock.withLock { holds[method] = sem }
