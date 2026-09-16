@@ -30,6 +30,7 @@ struct MainWindow: View {
                     VStack(spacing: 0) {
                         TabStrip(
                             theme: theme,
+                            viewModel: viewModel,
                             workspace: viewModel.selectedWorkspaceID,
                             tabs: viewModel.tabsForSelectedWorkspace,
                             selectedTabID: viewModel.selectedTabID,
@@ -55,6 +56,25 @@ struct MainWindow: View {
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.chrome))
+        // herdr refuses a plain close on a workspace that is a worktree
+        // group's primary; this is that refusal, asked rather than reported.
+        .confirmationDialog(
+            "Close this workspace and its worktrees?",
+            isPresented: Binding(
+                get: { viewModel.pendingGroupClose != nil },
+                set: { shown in if !shown { viewModel.cancelPendingGroupClose() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Close Group", role: .destructive) {
+                Task { await viewModel.confirmPendingGroupClose() }
+            }
+            .accessibilityIdentifier("paddock.workspace.closeGroup.confirm")
+            Button("Cancel", role: .cancel) { viewModel.cancelPendingGroupClose() }
+                .accessibilityIdentifier("paddock.workspace.closeGroup.cancel")
+        } message: {
+            Text("herdr keeps this workspace and its linked worktree workspaces together. Closing it closes all of them.")
+        }
     }
 }
 

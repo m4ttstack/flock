@@ -70,6 +70,9 @@ enum ChromeType {
     static let copiedSymbol = Font.system(size: 14, weight: .medium)
     static let copiedMessage = inter(13)
 
+    static let closeSymbol = Font.system(size: 8.5, weight: .bold)
+    static let zoomBadge = Font.system(size: 9.5, weight: .semibold)
+
     static let ghostSymbol = Font.system(size: 14, weight: .semibold)
     static let ghostLabel = inter(14, .semibold)
     static let ghostCompactSymbol = Font.system(size: 10.5, weight: .semibold)

@@ -61,6 +61,10 @@ struct PaneCanvas: View {
                                 // after the click -- `resolvedFocusedPaneID`
                                 // paints the optimistic prediction instead).
                                 isFocused: pane.paneID == viewModel.resolvedFocusedPaneID,
+                                // herdr's zoom holds one pane of the tab
+                                // open; the canvas still draws them all, so
+                                // the badge is what says so.
+                                isZoomed: layout.zoomed && layout.focusedPane == pane.paneID,
                                 lastLine: viewModel.lastLine(for: pane),
                                 grid: PTYSize(cols: fit.cols, rows: fit.rows),
                                 surfaceSize: fit.size,

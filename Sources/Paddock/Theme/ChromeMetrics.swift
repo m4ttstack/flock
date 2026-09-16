@@ -84,6 +84,24 @@ enum ChromeMetrics {
         static let margin: CGFloat = 6
     }
 
+    /// The inline rename editor, wherever it opens (pane legend, tab, rail
+    /// row). It stands in the label's own place, so it takes the label's
+    /// padding and its host's row height rather than a box of its own.
+    enum Rename {
+        static let horizontalPadding: CGFloat = 5
+        static let cornerRadius: CGFloat = 3
+        /// Narrow enough for a rail row, wide enough that a two-word name is
+        /// not scrolling as it is typed.
+        static let minimumWidth: CGFloat = 72
+    }
+
+    /// The hover-reveal close control on a tab and a rail row.
+    enum CloseButton {
+        static let size: CGFloat = 15
+        static let cornerRadius: CGFloat = 3
+        static let symbol: CGFloat = 8.5
+    }
+
     enum Pane {
         static let scrollIndicatorWidth: CGFloat = 5
         static let scrollIndicatorInset: CGFloat = 4

@@ -6,6 +6,7 @@ import SwiftUI
 /// the drag layer.
 struct TabStrip: View {
     let theme: Theme
+    let viewModel: SessionViewModel
     let workspace: WorkspaceID?
     let tabs: [TabRecord]
     let selectedTabID: TabID?
@@ -14,6 +15,7 @@ struct TabStrip: View {
 
     @Environment(DragCoordinator.self) private var drag
     @State private var scrollPosition = ScrollPosition()
+    @State private var hoveredTabID: TabID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,6 +30,12 @@ struct TabStrip: View {
                                 theme: theme,
                                 tab: tab,
                                 isSelected: tab.tabID == selectedTabID,
+                                isRenaming: viewModel.renameTarget == .tab(tab.tabID),
+                                showsClose: hoveredTabID == tab.tabID && viewModel.renameTarget != .tab(tab.tabID),
+                                renameText: viewModel.renameText(for: .tab(tab.tabID)),
+                                onCommitRename: { text in Task { await viewModel.commitRename(text, for: .tab(tab.tabID)) } },
+                                onCancelRename: { viewModel.cancelRename() },
+                                onClose: { Task { await viewModel.closeTab(tab.tabID) } },
                                 displacement: drag.tabDisplacement(at: index),
                                 isGhosted: drag.isDragging(tab: tab.tabID)
                             )
@@ -38,8 +46,21 @@ struct TabStrip: View {
                             // insertion index must be measured against.
                             .reportsFrame(in: DragSpace.stripContent) { drag.setTabFrame($0, for: tab.tabID) }
                             .accessibilityIdentifier("paddock.strip.tab.\(tab.tabID.rawValue)")
+                            .onHover { hoveredTabID = $0 ? tab.tabID : (hoveredTabID == tab.tabID ? nil : hoveredTabID) }
+                            .onTapGesture(count: 2) { viewModel.beginRename(.tab(tab.tabID)) }
                             .onTapGesture { onSelect(tab.tabID) }
-                            .simultaneousGesture(tabDrag(tab))
+                            // Disarmed while this tab is being renamed: a press
+                            // inside the field must reach the text, not start a
+                            // drag.
+                            .simultaneousGesture(tabDrag(tab), including: viewModel.renameTarget == .tab(tab.tabID) ? .subviews : .all)
+                            .contextMenu {
+                                ForEach(tabMenuEntries(for: tab.tabID), id: \.accessibilityIdentifier) { entry in
+                                    Button(entry.label) {
+                                        Task { await entry.action.perform(tabID: tab.tabID, on: viewModel) }
+                                    }
+                                    .accessibilityIdentifier(entry.accessibilityIdentifier)
+                                }
+                            }
                         }
                     }
                     .padding(.leading, ChromeMetrics.Strip.horizontalPadding)
@@ -53,6 +74,12 @@ struct TabStrip: View {
                 .reportsScrollExtent(.horizontal) { drag.setStripScroll(offset: $0, maximumOffset: $1) }
                 .frame(height: ChromeMetrics.Strip.height)
                 .reportsDragFrame { drag.stripViewport = $0 }
+                // Behind the tabs, so only the strip space no tab occupies
+                // ever reaches it. herdr puts a "+" of its own at the end of
+                // the strip; paddock's equivalent is this zone plus the tab
+                // menu's New Tab and File > New Tab, so the resting chrome
+                // carries no control the design never drew.
+                .background { newTabZone }
                 .overlay(alignment: .leading) {
                     if drag.stripEdgeFade.leading { edgeFade(leading: true) }
                 }
@@ -90,6 +117,23 @@ struct TabStrip: View {
         .onChange(of: tabs.map(\.tabID)) { _, _ in publishIdentity() }
         .onChange(of: workspace) { _, _ in publishIdentity() }
         .onChange(of: selectedTabID) { _, id in if let id { drag.revealTab(id) } }
+    }
+
+    /// A plain click on strip space no tab occupies creates one. Invisible by
+    /// construction, so it costs the resting chrome nothing.
+    @ViewBuilder
+    private var newTabZone: some View {
+        if let workspace {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { Task { await viewModel.createTab(in: workspace) } }
+                .accessibilityIdentifier("paddock.strip.newTab")
+        }
+    }
+
+    private func tabMenuEntries(for tab: TabID) -> [ChromeMenuEntry<TabMenuAction>] {
+        guard let model = viewModel.model else { return [] }
+        return TabMenuModel.entries(for: tab, model: model)
     }
 
     /// Hints at tabs scrolled past this edge: the strip's own color run down
@@ -134,6 +178,14 @@ private struct TabBlock: View {
     let theme: Theme
     let tab: TabRecord
     let isSelected: Bool
+    var isRenaming = false
+    /// The hover-reveal close: laid out on every tab either way, so a tab
+    /// never reflows as the pointer crosses it.
+    var showsClose = false
+    var renameText = ""
+    var onCommitRename: (String) -> Void = { _ in }
+    var onCancelRename: () -> Void = {}
+    var onClose: () -> Void = {}
     /// How far this tab slides to open the insertion gap.
     var displacement: CGFloat = 0
     /// The tab this drag started from, left in place and faded.
@@ -145,14 +197,29 @@ private struct TabBlock: View {
         // underline slot at all.
         VStack(spacing: 0) {
             HStack(spacing: ChromeMetrics.Tab.labelDotGap) {
-                Text(tab.label)
-                    .font(ChromeType.tabLabel(selected: isSelected))
-                    .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
-                    .lineLimit(1)
-                StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot)
+                if isRenaming {
+                    InlineRenameField(
+                        theme: theme, font: ChromeType.tabLabel(selected: isSelected), initialText: renameText,
+                        accessibilityIdentifier: "paddock.strip.rename.\(tab.tabID.rawValue)",
+                        onCommit: onCommitRename, onCancel: onCancelRename
+                    )
+                } else {
+                    Text(tab.label)
+                        .font(ChromeType.tabLabel(selected: isSelected))
+                        .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
+                        .lineLimit(1)
+                    StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot)
+                }
             }
             .padding(.horizontal, ChromeMetrics.Tab.horizontalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .overlay(alignment: .trailing) {
+                HoverCloseButton(
+                    theme: theme, isRevealed: showsClose, help: "Close tab",
+                    accessibilityIdentifier: "paddock.strip.close.\(tab.tabID.rawValue)", action: onClose
+                )
+                .padding(.trailing, ChromeMetrics.Tab.horizontalPadding / 2)
+            }
             .boundedBackground(isSelected ? theme.selection : theme.tabRest)
             if isSelected {
                 Rectangle()

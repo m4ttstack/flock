@@ -66,6 +66,22 @@ final class PaddockAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// One "Move Pane <direction>" menu item: its title, the arrow that runs it
+/// under Command+Option, and which way it aims.
+struct PaneMoveCommand {
+    let title: String
+    let key: KeyEquivalent
+    let direction: PaneDirection
+    let accessibilityIdentifier: String
+
+    static let all = [
+        PaneMoveCommand(title: "Move Pane Left", key: .leftArrow, direction: .left, accessibilityIdentifier: "paddock.view.movePane.left"),
+        PaneMoveCommand(title: "Move Pane Right", key: .rightArrow, direction: .right, accessibilityIdentifier: "paddock.view.movePane.right"),
+        PaneMoveCommand(title: "Move Pane Up", key: .upArrow, direction: .up, accessibilityIdentifier: "paddock.view.movePane.up"),
+        PaneMoveCommand(title: "Move Pane Down", key: .downArrow, direction: .down, accessibilityIdentifier: "paddock.view.movePane.down"),
+    ]
+}
+
 struct PaddockApp: App {
     @NSApplicationDelegateAdaptor(PaddockAppDelegate.self) private var appDelegate
     @State private var themeStore = ThemeStore()
@@ -219,6 +235,39 @@ struct PaddockApp: App {
         // for this scene, alongside the two lower-level opt-outs above.
         .restorationBehavior(.disabled)
         .commands {
+            // Creation's macOS home. It is also the only always-visible route
+            // to it: the strip and rail take a plain click on their own empty
+            // space, and the tab menu carries New Tab, but neither the strip
+            // nor the rail draws a control the chrome design never had.
+            CommandGroup(replacing: .newItem) {
+                Button("New Tab") {
+                    guard let workspace = viewModel.selectedWorkspaceID else { return }
+                    Task { await viewModel.createTab(in: workspace) }
+                }
+                .keyboardShortcut("t", modifiers: .command)
+                .disabled(viewModel.selectedWorkspaceID == nil)
+                .accessibilityIdentifier("paddock.file.newTab")
+                Button("New Workspace") {
+                    Task { await viewModel.createWorkspace() }
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .accessibilityIdentifier("paddock.file.newWorkspace")
+            }
+            CommandGroup(after: .sidebar) {
+                Divider()
+                // The spec's keyboard-parity half of the drag inventory: each
+                // one compiles the same plan a drag onto that neighbor's edge
+                // would, through the same planner.
+                ForEach(PaneMoveCommand.all, id: \.title) { command in
+                    Button(command.title) {
+                        Task { await viewModel.moveFocusedPane(toward: command.direction) }
+                    }
+                    .keyboardShortcut(command.key, modifiers: [.command, .option])
+                    .disabled(!viewModel.canMoveFocusedPane(toward: command.direction))
+                    .accessibilityIdentifier(command.accessibilityIdentifier)
+                }
+                Divider()
+            }
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(store: terminalTextSizeStore)

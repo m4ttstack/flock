@@ -12,6 +12,7 @@ struct WorkspaceRail: View {
 
     @Environment(DragCoordinator.self) private var drag
     @State private var scrollPosition = ScrollPosition()
+    @State private var hoveredWorkspaceID: WorkspaceID?
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
@@ -36,11 +37,20 @@ struct WorkspaceRail: View {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
                         ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
+                            let isRenaming = viewModel.renameTarget == .workspace(workspace.workspaceID)
                             WorkspaceRow(
                                 theme: theme,
                                 workspace: workspace,
                                 paneCount: viewModel.paneCount(for: workspace.workspaceID),
                                 isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
+                                isRenaming: isRenaming,
+                                showsClose: hoveredWorkspaceID == workspace.workspaceID && !isRenaming,
+                                renameText: viewModel.renameText(for: .workspace(workspace.workspaceID)),
+                                onCommitRename: { text in
+                                    Task { await viewModel.commitRename(text, for: .workspace(workspace.workspaceID)) }
+                                },
+                                onCancelRename: { viewModel.cancelRename() },
+                                onClose: { Task { await viewModel.closeWorkspace(workspace.workspaceID) } },
                                 showsFill: drag.showsWorkspaceFill(
                                     workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.selectedWorkspaceID
                                 ),
@@ -53,13 +63,30 @@ struct WorkspaceRail: View {
                             // against.
                             .reportsFrame(in: DragSpace.railContent) { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
                             .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
+                            .onHover { hovering in
+                                hoveredWorkspaceID = hovering
+                                    ? workspace.workspaceID
+                                    : (hoveredWorkspaceID == workspace.workspaceID ? nil : hoveredWorkspaceID)
+                            }
+                            .onTapGesture(count: 2) { viewModel.beginRename(.workspace(workspace.workspaceID)) }
                             .onTapGesture {
                                 let commandHeld = NSEvent.modifierFlags.contains(.command)
                                 if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld, current: viewModel.selectedWorkspaceID) {
                                     onSelect(workspace.workspaceID)
                                 }
                             }
-                            .simultaneousGesture(rowDrag(workspace))
+                            // Disarmed while this row is being renamed: a press
+                            // inside the field must reach the text, not start a
+                            // drag.
+                            .simultaneousGesture(rowDrag(workspace), including: isRenaming ? .subviews : .all)
+                            .contextMenu {
+                                ForEach(workspaceMenuEntries(for: workspace.workspaceID), id: \.accessibilityIdentifier) { entry in
+                                    Button(entry.label) {
+                                        Task { await entry.action.perform(workspaceID: workspace.workspaceID, on: viewModel) }
+                                    }
+                                    .accessibilityIdentifier(entry.accessibilityIdentifier)
+                                }
+                            }
                         }
                     }
                     .padding(.top, ChromeMetrics.Rail.headingToFirstRow)
@@ -75,6 +102,11 @@ struct WorkspaceRail: View {
                 .reportsScrollExtent(.vertical) { drag.setRailScroll(offset: $0, maximumOffset: $1) }
                 .frame(maxHeight: .infinity)
                 .reportsDragFrame { drag.railViewport = $0 }
+                // Behind the rows, so only rail space no row occupies reaches
+                // it. herdr draws a "+" of its own in the sidebar; paddock's
+                // equivalent is this zone plus File > New Workspace, so the
+                // resting chrome carries no control the design never drew.
+                .background { newWorkspaceZone }
                 .onAppear { drag.railScroller = { y in scrollPosition.scrollTo(y: y) } }
             }
             .frame(width: ChromeMetrics.Rail.width)
@@ -86,6 +118,20 @@ struct WorkspaceRail: View {
         .reportsDragFrame { drag.railFrame = $0 }
         .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
+    }
+
+    /// A plain click on rail space no row occupies creates a workspace.
+    /// Invisible by construction, so it costs the resting chrome nothing.
+    private var newWorkspaceZone: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture { Task { await viewModel.createWorkspace() } }
+            .accessibilityIdentifier("paddock.rail.newWorkspace")
+    }
+
+    private func workspaceMenuEntries(for workspace: WorkspaceID) -> [ChromeMenuEntry<WorkspaceMenuAction>] {
+        guard let model = viewModel.model else { return [] }
+        return WorkspaceMenuModel.entries(for: workspace, model: model)
     }
 
     /// Starts the drag and nothing else: `DragCoordinator` drives it from
@@ -162,6 +208,14 @@ private struct WorkspaceRow: View {
     let workspace: WorkspaceRecord
     let paneCount: Int
     let isSelected: Bool
+    var isRenaming = false
+    /// The hover-reveal close: laid out on every row either way, so a row
+    /// never reflows as the pointer crosses it.
+    var showsClose = false
+    var renameText = ""
+    var onCommitRename: (String) -> Void = { _ in }
+    var onCancelRename: () -> Void = {}
+    var onClose: () -> Void = {}
     /// The selection fill alone. The accent bar and weight always mark
     /// herdr's selected workspace; the fill follows the Cmd+click selection
     /// whenever one exists.
@@ -178,14 +232,28 @@ private struct WorkspaceRow: View {
             RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.indicatorSize.width / 2)
                 .fill(indicatorColor ?? .clear)
                 .frame(width: ChromeMetrics.WorkspaceRow.indicatorSize.width, height: ChromeMetrics.WorkspaceRow.indicatorSize.height)
-            Text(workspace.label)
-                .font(ChromeType.workspaceName(selected: isSelected))
-                .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
-                .lineLimit(1)
-            Spacer(minLength: ChromeMetrics.WorkspaceRow.countMinimumGap)
-            Text("\(paneCount)")
-                .font(ChromeType.workspaceCount)
-                .foregroundStyle(theme.textLabel)
+            if isRenaming {
+                InlineRenameField(
+                    theme: theme, font: ChromeType.workspaceName(selected: isSelected), initialText: renameText,
+                    accessibilityIdentifier: "paddock.rail.rename.\(workspace.workspaceID.rawValue)",
+                    onCommit: onCommitRename, onCancel: onCancelRename
+                )
+            } else {
+                Text(workspace.label)
+                    .font(ChromeType.workspaceName(selected: isSelected))
+                    .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
+                    .lineLimit(1)
+                Spacer(minLength: ChromeMetrics.WorkspaceRow.countMinimumGap)
+                Text("\(paneCount)")
+                    .font(ChromeType.workspaceCount)
+                    .foregroundStyle(theme.textLabel)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            HoverCloseButton(
+                theme: theme, isRevealed: showsClose, help: "Close workspace",
+                accessibilityIdentifier: "paddock.rail.close.\(workspace.workspaceID.rawValue)", action: onClose
+            )
         }
         // Fixed rather than taken from the label's line height, which varies
         // with face and size, so rows keep a whole-point pitch.

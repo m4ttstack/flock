@@ -39,6 +39,10 @@ struct PaneCellView: View {
     let viewModel: SessionViewModel
     let pane: PaneRecord
     let isFocused: Bool
+    /// This pane is the one herdr's zoom is holding open on its tab. The
+    /// canvas still draws every pane of the tab, so the badge is the only
+    /// thing that says the terminal's own view is zoomed.
+    let isZoomed: Bool
     let lastLine: String?
     /// The whole-cell grid this pane's own box holds, which `surfaceSize`
     /// lays the surface out at. herdr hears it only through the PTY.
@@ -65,13 +69,14 @@ struct PaneCellView: View {
     /// synthesized init would have given it, so this changes nothing for
     /// that case.
     init(
-        theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool,
+        theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool, isZoomed: Bool = false,
         lastLine: String?, grid: PTYSize, surfaceSize: CGSize, fontSizePoints: Double
     ) {
         self.theme = theme
         self.viewModel = viewModel
         self.pane = pane
         self.isFocused = isFocused
+        self.isZoomed = isZoomed
         self.lastLine = lastLine
         self.grid = grid
         self.surfaceSize = surfaceSize
@@ -109,7 +114,7 @@ struct PaneCellView: View {
             // cannot start two drags: both call `beginIfIdle` and
             // `DragGestureMachine` starts a drag from `.idle` only.
             .contentShape(Rectangle())
-            .simultaneousGesture(paneDrag, including: rearrangeMode.active ? .all : .subviews)
+            .simultaneousGesture(paneDrag, including: rearrangeMode.active && !isRenaming ? .all : .subviews)
         // One task per pane identity, never keyed on the grid or focus: the
         // pane gets exactly one surface for its whole visible life, created
         // here on first visibility. Every box change resizes the surface
@@ -146,7 +151,7 @@ struct PaneCellView: View {
             .frame(height: PaneChrome.contentTop)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
-            .gesture(paneDrag)
+            .gesture(paneDrag, including: isRenaming ? .subviews : .all)
             .onHover { hovering in
                 // A pane drag already owns the cursor for its whole
                 // duration (`DragCoordinator`'s own push); this band's own
@@ -245,7 +250,30 @@ struct PaneCellView: View {
         .allowsHitTesting(false)
     }
 
+    /// Whether the one rename editor is open on THIS pane.
+    private var isRenaming: Bool {
+        viewModel.renameTarget == .pane(pane.paneID)
+    }
+
+    @ViewBuilder
     private var title: some View {
+        if isRenaming {
+            InlineRenameField(
+                theme: theme, font: ChromeType.paneTitle,
+                initialText: viewModel.renameText(for: .pane(pane.paneID)),
+                accessibilityIdentifier: "paddock.pane.rename.\(pane.paneID.rawValue)",
+                onCommit: { text in Task { await viewModel.commitRename(text, for: .pane(pane.paneID)) } },
+                onCancel: { viewModel.cancelRename() }
+            )
+            .frame(height: PaneChrome.titleRowHeight)
+            .padding(.top, PaneChrome.verticalPadding)
+            .padding(.leading, PaneChrome.horizontalPadding)
+        } else {
+            titleLabel
+        }
+    }
+
+    private var titleLabel: some View {
         Text(pane.terminalTitleStripped ?? pane.label ?? "shell")
             .font(ChromeType.paneTitle)
             .foregroundStyle(isFocused ? theme.textStrong : theme.textDim)
@@ -254,6 +282,12 @@ struct PaneCellView: View {
             .padding(.top, PaneChrome.verticalPadding)
             .padding(.leading, PaneChrome.horizontalPadding)
             .contentShape(Rectangle())
+        // Ahead of the single tap below, which SwiftUI then only fires for a
+        // click that is not part of a double.
+        .onTapGesture(count: 2) {
+            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+            viewModel.beginRename(.pane(pane.paneID))
+        }
         // SwiftUI's tap gesture on macOS fires for the secondary button as
         // well, so the click is checked before it may act as a focus click;
         // the right-click falls through to the context menu below.
@@ -269,21 +303,36 @@ struct PaneCellView: View {
         .accessibilityIdentifier("paddock.pane.title.\(pane.paneID.rawValue)")
     }
 
-    @ViewBuilder
+    /// The legend's trailing end: the zoom badge, then the status chip. Both
+    /// are readouts, so the whole stack yields its part of the chrome band to
+    /// the drag handle underneath it.
     private var statusChip: some View {
-        if let statusColor {
-            Text(pane.agentStatus.rawValue)
-                .font(ChromeType.statusChip)
-                .foregroundStyle(statusColor)
-                .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
-                .frame(height: PaneChrome.titleRowHeight)
-                .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(statusColor.opacity(0.14)))
-                .padding(.top, PaneChrome.verticalPadding)
-                .padding(.trailing, PaneChrome.horizontalPadding)
-                // Decorative, so it yields its part of the chrome band to the
-                // drag handle underneath it.
-                .allowsHitTesting(false)
+        HStack(spacing: ChromeMetrics.Pane.statusChipPadding) {
+            if isZoomed { zoomBadge }
+            if let statusColor {
+                Text(pane.agentStatus.rawValue)
+                    .font(ChromeType.statusChip)
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
+                    .frame(height: PaneChrome.titleRowHeight)
+                    .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(statusColor.opacity(0.14)))
+            }
         }
+        .padding(.top, PaneChrome.verticalPadding)
+        .padding(.trailing, PaneChrome.horizontalPadding)
+        .allowsHitTesting(false)
+    }
+
+    /// Mauve, never a status color (the parity checklist's own rule), so a
+    /// zoomed pane is never read as an agent state.
+    private var zoomBadge: some View {
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(ChromeType.zoomBadge)
+            .foregroundStyle(theme.mauve)
+            .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
+            .frame(height: PaneChrome.titleRowHeight)
+            .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.mauve.opacity(0.14)))
+            .accessibilityIdentifier("paddock.pane.zoomBadge.\(pane.paneID.rawValue)")
     }
 
     /// Status chips only accompany the active states (working/blocked/done);
