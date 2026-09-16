@@ -11,8 +11,10 @@ struct AllWorkspacesGrid: View {
 
     @Environment(DragCoordinator.self) private var drag
     @State private var scrollPosition = ScrollPosition()
-    /// The scroll content's own width, measured rather than assumed: it is
-    /// what decides how many slots a card row is divided into.
+    /// The width the scroll content is laid out in, measured rather than
+    /// assumed: it is what decides how many slots a card row holds. Taken
+    /// OUTSIDE the grid's own padding, which is why `rowWidth` takes that
+    /// padding off again.
     @State private var contentWidth: CGFloat = 0
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
@@ -23,10 +25,10 @@ struct AllWorkspacesGrid: View {
     private var slotsPerRow: Int {
         GridCardLayout.tabsPerRow(
             rowWidth: GridCardLayout.rowWidth(
-                gridContentWidth: contentWidth, cardGap: ChromeMetrics.Grid.cardGap,
-                cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
+                gridWidth: contentWidth, canvasPadding: ChromeMetrics.Grid.canvasPadding,
+                cardGap: ChromeMetrics.Grid.cardGap, cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
             ),
-            maximumWidth: ChromeMetrics.Grid.thumbnailMaximumWidth,
+            width: ChromeMetrics.Grid.thumbnailWidth,
             gap: ChromeMetrics.Grid.tabGap
         )
     }
@@ -227,17 +229,13 @@ private struct WorkspaceCard: View {
                     // Every row keeps all its slots, so a short row's tabs are
                     // as wide as a full row's.
                     HStack(alignment: .top, spacing: ChromeMetrics.Grid.tabGap) {
-                        ForEach(0..<slotsPerRow, id: \.self) { slot in
-                            // One cap for every slot, filled or empty, so a
-                            // thumbnail, a tile and the placeholder are always
-                            // the same width and a wide window leaves its
-                            // slack at the end of the row.
-                            if slot < row.count {
-                                cell(row[slot], tabs: tabs, displacements: displacements)
-                                    .frame(maxWidth: ChromeMetrics.Grid.thumbnailMaximumWidth)
-                            } else {
-                                Color.clear.frame(maxWidth: ChromeMetrics.Grid.thumbnailMaximumWidth, maxHeight: 0)
-                            }
+                        // One width for every cell, so a thumbnail, a tile and
+                        // the placeholder are always the same size and a row
+                        // that does not fill its card leaves the slack at its
+                        // own trailing edge.
+                        ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                            self.cell(cell, tabs: tabs, displacements: displacements)
+                                .frame(width: ChromeMetrics.Grid.thumbnailWidth)
                         }
                     }
                 }

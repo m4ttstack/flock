@@ -464,11 +464,11 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// A card's thumbnails stop growing at the cap, and the row buys slots
-    /// instead. Driven at two window widths through the real view, so the
+    /// A thumbnail is the same size at every window and the row holds as many
+    /// as fit. Driven at three window widths through the real view, so the
     /// arithmetic that derives the slot count cannot drift from the width the
     /// cards are actually given.
-    func testAWideWindowFitsMoreThumbnailsRatherThanWiderOnes() async throws {
+    func testAThumbnailIsTheSameWidthAtEveryWindowAndTheRowHoldsWhatFits() async throws {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
 
@@ -486,7 +486,9 @@ final class ChromeRenderTests: XCTestCase {
         }
 
         var drawn: [CGFloat: [CGRect]] = [:]
-        for width in [Self.windowSize.width, 1600] as [CGFloat] {
+        // 900 is the narrowest the app allows (`MainWindow` sets that
+        // minimum), so it is the narrow case as well as the design one.
+        for width in [Self.windowSize.width, 1200, 1600] as [CGFloat] {
             let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
             let window = harness.makeWindow(size: CGSize(width: width, height: Self.windowSize.height))
             await settle(window)
@@ -497,13 +499,17 @@ final class ChromeRenderTests: XCTestCase {
             let row = try firstRow(of: harness, workspace: GridFixture.repoTools, prefix: "w1:")
             drawn[width] = row
             for cell in row {
-                XCTAssertLessThanOrEqual(
-                    cell.width, ChromeMetrics.Grid.thumbnailMaximumWidth + 0.5, "\(width): a thumbnail passed the cap"
+                XCTAssertEqual(
+                    cell.width, ChromeMetrics.Grid.thumbnailWidth, accuracy: 0.5,
+                    "\(width): a cell is not the one thumbnail width"
                 )
             }
-            XCTAssertEqual(
-                Set(row.map { ($0.width * 100).rounded() }).count, 1,
-                "\(width): the tile and the thumbnails are not the same width"
+            // One slot too many overflows the card by real points, which is
+            // what pins the derived count against the width a row is given.
+            let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
+            XCTAssertLessThanOrEqual(
+                try XCTUnwrap(row.last).maxX, card.maxX - ChromeMetrics.Grid.cardHorizontalPadding + 0.5,
+                "\(width): the row ran past its card"
             )
             if let directory {
                 try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
@@ -512,13 +518,15 @@ final class ChromeRenderTests: XCTestCase {
             window.close()
         }
 
-        let narrow = try XCTUnwrap(drawn[Self.windowSize.width])
+        let design = try XCTUnwrap(drawn[Self.windowSize.width])
+        let middle = try XCTUnwrap(drawn[1200])
         let wide = try XCTUnwrap(drawn[1600])
-        XCTAssertEqual(narrow.count, GridCardLayout.minimumTabsPerRow, "the design window lost its shape")
-        XCTAssertGreaterThan(wide.count, narrow.count, "a wider window drew no more cells")
-        XCTAssertGreaterThan(
-            try XCTUnwrap(wide.first).width, try XCTUnwrap(narrow.first).width,
-            "the premise: the cap has not bitten at the narrow window"
+        XCTAssertEqual(design.count, 4, "the narrowest window the app allows lost its shape")
+        XCTAssertGreaterThan(middle.count, design.count, "a wider window drew no more cells")
+        XCTAssertGreaterThan(wide.count, middle.count, "a wider window still drew no more cells")
+        XCTAssertEqual(
+            Set((design + middle + wide).map { ($0.width * 100).rounded() }).count, 1,
+            "a thumbnail changed size between windows"
         )
     }
 

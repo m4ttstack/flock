@@ -29,28 +29,32 @@ extension GridCell {
 /// every function that shapes a card takes `perRow` so the cells, the rows,
 /// the tile and the placeholder are all laid out against the same count.
 public enum GridCardLayout {
-    /// The fewest slots a card row is ever divided into. A window too narrow
-    /// to give that many slots the full thumbnail width shrinks them instead,
-    /// which is the shape the grid has always had; only a wider window buys
-    /// slots.
-    public static let minimumTabsPerRow = 4
     public static let columns = 2
 
-    /// How many thumbnails one row of `rowWidth` holds: as many as fit with
-    /// none of them passing `maximumWidth`, never fewer than
-    /// `minimumTabsPerRow`. Widening the window buys slots rather than
-    /// stretching every thumbnail.
-    public static func tabsPerRow(rowWidth: CGFloat, maximumWidth: CGFloat, gap: CGFloat) -> Int {
-        guard rowWidth > 0, maximumWidth > 0 else { return minimumTabsPerRow }
-        return max(minimumTabsPerRow, Int(((rowWidth + gap) / (maximumWidth + gap)).rounded(.down)))
+    /// How many thumbnails of `width` one row of `rowWidth` holds. A
+    /// thumbnail is the same size at every window, so a wider window buys
+    /// slots and a narrower one gives them up, and whatever is left over sits
+    /// at the end of the row.
+    ///
+    /// Never zero: a row too narrow for even one thumbnail still draws one,
+    /// overflowing its card rather than drawing a card whose tabs cannot be
+    /// seen, reached or dropped on at all.
+    public static func tabsPerRow(rowWidth: CGFloat, width: CGFloat, gap: CGFloat) -> Int {
+        guard rowWidth > 0, width > 0 else { return 1 }
+        return max(1, Int(((rowWidth + gap) / (width + gap)).rounded(.down)))
     }
 
-    /// The width one card draws its thumbnails across, given the grid's own
-    /// content width. The cards split that width evenly and each spends its
-    /// horizontal padding on both sides, so this is the only arithmetic
-    /// between what the grid measures and what a row is actually given.
-    public static func rowWidth(gridContentWidth: CGFloat, cardGap: CGFloat, cardPadding: CGFloat) -> CGFloat {
-        let card = (gridContentWidth - cardGap * CGFloat(columns - 1)) / CGFloat(columns)
+    /// The width one card draws its thumbnails across, given the width the
+    /// grid's scroll content is laid out in. The grid spends its own padding
+    /// on both sides, the cards split what is left evenly a `cardGap` apart,
+    /// and each spends its horizontal padding on both sides. This is the only
+    /// arithmetic between what the grid measures and what a row is given, so
+    /// a slot too many here overflows a card by real points.
+    public static func rowWidth(
+        gridWidth: CGFloat, canvasPadding: CGFloat, cardGap: CGFloat, cardPadding: CGFloat
+    ) -> CGFloat {
+        let content = gridWidth - canvasPadding * 2
+        let card = (content - cardGap * CGFloat(columns - 1)) / CGFloat(columns)
         return max(0, card - cardPadding * 2)
     }
 

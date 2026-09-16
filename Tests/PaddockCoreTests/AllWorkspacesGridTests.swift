@@ -9,9 +9,9 @@ final class AllWorkspacesGridTests: XCTestCase {
     private let p2 = PaneID(rawValue: "w1:p2")
     private let p3 = PaneID(rawValue: "w1:p3")
 
-    /// The slot count a card row is divided into at the window paddock's
-    /// chrome is designed on, which is the floor every narrower window keeps.
-    private let perRow = GridCardLayout.minimumTabsPerRow
+    /// The slot count a card row holds at the window paddock's chrome is
+    /// designed on.
+    private let perRow = 4
 
     private func tabs(_ count: Int) -> [TabID] {
         (1...max(count, 1)).prefix(count).map { TabID(rawValue: "w1:t\($0)") }
@@ -51,58 +51,44 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     /// The design's own window, spelled from `ChromeMetrics.Grid`: 900pt
     /// across, 13pt of grid padding either side, two cards 13pt apart, each
-    /// spending 13pt of padding per side, thumbnails 10pt apart and capped at
-    /// 116pt.
+    /// spending 13pt of padding per side, thumbnails 93pt wide and 10pt apart.
     private func rowWidth(gridWidth: CGFloat) -> CGFloat {
-        GridCardLayout.rowWidth(gridContentWidth: gridWidth - 26, cardGap: 13, cardPadding: 13)
+        GridCardLayout.rowWidth(gridWidth: gridWidth, canvasPadding: 13, cardGap: 13, cardPadding: 13)
     }
 
     private func slots(gridWidth: CGFloat) -> Int {
-        GridCardLayout.tabsPerRow(rowWidth: rowWidth(gridWidth: gridWidth), maximumWidth: 116, gap: 10)
+        GridCardLayout.tabsPerRow(rowWidth: rowWidth(gridWidth: gridWidth), width: 93, gap: 10)
     }
 
-    /// The window the chrome is designed on draws exactly what it always did,
-    /// and every narrower one keeps that shape by shrinking its thumbnails
-    /// rather than dropping a slot.
-    func testANarrowWindowKeepsFourSlotsAndShrinksTheThumbnails() {
-        XCTAssertEqual(slots(gridWidth: 900), GridCardLayout.minimumTabsPerRow)
-        XCTAssertEqual(slots(gridWidth: 700), GridCardLayout.minimumTabsPerRow)
-        XCTAssertEqual(slots(gridWidth: 420), GridCardLayout.minimumTabsPerRow)
-        XCTAssertEqual(slots(gridWidth: 0), GridCardLayout.minimumTabsPerRow, "a card with no width yet still has a shape")
-        XCTAssertLessThan(
-            (rowWidth(gridWidth: 900) - 10 * 3) / 4, 116,
-            "the premise: at the design window a thumbnail is still under the cap"
-        )
+    /// The window the chrome is designed on is also the narrowest one it
+    /// allows (`MainWindow` sets a 900pt minimum), and it draws the four slots
+    /// it always did at the width it always drew them, with room to spare
+    /// rather than stretching them to fill the row.
+    func testTheDesignWindowStillHoldsFourThumbnailsAtTheirOwnWidth() {
+        XCTAssertEqual(slots(gridWidth: 900), 4)
+        let filled = 93 * 4 + 10 * 3
+        XCTAssertLessThanOrEqual(CGFloat(filled), rowWidth(gridWidth: 900))
+        XCTAssertGreaterThan(CGFloat(filled + 10 + 93), rowWidth(gridWidth: 900), "a fifth slot would have fit")
     }
 
-    /// A wider window buys slots instead of stretching the four it has: no
-    /// thumbnail ever passes the cap, the count never drops as the window
-    /// grows, and every slot past the minimum is one the row really had room
-    /// for at full width.
-    func testAWiderWindowBuysSlotsAndNoThumbnailPassesTheCap() {
-        /// What one slot is actually drawn at, which is its share of the row
-        /// held under the cap.
-        func drawn(gridWidth: CGFloat, slots count: Int) -> CGFloat {
-            min(116, (rowWidth(gridWidth: gridWidth) - 10 * CGFloat(count - 1)) / CGFloat(count))
-        }
-        var previous = GridCardLayout.minimumTabsPerRow
-        for width in stride(from: CGFloat(600), through: 2400, by: 25) {
+    /// A thumbnail is the same size at every window, so the row gains slots
+    /// as the window widens and gives them up as it narrows, monotonically
+    /// and never below one.
+    func testTheSlotCountFollowsTheWindowAndNeverReachesZero() {
+        var previous = 0
+        for width in stride(from: CGFloat(200), through: 2400, by: 25) {
             let count = slots(gridWidth: width)
+            XCTAssertGreaterThanOrEqual(count, 1, "\(width): a card with no slot at all")
             XCTAssertGreaterThanOrEqual(count, previous, "\(width): slots dropped as the window widened")
-            XCTAssertLessThanOrEqual(drawn(gridWidth: width, slots: count), 116, "\(width): a thumbnail passed the cap")
-            if count > GridCardLayout.minimumTabsPerRow {
-                XCTAssertEqual(
-                    drawn(gridWidth: width, slots: count), 116, accuracy: 0.001,
-                    "\(width): a slot past the minimum that is not at the cap is one slot too many"
-                )
-                XCTAssertLessThan(
-                    (rowWidth(gridWidth: width) - 10 * CGFloat(count)) / CGFloat(count + 1), 116,
-                    "\(width): the row had room for another slot"
-                )
+            let filled = CGFloat(count) * 93 + CGFloat(count - 1) * 10
+            if count > 1 {
+                XCTAssertLessThanOrEqual(filled, rowWidth(gridWidth: width), "\(width): the row cannot hold that many")
             }
+            XCTAssertGreaterThan(filled + 10 + 93, rowWidth(gridWidth: width), "\(width): another slot would have fit")
             previous = count
         }
-        XCTAssertGreaterThan(slots(gridWidth: 1600), GridCardLayout.minimumTabsPerRow, "a wide window gained nothing")
+        XCTAssertLessThan(slots(gridWidth: 700), 4, "a row too narrow for four gave up nothing")
+        XCTAssertGreaterThan(slots(gridWidth: 1600), 4, "a wide window gained nothing")
     }
 
     /// The slot count is what the tile, the placeholder and the wrapping all
@@ -120,6 +106,10 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertEqual(
             GridCardLayout.rows(tabs: tabs(9), expanded: true, perRow: wide).map(\.count), [6, 4],
             "ten cells over six slots"
+        )
+        XCTAssertEqual(
+            GridCardLayout.cells(tabs: tabs(3), expanded: false, perRow: 2), [.tab(tabs(3)[0]), .moreTabs(hidden: 2)],
+            "a narrow card still spends its last slot on the tile"
         )
     }
 
