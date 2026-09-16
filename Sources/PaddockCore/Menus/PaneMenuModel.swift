@@ -6,9 +6,12 @@ import Foundation
 /// caller built the row (`PaneMenuModel.entries(for:model:focusedPane:)`
 /// already knows it).
 public enum PaneMenuAction: Equatable, Sendable {
+    case renamePane
+    case clearPaneName
     case swapWithFocused(PaneID)
     case splitRight
     case splitDown
+    case zoom
     case moveTo(DropTarget)
     case closePane
 }
@@ -42,15 +45,33 @@ public struct PaneMenuEntry: Equatable, Sendable {
 /// with no ghostty view yet) render from the SAME rows this produces, so the
 /// two can never drift.
 ///
-/// Order mirrors herdr's own `context_menu.rs` Pane target, for the items
-/// paddock has today: Swap with Focused Pane (only offered same-tab,
-/// non-focused -- see `MoveToMenu.swapTarget`), Split Right, Split Down,
-/// Move to... (submenu from `MoveToMenu.entries`), Close Pane. Herdr also has
-/// Rename pane / Clear pane name / Zoom, which paddock does not yet -- Task
-/// 28 adds cases here when it grows them.
+/// Order and item set mirror herdr's own `ClientContextMenuTarget::Pane`
+/// (`src/client/shell/context_menu.rs`, tracked as a row in
+/// `docs/design/PARITY.md`): Rename Pane; Clear Pane Name only while the pane
+/// carries a manual label; Swap with Focused Pane only when herdr's focus is
+/// on another pane of the SAME tab (`MoveToMenu.swapTarget`); Split Right;
+/// Split Down; Zoom; Close Pane. Labels are title case, macOS menu
+/// convention, against herdr's sentence case; the strings are paired in
+/// PARITY.md so the item set still diffs row for row.
+///
+/// Two rows differ from herdr deliberately. "Move to..." is paddock's own,
+/// the spec's keyboard/accessibility parity path for every drag outcome, and
+/// it sits between Zoom and Close Pane so every row paddock shares with herdr
+/// keeps herdr's relative order. herdr's right-click passthrough toggle is
+/// absent: Task 18n settled the disposition per click (plain goes to the pane
+/// app whenever it is listening, Option always opens this menu), so there is
+/// no per-pane mode for a row to flip.
 public enum PaneMenuModel {
     public static func entries(for pane: PaneID, model: SessionModel, focusedPane: PaneID?) -> [PaneMenuEntry] {
-        var entries: [PaneMenuEntry] = []
+        var entries: [PaneMenuEntry] = [PaneMenuEntry(
+            label: "Rename Pane", action: .renamePane, accessibilityIdentifier: "paddock.pane.menu.rename"
+        )]
+
+        if model.panes[pane]?.label != nil {
+            entries.append(PaneMenuEntry(
+                label: "Clear Pane Name", action: .clearPaneName, accessibilityIdentifier: "paddock.pane.menu.clearName"
+            ))
+        }
 
         if case let .paneInterior(target)? = MoveToMenu.swapTarget(for: pane, focusedPane: focusedPane, model: model) {
             entries.append(PaneMenuEntry(
@@ -65,6 +86,9 @@ public enum PaneMenuModel {
         ))
         entries.append(PaneMenuEntry(
             label: "Split Down", action: .splitDown, accessibilityIdentifier: "paddock.pane.menu.splitDown"
+        ))
+        entries.append(PaneMenuEntry(
+            label: "Zoom", action: .zoom, accessibilityIdentifier: "paddock.pane.menu.zoom"
         ))
 
         let moveToEntries = MoveToMenu.entries(for: pane, model: model).map { entry in
@@ -91,6 +115,12 @@ extension PaneMenuAction {
     @MainActor
     public func perform(paneID: PaneID, on viewModel: SessionViewModel) async {
         switch self {
+        case .renamePane:
+            viewModel.beginRename(.pane(paneID))
+        case .clearPaneName:
+            await viewModel.clearPaneName(paneID)
+        case .zoom:
+            await viewModel.toggleZoom(paneID)
         case .swapWithFocused(let focusedPane):
             await viewModel.perform(subject: .pane(paneID), target: .paneInterior(focusedPane))
         case .splitRight:

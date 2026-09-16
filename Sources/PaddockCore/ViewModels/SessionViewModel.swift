@@ -758,6 +758,177 @@ public final class SessionViewModel {
         }
     }
 
+    // MARK: - rename, clear, zoom, close, create
+
+    /// What the one inline rename editor is open on, or `nil` when none is.
+    /// Views both render the editor from this and disarm their own drag while
+    /// it names them, so a press inside the field can never start a drag.
+    public private(set) var renameTarget: RenameTarget?
+
+    /// The workspace whose plain `workspace.close` came back
+    /// `workspace_group_close_required`, held while the confirmation is up.
+    /// `confirmPendingGroupClose` re-asks with `closeGroup: true`.
+    public private(set) var pendingGroupClose: WorkspaceID?
+
+    public func beginRename(_ target: RenameTarget) {
+        renameTarget = target
+    }
+
+    public func cancelRename() {
+        renameTarget = nil
+    }
+
+    /// The text the editor opens with, per `RenameEditor`'s rules.
+    public func renameText(for target: RenameTarget) -> String {
+        RenameEditor.initialText(for: target, model: model)
+    }
+
+    /// Commits whatever the editor holds and closes it. A commit that
+    /// `RenameEditor` refuses (blank once trimmed, unchanged, or a target the
+    /// model no longer carries) closes the editor and issues nothing.
+    public func commitRename(_ text: String, for target: RenameTarget) async {
+        if renameTarget == target {
+            renameTarget = nil
+        }
+        guard let op = RenameEditor.commit(text, for: target, model: model) else { return }
+        await run(OpPlan(ops: [op], label: RenameEditor.planLabel(for: target)))
+    }
+
+    /// Drops a pane's manual label so its terminal title shows again
+    /// (`pane.rename` with a null label). Offered only while the pane has one,
+    /// so a pane without is a no-op rather than a wire call herdr would
+    /// answer with no change.
+    public func clearPaneName(_ pane: PaneID) async {
+        guard model?.panes[pane]?.label != nil else { return }
+        await run(OpPlan(ops: [.renamePane(pane, nil)], label: "Clear pane name"))
+    }
+
+    /// Toggles herdr's zoom for `pane`'s tab. Deliberately NOT journaled: its
+    /// own inverse is itself, so an entry here would only ever be a dead undo
+    /// step that reports nothing to undo.
+    public func toggleZoom(_ pane: PaneID) async {
+        await run(OpPlan(ops: [.zoom(pane, mode: .toggle)], label: "Zoom pane"), recordsUndo: false)
+    }
+
+    public func closeTab(_ tab: TabID) async {
+        await run(OpPlan(ops: [.closeTab(tab)], label: "Close tab"))
+    }
+
+    /// Asks herdr to close `workspace` WITHOUT its group. herdr refuses that
+    /// for a group primary with open linked-worktree workspaces
+    /// (`workspace_group_close_required`), which is the one failure this
+    /// raises no notice for: it parks the workspace in `pendingGroupClose`
+    /// for the view to confirm, and `confirmPendingGroupClose` re-asks with
+    /// the group included.
+    public func closeWorkspace(_ workspace: WorkspaceID) async {
+        await closeWorkspace(workspace, closeGroup: false)
+    }
+
+    public func confirmPendingGroupClose() async {
+        guard let workspace = pendingGroupClose else { return }
+        pendingGroupClose = nil
+        await closeWorkspace(workspace, closeGroup: true)
+    }
+
+    public func cancelPendingGroupClose() {
+        pendingGroupClose = nil
+    }
+
+    private func closeWorkspace(_ workspace: WorkspaceID, closeGroup: Bool) async {
+        let plan = OpPlan(
+            ops: [.closeWorkspace(workspace, closeGroup: closeGroup)],
+            label: closeGroup ? "Close workspace group" : "Close workspace"
+        )
+        await run(plan) { [weak self] failure in
+            guard failure.code == "workspace_group_close_required" else { return false }
+            self?.pendingGroupClose = workspace
+            return true
+        }
+    }
+
+    /// Creation is a direct client call, not a planned op: herdr has no
+    /// inverse for it that paddock could journal (closing a tab it created is
+    /// not the same as never having created it), so v1 leaves it out of undo
+    /// entirely rather than record an entry that cannot be undone.
+    public func createTab(in workspace: WorkspaceID) async {
+        await send("tab.create", ["workspace_id": .string(workspace.rawValue), "focus": .bool(true)])
+    }
+
+    /// `source_workspace_id` is what herdr reads the new workspace's cwd
+    /// policy from, so a workspace created from the rail follows whatever the
+    /// one on screen was pointed at.
+    public func createWorkspace() async {
+        var params: [String: JSONValue] = ["focus": .bool(true)]
+        if let source = selectedWorkspaceID {
+            params["source_workspace_id"] = .string(source.rawValue)
+        }
+        await send("workspace.create", params)
+    }
+
+    // MARK: - keyboard move (the drag's own targets, compiled by the planner)
+
+    /// Moves `pane` against its neighbor on `direction`'s side, through the
+    /// same planner and executor a drag onto that neighbor's edge uses.
+    /// Silent when nothing lies that way.
+    public func movePane(_ pane: PaneID, toward direction: PaneDirection) async {
+        guard let tab = model?.panes[pane]?.tabID, let layout = model?.layouts[tab],
+              let target = PaneNeighbors.moveTarget(for: pane, toward: direction, in: layout)
+        else { return }
+        await perform(subject: .pane(pane), target: target)
+    }
+
+    /// The menu-command form: whichever pane is focused right now.
+    public func moveFocusedPane(toward direction: PaneDirection) async {
+        guard let pane = resolvedFocusedPaneID else { return }
+        await movePane(pane, toward: direction)
+    }
+
+    /// Whether a keyboard move in `direction` has anything to land against,
+    /// so the menu item can disable itself rather than fail silently.
+    public func canMoveFocusedPane(toward direction: PaneDirection) -> Bool {
+        guard let pane = resolvedFocusedPaneID, let tab = model?.panes[pane]?.tabID, let layout = model?.layouts[tab] else { return false }
+        return PaneNeighbors.pane(pane, toward: direction, in: layout) != nil
+    }
+
+    // MARK: - shared plan execution for hand-built plans
+
+    /// Runs one hand-built (never planner-produced) plan the way every menu
+    /// command does: through `planExecutor`, recorded in `undoJournal` unless
+    /// `recordsUndo` says otherwise, with a failure surfaced as a notice
+    /// unless `handleFailure` claims it. Does nothing with no executor
+    /// injected -- the same "no seam configured" case `setSplitRatio` falls
+    /// back on. Runs inside the journal's shared chain so it can never
+    /// interleave with an in-flight `perform`/`undo`/`redo`.
+    private func run(
+        _ plan: OpPlan, recordsUndo: Bool = true,
+        handleFailure: @escaping @MainActor (OpFailure) -> Bool = { _ in false }
+    ) async {
+        guard let planExecutor else { return }
+        guard let undoJournal else {
+            await Self.run(plan, executor: planExecutor, notify: noticeSink, record: { _ in }, handleFailure: handleFailure)
+            return
+        }
+        await undoJournal.runExclusively { [noticeSink] in
+            await Self.run(
+                plan, executor: planExecutor, notify: noticeSink,
+                record: recordsUndo ? undoJournal.record : { _ in }, handleFailure: handleFailure
+            )
+        }
+    }
+
+    private static func run(
+        _ plan: OpPlan, executor: any PlanExecuting, notify: @MainActor (String) -> Void,
+        record: @MainActor (ExecutedPlan) -> Void, handleFailure: @MainActor (OpFailure) -> Bool
+    ) async {
+        switch await executor.execute(plan) {
+        case .success(let executed):
+            record(executed)
+        case .failure(let failure):
+            guard !handleFailure(failure) else { return }
+            notify("\(plan.label) failed: \(failure.message)")
+        }
+    }
+
     /// `pane.split`'s response nests the new pane's id under a `"pane"` key
     /// (verified against herdr's `PaneSplitResult` and pinned by
     /// `spikes/lib/seed-layout.sh`'s own `.result.pane.pane_id` read).
