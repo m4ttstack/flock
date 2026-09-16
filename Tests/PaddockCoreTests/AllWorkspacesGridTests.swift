@@ -9,8 +9,9 @@ final class AllWorkspacesGridTests: XCTestCase {
     private let p2 = PaneID(rawValue: "w1:p2")
     private let p3 = PaneID(rawValue: "w1:p3")
 
-    /// The slot count a card row holds at the window paddock's chrome is
-    /// designed on.
+    /// One row width to lay the card shapes out against. Not the window's
+    /// own answer, which `slots(gridWidth:)` derives; the shapes here are
+    /// about how a card fills whatever count it is given.
     private let perRow = 4
 
     private func tabs(_ count: Int) -> [TabID] {
@@ -51,24 +52,28 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     /// The design's own window, spelled from `ChromeMetrics.Grid`: 900pt
     /// across, 13pt of grid padding either side, two cards 13pt apart, each
-    /// spending 13pt of padding per side, thumbnails 93pt wide and 10pt apart.
+    /// spending 13pt of padding per side, thumbnails 120pt wide and 10pt
+    /// apart.
     private func rowWidth(gridWidth: CGFloat) -> CGFloat {
         GridCardLayout.rowWidth(gridWidth: gridWidth, canvasPadding: 13, cardGap: 13, cardPadding: 13)
     }
 
     private func slots(gridWidth: CGFloat) -> Int {
-        GridCardLayout.tabsPerRow(rowWidth: rowWidth(gridWidth: gridWidth), width: 93, gap: 10)
+        GridCardLayout.tabsPerRow(rowWidth: rowWidth(gridWidth: gridWidth), width: 120, gap: 10)
     }
 
-    /// The window the chrome is designed on is also the narrowest one it
-    /// allows (`MainWindow` sets a 900pt minimum), and it draws the four slots
-    /// it always did at the width it always drew them, with room to spare
-    /// rather than stretching them to fill the row.
-    func testTheDesignWindowStillHoldsFourThumbnailsAtTheirOwnWidth() {
-        XCTAssertEqual(slots(gridWidth: 900), 4)
-        let filled = 93 * 4 + 10 * 3
+    /// The narrowest window the app allows (`MainWindow` sets a 900pt
+    /// minimum) holds three thumbnails at their own width, with room to spare
+    /// rather than stretching them to fill the row. Three is the floor the
+    /// chosen width is worth paying: a fourth would need a slot too narrow to
+    /// read as a tab.
+    func testTheNarrowestWindowHoldsThreeThumbnailsAtTheirOwnWidth() {
+        XCTAssertEqual(slots(gridWidth: 900), 3)
+        let filled = 120 * 3 + 10 * 2
         XCTAssertLessThanOrEqual(CGFloat(filled), rowWidth(gridWidth: 900))
-        XCTAssertGreaterThan(CGFloat(filled + 10 + 93), rowWidth(gridWidth: 900), "a fifth slot would have fit")
+        XCTAssertGreaterThan(CGFloat(filled + 10 + 120), rowWidth(gridWidth: 900), "a fourth slot would have fit")
+        XCTAssertEqual(slots(gridWidth: 1200), 4)
+        XCTAssertEqual(slots(gridWidth: 1600), 5)
     }
 
     /// A thumbnail is the same size at every window, so the row gains slots
@@ -80,15 +85,15 @@ final class AllWorkspacesGridTests: XCTestCase {
             let count = slots(gridWidth: width)
             XCTAssertGreaterThanOrEqual(count, 1, "\(width): a card with no slot at all")
             XCTAssertGreaterThanOrEqual(count, previous, "\(width): slots dropped as the window widened")
-            let filled = CGFloat(count) * 93 + CGFloat(count - 1) * 10
+            let filled = CGFloat(count) * 120 + CGFloat(count - 1) * 10
             if count > 1 {
                 XCTAssertLessThanOrEqual(filled, rowWidth(gridWidth: width), "\(width): the row cannot hold that many")
             }
-            XCTAssertGreaterThan(filled + 10 + 93, rowWidth(gridWidth: width), "\(width): another slot would have fit")
+            XCTAssertGreaterThan(filled + 10 + 120, rowWidth(gridWidth: width), "\(width): another slot would have fit")
             previous = count
         }
-        XCTAssertLessThan(slots(gridWidth: 700), 4, "a row too narrow for four gave up nothing")
-        XCTAssertGreaterThan(slots(gridWidth: 1600), 4, "a wide window gained nothing")
+        XCTAssertLessThan(slots(gridWidth: 700), 3, "a row too narrow for three gave up nothing")
+        XCTAssertGreaterThan(slots(gridWidth: 1600), 3, "a wide window gained nothing")
     }
 
     /// The floor `tabsPerRow` keeps is only worth keeping if a card at it

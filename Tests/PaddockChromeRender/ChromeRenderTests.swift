@@ -12,6 +12,12 @@ import XCTest
 final class ChromeRenderTests: XCTestCase {
     static let defaultsSuite = "dev.mattstack.paddock.chrome-render"
     private static let windowSize = CGSize(width: 900, height: 560)
+    /// The grid's own window. A thumbnail is one fixed width now, so how many
+    /// slots a card row holds is the window's answer: 900pt holds three and
+    /// every card fixture below is written around the four a 1200pt window
+    /// gives. The chrome renders keep `windowSize`, which is what makes them
+    /// comparable across rounds.
+    private static let gridWindowSize = CGSize(width: 1200, height: 560)
     private static let themeIDs = [
         "tokyo-night", "dracula",
         "catppuccin-latte", "tokyo-night-day", "gruvbox-light", "one-light",
@@ -119,7 +125,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         let shownByTheCanvas = Set(model.panes.keys.filter { harness.viewModel.ghosttySurface(for: $0) != nil })
         XCTAssertLessThan(shownByTheCanvas.count, model.panes.count, "every pane is on the canvas, so the no-attach check below proves nothing")
@@ -200,7 +206,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
@@ -259,7 +265,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
@@ -324,7 +330,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
@@ -416,7 +422,7 @@ final class ChromeRenderTests: XCTestCase {
     func testACardPreviewsNothingForAReorderThatMovesNoTab() async throws {
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
@@ -545,7 +551,7 @@ final class ChromeRenderTests: XCTestCase {
         let design = try XCTUnwrap(drawn[Self.windowSize.width])
         let middle = try XCTUnwrap(drawn[1200])
         let wide = try XCTUnwrap(drawn[1600])
-        XCTAssertEqual(design.count, 4, "the narrowest window the app allows lost its shape")
+        XCTAssertEqual(design.count, 3, "the narrowest window the app allows lost its shape")
         XCTAssertGreaterThan(middle.count, design.count, "a wider window drew no more cells")
         XCTAssertGreaterThan(wide.count, middle.count, "a wider window still drew no more cells")
         XCTAssertEqual(
@@ -562,7 +568,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
@@ -573,7 +579,10 @@ final class ChromeRenderTests: XCTestCase {
         )
         let target = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.testsTab }?.frame)
         XCTAssertEqual(target.height, ChromeMetrics.Grid.thumbnailHeight)
-        XCTAssertEqual(target.width, 93, accuracy: 1, "the thumbnail the pure band tests are sized against")
+        XCTAssertEqual(
+            target.width, ChromeMetrics.Grid.thumbnailWidth, accuracy: 0.5,
+            "the thumbnail the pure band tests are sized against"
+        )
 
         // The view's own published boxes, not a second layout pass: this is
         // what the resolver is actually hit-testing against.
@@ -678,7 +687,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
@@ -757,7 +766,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         harness.drag.toggleGridCard(GridFixture.repoTools)
@@ -915,7 +924,7 @@ final class ChromeRenderTests: XCTestCase {
     func testACardPreviewsNothingForADropThePlannerRefuses() async throws {
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
@@ -969,7 +978,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
         let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
@@ -1001,7 +1010,7 @@ final class ChromeRenderTests: XCTestCase {
     func testATabDraggedFromItsHandleStripIsProxiedAsAMiniatureOfItself() async throws {
         let directory = ProcessInfo.processInfo.environment["PADDOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let harness = try await Harness(theme: .tokyoNight, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.windowSize)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)

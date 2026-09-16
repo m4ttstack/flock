@@ -147,11 +147,15 @@ enum ChromeMetrics {
         static let thumbnailHeight: CGFloat = 101
         /// How wide a thumbnail is drawn, at every window size: a miniature
         /// that stretches with the window stops reading as one, and a card's
-        /// row buys or loses slots instead. This is what the design draws at
-        /// the 900pt window it is laid out for (93.625pt), rounded DOWN to a
-        /// whole point so four of them plus their gaps still fit that row.
-        /// Thumbnails, the tile and the new-tab placeholder all take it.
-        static let thumbnailWidth: CGFloat = 93
+        /// row buys or loses slots instead. Thumbnails, the tile and the
+        /// new-tab placeholder all take it.
+        ///
+        /// Wide enough to read as a tab rather than a sliver, which costs the
+        /// narrowest window the app allows (900pt) a slot: it holds three of
+        /// these where it held four of the 93.625pt slot the design draws at
+        /// that width. 93 is the widest that would have kept four, and the
+        /// cost of keeping it is a thumbnail too narrow to read.
+        static let thumbnailWidth: CGFloat = 120
         /// The tab's handle: a band across the top of its thumbnail, holding
         /// the title and status dot.
         static let tabStripHeight: CGFloat = 15
