@@ -257,6 +257,10 @@ final class GridGeometryTests: XCTestCase {
     private let otherCardThumbnail = TabItemFrame(id: TabID(rawValue: "w2:t1"), frame: CGRect(x: 320, y: 60, width: 90, height: 82))
     private let scrolledAway = TabItemFrame(id: TabID(rawValue: "w3:t1"), frame: CGRect(x: 20, y: 360, width: 90, height: 82))
     private let plusTile = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 130, y: 60, width: 90, height: 82))
+    /// Card w1 is previewing the tab a drop on it will create, in the slot
+    /// after its tile. Drawn in the card's empty space and hit-tested by
+    /// nothing.
+    private let newTabSlot = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 20, y: 150, width: 90, height: 40))
 
     /// Points inside a card that no thumbnail or tile covers.
     private var cardOneEmptySpace: CGPoint { CGPoint(x: 250, y: 180) }
@@ -280,7 +284,8 @@ final class GridGeometryTests: XCTestCase {
                 viewport: viewport,
                 thumbnails: [gridThumbnail, otherCardThumbnail, scrolledAway],
                 tiles: [plusTile],
-                cards: [cardOne, cardTwo, cardThree]
+                cards: [cardOne, cardTwo, cardThree],
+                newTabSlots: [newTabSlot]
             ) : nil
         )
     }
@@ -315,6 +320,33 @@ final class GridGeometryTests: XCTestCase {
     func testAPaneOverACardsEmptySpaceTargetsThatWorkspace() {
         XCTAssertEqual(resolveDropTarget(at: cardOneEmptySpace, dragging: pane, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w1")))
         XCTAssertEqual(resolveDropTarget(at: cardTwoEmptySpace, dragging: pane, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w2")))
+    }
+
+    /// The new-tab placeholder is drawn in the card's empty space but is never
+    /// hit-tested, so a release inside it is a release on the card: it targets
+    /// the workspace and plans a real move, not a no-op that springs back.
+    func testAPaneInsideTheNewTabPlaceholderStillTargetsTheCardAndPlansAMove() throws {
+        let workspace = WorkspaceID(rawValue: "w1")
+        let inside = CGPoint(x: newTabSlot.frame.midX, y: newTabSlot.frame.midY)
+        XCTAssertEqual(resolveDropTarget(at: inside, dragging: pane, surfaces: surfaces(grid: true)), .workspaceThumbnail(workspace))
+
+        guard case .success(let plan) = plan(dragging: pane, onto: .workspaceThumbnail(workspace), model: model()) else {
+            return XCTFail("a drop on the placeholder has to commit a new tab, not spring back")
+        }
+        XCTAssertFalse(plan.ops.isEmpty)
+    }
+
+    /// The landing rect a committed drop settles on: the slot the tab really
+    /// takes, not the whole card, whose centre is nowhere the drop landed.
+    /// The flash follows it for the same reason.
+    func testTheLandingRectForACardPreviewingANewTabIsThatSlot() {
+        let workspace = WorkspaceID(rawValue: "w1")
+        XCTAssertEqual(
+            dropTargetRect(for: .workspaceThumbnail(workspace), surfaces: surfaces(grid: true)), newTabSlot.frame
+        )
+        XCTAssertEqual(
+            dropFlashRect(for: .workspaceThumbnail(workspace), surfaces: surfaces(grid: true)), newTabSlot.frame
+        )
     }
 
     /// The gaps between cards, the header strip and the canvas margin are not
@@ -377,11 +409,12 @@ final class GridGeometryTests: XCTestCase {
     }
 
     /// The same target means a card in the grid and a rail row without it, so
-    /// the ghost settles and the flash lands on whichever is on screen.
+    /// the ghost settles and the flash lands on whichever is on screen. Read
+    /// against w2, the card drawing no placeholder of its own.
     func testAWorkspacesRectIsItsCardInTheGridAndItsRailRowWithoutIt() {
-        XCTAssertEqual(dropTargetRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)), cardOne.frame)
+        XCTAssertEqual(dropTargetRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), surfaces: surfaces(grid: true)), cardTwo.frame)
         XCTAssertEqual(dropTargetRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: false))?.minX, -190)
-        XCTAssertEqual(dropFlashRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)), cardOne.frame)
+        XCTAssertEqual(dropFlashRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), surfaces: surfaces(grid: true)), cardTwo.frame)
     }
 
     func testTheDwellOnlyTargetHasARectButNeverFlashes() {

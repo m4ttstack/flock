@@ -32,10 +32,10 @@ final class GridDragSettleTests: XCTestCase {
 
     /// A shown grid with one card and one thumbnail, assembled from frame
     /// reports rather than from a window.
-    private func makeCoordinator() -> DragCoordinator {
+    private func makeCoordinator(outcome: DragOutcome = .noOp) -> DragCoordinator {
         let drag = DragCoordinator(
             toasts: ToastCenter(), rearrangeMode: RearrangeMode(),
-            commit: { _, _ in .noOp }, reveal: { _ in }
+            commit: { _, _ in outcome }, reveal: { _ in }
         )
         drag.stripWorkspace = Self.workspace
         drag.toggleGrid()
@@ -43,6 +43,18 @@ final class GridDragSettleTests: XCTestCase {
         drag.setGridOrder([.card(Self.workspace), .tab(Self.tab)])
         drag.setGridItemFrame(Self.card, for: .card(Self.workspace))
         drag.setGridItemFrame(Self.thumbnail, for: .tab(Self.tab))
+        return drag
+    }
+
+    /// The same grid with the card previewing the tab a drop will create. The
+    /// slot is the same size as the thumbnail, so a proxy of that size settles
+    /// with its top-left exactly on the slot's origin.
+    private static let newTabSlot = CGRect(x: 140, y: 60, width: 100, height: 82)
+
+    private func makeCoordinatorPreviewingANewTab(outcome: DragOutcome) -> DragCoordinator {
+        let drag = makeCoordinator(outcome: outcome)
+        drag.setGridOrder([.card(Self.workspace), .tab(Self.tab), .newTab(Self.workspace)])
+        drag.setGridItemFrame(Self.newTabSlot, for: .newTab(Self.workspace))
         return drag
     }
 
@@ -114,6 +126,58 @@ final class GridDragSettleTests: XCTestCase {
         )
         XCTAssertTrue(drag.holdsGrabCursor)
         XCTAssertTrue(drag.isPaneDragInFlight)
+    }
+
+    /// A drop on a card's empty space really does make a tab, and that tab
+    /// lands in the slot the placeholder was standing in. The ghost has to go
+    /// there: settling on the whole card sends it to the card's own centre,
+    /// which is nowhere the drop landed, and reads as a bounce home.
+    func testACommittedNewTabDropSettlesOnThePlaceholdersSlot() async {
+        let drag = makeCoordinatorPreviewingANewTab(outcome: .committed)
+        drag.beginIfIdle(
+            .pane(Self.pane), ghost: paneGhost(originSize: Self.newTabSlot.size),
+            at: CGPoint(x: 30, y: 70), home: paneHome
+        )
+        // Inside the card, clear of its thumbnail and of the slot itself: the
+        // card's own empty space, which is what resolves to the workspace.
+        drag.move(to: CGPoint(x: 400, y: 180))
+        XCTAssertEqual(drag.target, .workspaceThumbnail(Self.workspace))
+
+        drag.release()
+        await awaitSettle(drag)
+        XCTAssertEqual(drag.ghostTopLeft, Self.newTabSlot.origin)
+    }
+
+    /// A release inside the placeholder itself is a release on the card
+    /// behind it, so it commits and settles exactly the same way.
+    func testAReleaseInsideThePlaceholderLandsInItsOwnSlot() async {
+        let drag = makeCoordinatorPreviewingANewTab(outcome: .committed)
+        drag.beginIfIdle(
+            .pane(Self.pane), ghost: paneGhost(originSize: Self.newTabSlot.size),
+            at: CGPoint(x: 30, y: 70), home: paneHome
+        )
+        drag.move(to: CGPoint(x: Self.newTabSlot.midX, y: Self.newTabSlot.midY))
+        XCTAssertEqual(drag.target, .workspaceThumbnail(Self.workspace), "the placeholder is not a target of its own")
+
+        drag.release()
+        await awaitSettle(drag)
+        XCTAssertEqual(drag.ghostTopLeft, Self.newTabSlot.origin)
+    }
+
+    /// The slot is where a COMMITTED drop lands, and nothing else: a plan that
+    /// commits nothing still springs the ghost home.
+    func testANoOpOnACardPreviewingANewTabStillSpringsHome() async {
+        let drag = makeCoordinatorPreviewingANewTab(outcome: .noOp)
+        drag.beginIfIdle(
+            .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size),
+            at: CGPoint(x: 30, y: 70), home: paneHome
+        )
+        drag.move(to: CGPoint(x: Self.newTabSlot.midX, y: Self.newTabSlot.midY))
+        XCTAssertEqual(drag.target, .workspaceThumbnail(Self.workspace))
+
+        drag.release()
+        await awaitSettle(drag)
+        XCTAssertEqual(drag.ghostTopLeft, Self.miniPane.origin, "home, not the slot")
     }
 
     /// Released over the thumbnail it started in: the planner answers `.noOp`,

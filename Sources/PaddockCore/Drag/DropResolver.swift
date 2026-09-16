@@ -39,12 +39,22 @@ public struct GridDropSurfaces: Equatable, Sendable {
     public let thumbnails: [TabItemFrame]
     public let tiles: [WorkspaceItemFrame]
     public let cards: [WorkspaceItemFrame]
+    /// Where a card is previewing the tab a drop on its empty space will
+    /// create. Never hit-tested: the card behind it is what answers, so a
+    /// release on the placeholder is a release on the card. It is the rect
+    /// that drop actually LANDS in, which is what a committed drop settles
+    /// and flashes on, in place of the whole card.
+    public let newTabSlots: [WorkspaceItemFrame]
 
-    public init(viewport: CGRect, thumbnails: [TabItemFrame], tiles: [WorkspaceItemFrame], cards: [WorkspaceItemFrame]) {
+    public init(
+        viewport: CGRect, thumbnails: [TabItemFrame], tiles: [WorkspaceItemFrame], cards: [WorkspaceItemFrame],
+        newTabSlots: [WorkspaceItemFrame] = []
+    ) {
         self.viewport = viewport
         self.thumbnails = thumbnails
         self.tiles = tiles
         self.cards = cards
+        self.newTabSlots = newTabSlots
     }
 }
 

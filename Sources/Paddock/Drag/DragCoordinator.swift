@@ -449,15 +449,19 @@ final class DragCoordinator {
         var thumbnails: [TabItemFrame] = []
         var tiles: [WorkspaceItemFrame] = []
         var cards: [WorkspaceItemFrame] = []
+        var newTabSlots: [WorkspaceItemFrame] = []
         for item in gridItems.onScreen {
             switch item.id {
             case .tab(let id): thumbnails.append(TabItemFrame(id: id, frame: item.frame))
             case .tile(let id): tiles.append(WorkspaceItemFrame(id: id, frame: item.frame))
             case .card(let id): cards.append(WorkspaceItemFrame(id: id, frame: item.frame))
-            case .newTab: break
+            case .newTab(let id): newTabSlots.append(WorkspaceItemFrame(id: id, frame: item.frame))
             }
         }
-        return GridDropSurfaces(viewport: gridViewport ?? .zero, thumbnails: thumbnails, tiles: tiles, cards: cards)
+        return GridDropSurfaces(
+            viewport: gridViewport ?? .zero, thumbnails: thumbnails, tiles: tiles, cards: cards,
+            newTabSlots: newTabSlots
+        )
     }
 
     // MARK: - Tab strip wheel and reveal

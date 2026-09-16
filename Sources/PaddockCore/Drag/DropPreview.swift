@@ -202,6 +202,12 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
         return surfaces.grid?.tiles.first { $0.id == workspace }?.frame
     case .workspaceThumbnail(let workspace):
         if let grid = surfaces.grid {
+            // The slot the tab will really occupy, when the card is drawing
+            // one: a whole card as the landing rect sends the ghost to the
+            // card's own centre, which is nowhere the drop lands.
+            if let slot = grid.newTabSlots.first(where: { $0.id == workspace })?.frame {
+                return slot
+            }
             return grid.cards.first { $0.id == workspace }?.frame
         }
         return surfaces.workspaceFrames.first { $0.id == workspace }?.frame
