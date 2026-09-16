@@ -1,3 +1,4 @@
+import AppKit
 import PaddockCore
 import SwiftUI
 
@@ -447,7 +448,12 @@ private struct TabThumbnail: View {
         .contentShape(Rectangle())
         // Selected before the grid closes, so the window never draws the
         // previously selected tab in between.
+        //
+        // Guarded even though the grid has no context menu of its own: this
+        // moves herdr's real focus, so an unguarded secondary click jumps the
+        // terminal somewhere else with nothing on screen having asked for it.
         .onTapGesture {
+            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
             viewModel.select(tab: tab.tabID)
             drag.closeGrid()
             Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
@@ -737,7 +743,10 @@ private struct GridTile: View {
             Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
         }
         .contentShape(Rectangle())
-        .onTapGesture(perform: action)
+        .onTapGesture {
+            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+            action()
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
