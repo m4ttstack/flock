@@ -782,8 +782,8 @@ final class ChromeRenderTests: XCTestCase {
         )
 
         // A resting card already over its cap draws no tab either, but it has
-        // a "+N" tile, and that count is the one thing the drop visibly
-        // changes: the tile takes the wash a targeted thumbnail gets.
+        // a "+N" tile, and that tile is where the created tab really lands:
+        // it gives up its own face for the new tab's while the drop is live.
         try await assertNoPlaceholderAndNoNewRow(
             on: GridFixture.paddock, harness: harness, window: window,
             directory: directory, render: "grid-drag-resting-card.png"
@@ -839,10 +839,27 @@ final class ChromeRenderTests: XCTestCase {
         let image = try snapshot(window)
         let lit = hex(image, groundPoint(of: try XCTUnwrap(lights)))
         let unlit = hex(image, groundPoint(of: control))
-        if tile == nil {
-            XCTAssertEqual(unlit, lit, "\(workspace.rawValue) has no tile, so nothing inside it may take a second wash")
-        } else {
+        if let tile {
             XCTAssertNotEqual(lit, unlit, "\(workspace.rawValue)'s tile did not take the drop wash the card's other cells do without")
+            // The tile is wearing the new tab's face, not just a wash: only
+            // that face carries a handle strip, which is a second coat over
+            // its own body. Sampled at the band's trailing end, clear of the
+            // "new tab" label. At rest the tile's own face has no band at all,
+            // which the before-sample pins.
+            let band = CGPoint(
+                x: tile.maxX - ChromeMetrics.Grid.tabStripHorizontalPadding - 1,
+                y: tile.minY + ChromeMetrics.Grid.tabStripHeight / 2
+            )
+            XCTAssertEqual(
+                hex(atRest, band), hex(atRest, groundPoint(of: tile)),
+                "\(workspace.rawValue): the tile already had a band at rest, so the check below proves nothing"
+            )
+            XCTAssertNotEqual(
+                hex(image, band), lit,
+                "\(workspace.rawValue)'s tile only washed: it did not take the new tab's own face"
+            )
+        } else {
+            XCTAssertEqual(unlit, lit, "\(workspace.rawValue) has no tile, so nothing inside it may take a second wash")
         }
         if let directory, let render {
             try XCTUnwrap(image.representation(using: .png, properties: [:]))

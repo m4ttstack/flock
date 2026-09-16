@@ -315,16 +315,22 @@ private struct WorkspaceCard: View {
     /// Either tile a card can show. Neither takes a drop, so both refuse one
     /// visibly rather than letting the card behind them make a tab.
     ///
-    /// The tile also carries the card's OWN drop preview when the card cannot
-    /// draw a placeholder: its hidden count is the only thing such a drop
-    /// visibly changes. It then reports its frame as the new tab's too, since
-    /// that cell is where the created tab lands and so where a committed drop
-    /// has to settle.
+    /// The tile is also where a card with no free slot puts the tab a drop on
+    /// its empty space will create: while that drop is live it gives up its
+    /// own face for the new tab's, so the card says where the tab is going
+    /// rather than only that something is going somewhere. It reports its
+    /// frame as the new tab's too, since that cell is where the created tab
+    /// lands and so where a committed drop has to settle.
+    ///
+    /// Its own meaning is untouched: a drop ON the tile is still the no-op it
+    /// always was, and a dwell still expands or collapses the card, so the
+    /// face only changes while the pointer is somewhere else on the card.
     private func tile(title: String, label: String, tabs: [TabRecord]) -> some View {
         let carriesTheCardsDrop = carriesTheCardsDrop(tabs: tabs)
         return GridTile(
             theme: theme, title: title, label: label,
-            isTargeted: drag.target == .moreTabs(workspace.workspaceID) || carriesTheCardsDrop,
+            isTargeted: drag.target == .moreTabs(workspace.workspaceID),
+            previewsNewTab: carriesTheCardsDrop,
             reportsAs: .tile(workspace.workspaceID),
             alsoReportsAs: carriesTheCardsDrop ? .newTab(workspace.workspaceID) : nil
         ) {
@@ -667,6 +673,10 @@ private struct GridTile: View {
     let title: String
     let label: String
     let isTargeted: Bool
+    /// The card this tile ends is taking a drop with nowhere else to draw the
+    /// tab it creates, so this cell IS that tab's slot for as long as the drop
+    /// is live and wears the new tab's face in place of its own.
+    var previewsNewTab = false
     let reportsAs: GridItemID
     /// A second id for the same rect, for when this tile is standing in for
     /// the tab a card drop will create: that is the rect the drop lands in.
@@ -676,19 +686,7 @@ private struct GridTile: View {
     @Environment(DragCoordinator.self) private var drag
 
     var body: some View {
-        VStack(spacing: ChromeMetrics.Grid.tabLabelGap) {
-            Text(title)
-                .font(ChromeType.gridTileTitle)
-                .foregroundStyle(theme.textDim)
-            Text(label)
-                .font(ChromeType.gridTileLabel)
-                .foregroundStyle(theme.textLabel)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: ChromeMetrics.Grid.thumbnailHeight)
-        .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
+        face
         .background {
             Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
         }
@@ -707,17 +705,36 @@ private struct GridTile: View {
         .onTapGesture(perform: action)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    @ViewBuilder
+    private var face: some View {
+        if previewsNewTab {
+            NewTabFace(theme: theme)
+        } else {
+            VStack(spacing: ChromeMetrics.Grid.tabLabelGap) {
+                Text(title)
+                    .font(ChromeType.gridTileTitle)
+                    .foregroundStyle(theme.textDim)
+                Text(label)
+                    .font(ChromeType.gridTileLabel)
+                    .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: ChromeMetrics.Grid.thumbnailHeight)
+            .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+            .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
+        }
+    }
 }
 
-/// The tab a drop on this card's empty space is about to create, drawn in the
-/// slot that tab will take. Its own cell comes from `GridCardLayout`, so the
-/// card's rows place it exactly as they place a real thumbnail. It reports a
-/// frame but is never a drop surface: the card behind it is what answers.
-private struct NewTabPlaceholder: View {
+/// How the tab a drop will create is drawn, wherever its slot happens to be:
+/// a free cell of its own, or the trailing tile of a card that has none. The
+/// wash alone, never a stroke, which is how the canvas previews a drop; the
+/// strip band takes a second coat of it so the tab's own handle shape still
+/// reads inside an otherwise empty slot.
+private struct NewTabFace: View {
     let theme: Theme
-    let workspace: WorkspaceID
-
-    @Environment(DragCoordinator.self) private var drag
 
     var body: some View {
         VStack(spacing: 0) {
@@ -736,14 +753,26 @@ private struct NewTabPlaceholder: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: ChromeMetrics.Grid.thumbnailHeight)
-        // The wash alone, never a stroke, which is how the canvas previews a
-        // drop; the strip band takes a second coat of it so the tab's own
-        // handle shape still reads inside an otherwise empty slot.
         .background(theme.accent.opacity(DragVisuals.dropWashOpacity), in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .newTab(workspace)) }
-        .allowsHitTesting(false)
-        .accessibilityIdentifier("paddock.grid.newTab.\(workspace.rawValue)")
+    }
+}
+
+/// The tab a drop on this card's empty space is about to create, drawn in the
+/// slot that tab will take. Its own cell comes from `GridCardLayout`, so the
+/// card's rows place it exactly as they place a real thumbnail. It reports a
+/// frame but is never a drop surface: the card behind it is what answers.
+private struct NewTabPlaceholder: View {
+    let theme: Theme
+    let workspace: WorkspaceID
+
+    @Environment(DragCoordinator.self) private var drag
+
+    var body: some View {
+        NewTabFace(theme: theme)
+            .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .newTab(workspace)) }
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("paddock.grid.newTab.\(workspace.rawValue)")
     }
 }
 

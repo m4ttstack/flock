@@ -362,6 +362,32 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(5), expanded: false, perRow: perRow))
     }
 
+    /// Which cards put the tab a drop creates on their trailing tile, which
+    /// is what makes that tile the drop's own slot while the drag is live.
+    /// A resting card over its cap has nowhere else to draw it. An expanded
+    /// card ALWAYS has somewhere (its rows are the rows the drop leaves), so
+    /// its collapse tile is never asked to carry one. A card with a free slot
+    /// spends that slot and leaves its tile alone.
+    func testOnlyACardWithNoSlotForTheTabPutsItOnItsTile() {
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(9), expanded: false, perRow: perRow))
+        XCTAssertTrue(GridCardLayout.tilePreviewsTheDrop(tabs: tabs(5), expanded: false, perRow: perRow))
+        for count in 5...16 {
+            XCTAssertFalse(
+                GridCardLayout.tilePreviewsTheDrop(tabs: tabs(count), expanded: true, perRow: perRow),
+                "\(count) expanded: an expanded card has a slot for the tab, so its collapse tile is never the drop's"
+            )
+            XCTAssertTrue(
+                GridCardLayout.cells(tabs: tabs(count), expanded: true, newTab: true, perRow: perRow).contains(.newTab),
+                "\(count) expanded: and that slot has to be a real one"
+            )
+        }
+        XCTAssertFalse(
+            GridCardLayout.tilePreviewsTheDrop(tabs: tabs(3), expanded: false, perRow: perRow),
+            "a card with a free slot"
+        )
+        XCTAssertTrue(GridCardLayout.cells(tabs: tabs(3), expanded: false, newTab: true, perRow: perRow).contains(.newTab))
+    }
+
     /// A card that draws the tab needs no stand-in, and a card with no tile
     /// has nothing that could carry one.
     func testEveryOtherCardPreviewsNothingOnATile() {
