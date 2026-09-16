@@ -299,11 +299,7 @@ private struct WorkspaceCard: View {
                 .foregroundStyle(theme.textLabel)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            if let color = theme.agentStatusColor(workspace.agentStatus) {
-                Circle()
-                    .fill(color)
-                    .frame(width: ChromeMetrics.Grid.cardStatusDot, height: ChromeMetrics.Grid.cardStatusDot)
-            }
+            StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.Grid.cardStatusDot)
         }
         .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
     }

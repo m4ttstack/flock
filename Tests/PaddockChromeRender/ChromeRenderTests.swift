@@ -1178,19 +1178,27 @@ final class ChromeRenderTests: XCTestCase {
         return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
     }
 
-    /// Points are top-left, in the 900x560 window. Indicator samples sit on
-    /// each row's 3x15 bar: the selected row is accent, the others take the
-    /// fixture's workspace status. Rows start at y 61 on a 28pt pitch; tabs
-    /// start at x 203 on a 103pt pitch, 28 tall on a strip spanning y 26 to 62.
+    /// Points are top-left, in the 900x560 window. Status samples sit on each
+    /// row's 8pt dot, which spans x 20 to 28: x 24 is its center and x 21 is
+    /// two points in, inside a hollow ring's stroke. Rows start at y 61 on a
+    /// 28pt pitch; tabs start at x 203 on a 103pt pitch, 28 tall on a strip
+    /// spanning y 26 to 62.
+    ///
+    /// Row 1 is the selected row AND an idle workspace, which is what pins
+    /// that selection no longer takes the dot: its stroke has to be green,
+    /// not the accent, and its middle has to be the row's own selection fill
+    /// showing through the ring.
     private func assertSamples(_ image: NSBitmapImageRep, theme: Theme) {
         let roles = theme.palette.chromeRoles
         let palette = theme.palette
         let samples: [(String, CGPoint, RGB)] = [
-            ("indicator/selected", CGPoint(x: 21, y: 74), roles.accent),
-            ("indicator/blocked", CGPoint(x: 21, y: 102), palette.red),
-            ("indicator/working", CGPoint(x: 21, y: 130), palette.yellow),
-            ("indicator/done", CGPoint(x: 21, y: 158), palette.teal),
-            ("indicator/idle", CGPoint(x: 21, y: 186), roles.chrome),
+            ("status/selectedRing", CGPoint(x: 21, y: 74), palette.green),
+            ("status/selectedHollow", CGPoint(x: 24, y: 74), roles.selection),
+            ("status/blocked", CGPoint(x: 24, y: 102), palette.red),
+            ("status/working", CGPoint(x: 24, y: 130), palette.yellow),
+            ("status/done", CGPoint(x: 24, y: 158), palette.teal),
+            ("status/idleRing", CGPoint(x: 21, y: 186), palette.green),
+            ("status/idleHollow", CGPoint(x: 24, y: 186), roles.chrome),
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
             ("chrome/strip", CGPoint(x: 700, y: 30), roles.chrome),
             ("chrome/rail", CGPoint(x: 75, y: 400), roles.chrome),
@@ -1314,6 +1322,45 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(hex(zoomedImage, railPoint), tab.restSamples[1], "the badge repainted the rail")
         zoomedWindow.close()
         restingWindow.close()
+    }
+
+    /// herdr's dots style, the one rule every surface draws a status with:
+    /// working, blocked and done filled, idle a hollow ring, unknown a small
+    /// centered dot. Drawn on its own rather than off a window fixture, which
+    /// carries no `unknown` workspace anywhere -- and the shapes are read at
+    /// the 8pt the rail uses, where a ring and a dot are actually distinct.
+    ///
+    /// In a 20pt box an 8pt dot spans 6 to 14: x 10 is its center and x 7 is
+    /// one point inside a ring's 2pt stroke, which the 4pt unknown dot never
+    /// reaches.
+    func testTheStatusDotDrawsHerdrsFillStyleForEveryState() async throws {
+        let theme = Theme.tokyoNight
+        let roles = theme.palette.chromeRoles
+        let expectations: [(AgentStatus, center: RGB, edge: RGB)] = [
+            (.working, center: theme.palette.yellow, edge: theme.palette.yellow),
+            (.blocked, center: theme.palette.red, edge: theme.palette.red),
+            (.done, center: theme.palette.teal, edge: theme.palette.teal),
+            (.idle, center: roles.chrome, edge: theme.palette.green),
+            (.unknown, center: theme.palette.overlay0, edge: roles.chrome),
+        ]
+        for (status, center, edge) in expectations {
+            ChromeType.install()
+            let root = StatusDot(status: status, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
+                .frame(width: 20, height: 20)
+                .background(theme.chrome)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 20, height: 20),
+                styleMask: [.borderless], backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.colorSpace = .sRGB
+            window.contentView = NSHostingView(rootView: root)
+            await settle(window)
+            let image = try snapshot(window)
+            XCTAssertEqual(hex(image, CGPoint(x: 10, y: 10)), center.hex, "\(status.rawValue) center")
+            XCTAssertEqual(hex(image, CGPoint(x: 7, y: 10)), edge.hex, "\(status.rawValue) edge")
+            window.close()
+        }
     }
 
     /// Four panes go blocked at once in a workspace nobody is looking at, so

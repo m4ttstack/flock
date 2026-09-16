@@ -21,10 +21,30 @@ hardcoded outside them.
 | selection | `#2B3A62` | selected tab block AND selected workspace row |
 | textStrong | `#E6E7EB` | selected tab and workspace labels, focused pane title, window title |
 | textDim | `#D0D2DC` | unselected tab and workspace labels, unfocused pane title |
-| textLabel | `#A3AACB` | WORKSPACES heading, counts, tab status dots at rest, protocol readout, divider handle |
+| textLabel | `#A3AACB` | WORKSPACES heading, counts, protocol readout, divider handle |
 | accent | `#7AA2F7` | selected tab underline, selected workspace indicator, focused pane border |
 
 Terminal content colors are untouched.
+
+### Status marks
+
+Agent status is not a chrome role. It is the theme's own status hue, drawn in
+herdr's dots style by one shared rule (`StatusDot`), so the rail, the tab strip,
+the grid, the hover card and the attention stack can never disagree.
+
+| State | Color | Shape |
+|---|---|---|
+| working | yellow | filled |
+| blocked | red | filled |
+| done | teal | filled |
+| idle | green | hollow ring, stroke a quarter of the dot |
+| unknown | overlay0 | centered dot at half the size |
+
+Sizes: 8pt on a workspace row, 6pt on a tab, a grid card and a hover card, 4pt
+on a grid mini pane. Selection never replaces a status: a selected workspace row
+is marked by its selection fill and a medium name and keeps its own status dot.
+The 3x15pt accent bar still marks herdr's focused tab inside a grid thumbnail,
+where it sits beside that tab's status dot rather than in place of it.
 
 ### Contrast (WCAG ratio)
 
@@ -71,7 +91,7 @@ to a whole point (text to the half point), except 1pt rules and borders.
 | Title bar | 26pt tall; window buttons vertically centered; title centered, 1.5pt below the bar's center |
 | Sidebar | 192pt wide, padding 13 vertical / 10 horizontal, 1pt row gap, 1pt rule on its right edge |
 | WORKSPACES heading | 8pt below it before the first row |
-| Workspace row | padding 5 / 10, gap 8, corner radius 3, 17pt content band (27pt row, 28pt pitch); 3x15pt indicator bar keeps names aligned: accent when selected; on other rows the workspace's agent status in the tab dot colors (blocked red, done teal, working yellow, most urgent first), clear when idle or unknown; count right-aligned |
+| Workspace row | padding 5 / 10, gap 8, corner radius 3, 17pt content band (27pt row, 28pt pitch); leading 8pt status dot on every row, selected included, keeps names aligned and carries the workspace's aggregate agent status (its loudest pane: blocked, then done, working, idle, unknown); count right-aligned |
 | Tab strip | 36pt tall, padding 0 / 10, 3pt gap between tabs, tabs bottom-aligned, 1pt rule under the strip |
 | Tab | 100pt wide, 28pt tall, square corners, padding 0 / 12, gap 6; label left-anchored; 6pt status dot after the label |
 | Selected tab | selection fill, 3pt accent underline at the bottom; unselected tabs have no underline slot at all |
@@ -113,6 +133,10 @@ in the system face. Text uses the system's normal font smoothing.
 
 - Sizes live in one place each: `ChromeMetrics` (window chrome), `PaneChrome`
   (pane box), `DividerBand` (gutter and handle), `ChromeType` (faces and sizes).
+- The status mark's two resting shapes are fractions of whatever size the dot is
+  asked for (`ChromeMetrics.statusRingStrokeRatio`,
+  `statusUnknownRatio`), not fixed points, so the same rule reads at 4pt and at
+  8pt. `ChromeRenderTests` samples each state's center and its ring stroke.
 - The 9pt gap is `DividerBand.gutter`, split 4 leading / 5 trailing so box edges
   stay whole; canvas padding 2 / 1 keeps the outer margin at exactly 6. The grab
   band's half (14) stays inside the tightest neighbouring inset (half gap 4.5

@@ -10,6 +10,13 @@ import CoreGraphics
 enum ChromeMetrics {
     static let ruleWidth: CGFloat = 1
 
+    /// The two resting status shapes, as fractions of whatever size the dot is
+    /// asked for rather than fixed points: the same rule has to read at 4pt on
+    /// a grid mini pane and at 8pt on a rail row. Herdglass derives its own
+    /// insets the same way and for the same reason.
+    static let statusRingStrokeRatio: CGFloat = 0.25
+    static let statusUnknownRatio: CGFloat = 0.5
+
     enum TitleBar {
         static let height: CGFloat = 26
         static let noticeSpacing: CGFloat = 6
@@ -53,6 +60,15 @@ enum ChromeMetrics {
         static let spacing: CGFloat = 8
         static let countMinimumGap: CGFloat = 5
         static let cornerRadius: CGFloat = 3
+        /// A step up from the strip's 6pt dot, which the parity checklist
+        /// asks for on the rail and the pane header: this is the one mark a
+        /// workspace nobody is looking at has, and it has to survive being
+        /// read from across the room rather than from the caret.
+        static let statusDot: CGFloat = 8
+        /// The bar herdr's focused tab is marked with inside a grid
+        /// thumbnail. Was the rail's indicator too, until the rail's became a
+        /// status dot; the thumbnail keeps it, because there it marks focus
+        /// and the tab's own status dot sits beside it.
         static let indicatorSize = CGSize(width: 3, height: 15)
     }
 

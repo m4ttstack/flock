@@ -239,11 +239,11 @@ private struct WorkspaceRow: View {
 
     var body: some View {
         HStack(spacing: ChromeMetrics.WorkspaceRow.spacing) {
-            // Present on every row so names stay aligned, clear when there is
-            // nothing to mark.
-            RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.indicatorSize.width / 2)
-                .fill(indicatorColor ?? .clear)
-                .frame(width: ChromeMetrics.WorkspaceRow.indicatorSize.width, height: ChromeMetrics.WorkspaceRow.indicatorSize.height)
+            // The dot always means status, on the selected row too: selection
+            // is already carried by the row fill and the heavier name, and a
+            // row that swapped its status for an accent was the one row whose
+            // agent you could not see.
+            StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
             if isRenaming {
                 InlineRenameField(
                     theme: theme, font: ChromeType.workspaceName(selected: isSelected), initialText: renameText,
@@ -282,12 +282,5 @@ private struct WorkspaceRow: View {
         .offset(y: displacement)
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
         .animation(.easeOut(duration: 0.12), value: isGhosted)
-    }
-
-    /// The selected row keeps the accent: its tabs already show their own
-    /// status dots. Any other row carries its workspace's aggregate status,
-    /// the one signal for an agent that needs attention elsewhere.
-    private var indicatorColor: Color? {
-        isSelected ? theme.accent : theme.agentStatusColor(workspace.agentStatus)
     }
 }
