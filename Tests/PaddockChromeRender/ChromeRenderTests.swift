@@ -1316,6 +1316,59 @@ final class ChromeRenderTests: XCTestCase {
         restingWindow.close()
     }
 
+    /// Four panes go blocked at once in a workspace nobody is looking at, so
+    /// the stack fills and overflows in one step. Built before the window
+    /// exists rather than driven into a live one: the cards animate in, and a
+    /// render caught mid-transition would differ between two runs of the same
+    /// code. The check is the status hue appearing in the corner the stack
+    /// occupies, against the same corner at rest -- a single pixel is not
+    /// nameable on a mark this small with a glow behind it.
+    func testTheAttentionStackFillsTheTopRightCornerAndOverflowsToAPill() async throws {
+        let directory = ProcessInfo.processInfo.environment["PADDOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let corner = CGRect(x: 600, y: 66, width: 300, height: 240)
+        let red = Theme.tokyoNight.palette.red.hex
+
+        let resting = try await Harness(theme: .tokyoNight, model: try Fixture.model())
+        let restingWindow = resting.makeWindow(size: Self.windowSize)
+        await settle(restingWindow)
+        let restingImage = try snapshot(restingWindow)
+
+        // Two agents stop for input and two finish a run, all in workspaces
+        // the window is not showing, so the stack carries both kinds at once.
+        var working = try Fixture.model()
+        working.panes[PaneID(rawValue: "w4:p1")]?.agentStatus = .working
+        working.panes[PaneID(rawValue: "w4:p2")]?.agentStatus = .working
+        var settled = working
+        settled.panes[PaneID(rawValue: "w2:p1")]?.agentStatus = .blocked
+        settled.panes[PaneID(rawValue: "w3:p1")]?.agentStatus = .blocked
+        settled.panes[PaneID(rawValue: "w4:p1")]?.agentStatus = .done
+        settled.panes[PaneID(rawValue: "w4:p2")]?.agentStatus = .idle
+
+        let harness = try await Harness(theme: .tokyoNight, model: working)
+        harness.viewModel.update(model: settled, connection: .live)
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let image = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("attention-toasts.png"))
+        }
+
+        XCTAssertEqual(harness.viewModel.attentionToasts.toasts.count, 4)
+        XCTAssertEqual(harness.viewModel.attentionToasts.visible.count, 3)
+        XCTAssertEqual(harness.viewModel.attentionToasts.collapsedCount, 1)
+        XCTAssertNil(
+            firstPoint(in: corner, matching: red, of: restingImage),
+            "the resting corner already carries the status hue, so the check below proves nothing"
+        )
+        XCTAssertNotNil(
+            firstPoint(in: corner, matching: red, of: image),
+            "no \(red) anywhere in the top-right corner: the attention stack did not paint"
+        )
+        window.close()
+        restingWindow.close()
+    }
+
     /// The first point of `rect` (top-left, window points) whose pixel is
     /// exactly `hex`, or `nil` when none is. Used for a mark too small and
     /// too antialiased at its edges to name a single reliable pixel for.

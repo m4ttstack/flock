@@ -148,6 +148,34 @@ enum ChromeMetrics {
         static let copiedShadowY: CGFloat = 8
     }
 
+    /// The top-right attention stack. Its own box rather than `Toast`'s: a
+    /// notice is one line that leaves on its own, an attention toast is a
+    /// two-line card that can be clicked, dismissed and stacked.
+    enum AttentionToast {
+        /// The hover card's width. Both are a detail card about one pane, and
+        /// two widths for the same thing would read as two vocabularies.
+        static let width: CGFloat = 274
+        static let horizontalPadding: CGFloat = 13
+        static let verticalPadding: CGFloat = 10
+        static let dotSpacing: CGFloat = 9
+        static let lineSpacing: CGFloat = 2
+        static let stackSpacing: CGFloat = 8
+        static let statusDot: CGFloat = 8
+        /// herdr's dots glow when a pane is actually asking for something;
+        /// the parity checklist carries it on `blocked` alone.
+        static let blockedGlowRadius: CGFloat = 6
+        static let trailingGlyphWidth: CGFloat = 20
+        static let pillHorizontalPadding: CGFloat = 9
+        static let pillVerticalPadding: CGFloat = 4
+        static let shadowRadius: CGFloat = 12
+        static let shadowY: CGFloat = 5
+        /// How often the finished toasts are checked against their six
+        /// seconds. Fine enough that a toast never visibly outstays it,
+        /// coarse enough to be free; it runs only while one is up.
+        static let sweepInterval: Duration = .milliseconds(250)
+        static let borderOpacity: Double = 0.45
+    }
+
     enum Grid {
         static let headerHeight: CGFloat = 36
         static let headerHorizontalPadding: CGFloat = 13

@@ -339,6 +339,13 @@ struct PaddockApp: App {
                 // punctuation key equivalent.
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .accessibilityIdentifier("paddock.view.allWorkspaces")
+                // The attention stack's only keyboard route, and the only way
+                // to clear a "needs input" toast without answering the pane or
+                // dismissing each one by hand.
+                Button("Clear Notifications") { viewModel.clearAttentionToasts() }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .disabled(viewModel.attentionToasts.isEmpty)
+                    .accessibilityIdentifier("paddock.view.clearNotifications")
             }
             // Rename's macOS home, and the only route to the editor that is
             // not a double-click on the thing itself. It renames the

@@ -1,28 +1,39 @@
 import PaddockCore
 import SwiftUI
 
-/// Draws a window-scope `ToastCenter.current` in the window's top-right
-/// corner, below the title bar, and never takes hits: the pane underneath
-/// keeps the mouse. A pane-scoped toast (`paneID != nil`, e.g. the copied
-/// whisper) is skipped here -- it renders inside its own pane cell instead
-/// (see `PaneCellView`).
+/// The window's top-right corner, below the title bar: the attention stack
+/// first, then a window-scope `ToastCenter.current` under it. One column
+/// rather than two overlays, so a notice can never land on top of a toast
+/// the user is about to click.
+///
+/// Only the attention stack takes hits. The notice never does: the pane
+/// underneath keeps the mouse. A pane-scoped toast (`paneID != nil`, e.g. the
+/// copied whisper) is skipped here -- it renders inside its own pane cell
+/// instead (see `PaneCellView`).
 struct ToastHost: View {
+    let viewModel: SessionViewModel
+
     @Environment(ThemeStore.self) private var themeStore
     @Environment(ToastCenter.self) private var toastCenter
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            if let toast = toastCenter.current, toast.paneID == nil {
-                ToastPill(theme: themeStore.active, toast: toast)
-                    .id(toast.id)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+        // Zero spacing, with the gap owned by the attention stack: an empty
+        // stack must leave the notice exactly where it has always sat.
+        VStack(alignment: .trailing, spacing: 0) {
+            AttentionToastStackView(theme: themeStore.active, viewModel: viewModel)
+            ZStack(alignment: .topTrailing) {
+                if let toast = toastCenter.current, toast.paneID == nil {
+                    ToastPill(theme: themeStore.active, toast: toast)
+                        .id(toast.id)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
+            .animation(.easeOut(duration: 0.15), value: toastCenter.current)
+            .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .padding(.top, ChromeMetrics.TitleBar.height + ChromeMetrics.Strip.height + ChromeMetrics.ruleWidth + ChromeMetrics.Toast.topGap)
         .padding(.trailing, ChromeMetrics.Toast.trailingInset)
-        .animation(.easeOut(duration: 0.15), value: toastCenter.current)
-        .allowsHitTesting(false)
     }
 }
 

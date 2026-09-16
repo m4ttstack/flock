@@ -52,7 +52,7 @@ struct MainWindow: View {
         // AppKit event location be converted into it.
         .background(DragSpaceAnchor(coordinator: dragCoordinator))
         .overlay { DragLayer() }
-        .overlay { ToastHost() }
+        .overlay { ToastHost(viewModel: viewModel) }
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.chrome))
