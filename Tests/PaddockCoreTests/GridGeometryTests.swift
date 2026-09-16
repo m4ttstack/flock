@@ -275,7 +275,7 @@ final class GridGeometryTests: XCTestCase {
             grid: GridDropSurfaces(
                 viewport: grid?.viewport ?? .zero, thumbnails: grid?.thumbnails ?? [],
                 tiles: (grid?.tiles ?? []) + [tileAsNewTab], cards: grid?.cards ?? [],
-                newTabSlots: (grid?.newTabSlots ?? []) + [tileAsNewTab]
+                newTabSlots: (grid?.newTabSlots ?? []) + [tileAsNewTab], cardTabs: grid?.cardTabs ?? []
             )
         )
     }
@@ -303,7 +303,12 @@ final class GridGeometryTests: XCTestCase {
                 thumbnails: [gridThumbnail, otherCardThumbnail, scrolledAway],
                 tiles: [plusTile],
                 cards: [cardOne, cardTwo, cardThree],
-                newTabSlots: [newTabSlot]
+                newTabSlots: [newTabSlot],
+                cardTabs: [
+                    GridCardTabs(workspace: cardOne.id, tabs: [gridThumbnail]),
+                    GridCardTabs(workspace: cardTwo.id, tabs: [otherCardThumbnail]),
+                    GridCardTabs(workspace: cardThree.id, tabs: [scrolledAway]),
+                ]
             ) : nil
         )
     }
@@ -406,15 +411,76 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertNil(resolveDropTarget(at: CGPoint(x: 50, y: 14), dragging: pane, surfaces: surfaces(grid: true)), "a stale strip tab")
     }
 
-    /// A whole tab lands in a workspace, so the card is the only target it
-    /// has: a thumbnail or a +N tile inside another card still resolves to
-    /// that card.
+    /// A whole tab lands in another workspace wherever in that card it is
+    /// dropped: a thumbnail or a +N tile inside it still resolves to the card.
     func testATabOverAnotherCardTargetsThatWorkspaceWhereverInTheCardItIs() {
         for point in [cardTwoEmptySpace, CGPoint(x: 350, y: 100)] {
             XCTAssertEqual(resolveDropTarget(at: point, dragging: tab, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w2")), "\(point)")
         }
-        for point in [cardOneEmptySpace, CGPoint(x: 60, y: 100), CGPoint(x: 170, y: 100)] {
-            XCTAssertEqual(resolveDropTarget(at: point, dragging: tab, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w1")), "\(point)")
+    }
+
+    /// A tab over the card it already belongs to is a reorder among that
+    /// card's own cells, not a migration into the workspace it is already in.
+    /// The index counts cells the point has passed, the way the strip counts
+    /// tabs, so the same drag onto its own card plans a real `moveTab`.
+    func testATabOverItsOwnCardReordersAmongThatCardsCells() throws {
+        let workspace = WorkspaceID(rawValue: "w1")
+        let own = DragSubject.tab(gridThumbnail.id)
+        let before = CGPoint(x: gridThumbnail.frame.midX - 10, y: gridThumbnail.frame.midY)
+        let after = CGPoint(x: gridThumbnail.frame.midX + 10, y: gridThumbnail.frame.midY)
+
+        XCTAssertEqual(resolveDropTarget(at: before, dragging: own, surfaces: surfaces(grid: true)), .tabStrip(workspace: workspace, insertIndex: 0))
+        XCTAssertEqual(resolveDropTarget(at: after, dragging: own, surfaces: surfaces(grid: true)), .tabStrip(workspace: workspace, insertIndex: 1))
+        XCTAssertEqual(
+            resolveDropTarget(at: cardOneEmptySpace, dragging: own, surfaces: surfaces(grid: true)),
+            .tabStrip(workspace: workspace, insertIndex: 1), "past the card's only drawn tab"
+        )
+
+        guard case .success(let plan) = plan(dragging: own, onto: .tabStrip(workspace: workspace, insertIndex: 1), model: model()) else {
+            return XCTFail("a tab reordered inside its own card has to commit a move")
+        }
+        XCTAssertEqual(plan.ops, [.moveTab(gridThumbnail.id, insertIndex: 1)])
+    }
+
+    /// A tab the card is not drawing (a hidden one behind a "+N" tile, or a
+    /// drag that outlived the card's own reflow) has no cell to be placed
+    /// among, so the card takes it as the migration it was before.
+    func testATabTheCardDoesNotDrawStillTargetsTheCard() {
+        XCTAssertEqual(
+            resolveDropTarget(at: cardOneEmptySpace, dragging: tab, surfaces: surfaces(grid: true)),
+            .workspaceThumbnail(WorkspaceID(rawValue: "w1"))
+        )
+    }
+
+    /// The strip's frames go stale under a shown grid, so the bar they would
+    /// place is nowhere the drop lands. The card previews the slot instead.
+    func testAGridReorderHasNoInsertionBarOfItsOwn() {
+        let target = DropTarget.tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 1)
+        XCTAssertNil(dropTargetRect(for: target, surfaces: surfaces(grid: true)))
+        XCTAssertNotNil(dropTargetRect(for: target, surfaces: surfaces(grid: false)), "the strip's own bar is untouched")
+    }
+
+    /// Cells that wrap are read the way they are drawn: a point below a row
+    /// has passed every cell in it, whatever its x.
+    func testTheInsertIndexReadsWrappedCellsInDrawingOrder() {
+        let cells = (0..<8).map { CGRect(x: 10 + CGFloat($0 % 4) * 100, y: 50 + CGFloat($0 / 4) * 111, width: 90, height: 101) }
+        XCTAssertEqual(GridCardLayout.insertIndex(at: CGPoint(x: 12, y: 60), cells: cells), 0, "before the first cell")
+        XCTAssertEqual(GridCardLayout.insertIndex(at: CGPoint(x: 90, y: 60), cells: cells), 1, "past the first cell's centre")
+        XCTAssertEqual(GridCardLayout.insertIndex(at: CGPoint(x: 12, y: 170), cells: cells), 4, "the second row's start is past the whole first row")
+        XCTAssertEqual(GridCardLayout.insertIndex(at: CGPoint(x: 12, y: 155), cells: cells), 4, "in the gap between the rows")
+        XCTAssertEqual(GridCardLayout.insertIndex(at: CGPoint(x: 390, y: 170), cells: cells), 8, "past everything")
+        XCTAssertEqual(GridCardLayout.insertIndex(at: CGPoint(x: 390, y: 20), cells: cells), 0, "above the first row")
+    }
+
+    /// Every point of a card names a gap of its own list and no more, so a
+    /// reorder can never plan an index the workspace has no room for.
+    func testEveryPointOfACardNamesAGapOfItsOwnCells() {
+        let cells = (0..<6).map { CGRect(x: 10 + CGFloat($0 % 4) * 100, y: 50 + CGFloat($0 / 4) * 111, width: 90, height: 101) }
+        for x in stride(from: 0.0, through: 420.0, by: 15.0) {
+            for y in stride(from: 30.0, through: 290.0, by: 13.0) {
+                let index = GridCardLayout.insertIndex(at: CGPoint(x: x, y: y), cells: cells)
+                XCTAssertTrue((0...cells.count).contains(index), "(\(x), \(y)) -> \(index)")
+            }
         }
     }
 

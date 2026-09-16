@@ -216,6 +216,12 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
     case .newWorkspace:
         return surfaces.newWorkspaceZone
     case .tabStrip(_, let insertIndex):
+        // A reorder inside the grid is the same target, but the strip is
+        // unmounted under a shown grid and its last frames sit wherever the
+        // window left them. The card opens the slot itself, and the slot a
+        // tab lands in is the one its own thumbnail has already slid to,
+        // which only the drag's subject can name.
+        guard surfaces.grid == nil else { return nil }
         guard let container = surfaces.stripViewport ?? surfaces.stripFrame else { return nil }
         return InsertionBarGeometry.bar(
             atInsertIndex: insertIndex, items: surfaces.tabFrames.map(\.frame), container: container, axis: .vertical

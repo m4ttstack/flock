@@ -62,6 +62,24 @@ public enum GridCardLayout {
     /// rest, `fewer` once expanded.
     static func hasTile(tabs: Int) -> Bool { tabs > tabsPerRow }
 
+    /// The gap a point names among cells that wrap: rows top to bottom, cells
+    /// left to right inside a row. A cell comes before the point when the
+    /// point is past that cell's row entirely, or in its row and past its
+    /// centre, which is the strip's own centre-crossing rule applied one row
+    /// at a time. The count of such cells is the insert index, so a point
+    /// over a cell's own body still names the gap on one side of it.
+    ///
+    /// `cells` are the card's TAB cells in the order it draws them, which a
+    /// resting card takes from the front of its workspace's tab list, so the
+    /// answer is an index into that list too.
+    public static func insertIndex(at point: CGPoint, cells: [CGRect]) -> Int {
+        cells.filter { cell in
+            if point.y > cell.maxY { return true }
+            if point.y < cell.minY { return false }
+            return point.x > cell.midX
+        }.count
+    }
+
     /// A RESTING card over its cap redraws to the same single row however
     /// many tabs it gains, so a placeholder there opens a row that collapses
     /// again the moment the drop lands, whichever slot it takes. An EXPANDED

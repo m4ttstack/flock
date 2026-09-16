@@ -22,6 +22,22 @@ public struct WorkspaceItemFrame: Equatable, Sendable {
     }
 }
 
+/// The tabs one card of the grid draws, in the order it draws them, each
+/// with the slot it occupies.
+///
+/// A resting card draws a PREFIX of its workspace's tabs, so a gap counted
+/// over these cells names an index into the workspace's own tab list as well,
+/// which is what `moveTab` takes.
+public struct GridCardTabs: Equatable, Sendable {
+    public let workspace: WorkspaceID
+    public let tabs: [TabItemFrame]
+
+    public init(workspace: WorkspaceID, tabs: [TabItemFrame]) {
+        self.workspace = workspace
+        self.tabs = tabs
+    }
+}
+
 /// The All Workspaces grid while it covers the window, every frame in the
 /// drag space. `viewport` is the grid's scroll view: a thumbnail or tile
 /// scrolled out of it is not there to hit.
@@ -45,16 +61,20 @@ public struct GridDropSurfaces: Equatable, Sendable {
     /// that drop actually LANDS in, which is what a committed drop settles
     /// and flashes on, in place of the whole card.
     public let newTabSlots: [WorkspaceItemFrame]
+    /// The same thumbnails, grouped by the card drawing them and kept in card
+    /// order: what a tab reordered inside its own card is placed among.
+    public let cardTabs: [GridCardTabs]
 
     public init(
         viewport: CGRect, thumbnails: [TabItemFrame], tiles: [WorkspaceItemFrame], cards: [WorkspaceItemFrame],
-        newTabSlots: [WorkspaceItemFrame] = []
+        newTabSlots: [WorkspaceItemFrame] = [], cardTabs: [GridCardTabs] = []
     ) {
         self.viewport = viewport
         self.thumbnails = thumbnails
         self.tiles = tiles
         self.cards = cards
         self.newTabSlots = newTabSlots
+        self.cardTabs = cardTabs
     }
 }
 
@@ -192,9 +212,11 @@ private func resolveZone(at point: CGPoint, dragging: DragSubject, surfaces: Dro
 /// Rearranging from inside the grid. A pane lands in the tab whose thumbnail
 /// it is over, or in a new tab of whatever card it is over otherwise; a card's
 /// tile takes no drop, and a dwell on a "+N" one uncovers the tabs it stands
-/// for. A whole tab lands in a workspace, so the card is the only target it
-/// has, thumbnails and tiles included. A workspace drag has nothing to land
-/// on here.
+/// for. A whole tab lands in the card it is over: another workspace's card
+/// takes it as a migration, and its OWN card as a reorder among that card's
+/// cells, which is the same target and the same verb the strip resolves for a
+/// tab moved within its workspace. A workspace drag has nothing to land on
+/// here.
 ///
 /// A thumbnail is a whole-tab target with no edge bands: it is far too small
 /// to divide into four zones, so nothing in the grid ever splits a pane.
@@ -212,8 +234,16 @@ private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDro
             return .moreTabs(hit.id)
         }
         return card()
-    case .tab:
-        return card()
+    case .tab(let dragged):
+        guard let hit = grid.cards.first(where: { $0.frame.contains(point) }) else { return nil }
+        guard let card = grid.cardTabs.first(where: { $0.workspace == hit.id }),
+              card.tabs.contains(where: { $0.id == dragged })
+        else {
+            return .workspaceThumbnail(hit.id)
+        }
+        return .tabStrip(
+            workspace: hit.id, insertIndex: GridCardLayout.insertIndex(at: point, cells: card.tabs.map(\.frame))
+        )
     case .workspace, .workspaces:
         return nil
     }
