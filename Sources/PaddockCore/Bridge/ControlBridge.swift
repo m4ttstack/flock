@@ -736,6 +736,11 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         return child.process.terminationStatus
     }
 
+    /// Whether the BRIDGE is done, which a release and a retake both leave
+    /// false however many children come and go. A read-only seam for the
+    /// tests: `waitUntilFinished()` is the production reader and it blocks, so
+    /// the assertion every release/retake case actually needs -- that the
+    /// bridge is still up -- has no other form.
     var isFinished: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -1031,9 +1036,11 @@ final class BridgeIO: @unchecked Sendable {
         herdrInFD = handle?.fileDescriptor ?? -1
     }
 
-    /// The descriptor herdr-bound lines are written to. Read by the
-    /// supervisor's own tests, which assert that a descriptor installed by a
-    /// retake is still open once the previous child has been reaped.
+    /// The descriptor herdr-bound lines are written to. A read-only seam for
+    /// the tests, and the one thing a `send` cannot stand in for: what a
+    /// retake can get wrong is the descriptor's identity -- closed under it,
+    /// or the freed number reclaimed by the next child's `pipe()` -- and a
+    /// write reports neither, since it fails the same silent way either way.
     var herdrInputDescriptor: Int32 {
         writeLock.lock()
         defer { writeLock.unlock() }
