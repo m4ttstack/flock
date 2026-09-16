@@ -59,26 +59,42 @@ public actor LineSocket {
         self.continuation = cont
     }
 
+    /// Cancellable, which `DispatchIO.write` is not on its own: its handler
+    /// fires when the write completes, and a write to a peer that has stopped
+    /// reading does not complete once the socket buffer fills. A caller racing
+    /// this against a deadline would then park on the send itself, which is
+    /// the very thing such a deadline exists to prevent. Stopping the channel
+    /// is what ends it: every outstanding write is completed with `ECANCELED`,
+    /// which is a handler call with `done == true`, so the continuation
+    /// resumes through the same path a real write error takes.
     public func send(line: Data) async throws {
         guard !closed else { throw LineSocketError.closed }
         var framed = line
         framed.append(0x0A)
         let channel = self.channel
         let queue = self.queue
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let dispatchData = framed.withUnsafeBytes { DispatchData(bytes: $0) }
-            channel.write(offset: 0, data: dispatchData, queue: queue) { done, _, err in
-                // DispatchIO can invoke this handler more than once per write
-                // (partial progress reports); only the final call carries
-                // done == true, and only that call may resume the
-                // continuation, or a split write double-resumes it.
-                guard done else { return }
-                if err != 0 {
-                    continuation.resume(throwing: LineSocketError.io(err))
-                } else {
-                    continuation.resume()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let dispatchData = framed.withUnsafeBytes { DispatchData(bytes: $0) }
+                channel.write(offset: 0, data: dispatchData, queue: queue) { done, _, err in
+                    // DispatchIO can invoke this handler more than once per write
+                    // (partial progress reports); only the final call carries
+                    // done == true, and only that call may resume the
+                    // continuation, or a split write double-resumes it.
+                    guard done else { return }
+                    if err != 0 {
+                        continuation.resume(throwing: LineSocketError.io(err))
+                    } else {
+                        continuation.resume()
+                    }
                 }
             }
+        } onCancel: {
+            // Not `close()`: that is actor-isolated, and this handler runs
+            // wherever the cancel did. Stopping the channel here is the part
+            // that unparks the write; the socket's own `close()` still runs on
+            // the caller's path and is a no-op on an already-stopped channel.
+            channel.close(flags: .stop)
         }
     }
 

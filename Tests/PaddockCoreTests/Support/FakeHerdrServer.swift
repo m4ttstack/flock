@@ -52,6 +52,8 @@ final class FakeHerdrServer: @unchecked Sendable {
     // One-shot per method, like pendingFailures: consumed by the next request
     // for that method, so a held connection can't wedge every later request.
     private var holds: [String: DispatchSemaphore] = [:]
+    private var acceptsWithoutReading = false
+    private var parkedFDs: Set<Int32> = []
     private var storedReceivedRequests: [(method: String, paramsJSON: String)] = []
     private var storedAcceptedConnectionCount = 0
     private var subscriberFDs: Set<Int32> = []
@@ -112,6 +114,15 @@ final class FakeHerdrServer: @unchecked Sendable {
         let sem = DispatchSemaphore(value: 0)
         lock.withLock { holds[method] = sem }
         return { sem.signal() }
+    }
+
+    /// Accept every later connection and then read nothing from it at all, so
+    /// a client's write fills the socket buffer and stops making progress.
+    /// That is the one failure a healthy-looking socket can still be in, and
+    /// the only way to park a write on purpose: a server that reads is a
+    /// server whose peer's writes always complete eventually.
+    func acceptWithoutReading() {
+        lock.withLock { acceptsWithoutReading = true }
     }
 
     func pushEventLine(_ json: String) {
@@ -180,6 +191,11 @@ final class FakeHerdrServer: @unchecked Sendable {
             listenFD = -1
         }
         for fd in subs { Foundation.close(fd) }
+        for fd in lock.withLock({ () -> Set<Int32> in
+            let parked = parkedFDs
+            parkedFDs.removeAll()
+            return parked
+        }) { Foundation.close(fd) }
         try? FileManager.default.removeItem(atPath: socketDir)
     }
 
@@ -203,6 +219,16 @@ final class FakeHerdrServer: @unchecked Sendable {
     private func handleConnection(_ fd: Int32) {
         var noSigPipe: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+
+        // Held open, never read and never closed: closing would fail the
+        // client's write instead of parking it, which is the opposite of what
+        // this mode is for. `stop()` closes them.
+        let parked = lock.withLock { () -> Bool in
+            guard acceptsWithoutReading else { return false }
+            parkedFDs.insert(fd)
+            return true
+        }
+        if parked { return }
 
         guard let request = readOneRequestLine(fd) else {
             Foundation.close(fd)

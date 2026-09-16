@@ -89,6 +89,42 @@ final class HerdrClientTests: XCTestCase {
             fake.receivedRequests.contains { $0.method == "pane.get" },
             "the request never reached the server, so this timed out on something else")
     }
+
+    /// The other half of the same wedge, and the one a deadline alone does not
+    /// cover: a herdr that accepts the connection and never READS it. The
+    /// socket buffer fills, `DispatchIO.write` stops making progress, and the
+    /// deadline's own cancellation is the only thing that can end it -- a
+    /// write that ignores cancellation would leave the request's task group
+    /// waiting on it after the deadline fired, which is the park the deadline
+    /// exists to kill.
+    func testARequestToAServerThatNeverReadsFailsInsteadOfParkingOnTheWrite() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.acceptWithoutReading()
+        let client = HerdrClient(socketPath: fake.socketPath, requestTimeout: .milliseconds(150))
+        // Past any socket buffer either end could hold, so the write really
+        // does stop rather than completing into a buffer.
+        let payload = String(repeating: "x", count: 4_000_000)
+
+        let outcome = OutcomeBox()
+        let request = Task {
+            do {
+                _ = try await client.requestRaw("pane.get", ["padding": .string(payload)])
+                outcome.record(nil)
+            } catch {
+                outcome.record(error)
+            }
+        }
+        defer { request.cancel() }
+
+        let deadline = Date().addingTimeInterval(5)
+        while !outcome.finished, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(outcome.finished, "the request parked on the write instead of failing")
+        guard case HerdrClientError.timedOut("pane.get")? = outcome.error as? HerdrClientError else {
+            return XCTFail("expected a timeout, got \(String(describing: outcome.error))")
+        }
+    }
 }
 
 /// Carries a request's outcome out of the `Task` it ran in.
