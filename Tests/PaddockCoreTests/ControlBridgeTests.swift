@@ -699,19 +699,26 @@ final class ControlBridgeTests: XCTestCase {
     /// The peer-gone path has to reap a child that ignores SIGTERM: leaving
     /// one alive parks `ControlBridge.run` in `waitUntilExit()` forever,
     /// holding the pane's attach owner and its resize lock. `/bin/sh` stands
-    /// in for the wedged child; SIGKILL only reaches THIS process, never the
-    /// `sleep` it spawned, so that orphan is kept short enough to exit on its
-    /// own well inside a test run.
+    /// in for the wedged child. It sleeps in short steps rather than one long
+    /// one for two reasons: it never reaches an exit of its own, so no wait
+    /// below can pass on a child that simply ended, and SIGKILL reaches only
+    /// the shell, so the `sleep` it leaves orphaned is gone in a fraction of a
+    /// second rather than lingering for the rest of the run.
     func testTerminateEscalatesToSIGKILLForAChildThatIgnoresSIGTERM() {
-        let proc = spawnTestChild(script: "trap '' TERM; sleep 5")
+        let output = Pipe()
+        let proc = spawnTestChild(
+            script: "trap '' TERM; echo trapped; while :; do sleep 0.2; done",
+            standardOutput: output
+        )
         guard proc.isRunning else { return XCTFail("failed to spawn the test child") }
         defer { if proc.isRunning { kill(proc.processIdentifier, SIGKILL) } }
-        // The shell installs the trap as its first statement, so a SIGTERM
-        // delivered before that runs kills the child on the default
-        // disposition. Wait for the trap, then prove the child really does
-        // survive SIGTERM -- otherwise the assertion below passes without
-        // SIGKILL ever mattering.
-        usleep(300_000)
+        // The banner is printed AFTER the trap is installed, so it is the only
+        // proof the child is in the state this test needs. A SIGTERM sent
+        // before that kills the child on the default disposition, and the
+        // escalation below would never be what ended it.
+        XCTAssertTrue(
+            waitForOutput("trapped", on: output.fileHandleForReading.fileDescriptor, timeout: 10),
+            "the child never installed its SIGTERM trap")
         proc.terminate()
         XCTAssertTrue(
             waitForExit(proc, timeout: 0.3),
@@ -721,10 +728,11 @@ final class ControlBridgeTests: XCTestCase {
 
         // Waited for, not read instantly: SIGKILL is delivered synchronously
         // but `Process.isRunning` only clears once Foundation reaps the child.
-        // The window is still far inside the child's own 5s lifetime, so a
-        // missing SIGKILL leaves it running here.
+        // The wait returns the moment that happens, so the headroom here costs
+        // nothing on a machine that is not loaded, and the child has no exit of
+        // its own to reach inside it.
         XCTAssertFalse(
-            waitForExit(proc, timeout: 1.5),
+            waitForExit(proc, timeout: 10),
             "SIGTERM was ignored, so the SIGKILL fallback must have ended it")
     }
 
@@ -813,14 +821,27 @@ private final class LockedBox<T>: @unchecked Sendable {
 
 // MARK: - child-process helpers
 
-private func spawnTestChild(script: String) -> Process {
+private func spawnTestChild(script: String, standardOutput: Any? = nil) -> Process {
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: "/bin/sh")
     proc.arguments = ["-c", script]
-    proc.standardOutput = FileHandle.nullDevice
+    proc.standardOutput = standardOutput ?? FileHandle.nullDevice
     proc.standardError = FileHandle.nullDevice
     try? proc.run()
     return proc
+}
+
+/// Whether `marker` appeared on `fd` before `timeout` ran out, accumulating
+/// across polls because a short write can arrive in pieces.
+private func waitForOutput(_ marker: String, on fd: Int32, timeout: TimeInterval) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    var accumulated = Data()
+    while Date() < deadline {
+        accumulated.append(readAllAvailableForTest(fd))
+        if String(decoding: accumulated, as: UTF8.self).contains(marker) { return true }
+        usleep(5_000)
+    }
+    return false
 }
 
 /// Whether `process` was still running when `timeout` ran out. Polls rather
