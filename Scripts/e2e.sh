@@ -73,12 +73,23 @@ SEED_IDS=$("$LIB/seed-layout.sh" "$SOCKET" | jq -c .)
 # raise is a connection: a one-shot listener per request, re-armed each time.
 # Requests are fire-and-forget; the caller watches the herdr socket itself for
 # the server coming back, which is the readiness the caller actually wants.
+#
+# One session serves the whole `xcodebuild test` invocation, so reseed-session
+# is how a case that changed the layout hands the next one a clean world.
+# Dropping the session directory resets herdr's own numbering, which is what
+# keeps the seed ids stable across a reseed.
 control_loop() {
   while :; do
     rm -f "$CONTROL_SOCKET"
     request="$(nc -lU "$CONTROL_SOCKET" 2>/dev/null || true)"
     case "$request" in
-      restart-server) "$LIB/scratch-session.sh" restart "$SESSION_NAME" >/dev/null 2>&1 || true ;;
+      restart-server)
+        "$LIB/scratch-session.sh" restart "$SESSION_NAME" >/dev/null 2>&1 || true ;;
+      reseed-session)
+        "$LIB/scratch-session.sh" stop "$SESSION_NAME" >/dev/null 2>&1 || true
+        if fresh=$("$LIB/scratch-session.sh" start "$SESSION_NAME" 2>/dev/null); then
+          "$LIB/seed-layout.sh" "$fresh" >/dev/null 2>&1 || true
+        fi ;;
       *) sleep 0.2 ;;
     esac
   done

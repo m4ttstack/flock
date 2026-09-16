@@ -170,7 +170,7 @@ struct PaddockApp: App {
         _terminalTextSizeStore = State(initialValue: terminalTextSizeStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
-        let herdrStore = HerdrStore(socketPath: socketPath)
+        let herdrStore = Self.makeHerdrStore(socketPath: socketPath)
         _herdrStore = State(initialValue: herdrStore)
         let undoJournal = UndoJournal(
             executor: herdrStore,
@@ -372,6 +372,18 @@ struct PaddockApp: App {
                 .accessibilityIdentifier("paddock.edit.redo")
             }
         }
+    }
+
+    /// The store's own re-snapshot backstop is minutes wide, which is longer
+    /// than any test can wait to watch it fire; `PADDOCK_RESNAPSHOT_SECONDS`
+    /// narrows it. An absent, unparseable or non-positive value leaves the
+    /// store's default in place rather than inventing a substitute.
+    private static func makeHerdrStore(socketPath: String) -> HerdrStore {
+        guard let raw = ProcessInfo.processInfo.environment["PADDOCK_RESNAPSHOT_SECONDS"],
+              let seconds = Double(raw), seconds > 0 else {
+            return HerdrStore(socketPath: socketPath)
+        }
+        return HerdrStore(socketPath: socketPath, resnapshotInterval: .seconds(seconds))
     }
 
     private static func resolveSocketPath() -> String {
