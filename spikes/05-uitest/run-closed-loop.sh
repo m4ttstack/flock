@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIB="$ROOT/spikes/lib"
+LIB="$ROOT/Tests/PaddockUITests/Support/bin"
 HERE="$ROOT/spikes/05-uitest"
 SESSION_NAME="closedloop-$$"
 

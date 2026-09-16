@@ -108,11 +108,12 @@ final class ScratchHerdrSession {
             return envDir
         }
         let thisFile = URL(fileURLWithPath: #filePath)
-        let spikesDir = thisFile
+        let repoRoot = thisFile
             .deletingLastPathComponent() // SpikeUITests
             .deletingLastPathComponent() // 05-uitest
             .deletingLastPathComponent() // spikes
-        return spikesDir.appendingPathComponent("lib").path
+            .deletingLastPathComponent() // repo root
+        return repoRoot.appendingPathComponent("Tests/PaddockUITests/Support/bin").path
     }
 
     /// The xcodebuild test-runner process does not reliably inherit the

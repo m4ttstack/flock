@@ -63,7 +63,11 @@ targets:
   PaddockUITests:
     type: bundle.ui-testing
     platform: macOS
-    sources: [Tests/PaddockUITests]
+    sources:
+      # Support/bin belongs to Scripts/e2e.sh, which runs outside the
+      # sandboxed test runner; nothing in the bundle shells out to it.
+      - path: Tests/PaddockUITests
+        excludes: [Support/bin]
     dependencies: [{ target: Paddock }]
     settings:
       base:
