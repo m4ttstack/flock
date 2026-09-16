@@ -59,14 +59,15 @@ public actor LineSocket {
         self.continuation = cont
     }
 
-    /// Cancellable, which `DispatchIO.write` is not on its own: its handler
-    /// fires when the write completes, and a write to a peer that has stopped
-    /// reading does not complete once the socket buffer fills. A caller racing
-    /// this against a deadline would then park on the send itself, which is
-    /// the very thing such a deadline exists to prevent. Stopping the channel
-    /// is what ends it: every outstanding write is completed with `ECANCELED`,
-    /// which is a handler call with `done == true`, so the continuation
-    /// resumes through the same path a real write error takes.
+    /// Cancellable, which `DispatchIO.write` is not on its own: a write to a
+    /// peer that has stopped reading never completes once the socket buffer
+    /// fills, so a caller racing this against a deadline would park on the send
+    /// itself. Cancelling stops the channel, completing every outstanding
+    /// operation with `ECANCELED`, which is a handler call with `done == true`.
+    ///
+    /// That channel is the one the reads are armed on, so a cancelled send also
+    /// finishes `lines`. Every caller treats a failed send as the end of that
+    /// socket; one that means to keep reading afterwards needs its own channel.
     public func send(line: Data) async throws {
         guard !closed else { throw LineSocketError.closed }
         var framed = line
@@ -91,8 +92,7 @@ public actor LineSocket {
             }
         } onCancel: {
             // Not `close()`: that is actor-isolated, and this handler runs
-            // wherever the cancel did. Stopping the channel here is the part
-            // that unparks the write; the socket's own `close()` still runs on
+            // wherever the cancel did. The socket's own `close()` still runs on
             // the caller's path and is a no-op on an already-stopped channel.
             channel.close(flags: .stop)
         }
