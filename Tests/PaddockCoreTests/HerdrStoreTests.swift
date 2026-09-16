@@ -889,4 +889,60 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:left") })?.rect, CellRect(x: 0, y: 0, width: 10, height: 20))
         XCTAssertEqual(layout.panes.first(where: { $0.paneID == PaneID(rawValue: "w1:top") })?.rect, CellRect(x: 10, y: 0, width: 10, height: 10))
     }
+
+    // MARK: - a herdr that takes a request and answers nothing
+
+    /// Every mutation runs through the journal's one serial chain, so a
+    /// request with no answer took the chain with it: `isBusy` stayed true,
+    /// the Edit menu stayed disabled, and every later mutation queued behind
+    /// it for the life of the app. The request's own deadline is what ends
+    /// that, and what it produces is the ordinary failure the store already
+    /// reverts and resnapshots from.
+    @MainActor
+    func testAMutationHerdrNeverAnswersFailsAndLeavesTheChainFree() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+
+        let store = HerdrStore(socketPath: fake.socketPath, requestTimeout: .milliseconds(150))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let journal = UndoJournal(executor: store, model: { store.model }, notify: { _ in })
+        let hold = fake.holdNext(method: "pane.move")
+        defer { hold() }
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .right, ratio: nil)], label: "Move")
+
+        let outcome = StepOutcome()
+        let step = Task {
+            await journal.runExclusively {
+                outcome.result = await store.execute(plan)
+                outcome.done = true
+            }
+        }
+        defer { step.cancel() }
+
+        // Polled, never awaited: a chain that parks would hang the suite
+        // rather than fail this test.
+        let deadline = Date().addingTimeInterval(5)
+        while !outcome.done, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(outcome.done, "the unanswered mutation parked the chain")
+        XCTAssertFalse(journal.isBusy, "the chain is still marked busy, so every later mutation is locked out")
+        guard case .failure(let failure)? = outcome.result else {
+            return XCTFail("expected the plan to fail, got \(String(describing: outcome.result))")
+        }
+        XCTAssertEqual(failure.code, "timed_out")
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID, TabID(rawValue: "w1:t1"), "the overlay was left showing a move that never happened")
+    }
+}
+
+/// Carries one chained step's outcome out of the `Task` that runs it.
+@MainActor
+private final class StepOutcome {
+    var result: Result<ExecutedPlan, OpFailure>?
+    var done = false
 }

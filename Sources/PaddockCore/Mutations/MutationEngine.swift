@@ -380,6 +380,7 @@ public actor MutationEngine {
             switch clientError {
             case let .server(code, message): return (code, message)
             case let .transport(message): return ("transport_error", message)
+            case let .timedOut(method): return ("timed_out", "\(method) got no answer from herdr")
             case let .protocolTooOld(found, required): return ("protocol_too_old", "found \(found), required \(required)")
             }
         }

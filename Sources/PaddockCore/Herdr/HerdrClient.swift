@@ -28,6 +28,10 @@ public enum HerdrClientError: Error, Sendable {
     case protocolTooOld(found: Int, required: Int)
     case server(code: String, message: String)
     case transport(String)
+    /// The connection was made and the request went out; nothing came back
+    /// inside the deadline. Distinct from `transport`, which is a connection
+    /// that failed or ended: this one is a herdr that is still there.
+    case timedOut(method: String)
 }
 
 /// Talks to herdr's api socket. AMENDED per spike 2 + source dive: the
@@ -40,11 +44,27 @@ public enum HerdrClientError: Error, Sendable {
 public actor HerdrClient {
     public static let minimumProtocol = 22
 
+    /// How long a request waits for its answer before it fails.
+    ///
+    /// Every request is bounded, and only requests are: a subscription never
+    /// runs through this type (`HerdrStore.bootstrapAndRun` and both
+    /// pane-scoped feeds open their own `LineSocket`), and a subscription that
+    /// stays quiet for an hour is correct. What this catches is the other
+    /// shape entirely, a herdr that accepts the connection and then answers
+    /// nothing: unbounded, that parks the caller for good, and since every
+    /// mutation runs through one serial chain, it parks every later one with
+    /// it. The width is the same one Herdglass's own client uses, and a herdr
+    /// that has not answered a local socket in fifteen seconds is not going
+    /// to.
+    public static let defaultRequestTimeout: Duration = .seconds(15)
+
     private let socketPath: String
+    private let requestTimeout: Duration
     private var sequence = 0
 
-    public init(socketPath: String) {
+    public init(socketPath: String, requestTimeout: Duration = HerdrClient.defaultRequestTimeout) {
         self.socketPath = socketPath
+        self.requestTimeout = requestTimeout
     }
 
     public func request<P: Encodable & Sendable, R: Decodable & Sendable>(
@@ -99,7 +119,7 @@ public actor HerdrClient {
         let requestLine = try encodeRequest(id: id, method: method, params: params)
         let socket = try await LineSocket(path: socketPath)
         do {
-            let line = try await sendAndAwaitReply(socket: socket, requestLine: requestLine)
+            let line = try await sendAndAwaitReply(socket: socket, requestLine: requestLine, method: method)
             await socket.close()
             return try Self.validate(line: line)
         } catch {
@@ -108,12 +128,31 @@ public actor HerdrClient {
         }
     }
 
-    private func sendAndAwaitReply(socket: LineSocket, requestLine: Data) async throws -> Data {
-        try await socket.send(line: requestLine)
-        for try await line in socket.lines {
+    /// The write and the read are raced against the deadline together: a write
+    /// to a peer that has stopped reading parks exactly as a missing answer
+    /// does. Cancelling the group is what unparks the loser --
+    /// `AsyncThrowingStream`'s iterator resumes when its task is cancelled --
+    /// and the caller closes the socket on both paths.
+    private func sendAndAwaitReply(socket: LineSocket, requestLine: Data, method: String) async throws -> Data {
+        let timeout = requestTimeout
+        return try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask {
+                try await socket.send(line: requestLine)
+                for try await line in socket.lines {
+                    return line
+                }
+                throw HerdrClientError.transport("connection closed before a response arrived")
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw HerdrClientError.timedOut(method: method)
+            }
+            defer { group.cancelAll() }
+            guard let line = try await group.next() else {
+                throw HerdrClientError.transport("connection closed before a response arrived")
+            }
             return line
         }
-        throw HerdrClientError.transport("connection closed before a response arrived")
     }
 
     private func encodeRequest<P: Encodable>(id: String, method: String, params: P) throws -> Data {

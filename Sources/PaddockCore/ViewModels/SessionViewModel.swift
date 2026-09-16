@@ -1050,6 +1050,7 @@ public final class SessionViewModel {
         switch clientError {
         case let .server(code, message): return message.isEmpty ? code : message
         case let .transport(message): return message
+        case let .timedOut(method): return "\(method) got no answer from herdr"
         case let .protocolTooOld(found, required): return "protocol \(found), need \(required)"
         }
     }

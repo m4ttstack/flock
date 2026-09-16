@@ -17,6 +17,8 @@ extension HerdrClientError: Equatable {
             return lc == rc && lm == rm
         case (.transport(let l), .transport(let r)):
             return l == r
+        case (.timedOut(let l), .timedOut(let r)):
+            return l == r
         default:
             return false
         }
@@ -48,6 +50,9 @@ public final class HerdrStore {
     /// a layout herdr does not have for that whole window, with only the
     /// `resnapshotInterval` backstop behind it.
     private let overlayConvergenceTimeout: Duration
+    /// Passed to every `HerdrClient` this store makes, so a test can drive the
+    /// no-answer path without waiting out the real deadline.
+    private let requestTimeout: Duration
 
     private var runLoopTask: Task<Void, Never>?
     private var activeSubscribeSocket: LineSocket?
@@ -85,12 +90,14 @@ public final class HerdrStore {
         socketPath: String,
         resnapshotInterval: Duration = .seconds(300),
         backoffSchedule: @escaping (Int) -> Duration = HerdrStore.defaultBackoff,
-        overlayConvergenceTimeout: Duration = .seconds(2)
+        overlayConvergenceTimeout: Duration = .seconds(2),
+        requestTimeout: Duration = HerdrClient.defaultRequestTimeout
     ) {
         self.socketPath = socketPath
         self.resnapshotInterval = resnapshotInterval
         self.backoffSchedule = backoffSchedule
         self.overlayConvergenceTimeout = overlayConvergenceTimeout
+        self.requestTimeout = requestTimeout
     }
 
     public func start() async {
@@ -151,7 +158,7 @@ public final class HerdrStore {
             armConvergence(kinds: kinds, generation: generation, intermediateWorkspaceOrders: prediction.intermediateWorkspaceOrders)
         }
 
-        let engine = MutationEngine(client: HerdrClient(socketPath: socketPath))
+        let engine = MutationEngine(client: HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout))
         let result = await engine.execute(plan, model: baseModel)
 
         switch result {
@@ -256,7 +263,7 @@ public final class HerdrStore {
         discardConvergence(generation)
         guard !isStopped, overlayGeneration == generation else { return }
         model = fallback
-        let client = HerdrClient(socketPath: socketPath)
+        let client = HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout)
         guard let line = try? await client.requestRaw("session.snapshot", [:]),
               let snapshot = try? HerdrDecoder.snapshot(fromResponseLine: line)
         else { return }
@@ -631,7 +638,7 @@ public final class HerdrStore {
             }
             readingTask = task
 
-            let client = HerdrClient(socketPath: socketPath)
+            let client = HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout)
             try await client.verifyProtocol()
             let snapshotLine = try await client.requestRaw("session.snapshot", [:])
             var newModel = SessionModel(snapshot: try HerdrDecoder.snapshot(fromResponseLine: snapshotLine))
