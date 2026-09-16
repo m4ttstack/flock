@@ -109,6 +109,50 @@ extension HerdrDecoder {
         return (envelope.data.paneID, envelope.data.scroll)
     }
 
+    /// The `{"event":"pane.agent_status_changed","data":{...}}` frame a
+    /// per-pane subscription connection streams. Like `scrollChanged`, this
+    /// reads a `SubscriptionEventEnvelope`, not the `EventEnvelope` shape
+    /// `event(fromLine:)` reads. `nil` for the subscribe ack, for a scroll
+    /// frame on the same connection, and for everything else.
+    public static func agentStatusChanged(fromLine line: Data) -> (paneID: PaneID, status: AgentStatus)? {
+        struct Payload: Decodable {
+            let paneID: PaneID
+            let agentStatus: AgentStatus
+            enum CodingKeys: String, CodingKey {
+                case paneID = "pane_id"
+                case agentStatus = "agent_status"
+            }
+        }
+        struct Envelope: Decodable {
+            let event: String
+            let data: Payload
+        }
+        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line),
+              envelope.event == "pane.agent_status_changed"
+        else { return nil }
+        return (envelope.data.paneID, envelope.data.agentStatus)
+    }
+
+    /// The agent status in a `pane.get` response (`result.pane`). herdr seeds
+    /// its own comparison value from a probe of its own when the subscription
+    /// is created and emits only on a CHANGE from it, so a status that moved
+    /// between the bootstrap snapshot and the subscribe would otherwise never
+    /// be reported by either side.
+    public static func agentStatusProbe(fromLine line: Data) -> (paneID: PaneID, status: AgentStatus)? {
+        struct Pane: Decodable {
+            let paneID: PaneID
+            let agentStatus: AgentStatus
+            enum CodingKeys: String, CodingKey {
+                case paneID = "pane_id"
+                case agentStatus = "agent_status"
+            }
+        }
+        struct Result: Decodable { let pane: Pane }
+        struct Envelope: Decodable { let result: Result }
+        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else { return nil }
+        return (envelope.result.pane.paneID, envelope.result.pane.agentStatus)
+    }
+
     /// The scroll state in a `pane.get` response (`result.pane`), which is how
     /// the per-pane feed seeds itself: herdr's own `pane.scroll_changed`
     /// subscription probes at subscribe time and then emits only on a CHANGE,

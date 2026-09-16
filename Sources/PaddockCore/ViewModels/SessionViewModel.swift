@@ -27,6 +27,7 @@ public final class SessionViewModel {
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
+    public private(set) var attentionToasts = AttentionToastStack()
 
     /// Written from inside view bodies, which must not invalidate the views
     /// reading it; `lastLines` is what they observe.
@@ -91,6 +92,12 @@ public final class SessionViewModel {
     // then only ever sees the snapshot's own scroll state.
     private let paneScrollSubscriber: (any PaneScrollSubscribing)?
 
+    // Armed for every pane the model carries, disarmed as panes leave it.
+    // `nil` when nothing was injected (a bare test double); pane, tab and
+    // workspace status then only ever move on a fresh snapshot.
+    private let paneAgentStatusSubscriber: (any PaneAgentStatusSubscribing)?
+    private var armedAgentStatusFeeds: Set<PaneID> = []
+
     // `nil` only when no `layoutExportClient` was injected (a test double
     // that only implements `HerdrCommandClient`, say); every pane canvas
     // then reads `exportedLayout(for:)` as `nil` and `CanvasGeometry.resolved`
@@ -104,6 +111,9 @@ public final class SessionViewModel {
     private let planExecutor: (any PlanExecuting)?
     private let undoJournal: UndoJournal?
     private let noticeSink: @MainActor (String) -> Void
+    /// Injected so a test can place a transition inside or outside the
+    /// attention stack's coalescing window without sleeping.
+    @ObservationIgnored private let now: @MainActor () -> Date
 
     public init(
         client: any HerdrCommandClient,
@@ -112,7 +122,9 @@ public final class SessionViewModel {
         planExecutor: (any PlanExecuting)? = nil,
         undoJournal: UndoJournal? = nil,
         paneScrollSubscriber: (any PaneScrollSubscribing)? = nil,
-        noticeSink: @escaping @MainActor (String) -> Void = { _ in }
+        paneAgentStatusSubscriber: (any PaneAgentStatusSubscribing)? = nil,
+        noticeSink: @escaping @MainActor (String) -> Void = { _ in },
+        now: @escaping @MainActor () -> Date = { Date() }
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -120,7 +132,9 @@ public final class SessionViewModel {
         self.planExecutor = planExecutor
         self.undoJournal = undoJournal
         self.paneScrollSubscriber = paneScrollSubscriber
+        self.paneAgentStatusSubscriber = paneAgentStatusSubscriber
         self.noticeSink = noticeSink
+        self.now = now
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -147,6 +161,7 @@ public final class SessionViewModel {
     /// old workspace's rail and strip would show two workspaces at once.
     public func update(model: SessionModel?, connection: ConnectionState) {
         let previousFocusedTabID = self.model?.focusedTabID
+        let previousModel = self.model
         self.model = model
         connectionState = connection
         if selectedWorkspaceID == nil {
@@ -166,6 +181,102 @@ public final class SessionViewModel {
         reconcileRenameTarget()
         refreshLayoutExports()
         reconcileClosedPanes()
+        reconcileAgentStatusFeeds()
+        reconcileAttentionToasts(previous: previousModel)
+    }
+
+    /// One feed per pane herdr reports, since herdr serves
+    /// `pane.agent_status_changed` per pane id and nowhere else. A nil model
+    /// (a dropped connection) disarms every feed; the next snapshot arms them
+    /// again, each with its own probe.
+    private func reconcileAgentStatusFeeds() {
+        guard let paneAgentStatusSubscriber else { return }
+        let known = Set((model?.panes ?? [:]).keys)
+        for pane in known.subtracting(armedAgentStatusFeeds) {
+            paneAgentStatusSubscriber.subscribe(pane: pane)
+        }
+        for pane in armedAgentStatusFeeds.subtracting(known) {
+            paneAgentStatusSubscriber.unsubscribe(pane: pane)
+        }
+        armedAgentStatusFeeds = known
+    }
+
+    // MARK: - attention toasts
+
+    /// Raises what the pane statuses moved to since the last snapshot, then
+    /// withdraws whatever the new snapshot has made untrue. Panes are walked
+    /// in id order so two transitions in one snapshot always stack the same
+    /// way round.
+    private func reconcileAttentionToasts(previous: SessionModel?) {
+        guard let model else {
+            attentionToasts.clear()
+            return
+        }
+        let raisedAt = now()
+        if let previous {
+            for paneID in model.panes.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+                guard let pane = model.panes[paneID],
+                      let was = previous.panes[paneID]?.agentStatus,
+                      let kind = AttentionToastStack.kind(from: was, to: pane.agentStatus),
+                      paneID != resolvedFocusedPaneID
+                else { continue }
+                attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt))
+            }
+        }
+        withdrawSettledAttentionToasts(model: model, at: raisedAt)
+    }
+
+    /// A toast is a claim about a pane, so it goes the moment the claim stops
+    /// holding: the pane has been read (it is the focused one), herdr no
+    /// longer reports it, or -- for a "needs input" toast -- it is no longer
+    /// blocked. Herdglass withdraws its notification on the first of those;
+    /// the other two are paddock's, because a toast here is clickable and a
+    /// click on a stale one would jump somewhere pointless.
+    ///
+    /// Leaving `blocked` counts only once the toast is older than the
+    /// coalescing window. Inside it, an agent that bounces off blocked and
+    /// back is flapping, and withdrawing there would defeat the coalescing it
+    /// exists for: the pane would get a brand new toast on the way back.
+    private func withdrawSettledAttentionToasts(model: SessionModel, at now: Date) {
+        for toast in attentionToasts.toasts {
+            guard let pane = model.panes[toast.paneID] else {
+                attentionToasts.dismiss(pane: toast.paneID)
+                continue
+            }
+            let answered = toast.kind == .needsInput
+                && pane.agentStatus != .blocked
+                && now.timeIntervalSince(toast.raisedAt) >= AttentionToastStack.coalescingWindow
+            if toast.paneID == resolvedFocusedPaneID || answered {
+                attentionToasts.dismiss(pane: toast.paneID)
+            }
+        }
+    }
+
+    /// Drops every finished toast whose six seconds are up. The stack's own
+    /// ticker calls this; a hovered stack stops calling it, which is what
+    /// hover-pauses-auto-dismiss means.
+    public func sweepAttentionToasts() {
+        attentionToasts.expire(at: now())
+    }
+
+    public func dismissAttentionToast(pane: PaneID) {
+        attentionToasts.dismiss(pane: pane)
+    }
+
+    public func clearAttentionToasts() {
+        attentionToasts.clear()
+    }
+
+    /// The three focus verbs the Interactions sheet names, each with this
+    /// pane's own explicit id. A toast is the one thing in paddock that jumps
+    /// across a workspace boundary, so the workspace and the tab are focused
+    /// in their own right rather than left for herdr to infer from the pane.
+    public func jumpToAttentionToast(pane: PaneID) async {
+        guard let toast = attentionToasts.toast(pane: pane) else { return }
+        attentionToasts.dismiss(pane: pane)
+        await jumpToHerdr(workspace: toast.workspaceID)
+        await jumpToHerdr(tab: toast.tabID)
+        await jumpToHerdr(pane: toast.paneID)
     }
 
     /// Closes the editor when herdr no longer carries what it is open on. A

@@ -200,6 +200,17 @@ private final class FakePaneScrollSubscriber: PaneScrollSubscribing {
     func unsubscribe(pane: PaneID) { unsubscribed.append(pane) }
 }
 
+/// Records which panes' agent-status feeds `SessionViewModel` arms and
+/// disarms.
+@MainActor
+private final class FakePaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
+    private(set) var subscribed: [PaneID] = []
+    private(set) var unsubscribed: [PaneID] = []
+
+    func subscribe(pane: PaneID) { subscribed.append(pane) }
+    func unsubscribe(pane: PaneID) { unsubscribed.append(pane) }
+}
+
 /// `makeModel` plus one layout for `w1:t1` placing `w1:p1` at `rect` inside
 /// a 120x40 area, so a test can move the pane's cell rect between updates.
 private func makeModel(paneRect rect: CellRect) -> SessionModel {
@@ -749,6 +760,53 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.waitForClosedPaneTeardown()
 
         XCTAssertEqual(scroll.unsubscribed, [pane])
+    }
+
+    // MARK: - per-pane agent status feed (armed for every pane in the model)
+
+    /// Scoped to the model, not to what is on screen: a pane in an unselected
+    /// tab of an unselected workspace is exactly the pane the rail dot and
+    /// the attention toasts exist to report, and it is never attached.
+    @MainActor
+    func testEveryPaneInTheModelGetsAnAgentStatusFeedIncludingUnseenOnes() {
+        let status = FakePaneAgentStatusSubscriber()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), paneAgentStatusSubscriber: status)
+
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        XCTAssertEqual(
+            Set(status.subscribed),
+            [PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2"), PaneID(rawValue: "w1:p3")])
+        XCTAssertTrue(status.unsubscribed.isEmpty)
+    }
+
+    @MainActor
+    func testAgentStatusFeedsAreArmedOnceAndDisarmedAsPanesLeaveTheModel() {
+        let status = FakePaneAgentStatusSubscriber()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), paneAgentStatusSubscriber: status)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+        XCTAssertEqual(status.subscribed.count, 3, "an unchanged pane set re-arms nothing")
+
+        var closed = makeModelWithAPaneInASecondTab()
+        closed.panes.removeValue(forKey: PaneID(rawValue: "w1:p3"))
+        viewModel.update(model: closed, connection: .live)
+
+        XCTAssertEqual(status.unsubscribed, [PaneID(rawValue: "w1:p3")])
+    }
+
+    /// A dropped connection takes every feed with it; the next snapshot arms
+    /// them again, each with a probe of its own.
+    @MainActor
+    func testLosingTheModelDisarmsEveryAgentStatusFeed() {
+        let status = FakePaneAgentStatusSubscriber()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), paneAgentStatusSubscriber: status)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        viewModel.update(model: nil, connection: .reconnecting(attempt: 1))
+
+        XCTAssertEqual(Set(status.unsubscribed), Set(status.subscribed))
     }
 
     // MARK: - handing the panes back to herdr while paddock is not in front

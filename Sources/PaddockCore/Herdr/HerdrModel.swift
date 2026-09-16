@@ -88,7 +88,7 @@ public struct PaneRecord: Codable, Equatable, Sendable {
     public let workspaceID: WorkspaceID
     public let tabID: TabID
     public let focused: Bool
-    public let agentStatus: AgentStatus
+    public var agentStatus: AgentStatus
     public let revision: Int
     public let terminalTitleStripped: String?
     public let label: String?
@@ -115,7 +115,7 @@ public struct TabRecord: Codable, Equatable, Sendable {
     public var label: String
     public let number: Int
     public let paneCount: Int
-    public let agentStatus: AgentStatus
+    public var agentStatus: AgentStatus
 
     enum CodingKeys: String, CodingKey {
         case tabID = "tab_id"
@@ -132,7 +132,7 @@ public struct WorkspaceRecord: Codable, Equatable, Sendable {
     public var label: String
     public let number: Int
     public let activeTabID: TabID
-    public let agentStatus: AgentStatus
+    public var agentStatus: AgentStatus
 
     enum CodingKeys: String, CodingKey {
         case workspaceID = "workspace_id"

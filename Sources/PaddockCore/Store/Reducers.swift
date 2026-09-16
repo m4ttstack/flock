@@ -36,7 +36,13 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
     case .paneScrollChanged(let paneID, let scroll):
         model.panes[paneID]?.scroll = scroll
 
-    case .paneExited, .paneAgentStatusChanged:
+    case .paneAgentStatusChanged(let paneID, let status):
+        guard var pane = model.panes[paneID], pane.agentStatus != status else { break }
+        pane.agentStatus = status
+        model.panes[paneID] = pane
+        reaggregateAgentStatus(tab: pane.tabID, workspace: pane.workspaceID, in: &model)
+
+    case .paneExited:
         break
 
     case .tabCreated(let tab):
@@ -78,6 +84,22 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
 
     case .unknown:
         break
+    }
+}
+
+/// A snapshot is the only place herdr states a tab's or a workspace's own
+/// agent status; a live frame names one pane. Without re-deriving them here
+/// the strip and the rail would keep the status the session started with
+/// while the pane they aggregate has moved on.
+private func reaggregateAgentStatus(tab tabID: TabID, workspace workspaceID: WorkspaceID, in model: inout SessionModel) {
+    let panes = model.panes.values
+    if let index = model.tabs[workspaceID]?.firstIndex(where: { $0.tabID == tabID }) {
+        model.tabs[workspaceID]?[index].agentStatus =
+            AgentAttention.aggregate(panes.lazy.filter { $0.tabID == tabID }.map(\.agentStatus))
+    }
+    if let index = model.workspaces.firstIndex(where: { $0.workspaceID == workspaceID }) {
+        model.workspaces[index].agentStatus =
+            AgentAttention.aggregate(panes.lazy.filter { $0.workspaceID == workspaceID }.map(\.agentStatus))
     }
 }
 

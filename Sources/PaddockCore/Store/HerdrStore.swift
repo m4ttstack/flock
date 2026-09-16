@@ -668,6 +668,14 @@ public final class HerdrStore {
         applyLiveEvent(.paneScrollChanged(pane, scroll))
     }
 
+    /// The pane-scoped agent-status feed's entry point: one
+    /// `pane.agent_status_changed` subscription per pane herdr reports
+    /// (`PaneAgentStatusSubscriber`) lands here, off the blanket
+    /// subscription, and reduces like any live event.
+    public func applyAgentStatusChanged(pane: PaneID, status: AgentStatus) {
+        applyLiveEvent(.paneAgentStatusChanged(pane, status))
+    }
+
     private func applyLiveEvent(_ event: HerdrEvent) {
         guard var current = model else { return }
         // Dropped, never applied: one of the plan's own steps would flash the

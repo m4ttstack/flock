@@ -198,6 +198,13 @@ struct PaddockApp: App {
         let paneScrollSubscriber = HerdrPaneScrollSubscriber(socketPath: socketPath) { pane, scroll in
             herdrStore.applyScrollChanged(pane: pane, scroll: scroll)
         }
+        // Agent status rides its own per-pane connection for the same reason,
+        // but armed for EVERY pane herdr reports rather than the visible ones:
+        // the rail dot and the attention toasts report the pane nobody is
+        // looking at.
+        let paneAgentStatusSubscriber = HerdrPaneAgentStatusSubscriber(socketPath: socketPath) { pane, status in
+            herdrStore.applyAgentStatusChanged(pane: pane, status: status)
+        }
         // One client, two roles: `HerdrClient` conforms to both
         // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
         // command verbs and the layout-export coordinator share the same
@@ -210,6 +217,7 @@ struct PaddockApp: App {
             planExecutor: herdrStore,
             undoJournal: undoJournal,
             paneScrollSubscriber: paneScrollSubscriber,
+            paneAgentStatusSubscriber: paneAgentStatusSubscriber,
             // Not an undo/redo notice -- an invalid move or a plan/herdr
             // failure from `perform`/`closePane` -- so this gets the
             // neutral info glyph, never the undo journal's arrow.
