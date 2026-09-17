@@ -711,6 +711,40 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1, "the foreign order never converged the watch")
     }
 
+    // MARK: - zoom prediction (which pane the canvas holds open)
+
+    /// herdr's `pane.zoom` focuses the pane it names before it reads
+    /// `tab.zoomed` at all (`apply_pane_zoom`), so a zoom aimed from an
+    /// unfocused pane's own menu moves the tab's focus as well. The canvas
+    /// draws the zoom's held pane from that field, so a prediction that
+    /// flipped `zoomed` alone would hold the OTHER pane open over the whole
+    /// window until herdr's echo landed.
+    @MainActor
+    func testExecuteZoomPredictsTheZoomedPaneAsTheTabsFocusBeforeTheRoundTripCompletes() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: splitLayoutSnapshotResultJSON())
+        fake.respond(to: "pane.zoom", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+        XCTAssertEqual(store.model?.layouts[TabID(rawValue: "w1:t1")]?.focusedPaneID, PaneID(rawValue: "w1:p1"))
+
+        let hold = fake.holdNext(method: "pane.zoom")
+        let plan = OpPlan(ops: [.zoom(PaneID(rawValue: "w1:p2"), mode: .on)], label: "Zoom pane")
+        let task = Task { await store.execute(plan) }
+
+        try await waitUntil { store.model?.layouts[TabID(rawValue: "w1:t1")]?.zoomed == true }
+        let layout = try XCTUnwrap(store.model?.layouts[TabID(rawValue: "w1:t1")])
+        XCTAssertEqual(layout.focusedPaneID, PaneID(rawValue: "w1:p2"))
+        XCTAssertEqual(CanvasComposition.of(layout: layout), .zoomed(PaneID(rawValue: "w1:p2")))
+
+        hold()
+        guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+    }
+
     // MARK: - setSplitRatio prediction (the divider drag's own optimistic overlay)
 
     /// Before this, `setSplitRatio` predicted nothing at all: the overlay

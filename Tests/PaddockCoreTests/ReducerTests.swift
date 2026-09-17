@@ -132,6 +132,37 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(after, before)
     }
 
+    /// herdr derives a layout's `focused_pane_id` from the same
+    /// `tab.layout.focused()` this event reports, and sends no `layout.updated`
+    /// when focus alone moves. A layout left naming the previous pane is what
+    /// makes a zoomed canvas hold open a pane herdr has stopped showing, until
+    /// the next full snapshot minutes later.
+    func testPaneFocusedMovesTheOwningTabsLayoutFocusToo() throws {
+        var model = try seededModel()
+        let tabID = TabID(rawValue: "w1:t1")
+        let otherTab = TabID(rawValue: "w1:t2")
+        let otherTabFocus = model.layouts[otherTab]?.focusedPaneID
+        XCTAssertEqual(model.layouts[tabID]?.focusedPaneID, PaneID(rawValue: "w1:p1"))
+
+        apply(.paneFocused(PaneID(rawValue: "w1:p2")), to: &model)
+
+        XCTAssertEqual(model.focusedPaneID, PaneID(rawValue: "w1:p2"))
+        XCTAssertEqual(model.layouts[tabID]?.focusedPaneID, PaneID(rawValue: "w1:p2"))
+        XCTAssertEqual(model.layouts[otherTab]?.focusedPaneID, otherTabFocus, "another tab's own focus moved")
+    }
+
+    /// A pane no snapshot has reported yet names no tab, so there is no layout
+    /// to move: the session's focus still follows, and no layout is guessed at.
+    func testPaneFocusedOnAnUnknownPaneLeavesEveryLayoutAlone() throws {
+        var model = try seededModel()
+        let before = model.layouts
+
+        apply(.paneFocused(PaneID(rawValue: "w9:p9")), to: &model)
+
+        XCTAssertEqual(model.focusedPaneID, PaneID(rawValue: "w9:p9"))
+        XCTAssertEqual(model.layouts, before)
+    }
+
     func testUnknownEventIsNoOp() throws {
         let before = try seededModel()
         var after = before

@@ -160,7 +160,12 @@ public struct LayoutSnapshot: Codable, Equatable, Sendable {
     public let tabID: TabID
     public let zoomed: Bool
     public let area: CellRect
-    public let focusedPaneID: PaneID?
+    /// `var` because herdr derives this field live (`tab.layout.focused()` in
+    /// `pane_layout_snapshot`) but emits no `layout.updated` when focus alone
+    /// moves, so the reducer keeps it current from `pane.focused` instead --
+    /// otherwise a zoomed tab whose focus moved would hold open the pane
+    /// herdr stopped showing until the next full snapshot, minutes later.
+    public var focusedPaneID: PaneID?
     public var panes: [PaneRect]
     public let splits: [SplitInfo]
 

@@ -361,7 +361,7 @@ public final class HerdrStore {
         var predicted = model
         for tabID in plan.needsUnzoom {
             guard let layout = predicted.layouts[tabID], layout.zoomed else { continue }
-            apply(.layoutUpdated(Self.withZoomed(false, layout)), to: &predicted)
+            apply(.layoutUpdated(Self.withZoom(false, focus: nil, in: layout)), to: &predicted)
         }
         var orderAfterEachReorder: [[WorkspaceID]] = []
         for op in plan.ops {
@@ -442,7 +442,7 @@ public final class HerdrStore {
             case .off: newZoomed = false
             case .toggle: newZoomed = !layout.zoomed
             }
-            return .layoutUpdated(Self.withZoomed(newZoomed, layout))
+            return .layoutUpdated(Self.withZoom(newZoomed, focus: pane, in: layout))
 
         case let .setSplitRatio(tab, path, ratio):
             guard let newLayout = Self.predictedLayout(forSplitRatio: ratio, atPath: path, tab: tab, model: model) else { return nil }
@@ -568,10 +568,16 @@ public final class HerdrStore {
         source < insert ? insert - 1 : insert
     }
 
-    private static func withZoomed(_ zoomed: Bool, _ layout: LayoutSnapshot) -> LayoutSnapshot {
+    /// `focus` moves the TAB's own focused pane, which herdr's `pane.zoom`
+    /// always does: `apply_pane_zoom` (`herdr/src/app/actions.rs`) focuses the
+    /// named pane before it reads `tab.zoomed` at all, for every mode and even
+    /// for a no-op. Predicting the zoom without it would leave the canvas
+    /// holding open whichever pane was focused BEFORE a zoom aimed from an
+    /// unfocused pane's own menu, until herdr's echo swapped it.
+    private static func withZoom(_ zoomed: Bool, focus: PaneID?, in layout: LayoutSnapshot) -> LayoutSnapshot {
         LayoutSnapshot(
             workspaceID: layout.workspaceID, tabID: layout.tabID, zoomed: zoomed, area: layout.area,
-            focusedPaneID: layout.focusedPaneID, panes: layout.panes, splits: layout.splits
+            focusedPaneID: focus ?? layout.focusedPaneID, panes: layout.panes, splits: layout.splits
         )
     }
 

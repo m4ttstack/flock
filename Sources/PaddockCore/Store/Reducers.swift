@@ -19,6 +19,14 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
 
     case .paneFocused(let paneID):
         model.focusedPaneID = paneID
+        // The tab's own focus field too: herdr computes it from the same
+        // `tab.layout.focused()` this event reports, so a layout left naming
+        // the previous pane is a snapshot herdr would never send. What reads
+        // it is `CanvasComposition` -- the zoomed canvas follows focus, as
+        // herdr's renderer does.
+        if let tabID = model.panes[paneID]?.tabID {
+            model.layouts[tabID]?.focusedPaneID = paneID
+        }
 
     case .paneMoved(let payload):
         model.panes.removeValue(forKey: payload.previousPaneID)
