@@ -93,15 +93,23 @@ struct PaneCellView: View {
     }
 
     var body: some View {
-        cell
+        // Read here, unconditionally, and not only where it is used: the two
+        // places below that consult an editor both sit behind a `&&` or a
+        // ternary that Swift can skip, and a body that skips the read is a
+        // body the editor's own opening never invalidates. That is what
+        // decides whether this cell's surface hears about an editor at all
+        // (`editorIsOpen`), and whether it takes the keyboard back when one
+        // closes.
+        let editorIsOpen = viewModel.renameTarget != nil
+        return cell(editorIsOpen: editorIsOpen)
             // The origin stays put and fades while its ghost is out, so the
             // drop target is read against the layout the drag started from.
             .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
             .animation(.easeOut(duration: 0.12), value: drag.isDragging(pane: pane.paneID))
     }
 
-    private var cell: some View {
-        box
+    private func cell(editorIsOpen: Bool) -> some View {
+        box(editorIsOpen: editorIsOpen)
             // Under the title and the chip, so both keep their own gestures,
             // and strictly above the terminal surface, so this is the at-rest
             // handle without taking a single terminal row.
@@ -198,8 +206,8 @@ struct PaneCellView: View {
     /// surface's cols x rows cells, top-left in the box's content area (the
     /// box itself fills the frame the canvas laid out, so the sub-cell
     /// remainder is plain ground).
-    private var box: some View {
-        content
+    private func box(editorIsOpen: Bool) -> some View {
+        content(editorIsOpen: editorIsOpen)
             .frame(width: surfaceSize.width, height: surfaceSize.height)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(Self.contentInsets)
@@ -356,7 +364,7 @@ struct PaneCellView: View {
     /// two is the one actually visible; a warm (pool-seeded) surface starts
     /// this already `true`, so its card never appears at all.
     @ViewBuilder
-    private var content: some View {
+    private func content(editorIsOpen: Bool) -> some View {
         if let ghosttySurface {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
@@ -368,7 +376,7 @@ struct PaneCellView: View {
                     // being typed into is usually a tab's or a rail row's,
                     // and this pane is the focused one whose surface would
                     // otherwise take the keystrokes.
-                    editorIsOpen: viewModel.renameTarget != nil,
+                    editorIsOpen: editorIsOpen,
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) },
                     onBodyDragBegan: handleBodyDragBegan

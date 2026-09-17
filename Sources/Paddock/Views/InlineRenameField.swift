@@ -62,25 +62,15 @@ struct InlineRenameField: View {
                             .strokeBorder(theme.accent, lineWidth: ChromeMetrics.ruleWidth)
                     )
             )
-            .onAppear {
-                focused = true
-                // The field editor is the window's first responder only once
-                // AppKit has finished handing focus over, which is after this
-                // run loop pass; selecting the whole name is what lets the
-                // next keystroke replace it rather than append to it.
-                //
-                // The responder is checked to be a field editor holding this
-                // field's own text before anything is selected: focus may not
-                // have landed, or another window may be key, and selecting
-                // all in whatever text view happens to answer there would be
-                // a silent edit of something else entirely.
-                DispatchQueue.main.async {
-                    guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView,
-                          editor.isFieldEditor, editor.string == text
-                    else { return }
-                    editor.selectAll(nil)
-                }
-            }
+            // Both, and neither alone: `focused` is what SwiftUI's own
+            // machinery (`onSubmit`, `onExitCommand`, the focus-loss commit)
+            // reads, and the claim is what actually moves AppKit's first
+            // responder, which SwiftUI's one-shot request does not do while a
+            // pane's terminal is holding it. The claim also owns the
+            // select-all, since it is the only thing that knows when the
+            // field really took the keyboard.
+            .onAppear { focused = true }
+            .background(FirstResponderClaim())
             .accessibilityIdentifier(accessibilityIdentifier)
     }
 

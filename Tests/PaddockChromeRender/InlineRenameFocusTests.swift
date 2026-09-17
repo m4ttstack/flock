@@ -85,6 +85,93 @@ final class InlineRenameFocusTests: XCTestCase {
         window.close()
     }
 
+    // MARK: - The claim itself
+
+    /// A field with the claim behind it and NO SwiftUI focus of its own, so
+    /// the only thing that can move first responder is the claim. The control
+    /// below is the same view without it.
+    private struct ClaimedField: View {
+        let claiming: Bool
+        @State private var text = "tabB"
+
+        var body: some View {
+            TextField("", text: $text)
+                .textFieldStyle(.plain)
+                .frame(width: 160)
+                .background { if claiming { FirstResponderClaim() } }
+        }
+    }
+
+    private struct ClaimProbe: View {
+        let editing: Bool
+        let claiming: Bool
+        let capture: (ResponderHog) -> Void
+
+        var body: some View {
+            VStack(spacing: 0) {
+                Hog(capture: capture).frame(width: 200, height: 100)
+                if editing { ClaimedField(claiming: claiming).frame(height: 24) }
+            }
+            .frame(width: 200, height: 160)
+        }
+    }
+
+    /// The claim takes the keyboard from an AppKit view that is holding it,
+    /// which is what the editor opening over a focused pane has to do and
+    /// what SwiftUI's own one-shot request does not manage.
+    func testTheClaimTakesFirstResponderFromAViewHoldingIt() async throws {
+        let (window, terminal, editor) = try await openEditor(claiming: true)
+        defer { window.close() }
+
+        XCTAssertFalse(
+            window.firstResponder === terminal,
+            "the claim left first responder with the stand-in terminal"
+        )
+        let responder = try XCTUnwrap(window.firstResponder as? NSTextView, "no field editor took the window's keyboard")
+        XCTAssertTrue(responder.isFieldEditor)
+        XCTAssertEqual(responder.string, "tabB")
+        XCTAssertEqual(
+            responder.selectedRange(), NSRange(location: 0, length: 4),
+            "the claim did not select the name, so the next keystroke would append to it"
+        )
+        XCTAssertNotNil(editor, "the editor never reached the window")
+    }
+
+    /// The control, and the only thing that keeps the case above from being
+    /// a test of SwiftUI rather than of the claim: the same field WITHOUT the
+    /// claim behind it leaves first responder exactly where it was.
+    func testWithoutTheClaimTheKeyboardStaysWithTheViewThatHasIt() async throws {
+        let (window, terminal, _) = try await openEditor(claiming: false)
+        defer { window.close() }
+
+        XCTAssertTrue(
+            window.firstResponder === terminal,
+            "something other than the claim moved first responder, so the case above proves nothing"
+        )
+    }
+
+    /// Opens the editor over a stand-in terminal that is holding first
+    /// responder, and hands back the window, that stand-in, and the field.
+    private func openEditor(claiming: Bool) async throws -> (NSWindow, ResponderHog, NSView?) {
+        var hog: ResponderHog?
+        let hosting = NSHostingView(rootView: ClaimProbe(editing: false, claiming: claiming, capture: { hog = $0 }))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 160),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        await settle(window)
+
+        let terminal = try XCTUnwrap(hog, "the stand-in terminal never reached the window")
+        XCTAssertTrue(window.makeFirstResponder(terminal), "the window refused the stand-in terminal")
+
+        hosting.rootView = ClaimProbe(editing: true, claiming: claiming, capture: { hog = $0 })
+        await settle(window)
+        return (window, terminal, hosting.subviews.first)
+    }
+
     private func settle(_ window: NSWindow) async {
         for _ in 0..<6 {
             window.contentView?.layoutSubtreeIfNeeded()
