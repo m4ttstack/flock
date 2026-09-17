@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// The subset of `HerdrClient` the view-model needs to issue focus verbs and
 /// pane reads. `HerdrClient` conforms below; a test double substitutes for
@@ -553,6 +554,13 @@ public final class SessionViewModel {
     public func releaseHerdrHold() {
         herdrHoldIntent = .release
         for surface in ghosttySurfaces.values { surface.releaseHerdrHold() }
+        // Logged because a released pane is indistinguishable on screen from a
+        // live one: it keeps showing its last frame, at whatever size herdr
+        // rendered it, and no size paddock computes can reach herdr until the
+        // take. Two separate readings of "the pane will not resize" have
+        // turned out to be this, so which state the window was in is worth a
+        // line in the log rather than a guess afterwards.
+        Self.holdLog.log("hold released panes=\(self.ghosttySurfaces.count)")
     }
 
     /// Takes every pane back at paddock's own sizes. The counterpart of
@@ -565,7 +573,10 @@ public final class SessionViewModel {
     public func takeHerdrHold() {
         herdrHoldIntent = .take
         for surface in ghosttySurfaces.values { surface.takeHerdrHold() }
+        Self.holdLog.log("hold taken panes=\(self.ghosttySurfaces.count)")
     }
+
+    private static let holdLog = Logger(subsystem: "dev.mattstack.paddock", category: "hold")
 
     private func performAttach(pane: PaneID, factory: any GhosttyPaneFactory) async {
         // also removed here, inside the chain -- `attachPane`'s own

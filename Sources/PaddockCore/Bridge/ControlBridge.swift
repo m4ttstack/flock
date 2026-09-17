@@ -1,5 +1,6 @@
 // Portions derived from Herdglass (BSL-1.1), Sources/HerdrClient/ControlBridge.swift.
 import Foundation
+import os
 #if canImport(Glibc)
 import Glibc
 #else
@@ -334,6 +335,13 @@ struct HerdrFrame: Equatable, Sendable {
 /// Which PTY winsizes become a `terminal.resize`: every readable size herdr
 /// was not already given, starting from the size its child was spawned at.
 /// Pure, so the dedupe and the startup read are testable without a signal.
+///
+/// Asking and recording are separate on purpose. A size counts as herdr's
+/// only once it has actually been written to a live client: the descriptor is
+/// parked at -1 for as long as paddock's hold is released, and a relay that
+/// recorded on the attempt would believe herdr had a size it never received,
+/// with nothing to ever retry it -- every later trigger reads the same
+/// winsize and finds nothing to do.
 struct PTYResizeRelay: Sendable {
     private(set) var herdrSize: PTYSize?
 
@@ -341,12 +349,15 @@ struct PTYResizeRelay: Sendable {
         herdrSize = spawned
     }
 
-    /// The size to send herdr for the PTY's current `winsize`, or nil when it
+    /// The size herdr is owed for the PTY's current `winsize`, or nil when it
     /// is unreadable or herdr already has it.
-    mutating func relay(_ winsize: PTYSize?) -> PTYSize? {
+    func pending(_ winsize: PTYSize?) -> PTYSize? {
         guard let winsize, winsize.cols > 0, winsize.rows > 0, winsize != herdrSize else { return nil }
-        herdrSize = winsize
         return winsize
+    }
+
+    mutating func delivered(_ size: PTYSize) {
+        herdrSize = size
     }
 }
 
@@ -897,16 +908,21 @@ private func pathHasHerdr() -> Bool {
 /// Writes every byte, tolerating a reader that has already gone away.
 /// Requires `SIGPIPE` to be ignored process-wide (`ControlBridge.run` does
 /// this before any of these are reachable).
-func writeIgnoringBrokenPipe(_ fd: Int32, _ data: Data) {
+/// Returns whether every byte actually went. A caller that only needs the
+/// side effect can ignore it; the size relay cannot, since a size counts as
+/// herdr's only once it has really been written (see `PTYResizeRelay`).
+@discardableResult
+func writeIgnoringBrokenPipe(_ fd: Int32, _ data: Data) -> Bool {
     data.withUnsafeBytes { raw in
-        guard let base = raw.baseAddress else { return }
+        guard let base = raw.baseAddress else { return false }
         var sent = 0
         while sent < raw.count {
             let n = write(fd, base.advanced(by: sent), raw.count - sent)
             if n < 0 && errno == EINTR { continue }
-            if n <= 0 { return }
+            if n <= 0 { return false }
             sent += n
         }
+        return true
     }
 }
 
@@ -1096,28 +1112,47 @@ final class BridgeIO: @unchecked Sendable {
     /// primary trigger and this changes nothing about it: a winsize herdr
     /// already has stays unsent however it is noticed.
     func syncPTYSize() {
-        relayPTYSize()
+        relayPTYSize(trigger: "sync")
         for milliseconds in Self.sizeSyncReReadsMilliseconds {
             DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + .milliseconds(milliseconds)) { [weak self] in
-                self?.relayPTYSize()
+                self?.relayPTYSize(trigger: "sync.reread")
             }
         }
     }
 
-    /// Sends herdr the PTY's current size unless herdr already has it.
-    private func relayPTYSize() {
+    /// Sends herdr the PTY's current size unless herdr already has it, and
+    /// records it as herdr's only if the write actually went.
+    ///
+    /// Logged, both ways. Twice now a resize that never reached herdr has been
+    /// read off a screenshot as a pane that would not resize, when what had
+    /// really happened was that paddock's hold was released and the pane had no
+    /// herdr client at all. The descriptor is the only place that difference
+    /// exists, and it is here.
+    private func relayPTYSize(trigger: String = "signal") {
         resizeLock.lock()
         defer { resizeLock.unlock() }
-        guard let size = resizeRelay.relay(ptySize()) else { return }
-        send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows])
+        guard let size = resizeRelay.pending(ptySize()) else { return }
+        guard send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows]) else {
+            Self.sizeLog.error(
+                "pty resize not delivered trigger=\(trigger, privacy: .public) cols=\(size.cols) rows=\(size.rows) herdrFD=\(self.herdrInputDescriptor)"
+            )
+            return
+        }
+        resizeRelay.delivered(size)
+        Self.sizeLog.log(
+            "pty resize sent trigger=\(trigger, privacy: .public) cols=\(size.cols) rows=\(size.rows)"
+        )
     }
 
-    func send(_ object: [String: Any]) {
-        guard let payload = ControlBridge.encodeLine(object) else { return }
+    private static let sizeLog = Logger(subsystem: "dev.mattstack.paddock", category: "size")
+
+    @discardableResult
+    func send(_ object: [String: Any]) -> Bool {
+        guard let payload = ControlBridge.encodeLine(object) else { return false }
         writeLock.lock()
         defer { writeLock.unlock() }
-        guard !closed else { return }
-        writeIgnoringBrokenPipe(herdrInFD, payload)
+        guard !closed else { return false }
+        return writeIgnoringBrokenPipe(herdrInFD, payload)
     }
 
     func startStdin() {

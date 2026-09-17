@@ -98,19 +98,39 @@ final class ControlBridgeTests: XCTestCase {
 
     func testRelaySendsEachNewWinsize() {
         var relay = PTYResizeRelay(spawned: PTYSize(cols: 30, rows: 40))
-        XCTAssertEqual(relay.relay(PTYSize(cols: 60, rows: 41)), PTYSize(cols: 60, rows: 41))
-        XCTAssertEqual(relay.relay(PTYSize(cols: 30, rows: 40)), PTYSize(cols: 30, rows: 40), "back to the spawn size is a change too")
+        XCTAssertEqual(relay.pending(PTYSize(cols: 60, rows: 41)), PTYSize(cols: 60, rows: 41))
+        relay.delivered(PTYSize(cols: 60, rows: 41))
+        XCTAssertEqual(relay.pending(PTYSize(cols: 30, rows: 40)), PTYSize(cols: 30, rows: 40), "back to the spawn size is a change too")
     }
 
     func testRelayDropsAnUnchangedOrUnreadableWinsize() {
         var relay = PTYResizeRelay(spawned: PTYSize(cols: 30, rows: 40))
-        XCTAssertNil(relay.relay(PTYSize(cols: 30, rows: 40)), "herdr was spawned at this size")
-        XCTAssertEqual(relay.relay(PTYSize(cols: 60, rows: 41)), PTYSize(cols: 60, rows: 41))
-        XCTAssertNil(relay.relay(PTYSize(cols: 60, rows: 41)), "herdr already has this size")
-        XCTAssertNil(relay.relay(nil))
-        XCTAssertNil(relay.relay(PTYSize(cols: 0, rows: 41)))
-        XCTAssertNil(relay.relay(PTYSize(cols: 60, rows: 0)))
+        XCTAssertNil(relay.pending(PTYSize(cols: 30, rows: 40)), "herdr was spawned at this size")
+        XCTAssertEqual(relay.pending(PTYSize(cols: 60, rows: 41)), PTYSize(cols: 60, rows: 41))
+        relay.delivered(PTYSize(cols: 60, rows: 41))
+        XCTAssertNil(relay.pending(PTYSize(cols: 60, rows: 41)), "herdr already has this size")
+        XCTAssertNil(relay.pending(nil))
+        XCTAssertNil(relay.pending(PTYSize(cols: 0, rows: 41)))
+        XCTAssertNil(relay.pending(PTYSize(cols: 60, rows: 0)))
         XCTAssertEqual(relay.herdrSize, PTYSize(cols: 60, rows: 41), "an unreadable size forgets nothing")
+    }
+
+    /// Asking is not recording. A size the bridge could not write -- the
+    /// descriptor is parked at -1 for as long as paddock's hold is released --
+    /// is still owed to herdr, and the relay has to keep owing it: nothing
+    /// re-reads a winsize that has not changed since, so a relay that recorded
+    /// on the attempt would drop that resize for the pane's whole life.
+    func testAWinsizeThatCouldNotBeWrittenIsStillOwed() {
+        var relay = PTYResizeRelay(spawned: PTYSize(cols: 30, rows: 40))
+        let grown = PTYSize(cols: 133, rows: 46)
+
+        XCTAssertEqual(relay.pending(grown), grown)
+        // The write failed, so nothing is recorded.
+        XCTAssertEqual(relay.pending(grown), grown, "an undelivered size is still owed")
+        XCTAssertEqual(relay.herdrSize, PTYSize(cols: 30, rows: 40))
+
+        relay.delivered(grown)
+        XCTAssertNil(relay.pending(grown))
     }
 
     // MARK: - childArgv (one control child, for the bridge's whole life)
@@ -627,6 +647,43 @@ final class ControlBridgeTests: XCTestCase {
         let lines = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
         XCTAssertEqual(object["cols"] as? Int, 130)
+    }
+
+    /// End to end through `BridgeIO`, over a descriptor that cannot be written
+    /// (what a released hold leaves behind): the resize is not lost. Once the
+    /// hold is back and a live descriptor is swapped in, the same nudge at the
+    /// same unchanged winsize delivers it.
+    func testASizeOwedWhileTheHoldWasReleasedIsSentOnceThereIsAClientAgain() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        // -1 is exactly what a released hold leaves behind
+        // (`swapHerdrInput(to: nil)`): every write fails immediately.
+        let io = BridgeIO(
+            herdrInFD: -1,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 80, rows: 46), ptySize: { PTYSize(cols: 133, rows: 46) },
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        let nudge = try XCTUnwrap(ControlBridge.encodeLine(["type": ControlBridge.sizeSyncCommandType]))
+        control.fileHandleForWriting.write(nudge)
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(
+            readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0,
+            "this case reads a bridge whose writes go nowhere"
+        )
+
+        io.swapHerdrInput(to: herdrIn.fileHandleForWriting)
+        control.fileHandleForWriting.write(nudge)
+
+        let lines = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "terminal.resize")
+        XCTAssertEqual(object["cols"] as? Int, 133)
+        XCTAssertEqual(object["rows"] as? Int, 46)
     }
 
     /// The nudge is the bridge's own command, not a forwardable one, and it
