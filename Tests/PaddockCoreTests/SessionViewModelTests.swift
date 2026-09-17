@@ -2111,4 +2111,24 @@ final class SessionViewModelTests: XCTestCase {
 
         XCTAssertEqual(harness.executor.executedPlans, [expected])
     }
+
+    /// herdr's own reply shape, from `PaneReadResult` in its api schema:
+    /// the payload sits under `read`, beside the source, format and revision.
+    @MainActor
+    func testTheLastLineIsReadFromHerdrsOwnReplyShape() throws {
+        let reply = Data("""
+        {"id":"1","result":{"read":{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1",\
+        "source":"visible","format":"text","text":"building\\nready for input",\
+        "revision":42,"truncated":false}}}
+        """.utf8)
+
+        XCTAssertEqual(SessionViewModel.extractLastLine(reply), "ready for input")
+    }
+
+    @MainActor
+    func testAReplyWithNoReadPayloadLeavesTheCardWithoutALine() throws {
+        let reply = Data(#"{"id":"1","result":{"text":"ready for input"}}"#.utf8)
+
+        XCTAssertNil(SessionViewModel.extractLastLine(reply))
+    }
 }

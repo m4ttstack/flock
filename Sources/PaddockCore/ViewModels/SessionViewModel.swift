@@ -457,11 +457,15 @@ public final class SessionViewModel {
         }
     }
 
-    private static func extractLastLine(_ data: Data) -> String? {
-        struct Result: Decodable { let text: String }
+    /// `pane.read`'s payload sits under its own wrapper key, as every herdr
+    /// success payload does; decoding `result.text` directly finds nothing and
+    /// leaves the card blank with no error to show for it.
+    static func extractLastLine(_ data: Data) -> String? {
+        struct Read: Decodable { let text: String }
+        struct Result: Decodable { let read: Read }
         struct Envelope: Decodable { let result: Result }
         guard let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else { return nil }
-        let trimmed = envelope.result.text.trimmingCharacters(in: .newlines)
+        let trimmed = envelope.result.read.text.trimmingCharacters(in: .newlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed.split(separator: "\n").last.map(String.init) ?? trimmed
     }
