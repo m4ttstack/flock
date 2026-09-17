@@ -95,6 +95,17 @@ completeness / non-sandboxed callers) and `attach(socketPath:sessionName:)`
 (what the UI test actually uses); `run-closed-loop.sh` performs the actual
 `start` + `seed-layout.sh` step.
 
+**Superseded on 2026-09-16, under Xcode 27.0.** The sentence above about
+client-only operations is no longer true: the runner template changed with that
+Xcode, and the sandbox now denies the bundle and its children a `connect()` to
+ANY unix socket outside the container, not just `bind`. A native connect returns
+EPERM and a spawned `nc -U` exits 1 silently. Loopback TCP is still permitted
+(a closed port answers ECONNREFUSED rather than EPERM), and spawning a process
+is still permitted, which is why the harness now reaches herdr through
+`Tests/PaddockUITests/Support/bin/e2e-bridge.py`, a loopback server the wrapper
+runs outside the sandbox. Measured with a throwaway probe test on this machine;
+the table is in the task 29 report.
+
 ### Finding: `xcodebuild test` does not forward arbitrary env vars to the runner; `TEST_RUNNER_*` does
 
 A plain `export FOO=bar` in the shell that invokes `xcodebuild test` never
