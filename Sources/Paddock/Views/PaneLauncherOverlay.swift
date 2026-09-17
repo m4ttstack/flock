@@ -1,17 +1,17 @@
 import PaddockCore
 import SwiftUI
 
-/// One CLI agent harness `HarnessRoster` knows how to launch. `monogramColor`
-/// stands in for the official brand mark until one is bundled (see
-/// `Resources/HarnessMarks/README.md`: neither vendor's official site
-/// yielded a fetchable mark non-interactively, so both render as a
-/// monogram today).
+/// One CLI agent harness `HarnessRoster` knows how to launch. `mark` is the
+/// vendor's own published mark (see `Resources/HarnessMarks/README.md` for
+/// each one's source and terms); an entry without one falls back to the
+/// monogram badge, which is what keeps the roster extensible.
 struct HarnessEntry: Identifiable, Equatable {
     let id: String
     let binary: String
     let displayName: String
     let monogram: String
     let monogramColor: Color
+    var mark: HarnessMark?
 }
 
 /// Every harness paddock knows how to offer, resolved against PATH at
@@ -19,8 +19,14 @@ struct HarnessEntry: Identifiable, Equatable {
 /// decides what actually renders for a given machine.
 enum HarnessRoster {
     static let known: [HarnessEntry] = [
-        HarnessEntry(id: "claude", binary: "claude", displayName: "claude", monogram: "C", monogramColor: .init(red: 0.82, green: 0.51, blue: 0.31)),
-        HarnessEntry(id: "codex", binary: "codex", displayName: "codex", monogram: "X", monogramColor: .init(red: 0.29, green: 0.56, blue: 0.86)),
+        HarnessEntry(
+            id: "claude", binary: "claude", displayName: "claude", monogram: "C",
+            monogramColor: .init(red: 0.82, green: 0.51, blue: 0.31), mark: .claude
+        ),
+        HarnessEntry(
+            id: "codex", binary: "codex", displayName: "codex", monogram: "X",
+            monogramColor: .init(red: 0.29, green: 0.56, blue: 0.86), mark: .codex
+        ),
     ]
 
     /// A fresh PATH probe each call (cheap: one `isExecutableFile` per
@@ -56,7 +62,7 @@ struct PaneLauncherOverlay: View {
                 ForEach(entries) { entry in
                     Button { onLaunch(entry) } label: {
                         HStack(spacing: ChromeMetrics.Launcher.labelSpacing) {
-                            MonogramBadge(entry: entry)
+                            HarnessBadge(entry: entry)
                             Text(entry.displayName)
                                 .font(ChromeType.launcherName)
                                 .foregroundStyle(theme.textStrong)
@@ -84,6 +90,52 @@ struct PaneLauncherOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, ChromeMetrics.Launcher.promptClearance)
+    }
+}
+
+/// The vendor's mark where there is one, the monogram where there is not.
+private struct HarnessBadge: View {
+    let entry: HarnessEntry
+
+    var body: some View {
+        if let mark = entry.mark, mark.cgPath != nil {
+            Circle()
+                .fill(Color(mark.ground))
+                .frame(width: ChromeMetrics.Launcher.monogram, height: ChromeMetrics.Launcher.monogram)
+                .overlay(
+                    MarkShape(mark: mark)
+                        .fill(Color(mark.ink))
+                        .padding(ChromeMetrics.Launcher.markInset)
+                )
+        } else {
+            MonogramBadge(entry: entry)
+        }
+    }
+}
+
+/// Scales the mark to fit, centered, in whatever space it is given. The
+/// decode happens here, per draw, rather than once into shared storage: a
+/// `Shape` must be `Sendable`, so it cannot carry the decoded `CGPath`, and a
+/// cache would be shared mutable state for a parse that costs microseconds.
+private struct MarkShape: Shape {
+    let mark: HarnessMark
+
+    func path(in rect: CGRect) -> Path {
+        guard let cgPath = mark.cgPath else { return Path() }
+        // Fitted to the ink rather than to the document each mark was drawn
+        // in: the two vendors leave very different margins inside their own
+        // viewBox, so honoring those would render one mark at half the size
+        // of the other. The badge's own inset gives every mark clear space.
+        let ink = cgPath.boundingBoxOfPath
+        guard ink.width > 0, ink.height > 0 else { return Path() }
+        let scale = min(rect.width / ink.width, rect.height / ink.height)
+        let size = CGSize(width: ink.width * scale, height: ink.height * scale)
+        let transform = CGAffineTransform(
+            translationX: rect.midX - size.width / 2, y: rect.midY - size.height / 2
+        )
+        .scaledBy(x: scale, y: scale)
+        .translatedBy(x: -ink.minX, y: -ink.minY)
+        return Path(cgPath).applying(transform)
     }
 }
 

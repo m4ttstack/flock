@@ -146,6 +146,9 @@ enum ChromeMetrics {
         static let hintHorizontalPadding: CGFloat = 20
         static let hintBottomPadding: CGFloat = 10
         static let monogram: CGFloat = 28
+        /// Open space between a vendor mark and the edge of its badge, which
+        /// OpenAI's terms for the Blossom ask for by name.
+        static let markInset: CGFloat = 6
         /// Clears the prompt row a fresh shell prints above the launcher. It
         /// is measured against terminal rows, which the chrome scale leaves
         /// alone, so it is not scaled.

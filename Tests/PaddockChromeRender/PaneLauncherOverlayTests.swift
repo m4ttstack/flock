@@ -82,7 +82,56 @@ final class PaneLauncherOverlayTests: XCTestCase {
         XCTAssertEqual(claimed.count, 0, "an empty launcher still eats clicks, over \(box)")
     }
 
+    /// The marks are compiled path data, not bundled images, so this render is
+    /// the whole proof that they draw: the same code and colors the app runs.
+    /// Writes the PNG when `PADDOCK_CHROME_RENDER_DIR` names a directory.
+    func testBothVendorMarksPaintTheirOwnInk() async throws {
+        let probe = try await hostProbe(entries: HarnessRoster.known)
+        defer { probe.window.close() }
+
+        let image = try snapshot(probe.window)
+        if let directory = ProcessInfo.processInfo.environment["PADDOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("launcher-marks.png")
+            try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+        }
+
+        var counts: [String: Int] = [:]
+        for y in 0..<image.pixelsHigh {
+            for x in 0..<image.pixelsWide {
+                counts[hex(image, x: x, y: y), default: 0] += 1
+            }
+        }
+        // Each mark's own fill, on its black disc. A badge whose path failed
+        // to decode would leave the disc and nothing else.
+        XCTAssertGreaterThan(counts["#D97757", default: 0], 40, "the Claude mark's ink is not on screen")
+        XCTAssertGreaterThan(counts["#FFFFFF", default: 0], 40, "the Blossom's ink is not on screen")
+        XCTAssertGreaterThan(counts["#000000", default: 0], 400, "neither badge drew its ground")
+    }
+
     // MARK: - Helpers
+
+    /// Drawn into an sRGB context so sampled bytes compare directly against
+    /// the colors the marks declare.
+    private func snapshot(_ window: NSWindow, scale: CGFloat = 2) throws -> NSBitmapImageRep {
+        let view = try XCTUnwrap(window.contentView)
+        view.layoutSubtreeIfNeeded()
+        let bounds = view.bounds
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: Int(bounds.width * scale), height: Int(bounds.height * scale),
+            bitsPerComponent: 8, bytesPerRow: 0, space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.scaleBy(x: scale, y: scale)
+        view.displayIgnoringOpacity(bounds, in: NSGraphicsContext(cgContext: context, flipped: false))
+        return NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+    }
+
+    private func hex(_ image: NSBitmapImageRep, x: Int, y: Int) -> String {
+        guard let data = image.bitmapData else { return "?" }
+        let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
+        return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
+    }
 
     private struct HostedProbe {
         let window: NSWindow
