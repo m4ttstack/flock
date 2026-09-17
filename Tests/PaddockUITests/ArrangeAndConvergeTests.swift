@@ -107,12 +107,19 @@ final class ArrangeAndConvergeTests: XCTestCase {
         waitForRailRows(app, [ids.ws, other.workspace, third.workspace])
 
         clickElement(app, railRow(other.workspace), holding: .command)
+        // The one thing that separates a Cmd+click from a plain one before
+        // the drag: a plain click jumps, and the selection it would have made
+        // is a selection of nothing. herdr's focus is where that shows.
+        try assertStaysTrue("the Cmd+click left herdr's focus alone rather than jumping to \(other.workspace)", for: 1) {
+            try self.session.snapshot().focusedWorkspaceID == ids.ws
+        }
+
         let trace = dragElement(
             app, fromID: railRow(other.workspace), grabbing: .middle,
             toID: railRow(third.workspace), aiming: .edge(.bottom)
         )
 
-        let after = try session.snapshot(waitingFor: "the seed and \(other.workspace) to follow \(third.workspace). \(trace)") {
+        let after = try snapshot(app, waitingFor: "the seed and \(other.workspace) to follow \(third.workspace). \(trace)") {
             $0.orderedWorkspaceIDs() == [third.workspace, ids.ws, other.workspace]
         }
         XCTAssertEqual(
@@ -142,18 +149,20 @@ final class ArrangeAndConvergeTests: XCTestCase {
             app, fromID: stripTab(ids.tabA), grabbing: .middle, toID: railRow(other.workspace), aiming: .middle
         )
 
-        let after = try session.snapshot(waitingFor: "\(other.workspace) to gain a tab. \(trace)") {
-            $0.tabCount(inWorkspace: other.workspace) == 2
+        // Both panes, in one wait: a migration that moves the anchor and
+        // strands the rest leaves the destination holding a tab of one, and
+        // waiting only for the tab would call that a pass.
+        let after = try snapshot(app, waitingFor: "\(other.workspace) to gain a tab holding both panes. \(trace)") { truth in
+            guard truth.tabCount(inWorkspace: other.workspace) == 2,
+                  let landed = truth.tabIDs(inWorkspace: other.workspace).first(where: { $0 != other.tab })
+            else { return false }
+            return truth.paneIDs(inTab: landed).count == 2
         }
         let landed = try XCTUnwrap(
             after.tabIDs(inWorkspace: other.workspace).first { $0 != other.tab },
             "no tab beyond \(other.workspace)'s own exists; \(after.outline())"
         )
         let migrated = after.paneIDs(inTab: landed)
-        XCTAssertEqual(
-            migrated.count, 2,
-            "the migrated tab should hold both of \(ids.tabA)'s panes; \(after.outline())"
-        )
         let first = try XCTUnwrap(after.paneRect(migrated[0]), "\(migrated[0]) has no rect in any layout")
         let second = try XCTUnwrap(after.paneRect(migrated[1]), "\(migrated[1]) has no rect in any layout")
         XCTAssertEqual(
@@ -241,8 +250,9 @@ final class ArrangeAndConvergeTests: XCTestCase {
         // The editor selects its whole name as it opens, so this replaces
         // rather than appends.
         app.typeText("renamed\n")
+        assertReachedTheEditor("renamed", notThePane: ids.p1, app: app, editor: "paddock.strip.rename.\(ids.tabB)")
 
-        let after = try session.snapshot(waitingFor: "\(ids.tabB) to be renamed") {
+        let after = try snapshot(app, waitingFor: "\(ids.tabB) to be renamed") {
             $0.label(ofTab: ids.tabB) == "renamed"
         }
         XCTAssertEqual(
@@ -267,6 +277,7 @@ final class ArrangeAndConvergeTests: XCTestCase {
         doubleClickElement(app, stripTab(ids.tabB))
         waitForEditor(app, "paddock.strip.rename.\(ids.tabB)", on: stripTab(ids.tabB))
         app.typeText("discarded")
+        assertReachedTheEditor("discarded", notThePane: ids.p1, app: app, editor: "paddock.strip.rename.\(ids.tabB)")
         app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
 
         assertEventually("the editor closes on Escape") {
@@ -767,6 +778,45 @@ final class ArrangeAndConvergeTests: XCTestCase {
         return (made, tab, pane)
     }
 
+    /// The same wait as `ScratchSession.snapshot(waitingFor:until:)`, with
+    /// the window's notice slot watched alongside herdr.
+    ///
+    /// A gesture the app never acted on and a gesture the app acted on and
+    /// reported as refused or half-landed leave herdr looking identical. The
+    /// difference is the toast: `SessionViewModel.perform` raises "Can't move
+    /// there" for a plan it refuses and "<label> failed: <message>" for one
+    /// that broke partway. It lives about two and a half seconds, so it is
+    /// read on the same beat as herdr rather than after.
+    @MainActor
+    private func snapshot(
+        _ app: XCUIApplication, waitingFor expectation: String, timeout: TimeInterval = 20,
+        until condition: (HerdrSnapshotJSON) -> Bool
+    ) throws -> HerdrSnapshotJSON {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest: HerdrSnapshotJSON?
+        var notices: [String] = []
+        repeat {
+            let current = try session.snapshot()
+            latest = current
+            if condition(current) { return current }
+            for kind in ["info", "notice"] {
+                for line in app.paddockText(in: "paddock.toast.\(kind)") where !notices.contains(line) {
+                    notices.append(line)
+                }
+            }
+            usleep(200_000)
+        } while Date() < deadline
+        let focus = latest.map {
+            "focus \($0.focusedWorkspaceID ?? "?")/\($0.focusedTabID ?? "?")/\($0.focusedPaneID ?? "?")"
+        } ?? "no focus"
+        throw ScratchSessionError(
+            "timed out after \(timeout)s waiting for \(expectation). herdr holds: "
+                + (latest?.outline() ?? "<no snapshot answered>") + " (\(focus))"
+                + ". The window "
+                + (notices.isEmpty ? "raised no notice, so the app believes it did what was asked" : "said: \(notices.joined(separator: " | "))")
+        )
+    }
+
     /// Checks a claim about herdr repeatedly over a window rather than once,
     /// for the cases that assert something did NOT happen: the call that
     /// would disprove them is asynchronous, and a single read can be taken
@@ -892,6 +942,28 @@ final class ArrangeAndConvergeTests: XCTestCase {
             "no editor is open, so the keystrokes below would go to whatever has focus instead. "
                 + "\(host) is drawing [\(app.paddockText(in: host).joined(separator: " | "))]"
         }
+    }
+
+    /// Where the keystrokes actually went.
+    ///
+    /// An inline editor that does not hold keyboard focus is invisible from
+    /// the outside: the window still draws it, and the keys go to whatever
+    /// does hold focus, which in this window is the focused pane's terminal.
+    /// There they are typed into a shell instead, so the pane's own screen is
+    /// what says so. The editor's text is read from the same capture, since a
+    /// field that took nothing is the other half of the same answer.
+    @MainActor
+    private func assertReachedTheEditor(
+        _ typed: String, notThePane paneID: String, app: XCUIApplication, editor: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let screen = (try? session.paneText(paneID)) ?? ""
+        guard screen.contains(typed) else { return }
+        XCTFail(
+            "\"\(typed)\" was typed into the terminal of \(paneID), so the rename editor did not have keyboard focus. "
+                + "The editor is showing [\(app.paddockText(in: editor).joined(separator: " | "))] and \(paneID) holds:\n\(screen)",
+            file: file, line: line
+        )
     }
 
     /// A hover-revealed control is laid out at all times and takes no click

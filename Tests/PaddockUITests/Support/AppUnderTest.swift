@@ -223,7 +223,15 @@ func clickElement(
         point.click()
         return
     }
-    XCUIElement.perform(withKeyModifiers: modifiers) { point.click() }
+    XCUIElement.perform(withKeyModifiers: modifiers) {
+        point.click()
+        // The keys stay down past the click: SwiftUI's tap action runs when
+        // the gesture resolves, not when the click event lands, and the rail
+        // reads the CURRENT modifier state inside that action. Releasing the
+        // key the instant the click returns can leave the action reading no
+        // modifier at all, which is a plain click.
+        usleep(400_000)
+    }
 }
 
 /// Double-clicks a point inside an element, which is what opens an inline
