@@ -6,9 +6,9 @@
 # a per-machine credential, and a machine without one still has to be able to
 # produce a bundle it can launch, which an ad-hoc signature is enough for.
 #
-# Nothing here notarizes. Until something does, `spctl` rejects the result
-# ("source=Unnotarized Developer ID") no matter how clean `codesign` is, so the
-# Gatekeeper check below reports rather than gates.
+# Nothing here notarizes, so two Gatekeeper rejections are expected and pass: a
+# Developer ID build rejected for want of notarization, and an ad-hoc build,
+# which is not a notarization candidate at all. Any other rejection fails.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -22,10 +22,14 @@ VERIFY=1
 usage() {
   cat <<'USAGE'
 usage: Scripts/release-build.sh [options]
-  --identity <name>  codesign identity (default: the machine's sole
-                     "Developer ID Application" identity, else ad-hoc)
+  --identity <name>  codesign identity, as the certificate's common name (the
+                     quoted field `security find-identity` prints), not its
+                     SHA-1 hash. Default: the machine's sole "Developer ID
+                     Application" identity, else ad-hoc.
   --adhoc            sign ad-hoc even when a Developer ID is available
-  --output <dir>     where Paddock.app is written (default: build/release)
+  --output <dir>     where Paddock.app is written (default: build/release).
+                     A relative path resolves against the repo root, not the
+                     directory this was invoked from.
   --skip-verify      build and sign without the codesign/spctl checks
 Also read from the environment: PADDOCK_SIGN_IDENTITY.
 USAGE
@@ -46,7 +50,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-for tool in xcodegen xcodebuild codesign ditto; do
+for tool in xcodegen xcodebuild codesign ditto security spctl sed; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "release-build.sh: $tool is required" >&2; exit 1
   }
@@ -86,7 +90,6 @@ APP_OUT="$OUTPUT_DIR/Paddock.app"
 Scripts/libghostty.sh --check
 xcodegen
 
-rm -rf "$APP_OUT"
 mkdir -p "$OUTPUT_DIR"
 
 xcodebuild -scheme Paddock -configuration Release \
@@ -102,6 +105,9 @@ BUILT_APP="$DERIVED_DIR/Build/Products/Release/Paddock.app"
   echo "release-build.sh: the build produced no $BUILT_APP" >&2; exit 1
 }
 
+# The previous output is destroyed only once there is a new bundle to replace
+# it with, so a failed build leaves the last good one on disk.
+rm -rf "$APP_OUT"
 # `ditto`, not `cp`: it is the copy that carries a bundle's extended attributes
 # and code signature across intact.
 ditto "$BUILT_APP" "$APP_OUT"
@@ -115,6 +121,28 @@ if [ "$VERIFY" = 1 ]; then
   echo "=== codesign -dv --verbose=4 ==="
   signature=$(codesign -dv --verbose=4 "$APP_OUT" 2>&1)
   printf '%s\n' "$signature"
+
+  # The identity reaches codesign only as an xcodebuild override. An override
+  # that failed to apply leaves the project's ad-hoc default in force, which
+  # signs successfully and would otherwise be reported as a Developer ID build.
+  if [ "$IDENTITY" = "-" ]; then
+    case "$signature" in
+      *"Signature=adhoc"*) ;;
+      *)
+        echo "release-build.sh: asked for an ad-hoc signature, and this bundle carries another" >&2
+        exit 1
+        ;;
+    esac
+  else
+    case "$signature" in
+      *"Authority=$IDENTITY"*) ;;
+      *)
+        echo "release-build.sh: the signature does not name the requested identity ($IDENTITY)" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
   # Read the CodeDirectory flags field rather than the whole dump: an ad-hoc
   # signature spells the same flag `(adhoc,runtime)`, not `(runtime)`.
   code_flags=$(printf '%s\n' "$signature" \
@@ -124,7 +152,12 @@ if [ "$VERIFY" = 1 ]; then
     *) echo "release-build.sh: the signature carries no hardened runtime flag" >&2; exit 1 ;;
   esac
 
-  entitlements=$(codesign -d --entitlements - --xml "$APP_OUT" 2>/dev/null || true)
+  # A bundle with no entitlements reads back empty at status 0, so an empty
+  # value is only meaningful once the read itself is known to have succeeded.
+  entitlements=$(codesign -d --entitlements - --xml "$APP_OUT" 2>/dev/null) || {
+    echo "release-build.sh: could not read the bundle's entitlements" >&2
+    exit 1
+  }
   case "$entitlements" in
     *get-task-allow*)
       echo "release-build.sh: the binary carries get-task-allow, which notarization refuses" >&2
@@ -134,13 +167,22 @@ if [ "$VERIFY" = 1 ]; then
 
   echo
   echo "=== spctl -a -vv ==="
-  set +e
-  assessment=$(spctl -a -vv "$APP_OUT" 2>&1)
-  assessed=$?
-  set -e
+  assessment=$(spctl -a -vv "$APP_OUT" 2>&1) && assessed=0 || assessed=$?
   printf '%s\n' "$assessment"
   if [ "$assessed" -ne 0 ]; then
-    echo "release-build.sh: Gatekeeper rejects this build; only notarization clears that."
+    if [ "$IDENTITY" = "-" ]; then
+      echo "release-build.sh: an ad-hoc bundle is never accepted by Gatekeeper and cannot be notarized."
+    else
+      case "$assessment" in
+        *"source=Unnotarized Developer ID"*)
+          echo "release-build.sh: rejected for want of notarization, which nothing here does."
+          ;;
+        *)
+          echo "release-build.sh: Gatekeeper rejected this build for something other than notarization" >&2
+          exit 1
+          ;;
+      esac
+    fi
   fi
 fi
 

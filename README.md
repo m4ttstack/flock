@@ -44,6 +44,11 @@ the machine's sole `Developer ID Application` identity when there is exactly
 one; `--identity <name>` names a different one and `--adhoc` forces an ad-hoc
 signature, which is what a machine with no Developer ID gets.
 
+This script is the only path that produces a Developer ID signature. Xcode's
+Product > Archive also builds Release now, but it uses the configuration's own
+`CODE_SIGN_IDENTITY`, which is ad-hoc: an archive made that way looks like a
+release artifact and is signed by nobody.
+
 Nothing here notarizes, so `spctl -a -vv` reports `rejected` /
 `source=Unnotarized Developer ID` on every build the script makes. That is
 the expected outcome, not a failure, and the script says so rather than
