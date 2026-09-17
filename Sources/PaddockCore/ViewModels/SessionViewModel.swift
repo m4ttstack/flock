@@ -737,7 +737,17 @@ public final class SessionViewModel {
             ["target_pane_id": .string(pane.rawValue), "direction": .string(direction), "focus": .bool(true)]
         ) else { return }
         guard let newPaneID = Self.extractSplitPaneID(data) else { return }
-        paneLauncherRegistry.registerPaddockCreated(newPaneID)
+        landIn(pane: newPaneID)
+    }
+
+    /// paddock's own half of the `focus: true` every create request carries:
+    /// the new pane is the input sink and the launcher's pristine pane from
+    /// the moment herdr answers, rather than from whenever its focus echo
+    /// arrives -- and if that echo never arrives, this is the only thing that
+    /// ever put the user in what they just made.
+    private func landIn(pane: PaneID) {
+        optimisticFocusedPaneID = pane
+        paneLauncherRegistry.registerPaddockCreated(pane)
         launcherRegistryVersion += 1
     }
 
@@ -1064,9 +1074,19 @@ public final class SessionViewModel {
         await create("workspace.create", params, label: "New workspace")
     }
 
+    /// Both create responses name the tab that was made and its root pane
+    /// (`workspace.create` answers with the first tab of the new workspace),
+    /// which is what lets the selection move on the answer rather than on the
+    /// echo. A response this cannot read leaves the selection where it was,
+    /// which is what every create did before: herdr's own focus echo is then
+    /// the only thing that moves it.
     private func create(_ method: String, _ params: [String: JSONValue], label: String) async {
         do {
-            _ = try await client.requestRaw(method, params)
+            let data = try await client.requestRaw(method, params)
+            guard let created = Self.extractCreatedTab(data) else { return }
+            selectedWorkspaceID = created.workspaceID
+            selectedTabID = created.tabID
+            landIn(pane: created.rootPaneID)
         } catch {
             noticeSink("\(label) failed: \(Self.describe(error))")
         }
@@ -1173,6 +1193,39 @@ public final class SessionViewModel {
     /// `pane.split`'s response nests the new pane's id under a `"pane"` key
     /// (verified against herdr's `PaneSplitResult` and pinned by
     /// `spikes/lib/seed-layout.sh`'s own `.result.pane.pane_id` read).
+    /// The ids a `tab.create`/`workspace.create` answer carries.
+    private struct CreatedTab {
+        let workspaceID: WorkspaceID
+        let tabID: TabID
+        let rootPaneID: PaneID
+    }
+
+    private static func extractCreatedTab(_ data: Data) -> CreatedTab? {
+        struct TabPayload: Decodable {
+            let tabID: TabID
+            let workspaceID: WorkspaceID
+            enum CodingKeys: String, CodingKey {
+                case tabID = "tab_id"
+                case workspaceID = "workspace_id"
+            }
+        }
+        struct PanePayload: Decodable {
+            let paneID: PaneID
+            enum CodingKeys: String, CodingKey { case paneID = "pane_id" }
+        }
+        struct Result: Decodable {
+            let tab: TabPayload
+            let rootPane: PanePayload
+            enum CodingKeys: String, CodingKey {
+                case tab
+                case rootPane = "root_pane"
+            }
+        }
+        struct Envelope: Decodable { let result: Result }
+        guard let result = try? JSONDecoder().decode(Envelope.self, from: data).result else { return nil }
+        return CreatedTab(workspaceID: result.tab.workspaceID, tabID: result.tab.tabID, rootPaneID: result.rootPane.paneID)
+    }
+
     private static func extractSplitPaneID(_ data: Data) -> PaneID? {
         struct PanePayload: Decodable {
             let paneID: PaneID

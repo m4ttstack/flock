@@ -74,6 +74,38 @@ private actor StubSplitCommandClient: HerdrCommandClient {
     }
 }
 
+/// Answers `tab.create` and `workspace.create` with herdr's own response
+/// shapes (`ResponseResult::TabCreated` and `WorkspaceCreated`, both of which
+/// carry the created tab and its root pane), so what a create lands on is
+/// read out of the JSON a real herdr sends rather than a shape invented here.
+private actor StubCreateCommandClient: HerdrCommandClient {
+    private(set) var calls: [(method: String, params: [String: JSONValue])] = []
+    private let workspaceID: String
+    private let tabID: String
+    private let paneID: String
+
+    init(workspaceID: String = "w1", tabID: String = "w1:t2", paneID: String = "w1:p2") {
+        self.workspaceID = workspaceID
+        self.tabID = tabID
+        self.paneID = paneID
+    }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        calls.append((method, params))
+        let tab = #"{"tab_id":"\#(tabID)","workspace_id":"\#(workspaceID)","number":2,"label":"zsh","focused":true,"pane_count":1,"agent_status":"unknown"}"#
+        let rootPane = #"{"pane_id":"\#(paneID)","workspace_id":"\#(workspaceID)","tab_id":"\#(tabID)","terminal_id":"t_2","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"}"#
+        switch method {
+        case "tab.create":
+            return Data(#"{"result":{"type":"tab_created","tab":\#(tab),"root_pane":\#(rootPane)}}"#.utf8)
+        case "workspace.create":
+            let workspace = #"{"workspace_id":"\#(workspaceID)","label":"new","number":2,"active_tab_id":"\#(tabID)","agent_status":"unknown"}"#
+            return Data(#"{"result":{"type":"workspace_created","workspace":\#(workspace),"tab":\#(tab),"root_pane":\#(rootPane)}}"#.utf8)
+        default:
+            return Data("{}".utf8)
+        }
+    }
+}
+
 /// A `PlanExecuting` double for `perform`/`closePane` routing tests: records
 /// every plan handed to it and, absent a queued `nextResult`, trivially
 /// succeeds with an empty inverse (adequate for tests that only care where
@@ -649,6 +681,20 @@ final class SessionViewModelTests: XCTestCase {
         )
     }
 
+    /// A split carries `focus: true` like every other create, so the ring and
+    /// the input sink move to the new pane on herdr's answer rather than on
+    /// its focus echo.
+    @MainActor
+    func testSplittingLandsInTheNewPane() async {
+        let viewModel = SessionViewModel(client: StubSplitCommandClient(newPaneID: "w1:p2"))
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
+
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"))
+    }
+
     /// The Enter must ride `keys`, never a newline inside `text`: herdr wraps
     /// a non-empty `text` in a bracketed-paste sequence whenever the pane's
     /// program enabled it, and a newline inside that bracket is a literal
@@ -683,8 +729,9 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: client, ghosttyFactory: factory)
         await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
         let newPane = PaneID(rawValue: "w1:p2")
-        // No focus is ever set on this view model, so the new pane is never
-        // the resolved-focused one for the whole test.
+        // The click back into the original pane: the split itself left the
+        // new pane focused, and this takes the focus off it again.
+        await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p1"))
         _ = await viewModel.attachPane(newPane)
         XCTAssertNotEqual(viewModel.resolvedFocusedPaneID, newPane)
         XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
@@ -1913,6 +1960,58 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.createWorkspace()
 
         XCTAssertEqual(notices.messages, ["New tab failed: no such workspace", "New workspace failed: no such workspace"])
+    }
+
+    /// What "New Tab" means to the person who pressed Cmd+T: the new tab is
+    /// the one on screen and its shell is the one taking keystrokes. herdr is
+    /// asked to focus it (`focus: true`), but that only moves paddock's own
+    /// selection once the focus echo arrives, which is a round trip later at
+    /// best and never at all if herdr emits no `tab.focused` for a create.
+    @MainActor
+    func testCreatingATabLandsInItWithoutWaitingForHerdrsEcho() async {
+        let viewModel = SessionViewModel(client: StubCreateCommandClient(tabID: "w1:t2", paneID: "w1:p2"))
+        viewModel.update(model: makeModel(), connection: .live)
+
+        await viewModel.createTab(in: WorkspaceID(rawValue: "w1"))
+
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w1:t2"), "the new tab is not the one being shown")
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w1"))
+        XCTAssertEqual(
+            viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"),
+            "the new tab's shell is not the pane taking keystrokes")
+        XCTAssertTrue(
+            viewModel.isPristineLauncherPane(PaneID(rawValue: "w1:p2")),
+            "a tab paddock created offers the launcher, the same as a split does")
+    }
+
+    /// A snapshot that does not move herdr's focused tab must not drag the
+    /// selection back off the tab just created: the echo may be several
+    /// unrelated updates away.
+    @MainActor
+    func testACreatedTabStaysSelectedThroughUnrelatedUpdates() async {
+        let viewModel = SessionViewModel(client: StubCreateCommandClient(tabID: "w1:t2", paneID: "w1:p2"))
+        viewModel.update(model: makeModel(), connection: .live)
+
+        await viewModel.createTab(in: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: makeModel(), connection: .live)
+
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w1:t2"))
+    }
+
+    /// `workspace.create` answers with the first tab of the new workspace, so
+    /// the rail's create lands the same way the strip's does -- including the
+    /// workspace, which a tab create leaves alone.
+    @MainActor
+    func testCreatingAWorkspaceLandsInItsFirstTab() async {
+        let viewModel = SessionViewModel(client: StubCreateCommandClient(workspaceID: "w2", tabID: "w2:t1", paneID: "w2:p1"))
+        viewModel.update(model: makeModel(), connection: .live)
+
+        await viewModel.createWorkspace()
+
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t1"))
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w2:p1"))
+        XCTAssertTrue(viewModel.isPristineLauncherPane(PaneID(rawValue: "w2:p1")))
     }
 
     @MainActor
