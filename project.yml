@@ -49,6 +49,9 @@ targets:
     platform: macOS
     sources: [Sources/Flock]
     dependencies: [{ target: FlockCore }]
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: Sources/Flock/Info.plist
       properties:
