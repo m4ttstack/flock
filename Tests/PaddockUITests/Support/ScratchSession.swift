@@ -102,6 +102,32 @@ final class ScratchSession {
         return HerdrSnapshotJSON(snapshot)
     }
 
+    /// Polls until the session says what the caller is waiting for, and
+    /// returns that snapshot. A gesture reaches herdr through an RPC and comes
+    /// back through an event, so nothing a drop does is visible in the instant
+    /// the drop finished; reading once would test the timing rather than the
+    /// drop.
+    ///
+    /// A timeout names what was expected AND what herdr was actually holding:
+    /// a case authored against a layout that never arrived is otherwise
+    /// indistinguishable from a gesture that missed its target.
+    func snapshot(
+        waitingFor expectation: String, timeout: TimeInterval = 20, until condition: (HerdrSnapshotJSON) -> Bool
+    ) throws -> HerdrSnapshotJSON {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest: HerdrSnapshotJSON?
+        while Date() < deadline {
+            let current = try snapshot()
+            latest = current
+            if condition(current) { return current }
+            usleep(100_000)
+        }
+        throw ScratchSessionError(
+            "timed out after \(timeout)s waiting for \(expectation). herdr holds: "
+                + (latest?.outline() ?? "<no snapshot answered>")
+        )
+    }
+
     /// Changes the world the app is mirroring without going through the app,
     /// so a case can assert on what the app does with a change it did not
     /// make. Throws on a herdr error response rather than letting a rejected

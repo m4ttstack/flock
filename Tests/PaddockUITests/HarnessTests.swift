@@ -91,6 +91,80 @@ final class HarnessTests: XCTestCase {
         XCTAssertEqual(try session.snapshot().workspaceCount, 1)
     }
 
+    /// The comparison a case asserting "this gesture changed nothing" rests
+    /// on. It has to ignore exactly the fields that move with nothing having
+    /// touched the session and nothing else, so both halves are checked here:
+    /// a self-moving field reads as equal, and an ordinary field one step away
+    /// reads as changed.
+    func testSnapshotComparisonIgnoresOnlyTheFieldsThatMoveOnTheirOwn() throws {
+        let ids = session.seedIDs()
+        let truth = try session.snapshot()
+        XCTAssertNil(truth.difference(from: truth), "a snapshot did not compare equal to itself")
+
+        let moved = try HerdrSnapshotJSON(Self.byChangingPane(ids.p1, in: truth.raw) { pane in
+            var pane = pane
+            pane["revision"] = 41
+            pane["scroll"] = ["offset_from_bottom": 7, "max_offset_from_bottom": 9, "viewport_rows": 11]
+            pane["terminal_id"] = "term_reseeded_something_else"
+            return pane
+        })
+        XCTAssertNil(
+            truth.difference(from: moved),
+            "revision, scroll and terminal_id move on their own, so a snapshot differing only in them must read as equal"
+        )
+
+        let renamed = try HerdrSnapshotJSON(Self.byChangingPane(ids.p1, in: truth.raw) { pane in
+            var pane = pane
+            pane["cwd"] = "/tmp/somewhere-else"
+            return pane
+        })
+        let reported = try XCTUnwrap(
+            truth.difference(from: renamed),
+            "a pane's cwd is not a self-moving field, so changing it must read as a difference"
+        )
+        XCTAssertTrue(
+            reported.contains("cwd") && reported.contains(ids.p1),
+            "the difference must name the pane and the field that moved, got: \(reported)"
+        )
+    }
+
+    func testSnapshotComparisonSeesAMutationAndAReseedUndoingIt() throws {
+        let ids = session.seedIDs()
+        let seeded = try session.snapshot()
+
+        try session.mutate(
+            #"{"id":"e2e-compare","method":"tab.rename","params":{"tab_id":"\#(ids.tabB)","label":"moved-on"}}"#
+        )
+        let dirtied = try session.snapshot(waitingFor: "the rename to land") { $0.label(ofTab: ids.tabB) == "moved-on" }
+        let reported = try XCTUnwrap(
+            seeded.difference(from: dirtied), "a renamed tab did not read as a difference"
+        )
+        XCTAssertTrue(reported.contains("label"), "the difference must name the renamed field, got: \(reported)")
+
+        try session.reseed()
+
+        let reseeded = try session.snapshot()
+        XCTAssertNil(
+            seeded.difference(from: reseeded),
+            "a reseeded session must compare equal to the seed it was built from"
+        )
+    }
+
+    /// One pane of a snapshot's raw JSON, replaced by `change`. Building the
+    /// comparison's input by hand is what lets the self-moving fields be
+    /// exercised at all: nothing a test can ask herdr to do moves `revision`
+    /// without also moving something else.
+    private static func byChangingPane(
+        _ paneID: String, in raw: [String: Any], _ change: ([String: Any]) -> [String: Any]
+    ) throws -> [String: Any] {
+        let panes = try XCTUnwrap(raw["panes"] as? [[String: Any]], "the snapshot carries no panes list")
+        var copy = raw
+        copy["panes"] = panes.map { pane in
+            pane["pane_id"] as? String == paneID ? change(pane) : pane
+        }
+        return copy
+    }
+
     func testRestartServerBringsTheSessionBackAsItWas() throws {
         let ids = session.seedIDs()
         try session.mutate(
