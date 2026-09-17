@@ -1220,6 +1220,52 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// A zoomed tab, read along the same row `assertSamples` reads the resting
+    /// canvas on (y 400, clear of the divider's own 51pt handle). At rest that
+    /// row crosses, in order: the canvas margin, the unfocused left pane's
+    /// border, its body, the gutter between the boxes, the focused pane's
+    /// accent border, its body, and its far accent border. Zoomed, herdr's
+    /// renderer holds the focused pane open over the whole tab area, so the
+    /// gutter and the left pane's own border have to be that pane's body and
+    /// its accent border instead -- a canvas still drawing both boxes fails on
+    /// the gutter, and one drawing the wrong pane over the whole area fails on
+    /// the border color, which only the focused pane wears.
+    func testAZoomedTabDrawsItsHeldPaneAcrossTheWholeCanvas() async throws {
+        let theme = Theme.tokyoNight
+        let roles = theme.palette.chromeRoles
+        let resting = try await Harness(theme: theme, model: try Fixture.model())
+        let restingWindow = resting.makeWindow(size: Self.windowSize)
+        await settle(restingWindow)
+        let restingImage = try snapshot(restingWindow)
+
+        let zoomed = try await Harness(theme: theme, model: try Fixture.model(zoomed: true))
+        let zoomedWindow = zoomed.makeWindow(size: Self.windowSize)
+        await settle(zoomedWindow)
+        let zoomedImage = try snapshot(zoomedWindow)
+        if let directory = ProcessInfo.processInfo.environment["PADDOCK_CHROME_RENDER_DIR"].flatMap({ $0.isEmpty ? nil : $0 }) {
+            try XCTUnwrap(zoomedImage.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("zoom-canvas.png"))
+        }
+
+        let leftBorder = CGPoint(x: 199.25, y: 400)
+        let leftBody = CGPoint(x: 300, y: 400)
+        let gutter = CGPoint(x: 546, y: 400)
+        let focusedBorder = CGPoint(x: 551.25, y: 400)
+        let farBorder = CGPoint(x: 893.25, y: 400)
+
+        XCTAssertEqual(hex(restingImage, gutter), roles.canvas.hex, "the resting canvas draws no gutter, so the zoomed check below proves nothing")
+        XCTAssertEqual(hex(restingImage, leftBorder), roles.paneBorder.hex, "the resting canvas does not put an unfocused pane at the left edge")
+
+        XCTAssertEqual(hex(zoomedImage, gutter), roles.pane.hex, "the gutter between the two boxes is still drawn: the zoomed pane does not fill the canvas")
+        XCTAssertEqual(hex(zoomedImage, focusedBorder), roles.pane.hex, "a box edge is still drawn mid-canvas")
+        XCTAssertEqual(hex(zoomedImage, leftBorder), roles.accent.hex, "the pane at the left edge is not the focused one the zoom holds open")
+        XCTAssertEqual(hex(zoomedImage, leftBody), roles.pane.hex)
+        XCTAssertEqual(hex(zoomedImage, farBorder), roles.accent.hex, "the held pane's far edge moved")
+
+        zoomedWindow.close()
+        restingWindow.close()
+    }
+
     /// The three places the one inline rename editor opens, and the zoom
     /// badge. Each is compared against the SAME window at rest: the editor
     /// has to change its own surface and leave the other two alone, which is
