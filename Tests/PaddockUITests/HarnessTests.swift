@@ -75,8 +75,16 @@ final class HarnessTests: XCTestCase {
     /// PTY running a shell, so the token is the only thing between a loopback
     /// port and execution as whoever is running the suite.
     func testBridgeRefusesARequestCarryingTheWrongToken() throws {
-        let refused = try session.sendRawBridgeLine("0000000000000000000000000000000000 ping")
+        // The same length as the real token, so the comparison itself is what
+        // rejects this rather than a length mismatch short-circuiting it.
+        let wrong = String(repeating: "0", count: 32)
+        let refused = try session.sendRawBridgeLine("\(wrong) ping")
         XCTAssertTrue(refused.contains("bad bridge token"), "the bridge answered an untokened request: \(refused)")
+
+        // A token the comparison cannot even encode still has to come back as
+        // a refusal, not as a dead connection.
+        let nonASCII = try session.sendRawBridgeLine("t\u{00f8}ken ping")
+        XCTAssertTrue(nonASCII.contains("bad bridge token"), "a non-ASCII token did not read as a refusal: \(nonASCII)")
 
         // The same connection shape with the real token still works, so the
         // refusal above is the token's doing rather than a dead bridge.

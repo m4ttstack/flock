@@ -51,10 +51,21 @@ export HERDR_BIN="$herdr_bin"
 sweep_run_processes() {
   local signal="$1" snapshot pids pid
   # Taken before the pipeline that filters it, so the snapshot cannot contain
-  # the grep that reads it. This shell is excluded by pid: its own environment
-  # carries the session name too.
+  # that grep. It does contain the `ps` subshell, which inherits this shell's
+  # environment and so the session name; that pid is already dead by the time
+  # the loop reaches it, which is one of the things the `|| true` absorbs.
+  # This shell is excluded by pid for the same reason.
   snapshot=$(ps -xE -o pid=,command= 2>/dev/null || true)
-  pids=$(printf '%s\n' "$snapshot" | grep -F "paddock-$SESSION_NAME" | awk -v self="$$" '$1 != self { print $1 }')
+  # The session name ends in this shell's pid, and a pid is a prefix of longer
+  # pids, so an unanchored match would let a run whose name is `e2e-123` sweep
+  # away a concurrent `e2e-1234`. Requiring a non-digit (or end of line) after
+  # the name is the boundary; the name itself is only `e2e-` and digits, so it
+  # carries no regex metacharacters. Anchoring on the socket path instead would
+  # miss the herdr server, whose argv names the session without a trailing
+  # separator.
+  pids=$(printf '%s\n' "$snapshot" \
+    | grep -E "paddock-$SESSION_NAME([^0-9]|$)" \
+    | awk -v self="$$" '$1 ~ /^[0-9]+$/ && $1 != self { print $1 }')
   for pid in $pids; do
     kill "-$signal" "$pid" 2>/dev/null || true
   done

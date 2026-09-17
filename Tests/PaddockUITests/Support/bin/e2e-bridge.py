@@ -18,11 +18,9 @@ contract. Every request begins with the token this process generated:
 
 Control replies are {"ok": true} or {"error": {"message": ...}}.
 
-The token is not ceremony. A loopback port is not a secret (65k of them scan in
-about a second), and `herdr` forwards arbitrary requests, one of which is
-`workspace.create` with a cwd -- which is a PTY running a shell. Without the
-token, any local account on a shared machine has execution as the user running
-the tests, not merely the ability to disturb a scratch session.
+The token gates the port because `herdr` forwards arbitrary requests, and
+`workspace.create` with a cwd is a PTY running a shell: an untokened listener
+would be execution as whoever is running the suite, for any local account.
 """
 
 import argparse
@@ -42,6 +40,12 @@ import time
 # giving up on the connection with nothing to report.
 HELPER_TIMEOUT_SECONDS = 45
 HERDR_TIMEOUT_SECONDS = 10
+# The token gates requests, not connections, and a worker thread is committed
+# before the first line arrives. A short deadline on the socket itself is what
+# stops an unauthenticated connection from parking one. It bounds the socket
+# operations only, never the work between them, so a control verb still gets
+# its full HELPER_TIMEOUT_SECONDS.
+CONNECTION_TIMEOUT_SECONDS = 10
 
 
 class Bridge:
@@ -50,7 +54,9 @@ class Bridge:
         self.lib_dir = lib_dir
         self.session_name = session_name
         self.herdr_bin = herdr_bin
-        self.token = token
+        # Compared as bytes: compare_digest raises TypeError on a str holding
+        # any non-ASCII character, which a caller controls outright.
+        self.token_bytes = token.encode("ascii")
         # Serialized because a control verb tears the server down and back up,
         # which any herdr request overlapping it would see as a dead socket.
         # Held across the work only, never across the reply write: a client
@@ -59,7 +65,7 @@ class Bridge:
         self.lock = threading.Lock()
 
     def authorized(self, presented):
-        return hmac.compare_digest(presented, self.token)
+        return hmac.compare_digest(presented.encode("utf-8", "replace"), self.token_bytes)
 
     def handle(self, request):
         if request == "ping":
@@ -123,20 +129,26 @@ class Bridge:
 
 
 class Handler(socketserver.StreamRequestHandler):
-    timeout = 90
+    timeout = CONNECTION_TIMEOUT_SECONDS
 
     def handle(self):
-        line = self.rfile.readline()
-        if not line:
-            return
-        token, _, request = line.decode("utf-8", "replace").strip().partition(" ")
-        bridge = self.server.bridge
-        if not bridge.authorized(token):
-            reply = json.dumps({"error": {"message": "bad bridge token"}})
-        else:
-            with bridge.lock:
-                reply = bridge.handle(request)
-        self.wfile.write((reply + "\n").encode("utf-8"))
+        try:
+            line = self.rfile.readline()
+            if not line:
+                return
+            token, _, request = line.decode("utf-8", "replace").strip().partition(" ")
+            bridge = self.server.bridge
+            if not bridge.authorized(token):
+                reply = json.dumps({"error": {"message": "bad bridge token"}})
+            else:
+                with bridge.lock:
+                    reply = bridge.handle(request)
+        except Exception as error:  # noqa: BLE001 - the reply IS the report
+            reply = json.dumps({"error": {"message": "bridge handler: %r" % (error,)}})
+        try:
+            self.wfile.write((reply + "\n").encode("utf-8"))
+        except OSError:
+            pass
 
 
 class Server(socketserver.ThreadingTCPServer):

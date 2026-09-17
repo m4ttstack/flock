@@ -11,6 +11,14 @@ final class SmokeTests: XCTestCase {
         try session.reseed()
     }
 
+    /// Longer than this case can possibly run. The wrapper gives the suite a
+    /// two-second re-snapshot interval, under which a broken initial mirror
+    /// would be repaired by the next periodic replacement and every wait below
+    /// would still succeed; with the backstop pushed out of reach, the only
+    /// things that can produce the layout are the bootstrap fetch and the
+    /// event stream.
+    private static let noResnapshotWithin = "600"
+
     @MainActor
     func testAppMirrorsSeedLayout() throws {
         let ids = session.seedIDs()
@@ -30,7 +38,10 @@ final class SmokeTests: XCTestCase {
         // and an app left attached to a session the wrapper is about to stop
         // outlives the whole run.
         addTeardownBlock { await MainActor.run { XCUIApplication().terminate() } }
-        let app = XCUIApplication.paddock(socket: session.socketPath)
+        let app = XCUIApplication.paddock(
+            socket: session.socketPath,
+            env: ["PADDOCK_RESNAPSHOT_SECONDS": Self.noResnapshotWithin]
+        )
 
         let p1 = app.paddockElement("paddock.canvas.pane.\(ids.p1)")
         XCTAssertTrue(p1.waitForExistence(timeout: 60), "the canvas never showed \(ids.p1)")
