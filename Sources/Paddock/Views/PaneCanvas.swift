@@ -40,7 +40,8 @@ struct PaneCanvas: View {
             // began at the window's corner would still leave the surface on a
             // fractional device pixel.
             let grid = CanvasGrid(canvas: proxy.size, phase: proxy.frame(in: .global).origin, displayScale: scale)
-            let geometry = resolvedGeometry(grid: grid)
+            let composition = layout.map { CanvasComposition.of(layout: $0) } ?? .tiled
+            let geometry = resolvedGeometry(grid: grid, composition: composition)
             ZStack(alignment: .topLeading) {
                 if let layout {
                     ForEach(layout.panes, id: \.paneID) { paneRect in
@@ -61,15 +62,11 @@ struct PaneCanvas: View {
                                 // after the click -- `resolvedFocusedPaneID`
                                 // paints the optimistic prediction instead).
                                 isFocused: pane.paneID == viewModel.resolvedFocusedPaneID,
-                                // herdr's zoom holds one pane of the tab
-                                // open; the canvas still draws them all, so
-                                // the badge is what says so. Read from
-                                // `focusedPaneID`, never `focusedPane`: that
-                                // one falls back to the first pane when the
-                                // snapshot names none, which is a
-                                // mutation-target rule and would paint the
-                                // badge on an arbitrary pane here.
-                                isZoomed: layout.zoomed && layout.focusedPaneID == pane.paneID,
+                                // The same answer the geometry above was
+                                // built from, so the badge can only ever ride
+                                // the pane that is actually filling the
+                                // canvas.
+                                isZoomed: composition.zoomedPaneID == pane.paneID,
                                 lastLine: viewModel.lastLine(for: pane),
                                 grid: PTYSize(cols: fit.cols, rows: fit.rows),
                                 surfaceSize: fit.size,
@@ -131,7 +128,7 @@ struct PaneCanvas: View {
         .background(theme.canvas)
     }
 
-    private func resolvedGeometry(grid: CanvasGrid) -> CanvasGeometry {
+    private func resolvedGeometry(grid: CanvasGrid, composition: CanvasComposition) -> CanvasGeometry {
         guard let layout else { return .empty }
         let override = dividerDrag.liveOverride.flatMap { $0.tabID == layout.tabID ? (path: $0.path, ratio: $0.ratio) : nil }
         return CanvasGeometry.resolved(
@@ -139,7 +136,8 @@ struct PaneCanvas: View {
             exported: viewModel.exportedLayout(for: layout.tabID),
             grid: grid,
             dividerThickness: Self.dividerThickness,
-            liveRatioOverride: override
+            liveRatioOverride: override,
+            composition: composition
         )
     }
 

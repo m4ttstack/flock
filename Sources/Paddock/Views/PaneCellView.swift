@@ -39,9 +39,9 @@ struct PaneCellView: View {
     let viewModel: SessionViewModel
     let pane: PaneRecord
     let isFocused: Bool
-    /// This pane is the one herdr's zoom is holding open on its tab. The
-    /// canvas still draws every pane of the tab, so the badge is the only
-    /// thing that says the terminal's own view is zoomed.
+    /// This pane is the one herdr's zoom is holding open on its tab, so it is
+    /// filling the canvas alone (`CanvasComposition`). The badge is what says
+    /// the tab still has other panes behind this one.
     let isZoomed: Bool
     let lastLine: String?
     /// The whole-cell grid this pane's own box holds, which `surfaceSize`
