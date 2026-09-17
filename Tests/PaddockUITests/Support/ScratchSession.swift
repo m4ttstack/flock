@@ -182,17 +182,18 @@ final class ScratchSession {
     func reseed() throws {
         try control("reseed-session")
         try awaitLiveServer()
+        // The counts as well as the two tabs' contents: herdr numbers a fresh
+        // session's ids from one, so a case that left `tabA` and `tabB` intact
+        // and added a workspace or a third tab would satisfy the pane lists
+        // alone and hand the next case its leftovers.
         try waitUntil(timeout: 20, "the reseeded session to carry the seed layout") {
             guard let snapshot = try? self.snapshot() else { return false }
-            return snapshot.paneIDs(inTab: self.ids.tabA) == [self.ids.p1, self.ids.p2]
+            return snapshot.workspaceCount == 1
+                && snapshot.tabCount(inWorkspace: self.ids.ws) == 2
+                && snapshot.paneIDs(inTab: self.ids.tabA) == [self.ids.p1, self.ids.p2]
                 && snapshot.paneIDs(inTab: self.ids.tabB) == [self.ids.p3]
         }
     }
-
-    /// Teardown belongs to `Scripts/e2e.sh`'s trap, which owns the server this
-    /// object only talks to. Present so a case reads the same as the plan's
-    /// exemplar.
-    func stop() {}
 
     // MARK: - Bridge transport
 

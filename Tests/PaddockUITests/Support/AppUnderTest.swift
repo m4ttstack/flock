@@ -88,6 +88,9 @@ extension XCUIApplication {
         descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
+    /// How many DISTINCT identifiers under the prefix the window is drawing,
+    /// which for every caller is how many of the thing there are, because each
+    /// one is keyed by its own id.
     func paddockElementCount(identifierPrefix: String) -> Int {
         paddockIdentifiers(prefix: identifierPrefix).count
     }
@@ -109,6 +112,17 @@ extension XCUIApplication {
 
     /// The same, with each identifier's box. Frames are read from here for the
     /// same reason identifiers are.
+    ///
+    /// One entry per identifier, and the walk is pre-order, so the entry is
+    /// the OUTERMOST node carrying it. That is the right box only while each
+    /// identifier belongs to exactly one element, which is what the views
+    /// declaring themselves accessibility containers guarantees: undeclared,
+    /// SwiftUI folds a container's subtree into its text leaves and stamps the
+    /// container's identifier on every one of them. The symptom to watch for
+    /// is a box far smaller than the thing it is named for -- a pane cell
+    /// reporting a few dozen points in a corner, a card reporting a label --
+    /// which means the folding is back and every aim measured against it is
+    /// landing somewhere else.
     func paddockBoxes(prefix: String) -> [String: CGRect] {
         guard let tree = try? snapshot() else { return [:] }
         var found: [String: CGRect] = [:]

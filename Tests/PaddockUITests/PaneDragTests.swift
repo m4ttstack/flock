@@ -213,7 +213,7 @@ final class PaneDragTests: XCTestCase {
 
         assertCanvasHolds(app, [ids.p1, ids.p2], "after a same-tab bottom-edge restructure")
         func stacked() -> (top: CGRect, bottom: CGRect)? {
-            let drawn = app.paddockBoxes(prefix: "paddock.canvas.pane.")
+            let drawn = app.paddockBoxes(prefix: Self.canvasPanePrefix)
             guard let top = drawn[canvasPane(ids.p2)], let bottom = drawn[canvasPane(ids.p1)] else { return nil }
             return (top, bottom)
         }
@@ -368,9 +368,11 @@ final class PaneDragTests: XCTestCase {
             "the zoom badge is drawn on the tab's focused pane, so this case needs \(ids.p1) focused; \(zoomed.outline())"
         )
 
-        let app = try launchOnSeed()
+        // A zoomed tab draws the pane the zoom holds open and nothing else, so
+        // the seed's other cell is not there to wait for.
+        let app = try launchOnSeed(drawing: [ids.p1])
         XCTAssertTrue(
-            app.paddockElement("paddock.pane.zoomBadge.\(ids.p1)").waitForExistence(timeout: 20),
+            app.paddockElement(zoomBadge(ids.p1)).waitForExistence(timeout: 20),
             "the window never marked \(ids.p1) zoomed, so the guard below would be tested against nothing"
         )
 
@@ -392,12 +394,24 @@ final class PaneDragTests: XCTestCase {
             "the pane should have left \(ids.tabA); \(after.outline())"
         )
 
-        assertEventually("the window drops the zoom badge") {
-            !app.paddockElement("paddock.pane.zoomBadge.\(ids.p1)").exists
+        // The badge's absence is asserted OF a window that is drawing what it
+        // should, in one capture, never on its own. The canvas holds nothing
+        // at all for a moment while it tears one tab's layout down and builds
+        // the other's, and no badge is drawn in that moment either, so a bare
+        // "no badge" would pass whatever the unzoom did or did not do.
+        let expected = Set([ids.p3, ids.p1].map { canvasPane($0) })
+        assertEventually("\(ids.tabB)'s two panes are drawn with no zoom badge on either") {
+            let drawn = app.paddockIdentifiers(prefix: "paddock.")
+            return Set(drawn.filter { $0.hasPrefix(Self.canvasPanePrefix) }) == expected
+                && !drawn.contains { $0.hasPrefix(Self.zoomBadgePrefix) }
         } describing: {
-            "the badge for \(ids.p1) is still drawn, so the window still believes a tab is zoomed"
+            let drawn = app.paddockIdentifiers(prefix: "paddock.")
+            let cells = drawn.filter { $0.hasPrefix(Self.canvasPanePrefix) }
+            let badges = drawn.filter { $0.hasPrefix(Self.zoomBadgePrefix) }
+            return "the canvas holds [\(cells.joined(separator: ", "))], expected "
+                + "[\(expected.sorted().joined(separator: ", "))], and the window draws the zoom badges "
+                + "[\(badges.joined(separator: ", "))]"
         }
-        assertCanvasHolds(app, [ids.p3, ids.p1], "after a move out of a zoomed tab")
     }
 
     /// A pane released on a rail row lands in that workspace, in a tab of its
@@ -481,13 +495,20 @@ final class PaneDragTests: XCTestCase {
     /// second inside it, against `DragController`'s 500ms dwell.
     private static let dwellCrossingSpeed: XCUIGestureVelocity = 120
 
-    private func canvasPane(_ paneID: String) -> String { "paddock.canvas.pane.\(paneID)" }
+    /// The one spelling of each identifier family the suite reads, so a
+    /// prefix filter and a full identifier can never drift apart.
+    private static let canvasPanePrefix = "paddock.canvas.pane."
+    private static let zoomBadgePrefix = "paddock.pane.zoomBadge."
+
+    private func canvasPane(_ paneID: String) -> String { Self.canvasPanePrefix + paneID }
 
     private func gridTab(_ tabID: String) -> String { "paddock.grid.tab.\(tabID)" }
 
-    /// A second workspace for the two rail cases, made through herdr rather
-    /// than through the app so the window has nothing to do with it existing.
-    /// Returns its id, its one tab's, and that tab's one pane's.
+    private func zoomBadge(_ paneID: String) -> String { Self.zoomBadgePrefix + paneID }
+
+    /// A second workspace for the rail row a pane is dropped on, made through
+    /// herdr rather than through the app so the window has nothing to do with
+    /// it existing. Returns its id, its one tab's, and that tab's one pane's.
     private func makeSecondWorkspace() throws -> (workspace: String, tab: String, pane: String) {
         let ids = session.seedIDs()
         try session.mutate(#"{"id":"e2e-ws","method":"workspace.create","params":{"cwd":"/tmp","label":"other"}}"#)
@@ -506,11 +527,17 @@ final class PaneDragTests: XCTestCase {
     }
 
     /// Launches the app on the reseeded session and waits until the canvas is
-    /// drawing the seed's shown tab, which is the state every gesture below
-    /// starts from.
+    /// drawing `panes`, which is the state the gesture starts from.
+    ///
+    /// `panes` defaults to both of the seed's shown tab, which is what a
+    /// tiled tab draws. A zoomed tab draws only the pane the zoom holds open
+    /// (`CanvasComposition`), so the case that zooms first names that one:
+    /// waiting for a cell a zoomed canvas never draws would time out before
+    /// the gesture ran.
     @MainActor
-    private func launchOnSeed() throws -> XCUIApplication {
+    private func launchOnSeed(drawing panes: [String]? = nil) throws -> XCUIApplication {
         let ids = session.seedIDs()
+        let wanted = panes ?? [ids.p1, ids.p2]
         // Registered before the launch that needs it, and capturing nothing:
         // an assertion failure under `continueAfterFailure = false` unwinds
         // this method through Objective-C, where a `defer` is not reliable,
@@ -518,14 +545,12 @@ final class PaneDragTests: XCTestCase {
         // outlives the whole run.
         addTeardownBlock { await MainActor.run { XCUIApplication().terminate() } }
         let app = XCUIApplication.paddock(socket: session.socketPath)
-        XCTAssertTrue(
-            app.paddockElement(canvasPane(ids.p1)).waitForExistence(timeout: 60),
-            "the canvas never drew \(ids.p1), so the drag below had nothing to grab"
-        )
-        XCTAssertTrue(
-            app.paddockElement(canvasPane(ids.p2)).waitForExistence(timeout: 30),
-            "the canvas never drew \(ids.p2)"
-        )
+        for (index, pane) in wanted.enumerated() {
+            XCTAssertTrue(
+                app.paddockElement(canvasPane(pane)).waitForExistence(timeout: index == 0 ? 60 : 30),
+                "the canvas never drew \(pane), so the drag below had nothing to grab"
+            )
+        }
         return app
     }
 
@@ -552,10 +577,15 @@ final class PaneDragTests: XCTestCase {
         // The thumbnail's handle strip, not its middle: the middle belongs to
         // a mini pane, which carries a drag gesture of its own.
         clickElement(app, gridTab(tabID), at: Self.thumbnailHandle)
-        assertEventually("the grid closes") {
-            !app.paddockElement(self.gridTab(tabID)).exists
+        // The grid's absence read together with the canvas's return, in one
+        // capture. On its own, "no thumbnail" is also true of the moment
+        // between the grid tearing down and the canvas drawing anything.
+        assertEventually("the grid closes and the canvas comes back") {
+            let drawn = app.paddockIdentifiers(prefix: "paddock.")
+            return !drawn.contains(self.gridTab(tabID))
+                && drawn.contains { $0.hasPrefix(Self.canvasPanePrefix) }
         } describing: {
-            "the grid is still covering the window, so the canvas cannot be read"
+            "the window is showing [\(app.paddockIdentifiers(prefix: "paddock.").joined(separator: ", "))]"
         }
     }
 
@@ -566,9 +596,9 @@ final class PaneDragTests: XCTestCase {
     ) {
         let wanted = Set(paneIDs.map { canvasPane($0) })
         assertEventually(what, file: file, line: line) {
-            Set(app.paddockIdentifiers(prefix: "paddock.canvas.pane.")) == wanted
+            Set(app.paddockIdentifiers(prefix: Self.canvasPanePrefix)) == wanted
         } describing: {
-            let seen = app.paddockIdentifiers(prefix: "paddock.canvas.pane.")
+            let seen = app.paddockIdentifiers(prefix: Self.canvasPanePrefix)
             return "the canvas holds [\(seen.joined(separator: ", "))], expected [\(wanted.sorted().joined(separator: ", "))]"
         }
     }
@@ -582,7 +612,7 @@ final class PaneDragTests: XCTestCase {
         file: StaticString = #filePath, line: UInt = #line
     ) {
         func boxes() -> (left: CGRect, right: CGRect)? {
-            let drawn = app.paddockBoxes(prefix: "paddock.canvas.pane.")
+            let drawn = app.paddockBoxes(prefix: Self.canvasPanePrefix)
             guard let left = drawn[canvasPane(leftPane)], let right = drawn[canvasPane(rightPane)] else { return nil }
             return (left, right)
         }

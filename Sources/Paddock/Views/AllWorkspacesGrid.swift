@@ -278,12 +278,13 @@ private struct WorkspaceCard: View {
         )
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
         .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
-        // A container, so the identifier below names the card and stops there.
-        // Undeclared, SwiftUI folds the whole card into its text leaves and
-        // stamps this identifier on every one of them, which both loses the
-        // card's own box and overwrites the identifier each thumbnail inside
-        // it carries.
+        // A container, not one combined element: a card really does hold the
+        // tab thumbnails, each of which is its own tile. Undeclared, SwiftUI
+        // folds the whole card into its text leaves and stamps this identifier
+        // on every one of them, which both loses the card's own box and
+        // overwrites the identifier each thumbnail carries.
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(workspace.label)
         .accessibilityIdentifier("paddock.grid.workspace.\(workspace.workspaceID.rawValue)")
     }
 
@@ -456,14 +457,23 @@ private struct TabThumbnail: View {
         // terminal somewhere else with nothing on screen having asked for it.
         .onTapGesture {
             guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-            viewModel.select(tab: tab.tabID)
-            drag.closeGrid()
-            Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
+            show()
         }
-        // A container, for the same reason the card above is one: a thumbnail
-        // folded into its mini panes' titles carries none of its own box, and
-        // a drop aimed at it is aimed at a label instead.
-        .accessibilityElement(children: .contain)
+        // One element, not a group of mini pane titles to step through: the
+        // thumbnail is a tile that selects its tab, and that is the whole of
+        // what it offers. Undeclared it would not be an element at all --
+        // SwiftUI folds a thumbnail into those titles and stamps the card's
+        // identifier on each of them, which loses the thumbnail's own box.
+        //
+        // This must stay ABOVE the `.frame(maxWidth: .infinity)` below it.
+        // Declared after that stretch, the element takes the stretched width
+        // and every point aimed at a thumbnail as a fraction of its box lands
+        // somewhere along the card instead, with nothing failing to build and
+        // no test naming the modifier that moved.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(tab.label)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { show() }
         .accessibilityIdentifier("paddock.grid.tab.\(tab.tabID.rawValue)")
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(drag.isDragging(tab: tab.tabID) ? DragVisuals.originOpacity : 1)
@@ -476,6 +486,15 @@ private struct TabThumbnail: View {
         // cannot touch. This is the strip's own shape (`TabBlock`).
         .offset(x: displacement.width, y: displacement.height)
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
+    }
+
+    /// What activating this thumbnail does, for the click and for the
+    /// accessibility action alike. Selected before the grid closes, so the
+    /// window never draws the previously selected tab in between.
+    private func show() {
+        viewModel.select(tab: tab.tabID)
+        drag.closeGrid()
+        Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
     }
 
     private var titleStrip: some View {

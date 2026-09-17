@@ -168,8 +168,12 @@ if [ "$#" -gt 0 ]; then only_testing=("$@"); fi
 # a signal sent to this script alone would sit unhandled for the length of the
 # test run. `wait` is interruptible, so the teardown runs when the signal
 # arrives whether or not the signal also reached xcodebuild.
+#
+# Parallelization is pinned off rather than left to its default: there is one
+# herdr session and one pointer, so two workers would reseed the layout out
+# from under each other's assertions and synthesize two gestures at once.
 xcodebuild -scheme Paddock -configuration Debug -skipPackagePluginValidation \
-  -destination 'platform=macOS' test "${only_testing[@]}" &
+  -destination 'platform=macOS' -parallel-testing-enabled NO test "${only_testing[@]}" &
 TEST_PID=$!
 set +e
 wait "$TEST_PID"

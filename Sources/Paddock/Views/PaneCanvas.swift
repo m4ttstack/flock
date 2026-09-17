@@ -84,9 +84,13 @@ struct PaneCanvas: View {
                             // back as the title's own frame: a few dozen points
                             // in the corner of a pane hundreds wide, which is
                             // the wrong place for everything that reads a
-                            // cell's geometry, and it swallows the title and
-                            // zoom badge underneath.
+                            // cell's geometry.
+                            //
+                            // `.contain` rather than `.combine`: the title and
+                            // the zoom badge inside carry identifiers of their
+                            // own, and combining would swallow both.
                             .accessibilityElement(children: .contain)
+                            .accessibilityLabel(pane.displayTitle)
                             .accessibilityIdentifier("paddock.canvas.pane.\(pane.paneID.rawValue)")
                         }
                     }
