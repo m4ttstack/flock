@@ -14,9 +14,11 @@ contract. Every request begins with the token this process generated:
     <token> herdr <json line>     forward to the session socket, return its reply
     <token> control restart-server
     <token> control reseed-session
+    <token> control seed-worktree-group
     <token> ping
 
-Control replies are {"ok": true} or {"error": {"message": ...}}.
+Control replies are {"ok": true} or {"error": {"message": ...}}. A verb whose
+helper produces ids carries them as {"ok": true, "result": {...}}.
 
 The token gates the port because `herdr` forwards arbitrary requests, and
 `workspace.create` with a cwd is a PTY running a shell: an untokened listener
@@ -49,11 +51,12 @@ CONNECTION_TIMEOUT_SECONDS = 10
 
 
 class Bridge:
-    def __init__(self, socket_path, lib_dir, session_name, herdr_bin, token):
+    def __init__(self, socket_path, lib_dir, session_name, herdr_bin, work_dir, token):
         self.socket_path = socket_path
         self.lib_dir = lib_dir
         self.session_name = session_name
         self.herdr_bin = herdr_bin
+        self.work_dir = work_dir
         # Compared as bytes: compare_digest raises TypeError on a str holding
         # any non-ASCII character, which a caller controls outright.
         self.token_bytes = token.encode("ascii")
@@ -101,6 +104,10 @@ class Bridge:
             return self.run_helper("scratch-session.sh", ["restart", self.session_name])
         if verb == "reseed-session":
             return self.reseed()
+        if verb == "seed-worktree-group":
+            return self.run_helper(
+                "seed-worktree-group.sh", [self.socket_path, self.work_dir], capture=True
+            )
         return json.dumps({"error": {"message": "unknown control verb: %s" % verb[:40]}})
 
     def reseed(self):
@@ -112,7 +119,7 @@ class Bridge:
             return started
         return self.run_helper("seed-layout.sh", [self.socket_path])
 
-    def run_helper(self, script, argv):
+    def run_helper(self, script, argv, capture=False):
         try:
             completed = subprocess.run(
                 ["/bin/bash", "%s/%s" % (self.lib_dir, script)] + argv,
@@ -125,7 +132,12 @@ class Bridge:
             return json.dumps({"error": {"message": "%s: %s" % (script, error)}})
         if completed.returncode != 0:
             return json.dumps({"error": {"message": "%s exit %d: %s" % (script, completed.returncode, completed.stderr.strip()[:300])}})
-        return json.dumps({"ok": True})
+        if not capture:
+            return json.dumps({"ok": True})
+        try:
+            return json.dumps({"ok": True, "result": json.loads(completed.stdout)})
+        except ValueError as error:
+            return json.dumps({"error": {"message": "%s printed no ids (%s): %s" % (script, error, completed.stdout.strip()[:300])}})
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -177,6 +189,7 @@ def main():
     parser.add_argument("--lib", required=True)
     parser.add_argument("--session", required=True)
     parser.add_argument("--herdr-bin", required=True)
+    parser.add_argument("--work-dir", required=True)
     parser.add_argument("--port-file", required=True)
     parser.add_argument("--parent-pid", required=True, type=int)
     args = parser.parse_args()
@@ -185,7 +198,7 @@ def main():
     # Loopback only: the sandbox grants the runner outbound TCP, and nothing
     # off this machine has any business reaching a session's herdr socket.
     server = Server(("127.0.0.1", 0), Handler)
-    server.bridge = Bridge(args.socket, args.lib, args.session, args.herdr_bin, token)
+    server.bridge = Bridge(args.socket, args.lib, args.session, args.herdr_bin, args.work_dir, token)
     port = server.server_address[1]
 
     handle = os.open(args.port_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

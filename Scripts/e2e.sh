@@ -28,7 +28,7 @@ BRIDGE_PID=""
 TEST_PID=""
 SESSION_STARTED=""
 
-for tool in jq nc python3 xcodegen xcodebuild; do
+for tool in git jq nc python3 xcodegen xcodebuild; do
   command -v "$tool" >/dev/null 2>&1 || { echo "e2e.sh: $tool is required" >&2; exit 1; }
 done
 
@@ -133,7 +133,7 @@ SEED_IDS=$("$LIB/seed-layout.sh" "$SOCKET" | jq -c .)
 # which is what keeps the seed ids stable across a reseed.
 python3 "$LIB/e2e-bridge.py" \
   --socket "$SOCKET" --lib "$LIB" --session "$SESSION_NAME" \
-  --herdr-bin "$herdr_bin" --port-file "$PORT_FILE" --parent-pid "$$" &
+  --herdr-bin "$herdr_bin" --work-dir "$WORK_DIR" --port-file "$PORT_FILE" --parent-pid "$$" &
 BRIDGE_PID=$!
 
 for _ in $(seq 1 100); do [ -s "$PORT_FILE" ] && break; sleep 0.1; done

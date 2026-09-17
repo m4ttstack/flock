@@ -165,6 +165,82 @@ final class HarnessTests: XCTestCase {
         return copy
     }
 
+    /// The seed behind the group-close case, checked here because the app
+    /// never makes a worktree: if herdr took the plain close, the dialog the
+    /// UI case is written against would never be asked for, and that case
+    /// would be testing nothing.
+    func testAWorktreeGroupIsSeededAndHerdrRefusesToCloseItsPrimaryAlone() throws {
+        let ids = session.seedIDs()
+        let group = try session.seedWorktreeGroup()
+
+        let seeded = try session.snapshot()
+        XCTAssertEqual(
+            seeded.orderedWorkspaceIDs(), [ids.ws, group.primary, group.linked],
+            "the group's two workspaces are not both in the session; \(seeded.outline())"
+        )
+        XCTAssertEqual(seeded.label(ofWorkspace: group.primary), "primary")
+
+        // herdr's own refusal, by its code: `SessionViewModel.closeWorkspace`
+        // reads exactly this one and raises the confirmation for it alone.
+        var refusal: String?
+        do {
+            try session.mutate(
+                #"{"id":"e2e-close","method":"workspace.close","params":{"workspace_id":"\#(group.primary)"}}"#
+            )
+        } catch {
+            refusal = "\(error)"
+        }
+        XCTAssertTrue(
+            refusal?.contains("workspace_group_close_required") == true,
+            "herdr took a plain close of a group primary, so the prompt has nothing to raise it: \(refusal ?? "no error at all")"
+        )
+        XCTAssertEqual(
+            try session.snapshot().workspaceCount, 3,
+            "the refused close still removed a workspace"
+        )
+
+        try session.mutate(
+            #"{"id":"e2e-group","method":"workspace.close","params":{"workspace_id":"\#(group.primary)","close_group":true}}"#
+        )
+        let closed = try session.snapshot(waitingFor: "the group to close") { $0.workspaceCount == 1 }
+        XCTAssertEqual(
+            closed.orderedWorkspaceIDs(), [ids.ws],
+            "an explicit group close must take both workspaces and nothing else; \(closed.outline())"
+        )
+    }
+
+    /// The read the typing case asserts through.
+    func testPaneTextReadsWhatAPaneHasOnScreen() throws {
+        let ids = session.seedIDs()
+        let marker = "paddock-e2e-harness-marker"
+        try session.mutate(
+            #"{"id":"e2e-text","method":"pane.send_text","params":{"pane_id":"\#(ids.p1)","text":"echo \#(marker)\n"}}"#
+        )
+        var seen = ""
+        try waitUntilForTest("\(ids.p1) to show \(marker)") {
+            seen = (try? session.paneText(ids.p1)) ?? ""
+            // Twice: the command line itself, and the line the shell echoed.
+            return seen.components(separatedBy: marker).count > 2
+        }
+        XCTAssertFalse(seen.isEmpty, "pane.read answered with nothing")
+        XCTAssertFalse(
+            try session.paneText(ids.p2).contains(marker),
+            "text sent to \(ids.p1) turned up in \(ids.p2) as well, so the read does not distinguish panes"
+        )
+    }
+
+    private func waitUntilForTest(
+        _ what: String, timeout: TimeInterval = 20, _ condition: () -> Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return }
+            usleep(200_000)
+        } while Date() < deadline
+        XCTFail("timed out after \(timeout)s waiting for \(what)", file: file, line: line)
+    }
+
     func testRestartServerBringsTheSessionBackAsItWas() throws {
         let ids = session.seedIDs()
         try session.mutate(

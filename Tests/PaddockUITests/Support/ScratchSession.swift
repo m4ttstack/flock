@@ -136,11 +136,43 @@ final class ScratchSession {
         _ = try request(requestLine)
     }
 
+    /// The visible screen of a pane, as herdr reads it out of the terminal --
+    /// the one ground truth for anything typed into the app, since a
+    /// terminal's own content is nowhere in the accessibility tree.
+    func paneText(_ paneID: String) throws -> String {
+        let response = try request(
+            #"{"id":"e2e-read","method":"pane.read","params":{"pane_id":"\#(paneID)","source":"visible"}}"#
+        )
+        // `result.read.text`: the screen is nested under a `pane_read` record
+        // of its own, beside the pane's ids and the revision it was read at.
+        guard let result = response["result"] as? [String: Any],
+              let read = result["read"] as? [String: Any],
+              let text = read["text"] as? String else {
+            throw ScratchSessionError("pane.read on \(paneID) carried no text: \(response)")
+        }
+        return text
+    }
+
     /// Stops only the server process and brings it back on the same session
     /// directory, so the state it was holding is what it comes back to.
     func restartServer() throws {
         try control("restart-server")
         try awaitLiveServer()
+    }
+
+    /// A workspace on a throwaway git repo plus the linked-worktree workspace
+    /// that makes the two a group herdr refuses to close one at a time. Both
+    /// the repo and the checkout live in the wrapper's own work directory,
+    /// which it removes with the run.
+    ///
+    /// The ids are returned rather than assumed: they follow whatever the
+    /// session already holds, unlike the seed's, which a reseed makes stable.
+    func seedWorktreeGroup() throws -> (primary: String, linked: String) {
+        let result = try controlResult("seed-worktree-group")
+        guard let primary = result["primary"] as? String, let linked = result["linked"] as? String else {
+            throw ScratchSessionError("seed-worktree-group carried no workspace ids: \(result)")
+        }
+        return (primary, linked)
     }
 
     /// Destroys the session and rebuilds it from `seed-layout.sh`, which is
@@ -177,7 +209,8 @@ final class ScratchSession {
         return response
     }
 
-    private func control(_ verb: String) throws {
+    @discardableResult
+    private func control(_ verb: String) throws -> [String: Any] {
         let reply = try bridge("control " + verb)
         guard let data = reply.data(using: .utf8),
               let response = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -186,6 +219,16 @@ final class ScratchSession {
         if let error = response["error"] {
             throw ScratchSessionError("the bridge could not \(verb): \(error)")
         }
+        return response
+    }
+
+    /// A control verb whose helper produces ids rather than only an outcome.
+    private func controlResult(_ verb: String) throws -> [String: Any] {
+        let response = try control(verb)
+        guard let result = response["result"] as? [String: Any] else {
+            throw ScratchSessionError("\(verb) answered without a result: \(response)")
+        }
+        return result
     }
 
     /// A control verb takes the server down and brings it back, so the session

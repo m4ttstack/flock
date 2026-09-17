@@ -123,6 +123,37 @@ extension XCUIApplication {
         walk(tree)
         return found
     }
+
+    /// Every piece of text the element carrying `identifier` draws, its own
+    /// and its descendants', from the same single capture everything else is
+    /// read from.
+    ///
+    /// A container's text belongs to its children (that is what declaring one
+    /// means), and which child holds a given word is SwiftUI's to decide, so
+    /// what a chrome item shows is asked of its whole subtree rather than of
+    /// one node. An empty array is "the window is not drawing that item",
+    /// which a poll treats as not-yet.
+    func paddockText(in identifier: String) -> [String] {
+        guard let tree = try? snapshot() else { return [] }
+        func find(_ node: XCUIElementSnapshot) -> XCUIElementSnapshot? {
+            if node.identifier == identifier { return node }
+            for child in node.children {
+                if let hit = find(child) { return hit }
+            }
+            return nil
+        }
+        guard let item = find(tree) else { return [] }
+        var text: [String] = []
+        func collect(_ node: XCUIElementSnapshot) {
+            if !node.label.isEmpty { text.append(node.label) }
+            if let value = node.value as? String, !value.isEmpty { text.append(value) }
+            for child in node.children {
+                collect(child)
+            }
+        }
+        collect(item)
+        return text
+    }
 }
 
 /// Presses the source element and drags it onto the target.
@@ -175,11 +206,45 @@ func dragElement(
 /// ends. A plain `XCUIElement.click()` always takes the middle, which is the
 /// wrong place whenever the middle belongs to a subview with a gesture of its
 /// own.
+///
+/// `modifiers` is held for the length of the click alone: the rail reads the
+/// Command state off `NSEvent.modifierFlags` when its tap fires, so a
+/// Cmd+click has to arrive as a click with the key actually down rather than
+/// as a keystroke beside one.
 @MainActor
-func clickElement(_ app: XCUIApplication, _ identifier: String, at aim: Aim = .middle) {
+func clickElement(
+    _ app: XCUIApplication, _ identifier: String, at aim: Aim = .middle,
+    holding modifiers: XCUIElement.KeyModifierFlags = []
+) {
     let element = app.paddockElement(identifier)
     XCTAssertTrue(element.exists, "nothing on screen carries \(identifier), so this click had nothing to hit")
-    element.coordinate(withNormalizedOffset: .zero).withOffset(offset(aim, in: element.frame)).click()
+    let point = element.coordinate(withNormalizedOffset: .zero).withOffset(offset(aim, in: element.frame))
+    guard !modifiers.isEmpty else {
+        point.click()
+        return
+    }
+    XCUIElement.perform(withKeyModifiers: modifiers) { point.click() }
+}
+
+/// Right-clicks a point inside an element, for the pane menu. A pane that is
+/// not the focused one always answers a right-click with the menu, whatever
+/// its program has asked for (`RightClickDisposition.decide`), which is why
+/// every menu case here opens it on an unfocused pane.
+@MainActor
+func rightClickElement(_ app: XCUIApplication, _ identifier: String, at aim: Aim = .middle) {
+    let element = app.paddockElement(identifier)
+    XCTAssertTrue(element.exists, "nothing on screen carries \(identifier), so this right-click had nothing to hit")
+    element.coordinate(withNormalizedOffset: .zero).withOffset(offset(aim, in: element.frame)).rightClick()
+}
+
+/// Moves the pointer onto an element and leaves it there, which is how a
+/// hover-revealed control is made real: it is laid out either way, but it
+/// takes no hit until the row under the pointer says it is revealed.
+@MainActor
+func hoverElement(_ app: XCUIApplication, _ identifier: String, at aim: Aim = .middle) {
+    let element = app.paddockElement(identifier)
+    XCTAssertTrue(element.exists, "nothing on screen carries \(identifier), so there was nothing to hover")
+    element.coordinate(withNormalizedOffset: .zero).withOffset(offset(aim, in: element.frame)).hover()
 }
 
 private func offset(_ aim: Aim, in frame: CGRect) -> CGVector {

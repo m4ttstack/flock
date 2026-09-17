@@ -51,6 +51,17 @@ struct HerdrSnapshotJSON {
         tabs.first { $0["tab_id"] as? String == tabID }?["label"] as? String
     }
 
+    func label(ofWorkspace workspaceID: String) -> String? {
+        workspaces.first { $0["workspace_id"] as? String == workspaceID }?["label"] as? String
+    }
+
+    /// The pane the tab's own layout calls focused, which is not the session's
+    /// focused pane: the zoom badge is drawn on this one, and a tab nobody is
+    /// looking at still has one.
+    func focusedPaneID(inTab tabID: String) -> String? {
+        layout(ofTab: tabID)?["focused_pane_id"] as? String
+    }
+
     func paneIDs(inTab tabID: String) -> [String] {
         panes.filter { $0["tab_id"] as? String == tabID }
             .compactMap { $0["pane_id"] as? String }
