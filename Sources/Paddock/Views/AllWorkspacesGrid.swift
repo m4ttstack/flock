@@ -282,9 +282,9 @@ private struct WorkspaceCard: View {
         // tab thumbnails, each of which is its own tile. Undeclared, SwiftUI
         // folds the whole card into its text leaves and stamps this identifier
         // on every one of them, which both loses the card's own box and
-        // overwrites the identifier each thumbnail carries.
+        // overwrites the identifier each thumbnail carries. Left unnamed for
+        // the same reason the pane cell is.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(workspace.label)
         .accessibilityIdentifier("paddock.grid.workspace.\(workspace.workspaceID.rawValue)")
     }
 

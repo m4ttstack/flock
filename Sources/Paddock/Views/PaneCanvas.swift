@@ -88,9 +88,13 @@ struct PaneCanvas: View {
                             //
                             // `.contain` rather than `.combine`: the title and
                             // the zoom badge inside carry identifiers of their
-                            // own, and combining would swallow both.
+                            // own, and combining would swallow both. The
+                            // container is left unnamed for now; a label on it
+                            // is a reader's improvement, but it is also the
+                            // one thing that could fold the children back in,
+                            // and their being separately addressable is what
+                            // the zoom badge is read through.
                             .accessibilityElement(children: .contain)
-                            .accessibilityLabel(pane.displayTitle)
                             .accessibilityIdentifier("paddock.canvas.pane.\(pane.paneID.rawValue)")
                         }
                     }
