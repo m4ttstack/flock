@@ -148,15 +148,16 @@ extension XCUIApplication {
     /// one node. An empty array is "the window is not drawing that item",
     /// which a poll treats as not-yet.
     func paddockText(in identifier: String) -> [String] {
+        paddockText(inAnyOf: [identifier])
+    }
+
+    /// The same, for several items at once, out of ONE capture. A poll that
+    /// watches two places costs what a poll that watches one costs; taking a
+    /// tree per identifier would double what the window is asked for on every
+    /// iteration of a twenty-second wait.
+    func paddockText(inAnyOf identifiers: [String]) -> [String] {
         guard let tree = try? snapshot() else { return [] }
-        func find(_ node: XCUIElementSnapshot) -> XCUIElementSnapshot? {
-            if node.identifier == identifier { return node }
-            for child in node.children {
-                if let hit = find(child) { return hit }
-            }
-            return nil
-        }
-        guard let item = find(tree) else { return [] }
+        let wanted = Set(identifiers)
         var text: [String] = []
         func collect(_ node: XCUIElementSnapshot) {
             if !node.label.isEmpty { text.append(node.label) }
@@ -165,7 +166,16 @@ extension XCUIApplication {
                 collect(child)
             }
         }
-        collect(item)
+        func walk(_ node: XCUIElementSnapshot) {
+            if wanted.contains(node.identifier) {
+                collect(node)
+                return
+            }
+            for child in node.children {
+                walk(child)
+            }
+        }
+        walk(tree)
         return text
     }
 }

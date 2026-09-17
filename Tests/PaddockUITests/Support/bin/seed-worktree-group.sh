@@ -28,12 +28,18 @@ field() {
   printf '%s' "$value"
 }
 
+# The helper runs with Matt's own HOME, so an unisolated git would read his
+# global config: `core.hooksPath` would run HIS hooks inside a UI test, and
+# `commit.gpgsign` would park the commit behind a pinentry prompt with this
+# helper's 45s timeout as the only bound. Both files are read as empty
+# instead, which leaves identity to the flags below.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+
 mkdir -p "$repo"
 git -C "$repo" init -q -b main
 printf 'seed\n' > "$repo/README.md"
-# Identity on the command line, never written into the repo's config or
-# read from Matt's: a commit is only needed so the checkout below has a
-# HEAD to branch from.
+# Identity on the command line, never written into the repo's config: a
+# commit is only needed so the checkout below has a HEAD to branch from.
 git -C "$repo" -c user.email=e2e@paddock.invalid -c user.name=paddock-e2e add README.md
 git -C "$repo" -c user.email=e2e@paddock.invalid -c user.name=paddock-e2e commit -q -m "seed"
 

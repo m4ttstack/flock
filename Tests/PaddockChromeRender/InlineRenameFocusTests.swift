@@ -85,6 +85,72 @@ final class InlineRenameFocusTests: XCTestCase {
         window.close()
     }
 
+    // MARK: - What a torn-down editor does with what was typed in it
+
+    private struct TeardownProbe: View {
+        let editing: Bool
+        let onCommit: (String) -> Void
+        let onCancel: () -> Void
+
+        var body: some View {
+            VStack(spacing: 0) {
+                Color.clear.frame(width: 200, height: 100)
+                if editing {
+                    InlineRenameField(
+                        theme: Theme.builtins[0], font: .body, initialText: "tabB",
+                        accessibilityIdentifier: "probe.rename", onCommit: onCommit, onCancel: onCancel
+                    )
+                    .frame(width: 200, height: 24)
+                }
+            }
+            .frame(width: 200, height: 160)
+        }
+    }
+
+    /// An editor is destroyed without the user dismissing it whenever the tab
+    /// or workspace it was opened on stops being drawn -- a toast jump, a
+    /// click on another rail row, a `workspace.focus` from herdr itself. What
+    /// it does with the half-typed name it was holding decides whether that
+    /// is a silent rename or a silently dropped edit, and neither is
+    /// something a caller should have to guess at.
+    func testAnEditorTornDownWithoutBeingDismissed() async throws {
+        var committed: [String] = []
+        var cancelled = 0
+        let hosting = NSHostingView(rootView: TeardownProbe(
+            editing: false, onCommit: { committed.append($0) }, onCancel: { cancelled += 1 }
+        ))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 160),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        await settle(window)
+
+        hosting.rootView = TeardownProbe(
+            editing: true, onCommit: { committed.append($0) }, onCancel: { cancelled += 1 }
+        )
+        await settle(window)
+        XCTAssertTrue(window.firstResponder is NSTextView, "the editor never took the keyboard, so this measures nothing")
+
+        hosting.rootView = TeardownProbe(
+            editing: false, onCommit: { committed.append($0) }, onCancel: { cancelled += 1 }
+        )
+        await settle(window)
+
+        // Recorded rather than asserted either way: this is the measurement
+        // the visibility rule was written against, and its answer is what
+        // says whether a torn-down editor renames anything behind the user's
+        // back. It commits nothing and cancels nothing: the edit is dropped
+        // where it stands, which is why the stale target below had to be the
+        // thing that got fixed.
+        XCTAssertEqual(committed, [], "a torn-down editor committed a name the user never finished")
+        XCTAssertEqual(cancelled, 0, "a torn-down editor reported a cancel nobody asked for")
+
+        window.close()
+    }
+
     // MARK: - The claim itself
 
     /// A field with the claim behind it and NO SwiftUI focus of its own, so

@@ -730,7 +730,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         case .claim:
             requestWindowFirstResponder()
         case .standDown:
-            window.makeFirstResponder(nil)
+            // Checked, not discarded: a refused stand-down leaves this view
+            // holding the keyboard with an editor open over it, which is the
+            // defect this whole path exists to end, and it would otherwise
+            // retry every pass and read exactly like never having run at all.
+            // Debug-only, and the e2e runs Debug: nothing here can refuse in
+            // practice, since a window always accepts becoming its own first
+            // responder and this view's own `resignFirstResponder` never says
+            // no.
+            if !window.makeFirstResponder(nil) {
+                assertionFailure("a window refused to take back first responder from a pane with an editor open")
+            }
         case .leaveAlone:
             break
         }

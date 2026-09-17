@@ -302,6 +302,56 @@ final class ArrangeAndConvergeTests: XCTestCase {
         assertShows(app, "tabB", in: stripTab(ids.tabB), "the strip is not drawing the name the cancel kept")
     }
 
+    /// A click into the focused pane's body is the other way out of an open
+    /// editor, and the one path the focus rules deliberately leave alone: the
+    /// terminal takes first responder directly, the field commits what it
+    /// holds as it loses focus, and the keyboard stays where the click put it.
+    ///
+    /// The last part is not decoration. The editor's own claim re-asks on
+    /// every pass it is given, so a render landing between the click and
+    /// `commitRename` clearing the target could take the keyboard straight
+    /// back off the pane the user just clicked, and nothing but a keystroke
+    /// afterwards can tell.
+    @MainActor
+    func testClickingTheFocusedPaneCommitsTheOpenEditorAndKeepsTheKeyboard() throws {
+        let ids = session.seedIDs()
+        let seeded = try session.snapshot()
+        XCTAssertEqual(seeded.focusedPaneID, ids.p1, "this case clicks the focused pane; \(seeded.outline())")
+        let app = try launchOnSeed()
+
+        doubleClickElement(app, stripTab(ids.tabB))
+        waitForEditor(app, "paddock.strip.rename.\(ids.tabB)", on: stripTab(ids.tabB))
+        app.typeText("clicked-away")
+
+        // The focused pane, not its sibling: an UNFOCUSED pane's body click
+        // only asks herdr to move focus (`GhosttySurfaceView.mouseDown`), and
+        // takes no first responder to dismiss anything with.
+        clickElement(app, canvasPane(ids.p1), at: .middle)
+
+        let after = try snapshot(app, waitingFor: "the click to commit the open edit", showing: ids.p1) {
+            $0.label(ofTab: ids.tabB) == "clicked-away"
+        }
+        XCTAssertEqual(
+            after.focusedPaneID, ids.p1,
+            "the click moved herdr's focus off the pane it landed in; \(after.outline())"
+        )
+        assertEventually("the editor closes when the click commits it") {
+            !app.paddockElement("paddock.strip.rename.\(ids.tabB)").exists
+        } describing: {
+            "the rename editor for \(ids.tabB) is still open after a click into a pane"
+        }
+
+        let marker = "paddock-e2e-\(UUID().uuidString.prefix(8))"
+        app.typeText("echo \(marker)\n")
+        var typed = ""
+        assertEventually("\(ids.p1) takes the keystrokes after the click that dismissed the editor", timeout: 30) {
+            typed = (try? self.session.paneText(ids.p1)) ?? ""
+            return typed.components(separatedBy: marker).count > 2
+        } describing: {
+            "the keyboard is neither on \(ids.p1) nor anywhere that shows. \(ids.p1) holds:\n\(typed)"
+        }
+    }
+
     /// The hover-revealed close on a tab and on a rail row. Neither is
     /// laid out into existence by the hover -- both are always there -- but
     /// neither takes a click until the row under the pointer reveals it,
@@ -448,7 +498,7 @@ final class ArrangeAndConvergeTests: XCTestCase {
         let ids = session.seedIDs()
         let app = try launchOnSeed()
         assertCanvasHolds(app, [ids.p1, ids.p2], "the seeded tab draws both its panes")
-        let tiled = app.paddockBoxes(prefix: "paddock.canvas.pane.")
+        let tiled = settledCanvasBoxes(app, panes: [ids.p1, ids.p2], "the seeded canvas settles on its boxes")
         let left = try XCTUnwrap(tiled[canvasPane(ids.p1)], "the canvas is not drawing \(ids.p1)")
         let right = try XCTUnwrap(tiled[canvasPane(ids.p2)], "the canvas is not drawing \(ids.p2)")
         // Both boxes are inset from their own layout frame by the same gutter
@@ -571,7 +621,6 @@ final class ArrangeAndConvergeTests: XCTestCase {
             try session.paneText(ids.p1).contains(marker),
             "the keystrokes reached \(ids.p1) as well, so they went to the window rather than to the focused pane"
         )
-        assertCanvasHolds(app, [ids.p1, ids.p2], "after typing into \(ids.p2)")
     }
 
     /// A pane that goes blocked in a workspace nobody is looking at raises a
@@ -670,10 +719,17 @@ final class ArrangeAndConvergeTests: XCTestCase {
 
     /// Two changes made behind the app's back, with no interaction at all:
     /// the window has to show both.
+    ///
+    /// The one case in this suite that the event stream alone can pass. The
+    /// wrapper gives every other case a two-second re-snapshot, under which a
+    /// window whose subscription was entirely dead would still catch up by
+    /// polling and every wait here would still be satisfied; this one pushes
+    /// that backstop past any wait it can make, so what arrives can only have
+    /// arrived as an event.
     @MainActor
     func testARenameAndASplitMadeElsewhereBothAppear() throws {
         let ids = session.seedIDs()
-        let app = try launchOnSeed()
+        let app = try launchOnSeed(env: ["PADDOCK_RESNAPSHOT_SECONDS": Self.noResnapshotWithin])
 
         try session.mutate(
             #"{"id":"e2e-rename","method":"tab.rename","params":{"tab_id":"\#(ids.tabA)","label":"elsewhere"}}"#
@@ -701,7 +757,10 @@ final class ArrangeAndConvergeTests: XCTestCase {
     /// is still answering: it does NOT distinguish the two ways it can get
     /// there, since nothing in `HerdrStore` reports a gap -- the events are
     /// applied one by one, and the periodic re-snapshot replaces the model
-    /// whether or not any were dropped.
+    /// whether or not any were dropped. The wait is wider than the wrapper's
+    /// own two-second re-snapshot for that reason, so this is a convergence
+    /// claim and not a delivery one; the brief's five seconds would have read
+    /// as the latter.
     @MainActor
     func testAThousandRenamesLeaveTheWindowOnTheLastLabel() throws {
         let ids = session.seedIDs()
@@ -729,6 +788,11 @@ final class ArrangeAndConvergeTests: XCTestCase {
     /// app has to return to live, which is asserted by a change made AFTER
     /// the restart: what it was already drawing would still be on screen if
     /// it had never reconnected at all.
+    ///
+    /// Re-subscribed is more than this can say. A reconnected socket carries
+    /// the wrapper's own two-second re-snapshot as well as the event stream,
+    /// and either draws the new tab, so what is proven is that the app
+    /// reconnected -- not which of the two told it.
     @MainActor
     func testTheAppComesBackAfterTheServerRestarts() throws {
         let ids = session.seedIDs()
@@ -829,10 +893,9 @@ final class ArrangeAndConvergeTests: XCTestCase {
             let current = try session.snapshot()
             latest = current
             if condition(current) { return current }
-            for kind in ["info", "notice"] {
-                for line in app.paddockText(in: "paddock.toast.\(kind)") where !notices.contains(line) {
-                    notices.append(line)
-                }
+            for line in app.paddockText(inAnyOf: ["paddock.toast.info", "paddock.toast.notice"])
+            where !notices.contains(line) {
+                notices.append(line)
             }
             usleep(200_000)
         } while Date() < deadline
@@ -888,8 +951,12 @@ final class ArrangeAndConvergeTests: XCTestCase {
         )
     }
 
+    /// Longer than any case can run, for the one case that must not be able
+    /// to pass on the re-snapshot backstop the wrapper gives every other.
+    private static let noResnapshotWithin = "600"
+
     @MainActor
-    private func launchOnSeed() throws -> XCUIApplication {
+    private func launchOnSeed(env: [String: String] = [:]) throws -> XCUIApplication {
         let ids = session.seedIDs()
         // Registered before the launch that needs it, and capturing nothing:
         // an assertion failure under `continueAfterFailure = false` unwinds
@@ -897,7 +964,7 @@ final class ArrangeAndConvergeTests: XCTestCase {
         // and an app left attached to a session the wrapper is about to stop
         // outlives the whole run.
         addTeardownBlock { await MainActor.run { XCUIApplication().terminate() } }
-        let app = XCUIApplication.paddock(socket: session.socketPath)
+        let app = XCUIApplication.paddock(socket: session.socketPath, env: env)
         XCTAssertTrue(
             app.paddockElement(canvasPane(ids.p1)).waitForExistence(timeout: 60),
             "the canvas never drew \(ids.p1), so this case had nothing to work on"
@@ -1028,6 +1095,42 @@ final class ArrangeAndConvergeTests: XCTestCase {
             let seen = app.paddockIdentifiers(prefix: "paddock.canvas.pane.")
             return "the canvas holds [\(seen.joined(separator: ", "))], expected [\(wanted.sorted().joined(separator: ", "))]"
         }
+    }
+
+    /// The canvas's pane boxes once two consecutive reads agree on every pane
+    /// named, each drawn and non-empty.
+    ///
+    /// A cell's identifier appears as soon as the cell exists, which is one or
+    /// more layout passes before the window has finished sizing it, so a
+    /// baseline taken from a single read right after the identifiers arrive can
+    /// be short by whatever the last pass moved. Every comparison made against
+    /// that baseline later inherits the error, and at a 1pt tolerance the
+    /// failure reads as a zoom that put a pane in the wrong place.
+    @MainActor
+    private func settledCanvasBoxes(
+        _ app: XCUIApplication, panes paneIDs: [String], _ what: String,
+        timeout: TimeInterval = 20, file: StaticString = #filePath, line: UInt = #line
+    ) -> [String: CGRect] {
+        let wanted = paneIDs.map { canvasPane($0) }
+        let deadline = Date().addingTimeInterval(timeout)
+        var previous: [String: CGRect] = [:]
+        var current: [String: CGRect] = [:]
+        repeat {
+            current = app.paddockBoxes(prefix: "paddock.canvas.pane.")
+            let drawn = wanted.compactMap { current[$0] }
+            if drawn.count == wanted.count, drawn.allSatisfy({ !$0.isEmpty }),
+               wanted.allSatisfy({ previous[$0] == current[$0] }) {
+                return current
+            }
+            previous = current
+            usleep(200_000)
+        } while Date() < deadline
+        XCTFail(
+            "\(what): the canvas never held \(wanted.joined(separator: ", ")) still for two reads. "
+                + "The last read was [\(current.map { "\($0.key) \($0.value)" }.sorted().joined(separator: ", "))]",
+            file: file, line: line
+        )
+        return current
     }
 
     /// A pane's drawn box, polled: a canvas that has just been told to redraw

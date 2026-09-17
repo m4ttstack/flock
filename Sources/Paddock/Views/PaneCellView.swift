@@ -100,7 +100,11 @@ struct PaneCellView: View {
         // decides whether this cell's surface hears about an editor at all
         // (`editorIsOpen`), and whether it takes the keyboard back when one
         // closes.
-        let editorIsOpen = viewModel.renameTarget != nil
+        //
+        // On SCREEN, not merely open: a target outlives its view whenever
+        // herdr's focus moves to another workspace or tab, and yielding to a
+        // view nobody draws would leave the keyboard with nobody at all.
+        let editorIsOpen = viewModel.renameEditorIsOnScreen
         return cell(editorIsOpen: editorIsOpen)
             // The origin stays put and fades while its ghost is out, so the
             // drop target is read against the layout the drag started from.

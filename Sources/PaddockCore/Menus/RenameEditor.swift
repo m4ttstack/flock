@@ -32,6 +32,37 @@ public enum RenameTarget: Hashable, Sendable {
 /// a target the model no longer carries. Cancel has no rule of its own: the
 /// view discards the text and nothing is issued.
 public enum RenameEditor {
+    /// Whether the editor for `target` is a thing the window is actually
+    /// drawing, which is NOT the same question as whether `target` exists.
+    ///
+    /// The window draws one workspace's tabs and one tab's panes, so a rename
+    /// opened on a tab of another workspace, or a pane of another tab, has no
+    /// view at all -- herdr moving its own focus is enough to take it away,
+    /// with nothing the user did. The target survives that (it names something
+    /// the model still carries, which is all `RenameTarget.exists` asks), and
+    /// an editor that is gone from the screen must not go on being treated as
+    /// one competing for the keyboard: the pane that yielded to it would yield
+    /// to nothing, forever, and the window would hold no first responder at
+    /// all.
+    ///
+    /// The rail draws every workspace there is, so a workspace's own editor is
+    /// on screen for as long as its target exists.
+    public static func isOnScreen(
+        _ target: RenameTarget?, selectedWorkspace: WorkspaceID?, selectedTab: TabID?, model: SessionModel?
+    ) -> Bool {
+        guard let target, let model, target.exists(in: model) else { return false }
+        switch target {
+        case .pane(let pane):
+            guard let selectedTab else { return false }
+            return model.panes[pane]?.tabID == selectedTab
+        case .tab(let tab):
+            guard let selectedWorkspace else { return false }
+            return tabRecord(tab, model: model)?.workspaceID == selectedWorkspace
+        case .workspace:
+            return true
+        }
+    }
+
     /// The text the editor opens with -- a pane's MANUAL label only (empty
     /// when it has none, matching herdr's own pane-rename overlay, which
     /// never seeds the terminal title), and a tab's or workspace's own label.

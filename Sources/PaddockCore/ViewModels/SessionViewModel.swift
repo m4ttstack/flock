@@ -898,6 +898,18 @@ public final class SessionViewModel {
     /// it names them, so a press inside the field can never start a drag.
     public private(set) var renameTarget: RenameTarget?
 
+    /// Whether an inline editor is on screen right now, which is what decides
+    /// whether a pane's terminal may hold the keyboard. Deliberately not
+    /// `renameTarget != nil`: a target outlives its view whenever herdr's
+    /// focus moves to another workspace or tab, and a terminal that yielded to
+    /// a view nobody is drawing would leave the window with no first responder
+    /// at all (`RenameEditor.isOnScreen`).
+    public var renameEditorIsOnScreen: Bool {
+        RenameEditor.isOnScreen(
+            renameTarget, selectedWorkspace: selectedWorkspaceID, selectedTab: selectedTabID, model: model
+        )
+    }
+
     /// The workspace whose plain `workspace.close` came back
     /// `workspace_group_close_required`, held while the confirmation is up.
     /// `confirmGroupClose(_:)` re-asks with `closeGroup: true`. It carries the
