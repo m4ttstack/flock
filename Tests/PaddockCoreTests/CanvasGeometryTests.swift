@@ -266,10 +266,11 @@ final class CanvasGeometryTests: XCTestCase {
         XCTAssertTrue(geometry.dividers.isEmpty)
     }
 
-    /// Surfaces that deliberately show a tab's whole arrangement -- the All
-    /// Workspaces thumbnails, and the drop preview of where a pane lands once
-    /// the drop's own auto-unzoom has run -- pass no composition and must keep
-    /// every pane.
+    /// The All Workspaces thumbnails pass no composition, and their frames are
+    /// the grid's own drop geometry (`MiniPaneLayout.Placed`). A drop there
+    /// auto-unzooms the destination tab, so the tiled frames are the frames the
+    /// drop lands in; collapsing a zoomed tab's thumbnail to one pane would
+    /// take every other pane's drop target off the grid.
     func testTheDefaultCompositionStillTilesAZoomedTabsPanes() throws {
         let layout = try zoomedTwoPaneLayout(focused: PaneID(rawValue: "w1:p2"))
         let size = CGSize(width: 600, height: 300)

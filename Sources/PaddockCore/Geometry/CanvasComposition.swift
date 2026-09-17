@@ -4,9 +4,9 @@
 /// herdr's zoom is a view state, not a layout one, and the two halves of its
 /// API disagree about it on purpose. `pane.layout` keeps listing every pane of
 /// a zoomed tab at its unzoomed split rect, splits included, with only
-/// `zoomed` to say otherwise (verified against a live herdr 0.9.0, and
-/// `pane_layout_snapshot` in `herdr/src/app/api/panes.rs` never consults
-/// `tab.zoomed`). herdr's own renderer takes a different branch entirely:
+/// `zoomed` to say otherwise: `pane_layout_snapshot`
+/// (`herdr/src/app/api/panes.rs`) never consults `tab.zoomed`. herdr's own
+/// renderer takes a different branch entirely:
 /// `compute_pane_infos_for_tab` and `resize_tab_panes`
 /// (`herdr/src/ui/panes.rs`) return exactly one pane, `tab.layout.focused()`,
 /// over the whole tab area, and resize only that pane's runtime. paddock

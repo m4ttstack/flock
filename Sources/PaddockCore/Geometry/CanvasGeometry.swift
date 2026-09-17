@@ -229,14 +229,18 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// that refetch lands.
     ///
     /// `composition` is the caller's own answer to what this surface draws
-    /// (`CanvasComposition.of(layout:)`), defaulted to `.tiled` so a surface
-    /// that deliberately shows a tab's whole arrangement -- the All Workspaces
-    /// thumbnails, a drop preview of where a pane would land once the drop's
-    /// own auto-unzoom has run -- keeps doing so by saying nothing. A
-    /// `.zoomed` composition yields ONE frame, the tab's whole area, and no
-    /// dividers: every other pane is absent from `paneFrames` entirely, which
-    /// is what keeps drop hit-testing and the divider layer from resolving
-    /// against panes this canvas is not showing.
+    /// (`CanvasComposition.of(layout:)`). A `.zoomed` composition yields ONE
+    /// frame, the tab's whole area, and no dividers: every other pane is absent
+    /// from `paneFrames` entirely, which is what keeps drop hit-testing and the
+    /// divider layer from resolving against panes this canvas is not showing.
+    ///
+    /// The default is `.tiled` for the All Workspaces thumbnails, whose frames
+    /// are not only a picture: `MiniPaneLayout.Placed` is also the grid's drop
+    /// geometry, and a drop auto-unzooms its destination tab
+    /// (`GesturePlanner.unzoomList`), so the tiled frames ARE the frames a drop
+    /// there lands in. A thumbnail of a zoomed tab therefore shows the tab's
+    /// panes tiled while its canvas shows one, which is deliberate and leaves
+    /// the grid with nothing that says the tab is zoomed at all.
     public static func resolved(
         layout: LayoutSnapshot,
         exported: ExportedLayoutDescription?,

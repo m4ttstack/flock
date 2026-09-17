@@ -54,4 +54,23 @@ final class CanvasCompositionTests: XCTestCase {
 
         XCTAssertEqual(CanvasComposition.of(layout: layout(zoomed: true, focused: foreign)), .tiled)
     }
+
+    /// herdr never holds this state itself (it refuses to zoom a one-pane tab,
+    /// and `detach_pane` clears `zoomed` on every close), but paddock's model
+    /// passes through it: closing a pane of a zoomed tab reaches the window as
+    /// `pane.closed` first, and that reducer prunes the layout's pane list
+    /// without touching `zoomed`, so for one round trip the tab reads as zoomed
+    /// with one pane left. It holds that pane open, which is the same single
+    /// box tiling it would draw, rather than flipping the canvas twice.
+    func testAZoomedTabLeftWithOnePaneHoldsThatPaneOpen() {
+        let area = CellRect(x: 0, y: 0, width: 20, height: 10)
+        let survivor = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"), zoomed: true, area: area,
+            focusedPaneID: p1,
+            panes: [PaneRect(paneID: p1, focused: true, rect: area)],
+            splits: []
+        )
+
+        XCTAssertEqual(CanvasComposition.of(layout: survivor), .zoomed(p1))
+    }
 }

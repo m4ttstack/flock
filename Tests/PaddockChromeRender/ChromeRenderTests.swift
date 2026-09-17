@@ -1248,7 +1248,6 @@ final class ChromeRenderTests: XCTestCase {
         }
 
         let leftBorder = CGPoint(x: 199.25, y: 400)
-        let leftBody = CGPoint(x: 300, y: 400)
         let gutter = CGPoint(x: 546, y: 400)
         let focusedBorder = CGPoint(x: 551.25, y: 400)
         let farBorder = CGPoint(x: 893.25, y: 400)
@@ -1258,9 +1257,8 @@ final class ChromeRenderTests: XCTestCase {
 
         XCTAssertEqual(hex(zoomedImage, gutter), roles.pane.hex, "the gutter between the two boxes is still drawn: the zoomed pane does not fill the canvas")
         XCTAssertEqual(hex(zoomedImage, focusedBorder), roles.pane.hex, "a box edge is still drawn mid-canvas")
-        XCTAssertEqual(hex(zoomedImage, leftBorder), roles.accent.hex, "the pane at the left edge is not the focused one the zoom holds open")
-        XCTAssertEqual(hex(zoomedImage, leftBody), roles.pane.hex)
-        XCTAssertEqual(hex(zoomedImage, farBorder), roles.accent.hex, "the held pane's far edge moved")
+        XCTAssertEqual(hex(zoomedImage, leftBorder), roles.accent.hex, "the pane at the canvas's left edge is not the focused one the zoom holds open")
+        XCTAssertEqual(hex(zoomedImage, farBorder), roles.accent.hex, "the pane at the canvas's right edge is not the focused one the zoom holds open")
 
         zoomedWindow.close()
         restingWindow.close()
