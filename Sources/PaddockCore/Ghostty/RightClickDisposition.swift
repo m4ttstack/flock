@@ -22,27 +22,31 @@ public enum RightClickDisposition: Equatable, Sendable {
 
     /// The rule:
     /// - Rearrange mode active: always `.suppressed`, before anything else.
-    /// - Not paddock's focused pane: always `.menu`. herdr reports mouse
-    ///   capture to every attached pane, focused or not, so capture alone
-    ///   cannot decide this; `MouseForwarding` drops every event for an
-    ///   unfocused pane, so forwarding one here would leave the click with
-    ///   nowhere to go at all -- no menu and no delivery.
-    /// - Focused, Option held: `.menu`. Option is the deliberate "give me the
-    ///   herdr menu" gesture.
-    /// - Focused, no Option, mouse capture ON: `.forwardToPane`. The pane app
-    ///   claimed the click, so it gets it.
-    /// - Focused, no Option, mouse capture OFF: `.menu`. Nothing is listening
-    ///   in the pane, so fall through to the menu rather than drop the click
-    ///   into a plain shell.
+    /// - Passthrough off for this pane: `.menu`, whatever else is true. This
+    ///   is herdr's own default (`right_click_passthrough` is false on a
+    ///   fresh pane), and it is what makes the menu reachable in a pane
+    ///   running a mouse-reporting program, which most agent panes are.
+    /// - Passthrough on, but not paddock's focused pane: `.menu`. herdr
+    ///   reports mouse capture to every attached pane, focused or not, and
+    ///   `MouseForwarding` drops every event for an unfocused pane, so
+    ///   forwarding here would leave the click with nowhere to go at all.
+    /// - Passthrough on, focused, capture ON: `.forwardToPane`.
+    /// - Passthrough on, focused, capture OFF: `.menu`. Nothing is listening
+    ///   in the pane, so the click falls through to the menu rather than
+    ///   disappearing into a plain shell.
     ///
-    /// Right-clicks land in the pane by default (focused, capture on) and
-    /// Option summons the menu -- the inverse of a persistent per-pane toggle,
-    /// which this replaces.
+    /// Option is not a passthrough gesture here: holding it is how rearrange
+    /// mode is entered, so an Option right-click is suppressed before this
+    /// rule is consulted.
     public static func decide(
-        optionHeld: Bool, captureEnabled: Bool, paneIsFocused: Bool, rearrangeActive: Bool = false
+        optionHeld: Bool,
+        captureEnabled: Bool,
+        paneIsFocused: Bool,
+        rearrangeActive: Bool = false,
+        passthroughEnabled: Bool = false
     ) -> RightClickDisposition {
         guard !rearrangeActive else { return .suppressed }
-        guard paneIsFocused, !optionHeld, captureEnabled else { return .menu }
+        guard passthroughEnabled, paneIsFocused, !optionHeld, captureEnabled else { return .menu }
         return .forwardToPane
     }
 }
