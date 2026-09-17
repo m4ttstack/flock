@@ -200,20 +200,19 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         // starts, not the one this view was first made with.
         ghosttyView.onBodyDragBegan = onBodyDragBegan
         // Mirrors real AppKit first-responder status: becoming the
-        // resolved-focused pane grabs real AppKit key focus immediately,
-        // with no extra click needed first. The PRIMARY grab happens in
+        // resolved-focused pane grabs real AppKit key focus immediately, with
+        // no extra click needed first, and an editor opening over it is
+        // handed that focus back. The PRIMARY pass is
         // `GhosttySurfaceView.viewDidMoveToWindow` (the point `window` is
-        // guaranteed non-nil); this is a best-effort follow-up for a later
-        // flip while the view already has one.
+        // guaranteed non-nil); this is the follow-up for every later flip
+        // while the view already has one.
         //
         // This pass runs far more often than a focus change does -- every
         // pane cell re-renders whenever ANY pane's record moves, and whenever
-        // an inline editor opens (they all read `renameTarget`) -- so what
-        // the claim is allowed to take is `requestFocus`'s own decision
-        // (`TerminalFocusClaim`), not this condition's.
-        if isFocused, ghosttyView.window != nil, ghosttyView.window?.firstResponder !== ghosttyView {
-            ghosttyView.requestFocus()
-        }
+        // an inline editor opens, since they all read `renameTarget` -- so
+        // which of those passes does anything is `TerminalFocusClaim`'s to
+        // decide, never this call site's.
+        ghosttyView.syncFocusClaim()
     }
 }
 

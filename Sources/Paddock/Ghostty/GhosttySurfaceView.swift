@@ -89,8 +89,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// claims no point at all -- see `hitTest(_:)`.
     var isPristineLauncherPane = false
     /// Set by `GhosttySurfaceRepresentable` from
-    /// `SessionViewModel.renameTarget`. While true this view makes no
-    /// first-responder claim of its own -- see `requestFocus()`.
+    /// `SessionViewModel.renameTarget`. While true this view holds no first
+    /// responder of its own and takes none -- see `syncFocusClaim()`.
     var editorIsOpen = false
     /// Where the matching mouse-DOWN actually sent a button, read back by the
     /// UP so it always replays the SAME destination -- never re-derived from
@@ -177,9 +177,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         if window == nil { return }
         session.attach(to: self)
         renderIfNeeded()
-        if wantsFocus, window?.firstResponder !== self {
-            requestFocus()
-        }
+        syncFocusClaim()
     }
 
     override func updateTrackingAreas() {
@@ -712,18 +710,30 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     // MARK: - Rendering and cursor
 
-    /// The terminal's own claim on first responder: made as this pane
-    /// becomes the focused one (`GhosttySurfaceRepresentable.updateNSView`)
-    /// and as its view enters a window (`viewDidMoveToWindow`), never on
-    /// behalf of a click. `TerminalFocusClaim` is what decides it, so a
-    /// claim made while an inline editor is open -- which would take the
-    /// user's keystrokes out of that editor and run them in this shell --
-    /// is refused at both call sites at once. A click still moves first
-    /// responder here (`mouseDown` calls the responder grab directly), which
-    /// is how an open editor gets dismissed at all.
-    func requestFocus() {
-        guard TerminalFocusClaim.decide(wantsFocus: wantsFocus, editorIsOpen: editorIsOpen) == .claim else { return }
-        requestWindowFirstResponder()
+    /// The terminal's own dealings with the window's first responder: run as
+    /// this pane becomes the focused one
+    /// (`GhosttySurfaceRepresentable.updateNSView`) and as its view enters a
+    /// window (`viewDidMoveToWindow`), never on behalf of a click.
+    /// `TerminalFocusClaim` decides all of it, so both call sites take the
+    /// same rule -- including the standing down that hands an opening editor
+    /// a window with no first responder, which is the state its own focus
+    /// request is answered from.
+    ///
+    /// A click still moves first responder here (`mouseDown` calls the
+    /// responder grab directly), which is how an open editor gets dismissed
+    /// at all.
+    func syncFocusClaim() {
+        guard let window else { return }
+        switch TerminalFocusClaim.decide(
+            wantsFocus: wantsFocus, editorIsOpen: editorIsOpen, holdsResponder: window.firstResponder === self
+        ) {
+        case .claim:
+            requestWindowFirstResponder()
+        case .standDown:
+            window.makeFirstResponder(nil)
+        case .leaveAlone:
+            break
+        }
     }
 
     /// Coalesces the render requests libghostty makes from its own thread

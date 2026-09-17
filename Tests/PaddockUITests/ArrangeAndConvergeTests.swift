@@ -278,6 +278,13 @@ final class ArrangeAndConvergeTests: XCTestCase {
         waitForEditor(app, "paddock.strip.rename.\(ids.tabB)", on: stripTab(ids.tabB))
         app.typeText("discarded")
         assertReachedTheEditor("discarded", notThePane: ids.p1, app: app, editor: "paddock.strip.rename.\(ids.tabB)")
+        // The positive half, which only this case can take: its editor is
+        // still open, so what the field holds says the keystrokes arrived
+        // rather than merely that the terminal did not get them.
+        assertShows(
+            app, "discarded", in: "paddock.strip.rename.\(ids.tabB)",
+            "the editor is not showing what was typed into it"
+        )
         app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
 
         assertEventually("the editor closes on Escape") {
