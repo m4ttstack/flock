@@ -68,7 +68,6 @@ struct PaneLauncherOverlay: View {
                     .accessibilityIdentifier("paddock.pane.launcher.\(entry.binary)")
                 }
             }
-            .allowsHitTesting(true)
             Spacer(minLength: 0)
             Text("detected on PATH · click launches in this pane · typing hides these")
                 .font(ChromeType.launcherHint)
@@ -76,10 +75,13 @@ struct PaneLauncherOverlay: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, ChromeMetrics.Launcher.hintHorizontalPadding)
                 .padding(.bottom, ChromeMetrics.Launcher.hintBottomPadding)
+                // Hit testing is off per drawn element, never on the stack
+                // around them: a disabled ancestor takes its whole subtree
+                // out of hit testing, and a descendant cannot opt back in.
+                .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, ChromeMetrics.Launcher.promptClearance)
-        .allowsHitTesting(false)
     }
 }
 

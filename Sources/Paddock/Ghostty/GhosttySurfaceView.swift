@@ -615,15 +615,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     }
 
     override func doCommand(by selector: Selector) {
-        if session.performCommand(selector) {
-            return
-        }
-        // Everything the terminal handles itself: letting AppKit also insert
-        // a newline or move the insertion point would double the keystroke.
-        if Self.shouldSuppressSystemTextInputCommand(selector) {
-            return
-        }
-        super.doCommand(by: selector)
+        // `keyDown` has already forwarded the event to the terminal, so every
+        // command AppKit derives from it is a duplicate, whether or not this
+        // view recognizes the selector. Passing an unrecognized one to
+        // `super` reaches `noResponder(for:)`, which beeps at a keystroke the
+        // pane's program has in fact received (upstream ghostty's surface
+        // never calls `super` here for the same reason).
+        _ = session.performCommand(selector)
     }
 
     // MARK: - Menu actions
@@ -821,31 +819,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         guard cursorHidden != hidden else { return }
         cursorHidden = hidden
         NSCursor.setHiddenUntilMouseMoves(hidden)
-    }
-
-    static func shouldSuppressSystemTextInputCommand(_ selector: Selector) -> Bool {
-        selector == #selector(NSResponder.insertNewline(_:))
-            || selector == #selector(NSResponder.insertLineBreak(_:))
-            || selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
-            || selector == #selector(NSResponder.insertTab(_:))
-            || selector == #selector(NSResponder.insertBacktab(_:))
-            || selector == #selector(NSResponder.deleteBackward(_:))
-            || selector == #selector(NSResponder.deleteForward(_:))
-            || selector == #selector(NSResponder.deleteWordBackward(_:))
-            || selector == #selector(NSResponder.deleteWordForward(_:))
-            || selector == #selector(NSResponder.deleteToBeginningOfLine(_:))
-            || selector == #selector(NSResponder.deleteToEndOfLine(_:))
-            || selector == #selector(NSResponder.moveUp(_:))
-            || selector == #selector(NSResponder.moveDown(_:))
-            || selector == #selector(NSResponder.moveLeft(_:))
-            || selector == #selector(NSResponder.moveRight(_:))
-            || selector == #selector(NSResponder.moveWordLeft(_:))
-            || selector == #selector(NSResponder.moveWordRight(_:))
-            || selector == #selector(NSResponder.moveToBeginningOfLine(_:))
-            || selector == #selector(NSResponder.moveToEndOfLine(_:))
-            || selector == #selector(NSResponder.pageUp(_:))
-            || selector == #selector(NSResponder.pageDown(_:))
-            || selector == #selector(NSResponder.cancelOperation(_:))
     }
 
     // MARK: - Private
