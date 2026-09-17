@@ -93,6 +93,14 @@ public final class PaneControlChannel {
         send(command.json)
     }
 
+    /// Tells the bridge this pane's surface just took a new grid, so it
+    /// relays the PTY's size (see `ControlBridge.sizeSyncCommandType`). Sent
+    /// on a real grid change only, and carrying no size: what reaches herdr
+    /// is whatever the PTY itself has by then.
+    public func syncSize() {
+        send(["type": ControlBridge.sizeSyncCommandType])
+    }
+
     public func close() {
         guard fd >= 0 else { return }
         Foundation.close(fd)

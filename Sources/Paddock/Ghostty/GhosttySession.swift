@@ -167,16 +167,24 @@ final class GhosttySession {
         lastVerifiedGrid = nil
     }
 
-    /// Runs whenever libghostty's live grid may have changed: logs, once per
-    /// (expected, actual) change, whether it equals the box grid. A mismatch
-    /// after the font has settled means `TerminalCellMetrics` disagrees with
-    /// the cell libghostty actually loaded, and herdr then runs at
-    /// libghostty's grid rather than the box's.
+    /// Runs whenever libghostty's live grid may have changed. On a real change
+    /// it tells the bridge to relay the PTY's new size, and logs, once per
+    /// (expected, actual) change, whether the grid equals the box grid. A
+    /// mismatch after the font has settled means `TerminalCellMetrics`
+    /// disagrees with the cell libghostty actually loaded, and herdr then runs
+    /// at libghostty's grid rather than the box's.
+    ///
+    /// The nudge is the only way a box change reaches the pane's real grid
+    /// while paddock holds the pane: herdr skips every terminal in
+    /// `direct_attach_resize_locks` when it resizes a tab's panes, the zoom
+    /// branch included, so a pane blown up to the whole canvas by a zoom would
+    /// otherwise keep rendering its old grid until the next hold re-take.
     private func verifyExpectedGrid() {
         guard let expectedGrid, let geometry = surfaceGeometry() else { return }
         let actual = (geometry.grid.columns, geometry.grid.rows)
         if let lastVerifiedGrid, lastVerifiedGrid == actual { return }
         lastVerifiedGrid = actual
+        controlChannel?.syncSize()
         let matches = actual == expectedGrid
         Self.gridLog.log(
             level: matches ? .default : .error,

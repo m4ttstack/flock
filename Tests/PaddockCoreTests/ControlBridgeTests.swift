@@ -566,6 +566,97 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(object["type"] as? String, "terminal.input")
     }
 
+    // MARK: - the size sync on the control FIFO
+
+    /// herdr resizes no pane paddock holds, so the only path from a box that
+    /// grew (a zoom, a divider drag, a window resize) to the pane's real grid
+    /// is the PTY's own size. This is that path without a SIGWINCH: the app
+    /// says the surface took a new grid, and the bridge sends what the PTY has.
+    func testASizeSyncRelaysThePTYWinsizeWithNoSignal() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        let winsize = LockedBox(PTYSize(cols: 30, rows: 40))
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        winsize.mutate { $0 = PTYSize(cols: 130, rows: 40) }
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": ControlBridge.sizeSyncCommandType])!)
+
+        let lines = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "terminal.resize")
+        XCTAssertEqual(object["cols"] as? Int, 130)
+        XCTAssertEqual(object["rows"] as? Int, 40)
+    }
+
+    /// The app can see the surface take a new grid before the PTY has been
+    /// given it: libghostty hands the resize to its IO thread and returns. A
+    /// nudge that read the winsize once, at the instant it arrived, would find
+    /// the old size and send nothing, and with no SIGWINCH behind it the pane
+    /// would keep its old grid for good.
+    func testASizeSyncStillRelaysAWinsizeThatLandsAfterIt() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        let winsize = LockedBox(PTYSize(cols: 30, rows: 40))
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": ControlBridge.sizeSyncCommandType])!)
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(
+            readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0,
+            "the PTY still had the size herdr was given at spawn"
+        )
+
+        winsize.mutate { $0 = PTYSize(cols: 130, rows: 40) }
+
+        let lines = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor).split(separator: 0x0A)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try XCTUnwrap(lines.first))) as? [String: Any])
+        XCTAssertEqual(object["cols"] as? Int, 130)
+    }
+
+    /// The nudge is the bridge's own command, not a forwardable one, and it
+    /// still sends nothing when the PTY is at the size herdr already has.
+    func testASizeSyncIsNeverForwardedAndRepeatsSendNothing() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { PTYSize(cols: 30, rows: 40) },
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        let line = try XCTUnwrap(ControlBridge.encodeLine(["type": ControlBridge.sizeSyncCommandType]))
+        XCTAssertNil(ControlBridge.parseForwardableControlCommand(line))
+        XCTAssertNil(ControlBridge.parseHoldCommand(line))
+        control.fileHandleForWriting.write(line)
+        control.fileHandleForWriting.write(line)
+
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(
+            readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0,
+            "a nudge at a size herdr already has must reach herdr as nothing at all"
+        )
+    }
+
     // MARK: - the hold commands on the control FIFO
 
     /// The two hold commands are read by the bridge and acted on there. They

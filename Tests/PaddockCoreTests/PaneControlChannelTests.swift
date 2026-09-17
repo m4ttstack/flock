@@ -49,6 +49,24 @@ final class PaneControlChannelTests: XCTestCase {
     /// herdr drops (`terminal_sessions.rs`: "terminal.scroll lines must be
     /// greater than 0") any non-positive line count -- this type must never
     /// even send one.
+    /// The nudge the surface sends when its grid moves carries no size of its
+    /// own: a bridge that read one from here could tell herdr a size the PTY
+    /// does not have.
+    func testSyncSizeCarriesTheTypeAndNothingElse() throws {
+        let channel = try XCTUnwrap(PaneControlChannel())
+        defer { channel.close() }
+        let readerFD = open(channel.path, O_RDONLY | O_NONBLOCK)
+        XCTAssertGreaterThanOrEqual(readerFD, 0)
+        defer { close(readerFD) }
+
+        channel.syncSize()
+
+        let line = try waitForNonEmptyReadFromFIFO(readerFD)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: line.split(separator: 0x0A)[0]) as? [String: Any])
+        XCTAssertEqual(object["type"] as? String, "paddock.sync_size")
+        XCTAssertEqual(object.keys.count, 1)
+    }
+
     func testScrollWithNonPositiveLinesIsANoOp() throws {
         let channel = try XCTUnwrap(PaneControlChannel())
         defer { channel.close() }

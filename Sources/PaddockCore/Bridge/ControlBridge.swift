@@ -286,6 +286,23 @@ public enum ControlBridge {
         return command
     }
 
+    /// The app's "this pane's surface just took a new grid" nudge, acted on by
+    /// the bridge itself (`BridgeIO.syncPTYSize`) rather than forwarded, which
+    /// is why it is `paddock.`-namespaced like the hold commands.
+    ///
+    /// It carries no size: the bridge sends herdr what the PTY actually has,
+    /// never what the app believes. What makes the nudge necessary is that
+    /// herdr resizes no pane paddock holds -- every branch of
+    /// `resize_tab_panes` (`herdr/src/ui/panes.rs`) skips a terminal in
+    /// `direct_attach_resize_locks`, the zoom branch included -- so a box that
+    /// grew reaches the pane's real grid through the PTY or not at all.
+    static let sizeSyncCommandType = "paddock.sync_size"
+
+    static func isSizeSyncCommand(_ line: Data) -> Bool {
+        guard let command = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }
+        return command["type"] as? String == sizeSyncCommandType
+    }
+
     /// The hold command on a control-FIFO line, or nil for anything else.
     /// Pure so the two commands the app can send can be tested apart from the
     /// child they drive.
@@ -1067,6 +1084,26 @@ final class BridgeIO: @unchecked Sendable {
         relayPTYSize()
     }
 
+    /// When the app's nudge re-reads the PTY, after the read the nudge itself
+    /// makes. libghostty hands its IO thread the new grid and returns, so the
+    /// PTY's own `TIOCSWINSZ` lands a moment after the app can see the surface
+    /// take that grid; a single read at the nudge can still be the old size.
+    /// Every re-read that finds nothing new is silent (`PTYResizeRelay`), so
+    /// the cost of the window is the reads themselves.
+    static let sizeSyncReReadsMilliseconds = [30, 120, 400]
+
+    /// The app saw this pane's surface take a new grid. SIGWINCH is the
+    /// primary trigger and this changes nothing about it: a winsize herdr
+    /// already has stays unsent however it is noticed.
+    func syncPTYSize() {
+        relayPTYSize()
+        for milliseconds in Self.sizeSyncReReadsMilliseconds {
+            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + .milliseconds(milliseconds)) { [weak self] in
+                self?.relayPTYSize()
+            }
+        }
+    }
+
     /// Sends herdr the PTY's current size unless herdr already has it.
     private func relayPTYSize() {
         resizeLock.lock()
@@ -1130,6 +1167,10 @@ final class BridgeIO: @unchecked Sendable {
                 // off herdr's wire.
                 if let hold = ControlBridge.parseHoldCommand(line) {
                     onHold(hold)
+                    continue
+                }
+                if ControlBridge.isSizeSyncCommand(line) {
+                    syncPTYSize()
                     continue
                 }
                 guard let command = ControlBridge.parseForwardableControlCommand(line) else { continue }
