@@ -227,13 +227,27 @@ public struct CanvasGeometry: Equatable, Sendable {
     /// round trip before the export is refetched, so reading the export's
     /// ratio would snap a finished divider drag back to its old split until
     /// that refetch lands.
+    ///
+    /// `composition` is the caller's own answer to what this surface draws
+    /// (`CanvasComposition.of(layout:)`), defaulted to `.tiled` so a surface
+    /// that deliberately shows a tab's whole arrangement -- the All Workspaces
+    /// thumbnails, a drop preview of where a pane would land once the drop's
+    /// own auto-unzoom has run -- keeps doing so by saying nothing. A
+    /// `.zoomed` composition yields ONE frame, the tab's whole area, and no
+    /// dividers: every other pane is absent from `paneFrames` entirely, which
+    /// is what keeps drop hit-testing and the divider layer from resolving
+    /// against panes this canvas is not showing.
     public static func resolved(
         layout: LayoutSnapshot,
         exported: ExportedLayoutDescription?,
         grid: CanvasGrid,
         dividerThickness: CGFloat = 6,
-        liveRatioOverride: (path: [Bool], ratio: Double)? = nil
+        liveRatioOverride: (path: [Bool], ratio: Double)? = nil,
+        composition: CanvasComposition = .tiled
     ) -> CanvasGeometry {
+        if case .zoomed(let held) = composition {
+            return CanvasGeometry(paneFrames: [held: grid.frame(for: layout.area, area: layout.area)], dividers: [])
+        }
         if let exported, exported.tabID == layout.tabID {
             let paths = splitPaths(splits: layout.splits, area: layout.area)
             var ratios: [[Bool]: Double] = [:]

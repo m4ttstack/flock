@@ -212,6 +212,74 @@ final class CanvasGeometryTests: XCTestCase {
         }
     }
 
+    // MARK: - zoom (one pane over the whole canvas, as herdr's own renderer draws it)
+
+    /// A zoomed copy of the fixture's two-pane tab: herdr keeps reporting both
+    /// panes at their split rects and flips `zoomed` alone, so the composition
+    /// is the only thing that says one pane is holding the tab open.
+    private func zoomedTwoPaneLayout(focused: PaneID) throws -> LayoutSnapshot {
+        let tiled = try layout(splitCount: 1)
+        return LayoutSnapshot(
+            workspaceID: tiled.workspaceID, tabID: tiled.tabID, zoomed: true, area: tiled.area,
+            focusedPaneID: focused, panes: tiled.panes, splits: tiled.splits
+        )
+    }
+
+    func testAZoomedCompositionDrawsOneFrameOverTheWholeCanvasAndNoDividers() throws {
+        let held = PaneID(rawValue: "w1:p2")
+        let layout = try zoomedTwoPaneLayout(focused: held)
+        let size = CGSize(width: 600, height: 300)
+
+        let geometry = CanvasGeometry.resolved(
+            layout: layout, exported: nil, grid: grid(filling: size), dividerThickness: 6,
+            composition: CanvasComposition.of(layout: layout)
+        )
+
+        XCTAssertEqual(Set(geometry.paneFrames.keys), [held])
+        XCTAssertEqual(geometry.paneFrames[held], CGRect(origin: .zero, size: size))
+        XCTAssertTrue(geometry.dividers.isEmpty, "a zoomed tab shows no boundary, so there is nothing to drag")
+    }
+
+    /// The zoom answer outranks herdr's split tree. Walking the export first
+    /// would lay every pane out again and hand the canvas the tiled frames
+    /// back, with the zoomed pane at half the canvas.
+    func testAZoomedCompositionIgnoresTheExportedSplitTree() throws {
+        let held = PaneID(rawValue: "w1:p1")
+        let layout = try zoomedTwoPaneLayout(focused: held)
+        let size = CGSize(width: 600, height: 300)
+        let exported = ExportedLayoutDescription(
+            workspaceID: layout.workspaceID, tabID: layout.tabID, zoomed: true, focusedPaneID: held,
+            root: .split(
+                direction: .right, ratio: 0.5,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "w1:p1"))),
+                second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "w1:p2")))
+            )
+        )
+
+        let geometry = CanvasGeometry.resolved(
+            layout: layout, exported: exported, grid: grid(filling: size), dividerThickness: 6,
+            composition: CanvasComposition.of(layout: layout)
+        )
+
+        XCTAssertEqual(Set(geometry.paneFrames.keys), [held])
+        XCTAssertEqual(geometry.paneFrames[held]?.width, size.width)
+        XCTAssertTrue(geometry.dividers.isEmpty)
+    }
+
+    /// Surfaces that deliberately show a tab's whole arrangement -- the All
+    /// Workspaces thumbnails, and the drop preview of where a pane lands once
+    /// the drop's own auto-unzoom has run -- pass no composition and must keep
+    /// every pane.
+    func testTheDefaultCompositionStillTilesAZoomedTabsPanes() throws {
+        let layout = try zoomedTwoPaneLayout(focused: PaneID(rawValue: "w1:p2"))
+        let size = CGSize(width: 600, height: 300)
+
+        let geometry = CanvasGeometry.resolved(layout: layout, exported: nil, grid: grid(filling: size), dividerThickness: 6)
+
+        XCTAssertEqual(Set(geometry.paneFrames.keys), [PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")])
+        XCTAssertEqual(geometry.dividers.count, 1)
+    }
+
     func testZeroSizeAreaYieldsZeroFramesWithoutCrashing() {
         let degenerate = LayoutSnapshot(
             workspaceID: WorkspaceID(rawValue: "w"),
