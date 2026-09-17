@@ -3,8 +3,26 @@ options:
   bundleIdPrefix: dev.mattstack
   deploymentTarget: { macOS: "15.0" }
 settings:
-  SWIFT_VERSION: "6.0"
-  SWIFT_STRICT_CONCURRENCY: complete
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+  configs:
+    Release:
+      # Vendor/GhosttyKit.xcframework is built `-Dxcframework-target=native`
+      # (Scripts/libghostty.sh), so it carries only the architecture of the
+      # machine that built it. Release's usual universal build has nothing to
+      # link the other slice against.
+      ONLY_ACTIVE_ARCH: YES
+      # Ad-hoc by default so a machine with no Developer ID still produces a
+      # launchable bundle; Scripts/release-build.sh overrides both of these on
+      # the xcodebuild command line when a real identity is resolved.
+      CODE_SIGN_STYLE: Manual
+      CODE_SIGN_IDENTITY: "-"
+      ENABLE_HARDENED_RUNTIME: YES
+      # Xcode's injected base entitlements carry `get-task-allow`, which
+      # notarization refuses. Paddock ships no entitlements of its own, so
+      # turning the injection off leaves the release binary with none at all.
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 targets:
   PaddockCore:
     type: framework
@@ -108,6 +126,8 @@ schemes:
     test:
       config: Debug
       targets: [PaddockCoreTests, PaddockUITests]
+    archive:
+      config: Release
   PaddockChromeRender:
     build:
       targets:
