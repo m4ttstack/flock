@@ -62,6 +62,13 @@ struct WorkspaceRail: View {
                             // which is what the insertion index is measured
                             // against.
                             .reportsFrame(in: DragSpace.railContent) { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
+                            // A container, so the identifier below names the
+                            // whole row and the controls inside it keep their
+                            // own. Without it SwiftUI folds the row into its
+                            // name text: the row reads as a label a third of
+                            // its width, and its close button and rename
+                            // editor are not reachable at all.
+                            .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("paddock.rail.workspace.\(workspace.workspaceID.rawValue)")
                             .onHover { hovering in
                                 hoveredWorkspaceID = hovering

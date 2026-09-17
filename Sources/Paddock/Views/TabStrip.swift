@@ -46,6 +46,11 @@ struct TabStrip: View {
                             // than its reshuffled one -- which is what the
                             // insertion index must be measured against.
                             .reportsFrame(in: DragSpace.stripContent) { drag.setTabFrame($0, for: tab.tabID) }
+                            // A container, so the controls inside the tab keep
+                            // their own identifiers: folded into its label,
+                            // the tab's close button and rename editor are not
+                            // reachable at all.
+                            .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("paddock.strip.tab.\(tab.tabID.rawValue)")
                             .onHover { hoveredTabID = $0 ? tab.tabID : (hoveredTabID == tab.tabID ? nil : hoveredTabID) }
                             // Both guarded: SwiftUI's tap gesture on macOS

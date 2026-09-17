@@ -60,6 +60,11 @@ struct DividerHandleView: View {
         // which owns the closed hand for its whole duration.
         .pointerStyle(drag.isPaneDragInFlight ? nil : (isVertical ? .columnResize : .rowResize))
         .gesture(dragGesture)
+        // The handle draws as a shape and carries no text, and an element
+        // with nothing to read is one SwiftUI may expose to nobody: the
+        // label is what makes the divider reachable, by an assistive client
+        // as much as by the identifier below.
+        .accessibilityLabel("Split divider")
         .accessibilityIdentifier("paddock.canvas.divider.\(pathLabel)")
     }
 
