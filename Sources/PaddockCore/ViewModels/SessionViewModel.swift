@@ -686,10 +686,11 @@ public final class SessionViewModel {
     /// The launcher-pristine contract's screen-activity half: a pane whose
     /// program prints real output, never typed into, also hides the
     /// overlay. `nonEmptyRowCount` is the surface's own retained-screen
-    /// count (`GhosttySession.reportScreenActivityIfDue`); the threshold
-    /// for "still just the bare prompt" lives in `PaneLauncherRegistry`.
+    /// count (`GhosttySession.reportScreenActivityIfDue`); which counts are
+    /// the shell still starting up, and which are the pane in use, is
+    /// `PaneLauncherRegistry`'s answer.
     public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
-        paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
+        paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount, at: now())
         launcherRegistryVersion += 1
     }
 

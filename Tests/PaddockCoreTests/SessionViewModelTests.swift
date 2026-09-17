@@ -122,6 +122,15 @@ private final class FakePlanExecutor: PlanExecuting {
     }
 }
 
+/// A hand-wound clock for the `now` closure `SessionViewModel` takes, so a
+/// test can place a report inside or outside a window without sleeping.
+@MainActor
+private final class TestClock {
+    var now = Date(timeIntervalSince1970: 1_000_000)
+
+    func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
+}
+
 /// Captures every message a test's `noticeSink`/`UndoJournal` notify closure
 /// receives, in order.
 @MainActor
@@ -1339,12 +1348,14 @@ final class SessionViewModelTests: XCTestCase {
     /// `GhosttySession` reports this through `onScreenActivity`, gated on
     /// `isPristineLauncherPane` at the ViewModel end so a call arriving
     /// after the pane is already hidden (by either path) is a cheap no-op
-    /// that also tells the surface to stop reporting.
+    /// that also tells the surface to stop reporting. This is the seam; the
+    /// rule that reads the counts is `PaneLauncherRegistryTests`.
     @MainActor
     func testScreenActivityThroughGhosttySeamHidesTheLauncherAndStopsFurtherReporting() async throws {
+        let clock = TestClock()
         let factory = FakeGhosttyPaneFactory()
         let client = StubSplitCommandClient(newPaneID: "w1:p2")
-        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory)
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory, now: { clock.now })
         let pane = PaneID(rawValue: "w1:p2")
 
         await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
@@ -1353,18 +1364,22 @@ final class SessionViewModelTests: XCTestCase {
         _ = await viewModel.attachPane(pane)
         let onScreenActivity = try XCTUnwrap(factory.onScreenActivityHandlers[pane])
 
-        // At most the bare prompt (<=2 non-empty rows): still pristine, and
-        // the surface is told to keep reporting.
-        XCTAssertTrue(onScreenActivity(2), "still just the prompt -- keep polling")
+        // The shell's own startup, however many rows it prints: still
+        // pristine, and the surface is told to keep reporting.
+        XCTAssertTrue(onScreenActivity(1), "the shell is still starting up -- keep polling")
+        clock.advance(0.25)
+        XCTAssertTrue(onScreenActivity(4), "the shell is still starting up -- keep polling")
         XCTAssertTrue(viewModel.isPristineLauncherPane(pane))
 
-        // Real output beyond the prompt rows: hides the launcher, and tells
-        // the surface to stop.
-        XCTAssertFalse(onScreenActivity(3), "output beyond the prompt hides the pane -- stop polling")
+        // Output the settled pane printed: hides the launcher, and tells the
+        // surface to stop.
+        clock.advance(PaneLauncherRegistry.settleWindow + 1)
+        XCTAssertFalse(onScreenActivity(9), "output from a settled pane hides it -- stop polling")
         XCTAssertFalse(viewModel.isPristineLauncherPane(pane))
 
         // A later call (the surface's own throttle firing once more before
         // it notices the stop signal) must stay a harmless no-op.
+        clock.advance(0.25)
         XCTAssertFalse(onScreenActivity(10))
     }
 
