@@ -44,15 +44,9 @@ struct DragTrace: CustomStringConvertible {
     let toID: String
     let from: CGPoint
     let to: CGPoint
-    /// What the out-of-process interruption reported, or nil when the drag
-    /// asked for none. A case that reads a teardown into its result has to
-    /// know the interruption actually happened: a drag that was never
-    /// interrupted and a drag the app never saw look the same afterward.
-    let interruption: String?
 
     var description: String {
         "drag \(fromID) at \(point(from)) -> \(toID) at \(point(to))"
-            + (interruption.map { ", interruption \($0)" } ?? "")
     }
 
     private func point(_ value: CGPoint) -> String {
@@ -131,81 +125,20 @@ extension XCUIApplication {
     }
 }
 
-/// Starts a detached helper that brings another application forward after
-/// `delay`. The app under test resigning active is what its drag layer reads
-/// as a gesture that will never see a release, and it tears the drag down
-/// without committing.
-///
-/// The delay runs in a process of its own because nothing inside this one can
-/// be relied on to act while a gesture is in flight: XCTest refuses to
-/// synthesize a keystroke until its own gesture finishes, and the thread it
-/// blocks does not reliably turn the main run loop either -- across two runs
-/// the same main-queue interjection ran during a long drag and never ran
-/// during a short one. A separate process is subject to neither.
-func scheduleDeactivationOfTheAppUnderTest(after delay: TimeInterval) -> Process? {
-    let helper = Process()
-    helper.executableURL = URL(fileURLWithPath: "/bin/sh")
-    // LaunchServices rather than an Apple event: the runner is sandboxed, so
-    // anything it spawns is too, and a sandboxed process scripting another app
-    // needs an entitlement it does not have. Activating the runner itself is
-    // not an option either -- it has no window, and macOS does not bring a
-    // windowless app forward, which is why the previous attempt reported
-    // having run and changed nothing.
-    helper.arguments = [
-        "-c", "sleep \(String(format: "%.2f", delay)); exec /usr/bin/open -b \(frontmostDuringAnInterruption)",
-    ]
-    let errors = Pipe()
-    helper.standardOutput = FileHandle.nullDevice
-    helper.standardError = errors
-    do {
-        try helper.run()
-    } catch {
-        return nil
-    }
-    helperErrors[ObjectIdentifier(helper)] = errors
-    return helper
-}
-
-/// What that helper reported once it is done, for the drag's trace. Read after
-/// the gesture, which the helper always finishes inside.
-func deactivationOutcome(of helper: Process?) -> String {
-    guard let helper else { return "could not be started" }
-    let errors = helperErrors.removeValue(forKey: ObjectIdentifier(helper))
-    let text = errors.flatMap { String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) } ?? ""
-    helper.waitUntilExit()
-    guard helper.terminationStatus == 0 else {
-        return "failed (exit \(helper.terminationStatus)): \(text.trimmingCharacters(in: .whitespacesAndNewlines))"
-    }
-    return "ran"
-}
-
-/// Finder: always running, always has the desktop to come forward with, and
-/// needs no permission to open. The case puts the app under test back in front
-/// immediately afterward.
-private let frontmostDuringAnInterruption = "com.apple.finder"
-
-/// The helpers' stderr pipes, held until the outcome is read: a `Process` has
-/// nowhere to keep one, and a pipe released early closes the read end while
-/// the helper is still writing.
-private nonisolated(unsafe) var helperErrors: [ObjectIdentifier: Pipe] = [:]
-
 /// Presses the source element and drags it onto the target.
 ///
 /// This synthesizes real mouse events: it takes over the machine's pointer for
 /// the length of the drag, and anything else using the pointer at the same
 /// time corrupts the gesture.
 ///
-/// `speed` and `hold` exist for the two gestures a plain press-and-drag cannot
-/// express. A dwell needs the pointer still moving while it sits over its
-/// target -- `DragController` checks its spring-load deadline from the move
-/// events a drag delivers and from nothing else, so a pointer parked dead
-/// still never reaches one -- which a slow crossing of the target provides.
+/// `speed` is for the one gesture a plain press-and-drag cannot express: a
+/// dwell needs the pointer still moving while it sits over its target, since
+/// `DragController` checks its spring-load deadline from the move events a
+/// drag delivers and from nothing else, so a pointer parked dead still never
+/// reaches one. A slow crossing of the target provides that.
 ///
-/// `interruptedMidHold` is for a drag that must end without committing: it
-/// starts the helper BEFORE the gesture, timed through the press and the
-/// travel the velocity implies, so the app under test resigns active while the
-/// button is still down. See `scheduleDeactivationOfTheAppUnderTest` for why
-/// it cannot be done from inside this process.
+/// A gesture is never interrupted, and nothing here may try: XCTest owns the
+/// machine until the button comes up (see the note on `PaneDragTests`).
 @MainActor
 @discardableResult
 func dragElement(
@@ -215,9 +148,7 @@ func dragElement(
     toID: String,
     aiming at: Aim = .middle,
     pressDuration: TimeInterval = 0.3,
-    speed: XCUIGestureVelocity = .default,
-    hold: TimeInterval = 0,
-    interruptedMidHold: Bool = false
+    speed: XCUIGestureVelocity = .default
 ) -> DragTrace {
     let source = app.paddockElement(fromID)
     let target = app.paddockElement(toID)
@@ -228,24 +159,16 @@ func dragElement(
     let fromPoint = from.screenPoint
     let toPoint = to.screenPoint
 
-    var helper: Process?
-    if interruptedMidHold {
-        let travel = hypot(toPoint.x - fromPoint.x, toPoint.y - fromPoint.y) / max(speed.rawValue, 1)
-        helper = scheduleDeactivationOfTheAppUnderTest(after: pressDuration + travel + max(0.1, min(0.3, hold * 0.4)))
-    }
-
     // The plain two-argument press is the form the closed-loop spike proved;
-    // the velocity form is taken only when a case actually asks for a pace or
-    // a hold, so the ordinary drags keep the proven path.
-    if hold > 0 || speed != .default {
-        from.press(forDuration: pressDuration, thenDragTo: to, withVelocity: speed, thenHoldForDuration: hold)
+    // the velocity form is taken only when a case asks for a pace, so the
+    // ordinary drags keep the proven path. Neither holds at the target: a held
+    // button buys nothing once nothing may happen during the gesture.
+    if speed != .default {
+        from.press(forDuration: pressDuration, thenDragTo: to, withVelocity: speed, thenHoldForDuration: 0)
     } else {
         from.press(forDuration: pressDuration, thenDragTo: to)
     }
-    return DragTrace(
-        fromID: fromID, toID: toID, from: fromPoint, to: toPoint,
-        interruption: interruptedMidHold ? deactivationOutcome(of: helper) : nil
-    )
+    return DragTrace(fromID: fromID, toID: toID, from: fromPoint, to: toPoint)
 }
 
 /// Clicks a point inside an element, stated the same way a drag states its

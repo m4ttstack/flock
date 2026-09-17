@@ -21,18 +21,14 @@ import XCTest
 /// state their points as fractions of the thumbnail that draws them, derived
 /// from the thumbnail metrics named beside the fractions.
 ///
-/// **The two cases that end mid-gesture.** A drag torn down with the button
-/// still down commits nothing, and the teardown has to be triggered while the
-/// gesture is running, which is what `dragElement`'s `interruptedMidHold` is
-/// for. It cannot be Escape, and it cannot be anything this process does
-/// either: XCTest refuses to synthesize a keystroke until its own gesture is
-/// over, and the thread that gesture blocks does not reliably turn the main
-/// run loop. So the interruption is a detached helper that brings another
-/// application forward, which the app under test reads as a gesture that will
-/// never see a release and tears down through `abandon()` -- the same teardown
-/// Escape reaches, minus the wait for a release. It reports whether it ran,
-/// because a drag that was never torn down and a drag the app never saw both
-/// leave the session unchanged.
+/// **Nothing may happen while a drag is in flight.** XCTest owns the machine
+/// for the length of a gesture it started: it refuses to synthesize a key
+/// until the gesture ends, it does not reliably turn the main run loop the
+/// gesture blocks, and it hangs outright if the app under test stops being
+/// frontmost. So every case here is one uninterrupted press-drag-release, and
+/// what only an interrupted drag could show -- Escape cancelling one, a
+/// spring-load reveal landing mid-drag -- is left to the unit tests that cover
+/// those decisions.
 final class PaneDragTests: XCTestCase {
     private var session: ScratchSession!
 
@@ -404,108 +400,14 @@ final class PaneDragTests: XCTestCase {
         assertCanvasHolds(app, [ids.p3, ids.p1], "after a move out of a zoomed tab")
     }
 
-    /// A drag torn down with the button still down commits nothing.
+    /// A pane released on a rail row lands in that workspace, in a tab of its
+    /// own, re-keyed.
     ///
-    /// The teardown is triggered by taking the frontmost app away rather than
-    /// by Escape, which cannot be sent from inside a gesture at all (see
-    /// `takeFocusFromTheAppUnderTest`). It is the same teardown: `abandon()`
-    /// and `cancel()` both reach `DragController.cancelled()` and issue no
-    /// commit, and only the wait for a release that will never arrive differs.
-    ///
-    /// The assertion is that the session did not change, which is also what a
-    /// gesture the app never saw would produce, so the case runs the identical
-    /// drag a second time and lets it finish, requiring THAT one to change the
-    /// session. Only both halves together say the teardown is what stopped the
-    /// first.
-    @MainActor
-    func testADragTornDownMidGestureCommitsNothing() throws {
-        let ids = session.seedIDs()
-        let before = try session.snapshot()
-        let leftBefore = try XCTUnwrap(before.paneRect(ids.p1), "\(ids.p1) has no rect in the seed")
-        let rightBefore = try XCTUnwrap(before.paneRect(ids.p2), "\(ids.p2) has no rect in the seed")
-        let app = try launchOnSeed()
-
-        let cancelled = dragElement(
-            app, fromID: canvasPane(ids.p1), toID: canvasPane(ids.p2), aiming: .middle,
-            hold: Self.holdForAnInterruption, interruptedMidHold: true
-        )
-        XCTAssertEqual(
-            cancelled.interruption, "ran",
-            "nothing took the frontmost app away mid-gesture, so nothing tore the drag down and this case "
-                + "proved nothing. \(cancelled)"
-        )
-        app.activate()
-
-        // Long enough for a drop that did commit to have reached herdr and
-        // come back: the observed echo runs to about a tenth of a second.
-        usleep(3_000_000)
-        let afterCancel = try session.snapshot()
-        XCTAssertNil(
-            before.difference(from: afterCancel),
-            "a drag torn down mid-gesture changed the session. \(cancelled)"
-        )
-        assertCanvasHolds(app, [ids.p1, ids.p2], "after a drag torn down mid-gesture")
-        assertCellIsLeftOf(app, ids.p1, ids.p2, "the canvas moved the panes a torn-down drag never committed")
-
-        // The control: the same gesture, allowed to finish.
-        let committed = dragElement(app, fromID: canvasPane(ids.p1), toID: canvasPane(ids.p2), aiming: .middle)
-        let afterCommit = try session.snapshot(
-            waitingFor: "the same drag left alone to swap the panes, which is what makes the unchanged "
-                + "session above attributable to the teardown. \(committed)"
-        ) {
-            $0.paneRect(ids.p1) == rightBefore && $0.paneRect(ids.p2) == leftBefore
-        }
-        XCTAssertNotNil(
-            before.difference(from: afterCommit),
-            "the control drag left the session identical, so the drag above was not torn down, it was inert"
-        )
-    }
-
-    /// A dwell on a rail row reveals that workspace mid-drag.
-    ///
-    /// The reveal is a LOCAL selection that issues nothing to herdr, and a
-    /// committed drop selects its destination too, so a released drag cannot
-    /// tell the two apart. The dwell here is therefore torn down mid-gesture:
-    /// nothing is committed, so the workspace the window is left showing is
-    /// the reveal's doing and nothing else's.
-    @MainActor
-    func testDwellingOverAWorkspaceRevealsItMidDrag() throws {
-        let ids = session.seedIDs()
-        let (other, _, otherPane) = try makeSecondWorkspace()
-        let app = try launchOnSeed()
-        XCTAssertTrue(
-            app.paddockElement("paddock.rail.workspace.\(other)").waitForExistence(timeout: 20),
-            "the rail never drew a row for \(other), so there was nothing to dwell on"
-        )
-        let seeded = try session.snapshot()
-
-        // Slow enough that the pointer is still moving while it crosses the
-        // row: the dwell is checked from the move events a drag delivers, so a
-        // pointer parked dead still never reaches its deadline.
-        let dwelled = dragElement(
-            app, fromID: canvasPane(ids.p1), toID: "paddock.rail.workspace.\(other)", aiming: .edge(.left),
-            speed: Self.dwellCrossingSpeed, hold: Self.holdForAnInterruption, interruptedMidHold: true
-        )
-        XCTAssertEqual(
-            dwelled.interruption, "ran",
-            "nothing took the frontmost app away mid-gesture, so the dwell was released rather than torn "
-                + "down and this case proved nothing. \(dwelled)"
-        )
-        app.activate()
-
-        usleep(3_000_000)
-        XCTAssertNil(
-            seeded.difference(from: try session.snapshot()),
-            "a torn-down dwell still changed the session, so what the window is showing is not the reveal. \(dwelled)"
-        )
-        assertCanvasHolds(
-            app, [otherPane],
-            "the dwell over \(other) never revealed it: the window is still drawing the workspace the drag started in"
-        )
-    }
-
-    /// The other half of the dwell: released on the row rather than cancelled,
-    /// the pane lands in that workspace, in a tab of its own, re-keyed.
+    /// Crossed slowly, so the drag dwells on the row on its way to the drop:
+    /// `DragController` reads its spring-load deadline from the move events a
+    /// drag delivers, and a pointer parked dead still never reaches one. The
+    /// dwell's own reveal is not observable from here (see the note on the
+    /// suite), so what this asserts is where the drop lands.
     @MainActor
     func testADragReleasedOnAWorkspaceRowLandsInThatWorkspace() throws {
         let ids = session.seedIDs()
@@ -573,10 +475,6 @@ final class PaneDragTests: XCTestCase {
     /// The tab's own handle across the top of its thumbnail, which is the one
     /// part of it no mini pane covers.
     private static let thumbnailHandle = Aim.fraction(x: 0.5, y: 0.07)
-
-    /// How long the button stays down at the target once the drag has
-    /// arrived, for the two cases that tear the drag down mid-gesture.
-    private static let holdForAnInterruption: TimeInterval = 1.2
 
     /// Points per second for a drag that has to dwell on what it crosses. The
     /// rail is about 192pt wide, so aiming at a row's far side spends over a
