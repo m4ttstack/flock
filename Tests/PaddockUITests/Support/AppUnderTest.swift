@@ -226,6 +226,15 @@ func clickElement(
     XCUIElement.perform(withKeyModifiers: modifiers) { point.click() }
 }
 
+/// Double-clicks a point inside an element, which is what opens an inline
+/// rename editor on the chrome.
+@MainActor
+func doubleClickElement(_ app: XCUIApplication, _ identifier: String, at aim: Aim = .middle) {
+    let element = app.paddockElement(identifier)
+    XCTAssertTrue(element.exists, "nothing on screen carries \(identifier), so this double-click had nothing to hit")
+    element.coordinate(withNormalizedOffset: .zero).withOffset(offset(aim, in: element.frame)).doubleClick()
+}
+
 /// Right-clicks a point inside an element, for the pane menu. A pane that is
 /// not the focused one always answers a right-click with the menu, whatever
 /// its program has asked for (`RightClickDisposition.decide`), which is why
@@ -235,6 +244,25 @@ func rightClickElement(_ app: XCUIApplication, _ identifier: String, at aim: Aim
     let element = app.paddockElement(identifier)
     XCTAssertTrue(element.exists, "nothing on screen carries \(identifier), so this right-click had nothing to hit")
     element.coordinate(withNormalizedOffset: .zero).withOffset(offset(aim, in: element.frame)).rightClick()
+}
+
+/// Polls a claim about the window until it holds.
+///
+/// The window redraws from herdr's events, so nothing it draws is true in the
+/// instant a gesture or a click ends. `describing` is evaluated only on the
+/// failure, and says what the window was actually showing.
+@MainActor
+func assertEventually(
+    _ what: String, timeout: TimeInterval = 20,
+    file: StaticString = #filePath, line: UInt = #line,
+    _ condition: @MainActor () -> Bool, describing: @MainActor () -> String
+) {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        if condition() { return }
+        usleep(200_000)
+    } while Date() < deadline
+    XCTFail("\(what): not true within \(timeout)s. \(describing())", file: file, line: line)
 }
 
 /// Moves the pointer onto an element and leaves it there, which is how a

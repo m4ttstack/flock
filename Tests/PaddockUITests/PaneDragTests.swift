@@ -597,20 +597,4 @@ final class PaneDragTests: XCTestCase {
         }
     }
 
-    /// The window redraws from herdr's events, so nothing it draws is true in
-    /// the instant a gesture ends. `describing` is evaluated only on the
-    /// failure, and says what the window was actually showing.
-    @MainActor
-    private func assertEventually(
-        _ what: String, timeout: TimeInterval = 20,
-        file: StaticString = #filePath, line: UInt = #line,
-        _ condition: @MainActor () -> Bool, describing: @MainActor () -> String
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if condition() { return }
-            usleep(200_000)
-        } while Date() < deadline
-        XCTFail("\(what): not true within \(timeout)s. \(describing())", file: file, line: line)
-    }
 }
