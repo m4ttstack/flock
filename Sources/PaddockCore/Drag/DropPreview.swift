@@ -21,19 +21,27 @@ public enum DropPreview {
     /// The full post-drop layout needs herdr's own split tree; without one
     /// cached for this tab the incoming rect is still derived from the target
     /// frame alone.
+    ///
+    /// A `.zoomed` composition takes that same target-frame path deliberately.
+    /// The tree branch lays the whole tab out tiled, which is what the tab
+    /// becomes once the drop's own auto-unzoom has run, but it is not what the
+    /// canvas is showing: a wash placed there lands over panes the zoom is
+    /// holding closed. Against the zoomed geometry the target frame IS the
+    /// canvas, so the preview stays inside the one pane the user can see.
     public static func frames(
         target: DropTarget?,
         dragging subject: DragSubject?,
         layout: LayoutSnapshot,
         exported: ExportedLayoutDescription?,
         grid: CanvasGrid,
-        dividerThickness: CGFloat
+        dividerThickness: CGFloat,
+        composition: CanvasComposition = .tiled
     ) -> DropPreviewFrames? {
         guard let target, case .pane(let paneID)? = subject else { return nil }
         func box(_ frame: CGRect) -> CGRect {
             PaneBox.frame(in: frame, dividerThickness: dividerThickness)
         }
-        if let exported, exported.tabID == layout.tabID,
+        if composition == .tiled, let exported, exported.tabID == layout.tabID,
            let previewRoot = root(exported.root, dropping: paneID, onto: target) {
             let geometry = CanvasGeometry(
                 exportedRoot: previewRoot, area: layout.area, tabID: layout.tabID,
@@ -43,7 +51,8 @@ public enum DropPreview {
             return DropPreviewFrames(incoming: box(incoming))
         }
         let current = CanvasGeometry.resolved(
-            layout: layout, exported: exported, grid: grid, dividerThickness: dividerThickness
+            layout: layout, exported: exported, grid: grid, dividerThickness: dividerThickness,
+            composition: composition
         )
         switch target {
         case .paneEdge(let targetPane, let edge):

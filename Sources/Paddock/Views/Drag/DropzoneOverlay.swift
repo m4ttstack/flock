@@ -30,12 +30,17 @@ struct DropzoneOverlay: View {
         let exported: ExportedLayoutDescription?
         let grid: CanvasGrid
         let dividerThickness: CGFloat
+        /// The canvas's own answer to what it is drawing, so the wash lands in
+        /// the geometry the drop was hit-tested against rather than in the
+        /// tiled one a zoomed tab is not showing.
+        let composition: CanvasComposition
     }
 
     var body: some View {
         let inputs = Inputs(
             target: drag.target, subject: drag.activeSubject, layout: layout,
-            exported: exported, grid: grid, dividerThickness: dividerThickness
+            exported: exported, grid: grid, dividerThickness: dividerThickness,
+            composition: layout.map { CanvasComposition.of(layout: $0) } ?? .tiled
         )
         ZStack(alignment: .topLeading) {
             if let preview {
@@ -59,7 +64,8 @@ struct DropzoneOverlay: View {
             layout: layout,
             exported: inputs.exported,
             grid: inputs.grid,
-            dividerThickness: inputs.dividerThickness
+            dividerThickness: inputs.dividerThickness,
+            composition: inputs.composition
         )
     }
 

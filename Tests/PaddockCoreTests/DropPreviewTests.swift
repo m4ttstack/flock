@@ -149,6 +149,28 @@ final class DropPreviewTests: XCTestCase {
         CanvasGrid(canvas: CGSize(width: 800, height: 400), displayScale: 2)
     }
 
+    /// A zoomed tab shows one pane over the whole canvas, and the drop was
+    /// hit-tested against exactly that. The wash has to land in the same
+    /// geometry: laid out from the post-drop split tree instead, it would take
+    /// the target's TILED half (p1's left half of the canvas, 194pt) and paint
+    /// part of it over panes the zoom is holding closed.
+    func testAZoomedCanvasPreviewsInsideTheOnePaneItIsShowing() throws {
+        let zoomed = LayoutSnapshot(
+            workspaceID: snapshot.workspaceID, tabID: snapshot.tabID, zoomed: true, area: snapshot.area,
+            focusedPaneID: Self.p1, panes: snapshot.panes, splits: snapshot.splits
+        )
+        let preview = try XCTUnwrap(DropPreview.frames(
+            target: .paneEdge(Self.p1, .left), dragging: .pane(Self.p3), layout: zoomed,
+            exported: exported, grid: canvasGrid, dividerThickness: 6,
+            composition: CanvasComposition.of(layout: zoomed)
+        ))
+
+        // Half of the whole 800pt canvas, less the box's own gutter.
+        XCTAssertEqual(preview.incoming.minX, 3, accuracy: 1)
+        XCTAssertEqual(preview.incoming.width, 394, accuracy: 1)
+        XCTAssertEqual(preview.incoming.height, 394, accuracy: 1, "the wash is short of the canvas the zoomed pane fills")
+    }
+
     func testPreviewedIncomingRectIsTheDroppedPanesNewHalf() throws {
         let preview = try XCTUnwrap(DropPreview.frames(
             target: .paneEdge(Self.p1, .left), dragging: .pane(Self.p3), layout: snapshot,
