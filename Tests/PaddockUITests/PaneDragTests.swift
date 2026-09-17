@@ -366,6 +366,10 @@ final class PaneDragTests: XCTestCase {
         )
 
         let app = try launchOnSeed()
+        XCTAssertTrue(
+            app.paddockElement("paddock.pane.zoomBadge.\(ids.p1)").waitForExistence(timeout: 20),
+            "the window never marked \(ids.p1) zoomed, so the guard below would be tested against nothing"
+        )
 
         let trace = dragElement(app, fromID: canvasPane(ids.p1), toID: "paddock.strip.tab.\(ids.tabB)", aiming: .middle)
 
@@ -385,10 +389,11 @@ final class PaneDragTests: XCTestCase {
             "the pane should have left \(ids.tabA); \(after.outline())"
         )
 
-        // The zoom badge would be the rendered half of this, but it is an
-        // unlabelled `Image`, which SwiftUI exposes to accessibility as
-        // nothing at all, so `paddock.pane.zoomBadge.<id>` never resolves and
-        // cannot be asserted on from here.
+        assertEventually("the window drops the zoom badge") {
+            !app.paddockElement("paddock.pane.zoomBadge.\(ids.p1)").exists
+        } describing: {
+            "the badge for \(ids.p1) is still drawn, so the window still believes a tab is zoomed"
+        }
         assertCanvasHolds(app, [ids.p3, ids.p1], "after a move out of a zoomed tab")
     }
 

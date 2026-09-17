@@ -325,6 +325,12 @@ struct PaneCellView: View {
 
     /// Mauve, never a status color (the parity checklist's own rule), so a
     /// zoomed pane is never read as an agent state.
+    ///
+    /// The label is what makes this an accessibility element at all: an
+    /// unlabelled `Image` is decorative, SwiftUI exposes nothing for it, and
+    /// the identifier below then names something no reader can reach. This
+    /// badge is the only place the window says a tab is zoomed, so it has to
+    /// be readable.
     private var zoomBadge: some View {
         Image(systemName: "arrow.up.left.and.arrow.down.right")
             .font(ChromeType.zoomBadge)
@@ -332,6 +338,7 @@ struct PaneCellView: View {
             .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
             .frame(height: PaneChrome.titleRowHeight)
             .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.mauve.opacity(0.14)))
+            .accessibilityLabel("Zoomed")
             .accessibilityIdentifier("paddock.pane.zoomBadge.\(pane.paneID.rawValue)")
     }
 
