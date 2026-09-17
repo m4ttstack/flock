@@ -1,4 +1,3 @@
-import AppKit
 import XCTest
 
 /// Which edge of a drop target a pane drag aims at. Named for the canvas
@@ -45,14 +44,15 @@ struct DragTrace: CustomStringConvertible {
     let toID: String
     let from: CGPoint
     let to: CGPoint
-    /// Whether the `whileHeld` work ran before the button came up. False means
-    /// the interjection never happened, so whatever it was meant to cause
-    /// cannot be read into the result.
-    let heldWorkRan: Bool
+    /// What the out-of-process interruption reported, or nil when the drag
+    /// asked for none. A case that reads a teardown into its result has to
+    /// know the interruption actually happened: a drag that was never
+    /// interrupted and a drag the app never saw look the same afterward.
+    let interruption: String?
 
     var description: String {
         "drag \(fromID) at \(point(from)) -> \(toID) at \(point(to))"
-            + (heldWorkRan ? ", held work ran" : "")
+            + (interruption.map { ", interruption \($0)" } ?? "")
     }
 
     private func point(_ value: CGPoint) -> String {
@@ -95,41 +95,99 @@ extension XCUIApplication {
     }
 
     func paddockElementCount(identifierPrefix: String) -> Int {
-        descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", identifierPrefix))
-            .count
+        paddockIdentifiers(prefix: identifierPrefix).count
     }
 
     /// The identifiers under a prefix that the app is currently showing, for a
     /// failure message that has to say what WAS on screen.
     ///
-    /// Bound in one pass rather than counted and then indexed: the window
-    /// redraws from herdr's events, so a count taken before a redraw and an
-    /// index resolved after it fail the test with "no matches found" instead
-    /// of reporting what changed.
+    /// Read out of ONE captured tree, never off resolved elements. A query
+    /// hands back proxies that re-resolve on every attribute read, and the
+    /// window redraws from herdr's events between the resolve and the read, so
+    /// a proxy for a pane cell the drop has since moved fails the whole test
+    /// with "no matches found" rather than reporting that it is gone. A
+    /// snapshot is a value: reading it cannot fail, and a capture that cannot
+    /// be taken at all reads as an empty window, which a poll treats as
+    /// not-yet rather than as a verdict.
     func paddockIdentifiers(prefix: String) -> [String] {
-        descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
-            .allElementsBoundByAccessibilityElement
-            .map(\.identifier)
-            .sorted()
+        paddockBoxes(prefix: prefix).keys.sorted()
+    }
+
+    /// The same, with each identifier's box. Frames are read from here for the
+    /// same reason identifiers are.
+    func paddockBoxes(prefix: String) -> [String: CGRect] {
+        guard let tree = try? snapshot() else { return [:] }
+        var found: [String: CGRect] = [:]
+        func walk(_ node: XCUIElementSnapshot) {
+            if node.identifier.hasPrefix(prefix), found[node.identifier] == nil {
+                found[node.identifier] = node.frame
+            }
+            for child in node.children {
+                walk(child)
+            }
+        }
+        walk(tree)
+        return found
     }
 }
 
-/// Makes the app under test resign active, which its drag layer reads as a
-/// gesture that will never see a release and tears down, committing nothing.
+/// Starts a detached helper that brings another application forward after
+/// `delay`. The app under test resigning active is what its drag layer reads
+/// as a gesture that will never see a release, and it tears the drag down
+/// without committing.
 ///
-/// This is how a drag is ended mid-gesture. Escape, which the drag's own key
-/// monitor also treats as a cancel, cannot be sent from here at all: XCTest
-/// arbitrates its own event synthesis and refuses a keystroke while a gesture
-/// it started is still running ("Unable to synthesize gesture request N ...
-/// because gesture request M is still in progress"), retrying until the
-/// gesture is over and the button is already up. Activating the runner is not
-/// event synthesis, so it is not arbitrated.
-@MainActor
-func takeFocusFromTheAppUnderTest() {
-    NSRunningApplication.current.activate()
+/// The delay runs in a process of its own because nothing inside this one can
+/// be relied on to act while a gesture is in flight: XCTest refuses to
+/// synthesize a keystroke until its own gesture finishes, and the thread it
+/// blocks does not reliably turn the main run loop either -- across two runs
+/// the same main-queue interjection ran during a long drag and never ran
+/// during a short one. A separate process is subject to neither.
+func scheduleDeactivationOfTheAppUnderTest(after delay: TimeInterval) -> Process? {
+    let helper = Process()
+    helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+    // LaunchServices rather than an Apple event: the runner is sandboxed, so
+    // anything it spawns is too, and a sandboxed process scripting another app
+    // needs an entitlement it does not have. Activating the runner itself is
+    // not an option either -- it has no window, and macOS does not bring a
+    // windowless app forward, which is why the previous attempt reported
+    // having run and changed nothing.
+    helper.arguments = [
+        "-c", "sleep \(String(format: "%.2f", delay)); exec /usr/bin/open -b \(frontmostDuringAnInterruption)",
+    ]
+    let errors = Pipe()
+    helper.standardOutput = FileHandle.nullDevice
+    helper.standardError = errors
+    do {
+        try helper.run()
+    } catch {
+        return nil
+    }
+    helperErrors[ObjectIdentifier(helper)] = errors
+    return helper
 }
+
+/// What that helper reported once it is done, for the drag's trace. Read after
+/// the gesture, which the helper always finishes inside.
+func deactivationOutcome(of helper: Process?) -> String {
+    guard let helper else { return "could not be started" }
+    let errors = helperErrors.removeValue(forKey: ObjectIdentifier(helper))
+    let text = errors.flatMap { String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) } ?? ""
+    helper.waitUntilExit()
+    guard helper.terminationStatus == 0 else {
+        return "failed (exit \(helper.terminationStatus)): \(text.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+    return "ran"
+}
+
+/// Finder: always running, always has the desktop to come forward with, and
+/// needs no permission to open. The case puts the app under test back in front
+/// immediately afterward.
+private let frontmostDuringAnInterruption = "com.apple.finder"
+
+/// The helpers' stderr pipes, held until the outcome is read: a `Process` has
+/// nowhere to keep one, and a pipe released early closes the read end while
+/// the helper is still writing.
+private nonisolated(unsafe) var helperErrors: [ObjectIdentifier: Pipe] = [:]
 
 /// Presses the source element and drags it onto the target.
 ///
@@ -141,13 +199,13 @@ func takeFocusFromTheAppUnderTest() {
 /// express. A dwell needs the pointer still moving while it sits over its
 /// target -- `DragController` checks its spring-load deadline from the move
 /// events a drag delivers and from nothing else, so a pointer parked dead
-/// still never reaches one -- which a slow crossing of the target provides. A
-/// drag that ends without committing needs something done while the button is
-/// still down, which is what `whileHeld` runs in.
+/// still never reaches one -- which a slow crossing of the target provides.
 ///
-/// `whileHeld` runs on the main queue, which the blocked gesture call does
-/// give a turn (proven live). What it must NOT do is ask XCTest to synthesize
-/// anything: see `takeFocusFromTheAppUnderTest`.
+/// `interruptedMidHold` is for a drag that must end without committing: it
+/// starts the helper BEFORE the gesture, timed through the press and the
+/// travel the velocity implies, so the app under test resigns active while the
+/// button is still down. See `scheduleDeactivationOfTheAppUnderTest` for why
+/// it cannot be done from inside this process.
 @MainActor
 @discardableResult
 func dragElement(
@@ -159,7 +217,7 @@ func dragElement(
     pressDuration: TimeInterval = 0.3,
     speed: XCUIGestureVelocity = .default,
     hold: TimeInterval = 0,
-    whileHeld: (@MainActor @Sendable () -> Void)? = nil
+    interruptedMidHold: Bool = false
 ) -> DragTrace {
     let source = app.paddockElement(fromID)
     let target = app.paddockElement(toID)
@@ -170,21 +228,10 @@ func dragElement(
     let fromPoint = from.screenPoint
     let toPoint = to.screenPoint
 
-    let ran = HeldWorkFlag()
-    if let whileHeld {
-        // Scheduled before the gesture rather than inside it: the gesture call
-        // blocks this thread until the button comes up, so the only turn the
-        // interjection can get is one the gesture's own run loop gives it.
-        // Timed from the press through the travel the velocity implies, into
-        // the hold that follows it.
+    var helper: Process?
+    if interruptedMidHold {
         let travel = hypot(toPoint.x - fromPoint.x, toPoint.y - fromPoint.y) / max(speed.rawValue, 1)
-        let fireAt = pressDuration + travel + max(0.1, min(0.3, hold * 0.4))
-        DispatchQueue.main.asyncAfter(deadline: .now() + fireAt) {
-            MainActor.assumeIsolated {
-                whileHeld()
-                ran.value = true
-            }
-        }
+        helper = scheduleDeactivationOfTheAppUnderTest(after: pressDuration + travel + max(0.1, min(0.3, hold * 0.4)))
     }
 
     // The plain two-argument press is the form the closed-loop spike proved;
@@ -195,7 +242,10 @@ func dragElement(
     } else {
         from.press(forDuration: pressDuration, thenDragTo: to)
     }
-    return DragTrace(fromID: fromID, toID: toID, from: fromPoint, to: toPoint, heldWorkRan: ran.value)
+    return DragTrace(
+        fromID: fromID, toID: toID, from: fromPoint, to: toPoint,
+        interruption: interruptedMidHold ? deactivationOutcome(of: helper) : nil
+    )
 }
 
 /// Clicks a point inside an element, stated the same way a drag states its
@@ -207,13 +257,6 @@ func clickElement(_ app: XCUIApplication, _ identifier: String, at aim: Aim = .m
     let element = app.paddockElement(identifier)
     XCTAssertTrue(element.exists, "nothing on screen carries \(identifier), so this click had nothing to hit")
     element.coordinate(withNormalizedOffset: .zero).withOffset(offset(aim, in: element.frame)).click()
-}
-
-/// Written on the main actor by the interjection and read on it by the drag
-/// helper, which is the only reason it is a reference at all.
-@MainActor
-private final class HeldWorkFlag {
-    var value = false
 }
 
 private func offset(_ aim: Aim, in frame: CGRect) -> CGVector {

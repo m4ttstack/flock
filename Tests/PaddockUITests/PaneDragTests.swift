@@ -23,13 +23,16 @@ import XCTest
 ///
 /// **The two cases that end mid-gesture.** A drag torn down with the button
 /// still down commits nothing, and the teardown has to be triggered while the
-/// gesture is running, which is what `dragElement`'s `whileHeld` is for. It
-/// cannot be Escape: XCTest arbitrates its own event synthesis and refuses a
-/// keystroke until the gesture is over. Taking the frontmost app away reaches
-/// the same teardown (`abandon()`, which the drag layer documents as Esc's own
-/// path minus the wait for a release), and it is not event synthesis.
-/// `whileHeld` reports whether it ran, because a drag that was never torn down
-/// and a drag the app never saw both leave the session unchanged.
+/// gesture is running, which is what `dragElement`'s `interruptedMidHold` is
+/// for. It cannot be Escape, and it cannot be anything this process does
+/// either: XCTest refuses to synthesize a keystroke until its own gesture is
+/// over, and the thread that gesture blocks does not reliably turn the main
+/// run loop. So the interruption is a detached helper that brings another
+/// application forward, which the app under test reads as a gesture that will
+/// never see a release and tears down through `abandon()` -- the same teardown
+/// Escape reaches, minus the wait for a release. It reports whether it ran,
+/// because a drag that was never torn down and a drag the app never saw both
+/// leave the session unchanged.
 final class PaneDragTests: XCTestCase {
     private var session: ScratchSession!
 
@@ -213,13 +216,17 @@ final class PaneDragTests: XCTestCase {
         XCTAssertEqual(moved.x, anchor.x, "a down split leaves both panes on the same x, got \(moved.x) and \(anchor.x)")
 
         assertCanvasHolds(app, [ids.p1, ids.p2], "after a same-tab bottom-edge restructure")
+        func stacked() -> (top: CGRect, bottom: CGRect)? {
+            let drawn = app.paddockBoxes(prefix: "paddock.canvas.pane.")
+            guard let top = drawn[canvasPane(ids.p2)], let bottom = drawn[canvasPane(ids.p1)] else { return nil }
+            return (top, bottom)
+        }
         assertEventually("the canvas draws \(ids.p1) below \(ids.p2)") {
-            let top = app.paddockElement(self.canvasPane(ids.p2)).frame
-            let bottom = app.paddockElement(self.canvasPane(ids.p1)).frame
-            return top.maxY <= bottom.minY + 1
+            guard let pair = stacked() else { return false }
+            return pair.top.maxY <= pair.bottom.minY + 1
         } describing: {
-            "\(ids.p2) is at \(app.paddockElement(self.canvasPane(ids.p2)).frame), "
-                + "\(ids.p1) at \(app.paddockElement(self.canvasPane(ids.p1)).frame)"
+            guard let pair = stacked() else { return "the canvas is not drawing both \(ids.p1) and \(ids.p2)" }
+            return "\(ids.p2) is at \(pair.top), \(ids.p1) at \(pair.bottom)"
         }
     }
 
@@ -420,12 +427,12 @@ final class PaneDragTests: XCTestCase {
 
         let cancelled = dragElement(
             app, fromID: canvasPane(ids.p1), toID: canvasPane(ids.p2), aiming: .middle,
-            hold: Self.holdForAnInterjection, whileHeld: { takeFocusFromTheAppUnderTest() }
+            hold: Self.holdForAnInterruption, interruptedMidHold: true
         )
-        XCTAssertTrue(
-            cancelled.heldWorkRan,
-            "the interjection never ran inside the \(Self.holdForAnInterjection)s hold, so nothing tore the "
-                + "drag down and this case proved nothing. \(cancelled)"
+        XCTAssertEqual(
+            cancelled.interruption, "ran",
+            "nothing took the frontmost app away mid-gesture, so nothing tore the drag down and this case "
+                + "proved nothing. \(cancelled)"
         )
         app.activate()
 
@@ -477,13 +484,12 @@ final class PaneDragTests: XCTestCase {
         // pointer parked dead still never reaches its deadline.
         let dwelled = dragElement(
             app, fromID: canvasPane(ids.p1), toID: "paddock.rail.workspace.\(other)", aiming: .edge(.left),
-            speed: Self.dwellCrossingSpeed, hold: Self.holdForAnInterjection,
-            whileHeld: { takeFocusFromTheAppUnderTest() }
+            speed: Self.dwellCrossingSpeed, hold: Self.holdForAnInterruption, interruptedMidHold: true
         )
-        XCTAssertTrue(
-            dwelled.heldWorkRan,
-            "the interjection never ran inside the \(Self.holdForAnInterjection)s hold, so the dwell was "
-                + "released rather than torn down and this case proved nothing. \(dwelled)"
+        XCTAssertEqual(
+            dwelled.interruption, "ran",
+            "nothing took the frontmost app away mid-gesture, so the dwell was released rather than torn "
+                + "down and this case proved nothing. \(dwelled)"
         )
         app.activate()
 
@@ -570,7 +576,7 @@ final class PaneDragTests: XCTestCase {
 
     /// How long the button stays down at the target once the drag has
     /// arrived, for the two cases that tear the drag down mid-gesture.
-    private static let holdForAnInterjection: TimeInterval = 1.2
+    private static let holdForAnInterruption: TimeInterval = 1.2
 
     /// Points per second for a drag that has to dwell on what it crosses. The
     /// rail is about 192pt wide, so aiming at a row's far side spends over a
@@ -669,17 +675,27 @@ final class PaneDragTests: XCTestCase {
         }
     }
 
+    /// Both cells read out of one capture, so the comparison is of two boxes
+    /// the window held at the same instant, and a cell that has since moved
+    /// reads as absent rather than failing the test from inside the helper.
     @MainActor
     private func assertCellIsLeftOf(
         _ app: XCUIApplication, _ leftPane: String, _ rightPane: String, _ what: String,
         file: StaticString = #filePath, line: UInt = #line
     ) {
+        func boxes() -> (left: CGRect, right: CGRect)? {
+            let drawn = app.paddockBoxes(prefix: "paddock.canvas.pane.")
+            guard let left = drawn[canvasPane(leftPane)], let right = drawn[canvasPane(rightPane)] else { return nil }
+            return (left, right)
+        }
         assertEventually(what, file: file, line: line) {
-            app.paddockElement(self.canvasPane(leftPane)).frame.maxX
-                <= app.paddockElement(self.canvasPane(rightPane)).frame.minX + 1
+            guard let pair = boxes() else { return false }
+            return pair.left.maxX <= pair.right.minX + 1
         } describing: {
-            "\(leftPane) is at \(app.paddockElement(self.canvasPane(leftPane)).frame), "
-                + "\(rightPane) at \(app.paddockElement(self.canvasPane(rightPane)).frame)"
+            guard let pair = boxes() else {
+                return "the canvas is not drawing both \(leftPane) and \(rightPane)"
+            }
+            return "\(leftPane) is at \(pair.left), \(rightPane) at \(pair.right)"
         }
     }
 

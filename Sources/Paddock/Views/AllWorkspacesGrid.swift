@@ -278,6 +278,12 @@ private struct WorkspaceCard: View {
         )
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
         .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
+        // A container, so the identifier below names the card and stops there.
+        // Undeclared, SwiftUI folds the whole card into its text leaves and
+        // stamps this identifier on every one of them, which both loses the
+        // card's own box and overwrites the identifier each thumbnail inside
+        // it carries.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("paddock.grid.workspace.\(workspace.workspaceID.rawValue)")
     }
 
@@ -454,6 +460,10 @@ private struct TabThumbnail: View {
             drag.closeGrid()
             Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
         }
+        // A container, for the same reason the card above is one: a thumbnail
+        // folded into its mini panes' titles carries none of its own box, and
+        // a drop aimed at it is aimed at a label instead.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("paddock.grid.tab.\(tab.tabID.rawValue)")
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(drag.isDragging(tab: tab.tabID) ? DragVisuals.originOpacity : 1)
