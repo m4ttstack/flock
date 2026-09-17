@@ -21,11 +21,15 @@ import XCTest
 /// state their points as fractions of the thumbnail that draws them, derived
 /// from the thumbnail metrics named beside the fractions.
 ///
-/// **The two cases that end on a keypress.** Escape reaches a live drag through
-/// a key monitor the drag installs, so it has to arrive while the button is
-/// still down. `dragElement`'s `whileHeld` is the only way to send it, and it
-/// reports whether it ran, because a drag that was never cancelled and a drag
-/// the app never saw both leave the session unchanged.
+/// **The two cases that end mid-gesture.** A drag torn down with the button
+/// still down commits nothing, and the teardown has to be triggered while the
+/// gesture is running, which is what `dragElement`'s `whileHeld` is for. It
+/// cannot be Escape: XCTest arbitrates its own event synthesis and refuses a
+/// keystroke until the gesture is over. Taking the frontmost app away reaches
+/// the same teardown (`abandon()`, which the drag layer documents as Esc's own
+/// path minus the wait for a release), and it is not event synthesis.
+/// `whileHeld` reports whether it ran, because a drag that was never torn down
+/// and a drag the app never saw both leave the session unchanged.
 final class PaneDragTests: XCTestCase {
     private var session: ScratchSession!
 
