@@ -436,14 +436,26 @@ final class ArrangeAndConvergeTests: XCTestCase {
         assertCanvasHolds(app, [ids.p1, made], "after \(ids.p2) was closed from its own menu")
     }
 
-    /// The Zoom row is paddock's zoom affordance. The canvas still draws every
-    /// pane of a zoomed tab -- it is herdr's own terminal view that zooms --
-    /// so the badge on the tab's focused pane is what the window says about
-    /// it, and it goes away when the row is used again.
+    /// The Zoom row is paddock's zoom affordance, and a zoom is something the
+    /// window has to SHOW: herdr's renderer holds one pane of a zoomed tab
+    /// open over the whole tab area, so paddock's canvas draws that pane alone,
+    /// filling the canvas, with the badge on it. herdr's own layout keeps
+    /// listing every pane of the tab throughout -- that is what makes the
+    /// canvas check the real one -- and using the row again brings the others
+    /// back where they were.
     @MainActor
     func testTheZoomRowZoomsTheTabAndTogglesItBack() throws {
         let ids = session.seedIDs()
         let app = try launchOnSeed()
+        assertCanvasHolds(app, [ids.p1, ids.p2], "the seeded tab draws both its panes")
+        let tiled = app.paddockBoxes(prefix: "paddock.canvas.pane.")
+        let left = try XCTUnwrap(tiled[canvasPane(ids.p1)], "the canvas is not drawing \(ids.p1)")
+        let right = try XCTUnwrap(tiled[canvasPane(ids.p2)], "the canvas is not drawing \(ids.p2)")
+        // Both boxes are inset from their own layout frame by the same gutter
+        // halves, so the two together span exactly what one pane holding the
+        // whole tab area spans: the canvas, with nothing assumed about the
+        // window's size.
+        let wholeCanvas = left.union(right)
 
         openPaneMenu(app, on: ids.p2)
         clickMenuItem(app, "paddock.pane.menu.zoom")
@@ -451,12 +463,14 @@ final class ArrangeAndConvergeTests: XCTestCase {
         let zoomed = try session.snapshot(waitingFor: "\(ids.tabA) to read as zoomed") { $0.isZoomed(tab: ids.tabA) }
         let badged = try XCTUnwrap(
             zoomed.focusedPaneID(inTab: ids.tabA),
-            "\(ids.tabA)'s layout names no focused pane, so nothing says where the badge belongs; \(zoomed.outline())"
+            "\(ids.tabA)'s layout names no focused pane, so nothing says which pane the zoom holds open; \(zoomed.outline())"
         )
         XCTAssertEqual(
             zoomed.paneIDs(inTab: ids.tabA), [ids.p1, ids.p2],
             "a zoom moves no pane; \(zoomed.outline())"
         )
+        assertCanvasHolds(app, [badged], "the zoomed tab draws \(badged) and no other pane")
+        assertCanvasPaneBox(app, badged, matches: wholeCanvas, "\(badged) fills the canvas while the tab is zoomed")
         assertEventually("the window marks \(badged) zoomed") {
             app.paddockElement("paddock.pane.zoomBadge.\(badged)").exists
         } describing: {
@@ -472,6 +486,9 @@ final class ArrangeAndConvergeTests: XCTestCase {
             unzoomed.paneIDs(inTab: ids.tabA), [ids.p1, ids.p2],
             "unzooming moved a pane; \(unzoomed.outline())"
         )
+        assertCanvasHolds(app, [ids.p1, ids.p2], "unzooming brings the tab's other pane back")
+        assertCanvasPaneBox(app, ids.p1, matches: left, "\(ids.p1) is back in the box it had before the zoom")
+        assertCanvasPaneBox(app, ids.p2, matches: right, "\(ids.p2) is back in the box it had before the zoom")
         assertEventually("the window drops the zoom badge") {
             !app.paddockElement("paddock.pane.zoomBadge.\(badged)").exists
         } describing: {
@@ -1010,6 +1027,28 @@ final class ArrangeAndConvergeTests: XCTestCase {
         } describing: {
             let seen = app.paddockIdentifiers(prefix: "paddock.canvas.pane.")
             return "the canvas holds [\(seen.joined(separator: ", "))], expected [\(wanted.sorted().joined(separator: ", "))]"
+        }
+    }
+
+    /// A pane's drawn box, polled: a canvas that has just been told to redraw
+    /// can be read one layout pass behind the one it is settling into. The
+    /// tolerance is a point, which is under the single points a box is inset
+    /// from its layout frame by and far under any real difference in where a
+    /// pane landed.
+    @MainActor
+    private func assertCanvasPaneBox(
+        _ app: XCUIApplication, _ paneID: String, matches expected: CGRect, _ what: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        func drawn() -> CGRect? { app.paddockBoxes(prefix: "paddock.canvas.pane.")[canvasPane(paneID)] }
+        func matches(_ box: CGRect) -> Bool {
+            abs(box.minX - expected.minX) <= 1 && abs(box.minY - expected.minY) <= 1
+                && abs(box.width - expected.width) <= 1 && abs(box.height - expected.height) <= 1
+        }
+        assertEventually(what, file: file, line: line) {
+            drawn().map(matches) ?? false
+        } describing: {
+            "the canvas draws \(paneID) at \(drawn().map { "\($0)" } ?? "no box at all"), expected \(expected)"
         }
     }
 
