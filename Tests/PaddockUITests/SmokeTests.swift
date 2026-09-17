@@ -47,8 +47,7 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(app.paddockElement("paddock.strip.tab.\(ids.tabB)").exists, "the strip never showed \(ids.tabB)")
 
         // tabB is the seed's unfocused tab, so its pane belongs to no visible
-        // cell: an app drawing every pane it knows about, or one drawing a
-        // fixed stub, passes everything above and fails here.
+        // cell.
         XCTAssertFalse(
             app.paddockElement("paddock.canvas.pane.\(ids.p3)").exists,
             "\(ids.p3) is in the tab that is not shown, so the canvas must not hold a cell for it"
@@ -67,15 +66,15 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(p1.frame.height, p2.frame.height, accuracy: 2, "the two cells of a right split differ in height")
     }
 
-    /// The app keeps mirroring a session that changes under it, launched with
-    /// `PADDOCK_RESNAPSHOT_SECONDS` set. The override's own effect on the
-    /// re-snapshot cadence is not observable from here; what fails if the
-    /// value is mishandled is the launch and the live mirror this asserts.
+    /// The app keeps mirroring a session that changes under it. The wrapper
+    /// runs the whole suite with `PADDOCK_RESNAPSHOT_SECONDS` set, so this
+    /// also covers the app reading it; the interval's own effect on the
+    /// re-snapshot cadence is not observable from here.
     @MainActor
-    func testAppConvergesOnAnExternalSplitWithAResnapshotOverride() throws {
+    func testAppConvergesOnAnExternalSplit() throws {
         let ids = session.seedIDs()
         addTeardownBlock { await MainActor.run { XCUIApplication().terminate() } }
-        let app = XCUIApplication.paddock(socket: session.socketPath, env: ["PADDOCK_RESNAPSHOT_SECONDS": "2"])
+        let app = XCUIApplication.paddock(socket: session.socketPath)
         XCTAssertTrue(
             app.paddockElement("paddock.canvas.pane.\(ids.p1)").waitForExistence(timeout: 60),
             "the canvas never showed \(ids.p1)"

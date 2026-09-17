@@ -40,11 +40,13 @@ final class ScratchSession {
     let socketPath: String
     private let ids: SeedIDs
     private let bridgePort: UInt16
+    private let bridgeToken: String
 
-    private init(socketPath: String, ids: SeedIDs, bridgePort: UInt16) {
+    private init(socketPath: String, ids: SeedIDs, bridgePort: UInt16, bridgeToken: String) {
         self.socketPath = socketPath
         self.ids = ids
         self.bridgePort = bridgePort
+        self.bridgeToken = bridgeToken
     }
 
     static func attachFromEnvironment() throws -> ScratchSession {
@@ -62,6 +64,9 @@ final class ScratchSession {
             throw ScratchSessionError(
                 "PADDOCK_BRIDGE_PORT is unset or not a port: \(present("PADDOCK_BRIDGE_PORT") ?? "<unset>")"
             )
+        }
+        guard let token = present("PADDOCK_BRIDGE_TOKEN") else {
+            throw ScratchSessionError("PADDOCK_BRIDGE_TOKEN is unset; the bridge refuses every request without it")
         }
         guard let seed = present("PADDOCK_SEED_IDS"), let data = seed.data(using: .utf8),
               let map = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else {
@@ -81,7 +86,8 @@ final class ScratchSession {
                 ws: try id("ws"), tabA: try id("tabA"), tabB: try id("tabB"),
                 p1: try id("p1"), p2: try id("p2"), p3: try id("p3")
             ),
-            bridgePort: port
+            bridgePort: port,
+            bridgeToken: token
         )
     }
 
@@ -173,9 +179,20 @@ final class ScratchSession {
         throw ScratchSessionError("timed out after \(timeout)s waiting for \(what)")
     }
 
+    /// Sends a line to the bridge verbatim, token included. Only the harness's
+    /// own coverage of the token needs this; every other caller goes through
+    /// `request` or `control`, which prepend it.
+    func sendRawBridgeLine(_ line: String) throws -> String {
+        try send(line)
+    }
+
+    private func bridge(_ line: String) throws -> String {
+        try send(bridgeToken + " " + line)
+    }
+
     /// One request per connection, one line each way. Every failure says which
     /// half it came from: reaching the bridge at all, or what the bridge said.
-    private func bridge(_ line: String) throws -> String {
+    private func send(_ line: String) throws -> String {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw ScratchSessionError("could not make a socket for the e2e bridge: errno \(errno)")

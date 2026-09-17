@@ -13,9 +13,7 @@ struct HerdrRect: Equatable {
 ///
 /// `tabs` and `panes` are FLAT lists carrying their own `workspace_id` /
 /// `tab_id`, not children nested under a workspace object, and `layouts` is a
-/// third flat list keyed by `tab_id`. Assuming the nested shape is what made
-/// spike 5's first tab count report no change over a move that had in fact
-/// landed.
+/// third flat list keyed by `tab_id`.
 struct HerdrSnapshotJSON {
     let raw: [String: Any]
 

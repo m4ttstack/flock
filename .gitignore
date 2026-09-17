@@ -7,3 +7,5 @@ docs/design/src/paddock-design.html
 Vendor/GhosttyKit.xcframework/
 Vendor/zig/
 Vendor/libghostty.version
+__pycache__/
+*.pyc

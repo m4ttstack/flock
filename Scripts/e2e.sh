@@ -21,6 +21,7 @@ ROOT="$PWD"
 LIB="$ROOT/Tests/PaddockUITests/Support/bin"
 
 SESSION_NAME="e2e-$$"
+SESSION_DIR="$HOME/.config/herdr/sessions/paddock-$SESSION_NAME"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paddock-e2e-XXXXXX")"
 PORT_FILE="$WORK_DIR/bridge.port"
 BRIDGE_PID=""
@@ -42,6 +43,23 @@ fi
 [ -x "$herdr_bin" ] || { echo "e2e.sh: no herdr binary (set PADDOCK_HERDR_BIN)" >&2; exit 1; }
 export HERDR_BIN="$herdr_bin"
 
+# Every process this run starts carries the run's own session name, in its argv
+# or in its environment: the herdr server and the terminals it spawns, the
+# bridge, the test runner, and the app under test. Matching on that name is
+# what makes a sweep safe -- matching on `Paddock.app` would also match the
+# instance Matt runs from the same DerivedData build.
+sweep_run_processes() {
+  local signal="$1" snapshot pids pid
+  # Taken before the pipeline that filters it, so the snapshot cannot contain
+  # the grep that reads it. This shell is excluded by pid: its own environment
+  # carries the session name too.
+  snapshot=$(ps -xE -o pid=,command= 2>/dev/null || true)
+  pids=$(printf '%s\n' "$snapshot" | grep -F "paddock-$SESSION_NAME" | awk -v self="$$" '$1 != self { print $1 }')
+  for pid in $pids; do
+    kill "-$signal" "$pid" 2>/dev/null || true
+  done
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -57,12 +75,28 @@ cleanup() {
     kill "$BRIDGE_PID" 2>/dev/null || true
     wait "$BRIDGE_PID" 2>/dev/null || true
   fi
+  # Killing xcodebuild reaches neither the test runner nor the app it launched:
+  # this script has no job control, so there is no process group to signal, and
+  # the bundle's own teardown block never runs when the test process dies
+  # mid-case. An app left behind would go on writing the window-frame default
+  # the real Paddock reads, pointed at a socket this function is about to
+  # destroy.
+  sweep_run_processes TERM
+  sleep 1
   rm -rf "$WORK_DIR"
   if [ -n "$SESSION_STARTED" ]; then
     "$LIB/scratch-session.sh" stop "$SESSION_NAME" >/dev/null 2>&1 || true
-    if [ -S "$HOME/.config/herdr/sessions/paddock-$SESSION_NAME/herdr.sock" ]; then
+    sweep_run_processes KILL
+    # A reseed the bridge was midway through spawns its own `start`, which
+    # outlives the bridge and can bind a server after the stop above ran.
+    if [ -S "$SESSION_DIR/herdr.sock" ]; then
+      "$LIB/scratch-session.sh" stop "$SESSION_NAME" >/dev/null 2>&1 || true
+    fi
+    if [ -S "$SESSION_DIR/herdr.sock" ]; then
       echo "e2e.sh: WARNING: scratch server still bound at paddock-$SESSION_NAME" >&2
     fi
+  else
+    sweep_run_processes KILL
   fi
   exit "$status"
 }
@@ -75,8 +109,11 @@ xcodegen
 xcodebuild -scheme Paddock -configuration Debug -skipPackagePluginValidation \
   -destination 'platform=macOS' build-for-testing
 
-SOCKET=$("$LIB/scratch-session.sh" start "$SESSION_NAME")
+# Armed before the start, not after: `start` spawns the server and only then
+# waits for it to bind, so a bind that times out has still left a process and a
+# session directory for the teardown to clear.
 SESSION_STARTED=1
+SOCKET=$("$LIB/scratch-session.sh" start "$SESSION_NAME")
 SEED_IDS=$("$LIB/seed-layout.sh" "$SOCKET" | jq -c .)
 
 # One session serves the whole `xcodebuild test` invocation, so the bridge's
@@ -85,25 +122,32 @@ SEED_IDS=$("$LIB/seed-layout.sh" "$SOCKET" | jq -c .)
 # which is what keeps the seed ids stable across a reseed.
 python3 "$LIB/e2e-bridge.py" \
   --socket "$SOCKET" --lib "$LIB" --session "$SESSION_NAME" \
-  --herdr-bin "$herdr_bin" --port-file "$PORT_FILE" &
+  --herdr-bin "$herdr_bin" --port-file "$PORT_FILE" --parent-pid "$$" &
 BRIDGE_PID=$!
 
 for _ in $(seq 1 100); do [ -s "$PORT_FILE" ] && break; sleep 0.1; done
-BRIDGE_PORT="$(cat "$PORT_FILE" 2>/dev/null || true)"
-[ -n "$BRIDGE_PORT" ] || { echo "e2e.sh: the bridge never reported a port" >&2; exit 1; }
+BRIDGE_PORT=""
+BRIDGE_TOKEN=""
+read -r BRIDGE_PORT BRIDGE_TOKEN < "$PORT_FILE" 2>/dev/null || true
+[ -n "$BRIDGE_PORT" ] && [ -n "$BRIDGE_TOKEN" ] || {
+  echo "e2e.sh: the bridge never reported a port and token" >&2; exit 1
+}
 
 export TEST_RUNNER_PADDOCK_SOCKET="$SOCKET"
 export TEST_RUNNER_PADDOCK_SEED_IDS="$SEED_IDS"
 export TEST_RUNNER_PADDOCK_BRIDGE_PORT="$BRIDGE_PORT"
+export TEST_RUNNER_PADDOCK_BRIDGE_TOKEN="$BRIDGE_TOKEN"
 export TEST_RUNNER_PADDOCK_HERDR_BIN="$herdr_bin"
-if [ -n "${PADDOCK_RESNAPSHOT_SECONDS:-}" ]; then
-  export TEST_RUNNER_PADDOCK_RESNAPSHOT_SECONDS="$PADDOCK_RESNAPSHOT_SECONDS"
-fi
+# The product's re-snapshot backstop is minutes wide, which no case can wait
+# out, so the suite runs with a short one unless the caller names its own.
+export TEST_RUNNER_PADDOCK_RESNAPSHOT_SECONDS="${PADDOCK_RESNAPSHOT_SECONDS:-2}"
 
 echo "e2e.sh: session paddock-$SESSION_NAME"
 echo "e2e.sh: socket $SOCKET"
+echo "e2e.sh: herdr $herdr_bin"
 echo "e2e.sh: seed $SEED_IDS"
 echo "e2e.sh: bridge 127.0.0.1:$BRIDGE_PORT"
+echo "e2e.sh: resnapshot ${TEST_RUNNER_PADDOCK_RESNAPSHOT_SECONDS}s"
 
 only_testing=("-only-testing:PaddockUITests")
 if [ "$#" -gt 0 ]; then only_testing=("$@"); fi

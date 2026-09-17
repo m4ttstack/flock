@@ -11,6 +11,14 @@ usage() {
 
 cmd="${1:-}"; [ -n "$cmd" ] || usage
 raw_name="${2:-}"; [ -n "$raw_name" ] || usage
+# `stop` ends in `rm -rf` on a path built from this name, and a name carrying a
+# separator or a dot segment escapes the sessions directory entirely, where the
+# default-socket compare below would never fire.
+case "$raw_name" in
+  */*|.*)
+    echo "refusing a session name that is not a single plain segment: $raw_name" >&2
+    exit 1 ;;
+esac
 name="paddock-$raw_name"
 
 config_dir="$HOME/.config/herdr"
@@ -44,12 +52,17 @@ stop_server() {
     HERDR_SOCKET_PATH="$sock" "$herdr_bin" server stop >/dev/null 2>&1 || true
   fi
   if [ -f "$pidfile" ]; then
-    pid="$(cat "$pidfile")"
-    if [ -n "$pid" ]; then
-      kill "$pid" 2>/dev/null || true
-      for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
-      kill -9 "$pid" 2>/dev/null || true
-    fi
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
+    comm="$(ps -p "${pid:-0}" -o comm= 2>/dev/null || true)"
+    # A recorded pid outlives the process it named and the number gets reused,
+    # so the command is checked before the signal: the patched build is named
+    # herdr-mouse-cli, which this matches too.
+    case "$comm" in
+      *herdr*)
+        kill "$pid" 2>/dev/null || true
+        for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+        kill -9 "$pid" 2>/dev/null || true ;;
+    esac
     rm -f "$pidfile"
   fi
   for _ in $(seq 1 50); do [ -S "$sock" ] || break; sleep 0.1; done

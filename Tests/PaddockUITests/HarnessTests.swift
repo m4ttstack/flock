@@ -71,6 +71,18 @@ final class HarnessTests: XCTestCase {
         XCTAssertEqual(reseeded.paneIDs(inTab: ids.tabB), [ids.p3])
     }
 
+    /// The bridge forwards arbitrary herdr requests, and one of them makes a
+    /// PTY running a shell, so the token is the only thing between a loopback
+    /// port and execution as whoever is running the suite.
+    func testBridgeRefusesARequestCarryingTheWrongToken() throws {
+        let refused = try session.sendRawBridgeLine("0000000000000000000000000000000000 ping")
+        XCTAssertTrue(refused.contains("bad bridge token"), "the bridge answered an untokened request: \(refused)")
+
+        // The same connection shape with the real token still works, so the
+        // refusal above is the token's doing rather than a dead bridge.
+        XCTAssertEqual(try session.snapshot().workspaceCount, 1)
+    }
+
     func testRestartServerBringsTheSessionBackAsItWas() throws {
         let ids = session.seedIDs()
         try session.mutate(
