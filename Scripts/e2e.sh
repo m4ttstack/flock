@@ -4,13 +4,16 @@
 #
 # The split between this script and the test bundle is not a style choice:
 # Xcode wraps every macOS UI-testing bundle in a `-Runner.app` that is App
-# Sandboxed unconditionally, and that sandbox cannot bind a listening socket,
-# so `herdr server` has to already exist before xcodebuild launches anything
-# (spikes/05-uitest/FINDINGS.md). Everything the runner needs to know reaches
-# it through `TEST_RUNNER_`-prefixed variables exported here: xcodebuild
-# strips the prefix and injects the rest into the test host's environment,
-# and it is the only channel that works -- a plain export never arrives, and
-# a trailing KEY=VALUE argument is parsed as a build-setting override.
+# Sandboxed unconditionally, and that sandbox neither binds a listening socket
+# nor connects to a unix socket outside its container, so the bundle can
+# neither start herdr nor talk to it. `e2e-bridge.py` is what closes that gap;
+# the sandbox does permit outbound TCP to loopback.
+#
+# Everything the runner needs to know reaches it through `TEST_RUNNER_`-prefixed
+# variables exported here: xcodebuild strips the prefix and injects the rest
+# into the test host's environment, and it is the only channel that works -- a
+# plain export never arrives, and a trailing KEY=VALUE argument is parsed as a
+# build-setting override.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -18,11 +21,12 @@ ROOT="$PWD"
 LIB="$ROOT/Tests/PaddockUITests/Support/bin"
 
 SESSION_NAME="e2e-$$"
-CONTROL_SOCKET="${TMPDIR:-/tmp}/paddock-e2e-$$.ctl"
-CONTROL_PID=""
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paddock-e2e-XXXXXX")"
+PORT_FILE="$WORK_DIR/bridge.port"
+BRIDGE_PID=""
 SESSION_STARTED=""
 
-for tool in jq nc xcodegen xcodebuild; do
+for tool in jq nc python3 xcodegen xcodebuild; do
   command -v "$tool" >/dev/null 2>&1 || { echo "e2e.sh: $tool is required" >&2; exit 1; }
 done
 
@@ -40,19 +44,13 @@ export HERDR_BIN="$herdr_bin"
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
-  # Before the session stop, never after: the control loop's whole job is to
-  # start a server back up, and it would happily undo the teardown.
-  #
-  # The listener has to die before the loop is waited on. A non-interactive
-  # bash acts on a signal only once its foreground command returns, and the
-  # loop's foreground command is a `nc` that blocks until someone connects, so
-  # killing the loop alone leaves the wait blocked for as long as nothing does.
-  if [ -n "$CONTROL_PID" ]; then
-    kill "$CONTROL_PID" 2>/dev/null || true
-    pkill -f -- "-lU $CONTROL_SOCKET" 2>/dev/null || true
-    wait "$CONTROL_PID" 2>/dev/null || true
+  # Before the session stop, never after: the bridge's control verbs start a
+  # server back up, and one in flight would undo the teardown.
+  if [ -n "$BRIDGE_PID" ]; then
+    kill "$BRIDGE_PID" 2>/dev/null || true
+    wait "$BRIDGE_PID" 2>/dev/null || true
   fi
-  rm -f "$CONTROL_SOCKET"
+  rm -rf "$WORK_DIR"
   if [ -n "$SESSION_STARTED" ]; then
     "$LIB/scratch-session.sh" stop "$SESSION_NAME" >/dev/null 2>&1 || true
     if [ -S "$HOME/.config/herdr/sessions/paddock-$SESSION_NAME/herdr.sock" ]; then
@@ -74,40 +72,22 @@ SOCKET=$("$LIB/scratch-session.sh" start "$SESSION_NAME")
 SESSION_STARTED=1
 SEED_IDS=$("$LIB/seed-layout.sh" "$SOCKET" | jq -c .)
 
-# The runner cannot write outside its container, so the only signal it can
-# raise is a connection: a one-shot listener per request, re-armed each time.
-# Requests are fire-and-forget; the caller watches the herdr socket itself for
-# the server coming back, which is the readiness the caller actually wants.
-#
-# One session serves the whole `xcodebuild test` invocation, so reseed-session
-# is how a case that changed the layout hands the next one a clean world.
-# Dropping the session directory resets herdr's own numbering, which is what
-# keeps the seed ids stable across a reseed.
-control_loop() {
-  # A subshell inherits the traps set before it forked, and this one must not
-  # run the teardown: it would stop the session out from under the tests.
-  trap - EXIT INT TERM
-  while :; do
-    rm -f "$CONTROL_SOCKET"
-    request="$(nc -lU "$CONTROL_SOCKET" 2>/dev/null || true)"
-    case "$request" in
-      restart-server)
-        "$LIB/scratch-session.sh" restart "$SESSION_NAME" >/dev/null 2>&1 || true ;;
-      reseed-session)
-        "$LIB/scratch-session.sh" stop "$SESSION_NAME" >/dev/null 2>&1 || true
-        if fresh=$("$LIB/scratch-session.sh" start "$SESSION_NAME" 2>/dev/null); then
-          "$LIB/seed-layout.sh" "$fresh" >/dev/null 2>&1 || true
-        fi ;;
-      *) sleep 0.2 ;;
-    esac
-  done
-}
-control_loop &
-CONTROL_PID=$!
+# One session serves the whole `xcodebuild test` invocation, so the bridge's
+# reseed-session verb is how a case that changed the layout hands the next one
+# a clean world. Dropping the session directory resets herdr's own numbering,
+# which is what keeps the seed ids stable across a reseed.
+python3 "$LIB/e2e-bridge.py" \
+  --socket "$SOCKET" --lib "$LIB" --session "$SESSION_NAME" \
+  --herdr-bin "$herdr_bin" --port-file "$PORT_FILE" &
+BRIDGE_PID=$!
+
+for _ in $(seq 1 100); do [ -s "$PORT_FILE" ] && break; sleep 0.1; done
+BRIDGE_PORT="$(cat "$PORT_FILE" 2>/dev/null || true)"
+[ -n "$BRIDGE_PORT" ] || { echo "e2e.sh: the bridge never reported a port" >&2; exit 1; }
 
 export TEST_RUNNER_PADDOCK_SOCKET="$SOCKET"
 export TEST_RUNNER_PADDOCK_SEED_IDS="$SEED_IDS"
-export TEST_RUNNER_PADDOCK_CONTROL_SOCKET="$CONTROL_SOCKET"
+export TEST_RUNNER_PADDOCK_BRIDGE_PORT="$BRIDGE_PORT"
 export TEST_RUNNER_PADDOCK_HERDR_BIN="$herdr_bin"
 if [ -n "${PADDOCK_RESNAPSHOT_SECONDS:-}" ]; then
   export TEST_RUNNER_PADDOCK_RESNAPSHOT_SECONDS="$PADDOCK_RESNAPSHOT_SECONDS"
@@ -116,6 +96,7 @@ fi
 echo "e2e.sh: session paddock-$SESSION_NAME"
 echo "e2e.sh: socket $SOCKET"
 echo "e2e.sh: seed $SEED_IDS"
+echo "e2e.sh: bridge 127.0.0.1:$BRIDGE_PORT"
 
 only_testing=("-only-testing:PaddockUITests")
 if [ "$#" -gt 0 ]; then only_testing=("$@"); fi

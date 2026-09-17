@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// The ids `Support/bin/seed-layout.sh` produces: one workspace, `tabA`
@@ -17,32 +18,33 @@ struct ScratchSessionError: Error, CustomStringConvertible {
 }
 
 /// The test bundle's end of the e2e harness: a ground-truth channel into the
-/// herdr session `Scripts/e2e.sh` created for this run, independent of the
-/// app under test.
+/// herdr session `Scripts/e2e.sh` created for this run, independent of the app
+/// under test.
 ///
-/// Attach-only, and not by preference. Xcode hosts every macOS UI-testing
-/// bundle in a `-Runner.app` it sandboxes unconditionally, and that sandbox
-/// refuses both a listening socket and any write outside the container, so
-/// this side can neither start herdr nor drop a file for anything else to
-/// find. Connecting to a socket that already exists is permitted, which is
-/// what every method here does: the herdr socket for reads and mutations, and
-/// `Scripts/e2e.sh`'s control socket for the two operations only an
-/// unsandboxed process can perform.
+/// Nothing here touches herdr's socket directly, and not by preference. Xcode
+/// hosts every macOS UI-testing bundle in a `-Runner.app` it sandboxes
+/// unconditionally, and that sandbox denies `connect()` on any unix socket
+/// outside the container: `nc -U` exits 1 with no message and a native
+/// AF_UNIX connect returns EPERM, whether the caller is this bundle or a
+/// process it spawned. Outbound TCP to loopback IS permitted, so every request
+/// below goes to `Support/bin/e2e-bridge.py`, which the wrapper runs outside
+/// the sandbox, and which forwards to herdr and performs the two session
+/// operations no sandboxed process can.
 ///
 /// One session serves a whole `xcodebuild test` invocation, so a case that
 /// leaves the layout changed would hand the next case a dirty world. Call
 /// `reseed()` in `setUpWithError` to start from the canonical seed; herdr
-/// numbers a fresh session's ids from one, so `seedIDs()` stays correct
-/// across a reseed.
+/// numbers a fresh session's ids from one, so `seedIDs()` stays correct across
+/// a reseed.
 final class ScratchSession {
     let socketPath: String
     private let ids: SeedIDs
-    private let controlSocketPath: String?
+    private let bridgePort: UInt16
 
-    private init(socketPath: String, ids: SeedIDs, controlSocketPath: String?) {
+    private init(socketPath: String, ids: SeedIDs, bridgePort: UInt16) {
         self.socketPath = socketPath
         self.ids = ids
-        self.controlSocketPath = controlSocketPath
+        self.bridgePort = bridgePort
     }
 
     static func attachFromEnvironment() throws -> ScratchSession {
@@ -54,6 +56,11 @@ final class ScratchSession {
         guard let socketPath = present("PADDOCK_SOCKET") else {
             throw ScratchSessionError(
                 "PADDOCK_SOCKET is unset. Run this suite through Scripts/e2e.sh: xcodebuild on its own boots no herdr session."
+            )
+        }
+        guard let rawPort = present("PADDOCK_BRIDGE_PORT"), let port = UInt16(rawPort) else {
+            throw ScratchSessionError(
+                "PADDOCK_BRIDGE_PORT is unset or not a port: \(present("PADDOCK_BRIDGE_PORT") ?? "<unset>")"
             )
         }
         guard let seed = present("PADDOCK_SEED_IDS"), let data = seed.data(using: .utf8),
@@ -74,7 +81,7 @@ final class ScratchSession {
                 ws: try id("ws"), tabA: try id("tabA"), tabB: try id("tabB"),
                 p1: try id("p1"), p2: try id("p2"), p3: try id("p3")
             ),
-            controlSocketPath: present("PADDOCK_CONTROL_SOCKET")
+            bridgePort: port
         )
     }
 
@@ -101,7 +108,7 @@ final class ScratchSession {
     /// directory, so the state it was holding is what it comes back to.
     func restartServer() throws {
         try control("restart-server")
-        try awaitServerCycle()
+        try awaitLiveServer()
     }
 
     /// Destroys the session and rebuilds it from `seed-layout.sh`, which is
@@ -110,7 +117,7 @@ final class ScratchSession {
     /// one.
     func reseed() throws {
         try control("reseed-session")
-        try awaitServerCycle()
+        try awaitLiveServer()
         try waitUntil(timeout: 20, "the reseeded session to carry the seed layout") {
             guard let snapshot = try? self.snapshot() else { return false }
             return snapshot.paneIDs(inTab: self.ids.tabA) == [self.ids.p1, self.ids.p2]
@@ -123,18 +130,14 @@ final class ScratchSession {
     /// exemplar.
     func stop() {}
 
-    // MARK: - herdr and control transport
+    // MARK: - Bridge transport
 
     @discardableResult
     private func request(_ requestLine: String) throws -> [String: Any] {
-        let line = requestLine.hasSuffix("\n") ? requestLine : requestLine + "\n"
-        let result = Self.run("/usr/bin/nc", ["-U", "-w", "5", socketPath], stdin: line)
-        guard let first = result.stdout.split(separator: "\n").first,
-              let data = first.data(using: .utf8),
+        let reply = try bridge("herdr " + requestLine.trimmingCharacters(in: .newlines))
+        guard let data = reply.data(using: .utf8),
               let response = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            throw ScratchSessionError(
-                "no parseable herdr response to \(requestLine): stdout=\(result.stdout) stderr=\(result.stderr)"
-            )
+            throw ScratchSessionError("herdr answered \(requestLine) with something that is not a JSON object: \(reply)")
         }
         if let error = response["error"] {
             throw ScratchSessionError("herdr rejected \(requestLine): \(error)")
@@ -142,33 +145,20 @@ final class ScratchSession {
         return response
     }
 
-    /// The wrapper's listener is one-shot and re-arms between requests, so a
-    /// connection that lands in that gap is a miss to retry, not a failure.
     private func control(_ verb: String) throws {
-        guard let controlSocketPath else {
-            throw ScratchSessionError(
-                "PADDOCK_CONTROL_SOCKET is unset: only Scripts/e2e.sh can start or stop this session's server."
-            )
+        let reply = try bridge("control " + verb)
+        guard let data = reply.data(using: .utf8),
+              let response = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw ScratchSessionError("the bridge answered \(verb) with something that is not a JSON object: \(reply)")
         }
-        let deadline = Date().addingTimeInterval(15)
-        var lastFailure = ""
-        while Date() < deadline {
-            let result = Self.run("/usr/bin/nc", ["-U", "-w", "5", controlSocketPath], stdin: verb + "\n")
-            if result.status == 0 { return }
-            lastFailure = result.stderr.isEmpty ? "exit \(result.status)" : result.stderr
-            usleep(50_000)
+        if let error = response["error"] {
+            throw ScratchSessionError("the bridge could not \(verb): \(error)")
         }
-        throw ScratchSessionError("could not reach the e2e control socket at \(controlSocketPath): \(lastFailure)")
     }
 
-    /// Both control verbs take the server down and bring it back, so both are
-    /// finished only once the socket has gone AND answers again. Waiting for
-    /// the answer alone would pass instantly against the server that is about
-    /// to be stopped.
-    private func awaitServerCycle() throws {
-        try waitUntil(timeout: 15, "the scratch server to go down") {
-            !FileManager.default.fileExists(atPath: self.socketPath)
-        }
+    /// A control verb takes the server down and brings it back, so the session
+    /// is usable again only once a request actually answers.
+    private func awaitLiveServer() throws {
         try waitUntil(timeout: 30, "the scratch server to answer again") {
             (try? self.snapshot()) != nil
         }
@@ -183,40 +173,62 @@ final class ScratchSession {
         throw ScratchSessionError("timed out after \(timeout)s waiting for \(what)")
     }
 
-    private struct CommandResult {
-        let stdout: String
-        let stderr: String
-        let status: Int32
-    }
+    /// One request per connection, one line each way. Every failure says which
+    /// half it came from: reaching the bridge at all, or what the bridge said.
+    private func bridge(_ line: String) throws -> String {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw ScratchSessionError("could not make a socket for the e2e bridge: errno \(errno)")
+        }
+        defer { close(fd) }
 
-    /// Every executable is named by absolute path, so nothing here depends on
-    /// the curated PATH the test runner is handed.
-    private static func run(_ path: String, _ arguments: [String], stdin: String? = nil) -> CommandResult {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: path)
-        task.arguments = arguments
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        task.standardOutput = outPipe
-        task.standardError = errPipe
-        let inPipe = Pipe()
-        task.standardInput = inPipe
-        do {
-            try task.run()
-        } catch {
-            return CommandResult(stdout: "", stderr: "\(path) did not run: \(error)", status: -1)
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = bridgePort.bigEndian
+        address.sin_addr.s_addr = UInt32(0x7f00_0001).bigEndian
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { generic in
+                Darwin.connect(fd, generic, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
         }
-        if let stdin, let data = stdin.data(using: .utf8) {
-            inPipe.fileHandleForWriting.write(data)
+        guard connected == 0 else {
+            throw ScratchSessionError(
+                "could not reach the e2e bridge on 127.0.0.1:\(bridgePort): errno \(errno). Scripts/e2e.sh runs it; it is not running."
+            )
         }
-        inPipe.fileHandleForWriting.closeFile()
-        let out = outPipe.fileHandleForReading.readDataToEndOfFile()
-        let err = errPipe.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        return CommandResult(
-            stdout: String(data: out, encoding: .utf8) ?? "",
-            stderr: String(data: err, encoding: .utf8) ?? "",
-            status: task.terminationStatus
-        )
+
+        var timeout = timeval(tv_sec: 60, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
+        var outgoing = Array((line + "\n").utf8)
+        var sent = 0
+        while sent < outgoing.count {
+            let written = outgoing.withUnsafeBytes { raw in
+                write(fd, raw.baseAddress!.advanced(by: sent), raw.count - sent)
+            }
+            guard written > 0 else {
+                throw ScratchSessionError("the e2e bridge closed while \(line.prefix(60)) was being sent: errno \(errno)")
+            }
+            sent += written
+        }
+
+        var incoming = Data()
+        var buffer = [UInt8](repeating: 0, count: 65536)
+        while !incoming.contains(UInt8(ascii: "\n")) {
+            let read = Darwin.read(fd, &buffer, buffer.count)
+            if read < 0 {
+                throw ScratchSessionError("the e2e bridge failed mid-reply to \(line.prefix(60)): errno \(errno)")
+            }
+            if read == 0 { break }
+            incoming.append(contentsOf: buffer[0..<read])
+        }
+        let reply = String(decoding: incoming, as: UTF8.self)
+            .split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+        guard !reply.isEmpty else {
+            throw ScratchSessionError("the e2e bridge answered \(line.prefix(60)) with nothing")
+        }
+        return reply
     }
 }

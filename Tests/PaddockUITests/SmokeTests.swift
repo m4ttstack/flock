@@ -8,6 +8,7 @@ final class SmokeTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         session = try ScratchSession.attachFromEnvironment()
+        try session.reseed()
     }
 
     @MainActor
@@ -64,5 +65,38 @@ final class SmokeTests: XCTestCase {
         XCTAssertLessThanOrEqual(p1.frame.maxX, p2.frame.minX + 1, "p1's cell is not left of p2's")
         XCTAssertEqual(p1.frame.minY, p2.frame.minY, accuracy: 2, "the two cells of a right split are not level")
         XCTAssertEqual(p1.frame.height, p2.frame.height, accuracy: 2, "the two cells of a right split differ in height")
+    }
+
+    /// The app keeps mirroring a session that changes under it, launched with
+    /// `PADDOCK_RESNAPSHOT_SECONDS` set. The override's own effect on the
+    /// re-snapshot cadence is not observable from here; what fails if the
+    /// value is mishandled is the launch and the live mirror this asserts.
+    @MainActor
+    func testAppConvergesOnAnExternalSplitWithAResnapshotOverride() throws {
+        let ids = session.seedIDs()
+        addTeardownBlock { await MainActor.run { XCUIApplication().terminate() } }
+        let app = XCUIApplication.paddock(socket: session.socketPath, env: ["PADDOCK_RESNAPSHOT_SECONDS": "2"])
+        XCTAssertTrue(
+            app.paddockElement("paddock.canvas.pane.\(ids.p1)").waitForExistence(timeout: 60),
+            "the canvas never showed \(ids.p1)"
+        )
+
+        try session.mutate(
+            #"{"id":"e2e-split","method":"pane.split","params":{"target_pane_id":"\#(ids.p1)","direction":"down"}}"#
+        )
+        let after = try session.snapshot()
+        let added = try XCTUnwrap(
+            after.paneIDs(inTab: ids.tabA).first { $0 != ids.p1 && $0 != ids.p2 },
+            "the split this test asserts on never landed in herdr"
+        )
+
+        XCTAssertTrue(
+            app.paddockElement("paddock.canvas.pane.\(added)").waitForExistence(timeout: 20),
+            "the canvas never showed \(added), which herdr added while the app was already running"
+        )
+        XCTAssertEqual(
+            app.paddockElementCount(identifierPrefix: "paddock.canvas.pane."), 3,
+            "the canvas did not settle on the three panes the shown tab now has"
+        )
     }
 }
