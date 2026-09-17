@@ -252,7 +252,7 @@ final class ArrangeAndConvergeTests: XCTestCase {
         app.typeText("renamed\n")
         assertReachedTheEditor("renamed", notThePane: ids.p1, app: app, editor: "paddock.strip.rename.\(ids.tabB)")
 
-        let after = try snapshot(app, waitingFor: "\(ids.tabB) to be renamed") {
+        let after = try snapshot(app, waitingFor: "\(ids.tabB) to be renamed", showing: ids.p1) {
             $0.label(ofTab: ids.tabB) == "renamed"
         }
         XCTAssertEqual(
@@ -283,7 +283,8 @@ final class ArrangeAndConvergeTests: XCTestCase {
         assertEventually("the editor closes on Escape") {
             !app.paddockElement("paddock.strip.rename.\(ids.tabB)").exists
         } describing: {
-            "the rename editor for \(ids.tabB) is still open, so the Escape never reached it"
+            "the rename editor for \(ids.tabB) is still open, so the Escape never reached it. "
+                + "\(ids.p1) has on screen:\n\((try? self.session.paneText(ids.p1)) ?? "<pane.read answered nothing>")"
         }
         // Held, not sampled: a commit a cancel wrongly issued would reach
         // herdr a moment after the editor closed, and a single read taken
@@ -787,9 +788,14 @@ final class ArrangeAndConvergeTests: XCTestCase {
     /// there" for a plan it refuses and "<label> failed: <message>" for one
     /// that broke partway. It lives about two and a half seconds, so it is
     /// read on the same beat as herdr rather than after.
+    /// `showing` names a pane whose screen is printed with the timeout. Where
+    /// keystrokes went is not a thing the window can be asked, so the shell
+    /// echoing them is the artifact, and a failure that only says "the rename
+    /// never arrived" makes the reader take that on trust.
     @MainActor
     private func snapshot(
         _ app: XCUIApplication, waitingFor expectation: String, timeout: TimeInterval = 20,
+        showing paneID: String? = nil,
         until condition: (HerdrSnapshotJSON) -> Bool
     ) throws -> HerdrSnapshotJSON {
         let deadline = Date().addingTimeInterval(timeout)
@@ -809,11 +815,15 @@ final class ArrangeAndConvergeTests: XCTestCase {
         let focus = latest.map {
             "focus \($0.focusedWorkspaceID ?? "?")/\($0.focusedTabID ?? "?")/\($0.focusedPaneID ?? "?")"
         } ?? "no focus"
+        let screen = paneID.map { pane in
+            "\n\(pane) has on screen:\n\((try? session.paneText(pane)) ?? "<pane.read answered nothing>")"
+        } ?? ""
         throw ScratchSessionError(
             "timed out after \(timeout)s waiting for \(expectation). herdr holds: "
                 + (latest?.outline() ?? "<no snapshot answered>") + " (\(focus))"
                 + ". The window "
                 + (notices.isEmpty ? "raised no notice, so the app believes it did what was asked" : "said: \(notices.joined(separator: " | "))")
+                + screen
         )
     }
 

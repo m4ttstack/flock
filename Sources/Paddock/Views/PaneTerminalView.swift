@@ -28,6 +28,10 @@ struct GhosttyPaneTerminalView: View {
     /// surface claims no mouse point at all, so `PaneLauncherOverlay`'s
     /// button row (drawn above it in SwiftUI) receives clicks and hover.
     let isPristineLauncherPane: Bool
+    /// `SessionViewModel.renameTarget != nil`: while an inline editor is
+    /// open anywhere in the window, this pane's surface makes no
+    /// first-responder claim of its own.
+    let editorIsOpen: Bool
     /// A left click (mouse-down) landed in this UNFOCUSED pane's body --
     /// wired to `SessionViewModel.jumpToHerdr(pane:)`. It is how herdr focus
     /// ever moves to this pane at all, since only the header row has its
@@ -48,6 +52,7 @@ struct GhosttyPaneTerminalView: View {
     init(
         surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
         rearrangeActive: Bool = false, paneDragInProgress: Bool = false, isPristineLauncherPane: Bool = false,
+        editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
@@ -59,6 +64,7 @@ struct GhosttyPaneTerminalView: View {
         self.rearrangeActive = rearrangeActive
         self.paneDragInProgress = paneDragInProgress
         self.isPristineLauncherPane = isPristineLauncherPane
+        self.editorIsOpen = editorIsOpen
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
         self.onBodyDragBegan = onBodyDragBegan
@@ -68,8 +74,8 @@ struct GhosttyPaneTerminalView: View {
         GhosttySurfaceRepresentable(
             surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
             rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress,
-            isPristineLauncherPane: isPristineLauncherPane, onPrimaryClick: onPrimaryClick,
-            menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
+            isPristineLauncherPane: isPristineLauncherPane, editorIsOpen: editorIsOpen,
+            onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
         )
     }
 }
@@ -89,6 +95,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     var rearrangeActive: Bool = false
     var paneDragInProgress: Bool = false
     var isPristineLauncherPane: Bool = false
+    var editorIsOpen: Bool = false
     var onPrimaryClick: () -> Void = {}
     var menuProvider: () -> NSMenu? = { nil }
     var onBodyDragBegan: (CGPoint) -> Void = { _ in }
@@ -147,6 +154,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             existingView.rearrangeActive = rearrangeActive
             existingView.paneDragInProgress = paneDragInProgress
             existingView.isPristineLauncherPane = isPristineLauncherPane
+            existingView.editorIsOpen = editorIsOpen
             existingView.onPrimaryClick = onPrimaryClick
             existingView.paneMenuProvider = menuProvider
             existingView.onBodyDragBegan = onBodyDragBegan
@@ -159,6 +167,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         view.rearrangeActive = rearrangeActive
         view.paneDragInProgress = paneDragInProgress
         view.isPristineLauncherPane = isPristineLauncherPane
+        view.editorIsOpen = editorIsOpen
         view.onPrimaryClick = onPrimaryClick
         view.paneMenuProvider = menuProvider
         view.onBodyDragBegan = onBodyDragBegan
@@ -177,6 +186,9 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         ghosttyView.rearrangeActive = rearrangeActive
         ghosttyView.paneDragInProgress = paneDragInProgress
         ghosttyView.isPristineLauncherPane = isPristineLauncherPane
+        // Set before the claim below reads it, never after: the whole point
+        // of the flag is to be current at the instant that claim is decided.
+        ghosttyView.editorIsOpen = editorIsOpen
         ghosttyView.onPrimaryClick = onPrimaryClick
         // Rebuilt every `updateNSView` (never applied only once at
         // `makeNSView`): the closure itself is stable in shape but must read
@@ -193,6 +205,12 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         // `GhosttySurfaceView.viewDidMoveToWindow` (the point `window` is
         // guaranteed non-nil); this is a best-effort follow-up for a later
         // flip while the view already has one.
+        //
+        // This pass runs far more often than a focus change does -- every
+        // pane cell re-renders whenever ANY pane's record moves, and whenever
+        // an inline editor opens (they all read `renameTarget`) -- so what
+        // the claim is allowed to take is `requestFocus`'s own decision
+        // (`TerminalFocusClaim`), not this condition's.
         if isFocused, ghosttyView.window != nil, ghosttyView.window?.firstResponder !== ghosttyView {
             ghosttyView.requestFocus()
         }

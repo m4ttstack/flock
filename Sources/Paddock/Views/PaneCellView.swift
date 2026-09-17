@@ -364,6 +364,11 @@ struct PaneCellView: View {
                     fontSizePoints: fontSizePoints, rearrangeActive: rearrangeMode.active,
                     paneDragInProgress: drag.isPaneDragInFlight,
                     isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
+                    // Any open editor, not just this pane's own: the one
+                    // being typed into is usually a tab's or a rail row's,
+                    // and this pane is the focused one whose surface would
+                    // otherwise take the keystrokes.
+                    editorIsOpen: viewModel.renameTarget != nil,
                     onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
                     menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) },
                     onBodyDragBegan: handleBodyDragBegan

@@ -88,6 +88,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     /// `SessionViewModel.isPristineLauncherPane`. While true this view
     /// claims no point at all -- see `hitTest(_:)`.
     var isPristineLauncherPane = false
+    /// Set by `GhosttySurfaceRepresentable` from
+    /// `SessionViewModel.renameTarget`. While true this view makes no
+    /// first-responder claim of its own -- see `requestFocus()`.
+    var editorIsOpen = false
     /// Where the matching mouse-DOWN actually sent a button, read back by the
     /// UP so it always replays the SAME destination -- never re-derived from
     /// `wantsFocus`/capture at up-time, which can have changed in between (a
@@ -708,7 +712,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     // MARK: - Rendering and cursor
 
+    /// The terminal's own claim on first responder: made as this pane
+    /// becomes the focused one (`GhosttySurfaceRepresentable.updateNSView`)
+    /// and as its view enters a window (`viewDidMoveToWindow`), never on
+    /// behalf of a click. `TerminalFocusClaim` is what decides it, so a
+    /// claim made while an inline editor is open -- which would take the
+    /// user's keystrokes out of that editor and run them in this shell --
+    /// is refused at both call sites at once. A click still moves first
+    /// responder here (`mouseDown` calls the responder grab directly), which
+    /// is how an open editor gets dismissed at all.
     func requestFocus() {
+        guard TerminalFocusClaim.decide(wantsFocus: wantsFocus, editorIsOpen: editorIsOpen) == .claim else { return }
         requestWindowFirstResponder()
     }
 
