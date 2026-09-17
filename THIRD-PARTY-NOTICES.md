@@ -1,7 +1,7 @@
 # Third-party notices
 
-Paddock vendors and derives from the third-party software below, which
-remains under its own license regardless of any license Paddock itself
+Flock vendors and derives from the third-party software below, which
+remains under its own license regardless of any license Flock itself
 carries.
 
 ---
@@ -14,26 +14,26 @@ carries.
 (paths and the artifact's consuming build system differ; the vendoring
 mechanics do not).
 
-`Sources/PaddockCore/Bridge/ControlBridge.swift` and
-`Sources/PaddockCore/Bridge/PaneControlChannel.swift` are ported from
+`Sources/FlockCore/Bridge/ControlBridge.swift` and
+`Sources/FlockCore/Bridge/PaneControlChannel.swift` are ported from
 Herdglass's `Sources/HerdrClient/ControlBridge.swift` and
-`PaneControlChannel.swift` (adapted for paddock's `--bridge <pane>` argv
+`PaneControlChannel.swift` (adapted for flock's `--bridge <pane>` argv
 shape, dependency-injected I/O for testability, and dropping the
-scroll-forwarding path entirely per paddock's control-transport ruling that
+scroll-forwarding path entirely per flock's control-transport ruling that
 pane scrollback is shared viewport state, not per-client).
 
-`Sources/Paddock/Ghostty/GhosttyHost.swift`, `GhosttySession.swift`, and
+`Sources/Flock/Ghostty/GhosttyHost.swift`, `GhosttySession.swift`, and
 `GhosttySurfaceView.swift` are ported from Herdglass's
 `Sources/Herdglass/Ghostty/TerminalHost.swift`, `TerminalSession.swift`, and
 `TerminalSurfaceView.swift`, with the config-loading half of
 `Sources/Herdglass/GhosttyRuntime.swift` folded into `GhosttyHost` (the
 window-chrome config reader in `GhosttyConfig.swift` is not ported).
-`Sources/PaddockCore/Ghostty/GhosttyThemeConfig.swift` and
+`Sources/FlockCore/Ghostty/GhosttyThemeConfig.swift` and
 `GhosttyKeyMods.swift` are the pure parts of the same port (theme-config text
 generation and the key-modifier translation table), split out so they stay
-reachable from `PaddockCoreTests` without an app host. Adapted for paddock's
+reachable from `FlockCoreTests` without an app host. Adapted for flock's
 own `Theme` system in place of mirroring a local Ghostty install, and for the
-`--bridge` argv paddock's surfaces run in place of a shell.
+`--bridge` argv flock's surfaces run in place of a shell.
 
 Business Source License 1.1. Licensor: Alexander Arutyunov. The Licensed
 Work is (c) 2026 Alexander Arutyunov. Change Date 2030-08-21, Change License
@@ -77,7 +77,7 @@ SOFTWARE.
 <https://github.com/briannadoubt/GhosttyKit>
 
 Upstream ancestor of the AppKit/libghostty glue in
-`Sources/Paddock/Ghostty/`, reached through Herdglass's own port of it
+`Sources/Flock/Ghostty/`, reached through Herdglass's own port of it
 (Herdglass's file headers name GhosttyKit as their source; this tree ports
 from Herdglass, not from GhosttyKit directly, but the lineage runs through
 both).
@@ -111,7 +111,7 @@ SOFTWARE.
 <https://github.com/rsms/inter>
 
 The chrome typeface. Inter 4.1 static OTFs (Regular, Medium, SemiBold, Bold)
-are bundled unmodified in `Sources/Paddock/Resources/Fonts/`, with this
+are bundled unmodified in `Sources/Flock/Resources/Fonts/`, with this
 license alongside them as `Inter-LICENSE.txt`.
 
 Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)

@@ -133,7 +133,7 @@ Consequences for the plan:
 Decisive facts:
 - `herdr --version`: `0.9.0`. Schema protocol field: `22` (`herdr api schema --json | jq '.protocol'`).
 - All required methods present in the schema: `pane.scroll`, `pane.selection.read`, `pane.copy_search`, `pane.link.activate`, `pane.input.set`, `tab.move`, `workspace.move`.
-- Live socket `ping` on a scratch session (`paddock-proto2`) returned `"version": "0.9.0", "protocol": 22`, with capabilities `live_handoff: true, detached_server_daemon: false, endpoint_protocol_generation: 1, surface_interest: true, health_check: true`.
+- Live socket `ping` on a scratch session (`flock-proto2`) returned `"version": "0.9.0", "protocol": 22`, with capabilities `live_handoff: true, detached_server_daemon: false, endpoint_protocol_generation: 1, surface_interest: true, health_check: true`.
 - `spikes/03-verbs/run.sh` re-run against herdr 0.9.0 / protocol 22: `PASS=9 FAIL=0 DIVERGED=0`, identical to the 0.8.0 run in Spike 3.
 - Preview channel version was not remotely determinable within ~10 minutes of probing; stable ships 0.9.0/protocol 22, which meets the floor.
 - Conclusion in source: no plan-constraint change needed, Global Constraints already specifies 22.

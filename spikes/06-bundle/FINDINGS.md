@@ -84,7 +84,7 @@ a future spike doesn't waste time re-discovering that the tutorial-common
 
 ```
 $ codesign -dv --verbose=4 build/SpikeHost.app
-Identifier=com.mattstack.paddockspike.host
+Identifier=com.mattstack.flockspike.host
 CodeDirectory v=20500 size=363 flags=0x10000(runtime) hashes=4+3 location=embedded
 Authority=Developer ID Application: Matthew Goodwin (5BF66B3X4V)
 Authority=Developer ID Certification Authority
@@ -93,7 +93,7 @@ TeamIdentifier=5BF66B3X4V
 Runtime Version=26.5.0
 
 $ codesign -dv --verbose=4 build/SpikeHost.app/Contents/Helpers/SpikeHelper.app
-Identifier=com.mattstack.paddockspike.helper
+Identifier=com.mattstack.flockspike.helper
 CodeDirectory v=20500 size=365 flags=0x10000(runtime) hashes=4+3 location=embedded
 Authority=Developer ID Application: Matthew Goodwin (5BF66B3X4V)
 TeamIdentifier=5BF66B3X4V
@@ -166,7 +166,7 @@ machine result cannot settle:
   tested (would need a notarized build moved into `/Applications`-style
   installed location and opened via Finder once, then re-tested).
 
-## Recommendation for the real Paddock tray-launch mechanism (feeds Task 32)
+## Recommendation for the real Flock tray-launch mechanism (feeds Task 32)
 
 **Use `NSWorkspace.shared.openApplication(at:configuration:)` from
 `Contents/Helpers/`, not `SMAppService` and not raw `Process` exec, with one
@@ -174,10 +174,10 @@ caveat to design around.**
 
 - `SMAppService` is disqualified by its own rigidity: it mandates
   `Contents/Library/LoginItems/`, which is a different nesting convention
-  than the rest of Paddock's helper packaging is presumably built around, and
+  than the rest of Flock's helper packaging is presumably built around, and
   it frames the helper as a *login item* (auto-launch at login) rather than
   an on-demand tray launch -- the wrong semantic even where the location
-  constraint is a non-issue. Reserve it only if Paddock later wants an actual
+  constraint is a non-issue. Reserve it only if Flock later wants an actual
   "launch at login" feature, as a second, separate registration, not as the
   tray's launch mechanism.
 - `Process` exec is the most "invisible" to Gatekeeper/quarantine machinery
@@ -216,14 +216,14 @@ caveat to design around.**
   register/status check; final `smappservice-status` reports
   `SMAppServiceStatus(rawValue: 0)` (not registered). Note: `sfltool
   dumpbtm` still lists a disabled historical entry for
-  `com.mattstack.paddockspike.helper` -- this is normal macOS Background Task
+  `com.mattstack.flockspike.helper` -- this is normal macOS Background Task
   Management bookkeeping (System Settings > Login Items keeps a disabled row
   after unregistering rather than purging it immediately) and does not mean
   the item is active; there is no live registration.
 - No installed/blessed app bundle (`/Applications/mattstack.app`,
   `rt-tray/mattstack-dev.app`) was touched. All build output lives under
   `spikes/06-bundle/build/` (gitignored) and scratch files under
-  `/tmp/paddock-spike-06/` (removed at the end of the spike).
+  `/tmp/flock-spike-06/` (removed at the end of the spike).
 
 ## Files
 
@@ -245,4 +245,4 @@ caveat to design around.**
   stand-in; a real menu wasn't built since the comparison is about the
   launch mechanism, not the menu UI).
 - `Sources/SpikeHelper/SpikeHelperApp.swift` -- one-window SwiftUI helper
-  that writes `/tmp/paddock-spike-06/helper-launched-<pid>.marker` in `init()`.
+  that writes `/tmp/flock-spike-06/helper-launched-<pid>.marker` in `init()`.

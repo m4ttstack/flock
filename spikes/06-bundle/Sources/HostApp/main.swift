@@ -7,7 +7,7 @@ import Foundation
 // path can be exercised from a script without a manual click; the comparison
 // under test is the launch mechanism, not the menu UI.
 
-let resultDir = "/tmp/paddock-spike-06"
+let resultDir = "/tmp/flock-spike-06"
 try? FileManager.default.createDirectory(atPath: resultDir, withIntermediateDirectories: true)
 
 func writeResult(_ name: String, _ dict: [String: Any]) {
@@ -36,7 +36,7 @@ let action = args[1]
 let hostBundlePath = Bundle.main.bundlePath
 let helperAppPath = "\(hostBundlePath)/Contents/Helpers/SpikeHelper.app"
 let helperExecPath = "\(helperAppPath)/Contents/MacOS/SpikeHelper"
-let helperBundleID = "com.mattstack.paddockspike.helper"
+let helperBundleID = "com.mattstack.flockspike.helper"
 
 switch action {
 case "noop":

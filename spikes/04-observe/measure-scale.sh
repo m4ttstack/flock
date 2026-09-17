@@ -10,7 +10,7 @@ panes_csv="${3:?comma-separated pane ids}"
 # (zsh does not word-split unquoted variables the way bash does).
 IFS=',' read -r -a panes <<< "$panes_csv"
 
-bin="$(cd "$(dirname "$0")" && pwd)/.build/release/PaddockObserveSpike"
+bin="$(cd "$(dirname "$0")" && pwd)/.build/release/FlockObserveSpike"
 mkdir -p "$outdir"
 log="$outdir/scale-${#panes[@]}.log"
 csv="$outdir/scale-${#panes[@]}.csv"

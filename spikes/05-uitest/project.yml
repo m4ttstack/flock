@@ -1,6 +1,6 @@
 name: SpikeUITest
 options:
-  bundleIdPrefix: com.paddock.spike
+  bundleIdPrefix: com.flock.spike
   deploymentTarget:
     macOS: "14.0"
 targets:
@@ -11,7 +11,7 @@ targets:
       - path: Sources/SpikeApp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.paddock.spike.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.flock.spike.app
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSPrincipalClass: NSApplication
         INFOPLIST_KEY_LSUIElement: NO
@@ -31,7 +31,7 @@ targets:
       - target: SpikeApp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.paddock.spike.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.flock.spike.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: SpikeApp
         CODE_SIGN_IDENTITY: "-"

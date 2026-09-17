@@ -5,14 +5,14 @@ import PackageDescription
 // process/pipe plumbing and concurrent state that the Swift 6 strict
 // concurrency checker cannot verify and which is throwaway anyway.
 let package = Package(
-    name: "PaddockObserveSpike",
+    name: "FlockObserveSpike",
     platforms: [.macOS(.v13)],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.20.0")
     ],
     targets: [
         .executableTarget(
-            name: "PaddockObserveSpike",
+            name: "FlockObserveSpike",
             dependencies: ["SwiftTerm"],
             path: "Sources",
             swiftSettings: [.swiftLanguageMode(.v5)]

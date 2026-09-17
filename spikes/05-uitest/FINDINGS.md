@@ -102,7 +102,7 @@ ANY unix socket outside the container, not just `bind`. A native connect returns
 EPERM and a spawned `nc -U` exits 1 silently. Loopback TCP is still permitted
 (a closed port answers ECONNREFUSED rather than EPERM), and spawning a process
 is still permitted, which is why the harness now reaches herdr through
-`Tests/PaddockUITests/Support/bin/e2e-bridge.py`, a loopback server the wrapper
+`Tests/FlockUITests/Support/bin/e2e-bridge.py`, a loopback server the wrapper
 runs outside the sandbox. Measured with a throwaway probe test on this machine;
 the table is in the task 29 report.
 

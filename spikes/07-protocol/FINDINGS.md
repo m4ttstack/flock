@@ -29,7 +29,7 @@ All required methods confirmed present in schema via `herdr api schema --json`:
 
 Scratch session protocol check via live socket ping:
 
-Socket pinged: `/Users/matt/.config/herdr/sessions/paddock-proto2/herdr.sock` (scratch session via `spikes/lib/scratch-session.sh start proto2`; NOT the default socket ~/.config/herdr/herdr.sock)
+Socket pinged: `/Users/matt/.config/herdr/sessions/flock-proto2/herdr.sock` (scratch session via `spikes/lib/scratch-session.sh start proto2`; NOT the default socket ~/.config/herdr/herdr.sock)
 
 ```json
 {

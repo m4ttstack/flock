@@ -129,7 +129,7 @@ func runHerdrCLI(herdrPath: String, socket: String, args: [String]) -> String {
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-    eprint("usage: PaddockObserveSpike <bridge|scale|backfill> ...")
+    eprint("usage: FlockObserveSpike <bridge|scale|backfill> ...")
     exit(2)
 }
 let herdrPath = ProcessInfo.processInfo.environment["HERDR_BIN"] ?? "/Users/matt/.local/bin/herdr"

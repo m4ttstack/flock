@@ -75,7 +75,7 @@ The TUI process never exits, never errors, and keeps repainting. **Source
 and live agree exactly: no disagreement to flag.**
 
 Ruling for 18f: the bridge should always pass `--takeover`. It only ever
-competes with a *stale prior paddock bridge* on the same pane (which it
+competes with a *stale prior flock bridge* on the same pane (which it
 should reclaim) and never with the human's real herdr session.
 
 ## Q2: does `terminal.resize` on the control channel resize the REAL pane?
@@ -101,9 +101,9 @@ client afterward with `--rows 44` left `viewport_rows` at `35` (unchanged --
 observe's own requested size never reached the real pane). Source and live
 agree.
 
-Ruling for 18f/18h: this is intended and desired -- paddock's ghostty
+Ruling for 18f/18h: this is intended and desired -- flock's ghostty
 surface computing exact cols/rows and pushing them through `terminal.resize`
-really does make the herdr pane fit paddock's window, which is the whole
+really does make the herdr pane fit flock's window, which is the whole
 point of the port. The flip side: whoever else is looking at that pane (a
 live TUI, in particular) sees the SAME resize, same as it would for any
 other direct-attach client today; this is an accepted, already-shipped-by-
@@ -146,8 +146,8 @@ study's speculation.
 
 Ruling for 18f (hard requirement, not a suggestion): **do not forward
 `terminal.scroll` from the PaneControlChannel FIFO up to herdr.** Any scroll
-gesture inside paddock's ghostty surface must stay local to libghostty's own
-surface/scrollback (fed by the same `terminal.frame` bytes paddock already
+gesture inside flock's ghostty surface must stay local to libghostty's own
+surface/scrollback (fed by the same `terminal.frame` bytes flock already
 receives) and never become an outbound `terminal.scroll` NDJSON message --
 doing so would move the pane's real, shared viewport, which is exactly the
 outcome the spec forbids. The FIFO channel itself can stay (other control
@@ -180,7 +180,7 @@ concurrent-write state to design for.
 
 **Answer: ~8.7 MB RSS steady-state per bare `herdr terminal session control`
 child, scaling linearly across 8 panes with no super-linear growth
-observed.** This is the herdr-side cost only -- paddock's Swift
+observed.** This is the herdr-side cost only -- flock's Swift
 `ControlBridge` binary from Task 18f does not exist yet, so the
 bridge-process half of the "bridge + control child" pair is **not measured
 here** and needs its own measurement once 18f lands.
@@ -203,7 +203,7 @@ Sum: 69,712 KB (~68.1 MB) for 8; average 8,714 KB/child. This is the same
 order of magnitude as spike 04's observe-child measurements (~9-9.9 MB/pane
 at 10-30 panes) -- unsurprising, since it is the same herdr binary doing
 comparable framing work either direction. Herdglass's `maxWarmPanes=8` LRU
-budget (adopted into paddock's plan) costs roughly **70 MB of herdr-side
+budget (adopted into flock's plan) costs roughly **70 MB of herdr-side
 child RSS alone** at the cap, before the ghostty surface, the Swift bridge
 process, and libghostty's own per-surface memory are added. That combined
 number needs a real measurement once 18f's bridge exists (its Step 5 smoke
@@ -260,4 +260,4 @@ workspaces/panes were terminated or killed before finishing; final checks:
 `pgrep -f "herdr terminal session control"`, `pgrep -f "herdr terminal
 attach"`, `pgrep -f "herdr --session ctl-probe"` all empty except the
 scratch server itself, which was then stopped via `scratch-session.sh stop
-ctl-probe`; `~/.config/herdr/sessions/paddock-ctl-probe` no longer exists.
+ctl-probe`; `~/.config/herdr/sessions/flock-ctl-probe` no longer exists.

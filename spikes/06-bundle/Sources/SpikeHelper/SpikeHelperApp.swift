@@ -17,7 +17,7 @@ struct SpikeHelperApp: App {
     }
 
     static func writeMarker() {
-        let resultDir = "/tmp/paddock-spike-06"
+        let resultDir = "/tmp/flock-spike-06"
         try? FileManager.default.createDirectory(atPath: resultDir, withIntermediateDirectories: true)
         let pid = ProcessInfo.processInfo.processIdentifier
         let ppid = getppid()

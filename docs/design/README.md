@@ -1,8 +1,8 @@
-# Paddock design references
+# Flock design references
 
-Task 14 design-canvas gate deliverables. The live canvas (editable, exports PNG/PDF) is the "Paddock Design" artifact: https://claude.ai/code/artifact/e891da81-51e1-46b7-875e-9bdb20bda905
+Task 14 design-canvas gate deliverables. The live canvas (editable, exports PNG/PDF) is the "Flock Design" artifact: https://claude.ai/code/artifact/e891da81-51e1-46b7-875e-9bdb20bda905
 
-- `main-dark.png` / `main-light.png`: window anatomy (workspace rail, tab strip, pane canvas) rendered in two THEMES, Tokyo Night and Tokyo Night Day (paddock has named themes mirroring herdr's 17 built-ins, no light/dark modes). Terminal cells keep the terminal's own ground (#191A22) in every theme.
+- `main-dark.png` / `main-light.png`: window anatomy (workspace rail, tab strip, pane canvas) rendered in two THEMES, Tokyo Night and Tokyo Night Day (flock has named themes mirroring herdr's 17 built-ins, no light/dark modes). Terminal cells keep the terminal's own ground (#191A22) in every theme.
 - `pane-states.png`: live/focused, detached status card, zoomed tab, blocked-agent attention, rename-in-place, hover close, agent status vocabulary.
 - `drag-states.png`: ghost + origin, 20% edge bands + interior, split preview, insertion bars, new-tab/new-workspace zones, spring-loading, rejection toast, spring parameters.
 - `all-workspaces.png`: the zoomed-out grid as a live drop surface.

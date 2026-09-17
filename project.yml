@@ -1,4 +1,4 @@
-name: Paddock
+name: Flock
 options:
   bundleIdPrefix: dev.mattstack
   deploymentTarget: { macOS: "15.0" }
@@ -20,14 +20,14 @@ settings:
       CODE_SIGN_IDENTITY: "-"
       ENABLE_HARDENED_RUNTIME: YES
       # Xcode's injected base entitlements carry `get-task-allow`, which
-      # notarization refuses. Paddock ships no entitlements of its own, so
+      # notarization refuses. Flock ships no entitlements of its own, so
       # turning the injection off leaves the release binary with none at all.
       CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 targets:
-  PaddockCore:
+  FlockCore:
     type: framework
     platform: macOS
-    sources: [Sources/PaddockCore]
+    sources: [Sources/FlockCore]
     dependencies:
       - framework: Vendor/GhosttyKit.xcframework
         embed: false
@@ -44,13 +44,13 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-  Paddock:
+  Flock:
     type: application
     platform: macOS
-    sources: [Sources/Paddock]
-    dependencies: [{ target: PaddockCore }]
+    sources: [Sources/Flock]
+    dependencies: [{ target: FlockCore }]
     info:
-      path: Sources/Paddock/Info.plist
+      path: Sources/Flock/Info.plist
       properties:
         # Evaluated by AppKit at the earliest point in launch, before any of
         # our own code (the app delegate included) runs -- a stale window-
@@ -67,71 +67,71 @@ targets:
         # restoration attempt logged). This Info.plist key is read before
         # either of those.
         NSApplicationSupportsSecureRestorableState: NO
-  PaddockCoreTests:
+  FlockCoreTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - Tests/PaddockCoreTests
+      - Tests/FlockCoreTests
       - path: Tests/Fixtures
         buildPhase: resources
-    dependencies: [{ target: PaddockCore }]
+    dependencies: [{ target: FlockCore }]
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-  PaddockUITests:
+  FlockUITests:
     type: bundle.ui-testing
     platform: macOS
     sources:
       # Support/bin belongs to Scripts/e2e.sh, which runs outside the
       # sandboxed test runner; nothing in the bundle shells out to it.
-      - path: Tests/PaddockUITests
+      - path: Tests/FlockUITests
         excludes: [Support/bin]
-    dependencies: [{ target: Paddock }]
+    dependencies: [{ target: Flock }]
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
   # The app's views compiled into a hostless test bundle, so the window chrome
-  # renders offscreen from fixture data without launching Paddock or opening a
-  # herdr connection. The Paddock scheme builds it for testing, so a break in
+  # renders offscreen from fixture data without launching Flock or opening a
+  # herdr connection. The Flock scheme builds it for testing, so a break in
   # it fails the core test run, but runs it only from its own scheme.
-  PaddockChromeRender:
+  FlockChromeRender:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: Sources/Paddock
+      - path: Sources/Flock
         excludes:
           - main.swift
-          - PaddockApp.swift
+          - FlockApp.swift
           - Info.plist
           - Resources
-      - path: Sources/Paddock/Resources/Fonts
+      - path: Sources/Flock/Resources/Fonts
         buildPhase: resources
-      - Tests/PaddockChromeRender
+      - Tests/FlockChromeRender
     dependencies:
-      - target: PaddockCore
+      - target: FlockCore
       - framework: Vendor/GhosttyKit.xcframework
         embed: false
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
 schemes:
-  Paddock:
+  Flock:
     build:
       targets:
-        Paddock: all
-        PaddockCore: all
-        PaddockChromeRender: [test]
+        Flock: all
+        FlockCore: all
+        FlockChromeRender: [test]
     run:
       config: Debug
     test:
       config: Debug
-      targets: [PaddockCoreTests, PaddockUITests]
+      targets: [FlockCoreTests, FlockUITests]
     archive:
       config: Release
-  PaddockChromeRender:
+  FlockChromeRender:
     build:
       targets:
-        PaddockChromeRender: [test]
+        FlockChromeRender: [test]
     test:
       config: Debug
-      targets: [PaddockChromeRender]
+      targets: [FlockChromeRender]

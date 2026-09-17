@@ -113,7 +113,7 @@ final class ScratchHerdrSession {
             .deletingLastPathComponent() // 05-uitest
             .deletingLastPathComponent() // spikes
             .deletingLastPathComponent() // repo root
-        return repoRoot.appendingPathComponent("Tests/PaddockUITests/Support/bin").path
+        return repoRoot.appendingPathComponent("Tests/FlockUITests/Support/bin").path
     }
 
     /// The xcodebuild test-runner process does not reliably inherit the

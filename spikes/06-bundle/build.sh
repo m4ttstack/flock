@@ -29,7 +29,7 @@ build_helper() {
     cp "$HERE/Sources/SpikeHelper/Info.plist" "$dest/Contents/Info.plist"
 }
 
-# Contents/Helpers/ -- the nesting the real Paddock host uses; NSWorkspace
+# Contents/Helpers/ -- the nesting the real Flock host uses; NSWorkspace
 # and Process-exec launch the helper from here.
 mkdir -p "$HOST_APP/Contents/Helpers"
 build_helper "$HOST_APP/Contents/Helpers/$HELPER_NAME"

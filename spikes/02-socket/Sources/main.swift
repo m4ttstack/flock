@@ -550,7 +550,7 @@ signal(SIGPIPE, SIG_IGN)
 
 let args = CommandLine.arguments
 guard args.count >= 3 else {
-    print("usage: PaddockSocketSpike <probeA|probeB> <socket-path> [seed-layout-script-path]")
+    print("usage: FlockSocketSpike <probeA|probeB> <socket-path> [seed-layout-script-path]")
     exit(2)
 }
 let mode = args[1]
@@ -561,7 +561,7 @@ case "probeA":
     runProbeA(socketPath: socketPath)
 case "probeB":
     guard args.count >= 4 else {
-        print("usage: PaddockSocketSpike probeB <socket-path> <seed-layout-script-path>")
+        print("usage: FlockSocketSpike probeB <socket-path> <seed-layout-script-path>")
         exit(2)
     }
     runProbeB(socketPath: socketPath, seedScriptPath: args[3])

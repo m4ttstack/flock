@@ -5,7 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 Scripts/build.sh
 
-build_settings=$(xcodebuild -scheme Paddock -configuration Debug -showBuildSettings)
+build_settings=$(xcodebuild -scheme Flock -configuration Debug -showBuildSettings)
 target_build_dir=$(echo "$build_settings" | awk -F'= ' '/ TARGET_BUILD_DIR /{print $2; exit}')
 wrapper_name=$(echo "$build_settings" | awk -F'= ' '/ WRAPPER_NAME /{print $2; exit}')
 executable_name=$(echo "$build_settings" | awk -F'= ' '/ EXECUTABLE_NAME /{print $2; exit}')

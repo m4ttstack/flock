@@ -14,7 +14,7 @@ BUILD="$HERE/build"
 HOST_APP="$BUILD/SpikeHost.app"
 HOST_BIN="$HOST_APP/Contents/MacOS/SpikeHost"
 SIGN_ID="Developer ID Application: Matthew Goodwin (5BF66B3X4V)"
-RESULT_DIR=/tmp/paddock-spike-06
+RESULT_DIR=/tmp/flock-spike-06
 LOG="$BUILD/comparison.log"
 
 : > "$LOG"

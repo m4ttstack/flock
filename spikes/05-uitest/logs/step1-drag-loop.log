@@ -34,23 +34,23 @@ ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeD
 Build description signature: 1485b23741272013640fe73f623d63ab
 Build description path: /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Intermediates.noindex/XCBuildData/1485b23741272013640fe73f623d63ab.xcbuilddata
 ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk /Users/matt/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.5-25F70-e082c4a02f00227109f4ed75e425c832.sdkstatcache
-    cd /Users/matt/Documents/GitHub/paddock/.worktrees/phase-0/spikes/05-uitest/SpikeUITest.xcodeproj
+    cd /Users/matt/Documents/GitHub/flock/.worktrees/phase-0/spikes/05-uitest/SpikeUITest.xcodeproj
     /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -o /Users/matt/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.5-25F70-e082c4a02f00227109f4ed75e425c832.sdkstatcache
 
 ProcessInfoPlistFile /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/Info.plist /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Intermediates.noindex/SpikeUITest.build/Debug/SpikeApp.build/empty-SpikeApp.plist (in target 'SpikeApp' from project 'SpikeUITest')
-    cd /Users/matt/Documents/GitHub/paddock/.worktrees/phase-0/spikes/05-uitest
+    cd /Users/matt/Documents/GitHub/flock/.worktrees/phase-0/spikes/05-uitest
     builtin-infoPlistUtility /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Intermediates.noindex/SpikeUITest.build/Debug/SpikeApp.build/empty-SpikeApp.plist -producttype com.apple.product-type.application -genpkginfo /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/PkgInfo -expandbuildsettings -platform macosx -o /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/Info.plist
 
 CopySwiftLibs /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app (in target 'SpikeApp' from project 'SpikeUITest')
-    cd /Users/matt/Documents/GitHub/paddock/.worktrees/phase-0/spikes/05-uitest
+    cd /Users/matt/Documents/GitHub/flock/.worktrees/phase-0/spikes/05-uitest
     builtin-swiftStdLibTool --copy --verbose --sign - --scan-executable /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/MacOS/SpikeApp.debug.dylib --scan-folder /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/Frameworks --scan-folder /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/PlugIns --scan-folder /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/Library/SystemExtensions --scan-folder /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/Extensions --platform macosx --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeApp.app/Contents/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Intermediates.noindex/SpikeUITest.build/Debug/SpikeApp.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
 
 ProcessInfoPlistFile /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest/Contents/Info.plist /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Intermediates.noindex/SpikeUITest.build/Debug/SpikeUITests.build/empty-SpikeUITests.plist (in target 'SpikeUITests' from project 'SpikeUITest')
-    cd /Users/matt/Documents/GitHub/paddock/.worktrees/phase-0/spikes/05-uitest
+    cd /Users/matt/Documents/GitHub/flock/.worktrees/phase-0/spikes/05-uitest
     builtin-infoPlistUtility /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Intermediates.noindex/SpikeUITest.build/Debug/SpikeUITests.build/empty-SpikeUITests.plist -producttype com.apple.product-type.bundle.ui-testing -expandbuildsettings -platform macosx -additionalcontentfile /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Intermediates.noindex/SpikeUITest.build/Debug/SpikeUITests.build/ProductTypeInfoPlistAdditions.plist -o /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest/Contents/Info.plist
 
 CopySwiftLibs /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest (in target 'SpikeUITests' from project 'SpikeUITest')
-    cd /Users/matt/Documents/GitHub/paddock/.worktrees/phase-0/spikes/05-uitest
+    cd /Users/matt/Documents/GitHub/flock/.worktrees/phase-0/spikes/05-uitest
     builtin-swiftStdLibTool --copy --verbose --sign - --scan-executable /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest/Contents/MacOS/SpikeUITests --scan-folder /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest/Contents/Frameworks --scan-folder /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest/Contents/PlugIns --scan-folder /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest/Contents/Library/SystemExtensions --scan-folder /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest/Contents/Extensions --platform macosx --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Products/Debug/SpikeUITests-Runner.app/Contents/PlugIns/SpikeUITests.xctest/Contents/Frameworks --strip-bitcode --scan-executable /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/matt/Library/Developer/Xcode/DerivedData/SpikeUITest-bevsboujwmdjcdfkyoaqskydpqza/Build/Intermediates.noindex/SpikeUITest.build/Debug/SpikeUITests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
 
 2026-09-10 23:10:02.888015-0500 SpikeUITests-Runner[99983:177515688] [Default] Running tests...
@@ -60,12 +60,12 @@ Test Suite 'DragLoopUITests' started at 2026-09-10 23:10:02.907.
 Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' started.
     t =     0.00s Start Test at 2026-09-10 23:10:02.907
     t =     0.17s Set Up
-    t =     0.17s Open com.paddock.spike.app
-    t =     0.17s     Launch com.paddock.spike.app
+    t =     0.17s Open com.flock.spike.app
+    t =     0.17s     Launch com.flock.spike.app
 2026-09-10 23:10:03.119 xcodebuild[99843:177515069] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
 2026-09-10 23:10:03.119 xcodebuild[99843:177515069] [MT] IDELaunchParametersSnapshot: no debugger version
     t =     0.43s         Setting up automation session
-    t =     0.44s         Wait for com.paddock.spike.app to idle
+    t =     0.44s         Wait for com.flock.spike.app to idle
     t =     0.46s Waiting 5.0s for "spike.drag.source" Other to exist
     t =     1.49s     Checking `Expect predicate `existsNoRetry == 1` for object "spike.drag.source" Other`
     t =     1.49s         Checking existence of `"spike.drag.source" Other`
@@ -73,7 +73,7 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =     2.63s     Checking `Expect predicate `existsNoRetry == 1` for object "spike.drag.target" Other`
     t =     2.63s         Checking existence of `"spike.drag.target" Other`
     t =     2.69s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =     2.69s     Wait for com.paddock.spike.app to idle
+    t =     2.69s     Wait for com.flock.spike.app to idle
     t =     2.69s     Find the "spike.drag.source" Other
     t =     2.72s     Check for interrupting elements affecting "spike.drag.source" Other
     t =     2.74s     Synthesize event
@@ -81,9 +81,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =     2.77s         Find the "spike.drag.source" Other
     t =     2.79s         Find the "spike.drag.target" Other
     t =     2.82s         Find the "spike.drag.target" Other
-    t =     3.83s     Wait for com.paddock.spike.app to idle
+    t =     3.83s     Wait for com.flock.spike.app to idle
     t =     3.83s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =     3.83s     Wait for com.paddock.spike.app to idle
+    t =     3.83s     Wait for com.flock.spike.app to idle
     t =     3.83s     Find the "spike.drag.source" Other
     t =     3.86s     Check for interrupting elements affecting "spike.drag.source" Other
     t =     3.87s     Synthesize event
@@ -91,9 +91,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =     3.90s         Find the "spike.drag.source" Other
     t =     3.93s         Find the "spike.drag.target" Other
     t =     3.95s         Find the "spike.drag.target" Other
-    t =     4.97s     Wait for com.paddock.spike.app to idle
+    t =     4.97s     Wait for com.flock.spike.app to idle
     t =     4.97s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =     4.97s     Wait for com.paddock.spike.app to idle
+    t =     4.97s     Wait for com.flock.spike.app to idle
     t =     4.97s     Find the "spike.drag.source" Other
     t =     5.01s     Check for interrupting elements affecting "spike.drag.source" Other
     t =     5.02s     Synthesize event
@@ -101,9 +101,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =     5.06s         Find the "spike.drag.source" Other
     t =     5.09s         Find the "spike.drag.target" Other
     t =     5.12s         Find the "spike.drag.target" Other
-    t =     6.13s     Wait for com.paddock.spike.app to idle
+    t =     6.13s     Wait for com.flock.spike.app to idle
     t =     6.14s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =     6.14s     Wait for com.paddock.spike.app to idle
+    t =     6.14s     Wait for com.flock.spike.app to idle
     t =     6.14s     Find the "spike.drag.source" Other
     t =     6.18s     Check for interrupting elements affecting "spike.drag.source" Other
     t =     6.19s     Synthesize event
@@ -111,9 +111,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =     6.22s         Find the "spike.drag.source" Other
     t =     6.25s         Find the "spike.drag.target" Other
     t =     6.28s         Find the "spike.drag.target" Other
-    t =     7.26s     Wait for com.paddock.spike.app to idle
+    t =     7.26s     Wait for com.flock.spike.app to idle
     t =     7.26s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =     7.26s     Wait for com.paddock.spike.app to idle
+    t =     7.26s     Wait for com.flock.spike.app to idle
     t =     7.26s     Find the "spike.drag.source" Other
     t =     7.29s     Check for interrupting elements affecting "spike.drag.source" Other
     t =     7.30s     Synthesize event
@@ -121,9 +121,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =     7.32s         Find the "spike.drag.source" Other
     t =     7.35s         Find the "spike.drag.target" Other
     t =     7.37s         Find the "spike.drag.target" Other
-    t =     8.36s     Wait for com.paddock.spike.app to idle
+    t =     8.36s     Wait for com.flock.spike.app to idle
     t =     8.37s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =     8.37s     Wait for com.paddock.spike.app to idle
+    t =     8.37s     Wait for com.flock.spike.app to idle
     t =     8.37s     Find the "spike.drag.source" Other
     t =     8.40s     Check for interrupting elements affecting "spike.drag.source" Other
     t =     8.41s     Synthesize event
@@ -131,9 +131,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =     8.43s         Find the "spike.drag.source" Other
     t =     8.46s         Find the "spike.drag.target" Other
     t =     8.48s         Find the "spike.drag.target" Other
-    t =     9.50s     Wait for com.paddock.spike.app to idle
+    t =     9.50s     Wait for com.flock.spike.app to idle
     t =     9.50s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =     9.50s     Wait for com.paddock.spike.app to idle
+    t =     9.50s     Wait for com.flock.spike.app to idle
     t =     9.50s     Find the "spike.drag.source" Other
     t =     9.53s     Check for interrupting elements affecting "spike.drag.source" Other
     t =     9.53s     Synthesize event
@@ -141,9 +141,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =     9.55s         Find the "spike.drag.source" Other
     t =     9.58s         Find the "spike.drag.target" Other
     t =     9.60s         Find the "spike.drag.target" Other
-    t =    10.60s     Wait for com.paddock.spike.app to idle
+    t =    10.60s     Wait for com.flock.spike.app to idle
     t =    10.60s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    10.60s     Wait for com.paddock.spike.app to idle
+    t =    10.60s     Wait for com.flock.spike.app to idle
     t =    10.60s     Find the "spike.drag.source" Other
     t =    10.63s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    10.64s     Synthesize event
@@ -151,9 +151,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    10.67s         Find the "spike.drag.source" Other
     t =    10.69s         Find the "spike.drag.target" Other
     t =    10.71s         Find the "spike.drag.target" Other
-    t =    11.69s     Wait for com.paddock.spike.app to idle
+    t =    11.69s     Wait for com.flock.spike.app to idle
     t =    11.70s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    11.70s     Wait for com.paddock.spike.app to idle
+    t =    11.70s     Wait for com.flock.spike.app to idle
     t =    11.70s     Find the "spike.drag.source" Other
     t =    11.73s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    11.74s     Synthesize event
@@ -161,9 +161,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    11.76s         Find the "spike.drag.source" Other
     t =    11.78s         Find the "spike.drag.target" Other
     t =    11.80s         Find the "spike.drag.target" Other
-    t =    12.80s     Wait for com.paddock.spike.app to idle
+    t =    12.80s     Wait for com.flock.spike.app to idle
     t =    12.80s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    12.80s     Wait for com.paddock.spike.app to idle
+    t =    12.80s     Wait for com.flock.spike.app to idle
     t =    12.80s     Find the "spike.drag.source" Other
     t =    12.83s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    12.84s     Synthesize event
@@ -171,9 +171,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    12.86s         Find the "spike.drag.source" Other
     t =    12.88s         Find the "spike.drag.target" Other
     t =    12.91s         Find the "spike.drag.target" Other
-    t =    13.90s     Wait for com.paddock.spike.app to idle
+    t =    13.90s     Wait for com.flock.spike.app to idle
     t =    13.90s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    13.90s     Wait for com.paddock.spike.app to idle
+    t =    13.90s     Wait for com.flock.spike.app to idle
     t =    13.90s     Find the "spike.drag.source" Other
     t =    13.93s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    13.93s     Synthesize event
@@ -181,9 +181,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    13.95s         Find the "spike.drag.source" Other
     t =    13.98s         Find the "spike.drag.target" Other
     t =    14.00s         Find the "spike.drag.target" Other
-    t =    15.00s     Wait for com.paddock.spike.app to idle
+    t =    15.00s     Wait for com.flock.spike.app to idle
     t =    15.04s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    15.04s     Wait for com.paddock.spike.app to idle
+    t =    15.04s     Wait for com.flock.spike.app to idle
     t =    15.04s     Find the "spike.drag.source" Other
     t =    15.07s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    15.08s     Synthesize event
@@ -191,9 +191,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    15.10s         Find the "spike.drag.source" Other
     t =    15.12s         Find the "spike.drag.target" Other
     t =    15.15s         Find the "spike.drag.target" Other
-    t =    16.16s     Wait for com.paddock.spike.app to idle
+    t =    16.16s     Wait for com.flock.spike.app to idle
     t =    16.17s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    16.17s     Wait for com.paddock.spike.app to idle
+    t =    16.17s     Wait for com.flock.spike.app to idle
     t =    16.17s     Find the "spike.drag.source" Other
     t =    16.21s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    16.22s     Synthesize event
@@ -201,9 +201,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    16.26s         Find the "spike.drag.source" Other
     t =    16.29s         Find the "spike.drag.target" Other
     t =    16.32s         Find the "spike.drag.target" Other
-    t =    17.33s     Wait for com.paddock.spike.app to idle
+    t =    17.33s     Wait for com.flock.spike.app to idle
     t =    17.33s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    17.33s     Wait for com.paddock.spike.app to idle
+    t =    17.33s     Wait for com.flock.spike.app to idle
     t =    17.33s     Find the "spike.drag.source" Other
     t =    17.36s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    17.37s     Synthesize event
@@ -211,9 +211,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    17.39s         Find the "spike.drag.source" Other
     t =    17.43s         Find the "spike.drag.target" Other
     t =    17.45s         Find the "spike.drag.target" Other
-    t =    18.46s     Wait for com.paddock.spike.app to idle
+    t =    18.46s     Wait for com.flock.spike.app to idle
     t =    18.47s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    18.47s     Wait for com.paddock.spike.app to idle
+    t =    18.47s     Wait for com.flock.spike.app to idle
     t =    18.47s     Find the "spike.drag.source" Other
     t =    18.50s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    18.51s     Synthesize event
@@ -221,9 +221,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    18.54s         Find the "spike.drag.source" Other
     t =    18.57s         Find the "spike.drag.target" Other
     t =    18.60s         Find the "spike.drag.target" Other
-    t =    19.63s     Wait for com.paddock.spike.app to idle
+    t =    19.63s     Wait for com.flock.spike.app to idle
     t =    19.63s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    19.63s     Wait for com.paddock.spike.app to idle
+    t =    19.63s     Wait for com.flock.spike.app to idle
     t =    19.63s     Find the "spike.drag.source" Other
     t =    19.66s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    19.67s     Synthesize event
@@ -231,9 +231,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    19.69s         Find the "spike.drag.source" Other
     t =    19.71s         Find the "spike.drag.target" Other
     t =    19.73s         Find the "spike.drag.target" Other
-    t =    20.73s     Wait for com.paddock.spike.app to idle
+    t =    20.73s     Wait for com.flock.spike.app to idle
     t =    20.73s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    20.73s     Wait for com.paddock.spike.app to idle
+    t =    20.73s     Wait for com.flock.spike.app to idle
     t =    20.74s     Find the "spike.drag.source" Other
     t =    20.77s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    20.78s     Synthesize event
@@ -241,9 +241,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    20.81s         Find the "spike.drag.source" Other
     t =    20.84s         Find the "spike.drag.target" Other
     t =    20.89s         Find the "spike.drag.target" Other
-    t =    21.90s     Wait for com.paddock.spike.app to idle
+    t =    21.90s     Wait for com.flock.spike.app to idle
     t =    21.90s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    21.90s     Wait for com.paddock.spike.app to idle
+    t =    21.90s     Wait for com.flock.spike.app to idle
     t =    21.91s     Find the "spike.drag.source" Other
     t =    21.95s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    21.96s     Synthesize event
@@ -251,9 +251,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    21.99s         Find the "spike.drag.source" Other
     t =    22.02s         Find the "spike.drag.target" Other
     t =    22.05s         Find the "spike.drag.target" Other
-    t =    23.07s     Wait for com.paddock.spike.app to idle
+    t =    23.07s     Wait for com.flock.spike.app to idle
     t =    23.07s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    23.07s     Wait for com.paddock.spike.app to idle
+    t =    23.07s     Wait for com.flock.spike.app to idle
     t =    23.08s     Find the "spike.drag.source" Other
     t =    23.12s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    23.14s     Synthesize event
@@ -261,9 +261,9 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    23.17s         Find the "spike.drag.source" Other
     t =    23.20s         Find the "spike.drag.target" Other
     t =    23.22s         Find the "spike.drag.target" Other
-    t =    24.23s     Wait for com.paddock.spike.app to idle
+    t =    24.23s     Wait for com.flock.spike.app to idle
     t =    24.23s Press "spike.drag.source" Other[0.50, 0.50] for 0.3 seconds, then drag to "spike.drag.target" Other[0.50, 0.50] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds 
-    t =    24.23s     Wait for com.paddock.spike.app to idle
+    t =    24.23s     Wait for com.flock.spike.app to idle
     t =    24.24s     Find the "spike.drag.source" Other
     t =    24.27s     Check for interrupting elements affecting "spike.drag.source" Other
     t =    24.28s     Synthesize event
@@ -271,7 +271,7 @@ Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' s
     t =    24.30s         Find the "spike.drag.source" Other
     t =    24.32s         Find the "spike.drag.target" Other
     t =    24.34s         Find the "spike.drag.target" Other
-    t =    25.33s     Wait for com.paddock.spike.app to idle
+    t =    25.33s     Wait for com.flock.spike.app to idle
 SPIKE_RESULT drags_landed=20/20
     t =    25.34s Tear Down
 Test Case '-[SpikeUITests.DragLoopUITests testTwentyScriptedDragsLandTheDrop]' passed (25.694 seconds).

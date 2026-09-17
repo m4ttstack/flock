@@ -1,14 +1,14 @@
 # Spike 02: NDJSON socket client framing
 
 Probe executable: `spikes/02-socket/Sources/main.swift` (SPM executable
-`PaddockSocketSpike`). Run against real scratch herdr sessions started with
+`FlockSocketSpike`). Run against real scratch herdr sessions started with
 `spikes/lib/scratch-session.sh`, never the default `~/.config/herdr/herdr.sock`.
 
 ```
 swift build   # in spikes/02-socket
 sock=$(spikes/lib/scratch-session.sh start <name>)
-.build/debug/PaddockSocketSpike probeA "$sock"
-.build/debug/PaddockSocketSpike probeB "$sock" "$(pwd)/spikes/lib/seed-layout.sh"
+.build/debug/FlockSocketSpike probeA "$sock"
+.build/debug/FlockSocketSpike probeB "$sock" "$(pwd)/spikes/lib/seed-layout.sh"
 spikes/lib/scratch-session.sh stop <name>
 ```
 

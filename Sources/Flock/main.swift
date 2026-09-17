@@ -1,0 +1,14 @@
+import Foundation
+import FlockCore
+import SwiftUI
+
+// A hand-written entry point, not `@main` on `FlockApp`: `--bridge` must
+// run fully headless (no NSApplication) before anything SwiftUI touches the
+// window server, which `FlockApp.main()` (App's own entry point) does the
+// moment it is called. `CommandLine.arguments` is checked first instead.
+let bridgeArguments = Array(CommandLine.arguments.dropFirst())
+if bridgeArguments.contains("--bridge") {
+    ControlBridge.run(arguments: bridgeArguments)
+} else {
+    FlockApp.main()
+}

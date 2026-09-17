@@ -251,6 +251,6 @@ All panes, the observe child processes, the 30 `date`-loop shells, and the
 `pane send-keys .. Escape` + `:q!` + `Enter`, and the entire scratch herdr
 session (workspace, tabs, panes, and their child processes) was removed via
 `spikes/lib/scratch-session.sh stop obs04`. Post-cleanup checks: `pgrep -f
-"while true; do date"`, `pgrep -f PaddockObserveSpike`, `pgrep -f "terminal
+"while true; do date"`, `pgrep -f FlockObserveSpike`, `pgrep -f "terminal
 session observe"` all empty; `~/.config/herdr/sessions/` no longer contains
-`paddock-obs04`.
+`flock-obs04`.

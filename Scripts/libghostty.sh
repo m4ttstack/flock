@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build libghostty from the pinned ghostty checkout in Vendor/ghostty into
 # Vendor/GhosttyKit.xcframework, the xcframework project.yml links into
-# PaddockCore.
+# FlockCore.
 #
 # Portions derived from Herdglass (BSL-1.1), Scripts/libghostty.sh.
 #
@@ -100,7 +100,7 @@ fi
 
 if [ -z "$ZIG" ]; then
   echo "libghostty: downloading zig $ZIG_VERSION ($ZIG_TARGET)"
-  INDEX="$(mktemp -t paddock-zig-index)"
+  INDEX="$(mktemp -t flock-zig-index)"
   trap 'rm -f "$INDEX"' EXIT
   curl -fsSL https://ziglang.org/download/index.json -o "$INDEX"
   read -r TARBALL SHASUM <<EOF
@@ -117,7 +117,7 @@ except KeyError:
 PY
 )
 EOF
-  DOWNLOAD="$(mktemp -d -t paddock-zig)"
+  DOWNLOAD="$(mktemp -d -t flock-zig)"
   curl -fsSL "$TARBALL" -o "$DOWNLOAD/zig.tar.xz"
   printf '%s  %s\n' "$SHASUM" "$DOWNLOAD/zig.tar.xz" | shasum -a 256 -c - >/dev/null
   mkdir -p "$ZIG_DIR"
@@ -134,7 +134,7 @@ fi
 # Build in a throwaway clone: `zig build` writes macos/ and .zig-cache into the
 # tree it runs in, and the submodule has to stay clean for `--check` to mean
 # anything.
-WORK="$(mktemp -d -t paddock-libghostty)"
+WORK="$(mktemp -d -t flock-libghostty)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 

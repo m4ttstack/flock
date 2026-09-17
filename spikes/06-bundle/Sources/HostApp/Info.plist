@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.mattstack.paddockspike.host</string>
+    <string>com.mattstack.flockspike.host</string>
     <key>CFBundleName</key>
     <string>SpikeHost</string>
     <key>CFBundleExecutable</key>

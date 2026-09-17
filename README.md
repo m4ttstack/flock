@@ -1,10 +1,10 @@
-# Paddock
+# Flock
 
 A macOS terminal workspace app driven by herdr.
 
 ## Build
 
-Generate the Xcode project (never hand-edit `Paddock.xcodeproj`, it is
+Generate the Xcode project (never hand-edit `Flock.xcodeproj`, it is
 generated from `project.yml`):
 
 ```bash
@@ -38,7 +38,7 @@ Scripts/run.sh
 Scripts/release-build.sh
 ```
 
-Builds `build/release/Paddock.app` in the Release configuration with the
+Builds `build/release/Flock.app` in the Release configuration with the
 hardened runtime, then verifies it with `codesign` and `spctl`. It signs with
 the machine's sole `Developer ID Application` identity when there is exactly
 one; `--identity <name>` names a different one and `--adhoc` forces an ad-hoc

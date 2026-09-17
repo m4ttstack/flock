@@ -5,10 +5,10 @@ import PackageDescription
 // with NSLock/DispatchSemaphore across GCD queues, which the Swift 6 strict
 // concurrency checker cannot verify and which is throwaway anyway.
 let package = Package(
-    name: "PaddockSocketSpike",
+    name: "FlockSocketSpike",
     targets: [
         .executableTarget(
-            name: "PaddockSocketSpike",
+            name: "FlockSocketSpike",
             path: "Sources",
             swiftSettings: [.swiftLanguageMode(.v5)]
         )

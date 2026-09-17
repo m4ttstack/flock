@@ -1,6 +1,6 @@
 # Minimal chrome: approved spec
 
-Approved by Matt 2026-09-15 in Pen. Source of truth: `paddock-colors.pen`, frame
+Approved by Matt 2026-09-15 in Pen. Source of truth: `flock-colors.pen`, frame
 **Minimal window** inside the board "Chrome contrast pass". Reference render:
 `minimal-approved.png`. The Now / Proposed / Stronger columns on the same board
 are history, kept for comparison only.

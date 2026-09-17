@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Paddock.app in the Release configuration, signed with the hardened
+# Builds Flock.app in the Release configuration, signed with the hardened
 # runtime, into build/release/.
 #
 # The signing identity is a parameter rather than a constant: a Developer ID is
@@ -13,7 +13,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-IDENTITY="${PADDOCK_SIGN_IDENTITY:-}"
+IDENTITY="${FLOCK_SIGN_IDENTITY:-}"
 OUTPUT_DIR="build/release"
 DERIVED_DIR="build/release-derived"
 FORCE_ADHOC=0
@@ -27,11 +27,11 @@ usage: Scripts/release-build.sh [options]
                      SHA-1 hash. Default: the machine's sole "Developer ID
                      Application" identity, else ad-hoc.
   --adhoc            sign ad-hoc even when a Developer ID is available
-  --output <dir>     where Paddock.app is written (default: build/release).
+  --output <dir>     where Flock.app is written (default: build/release).
                      A relative path resolves against the repo root, not the
                      directory this was invoked from.
   --skip-verify      build and sign without the codesign/spctl checks
-Also read from the environment: PADDOCK_SIGN_IDENTITY.
+Also read from the environment: FLOCK_SIGN_IDENTITY.
 USAGE
 }
 
@@ -85,14 +85,14 @@ if [ "$IDENTITY" != "-" ]; then
   SIGN_FLAGS="$SIGN_FLAGS --timestamp"
 fi
 
-APP_OUT="$OUTPUT_DIR/Paddock.app"
+APP_OUT="$OUTPUT_DIR/Flock.app"
 
 Scripts/libghostty.sh --check
 xcodegen
 
 mkdir -p "$OUTPUT_DIR"
 
-xcodebuild -scheme Paddock -configuration Release \
+xcodebuild -scheme Flock -configuration Release \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED_DIR" \
   -skipPackagePluginValidation \
@@ -100,7 +100,7 @@ xcodebuild -scheme Paddock -configuration Release \
   OTHER_CODE_SIGN_FLAGS="$SIGN_FLAGS" \
   build
 
-BUILT_APP="$DERIVED_DIR/Build/Products/Release/Paddock.app"
+BUILT_APP="$DERIVED_DIR/Build/Products/Release/Flock.app"
 [ -d "$BUILT_APP" ] || {
   echo "release-build.sh: the build produced no $BUILT_APP" >&2; exit 1
 }

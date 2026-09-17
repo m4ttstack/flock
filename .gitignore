@@ -1,9 +1,9 @@
-Paddock.xcodeproj/
+Flock.xcodeproj/
 DerivedData/
 build/
 .DS_Store
 *.xcuserstate
-docs/design/src/paddock-design.html
+docs/design/src/flock-design.html
 Vendor/GhosttyKit.xcframework/
 Vendor/zig/
 Vendor/libghostty.version

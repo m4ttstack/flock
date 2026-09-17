@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the PaddockUITests suite against a herdr session created for this run
+# Runs the FlockUITests suite against a herdr session created for this run
 # and destroyed with it.
 #
 # The split between this script and the test bundle is not a style choice:
@@ -18,11 +18,11 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$PWD"
-LIB="$ROOT/Tests/PaddockUITests/Support/bin"
+LIB="$ROOT/Tests/FlockUITests/Support/bin"
 
 SESSION_NAME="e2e-$$"
-SESSION_DIR="$HOME/.config/herdr/sessions/paddock-$SESSION_NAME"
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paddock-e2e-XXXXXX")"
+SESSION_DIR="$HOME/.config/herdr/sessions/flock-$SESSION_NAME"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/flock-e2e-XXXXXX")"
 PORT_FILE="$WORK_DIR/bridge.port"
 BRIDGE_PID=""
 TEST_PID=""
@@ -32,21 +32,21 @@ for tool in git jq nc python3 xcodegen xcodebuild; do
   command -v "$tool" >/dev/null 2>&1 || { echo "e2e.sh: $tool is required" >&2; exit 1; }
 done
 
-# PADDOCK_HERDR_BIN is the app's own override, so honoring it first keeps the
+# FLOCK_HERDR_BIN is the app's own override, so honoring it first keeps the
 # server, the seed and the pane bridges on one binary. The patched build is
-# the default when it is installed, because that is what paddock runs against.
-herdr_bin="${PADDOCK_HERDR_BIN:-${HERDR_BIN:-}}"
+# the default when it is installed, because that is what flock runs against.
+herdr_bin="${FLOCK_HERDR_BIN:-${HERDR_BIN:-}}"
 if [ -z "$herdr_bin" ]; then
-  patched="$HOME/.local/share/paddock/herdr-mouse-cli"
+  patched="$HOME/.local/share/flock/herdr-mouse-cli"
   if [ -x "$patched" ]; then herdr_bin="$patched"; else herdr_bin="$(command -v herdr || true)"; fi
 fi
-[ -x "$herdr_bin" ] || { echo "e2e.sh: no herdr binary (set PADDOCK_HERDR_BIN)" >&2; exit 1; }
+[ -x "$herdr_bin" ] || { echo "e2e.sh: no herdr binary (set FLOCK_HERDR_BIN)" >&2; exit 1; }
 export HERDR_BIN="$herdr_bin"
 
 # Every process this run starts carries the run's own session name, in its argv
 # or in its environment: the herdr server and the terminals it spawns, the
 # bridge, the test runner, and the app under test. Matching on that name is
-# what makes a sweep safe -- matching on `Paddock.app` would also match the
+# what makes a sweep safe -- matching on `Flock.app` would also match the
 # instance Matt runs from the same DerivedData build.
 sweep_run_processes() {
   local signal="$1" snapshot pids pid
@@ -64,7 +64,7 @@ sweep_run_processes() {
   # miss the herdr server, whose argv names the session without a trailing
   # separator.
   pids=$(printf '%s\n' "$snapshot" \
-    | grep -E "paddock-$SESSION_NAME([^0-9]|$)" \
+    | grep -E "flock-$SESSION_NAME([^0-9]|$)" \
     | awk -v self="$$" '$1 ~ /^[0-9]+$/ && $1 != self { print $1 }')
   for pid in $pids; do
     kill "-$signal" "$pid" 2>/dev/null || true
@@ -90,7 +90,7 @@ cleanup() {
   # this script has no job control, so there is no process group to signal, and
   # the bundle's own teardown block never runs when the test process dies
   # mid-case. An app left behind would go on writing the window-frame default
-  # the real Paddock reads, pointed at a socket this function is about to
+  # the real Flock reads, pointed at a socket this function is about to
   # destroy.
   sweep_run_processes TERM
   sleep 1
@@ -104,7 +104,7 @@ cleanup() {
       "$LIB/scratch-session.sh" stop "$SESSION_NAME" >/dev/null 2>&1 || true
     fi
     if [ -S "$SESSION_DIR/herdr.sock" ]; then
-      echo "e2e.sh: WARNING: scratch server still bound at paddock-$SESSION_NAME" >&2
+      echo "e2e.sh: WARNING: scratch server still bound at flock-$SESSION_NAME" >&2
     fi
   else
     sweep_run_processes KILL
@@ -117,7 +117,7 @@ trap cleanup EXIT INT TERM
 # server's clock; the `test` invocation below re-checks and finds it current.
 Scripts/libghostty.sh --check
 xcodegen
-xcodebuild -scheme Paddock -configuration Debug -skipPackagePluginValidation \
+xcodebuild -scheme Flock -configuration Debug -skipPackagePluginValidation \
   -destination 'platform=macOS' build-for-testing
 
 # Armed before the start, not after: `start` spawns the server and only then
@@ -144,23 +144,23 @@ read -r BRIDGE_PORT BRIDGE_TOKEN < "$PORT_FILE" 2>/dev/null || true
   echo "e2e.sh: the bridge never reported a port and token" >&2; exit 1
 }
 
-export TEST_RUNNER_PADDOCK_SOCKET="$SOCKET"
-export TEST_RUNNER_PADDOCK_SEED_IDS="$SEED_IDS"
-export TEST_RUNNER_PADDOCK_BRIDGE_PORT="$BRIDGE_PORT"
-export TEST_RUNNER_PADDOCK_BRIDGE_TOKEN="$BRIDGE_TOKEN"
-export TEST_RUNNER_PADDOCK_HERDR_BIN="$herdr_bin"
+export TEST_RUNNER_FLOCK_SOCKET="$SOCKET"
+export TEST_RUNNER_FLOCK_SEED_IDS="$SEED_IDS"
+export TEST_RUNNER_FLOCK_BRIDGE_PORT="$BRIDGE_PORT"
+export TEST_RUNNER_FLOCK_BRIDGE_TOKEN="$BRIDGE_TOKEN"
+export TEST_RUNNER_FLOCK_HERDR_BIN="$herdr_bin"
 # The product's re-snapshot backstop is minutes wide, which no case can wait
 # out, so the suite runs with a short one unless the caller names its own.
-export TEST_RUNNER_PADDOCK_RESNAPSHOT_SECONDS="${PADDOCK_RESNAPSHOT_SECONDS:-2}"
+export TEST_RUNNER_FLOCK_RESNAPSHOT_SECONDS="${FLOCK_RESNAPSHOT_SECONDS:-2}"
 
-echo "e2e.sh: session paddock-$SESSION_NAME"
+echo "e2e.sh: session flock-$SESSION_NAME"
 echo "e2e.sh: socket $SOCKET"
 echo "e2e.sh: herdr $herdr_bin"
 echo "e2e.sh: seed $SEED_IDS"
 echo "e2e.sh: bridge 127.0.0.1:$BRIDGE_PORT"
-echo "e2e.sh: resnapshot ${TEST_RUNNER_PADDOCK_RESNAPSHOT_SECONDS}s"
+echo "e2e.sh: resnapshot ${TEST_RUNNER_FLOCK_RESNAPSHOT_SECONDS}s"
 
-only_testing=("-only-testing:PaddockUITests")
+only_testing=("-only-testing:FlockUITests")
 if [ "$#" -gt 0 ]; then only_testing=("$@"); fi
 
 # Backgrounded and waited on rather than run in the foreground: a
@@ -172,7 +172,7 @@ if [ "$#" -gt 0 ]; then only_testing=("$@"); fi
 # Parallelization is pinned off rather than left to its default: there is one
 # herdr session and one pointer, so two workers would reseed the layout out
 # from under each other's assertions and synthesize two gestures at once.
-xcodebuild -scheme Paddock -configuration Debug -skipPackagePluginValidation \
+xcodebuild -scheme Flock -configuration Debug -skipPackagePluginValidation \
   -destination 'platform=macOS' -parallel-testing-enabled NO test "${only_testing[@]}" &
 TEST_PID=$!
 set +e

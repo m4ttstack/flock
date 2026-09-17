@@ -58,12 +58,12 @@ Zoom badge: mauve, never a status color.
 
 Source of truth: herdr `src/client/shell/context_menu.rs`,
 `ClientContextMenuOverlay::items`. Diff this table against that function on
-every herdr update; a row herdr gains or loses is a finding. paddock's labels
+every herdr update; a row herdr gains or loses is a finding. flock's labels
 are title case (macOS menu convention) against herdr's sentence case, so both
 strings are given. Order within each menu matches herdr's for every shared
 row.
 
-| herdr row | paddock row | Model | When shown |
+| herdr row | flock row | Model | When shown |
 | --- | --- | --- | --- |
 | Pane: `Rename pane` | `Rename Pane` | `PaneMenuModel` | always |
 | Pane: `Clear pane name` | `Clear Pane Name` | `PaneMenuModel` | pane has a manual label |
@@ -71,18 +71,18 @@ row.
 | Pane: `Split right` | `Split Right` | `PaneMenuModel` | always |
 | Pane: `Split down` | `Split Down` | `PaneMenuModel` | always |
 | Pane: `Zoom` | `Zoom` | `PaneMenuModel` | always |
-| (none) | `Move to...` | `MoveToMenu` | paddock's own: the spec's keyboard/accessibility path for every drag outcome |
-| Pane: `Use Herdr right-click menu` / `Send right-clicks to pane` | (none) | - | paddock decides the disposition per click (Task 18n), so there is no per-pane mode to flip |
+| (none) | `Move to...` | `MoveToMenu` | flock's own: the spec's keyboard/accessibility path for every drag outcome |
+| Pane: `Use Herdr right-click menu` / `Send right-clicks to pane` | (none) | - | flock decides the disposition per click (Task 18n), so there is no per-pane mode to flip |
 | Pane: `Close pane` | `Close Pane` | `PaneMenuModel` | always |
 | Tab: `New tab` | `New Tab` | `TabMenuModel` | always |
 | Tab: `Rename` | `Rename` | `TabMenuModel` | always |
 | Tab: `Close` | `Close` | `TabMenuModel` | always, last tab included |
 | Workspace: `Rename` | `Rename` | `WorkspaceMenuModel` | always |
-| Workspace: `Close` / `Close group` | `Close` | `WorkspaceMenuModel` | always; herdr's group form is paddock's confirmation prompt on `workspace_group_close_required` |
-| Workspace: `New worktree`, `Open worktree...`, `Delete worktree checkout...`, `Expand`/`Collapse` | (none) | - | paddock manages no worktree and collapses no group |
+| Workspace: `Close` / `Close group` | `Close` | `WorkspaceMenuModel` | always; herdr's group form is flock's confirmation prompt on `workspace_group_close_required` |
+| Workspace: `New worktree`, `Open worktree...`, `Delete worktree checkout...`, `Expand`/`Collapse` | (none) | - | flock manages no worktree and collapses no group |
 
 herdr also draws its own `new_tab` and `new_workspace` hit regions in the
-strip and sidebar. paddock reaches both through File > New Tab / New
+strip and sidebar. flock reaches both through File > New Tab / New
 Workspace, the tab menu's New Tab, and a plain click on strip or rail space no
 item occupies -- no control is drawn, so the resting chrome stays exactly as
 the artboards have it.
