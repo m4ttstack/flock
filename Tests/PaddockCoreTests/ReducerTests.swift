@@ -151,6 +151,33 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(model.layouts[otherTab]?.focusedPaneID, otherTabFocus, "another tab's own focus moved")
     }
 
+    /// A pane record can be a layout ahead of the layouts: `.paneMoved` re-keys
+    /// the record's tab and deliberately leaves every layout's pane list alone.
+    /// Writing the focus there anyway would leave a layout naming a pane it
+    /// does not hold, which `LayoutSnapshot.focusedPane` then hands out as a
+    /// mutation target.
+    func testPaneFocusedLeavesALayoutThatDoesNotHoldThePaneAlone() throws {
+        var model = try seededModel()
+        let destination = TabID(rawValue: "w1:t2")
+        let pane = PaneID(rawValue: "w1:p2")
+        let focusBefore = model.layouts[destination]?.focusedPaneID
+        let record = try XCTUnwrap(model.panes[pane])
+        model.panes[pane] = PaneRecord(
+            paneID: record.paneID, workspaceID: record.workspaceID, tabID: destination, focused: record.focused,
+            agentStatus: record.agentStatus, revision: record.revision,
+            terminalTitleStripped: record.terminalTitleStripped, label: record.label, cwd: record.cwd, scroll: record.scroll
+        )
+        XCTAssertFalse(
+            model.layouts[destination]?.panes.contains { $0.paneID == pane } ?? true,
+            "this case reads a layout that does not yet list the moved pane"
+        )
+
+        apply(.paneFocused(pane), to: &model)
+
+        XCTAssertEqual(model.focusedPaneID, pane)
+        XCTAssertEqual(model.layouts[destination]?.focusedPaneID, focusBefore)
+    }
+
     /// A pane no snapshot has reported yet names no tab, so there is no layout
     /// to move: the session's focus still follows, and no layout is guessed at.
     func testPaneFocusedOnAnUnknownPaneLeavesEveryLayoutAlone() throws {

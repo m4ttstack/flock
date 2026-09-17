@@ -715,10 +715,9 @@ final class HerdrStoreTests: XCTestCase {
 
     /// herdr's `pane.zoom` focuses the pane it names before it reads
     /// `tab.zoomed` at all (`apply_pane_zoom`), so a zoom aimed from an
-    /// unfocused pane's own menu moves the tab's focus as well. The canvas
-    /// draws the zoom's held pane from that field, so a prediction that
-    /// flipped `zoomed` alone would hold the OTHER pane open over the whole
-    /// window until herdr's echo landed.
+    /// unfocused pane's own menu moves the focus as well -- the tab's, which
+    /// decides which pane the canvas holds open, and the session's, which
+    /// decides whether it wears the focused border while it does.
     @MainActor
     func testExecuteZoomPredictsTheZoomedPaneAsTheTabsFocusBeforeTheRoundTripCompletes() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
@@ -740,6 +739,10 @@ final class HerdrStoreTests: XCTestCase {
         let layout = try XCTUnwrap(store.model?.layouts[TabID(rawValue: "w1:t1")])
         XCTAssertEqual(layout.focusedPaneID, PaneID(rawValue: "w1:p2"))
         XCTAssertEqual(CanvasComposition.of(layout: layout), .zoomed(PaneID(rawValue: "w1:p2")))
+        XCTAssertEqual(
+            store.model?.focusedPaneID, PaneID(rawValue: "w1:p2"),
+            "the pane filling the canvas would be painted as an unfocused one"
+        )
 
         hold()
         guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }

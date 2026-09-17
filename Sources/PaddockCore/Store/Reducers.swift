@@ -24,7 +24,16 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         // the previous pane is a snapshot herdr would never send. What reads
         // it is `CanvasComposition` -- the zoomed canvas follows focus, as
         // herdr's renderer does.
-        if let tabID = model.panes[paneID]?.tabID {
+        //
+        // Only where that layout actually holds the pane. A pane record can be
+        // a layout ahead of the layouts: `.paneMoved` re-keys the record's tab
+        // without touching any layout's pane list, so this event can arrive
+        // naming a destination whose own list has not caught up.
+        // `focusedPaneID` inside `panes` is an invariant readers act on --
+        // `LayoutSnapshot.focusedPane` hands it to `MutationEngine` as a real
+        // mutation target -- so it holds here rather than at each reader.
+        if let tabID = model.panes[paneID]?.tabID,
+           model.layouts[tabID]?.panes.contains(where: { $0.paneID == paneID }) == true {
             model.layouts[tabID]?.focusedPaneID = paneID
         }
 

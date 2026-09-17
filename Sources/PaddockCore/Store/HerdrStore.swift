@@ -365,8 +365,9 @@ public final class HerdrStore {
         }
         var orderAfterEachReorder: [[WorkspaceID]] = []
         for op in plan.ops {
-            guard let event = Self.predictedEvent(for: op, model: predicted) else { continue }
-            apply(event, to: &predicted)
+            for event in Self.predictedEvents(for: op, model: predicted) {
+                apply(event, to: &predicted)
+            }
             if isWorkspaceReorder(op) {
                 orderAfterEachReorder.append(predicted.workspaces.map(\.workspaceID))
             }
@@ -378,79 +379,87 @@ public final class HerdrStore {
         return (predicted, intermediate)
     }
 
-    private static func predictedEvent(for op: PrimitiveOp, model: SessionModel) -> HerdrEvent? {
+    /// The events herdr would send for one op, in the order it would send
+    /// them. Several, or none: `pane.zoom` moves focus as well as the zoom
+    /// (`apply_pane_zoom` focuses the pane it names first), and an op whose
+    /// outcome cannot be expressed honestly predicts nothing at all.
+    private static func predictedEvents(for op: PrimitiveOp, model: SessionModel) -> [HerdrEvent] {
         switch op {
         case let .movePaneToTab(pane, tab, _, _, _):
-            guard let old = model.panes[pane], let workspaceID = model.tabs.first(where: { $0.value.contains { $0.tabID == tab } })?.key else { return nil }
+            guard let old = model.panes[pane], let workspaceID = model.tabs.first(where: { $0.value.contains { $0.tabID == tab } })?.key else { return [] }
             let moved = PaneRecord(
                 paneID: pane, workspaceID: workspaceID, tabID: tab, focused: old.focused, agentStatus: old.agentStatus,
                 revision: old.revision, terminalTitleStripped: old.terminalTitleStripped, label: old.label, cwd: old.cwd, scroll: old.scroll
             )
-            return .paneMoved(PaneMovedPayload(
+            return [.paneMoved(PaneMovedPayload(
                 previousPaneID: pane, previousWorkspaceID: old.workspaceID, previousTabID: old.tabID,
                 pane: moved, createdTab: nil, createdWorkspace: nil, closedTabID: nil, closedWorkspaceID: nil
-            ))
+            ))]
 
         case let .renamePane(pane, label):
-            guard let old = model.panes[pane] else { return nil }
+            guard let old = model.panes[pane] else { return [] }
             let renamed = PaneRecord(
                 paneID: old.paneID, workspaceID: old.workspaceID, tabID: old.tabID, focused: old.focused, agentStatus: old.agentStatus,
                 revision: old.revision, terminalTitleStripped: old.terminalTitleStripped, label: label, cwd: old.cwd, scroll: old.scroll
             )
-            return .paneUpdated(renamed)
+            return [.paneUpdated(renamed)]
 
         case let .renameTab(tab, label):
-            return .tabRenamed(tab, label)
+            return [.tabRenamed(tab, label)]
 
         case let .renameWorkspace(workspace, label):
-            return .workspaceRenamed(workspace, label)
+            return [.workspaceRenamed(workspace, label)]
 
         case let .moveTab(tab, insertIndex):
             guard let workspaceID = model.tabs.first(where: { $0.value.contains { $0.tabID == tab } })?.key,
                   var tabs = model.tabs[workspaceID],
                   let index = tabs.firstIndex(where: { $0.tabID == tab })
-            else { return nil }
+            else { return [] }
             let record = tabs.remove(at: index)
             let actual = Self.gapAdjustedResultIndex(source: index, insert: insertIndex)
             tabs.insert(record, at: min(max(actual, 0), tabs.count))
-            return .tabMoved(tab, workspaceID, tabs)
+            return [.tabMoved(tab, workspaceID, tabs)]
 
         case let .moveWorkspace(workspace, insertIndex):
             var workspaces = model.workspaces
-            guard let index = workspaces.firstIndex(where: { $0.workspaceID == workspace }) else { return nil }
+            guard let index = workspaces.firstIndex(where: { $0.workspaceID == workspace }) else { return [] }
             let record = workspaces.remove(at: index)
             let actual = Self.gapAdjustedResultIndex(source: index, insert: insertIndex)
             workspaces.insert(record, at: min(max(actual, 0), workspaces.count))
-            return .workspaceMoved(workspaces)
+            return [.workspaceMoved(workspaces)]
 
         case let .moveWorkspaceBlock(block, before):
-            guard let workspaces = WorkspaceBlockMove.apply(block: block, before: before, to: model.workspaces, id: \.workspaceID) else { return nil }
-            return .workspaceReordered(workspaces)
+            guard let workspaces = WorkspaceBlockMove.apply(block: block, before: before, to: model.workspaces, id: \.workspaceID) else { return [] }
+            return [.workspaceReordered(workspaces)]
 
         case let .focusPane(pane):
-            return .paneFocused(pane)
+            return [.paneFocused(pane)]
         case let .focusTab(tab):
-            return .tabFocused(tab)
+            return [.tabFocused(tab)]
         case let .focusWorkspace(workspace):
-            return .workspaceFocused(workspace)
+            return [.workspaceFocused(workspace)]
 
         case let .zoom(pane, mode):
-            guard let record = model.panes[pane], let layout = model.layouts[record.tabID] else { return nil }
+            guard let record = model.panes[pane], let layout = model.layouts[record.tabID] else { return [] }
             let newZoomed: Bool
             switch mode {
             case .on: newZoomed = true
             case .off: newZoomed = false
             case .toggle: newZoomed = !layout.zoomed
             }
-            return .layoutUpdated(Self.withZoom(newZoomed, focus: pane, in: layout))
+            // Both halves of what herdr does, in its own order: the focus
+            // moves whatever the zoom does, so the canvas paints the held
+            // pane as the focused one rather than wearing an unfocused
+            // border until the echo lands.
+            return [.paneFocused(pane), .layoutUpdated(Self.withZoom(newZoomed, focus: pane, in: layout))]
 
         case let .setSplitRatio(tab, path, ratio):
-            guard let newLayout = Self.predictedLayout(forSplitRatio: ratio, atPath: path, tab: tab, model: model) else { return nil }
-            return .layoutUpdated(newLayout)
+            guard let newLayout = Self.predictedLayout(forSplitRatio: ratio, atPath: path, tab: tab, model: model) else { return [] }
+            return [.layoutUpdated(newLayout)]
 
         case .movePaneToNewTab, .movePaneToNewWorkspace, .swapPanes,
              .closePane, .closeTab, .closeWorkspace:
-            return nil
+            return []
         }
     }
 
