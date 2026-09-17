@@ -24,6 +24,7 @@ SESSION_NAME="e2e-$$"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/paddock-e2e-XXXXXX")"
 PORT_FILE="$WORK_DIR/bridge.port"
 BRIDGE_PID=""
+TEST_PID=""
 SESSION_STARTED=""
 
 for tool in jq nc python3 xcodegen xcodebuild; do
@@ -44,6 +45,12 @@ export HERDR_BIN="$herdr_bin"
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
+  # The test run goes first: it is what holds the session open, and it would
+  # keep driving a bridge and a server being torn down underneath it.
+  if [ -n "$TEST_PID" ]; then
+    kill "$TEST_PID" 2>/dev/null || true
+    wait "$TEST_PID" 2>/dev/null || true
+  fi
   # Before the session stop, never after: the bridge's control verbs start a
   # server back up, and one in flight would undo the teardown.
   if [ -n "$BRIDGE_PID" ]; then
@@ -101,5 +108,17 @@ echo "e2e.sh: bridge 127.0.0.1:$BRIDGE_PORT"
 only_testing=("-only-testing:PaddockUITests")
 if [ "$#" -gt 0 ]; then only_testing=("$@"); fi
 
+# Backgrounded and waited on rather than run in the foreground: a
+# non-interactive bash defers a trap until its foreground command returns, so
+# a signal sent to this script alone would sit unhandled for the length of the
+# test run. `wait` is interruptible, so the teardown runs when the signal
+# arrives whether or not the signal also reached xcodebuild.
 xcodebuild -scheme Paddock -configuration Debug -skipPackagePluginValidation \
-  -destination 'platform=macOS' test "${only_testing[@]}"
+  -destination 'platform=macOS' test "${only_testing[@]}" &
+TEST_PID=$!
+set +e
+wait "$TEST_PID"
+TEST_STATUS=$?
+set -e
+TEST_PID=""
+exit "$TEST_STATUS"
