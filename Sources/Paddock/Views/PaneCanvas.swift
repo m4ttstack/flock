@@ -81,6 +81,15 @@ struct PaneCanvas: View {
                             // `CanvasGrid` produced it.
                             .frame(width: box.width, height: box.height, alignment: .topLeading)
                             .offset(x: box.minX, y: box.minY)
+                            // A container, so the identifier below names the
+                            // whole box. Without it SwiftUI folds the cell into
+                            // the one text inside it and the identifier comes
+                            // back as the title's own frame: a few dozen points
+                            // in the corner of a pane hundreds wide, which is
+                            // the wrong place for everything that reads a
+                            // cell's geometry, and it swallows the title and
+                            // zoom badge underneath.
+                            .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("paddock.canvas.pane.\(pane.paneID.rawValue)")
                         }
                     }

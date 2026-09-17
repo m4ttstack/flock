@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// Which edge of a drop target a pane drag aims at. Named for the canvas
@@ -101,10 +102,33 @@ extension XCUIApplication {
 
     /// The identifiers under a prefix that the app is currently showing, for a
     /// failure message that has to say what WAS on screen.
+    ///
+    /// Bound in one pass rather than counted and then indexed: the window
+    /// redraws from herdr's events, so a count taken before a redraw and an
+    /// index resolved after it fail the test with "no matches found" instead
+    /// of reporting what changed.
     func paddockIdentifiers(prefix: String) -> [String] {
-        let matches = descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
-        return (0..<matches.count).map { matches.element(boundBy: $0).identifier }.sorted()
+        descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
+            .allElementsBoundByAccessibilityElement
+            .map(\.identifier)
+            .sorted()
     }
+}
+
+/// Makes the app under test resign active, which its drag layer reads as a
+/// gesture that will never see a release and tears down, committing nothing.
+///
+/// This is how a drag is ended mid-gesture. Escape, which the drag's own key
+/// monitor also treats as a cancel, cannot be sent from here at all: XCTest
+/// arbitrates its own event synthesis and refuses a keystroke while a gesture
+/// it started is still running ("Unable to synthesize gesture request N ...
+/// because gesture request M is still in progress"), retrying until the
+/// gesture is over and the button is already up. Activating the runner is not
+/// event synthesis, so it is not arbitrated.
+@MainActor
+func takeFocusFromTheAppUnderTest() {
+    NSRunningApplication.current.activate()
 }
 
 /// Presses the source element and drags it onto the target.
@@ -118,8 +142,12 @@ extension XCUIApplication {
 /// target -- `DragController` checks its spring-load deadline from the move
 /// events a drag delivers and from nothing else, so a pointer parked dead
 /// still never reaches one -- which a slow crossing of the target provides. A
-/// drag that ends on a keypress needs the button held while the key is sent,
-/// which is what `whileHeld` runs in.
+/// drag that ends without committing needs something done while the button is
+/// still down, which is what `whileHeld` runs in.
+///
+/// `whileHeld` runs on the main queue, which the blocked gesture call does
+/// give a turn (proven live). What it must NOT do is ask XCTest to synthesize
+/// anything: see `takeFocusFromTheAppUnderTest`.
 @MainActor
 @discardableResult
 func dragElement(

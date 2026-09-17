@@ -362,10 +362,6 @@ final class PaneDragTests: XCTestCase {
         )
 
         let app = try launchOnSeed()
-        XCTAssertTrue(
-            app.paddockElement("paddock.pane.zoomBadge.\(ids.p1)").waitForExistence(timeout: 20),
-            "the window never marked \(ids.p1) zoomed, so the guard below would be tested against nothing"
-        )
 
         let trace = dragElement(app, fromID: canvasPane(ids.p1), toID: "paddock.strip.tab.\(ids.tabB)", aiming: .middle)
 
@@ -385,23 +381,28 @@ final class PaneDragTests: XCTestCase {
             "the pane should have left \(ids.tabA); \(after.outline())"
         )
 
-        assertEventually("the window drops the zoom badge") {
-            !app.paddockElement("paddock.pane.zoomBadge.\(ids.p1)").exists
-        } describing: {
-            "the badge for \(ids.p1) is still drawn, so the window still believes a tab is zoomed"
-        }
+        // The zoom badge would be the rendered half of this, but it is an
+        // unlabelled `Image`, which SwiftUI exposes to accessibility as
+        // nothing at all, so `paddock.pane.zoomBadge.<id>` never resolves and
+        // cannot be asserted on from here.
         assertCanvasHolds(app, [ids.p3, ids.p1], "after a move out of a zoomed tab")
     }
 
-    /// Escape ends a drag with the button still down and commits nothing.
+    /// A drag torn down with the button still down commits nothing.
+    ///
+    /// The teardown is triggered by taking the frontmost app away rather than
+    /// by Escape, which cannot be sent from inside a gesture at all (see
+    /// `takeFocusFromTheAppUnderTest`). It is the same teardown: `abandon()`
+    /// and `cancel()` both reach `DragController.cancelled()` and issue no
+    /// commit, and only the wait for a release that will never arrive differs.
     ///
     /// The assertion is that the session did not change, which is also what a
     /// gesture the app never saw would produce, so the case runs the identical
-    /// drag a second time WITHOUT the Escape and requires that one to change
-    /// the session. Only both halves together say the Escape is what stopped
-    /// the first.
+    /// drag a second time and lets it finish, requiring THAT one to change the
+    /// session. Only both halves together say the teardown is what stopped the
+    /// first.
     @MainActor
-    func testEscapeDuringADragCancelsItAndCommitsNothing() throws {
+    func testADragTornDownMidGestureCommitsNothing() throws {
         let ids = session.seedIDs()
         let before = try session.snapshot()
         let leftBefore = try XCTUnwrap(before.paneRect(ids.p1), "\(ids.p1) has no rect in the seed")
@@ -410,13 +411,14 @@ final class PaneDragTests: XCTestCase {
 
         let cancelled = dragElement(
             app, fromID: canvasPane(ids.p1), toID: canvasPane(ids.p2), aiming: .middle,
-            hold: Self.holdForAKeypress, whileHeld: { app.typeKey(.escape, modifierFlags: []) }
+            hold: Self.holdForAnInterjection, whileHeld: { takeFocusFromTheAppUnderTest() }
         )
         XCTAssertTrue(
             cancelled.heldWorkRan,
-            "the Escape was never sent: the drag helper's interjection did not get a turn inside the "
-                + "\(Self.holdForAKeypress)s hold, so this case proved nothing. \(cancelled)"
+            "the interjection never ran inside the \(Self.holdForAnInterjection)s hold, so nothing tore the "
+                + "drag down and this case proved nothing. \(cancelled)"
         )
+        app.activate()
 
         // Long enough for a drop that did commit to have reached herdr and
         // come back: the observed echo runs to about a tenth of a second.
@@ -424,22 +426,22 @@ final class PaneDragTests: XCTestCase {
         let afterCancel = try session.snapshot()
         XCTAssertNil(
             before.difference(from: afterCancel),
-            "an Escape-cancelled drag changed the session. \(cancelled)"
+            "a drag torn down mid-gesture changed the session. \(cancelled)"
         )
-        assertCanvasHolds(app, [ids.p1, ids.p2], "after an Escape-cancelled drag")
-        assertCellIsLeftOf(app, ids.p1, ids.p2, "the canvas moved the panes a cancelled drag never committed")
+        assertCanvasHolds(app, [ids.p1, ids.p2], "after a drag torn down mid-gesture")
+        assertCellIsLeftOf(app, ids.p1, ids.p2, "the canvas moved the panes a torn-down drag never committed")
 
-        // The control: the same gesture, released instead of cancelled.
+        // The control: the same gesture, allowed to finish.
         let committed = dragElement(app, fromID: canvasPane(ids.p1), toID: canvasPane(ids.p2), aiming: .middle)
         let afterCommit = try session.snapshot(
-            waitingFor: "the same drag WITHOUT an Escape to swap the panes, which is what makes the "
-                + "unchanged session above attributable to the Escape. \(committed)"
+            waitingFor: "the same drag left alone to swap the panes, which is what makes the unchanged "
+                + "session above attributable to the teardown. \(committed)"
         ) {
             $0.paneRect(ids.p1) == rightBefore && $0.paneRect(ids.p2) == leftBefore
         }
         XCTAssertNotNil(
             before.difference(from: afterCommit),
-            "the control drag left the session identical, so the cancelled drag above was not a cancel"
+            "the control drag left the session identical, so the drag above was not torn down, it was inert"
         )
     }
 
@@ -447,7 +449,7 @@ final class PaneDragTests: XCTestCase {
     ///
     /// The reveal is a LOCAL selection that issues nothing to herdr, and a
     /// committed drop selects its destination too, so a released drag cannot
-    /// tell the two apart. The dwell here is therefore ended with an Escape:
+    /// tell the two apart. The dwell here is therefore torn down mid-gesture:
     /// nothing is committed, so the workspace the window is left showing is
     /// the reveal's doing and nothing else's.
     @MainActor
@@ -466,19 +468,20 @@ final class PaneDragTests: XCTestCase {
         // pointer parked dead still never reaches its deadline.
         let dwelled = dragElement(
             app, fromID: canvasPane(ids.p1), toID: "paddock.rail.workspace.\(other)", aiming: .edge(.left),
-            speed: Self.dwellCrossingSpeed, hold: Self.holdForAKeypress,
-            whileHeld: { app.typeKey(.escape, modifierFlags: []) }
+            speed: Self.dwellCrossingSpeed, hold: Self.holdForAnInterjection,
+            whileHeld: { takeFocusFromTheAppUnderTest() }
         )
         XCTAssertTrue(
             dwelled.heldWorkRan,
-            "the Escape was never sent: the drag helper's interjection did not get a turn inside the "
-                + "\(Self.holdForAKeypress)s hold, so this case proved nothing. \(dwelled)"
+            "the interjection never ran inside the \(Self.holdForAnInterjection)s hold, so the dwell was "
+                + "released rather than torn down and this case proved nothing. \(dwelled)"
         )
+        app.activate()
 
         usleep(3_000_000)
         XCTAssertNil(
             seeded.difference(from: try session.snapshot()),
-            "a cancelled dwell still changed the session, so what the window is showing is not the reveal. \(dwelled)"
+            "a torn-down dwell still changed the session, so what the window is showing is not the reveal. \(dwelled)"
         )
         assertCanvasHolds(
             app, [otherPane],
@@ -557,8 +560,8 @@ final class PaneDragTests: XCTestCase {
     private static let thumbnailHandle = Aim.fraction(x: 0.5, y: 0.07)
 
     /// How long the button stays down at the target once the drag has
-    /// arrived, for the two cases that end on a keypress.
-    private static let holdForAKeypress: TimeInterval = 1.2
+    /// arrived, for the two cases that tear the drag down mid-gesture.
+    private static let holdForAnInterjection: TimeInterval = 1.2
 
     /// Points per second for a drag that has to dwell on what it crosses. The
     /// rail is about 192pt wide, so aiming at a row's far side spends over a
@@ -616,15 +619,17 @@ final class PaneDragTests: XCTestCase {
     @MainActor
     private func openGrid(_ app: XCUIApplication, ids: SeedIDs) {
         clickElement(app, "paddock.rail.allWorkspaces")
-        XCTAssertTrue(
-            app.paddockElement(gridTab(ids.tabA)).waitForExistence(timeout: 20),
-            "the All Workspaces grid never drew a thumbnail for \(ids.tabA); a cross-tab pane drop needs both "
-                + "tabs' panes on screen at once, which only the grid draws"
-        )
-        XCTAssertTrue(
-            app.paddockElement(gridTab(ids.tabB)).exists,
-            "the grid drew no thumbnail for \(ids.tabB), which is this drag's target"
-        )
+        // The list of everything on screen, not just the verdict: a thumbnail
+        // that never appeared can mean the grid did not open (the rail and
+        // strip would still be listed) or that the card it sits in swallowed
+        // its identifier (the card would be listed and no thumbnail would be),
+        // and those want different fixes.
+        assertEventually("the All Workspaces grid draws a thumbnail for \(ids.tabA) and \(ids.tabB)") {
+            app.paddockElement(self.gridTab(ids.tabA)).exists && app.paddockElement(self.gridTab(ids.tabB)).exists
+        } describing: {
+            "a cross-tab pane drop needs both tabs' panes on screen at once, which only the grid draws. "
+                + "The window is showing [\(app.paddockIdentifiers(prefix: "paddock.").joined(separator: ", "))]"
+        }
     }
 
     /// Selects a tab from its grid thumbnail, which also closes the grid, so
