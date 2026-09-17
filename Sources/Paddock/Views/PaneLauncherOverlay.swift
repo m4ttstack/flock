@@ -38,10 +38,12 @@ enum HarnessRoster {
 /// Renders on a pristine paddock-created pane: the bare shell prompt stays
 /// visible above (this view never covers it -- it only occupies the space
 /// below, via its own top spacer), one button per detected harness centered
-/// in that space, and a dim hint at the very bottom. Everywhere except the
-/// button row is `allowsHitTesting(false)`, so a click anywhere else still
-/// reaches the terminal underneath (plain-click-to-focus, or eventually
-/// typing) rather than being swallowed by the overlay.
+/// in that space, and a dim hint at the very bottom. The buttons are the
+/// only thing here that answers the pointer: the spacers draw nothing and so
+/// claim nothing, and the hint opts itself out, which leaves every other
+/// click reaching the terminal underneath (plain-click-to-focus, or
+/// typing). `PaneLauncherOverlayTests` asserts both halves of that by
+/// hit-testing the real view.
 struct PaneLauncherOverlay: View {
     let theme: Theme
     let entries: [HarnessEntry]
