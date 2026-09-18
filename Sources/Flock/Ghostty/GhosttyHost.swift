@@ -311,7 +311,7 @@ private func ghosttyHostReadClipboard(
 ) -> Bool {
     guard location != GHOSTTY_CLIPBOARD_SELECTION else { return false }
     guard let session = ghosttySession(from: userdata), let surface = session.surface else { return false }
-    guard let text = NSPasteboard.general.string(forType: .string) else { return false }
+    guard let text = NSPasteboard.general.pasteText() else { return false }
     text.withCString { ptr in
         ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
     }

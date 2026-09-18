@@ -655,7 +655,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// confirmation, which `GhosttyHost` answers by completing it.
     @objc func paste(_ sender: Any?) {
         guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
-        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        guard let text = NSPasteboard.general.pasteText() else { return }
         session.paste(text)
     }
 
@@ -948,7 +948,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         case #selector(copy(_:)):
             return session.hasSelection()
         case #selector(paste(_:)):
-            return NSPasteboard.general.string(forType: .string) != nil
+            return NSPasteboard.general.offersPasteText
         case #selector(selectAll(_:)):
             return true
         case #selector(openHoveredLink(_:)), #selector(copyHoveredLink(_:)):
