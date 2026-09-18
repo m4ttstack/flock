@@ -11,8 +11,13 @@ final class MutationEngineTests: XCTestCase {
         )
     }
 
+    /// `label` defaults to what herdr reports for a tab nobody has renamed:
+    /// its own 1-based position, which these fixtures place at `number`.
     private func tabRecord(_ id: String, workspace: String, number: Int = 1, paneCount: Int = 1, label: String = "") -> TabRecord {
-        TabRecord(tabID: TabID(rawValue: id), workspaceID: WorkspaceID(rawValue: workspace), label: label.isEmpty ? id : label, number: number, paneCount: paneCount, agentStatus: .idle)
+        TabRecord(
+            tabID: TabID(rawValue: id), workspaceID: WorkspaceID(rawValue: workspace),
+            label: label.isEmpty ? String(number) : label, number: number, paneCount: paneCount, agentStatus: .idle
+        )
     }
 
     private func workspaceRecord(_ id: String, activeTab: String, number: Int = 1, label: String = "") -> WorkspaceRecord {
@@ -440,7 +445,7 @@ final class MutationEngineTests: XCTestCase {
         let result = await engine.execute(plan, model: splitPairModel())
         guard let executed = expectSuccess(result) else { return }
 
-        XCTAssertEqual(executed.inverse.ops, [.renameTab(TabID(rawValue: "w1:t1"), "w1:t1")])
+        XCTAssertEqual(executed.inverse.ops, [.renameTab(TabID(rawValue: "w1:t1"), "1")])
     }
 
     func testInverseOfRenameWorkspaceIsThePriorLabel() async throws {
@@ -489,7 +494,7 @@ final class MutationEngineTests: XCTestCase {
         let result = await engine.execute(plan, model: splitPairModel())
         guard let executed = expectSuccess(result) else { return }
 
-        XCTAssertEqual(executed.inverse.ops, [.renameTab(TabID(rawValue: "w1:t1"), "w1:t1")])
+        XCTAssertEqual(executed.inverse.ops, [.renameTab(TabID(rawValue: "w1:t1"), "1")])
         XCTAssertEqual(executed.irreversible, [closeOp])
     }
 
@@ -577,6 +582,38 @@ final class MutationEngineTests: XCTestCase {
             .movePaneToNewTab(PaneID(rawValue: "w2:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
             .movePaneToTab(PaneID(rawValue: "w2:p2"), tab: TabID.planPlaceholder(createdByStep: 0), target: PaneID.planPlaceholder(movedByStep: 0), split: .right, ratio: 0.5),
         ])
+    }
+
+    /// The forward migration asks the destination tab to be born carrying
+    /// the source tab's name, so the inverse has to ask for it too, or
+    /// undoing the move becomes the thing that loses the name.
+    func testMigrationInverseCarriesTheOriginTabsName() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respondSequence(to: "pane.move", withResultJSONs: [
+            #"{"move_result":{"pane":{"pane_id":"w2:p1"},"created_tab":{"tab_id":"w2:t9"}}}"#,
+            #"{"move_result":{"pane":{"pane_id":"w2:p2"}}}"#,
+        ])
+        let engine = MutationEngine(client: HerdrClient(socketPath: fake.socketPath))
+
+        let namedTabModel = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 2, label: "Deploy logs")],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true), paneRecord("w1:p2", workspace: "w1", tab: "w1:t1")],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24), focused: true), paneRect("w1:p2", rect(40, 0, 40, 24))],
+                splits: [splitInfo("s1", .right, 0.5, rect(0, 0, 80, 24))]
+            )]
+        )
+        guard let forwardPlan = expectPlanSuccess(plan(
+            dragging: .tab(TabID(rawValue: "w1:t1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), model: namedTabModel
+        )) else { return }
+        let result = await engine.execute(forwardPlan, model: namedTabModel)
+        guard let executed = expectSuccess(result) else { return }
+
+        XCTAssertEqual(executed.inverse.ops.first, .movePaneToNewTab(
+            PaneID(rawValue: "w2:p1"), workspace: WorkspaceID(rawValue: "w1"), label: "Deploy logs"
+        ))
     }
 
     /// A 3-pane origin tab (`A | (B over C)`) needs the real tree, not a
@@ -702,7 +739,7 @@ final class MutationEngineTests: XCTestCase {
             .movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
             .closeTab(TabID.planPlaceholder(createdByStep: 0)),
             .swapPanes(PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")),
-            .renameTab(TabID(rawValue: "w1:t1"), "w1:t1"),
+            .renameTab(TabID(rawValue: "w1:t1"), "1"),
         ])
 
         // Now actually run the inverse: the closeTab's placeholder must
@@ -870,7 +907,7 @@ final class MutationEngineTests: XCTestCase {
             XCTFail("expected a failure")
         case .failure(let failure):
             XCTAssertEqual(failure.executed, [renameOp])
-            XCTAssertEqual(failure.partialInverse.ops, [.renameTab(TabID(rawValue: "w1:t1"), "w1:t1")])
+            XCTAssertEqual(failure.partialInverse.ops, [.renameTab(TabID(rawValue: "w1:t1"), "1")])
         }
     }
 

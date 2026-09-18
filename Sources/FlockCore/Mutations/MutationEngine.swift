@@ -560,6 +560,10 @@ private struct MoveTracker {
     // recorded -- the tree a multi-pane group's migration-shaped inverse
     // replays (see `buildInverseOps`), never a pairwise neighbor guess.
     private var treeByOriginTab: [TabID: SplitTree] = [:]
+    // Captured beside the tree, and for the same reason: the origin tab dies
+    // the moment its last pane leaves, so its name is gone by the time an
+    // inverse recreates it.
+    private var nameByOriginTab: [TabID: String] = [:]
 
     /// Called after a move op (`movePaneToTab`/`movePaneToNewTab`/
     /// `movePaneToNewWorkspace`) succeeds. `rawOp`'s own (pre-resolution)
@@ -575,8 +579,11 @@ private struct MoveTracker {
         } else if let rawSource {
             if origins[rawSource] == nil {
                 origins[rawSource] = Self.recordOrigin(of: rawSource, model: model, stepIndex: stepIndex)
-                if let tabID = origins[rawSource]?.tabID, treeByOriginTab[tabID] == nil, let layout = model.layouts[tabID] {
-                    treeByOriginTab[tabID] = SplitTree.build(from: layout)
+                if let tabID = origins[rawSource]?.tabID {
+                    if treeByOriginTab[tabID] == nil, let layout = model.layouts[tabID] {
+                        treeByOriginTab[tabID] = SplitTree.build(from: layout)
+                    }
+                    nameByOriginTab[tabID] = carriedName(ofTab: tabID, model: model)
                 }
             }
             originKey = rawSource
@@ -665,7 +672,9 @@ private struct MoveTracker {
                 // relative to ITS OWN position 0, so they must be shifted by
                 // wherever this group actually lands in the combined array
                 // before being appended -- see `shiftPlaceholders`.
-                let localOps = Self.migrationInverseOps(tree: tree, workspaceID: firstOrigin.workspaceID) { currentPaneID[$0] ?? $0 }
+                let localOps = Self.migrationInverseOps(
+                    tree: tree, workspaceID: firstOrigin.workspaceID, tabName: nameByOriginTab[originTabID]
+                ) { currentPaneID[$0] ?? $0 }
                 ops.append(contentsOf: Self.shiftPlaceholders(in: localOps, by: ops.count))
             } else if currentTabID[firstKey] == originTabID {
                 let tempStep = ops.count
@@ -684,7 +693,9 @@ private struct MoveTracker {
                 // gets the same fix: recreate a fresh tab in the origin
                 // workspace rather than target the vacated id. No sibling
                 // ever existed in a single-pane tab, so no trailing swap.
-                ops.append(.movePaneToNewTab(firstFinalID, workspace: firstOrigin.workspaceID, label: nil))
+                ops.append(.movePaneToNewTab(
+                    firstFinalID, workspace: firstOrigin.workspaceID, label: nameByOriginTab[originTabID]
+                ))
                 positionLost = true
             } else {
                 let moveStep = ops.count
@@ -720,8 +731,10 @@ private struct MoveTracker {
     /// `workspaceID`, which re-keys that pane, so anything referencing it
     /// afterward must resolve fresh rather than trust a value computed
     /// before this reconstruction even started.
-    private static func migrationInverseOps(tree: SplitTree, workspaceID: WorkspaceID, remap: (PaneID) -> PaneID) -> [PrimitiveOp] {
-        var ops: [PrimitiveOp] = [.movePaneToNewTab(remap(tree.leftmostPaneID), workspace: workspaceID, label: nil)]
+    private static func migrationInverseOps(
+        tree: SplitTree, workspaceID: WorkspaceID, tabName: String?, remap: (PaneID) -> PaneID
+    ) -> [PrimitiveOp] {
+        var ops: [PrimitiveOp] = [.movePaneToNewTab(remap(tree.leftmostPaneID), workspace: workspaceID, label: tabName)]
         let destinationTab = TabID.planPlaceholder(createdByStep: 0)
         let rootAnchor = PaneID.planPlaceholder(movedByStep: 0)
         materializeInverse(tree, anchor: rootAnchor, destinationTab: destinationTab, remap: remap, ops: &ops)

@@ -228,7 +228,9 @@ private func planTabMigration(tab: TabID, workspace: WorkspaceID, model: Session
         return .failure(.invalidCombination)
     }
 
-    var ops: [PrimitiveOp] = [.movePaneToNewTab(tree.leftmostPaneID, workspace: workspace, label: nil)]
+    var ops: [PrimitiveOp] = [
+        .movePaneToNewTab(tree.leftmostPaneID, workspace: workspace, label: carriedName(ofTab: tab, model: model)),
+    ]
     let destinationTab = TabID.planPlaceholder(createdByStep: 0)
     let rootAnchor = PaneID.planPlaceholder(movedByStep: 0)
     materialize(tree, anchor: rootAnchor, destinationTab: destinationTab, ops: &ops)
@@ -238,6 +240,25 @@ private func planTabMigration(tab: TabID, workspace: WorkspaceID, model: Session
         label: "Move tab to workspace",
         needsUnzoom: unzoomList(model: model, source: tab, destination: nil)
     ))
+}
+
+/// The name to ask a recreated tab to be born with, or nil to let herdr name
+/// it. herdr reports a tab nobody has renamed as its own 1-based position, so
+/// that string is a default rather than a name: sending it back would pin the
+/// source position as a real name, and the destination can already hold a tab
+/// sitting at that position. The comparison is against the position, never
+/// `TabRecord.number`, which survives a closed tab and so drifts away from it.
+///
+/// Internal, not private: `MutationEngine` asks the same question when it
+/// builds the inverse that recreates a migrated tab, and the two must answer
+/// it identically or an undo renames what the forward move did not.
+func carriedName(ofTab tab: TabID, model: SessionModel) -> String? {
+    for tabs in model.tabs.values {
+        guard let position = tabs.firstIndex(where: { $0.tabID == tab }) else { continue }
+        let label = tabs[position].label
+        return label == String(position + 1) ? nil : label
+    }
+    return nil
 }
 
 private func materialize(_ node: SplitTree, anchor: PaneID, destinationTab: TabID, ops: inout [PrimitiveOp]) {

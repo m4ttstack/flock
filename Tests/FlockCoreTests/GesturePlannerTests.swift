@@ -11,8 +11,13 @@ final class GesturePlannerTests: XCTestCase {
         )
     }
 
-    private func tabRecord(_ id: String, workspace: String, number: Int = 1, paneCount: Int = 1) -> TabRecord {
-        TabRecord(tabID: TabID(rawValue: id), workspaceID: WorkspaceID(rawValue: workspace), label: id, number: number, paneCount: paneCount, agentStatus: .idle)
+    /// `label` defaults to what herdr reports for a tab nobody has renamed:
+    /// its own 1-based position, which these fixtures place at `number`.
+    private func tabRecord(_ id: String, workspace: String, number: Int = 1, paneCount: Int = 1, label: String? = nil) -> TabRecord {
+        TabRecord(
+            tabID: TabID(rawValue: id), workspaceID: WorkspaceID(rawValue: workspace),
+            label: label ?? String(number), number: number, paneCount: paneCount, agentStatus: .idle
+        )
     }
 
     private func workspaceRecord(_ id: String, activeTab: String, number: Int = 1) -> WorkspaceRecord {
@@ -310,6 +315,48 @@ final class GesturePlannerTests: XCTestCase {
                 PaneID(rawValue: "w1:p2"), tab: TabID.planPlaceholder(createdByStep: 0),
                 target: PaneID.planPlaceholder(movedByStep: 0), split: .down, ratio: 0.5
             ),
+        ])
+    }
+
+    /// A migration is composed of pane moves, so the destination tab is one
+    /// the plan creates. The name the user gave the source tab has to be
+    /// asked for by that first op, or the new tab is born unnamed.
+    func testTabMigrationCarriesTheSourceTabsName() {
+        let named = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", label: "Deploy logs")],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true)],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 80, 24), focused: true)]
+            )]
+        )
+        let result = plan(dragging: .tab(TabID(rawValue: "w1:t1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), model: named)
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w2"), label: "Deploy logs"),
+        ])
+    }
+
+    /// herdr labels an unrenamed tab with its own 1-based position, so that
+    /// string is a default and not a name. Sending it as the new tab's label
+    /// would pin the source position as a real name, and the destination can
+    /// already hold a tab sitting at that position. The rule is the position,
+    /// never `number`: this tab sits first but is numbered 5.
+    func testTabMigrationDoesNotCarryAnUnnamedTabsPosition() {
+        let unnamed = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t5"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t5", workspace: "w1", number: 5, label: "1")],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t5", focused: true)],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t5", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 80, 24), focused: true)]
+            )]
+        )
+        let result = plan(dragging: .tab(TabID(rawValue: "w1:t5")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), model: unnamed)
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w2"), label: nil),
         ])
     }
 
