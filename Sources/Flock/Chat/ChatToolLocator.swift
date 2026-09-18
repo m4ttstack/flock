@@ -21,19 +21,9 @@ enum ChatToolLocator {
             .appendingPathComponent(".config/herdr/plugins", isDirectory: true)
     )
 
-    /// Forces the first read off the main actor, at startup, mirroring
-    /// `ToolPath.warm(reporting:)`: a reader that gets to `binaryPath` first
-    /// otherwise pays for the filesystem walk on whatever thread it is on.
-    static func warm() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            _ = binaryPath
-        }
-    }
-
-    /// `ChatStore`'s own probe: awaits the first read of `binaryPath` from a
+    /// `ChatStore`'s probe: awaits the first read of `binaryPath` from a
     /// detached task, so the caller -- however soon after launch it awaits
-    /// this -- is never the thread that pays for the filesystem walk, even if
-    /// it arrives before `warm()`'s own dispatch has started.
+    /// this -- is never the thread that pays for the filesystem walk.
     static func probeBinaryPath() async -> String? {
         await Task.detached(priority: .userInitiated) { binaryPath }.value
     }

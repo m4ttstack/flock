@@ -155,10 +155,9 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertTrue(store.isAvailable)
     }
 
-    /// The launch-time race the review found: a view can read `isAvailable`
-    /// before the store's own background probe has answered at all, not just
-    /// before it resolves to "no binary". That state must still gate every
-    /// verb, not merely read as `false`.
+    /// Availability is false until the probe answers, not only once it
+    /// answers "no binary": a store read during launch, before the
+    /// background probe has resolved at all, must still run no verbs.
     func testNoVerbRunsAndIsAvailableStaysFalseBeforeTheProbeAnswers() async {
         let runner = FakeChatRunning([ok(Self.statusJSON)])
         let toasts = ToastCenter()
