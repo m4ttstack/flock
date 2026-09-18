@@ -46,6 +46,98 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The pane legend's chat button, both states it can actually draw: fill
+    /// and stroke sampled against the palette by name, and its frame against
+    /// the sizes `measurements.md` gives. The button is the only thing in its
+    /// pane's legend here (idle, unzoomed), so its box sits flush against the
+    /// legend's own padding with nothing else to make room for.
+    func testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSizeAndHex() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = Theme.tokyoNight
+        let pane = PaneID(rawValue: "w1:p2")
+        let signedInJSON = #"""
+        {"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
+        """#
+
+        let signedIn = try await Harness(theme: theme, chatAvailable: true, chatStatusJSON: [pane: signedInJSON])
+        let signedInWindow = signedIn.makeWindow(size: Self.windowSize)
+        await settle(signedInWindow)
+        let signedInImage = try snapshot(signedInWindow)
+        if let directory {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-in.png")
+            try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
+        }
+        let signedInBox = try XCTUnwrap(signedIn.drag.canvas.paneFrames[pane])
+        let signedInFrame = Self.chatButtonFrame(inRawFrame: signedInBox, size: ChromeMetrics.ChatButton.signedInSize)
+        XCTAssertEqual(signedInFrame.size, ChromeMetrics.ChatButton.signedInSize, "signed-in size")
+        // Inside the leading padding, ahead of the handle text: the frame's
+        // own center sits on the glyph, whose antialiased edge blends fill
+        // and text color rather than reading as either.
+        XCTAssertEqual(
+            hex(signedInImage, CGPoint(x: signedInFrame.minX + 3, y: signedInFrame.midY)),
+            theme.palette.selectionBg.hex, "signed-in fill"
+        )
+        XCTAssertEqual(
+            hex(signedInImage, CGPoint(x: signedInFrame.maxX - 0.5, y: signedInFrame.midY)),
+            theme.palette.accent.hex, "signed-in stroke"
+        )
+        signedInWindow.close()
+
+        let signedOut = try await Harness(theme: theme, chatAvailable: true)
+        let signedOutWindow = signedOut.makeWindow(size: Self.windowSize)
+        await settle(signedOutWindow)
+        let signedOutImage = try snapshot(signedOutWindow)
+        if let directory {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-out.png")
+            try XCTUnwrap(signedOutImage.representation(using: .png, properties: [:])).write(to: url)
+        }
+        let signedOutBox = try XCTUnwrap(signedOut.drag.canvas.paneFrames[pane])
+        let signedOutFrame = Self.chatButtonFrame(inRawFrame: signedOutBox, size: ChromeMetrics.ChatButton.signedOutSize)
+        XCTAssertEqual(signedOutFrame.size, ChromeMetrics.ChatButton.signedOutSize, "signed-out size")
+        // Just inside the rounded corner, clear of the centered glyph.
+        XCTAssertEqual(
+            hex(signedOutImage, CGPoint(x: signedOutFrame.minX + 2, y: signedOutFrame.minY + 2)),
+            theme.palette.surface0.hex, "signed-out fill"
+        )
+        XCTAssertEqual(
+            hex(signedOutImage, CGPoint(x: signedOutFrame.maxX - 0.5, y: signedOutFrame.midY)),
+            theme.palette.surface0.hex, "signed-out carries no separate stroke"
+        )
+        signedOutWindow.close()
+    }
+
+    /// A machine with no chat binary draws no button: the legend's corner
+    /// stays the pane's own ground, not `surface0` or `selectionBg`.
+    func testChatButtonIsAbsentWhenChatIsUnavailable() async throws {
+        let theme = Theme.tokyoNight
+        let pane = PaneID(rawValue: "w1:p2")
+        let harness = try await Harness(theme: theme)
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let image = try snapshot(window)
+        let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
+        let frame = Self.chatButtonFrame(inRawFrame: box, size: ChromeMetrics.ChatButton.signedOutSize)
+        XCTAssertEqual(
+            hex(image, CGPoint(x: frame.midX, y: frame.midY)), theme.palette.chromeRoles.pane.hex,
+            "no chat binary drew a button anyway"
+        )
+        window.close()
+    }
+
+    /// Where the chat button lands: `drag.canvas.paneFrames` carries the
+    /// UNINSET split rect, and `PaneCanvas` insets it by the divider gutter
+    /// before ever handing `PaneCellView` a box (`PaneBox.frame`) -- the same
+    /// step the grid geometry tests take through `MiniPaneLayout` instead.
+    /// The legend's overlay is then anchored to that box's own top-trailing
+    /// corner, inset by the pane chrome's own padding.
+    private static func chatButtonFrame(inRawFrame rawFrame: CGRect, size: CGSize) -> CGRect {
+        let box = PaneBox.frame(in: rawFrame, dividerThickness: DividerBand.gutter)
+        return CGRect(
+            x: box.maxX - PaneChrome.horizontalPadding - size.width, y: box.minY + PaneChrome.verticalPadding,
+            width: size.width, height: size.height
+        )
+    }
+
     /// A face that failed to register resolves to the system font with no
     /// error, so only a lookup by name shows the chrome is really in Inter.
     func testChromeFacesResolveToInterWithDistinctWeights() throws {
@@ -1620,11 +1712,16 @@ private struct Harness {
     let rearrange: RearrangeMode
     let drag: DragCoordinator
     let dividerDrag: DividerDragCoordinator
+    let chatStore: ChatStore
     let viewModel: SessionViewModel
 
     init(
         theme: Theme, model: SessionModel? = nil, client: any HerdrCommandClient = OfflineHerdrClient(),
         attaching panes: [PaneID] = Fixture.canvasPanes,
+        // Absent by default, same as a machine with no chat binary: a render
+        // test that does not care about chat must keep seeing exactly what it
+        // saw before this button existed.
+        chatAvailable: Bool = false, chatStatusJSON: [PaneID: String] = [:],
         // Frozen by any test that renders the attention stack: a finished
         // toast expires six seconds after it is raised, and a render that
         // read the wall clock would flip on a loaded machine that took that
@@ -1645,6 +1742,15 @@ private struct Harness {
             reveal: { _ in }
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
+        chatStore = ChatStore(
+            toasts: ToastCenter(),
+            probe: { chatAvailable ? "/usr/bin/true" : nil },
+            makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON) }
+        )
+        await chatStore.probeTask.value
+        for pane in chatStatusJSON.keys {
+            await chatStore.refreshStatus(for: pane)
+        }
         viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory(), now: now)
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
         for pane in panes {
@@ -1661,6 +1767,7 @@ private struct Harness {
             .environment(rearrange)
             .environment(drag)
             .environment(dividerDrag)
+            .environment(chatStore)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -1679,6 +1786,23 @@ private struct OfflineHerdrClient: HerdrCommandClient {
 
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         throw Offline()
+    }
+}
+
+/// Answers `status` with the JSON keyed by that pane; any other verb, or a
+/// pane not in the map, is not something a chrome render ever asks for.
+private actor FixtureChatRunning: ChatRunning {
+    private let statusJSON: [PaneID: String]
+
+    init(statusJSON: [PaneID: String]) {
+        self.statusJSON = statusJSON
+    }
+
+    func run(_ verb: ChatVerb) async throws -> (stdout: Data, exitCode: Int32) {
+        guard case let .status(pane: rawPane) = verb, let json = statusJSON[PaneID(rawValue: rawPane)] else {
+            throw ChatFailure(message: "FixtureChatRunning has no status for \(verb)")
+        }
+        return (Data(json.utf8), 0)
     }
 }
 

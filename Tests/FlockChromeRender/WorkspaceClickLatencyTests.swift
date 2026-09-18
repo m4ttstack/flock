@@ -145,6 +145,7 @@ private struct Harness {
     let rearrange: RearrangeMode
     let drag: DragCoordinator
     let dividerDrag: DividerDragCoordinator
+    let chatStore: ChatStore
     let viewModel: SessionViewModel
 
     init() async throws {
@@ -162,6 +163,10 @@ private struct Harness {
             reveal: { _ in }
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
+        // No chat binary, same as a machine without one: a latency run does
+        // not exercise the chat button at all.
+        chatStore = ChatStore(toasts: ToastCenter(), probe: { nil }, makeRunner: { _ in fatalError("no verb runs") })
+        await chatStore.probeTask.value
         viewModel = SessionViewModel(client: OfflineClient(), ghosttyFactory: GroundFactory())
         viewModel.update(model: try Self.model(), connection: .live)
         for pane in Self.everyPane {
@@ -178,6 +183,7 @@ private struct Harness {
             .environment(rearrange)
             .environment(drag)
             .environment(dividerDrag)
+            .environment(chatStore)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

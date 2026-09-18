@@ -147,6 +147,18 @@ enum ChromeMetrics {
         static let toastInset: CGFloat = 13
     }
 
+    /// The pane legend's chat trigger, also the state it shows: signed in
+    /// carries the handle, signed out shows the glyph alone, and chat
+    /// unavailable on this machine draws no button at all.
+    enum ChatButton {
+        static let signedInSize = CGSize(width: 71, height: 18)
+        static let signedOutSize = CGSize(width: 27, height: 17)
+        static let cornerRadius: CGFloat = 4
+        static let verticalPadding: CGFloat = 3
+        static let horizontalPadding: CGFloat = 8
+        static let gap: CGFloat = 6
+    }
+
     enum Card {
         static let spacing: CGFloat = 10
         static let padding: CGFloat = 18

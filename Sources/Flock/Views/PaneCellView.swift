@@ -73,6 +73,7 @@ struct PaneCellView: View {
     @Environment(ToastCenter.self) private var toastCenter
     @Environment(RearrangeMode.self) private var rearrangeMode
     @Environment(DragCoordinator.self) private var drag
+    @Environment(ChatStore.self) private var chatStore
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     /// The terminal body's frame in the drag space: what turns the body's own
@@ -343,6 +344,7 @@ struct PaneCellView: View {
     private var statusChip: some View {
         HStack(spacing: ChromeMetrics.Pane.statusChipPadding) {
             if isZoomed { zoomBadge }
+            if chatButtonAppearance != .absent { chatButton }
             if let statusColor {
                 Text(pane.agentStatus.rawValue)
                     .font(ChromeType.statusChip)
@@ -355,6 +357,53 @@ struct PaneCellView: View {
         .padding(.top, PaneChrome.verticalPadding)
         .padding(.trailing, PaneChrome.horizontalPadding)
         .allowsHitTesting(false)
+    }
+
+    /// `unread` is not wired to a live count yet: chat's peek data is
+    /// per-buddy and per-room, not yet reduced to "this pane's own unread".
+    private var chatButtonAppearance: ChatButtonModel.Appearance {
+        ChatButtonModel.appearance(
+            availability: chatStore.isAvailable, status: chatStore.status(for: pane.paneID), unread: 0
+        )
+    }
+
+    @ViewBuilder
+    private var chatButton: some View {
+        switch chatButtonAppearance {
+        case .absent:
+            EmptyView()
+        case .signedOut:
+            Image(systemName: "bubble.left.fill")
+                .font(ChromeType.chatButtonGlyph)
+                .foregroundStyle(theme.overlay0)
+                .frame(width: ChromeMetrics.ChatButton.signedOutSize.width, height: ChromeMetrics.ChatButton.signedOutSize.height)
+                .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.surface0)))
+                .accessibilityLabel("Chat")
+                .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
+        case let .signedIn(handle, unread):
+            HStack(spacing: ChromeMetrics.ChatButton.gap) {
+                Text(handle)
+                    .font(ChromeType.chatButtonHandle)
+                    .foregroundStyle(theme.accent)
+                    .lineLimit(1)
+                if unread > 0 {
+                    Text("\(unread)")
+                        .font(ChromeType.chatButtonHandle)
+                        .foregroundStyle(theme.accent)
+                }
+            }
+            .padding(.vertical, ChromeMetrics.ChatButton.verticalPadding)
+            .padding(.horizontal, ChromeMetrics.ChatButton.horizontalPadding)
+            .frame(width: ChromeMetrics.ChatButton.signedInSize.width, height: ChromeMetrics.ChatButton.signedInSize.height)
+            .background(
+                RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.selectionBg))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).strokeBorder(theme.accent, lineWidth: 1)
+            )
+            .accessibilityLabel("Chat: \(handle)")
+            .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
+        }
     }
 
     /// Mauve, never a status color (the parity checklist's own rule), so a
