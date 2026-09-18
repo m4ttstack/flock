@@ -47,6 +47,9 @@ public enum MainWindowFrame {
         return best?.screen
     }
 
+    /// Vertically the window is put wholly on the screen, which is where
+    /// AppKit would have kept it anyway; horizontally it keeps whatever
+    /// overhang it was left with, down to the slice the pointer needs.
     static func constrained(_ frame: CGRect, to screen: CGRect) -> CGRect {
         var result = frame
         result.size.width = min(result.width, screen.width)

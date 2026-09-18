@@ -8,65 +8,41 @@ import SwiftUI
 /// delegate is not yet installed for) that this app does not participate in
 /// AppKit's secure-restorable-state scheme.
 ///
-/// Also owns window-frame persistence under a fixed literal key, independent
-/// of the SwiftUI environment-modifier chain that made state restoration
-/// itself unreliable (see `FlockApp.init`'s own trade-off comment) --
-/// `NSWindow`'s own `setFrameAutosaveName`/`saveFrame(usingName:)` were tried
-/// first and empirically do NOT write anything under a custom name for this
-/// window (confirmed: the call sites ran, with a valid window/frame/name
-/// each time, and `defaults read` never showed the key; `isRestorable =
-/// false` first did not unblock it either) -- this window's frame keeps
-/// getting captured under SwiftUI's OWN type-encoded identifier
+/// Also starts window-frame persistence, which `MainWindowFrameKeeper` then
+/// owns. The frame is kept under a fixed literal `UserDefaults` key,
+/// independent of the SwiftUI environment-modifier chain that made state
+/// restoration itself unreliable (see `FlockApp.init`'s own trade-off
+/// comment) -- `NSWindow`'s own `setFrameAutosaveName`/`saveFrame(usingName:)`
+/// were tried first and empirically do NOT write anything under a custom name
+/// for this window (confirmed: the call sites ran, with a valid
+/// window/frame/name each time, and `defaults read` never showed the key;
+/// `isRestorable = false` first did not unblock it either) -- this window's
+/// frame keeps getting captured under SwiftUI's OWN type-encoded identifier
 /// (`NSPersistentUIManager`-driven) instead, no matter what name this code
 /// asks for. Plain `UserDefaults` read/write under an ordinary app-owned key
 /// sidesteps whatever internal AppKit/SwiftUI interaction is intercepting
 /// the classic autosave APIs, and is what `ApplePersistenceIgnoreState`
 /// itself already round-trips through in this exact process.
+@MainActor
 final class FlockAppDelegate: NSObject, NSApplicationDelegate {
-    private static let frameDefaultsKey = "flock.mainWindowFrame"
-
-    private var frameObservers: [NSObjectProtocol] = []
+    private let windowFrame = MainWindowFrameKeeper()
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { false }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // Ahead of the window guard below, which returns and would take the
-        // sweep with it.
-        DispatchQueue.global(qos: .utility).async { ClipboardImageStaging.sweep() }
+    /// Whether the SwiftUI window exists by the time either launch callback
+    /// runs is not something the app gets to know, so the keeper is started
+    /// from both and is built to be started twice.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        windowFrame.start()
+    }
 
-        guard let window = NSApp.windows.first else { return }
-        if let saved = UserDefaults.standard.string(forKey: Self.frameDefaultsKey) {
-            let frame = NSRectFromString(saved)
-            // A frame saved on a display that is no longer attached would
-            // restore the window somewhere unreachable; only a frame that
-            // still overlaps a current screen is honored, and the screen
-            // constrains it so the title bar stays grabbable.
-            if frame.width > 0, frame.height > 0,
-               let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) }) {
-                window.setFrame(window.constrainFrameRect(frame, to: screen), display: true)
-            }
-        }
-        // Saved continuously (not only at quit), so a force-quit or crash
-        // still keeps the LAST live position/size rather than only
-        // whatever `applicationWillTerminate` last saw.
-        let center = NotificationCenter.default
-        frameObservers = [
-            center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak window] _ in
-                Self.saveFrame(of: window)
-            },
-            center.addObserver(forName: NSWindow.didMoveNotification, object: window, queue: .main) { [weak window] _ in
-                Self.saveFrame(of: window)
-            },
-        ]
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.global(qos: .utility).async { ClipboardImageStaging.sweep() }
+        windowFrame.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        Self.saveFrame(of: NSApp.windows.first)
-    }
-
-    private static func saveFrame(of window: NSWindow?) {
-        guard let window else { return }
-        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: frameDefaultsKey)
+        windowFrame.save()
     }
 }
 
