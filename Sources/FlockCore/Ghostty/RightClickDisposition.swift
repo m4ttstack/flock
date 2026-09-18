@@ -35,9 +35,12 @@ public enum RightClickDisposition: Equatable, Sendable {
     ///   in the pane, so the click falls through to the menu rather than
     ///   disappearing into a plain shell.
     ///
-    /// Option is not a passthrough gesture here: holding it is how rearrange
-    /// mode is entered, so an Option right-click is suppressed before this
-    /// rule is consulted.
+    /// Option means one thing and only one thing on a pane: force the menu.
+    /// It is the escape hatch out of a pane that has passthrough on and a
+    /// program listening, and it is no longer a mode key of any kind -- the
+    /// held and double-tapped Option routes into rearrange mode were removed
+    /// on 2026-09-17 (see `RearrangeMode`), so nothing else on this surface
+    /// reads the modifier now.
     public static func decide(
         optionHeld: Bool,
         captureEnabled: Bool,

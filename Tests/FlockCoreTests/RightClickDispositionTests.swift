@@ -67,8 +67,9 @@ final class RightClickDispositionTests: XCTestCase {
 
     // MARK: - Rearrange mode: neither the menu nor the pane
 
-    /// Rearrange mode wins over every other input, and Option is how it is
-    /// entered, so an Option right-click never reaches the rule below it.
+    /// Rearrange mode wins over every other input: the whole pane is a drag
+    /// surface while it is on, so no right-click reaches the rule below it,
+    /// Option held or not.
     func testRearrangeActiveIsAlwaysSuppressed() {
         for option in [false, true] {
             for capture in [false, true] {

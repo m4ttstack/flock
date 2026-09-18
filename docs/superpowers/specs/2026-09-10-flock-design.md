@@ -249,29 +249,38 @@ transform/opacity only, interruptible springs.
   directly under the line, so the old 28px header becomes terminal rows.
 - **Grabbing a pane (two coexisting ways):** (1) at rest, the legend plus a
   ~12px invisible band along the pane's top edge is the drag handle; a grip
-  glyph fades in on hover. (2) REARRANGE MODE: entered momentarily by
-  holding Option, stickily by DOUBLE-TAPPING Option, or stickily via a
-  View-menu toggle (all three routes share one state; ruled 2026-09-14); while active every pane repaints (terminal content dims, border
-  switches to the accent color, a centered grip glyph appears, hover lifts
-  the pane a hair) and a drag can start from ANY point on a pane, with mouse
-  events no longer forwarded to the terminal. Releasing Option exits the momentary route; a sticky
-  route is left by Esc, another double-tap, or the menu toggle, and
-  holding Option while sticky does not turn it off. Esc has a precedence
-  rule: with a drag in flight it cancels the drag and leaves the mode
-  alone, so leaving a sticky mode mid-drag takes two presses. A tap is an
-  Option press 300ms or less with no other key or mouse event in it
-  (Esc included), and the two taps must fall within 400ms inclusive, which is what keeps
-  Option-modified typing from ever entering the mode. A drag in progress
-  finishes first. Control was
-  chosen first and is UNUSABLE: Control+click is a secondary click on
-  macOS, so a press with Control held arrives as `rightMouseDown` and a
-  drag can never begin. Option is the replacement (ruled 2026-09-14);
-  Option+right-click is already the herdr-menu gesture, so Option reads as
-  flock's own layer rather than the terminal's, and Option+drag's usual
-  rectangular-selection meaning cannot apply because no mouse event
-  reaches the terminal while rearrange is active. Command stays rejected
-  (Cmd-click routes to the terminal for link opening, Cmd+drag moves
-  background windows).
+  glyph fades in on hover. (2) REARRANGE MODE: one sticky state with one
+  switch behind it, the View menu's Rearrange Mode item, which carries
+  **Cmd+D** (ruled 2026-09-17). While active every pane repaints (terminal
+  content dims but stays READABLE, border switches to the accent color, a
+  centered grip glyph appears, hover lifts the pane a hair) and a drag can
+  start from ANY point on a pane, with mouse events no longer forwarded to
+  the terminal. Nothing in the mode may change a cell's frame: the rects the
+  canvas lays cells out at are the rects the drop resolver hit-tests, so the
+  hover lift is a shadow, never a scale. The mode is left by Cmd+D again,
+  the menu item again, or Esc. Esc has a precedence rule: with a drag in
+  flight it cancels the drag and leaves the mode alone, so leaving mid-drag
+  takes two presses. A drag in progress finishes first.
+
+  MODIFIER ROUTES ARE GONE (ruled 2026-09-17). Control was chosen first and
+  is UNUSABLE: Control+click is a secondary click on macOS, so a press with
+  Control held arrives as `rightMouseDown` and a drag can never begin.
+  Option replaced it (held = momentary, double-tapped = sticky, ruled
+  2026-09-14) and was removed after one live session: Option is a
+  text-navigation modifier in the programs these panes run, so ordinary
+  editing kept dimming every pane and taking the mouse off the terminal.
+  Command is the only modifier a pane's program never receives, which is why
+  the mode is a Command key equivalent and not a held key at all. Option now
+  means exactly one thing on a pane, the herdr-menu right-click, and nothing
+  else reads it.
+- **Menu-bar key equivalents (one inventory):** Cmd+T new tab, Cmd+Shift+N
+  new workspace, Cmd+X/C/V/A the standard editing items (routed through the
+  responder chain, so an open rename field takes them before the terminal
+  does), F2 rename, Cmd+Z / Cmd+Shift+Z undo/redo, Cmd+Option+arrows move
+  pane, Cmd+Option+Shift+arrows swap pane, Cmd+D rearrange mode,
+  Cmd+Shift+D All Workspaces (the same gesture at a wider scope: one
+  workspace's panes, then across all of them), Cmd+K clear notifications,
+  Cmd+minus / Cmd+0 / Cmd+plus terminal text size.
 - **Pane drop semantics (VS Code model):** interior of a target pane = swap
   (same tab) or move-onto (cross tab); outer 20% edge band = directional
   split drop with live overlay preview of the resulting rects.
