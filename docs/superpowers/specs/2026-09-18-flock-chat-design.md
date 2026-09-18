@@ -199,10 +199,14 @@ is both the trigger and the state:
 Clicking it opens the chat popover, anchored under the button and right-aligned
 to it. The popover belongs to that pane and closes on click-away or Esc.
 
-Three ways to the same thing: the button, a Chat menu in the menu bar, and the
-user's existing herdr prefix keys, which flock already reads from
-`~/.config/herdr/config.toml` and which currently raise a toast naming the
-command. Those bindings start doing the real thing.
+Two ways to the same thing: the button, and a Chat menu in the menu bar where
+each item carries its own shortcut.
+
+Not a third way through herdr's prefix key. flock briefly read the user's herdr
+config and honoured those bindings, and that support has since been removed: a
+prefix exists because a terminal has no other way to reach a multiplexer's
+commands, and this app does. Reading someone's terminal keymap to decide what a
+Mac menu does is the same mistake one layer down.
 
 ### The popover
 
