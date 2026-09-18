@@ -64,7 +64,9 @@ decision the other needs.
 
 ### The headless surface
 
-Every existing subcommand accepts `--json`. With it, the subcommand **never
+Every subcommand in the table accepts `--json`, which is all of them except
+`launcher`: the launcher is a menu over the other verbs, and a menu is the
+caller's to draw. With it, the subcommand **never
 draws**, takes its inputs as flags, and prints exactly one JSON object on
 stdout. Without it, today's behaviour is unchanged, so the herdr TUI keeps
 working as it does now.
@@ -114,8 +116,11 @@ model. `open-viewer --json` returns the URL rather than shelling out to `open`,
 for the same reason: flock decides how a URL is opened, and a test can assert a
 URL where it cannot assert that `open` ran.
 
-`broadcast` reports per pane. A broadcast where two of three panes took the
-message is not a failure, and the caller has to be able to say so.
+`broadcast` reports per pane, because a broadcast where two of three panes took
+the message is a thing the caller has to be able to describe. Its top-level
+`ok` is every pane taking it, so that partial case is `ok: false` with two
+successes inside; a broadcast that reached nobody is `ok: false` too, since a
+fan-out to an empty selection is not a quiet success.
 
 ### What the TUI front end changes
 
