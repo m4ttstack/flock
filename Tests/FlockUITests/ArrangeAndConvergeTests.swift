@@ -555,9 +555,15 @@ final class ArrangeAndConvergeTests: XCTestCase {
     func testMoveToPutsThePaneInTheTabTheMenuNamed() throws {
         let ids = session.seedIDs()
         let app = try launchOnSeed()
+        // The submenu's rows are built out of the model when the menu opens,
+        // and never rebuilt while it is up, so a menu opened before the
+        // window knew about `tabB` can only be waited on in vain. The strip
+        // draws from that same model: a strip already holding `tabB` is the
+        // window-side condition for the row this case clicks.
+        waitForStripTabs(app, [ids.tabA, ids.tabB])
 
         openPaneMenu(app, on: ids.p2)
-        hoverMenuItem(app, "flock.pane.menu.moveTo")
+        openSubmenu(app, "flock.pane.menu.moveTo", carrying: "flock.pane.menu.moveTo.tab.\(ids.tabB)")
         clickMenuItem(app, "flock.pane.menu.moveTo.tab.\(ids.tabB)")
 
         let after = try session.snapshot(waitingFor: "\(ids.p2) to join \(ids.tabB)") {
@@ -988,6 +994,17 @@ final class ArrangeAndConvergeTests: XCTestCase {
         }
     }
 
+    @MainActor
+    private func waitForStripTabs(_ app: XCUIApplication, _ tabIDs: [String]) {
+        let wanted = Set(tabIDs.map { stripTab($0) })
+        assertEventually("the strip draws a tab for every tab the workspace holds") {
+            Set(app.flockIdentifiers(prefix: "flock.strip.tab.")) == wanted
+        } describing: {
+            "the strip holds [\(app.flockIdentifiers(prefix: "flock.strip.tab.").joined(separator: ", "))], "
+                + "expected [\(wanted.sorted().joined(separator: ", "))]"
+        }
+    }
+
     /// Opens a workspace row's own menu, which is the only route a workspace
     /// close has. Its rows come from the model the rail draws from, so a row
     /// on screen is what makes the menu carry anything at all.
@@ -999,6 +1016,34 @@ final class ArrangeAndConvergeTests: XCTestCase {
         } describing: {
             "no workspace menu is up: the app has \(app.menuItems.count) menu items in all"
         }
+    }
+
+    /// Opens a submenu and waits for the row the caller came for.
+    ///
+    /// A menu builds its rows when it opens and never rebuilds them while it
+    /// is up, and AppKit opens a submenu on pointer MOVEMENT across its
+    /// parent row: a hover onto the point the pointer already occupies
+    /// produces no movement and no submenu, and waiting longer on a submenu
+    /// nothing asked to open again cannot recover it. So each pass moves the
+    /// pointer away through `nudgingVia` before hovering the parent again.
+    @MainActor
+    private func openSubmenu(
+        _ app: XCUIApplication, _ parent: String, carrying row: String,
+        nudgingVia neighbour: String = "flock.pane.menu.zoom",
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        for attempt in 0..<4 {
+            if attempt > 0 {
+                hoverMenuItem(app, neighbour, file: file, line: line)
+            }
+            hoverMenuItem(app, parent, file: file, line: line)
+            if app.menuItems.matching(identifier: row).firstMatch.waitForExistence(timeout: 3) { return }
+        }
+        XCTFail(
+            "the \(parent) submenu never carried \(row) across four hovers; the app has "
+                + "\(app.menuItems.count) menu items in all",
+            file: file, line: line
+        )
     }
 
     /// Opens the pane menu with a right-click on the pane's body.
