@@ -130,6 +130,7 @@ struct FlockApp: App {
     @State private var dividerDragCoordinator: DividerDragCoordinator
     /// Held for the app's life so its notification observers outlive `init`.
     @State private var herdrHoldCoordinator: HerdrHoldCoordinator
+    @State private var prefixKeys: PrefixKeyController
 
     private let sessionLabel: String
 
@@ -255,7 +256,65 @@ struct FlockApp: App {
             commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }
         )
         _dividerDragCoordinator = State(initialValue: DividerDragCoordinator(session: dividerDragSession))
+        // The user's own herdr keymap, resolved the way herdr resolves it, so
+        // the prefix key does in flock what it does in a herdr terminal.
+        let configPath = HerdrConfigLocation.path(
+            environment: ProcessInfo.processInfo.environment, home: NSHomeDirectory()
+        )
+        _prefixKeys = State(initialValue: PrefixKeyController(
+            source: HerdrKeybindingsSource(
+                stamp: { Self.stamp(ofFileAt: configPath) },
+                contents: { try? String(contentsOfFile: configPath, encoding: .utf8) }
+            ),
+            isTyping: { viewModel.renameEditorIsOnScreen },
+            context: { Self.prefixContext(viewModel) },
+            run: { intent in Self.run(intent, viewModel: viewModel, toasts: toastCenter) }
+        ))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
+    }
+
+    private static func stamp(ofFileAt path: String) -> HerdrConfigStamp? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let modified = attributes[.modificationDate] as? Date,
+              let size = attributes[.size] as? Int
+        else { return nil }
+        return HerdrConfigStamp(modified: modified, size: size)
+    }
+
+    private static func prefixContext(_ viewModel: SessionViewModel) -> PrefixActionContext {
+        PrefixActionContext(
+            focusedPane: viewModel.resolvedFocusedPaneID,
+            selectedWorkspace: viewModel.selectedWorkspaceID,
+            selectedTab: viewModel.selectedTabID,
+            workspaces: viewModel.model?.workspaces.map(\.workspaceID) ?? [],
+            tabs: viewModel.tabsForSelectedWorkspace.map(\.tabID),
+            layout: viewModel.selectedLayout
+        )
+    }
+
+    /// The one place a herdr binding becomes a flock call. Every verb here is
+    /// the same one the equivalent menu item or click runs, `jumpToHerdr`
+    /// included: a key that moves flock's selection moves herdr's focus with
+    /// it, exactly as clicking that tab would.
+    @MainActor
+    private static func run(_ intent: PrefixIntent, viewModel: SessionViewModel, toasts: ToastCenter) {
+        switch intent {
+        case .focusPane(let pane): Task { await viewModel.jumpToHerdr(pane: pane) }
+        case .selectTab(let tab): Task { await viewModel.jumpToHerdr(tab: tab) }
+        case .selectWorkspace(let workspace): Task { await viewModel.jumpToHerdr(workspace: workspace) }
+        case .splitRight(let pane): Task { await viewModel.splitRight(from: pane) }
+        case .splitDown(let pane): Task { await viewModel.splitDown(from: pane) }
+        case .closePane(let pane): Task { await viewModel.closePane(pane) }
+        case .closeTab(let tab): Task { await viewModel.closeTab(tab) }
+        case .closeWorkspace(let workspace): Task { await viewModel.closeWorkspace(workspace) }
+        case .newTab(let workspace): Task { await viewModel.createTab(in: workspace) }
+        case .newWorkspace: Task { await viewModel.createWorkspace() }
+        case .toggleZoom(let pane): Task { await viewModel.toggleZoom(pane) }
+        case .swapPane(let pane, let direction): Task { await viewModel.swapPane(pane, toward: direction) }
+        case .beginRename(let target): viewModel.beginRename(target)
+        case .notice(let message): toasts.show(message, kind: .info)
+        case .nothing: break
+        }
     }
 
     var body: some Scene {
@@ -270,6 +329,7 @@ struct FlockApp: App {
                 .environment(dragCoordinator)
                 .environment(dividerDragCoordinator)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
+                .background(PrefixKeyMonitorHost(controller: prefixKeys))
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
