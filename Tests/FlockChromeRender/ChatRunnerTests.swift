@@ -23,4 +23,47 @@ final class ChatRunnerTests: XCTestCase {
             XCTAssertLessThan(Date().timeIntervalSince(started), 5, "the deadline did not fire")
         }
     }
+
+    /// A chat popover's `.task` is cancelled on teardown, well before any
+    /// deadline: the deadline here is set far past the assertion bound, so a
+    /// prompt return proves cancellation killed the child rather than the
+    /// timer.
+    func testCancellingTheCallingTaskKillsTheChildAndReturnsPromptly() async throws {
+        let runner = ChatRunner(binaryPath: "/bin/sleep", deadline: .seconds(30))
+        let started = Date()
+        let task = Task {
+            try await runner.runRaw(["10"])
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("a call cancelled by its caller must throw")
+        } catch {
+            XCTAssertLessThan(
+                Date().timeIntervalSince(started), 5,
+                "cancellation must kill the child rather than wait out the deadline"
+            )
+        }
+    }
+
+    /// A cancellation can arrive before the spawn thread has even reached
+    /// `Process.run()`: this races that window on every run rather than
+    /// asserting it deterministically, since terminating an unlaunched
+    /// process is what must never happen, not something observable from
+    /// outside.
+    func testCancellingBeforeTheChildHasLaunchedNeverHangsOrCrashes() async throws {
+        let runner = ChatRunner(binaryPath: "/bin/sleep", deadline: .seconds(30))
+        let started = Date()
+        let task = Task {
+            try await runner.runRaw(["10"])
+        }
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("a call cancelled by its caller must throw")
+        } catch {
+            XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+        }
+    }
 }

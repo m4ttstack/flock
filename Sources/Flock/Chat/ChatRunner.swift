@@ -32,29 +32,40 @@ public struct ChatRunner: ChatRunning {
     public func runRaw(_ arguments: [String]) async throws -> (stdout: Data, exitCode: Int32) {
         let child = Child(binaryPath: binaryPath, arguments: arguments)
 
-        return try await withThrowingTaskGroup(of: Race.self) { group in
-            group.addTask { .finished(try await Self.runToCompletion(child)) }
-            group.addTask {
-                try await Task.sleep(for: self.deadline)
-                return .timedOut
+        // A chat popover's `.task` is cancelled on teardown, not just timed
+        // out: without this handler, the caller's own cancellation reaches
+        // only the sleep race-partner below (which throws immediately) and
+        // never the child, leaving it orphaned behind a read that never
+        // unblocks -- the exact hang the deadline exists to prevent, reached
+        // through cancellation instead.
+        return try await withTaskCancellationHandler {
+            try await withThrowingTaskGroup(of: Race.self) { group in
+                group.addTask { .finished(try await Self.runToCompletion(child)) }
+                group.addTask {
+                    try await Task.sleep(for: self.deadline)
+                    return .timedOut
+                }
+                // Whichever of the two finishes first decides the call; `cancelAll`
+                // then reaches for the loser -- the sleep, cancelled instantly, or
+                // the reader, which only a `terminate()` call (the `.timedOut`
+                // branch below, or the cancellation handler above) actually
+                // unblocks. Structured concurrency will not let this scope return
+                // until that loser has actually finished, so neither a stray timer
+                // nor a still-reading thread outlives the call.
+                defer { group.cancelAll() }
+                guard let first = try await group.next() else {
+                    throw ChatFailure(message: "chat call produced no result")
+                }
+                switch first {
+                case let .finished(result):
+                    return result
+                case .timedOut:
+                    child.terminate()
+                    throw ChatFailure(message: "chat call to \(binaryPath) exceeded its \(deadline) deadline")
+                }
             }
-            // Whichever of the two finishes first decides the call; `cancelAll`
-            // then reaches for the loser -- the sleep, cancelled instantly, or
-            // the reader, which only the `.timedOut` branch's `terminate()`
-            // below actually unblocks. Structured concurrency will not let this
-            // scope return until that loser has actually finished, so neither a
-            // stray timer nor a still-reading thread outlives the call.
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else {
-                throw ChatFailure(message: "chat call produced no result")
-            }
-            switch first {
-            case let .finished(result):
-                return result
-            case .timedOut:
-                child.terminate()
-                throw ChatFailure(message: "chat call to \(binaryPath) exceeded its \(deadline) deadline")
-            }
+        } onCancel: {
+            child.terminate()
         }
     }
 
@@ -79,12 +90,19 @@ public struct ChatRunner: ChatRunning {
 /// One spawn of the binary, wrapping the one `Process`/`Pipe` pair only this
 /// type ever touches.
 ///
-/// `@unchecked Sendable`: `terminate()` is called from a different task than
-/// `runToCompletion()`'s thread, but `Process.terminate()` is safe to call
-/// concurrently with `waitUntilExit()` -- it only ever posts a signal.
+/// `@unchecked Sendable`: `terminate()` runs from a different task than
+/// `runToCompletion()`'s thread; `lock` is what makes the two safe together,
+/// not any thread-safety of `Process` itself.
 private final class Child: @unchecked Sendable {
+    private let lock = NSLock()
     private let process = Process()
     private let stdoutPipe = Pipe()
+    /// True only once `process.run()` has returned. Apple documents
+    /// `terminate()` on an unlaunched process as undefined, and `terminate()`
+    /// can arrive before the spawn thread has even reached `run()` -- an
+    /// immediate cancellation races the spawn itself.
+    private var launched = false
+    private var terminateRequested = false
 
     init(binaryPath: String, arguments: [String]) {
         process.executableURL = URL(fileURLWithPath: binaryPath)
@@ -98,12 +116,27 @@ private final class Child: @unchecked Sendable {
     /// the child would block on a write nothing is draining.
     func runToCompletion() throws -> (stdout: Data, exitCode: Int32) {
         try process.run()
+        lock.lock()
+        launched = true
+        let requestedBeforeLaunch = terminateRequested
+        lock.unlock()
+        if requestedBeforeLaunch { process.terminate() }
+
         let stdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return (stdout, process.terminationStatus)
     }
 
+    /// Before launch this only records the request: the real
+    /// `Process.terminate()` call is deferred to the moment `runToCompletion`
+    /// observes `launched`, the earliest point calling it is defined.
     func terminate() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard launched else {
+            terminateRequested = true
+            return
+        }
         process.terminate()
     }
 }
