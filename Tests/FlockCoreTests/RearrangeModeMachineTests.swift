@@ -2,7 +2,7 @@ import XCTest
 @testable import FlockCore
 
 /// One test per row of the machine's truth table. The mode is reached by one
-/// switch -- the View menu's Rearrange Mode item and its Cmd+D key equivalent
+/// switch -- the View menu's Rearrange Mode item and its Cmd+R key equivalent
 /// -- so what is left to pin is the drag override and Esc's precedence over
 /// it.
 final class RearrangeModeMachineTests: XCTestCase {

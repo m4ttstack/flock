@@ -5,7 +5,7 @@ import FlockCore
 import SwiftUI
 
 /// Feeds `RearrangeModeMachine` from its two live triggers -- the View menu's
-/// Rearrange Mode item, which carries Cmd+D, and Esc -- plus the drag
+/// Rearrange Mode item, which carries Cmd+R, and Esc -- plus the drag
 /// lifecycle, and publishes the result for the views that repaint or suppress
 /// terminal mouse forwarding from it. `dragBegan`/`dragEnded` exist for
 /// whatever starts a rearrange drag to call; this type owns only the mode

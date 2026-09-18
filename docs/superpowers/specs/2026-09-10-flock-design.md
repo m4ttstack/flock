@@ -251,13 +251,13 @@ transform/opacity only, interruptible springs.
   ~12px invisible band along the pane's top edge is the drag handle; a grip
   glyph fades in on hover. (2) REARRANGE MODE: one sticky state with one
   switch behind it, the View menu's Rearrange Mode item, which carries
-  **Cmd+D** (ruled 2026-09-17). While active every pane repaints (terminal
+  **Cmd+R** (ruled 2026-09-17). While active every pane repaints (terminal
   content dims but stays READABLE, border switches to the accent color, a
   centered grip glyph appears, hover lifts the pane a hair) and a drag can
   start from ANY point on a pane, with mouse events no longer forwarded to
   the terminal. Nothing in the mode may change a cell's frame: the rects the
   canvas lays cells out at are the rects the drop resolver hit-tests, so the
-  hover lift is a shadow, never a scale. The mode is left by Cmd+D again,
+  hover lift is a shadow, never a scale. The mode is left by Cmd+R again,
   the menu item again, or Esc. Esc has a precedence rule: with a drag in
   flight it cancels the drag and leaves the mode alone, so leaving mid-drag
   takes two presses. A drag in progress finishes first.
@@ -277,10 +277,20 @@ transform/opacity only, interruptible springs.
   new workspace, Cmd+X/C/V/A the standard editing items (routed through the
   responder chain, so an open rename field takes them before the terminal
   does), F2 rename, Cmd+Z / Cmd+Shift+Z undo/redo, Cmd+Option+arrows move
-  pane, Cmd+Option+Shift+arrows swap pane, Cmd+D rearrange mode,
-  Cmd+Shift+D All Workspaces (the same gesture at a wider scope: one
+  pane, Cmd+Option+Shift+arrows swap pane, Cmd+R rearrange mode,
+  Cmd+Shift+R All Workspaces (the same gesture at a wider scope: one
   workspace's panes, then across all of them), Cmd+K clear notifications,
-  Cmd+minus / Cmd+0 / Cmd+plus terminal text size.
+  Cmd+minus / Cmd+0 / Cmd+plus terminal text size. Cmd+Shift+A is free and
+  unassigned.
+
+  The arrange pair is R and not D (ruled 2026-09-17, after one day on D):
+  ghostty's own macOS defaults bind Cmd+D and Cmd+Shift+D to `new_split`, and
+  Matt runs a real ghostty beside flock. The split actions are inert inside
+  flock, so nothing broke... the clash was muscle memory. Cmd+R and
+  Cmd+Shift+R are claimed by neither ghostty's default keybinds
+  (`src/config/Config.zig`, which binds no Command+R at all) nor its menu bar
+  (`macos/Sources/App/MainMenu.xib`), and by nothing in flock's own menus.
+  `ArrangeShortcut` is where the pair is declared, once, for both items.
 - **Pane drop semantics (VS Code model):** interior of a target pane = swap
   (same tab) or move-onto (cross tab); outer 20% edge band = directional
   split drop with live overlay preview of the resulting rects.
