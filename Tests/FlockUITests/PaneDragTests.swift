@@ -124,12 +124,18 @@ final class PaneDragTests: XCTestCase {
     /// what the app actually asked herdr for, through the fault proxy it is
     /// launched against.
     ///
-    /// The four outcomes it separates: no `pane.move` at all (the drop never
-    /// committed), a move naming no target pane (the handle), a move with no
-    /// `pane.swap` behind it (the interior, or a composition that stopped),
-    /// and a swap herdr answered with a reason (a composition it refused).
+    /// The outcomes it separates, each on its own assertion: no `pane.move` at
+    /// all (the drop never committed), a move naming no target pane (the
+    /// handle), a move with no `pane.swap` behind it (the interior, or a
+    /// composition that stopped), a swap herdr answered with a reason (a
+    /// composition it refused), a swap herdr took and did nothing about
+    /// (`changed` false, which an acknowledgement alone would hide), a swap
+    /// whose own reply puts the panes in the un-composed order (herdr's swap
+    /// not meaning what the composition assumes for this shape), and a
+    /// composition that herdr held and then lost (something after the two ops
+    /// putting it back, which the recorded tail names).
     @MainActor
-    func testTheLeftEdgeDropSendsBothOpsItPlans() throws {
+    func testTheLeftEdgeDropSendsBothOpsAndLeavesHerdrComposed() throws {
         let ids = session.seedIDs()
         let proxy = try session.startFaultProxy()
         let app = try launchOnSeed(socket: proxy)
@@ -150,6 +156,10 @@ final class PaneDragTests: XCTestCase {
         // wait ends either way: what it did not find is what the assertions
         // below report.
         let sent = try waitForRecording(carrying: "pane.swap")
+        // Printed as well as carried in the failure messages: a pass is the
+        // more interesting outcome here, and the timings are the evidence
+        // either way.
+        print("PROXY what the drop sent:\(sent.outline())")
         let moves = sent.filter { $0.method == "pane.move" }
         XCTAssertEqual(
             moves.count, 1,
@@ -166,6 +176,10 @@ final class PaneDragTests: XCTestCase {
                 + "resolved to \(ids.tabB) rather than to \(ids.p3)'s left band. \(sent.outline())"
         )
         XCTAssertEqual(move.answer, .ok, "herdr did not take the move. \(sent.outline())")
+        XCTAssertEqual(
+            move.changed, true,
+            "herdr acknowledged the move without moving anything. \(sent.outline())"
+        )
 
         let swaps = sent.filter { $0.method == "pane.swap" }
         XCTAssertEqual(
@@ -185,8 +199,80 @@ final class PaneDragTests: XCTestCase {
             swap.param("target_pane_id") as? String, ids.p3,
             "the swap named the wrong pane to trade with. \(sent.outline())"
         )
+        // How long herdr itself held the un-composed order: a composition is
+        // two ops, so anything reading the session in between sees the split
+        // without the swap. This is the width of that window, measured rather
+        // than assumed, and it is what says whether a reader can land in it.
+        if let moveAnswered = move.replyAtMilliseconds, let swapAnswered = swap.replyAtMilliseconds {
+            print(String(
+                format: "PROXY herdr held the un-composed order for %.1fms (move answered at %.1fms, swap at %.1fms)",
+                swapAnswered - moveAnswered, moveAnswered, swapAnswered
+            ))
+        }
         XCTAssertEqual(swap.answer, .ok, "herdr did not take the swap. \(sent.outline())")
+        // An acknowledgement is not an effect. herdr answers a verb it
+        // declined with a success carrying a reason, but a verb it took and
+        // had nothing to do about answers with neither, and a composition
+        // whose second op is a no-op leaves exactly the layout this whole
+        // investigation is about.
+        XCTAssertEqual(
+            swap.changed, true,
+            "herdr took the swap and changed nothing. \(sent.outline())"
+        )
+
+        // herdr's own word for what the swap did, out of the swap's reply
+        // rather than out of a snapshot: the reply is the tab as that verb
+        // left it, so a composed reply followed by an un-composed session
+        // means something after the swap put it back, and an un-composed
+        // reply means the swap never composed it in the first place.
+        let swapped = try XCTUnwrap(
+            swap.replyPaneRects(),
+            "the swap's reply carried no layout to read. \(sent.outline())"
+        )
+        let movedInReply = try XCTUnwrap(swapped[ids.p1], "the swap's reply holds no rect for \(ids.p1)")
+        let anchorInReply = try XCTUnwrap(swapped[ids.p3], "the swap's reply holds no rect for \(ids.p3)")
+        XCTAssertLessThan(
+            movedInReply.x, anchorInReply.x,
+            "herdr's own reply to the swap puts \(ids.p1) at x=\(movedInReply.x) and \(ids.p3) at "
+                + "x=\(anchorInReply.x), so the swap did not compose this shape. \(sent.outline())"
+        )
+
+        // And what the session holds, read from herdr directly rather than
+        // through the app, once it has had a moment to settle.
+        let composed = try settledSnapshot { snapshot in
+            guard let moved = snapshot.paneRect(ids.p1), let anchor = snapshot.paneRect(ids.p3) else { return false }
+            return moved.x < anchor.x
+        }
+        let moved = try XCTUnwrap(composed.paneRect(ids.p1), "\(ids.p1) has no rect in any layout")
+        let anchor = try XCTUnwrap(composed.paneRect(ids.p3), "\(ids.p3) has no rect in any layout")
+        XCTAssertLessThan(
+            moved.x, anchor.x,
+            "herdr's reply composed the pair and the session did not: \(ids.p1) is at x=\(moved.x) and "
+                + "\(ids.p3) at x=\(anchor.x). \(composed.outline()) \(sent.outline())"
+        )
+
+        // Held, rather than caught on the instant it lands: a correction that
+        // arrives after the plan finishes is the other way this ends
+        // un-composed, and the only way to see one is to keep looking. Every
+        // request the app made in that window is in the tail.
+        Thread.sleep(forTimeInterval: Self.settleWindowSeconds)
+        let afterwards = try session.snapshot()
+        let tail = try session.faultProxyRecording()
+        print("PROXY everything the app asked for, the tail included:\(tail.outline())")
+        let held = try XCTUnwrap(afterwards.paneRect(ids.p1), "\(ids.p1) has no rect in any layout")
+        let heldAnchor = try XCTUnwrap(afterwards.paneRect(ids.p3), "\(ids.p3) has no rect in any layout")
+        XCTAssertLessThan(
+            held.x, heldAnchor.x,
+            "the composition landed and was then undone: \(ids.p1) is at x=\(held.x) and \(ids.p3) at "
+                + "x=\(heldAnchor.x) \(Self.settleWindowSeconds)s later. Everything the app asked for, the "
+                + "tail included: \(tail.outline()) \(afterwards.outline())"
+        )
     }
+
+    /// How long the case above keeps watching after the plan finishes. Wide
+    /// enough to cover the store's own convergence timeout and a resnapshot
+    /// interval, which are what a late correction would ride in on.
+    private static let settleWindowSeconds: TimeInterval = 3
 
     /// The middle of another tab's pane takes the drop too, and lands the pane
     /// beside THAT pane. Driven with the second mini pane of the two-pane
@@ -586,6 +672,25 @@ final class PaneDragTests: XCTestCase {
     private func gridTab(_ tabID: String) -> String { "flock.grid.tab.\(tabID)" }
 
     private func zoomBadge(_ paneID: String) -> String { Self.zoomBadgePrefix + paneID }
+
+    /// Polls herdr until `condition` holds and hands back that snapshot, or
+    /// hands back the last one it read when the wait runs out.
+    ///
+    /// Unlike `ScratchSession.snapshot(waitingFor:)` this never throws on the
+    /// timeout: the case using it asserts on what herdr was actually holding,
+    /// with the app's own recording beside it, and a throw here would report
+    /// the wait in place of the finding.
+    private func settledSnapshot(
+        timeout: TimeInterval = 10, until condition: (HerdrSnapshotJSON) -> Bool
+    ) throws -> HerdrSnapshotJSON {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest = try session.snapshot()
+        while Date() < deadline, !condition(latest) {
+            usleep(200_000)
+            latest = try session.snapshot()
+        }
+        return latest
+    }
 
     /// The proxy's recording once it carries `method`, or once the wait runs
     /// out. It never fails on its own: a recording that is missing the verb is

@@ -99,11 +99,66 @@ struct ProxyExchange: CustomStringConvertible {
         return .ok
     }
 
+    /// The `changed` flag herdr's reply carries beside the `reason` that
+    /// explains a false one, or nil for a verb whose reply carries neither
+    /// (`pane.focus` and the other acknowledgements) and for a reply that
+    /// could not be read.
+    ///
+    /// Read separately from `answer` because the two say different things: a
+    /// verb herdr accepted and then did nothing about answers `.ok` with
+    /// `changed` false, and a composition whose second op is a no-op is
+    /// exactly the failure that would otherwise read as a pass.
+    var changed: Bool? { resultPayload?["changed"] as? Bool }
+
+    /// The pane rects herdr's own reply carries for the tab the verb changed:
+    /// `pane.swap` answers with that tab's whole `layout`, `pane.move` with
+    /// the destination's `target_layout`.
+    ///
+    /// This is herdr's word for what the verb itself did, and a snapshot taken
+    /// afterwards is not the same claim: everything that happened in between
+    /// is in the snapshot and not in here, which is what separates a verb that
+    /// did the wrong thing from a verb something else undid.
+    func replyPaneRects() -> [String: HerdrRect]? {
+        guard let layout = (resultPayload?["layout"] ?? resultPayload?["target_layout"]) as? [String: Any],
+              let panes = layout["panes"] as? [[String: Any]] else {
+            return nil
+        }
+        var rects: [String: HerdrRect] = [:]
+        for pane in panes {
+            guard let id = pane["pane_id"] as? String, let rect = pane["rect"] as? [String: Any],
+                  let x = (rect["x"] as? NSNumber)?.intValue, let y = (rect["y"] as? NSNumber)?.intValue,
+                  let width = (rect["width"] as? NSNumber)?.intValue,
+                  let height = (rect["height"] as? NSNumber)?.intValue else {
+                continue
+            }
+            rects[id] = HerdrRect(x: x, y: y, width: width, height: height)
+        }
+        return rects.isEmpty ? nil : rects
+    }
+
+    /// herdr nests each verb's own result one level inside `result`, under a
+    /// key named for the verb (`move_result`, `swap`) beside a `type` that
+    /// names it again, so the payload is the one object in there.
+    private var resultPayload: [String: Any]? {
+        guard let reply, !replyTruncated, let object = Self.object(reply),
+              let result = object["result"] as? [String: Any] else {
+            return nil
+        }
+        return result.values.compactMap { $0 as? [String: Any] }.first
+    }
+
     var description: String {
         let name = method ?? "<not a request>"
         let stamp = String(format: "%.1fms", requestAtMilliseconds)
         let answered = replyAtMilliseconds.map { String(format: " answered +%.1fms", $0 - requestAtMilliseconds) } ?? ""
-        return "\(stamp) \(name)\(id.map { " id=\($0)" } ?? "") -> \(answer)\(answered) params=\(Self.digest(params))"
+        let did = changed.map { " changed=\($0)" } ?? ""
+        let rects = replyPaneRects().map { " rects=\(Self.rectDigest($0))" } ?? ""
+        return "\(stamp) \(name)\(id.map { " id=\($0)" } ?? "") -> \(answer)\(did)\(answered)\(rects) "
+            + "params=\(Self.digest(params))"
+    }
+
+    private static func rectDigest(_ rects: [String: HerdrRect]) -> String {
+        "[" + rects.keys.sorted().map { "\($0)@x=\(rects[$0]!.x)" }.joined(separator: " ") + "]"
     }
 
     private static func object(_ line: String) -> [String: Any]? {
