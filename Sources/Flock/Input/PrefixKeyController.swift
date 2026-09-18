@@ -92,7 +92,11 @@ public final class PrefixKeyController {
         guard !isTyping(), let press = HerdrKeyPress(event) else { return event }
         machine.update(keybindings: source.current())
         let outcome = machine.handle(press)
-        isAwaitingKey = machine.mode == .prefix
+        // Guarded rather than assigned: an observed property written on every
+        // keystroke invalidates its readers even when the value is the same.
+        if isAwaitingKey != (machine.mode == .prefix) {
+            isAwaitingKey = machine.mode == .prefix
+        }
         switch outcome {
         case .sendToPane:
             return event
