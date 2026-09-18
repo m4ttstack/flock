@@ -1,4 +1,5 @@
 import CoreGraphics
+import FlockCore
 
 /// The window chrome's fixed dimensions, shared by the SwiftUI chrome and the
 /// AppKit title bar so the window buttons center on the same bar the views
@@ -89,13 +90,18 @@ enum ChromeMetrics {
         /// How far the overflow hint runs in from an edge that hides tabs.
         static let edgeFadeWidth: CGFloat = 24
         /// What one notch of a classic wheel is worth, whose delta counts
-        /// lines rather than points: one tab and the gap after it, so a notch
-        /// advances the strip by exactly one tab.
-        static let wheelLineStep: CGFloat = Tab.size.width + tabGap
+        /// lines rather than points. Tabs are drawn to their titles, so there
+        /// is no single tab width to step by: the narrowest one is what a
+        /// strip of short names steps by exactly, and the only step that can
+        /// never carry the strip past a tab it has not shown yet.
+        static let wheelLineStep: CGFloat = TabWidth.minimum + tabGap
     }
 
+    /// A tab's own width is its title's, and lives in `FlockCore.TabWidth`
+    /// with the bounds it is kept inside; `TabSizing` takes the measurement
+    /// that rule is given.
     enum Tab {
-        static let size = CGSize(width: 100, height: 28)
+        static let height: CGFloat = 28
         static let horizontalPadding: CGFloat = 12
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6

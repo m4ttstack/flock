@@ -208,6 +208,32 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// Tabs are drawn as wide as their titles need: a short name keeps the
+    /// strip orderly at one width, and a name that would truncate there takes
+    /// the room it measures instead, carrying the tabs after it along. Read
+    /// off the frames the strip publishes for the drag layer, which are the
+    /// tabs' own layout frames.
+    func testATabGrowsToItsTitleAndAShortOneKeepsTheMinimum() async throws {
+        let long = "Trash Runner"
+        let harness = try await Harness(
+            theme: .tokyoNight, model: try Fixture.model(flockTabLabels: ["api", long, "claude", "logs"])
+        )
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+
+        let frames = harness.drag.tabFrames
+        XCTAssertEqual(frames.count, 4)
+        let short = try XCTUnwrap(frames.first { $0.id == TabID(rawValue: "w1:t1") }).frame
+        let grown = try XCTUnwrap(frames.first { $0.id == TabID(rawValue: "w1:t2") }).frame
+        let after = try XCTUnwrap(frames.first { $0.id == TabID(rawValue: "w1:t3") }).frame
+
+        XCTAssertGreaterThan(TabSizing.width(of: long), TabWidth.minimum, "the title fits the minimum, so this test proves nothing")
+        XCTAssertEqual(short.width, TabWidth.minimum, "a title inside the minimum no longer gets a whole tab")
+        XCTAssertEqual(grown.width, TabSizing.width(of: long))
+        XCTAssertEqual(after.minX, grown.maxX + ChromeMetrics.Strip.tabGap, accuracy: 0.5, "the tab after it did not move along")
+        window.close()
+    }
+
     /// A pane dragged out of a mini pane, first over another workspace's
     /// thumbnail and then over a third workspace's card where no thumbnail
     /// sits. Both renders carry the ghost, the drop wash and the targeted
@@ -1822,7 +1848,10 @@ private enum GridFixture {
 private enum Fixture {
     static let canvasPanes = [PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")]
 
-    static func model(zoomed: Bool = false) throws -> SessionModel {
+    /// `flockTabLabels` replaces the four tabs of the selected workspace, for
+    /// a test that needs a title of its own. Four of them either way: the
+    /// third is the selected tab the rest of the fixture is written around.
+    static func model(zoomed: Bool = false, flockTabLabels: [String]? = nil) throws -> SessionModel {
         let workspaces: [(id: String, label: String, panes: Int, status: String)] = [
             ("w1", "flock", 5, "idle"), ("w2", "repo-tools", 3, "blocked"), ("w3", "board", 2, "working"),
             ("w4", "mattstack-apps", 4, "done"), ("w5", "herdr", 1, "idle"),
@@ -1832,7 +1861,7 @@ private enum Fixture {
         var paneRows: [[String: Any]] = []
         for (index, workspace) in workspaces.enumerated() {
             let isFlock = workspace.id == "w1"
-            let tabLabels = isFlock ? ["api", "web", "claude", "logs"] : ["main"]
+            let tabLabels = isFlock ? (flockTabLabels ?? ["api", "web", "claude", "logs"]) : ["main"]
             workspaceRows.append([
                 "workspace_id": workspace.id, "label": workspace.label, "number": index + 1,
                 "active_tab_id": isFlock ? "w1:t3" : "\(workspace.id):t1", "agent_status": workspace.status,

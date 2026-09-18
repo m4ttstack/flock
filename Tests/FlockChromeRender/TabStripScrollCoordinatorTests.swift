@@ -64,15 +64,17 @@ final class TabStripScrollCoordinatorTests: XCTestCase {
         XCTAssertEqual(scrolledTo, [100, 10])
     }
 
-    /// A classic wheel counts lines, so one notch has to be worth a tab.
-    func testAWheelNotchMovesTheStripByAWholeTab() {
+    /// A classic wheel counts lines, so one notch has to be worth a tab. Tabs
+    /// are drawn to their titles, and the narrowest is the one notch that can
+    /// never carry the strip past a tab it has not shown yet.
+    func testAWheelNotchMovesTheStripByTheNarrowestTab() {
         let drag = makeCoordinator()
         var scrolledTo: [CGFloat] = []
         drag.stripScroller = { scrolledTo.append($0) }
 
         drag.stripWheelScrolled(deltaX: 0, deltaY: -1, precise: false)
 
-        XCTAssertEqual(scrolledTo, [ChromeMetrics.Strip.wheelLineStep])
+        XCTAssertEqual(scrolledTo, [TabWidth.minimum + ChromeMetrics.Strip.tabGap])
     }
 
     /// The strip's frames outlive the strip under a shown grid, so a reveal

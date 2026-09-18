@@ -247,7 +247,10 @@ private struct TabBlock: View {
                     .frame(height: ChromeMetrics.Tab.underlineHeight)
             }
         }
-        .frame(width: ChromeMetrics.Tab.size.width, height: ChromeMetrics.Tab.size.height)
+        // Sized off the tab's own label, not the editor's text: a rename in
+        // flight must not resize the tab under the field, nor slide the tabs
+        // after it along the strip with every keystroke.
+        .frame(width: TabSizing.width(of: tab.label), height: ChromeMetrics.Tab.height)
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(x: displacement)

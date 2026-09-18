@@ -35,8 +35,8 @@ final class TabWidthTests: XCTestCase {
 
     /// Measured text lands on fractions of a point. The chrome's surfaces are
     /// drawn on the pixel grid, and one fractional tab takes every tab after
-    /// it off that grid too, so the fit is rounded up to a whole point ...
-    /// up, because a title rounded down is a title truncated.
+    /// it off that grid too, so the fit is rounded to a whole point. Up rather
+    /// than to nearest, because a title rounded down is a title truncated.
     func testAMeasuredTitleIsRoundedUpToAWholePoint() {
         XCTAssertEqual(width(title: 64.01), 101)
         XCTAssertEqual(width(title: 88.25), 125)

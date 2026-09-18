@@ -35,7 +35,9 @@ enum ChromeType {
     static func workspaceName(selected: Bool) -> Font { inter(14, selected ? .medium : .regular) }
     static let workspaceCount = inter(11.5)
 
-    static func tabLabel(selected: Bool) -> Font { inter(14, selected ? .medium : .regular) }
+    static let tabLabelSize: CGFloat = 14
+    static func tabLabelWeight(selected: Bool) -> Weight { selected ? .medium : .regular }
+    static func tabLabel(selected: Bool) -> Font { inter(tabLabelSize, tabLabelWeight(selected: selected)) }
     static let protocolReadout = mono(11.5)
 
     static let paneTitle = inter(11.5, .medium)
