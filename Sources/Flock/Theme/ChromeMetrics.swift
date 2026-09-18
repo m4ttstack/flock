@@ -106,6 +106,11 @@ enum ChromeMetrics {
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6
         static let underlineHeight: CGFloat = 3
+        /// The status dot and the hover close stand in the same place, one at
+        /// a time, so the room kept for them is the wider of the two. Kept as
+        /// a slot rather than as the close's own size because what the tab
+        /// reserves is a place, not a control.
+        static var trailingSlot: CGFloat { max(statusDot, CloseButton.size) }
     }
 
     enum Canvas {
@@ -130,9 +135,9 @@ enum ChromeMetrics {
 
     /// The hover-reveal close control on a tab and an attention toast.
     enum CloseButton {
-        static let size: CGFloat = 15
+        static let size: CGFloat = 18
         static let cornerRadius: CGFloat = 3
-        static let symbol: CGFloat = 8.5
+        static let symbol: CGFloat = 11
     }
 
     enum Pane {

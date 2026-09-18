@@ -7,7 +7,7 @@ import XCTest
 final class TabSizingTests: XCTestCase {
     /// Everything a tab lays out beside its title.
     private static let chrome =
-        ChromeMetrics.Tab.horizontalPadding * 2 + ChromeMetrics.Tab.labelDotGap + ChromeMetrics.Tab.statusDot
+        ChromeMetrics.Tab.horizontalPadding * 2 + ChromeMetrics.Tab.labelDotGap + ChromeMetrics.Tab.trailingSlot
 
     override func setUp() {
         super.setUp()
@@ -31,6 +31,25 @@ final class TabSizingTests: XCTestCase {
         XCTAssertGreaterThan(selected, resting, "the two faces measure the same, so this test proves nothing")
 
         XCTAssertGreaterThanOrEqual(TabSizing.width(of: title), selected + Self.chrome)
+    }
+
+    /// The close is revealed in the status dot's place and is wider than it.
+    /// A tab sized for the dot alone hands the close no room of its own, and
+    /// it takes the title's.
+    func testATabKeepsRoomForTheCloseAndNotJustTheDot() {
+        XCTAssertGreaterThan(
+            ChromeMetrics.CloseButton.size, ChromeMetrics.Tab.statusDot,
+            "the close already fits the dot's room, so this test proves nothing"
+        )
+        XCTAssertGreaterThanOrEqual(ChromeMetrics.Tab.trailingSlot, ChromeMetrics.CloseButton.size)
+
+        let title = "Trash Runner"
+        let measured = try? titleWidth(title, selected: true)
+        XCTAssertGreaterThanOrEqual(
+            TabSizing.width(of: title),
+            (measured ?? 0) + ChromeMetrics.Tab.horizontalPadding * 2
+                + ChromeMetrics.Tab.labelDotGap + ChromeMetrics.CloseButton.size
+        )
     }
 
     func testAShortTitleStillGetsAWholeTab() {

@@ -211,6 +211,22 @@ private struct TabBlock: View {
     /// The tab this drag started from, left in place and faded.
     var isGhosted = false
 
+    /// One place, two controls. The close stands where the dot stands rather
+    /// than over it, and the slot keeps the width of the wider of them, so a
+    /// tab neither reflows as the pointer crosses it nor lets the close reach
+    /// back over the title.
+    private var trailingSlot: some View {
+        ZStack {
+            StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot)
+                .opacity(showsClose ? 0 : 1)
+            HoverCloseButton(
+                theme: theme, isRevealed: showsClose, help: "Close tab",
+                accessibilityIdentifier: "flock.strip.close.\(tab.tabID.rawValue)", action: onClose
+            )
+        }
+        .frame(width: ChromeMetrics.Tab.trailingSlot)
+    }
+
     var body: some View {
         // The underline takes its height out of the selected block, so the
         // selected label centers on the block above it; resting tabs have no
@@ -228,18 +244,11 @@ private struct TabBlock: View {
                         .font(ChromeType.tabLabel(selected: isSelected))
                         .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
                         .lineLimit(1)
-                    StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot)
+                    trailingSlot
                 }
             }
             .padding(.horizontal, ChromeMetrics.Tab.horizontalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .overlay(alignment: .trailing) {
-                HoverCloseButton(
-                    theme: theme, isRevealed: showsClose, help: "Close tab",
-                    accessibilityIdentifier: "flock.strip.close.\(tab.tabID.rawValue)", action: onClose
-                )
-                .padding(.trailing, ChromeMetrics.Tab.horizontalPadding / 2)
-            }
             .boundedBackground(isSelected ? theme.selection : theme.tabRest)
             if isSelected {
                 Rectangle()

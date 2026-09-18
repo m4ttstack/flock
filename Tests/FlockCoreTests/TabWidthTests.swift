@@ -8,9 +8,23 @@ import XCTest
 final class TabWidthTests: XCTestCase {
     /// The window strip's own chrome around a title, so the widths below are
     /// the tabs a user sees rather than an arrangement nothing draws: the
-    /// padding either side, the gap after the title and the status dot.
-    private func width(title: CGFloat) -> CGFloat {
-        TabWidth.fitting(titleWidth: title, horizontalPadding: 12, labelDotGap: 6, statusDot: 6)
+    /// padding either side, the gap after the title, and the trailing slot the
+    /// status dot and the close button share.
+    private func width(title: CGFloat, trailingSlot: CGFloat = 6) -> CGFloat {
+        TabWidth.fitting(
+            titleWidth: title, horizontalPadding: 12, labelDotGap: 6, trailingSlot: trailingSlot
+        )
+    }
+
+    /// The status dot and the hover close occupy one slot, one at a time, and
+    /// the close is the wider of the two. Sized to the dot alone, a revealed
+    /// close reaches back over the title it is standing beside.
+    func testTheTrailingSlotHoldsTheWidestThingDrawnInIt() {
+        XCTAssertEqual(width(title: 88, trailingSlot: 18), 136)
+        XCTAssertEqual(
+            width(title: 88, trailingSlot: 18) - width(title: 88, trailingSlot: 6), 12,
+            "a wider slot has to widen the tab, or it takes the room from the title"
+        )
     }
 
     func testATitleThatFitsInsideTheMinimumLeavesTheTabAtIt() {

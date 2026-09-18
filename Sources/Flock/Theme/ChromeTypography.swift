@@ -78,7 +78,9 @@ enum ChromeType {
     static let copiedSymbol = Font.system(size: 14, weight: .medium)
     static let copiedMessage = inter(13)
 
-    static let closeSymbol = Font.system(size: 8.5, weight: .bold)
+    /// Sized from the control's own metric: the glyph and the box it sits in
+    /// are one control, and two numbers for it drift apart.
+    static let closeSymbol = Font.system(size: ChromeMetrics.CloseButton.symbol, weight: .bold)
     static let zoomBadge = Font.system(size: 9.5, weight: .semibold)
 
     static let ghostSymbol = Font.system(size: 14, weight: .semibold)

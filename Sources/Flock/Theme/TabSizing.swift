@@ -10,7 +10,7 @@ enum TabSizing {
             titleWidth: titleWidth(title),
             horizontalPadding: ChromeMetrics.Tab.horizontalPadding,
             labelDotGap: ChromeMetrics.Tab.labelDotGap,
-            statusDot: ChromeMetrics.Tab.statusDot
+            trailingSlot: ChromeMetrics.Tab.trailingSlot
         )
     }
 
