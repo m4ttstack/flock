@@ -7,6 +7,7 @@ import SwiftUI
 struct MainWindow: View {
     @Environment(ThemeStore.self) private var themeStore
     @Environment(DragCoordinator.self) private var dragCoordinator
+    @Environment(RailWidthStore.self) private var railWidth
     let viewModel: SessionViewModel
     let sessionLabel: String
 
@@ -43,6 +44,17 @@ struct MainWindow: View {
             }
         }
         .background(theme.chrome)
+        // What the rail's width is clamped against: a window too narrow for
+        // the remembered rail shrinks it on screen, and widening the window
+        // gives it back (`RailWidthStore`). A background reader rather than a
+        // wrapping `GeometryReader`, which would take the layout over.
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { railWidth.windowResized(to: proxy.size.width) }
+                    .onChange(of: proxy.size.width) { _, width in railWidth.windowResized(to: width) }
+            }
+        }
         // Names the one space every drag frame and drag point is expressed in
         // -- see `DragSpace`. Applied before the overlays so they resolve it
         // too, and so a rail/strip/canvas frame and a ghost position are

@@ -116,6 +116,7 @@ struct FlockApp: App {
     @NSApplicationDelegateAdaptor(FlockAppDelegate.self) private var appDelegate
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
+    @State private var railWidthStore = RailWidthStore()
     @State private var toastCenter: ToastCenter
     @State private var herdrStore: HerdrStore
     @State private var viewModel: SessionViewModel
@@ -258,12 +259,13 @@ struct FlockApp: App {
             MainWindow(viewModel: viewModel, sessionLabel: sessionLabel)
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
+                .environment(railWidthStore)
                 .environment(toastCenter)
                 .environment(undoJournal)
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)
                 .environment(dividerDragCoordinator)
-                .background(RearrangeOptionMonitorHost(rearrangeMode: rearrangeMode))
+                .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
                 .task { await herdrStore.start() }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)

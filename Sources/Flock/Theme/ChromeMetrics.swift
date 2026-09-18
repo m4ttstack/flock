@@ -34,7 +34,13 @@ enum ChromeMetrics {
     }
 
     enum Rail {
-        static let width: CGFloat = 192
+        /// The rail's own width is the user's, and lives in
+        /// `FlockCore.RailWidth` with the bounds it is kept inside.
+        ///
+        /// How much of the rail's trailing edge grabs that width. Inside the
+        /// rail, over the gutter its rows already leave clear, so it covers
+        /// nothing a row draws.
+        static let resizeGrabWidth: CGFloat = 10
         static let verticalPadding: CGFloat = 13
         static let horizontalPadding: CGFloat = 10
         static let rowGap: CGFloat = 1
@@ -116,7 +122,7 @@ enum ChromeMetrics {
         static let paneWidth: CGFloat = 160
     }
 
-    /// The hover-reveal close control on a tab and a rail row.
+    /// The hover-reveal close control on a tab and an attention toast.
     enum CloseButton {
         static let size: CGFloat = 15
         static let cornerRadius: CGFloat = 3

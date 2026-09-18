@@ -11,6 +11,7 @@ struct WorkspaceRail: View {
     let onSelect: (WorkspaceID) -> Void
 
     @Environment(DragCoordinator.self) private var drag
+    @Environment(RailWidthStore.self) private var railWidth
     @State private var scrollPosition = ScrollPosition()
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
@@ -100,7 +101,7 @@ struct WorkspaceRail: View {
                     .padding(.top, ChromeMetrics.Rail.headingToFirstRow)
                     .padding(.bottom, ChromeMetrics.Rail.verticalPadding)
                     .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
-                    .frame(width: ChromeMetrics.Rail.width, alignment: .leading)
+                    .frame(width: railWidth.width, alignment: .leading)
                     .coordinateSpace(.named(DragSpace.railContent))
                     .reportsDragFrame { drag.setRailContentOrigin($0.origin) }
                 }
@@ -117,15 +118,47 @@ struct WorkspaceRail: View {
                 .background { newWorkspaceZone }
                 .onAppear { drag.railScroller = { y in scrollPosition.scrollTo(y: y) } }
             }
-            .frame(width: ChromeMetrics.Rail.width)
+            .frame(width: railWidth.width)
             Rectangle()
                 .fill(theme.rule)
                 .frame(width: ChromeMetrics.ruleWidth)
         }
+        // Inside the rail's own bounds rather than straddling the rule: an
+        // overlay drawn past its parent's edge is not reliably hit-tested
+        // there, and a band that reached into the canvas would sit over the
+        // pane chrome the canvas draws at its own edge.
+        .overlay(alignment: .trailing) { resizeHandle }
         .boundedBackground(theme.chrome)
         .reportsDragFrame { drag.railFrame = $0 }
         .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
+    }
+
+    /// The rail's trailing edge, grabbable. It draws nothing: the rule is
+    /// already the edge, and the resize cursor is how macOS says an edge
+    /// moves. Withheld during a pane drag, which owns the closed hand for its
+    /// whole duration, exactly as the canvas's dividers are.
+    private var resizeHandle: some View {
+        Color.clear
+            .frame(width: ChromeMetrics.Rail.resizeGrabWidth)
+            .contentShape(Rectangle())
+            .pointerStyle(drag.isPaneDragInFlight ? nil : .columnResize)
+            .gesture(resizeGesture)
+            .accessibilityLabel("Sidebar width")
+            .accessibilityIdentifier("flock.rail.resize")
+    }
+
+    /// Read in the drag space, whose origin is the window's own leading edge,
+    /// so the pointer's x IS the width being asked for and nothing has to be
+    /// reconstructed from the rail rect this very gesture moves.
+    ///
+    /// The release carries its own point: motion is coalesced and can be
+    /// outrun, so the last position `onChanged` reported is not where the
+    /// hand finished. `RailWidthStore` is what clamps and remembers it.
+    private var resizeGesture: some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(DragSpace.name))
+            .onChanged { railWidth.dragged(to: $0.location.x) }
+            .onEnded { railWidth.released(at: $0.location.x) }
     }
 
     /// A plain click on rail space no row occupies creates a workspace.
