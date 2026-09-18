@@ -125,6 +125,25 @@ final class FakeHerdrServer: @unchecked Sendable {
         lock.withLock { acceptsWithoutReading = true }
     }
 
+    /// How many subscription connections are currently open, counted from the
+    /// point the ack has been written: a test that waits on the request line
+    /// alone would race the fd's registration.
+    var subscriberCount: Int { lock.withLock { subscriberFDs.count } }
+
+    /// Closes every open subscription connection and leaves the listener and
+    /// every other connection alone, so a test can end connection A on its own
+    /// while requests on fresh connections keep being answered.
+    @discardableResult
+    func dropSubscribers() -> Int {
+        let fds = lock.withLock { () -> Set<Int32> in
+            let open = subscriberFDs
+            subscriberFDs.removeAll()
+            return open
+        }
+        for fd in fds { Foundation.close(fd) }
+        return fds.count
+    }
+
     func pushEventLine(_ json: String) {
         let fds = lock.withLock { subscriberFDs }
         for fd in fds where !writeLine(json, to: fd) {

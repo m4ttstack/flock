@@ -789,6 +789,7 @@ public final class HerdrStore {
 private actor EventRelay {
     private var buffered: [Data] = []
     private var liveContinuation: AsyncStream<Data>.Continuation?
+    private var isFinished = false
 
     func receive(_ line: Data) {
         if let liveContinuation {
@@ -798,15 +799,26 @@ private actor EventRelay {
         }
     }
 
+    /// A stream already finished when connection A died during the snapshot:
+    /// the end of this stream is the ONLY thing that reports that death to the
+    /// bootstrap's task group, and a continuation created after the reading
+    /// task ended would never yield and never finish, leaving the store live
+    /// on a subscription nothing can revive until the re-snapshot backstop
+    /// comes around minutes later.
     func drainAndSwitchToLive() -> (buffered: [Data], stream: AsyncStream<Data>) {
         let drained = buffered
         buffered = []
         let (stream, continuation) = AsyncStream<Data>.makeStream()
-        liveContinuation = continuation
+        if isFinished {
+            continuation.finish()
+        } else {
+            liveContinuation = continuation
+        }
         return (drained, stream)
     }
 
     func finish() {
+        isFinished = true
         liveContinuation?.finish()
     }
 }

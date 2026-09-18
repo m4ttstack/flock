@@ -196,6 +196,41 @@ final class HerdrStoreTests: XCTestCase {
         fake.stop()
     }
 
+    /// The window `testReconnectReBootstraps` leaves open: connection A dies
+    /// between its ack and the snapshot landing, so the reading task ends
+    /// before there is any live stream for it to end. That death is the only
+    /// signal the subscription is gone -- the re-snapshot backstop is minutes
+    /// wide in production -- so a store that forgets it goes live holding a
+    /// subscription that can never yield again and never reconnects.
+    @MainActor
+    func testSubscriptionLostBeforeTheSnapshotLandsStillReconnects() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: snapshotResultJSON())
+        let release = fake.holdNext(method: "session.snapshot")
+
+        // Wide enough that the periodic replacement cannot stand in for the
+        // reconnect this asserts on.
+        let store = HerdrStore(
+            socketPath: fake.socketPath, resnapshotInterval: .seconds(600),
+            backoffSchedule: { _ in .milliseconds(20) }
+        )
+        await store.start()
+        defer { store.stop() }
+
+        try await waitUntil { fake.subscriberCount == 1 }
+        XCTAssertEqual(fake.dropSubscribers(), 1)
+        // The reading task has to have seen the drop before the snapshot is
+        // allowed to answer: that ordering IS the window under test.
+        try await Task.sleep(nanoseconds: 50_000_000)
+        release()
+
+        try await waitUntil(timeout: 3) {
+            fake.receivedRequests.filter { $0.method == "session.snapshot" }.count >= 2
+        }
+        try await waitUntil(timeout: 3) { store.connection == .live }
+    }
+
     @MainActor
     func testPeriodicResnapshot() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
