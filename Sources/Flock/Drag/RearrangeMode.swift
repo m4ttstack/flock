@@ -60,8 +60,11 @@ public final class RearrangeMode {
         monitoredWindow = window
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === window, Int(event.keyCode) == kVK_Escape else { return event }
-            self.apply(.escPressed)
-            return event
+            // Swallowed only when this press is what left the mode. Every
+            // other Esc travels on: a drag's cancel is the drag layer's, the
+            // grid and the rail peel their own layer, and what nothing claims
+            // reaches the pane's program, where Esc is never spare.
+            return self.consumeEscape() ? nil : event
         }
     }
 
@@ -84,6 +87,13 @@ public final class RearrangeMode {
         machine.handle(event)
         active = machine.active
         isToggled = machine.isToggled
+    }
+
+    private func consumeEscape() -> Bool {
+        let consumed = machine.handleEscape()
+        active = machine.active
+        isToggled = machine.isToggled
+        return consumed
     }
 }
 

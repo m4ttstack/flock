@@ -34,6 +34,16 @@ public struct RearrangeModeMachine {
 
     public init() {}
 
+    /// Handles an Esc and answers whether this layer spent it. Only the press
+    /// that actually leaves the mode is spent; every other Esc has somewhere
+    /// else to be, and the last stop is the program in the focused pane, where
+    /// a stray Esc interrupts whatever is running.
+    public mutating func handleEscape() -> Bool {
+        let wasActive = active
+        handle(.escPressed)
+        return wasActive && !active
+    }
+
     public mutating func handle(_ event: Event) {
         switch event {
         case .toggleOn:

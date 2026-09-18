@@ -87,4 +87,32 @@ final class RearrangeModeMachineTests: XCTestCase {
         XCTAssertFalse(machine.active, "the second esc, with no drag in flight, leaves the mode")
         XCTAssertFalse(machine.isToggled)
     }
+
+    /// The press that leaves the mode is spent leaving it. Forwarded as well,
+    /// it reaches the program in the focused pane, where Esc is not a spare
+    /// keystroke: it interrupts whatever is running there.
+    func testTheEscThatLeavesTheModeIsConsumed() {
+        var machine = RearrangeModeMachine()
+        machine.handle(.toggleOn)
+        XCTAssertTrue(machine.handleEscape())
+        XCTAssertFalse(machine.active)
+    }
+
+    /// Outside the mode this layer is not in the conversation, so the press
+    /// belongs to whatever else is listening, and finally to the pane.
+    func testAnEscOutsideTheModeIsNotConsumed() {
+        var machine = RearrangeModeMachine()
+        XCTAssertFalse(machine.handleEscape())
+        XCTAssertFalse(machine.active)
+    }
+
+    /// A drag's cancel belongs to the drag layer, which only sees the press if
+    /// this one passes it along.
+    func testAnEscDuringADragIsNotConsumedHere() {
+        var machine = RearrangeModeMachine()
+        machine.handle(.toggleOn)
+        machine.handle(.dragBegan)
+        XCTAssertFalse(machine.handleEscape(), "the drag needs this press")
+        XCTAssertTrue(machine.active)
+    }
 }
