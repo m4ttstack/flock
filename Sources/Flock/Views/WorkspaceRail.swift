@@ -169,8 +169,11 @@ struct WorkspaceRail: View {
             .onEnded { railWidth.released(at: $0.location.x) }
     }
 
-    /// A plain click on rail space no row occupies creates a workspace.
-    /// Invisible by construction, so it costs the resting chrome nothing.
+    /// A plain click on rail space no row occupies creates a workspace, and a
+    /// right-click there offers the same thing by name. Invisible by
+    /// construction, so it costs the resting chrome nothing. A row carries its
+    /// own menu and sits in front of this zone, so a right-click that lands on
+    /// a row never reaches here.
     private var newWorkspaceZone: some View {
         Color.clear
             .contentShape(Rectangle())
@@ -179,6 +182,14 @@ struct WorkspaceRail: View {
                 Task { await viewModel.createWorkspace() }
             }
             .accessibilityIdentifier("flock.rail.newWorkspace")
+            .contextMenu {
+                ForEach(RailMenuModel.entries(), id: \.accessibilityIdentifier) { entry in
+                    Button(entry.label) {
+                        Task { await entry.action.perform(on: viewModel) }
+                    }
+                    .accessibilityIdentifier(entry.accessibilityIdentifier)
+                }
+            }
     }
 
     private func workspaceMenuEntries(for workspace: WorkspaceID) -> [ChromeMenuEntry<WorkspaceMenuAction>] {

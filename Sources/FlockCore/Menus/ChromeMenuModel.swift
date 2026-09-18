@@ -28,6 +28,10 @@ public enum WorkspaceMenuAction: Equatable, Sendable {
     case close
 }
 
+public enum RailMenuAction: Equatable, Sendable {
+    case newWorkspace
+}
+
 /// Pure model for a tab's right-click menu. Mirrors herdr's own
 /// `ClientContextMenuTarget::Tab` list (`src/client/shell/context_menu.rs`):
 /// New tab, Rename, Close, in that order and unconditionally -- herdr offers
@@ -61,6 +65,17 @@ public enum WorkspaceMenuModel {
     }
 }
 
+/// Pure model for the menu on rail space no workspace row occupies. This one
+/// mirrors nothing in herdr, whose context menus target only a workspace, a
+/// tab or a pane: it is the second way to the "+" herdr draws in its own
+/// sidebar, beside the rail's plain click and File > New Workspace. It takes
+/// no id and no model, since empty rail names nothing.
+public enum RailMenuModel {
+    public static func entries() -> [ChromeMenuEntry<RailMenuAction>] {
+        [ChromeMenuEntry(label: "New Workspace", action: .newWorkspace, accessibilityIdentifier: "flock.rail.menu.newWorkspace")]
+    }
+}
+
 extension TabMenuAction {
     @MainActor
     public func perform(tabID: TabID, on viewModel: SessionViewModel) async {
@@ -83,6 +98,16 @@ extension WorkspaceMenuAction {
             viewModel.beginRename(.workspace(workspaceID))
         case .close:
             await viewModel.closeWorkspace(workspaceID)
+        }
+    }
+}
+
+extension RailMenuAction {
+    @MainActor
+    public func perform(on viewModel: SessionViewModel) async {
+        switch self {
+        case .newWorkspace:
+            await viewModel.createWorkspace()
         }
     }
 }

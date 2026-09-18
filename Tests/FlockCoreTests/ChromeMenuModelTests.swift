@@ -74,4 +74,17 @@ final class ChromeMenuModelTests: XCTestCase {
     func testAWorkspaceTheModelDoesNotCarryHasNoMenuAtAll() {
         XCTAssertTrue(WorkspaceMenuModel.entries(for: WorkspaceID(rawValue: "ghost"), model: model()).isEmpty)
     }
+
+    // MARK: - Rail menu
+
+    /// Rail space no row occupies. herdr has no menu here to mirror, so the
+    /// one row is the rail's own plain-click verb, named as File > New
+    /// Workspace names it.
+    func testTheRailMenuOffersNewWorkspace() {
+        let entries = RailMenuModel.entries()
+
+        XCTAssertEqual(entries.map(\.label), ["New Workspace"])
+        XCTAssertEqual(entries.map(\.accessibilityIdentifier), ["flock.rail.menu.newWorkspace"])
+        XCTAssertEqual(entries.map(\.action), [.newWorkspace])
+    }
 }
