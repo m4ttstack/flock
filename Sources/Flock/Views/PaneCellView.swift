@@ -2,17 +2,34 @@ import AppKit
 import FlockCore
 import SwiftUI
 
-/// The rearrange-mode hover lift. A `scaleEffect` is only ever in the view
-/// chain while it is actually lifting, because an identity scale still costs
-/// an offscreen render pass on a layer-backed subview.
-private struct HoverLift: ViewModifier {
+/// The rearrange-mode hover lift: a shadow cast behind the pane's own box,
+/// and nothing else.
+///
+/// It may not be a transform. A cell's laid-out frame is the same rect
+/// `CanvasGeometry` publishes for drop hit-testing, so a scale would draw the
+/// pane somewhere the drop resolver never looks and the pointer would land
+/// against a box the user cannot see. A transform over the cell also pulls the
+/// pane's AppKit terminal surface through an offscreen pass, which a
+/// Metal-backed surface does not survive intact.
+struct PaneHoverLift: ViewModifier {
+    /// Behind `content`, so the shadow falls outside the box's own clip while
+    /// the caster itself stays hidden under an opaque pane.
+    let fill: Color
     let active: Bool
 
+    static let shadowRadius: CGFloat = 16
+    static let shadowOpacity: Double = 0.5
+    static let shadowOffset: CGFloat = 5
+
     func body(content: Content) -> some View {
-        if active {
-            content.scaleEffect(1.02)
-        } else {
-            content
+        content.background {
+            RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
+                .fill(fill)
+                .shadow(
+                    color: .black.opacity(active ? Self.shadowOpacity : 0),
+                    radius: active ? Self.shadowRadius : 0,
+                    y: active ? Self.shadowOffset : 0
+                )
         }
     }
 }
@@ -235,10 +252,7 @@ struct PaneCellView: View {
                 RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
                     .strokeBorder(borderColor, lineWidth: 1)
             )
-            // Applied only while rearranging: a scale effect in the chain at
-            // rest makes SwiftUI rasterize the surface into an offscreen
-            // buffer and resample it, which softens every glyph.
-            .modifier(HoverLift(active: rearrangeMode.active && isHoveringWhileRearranging))
+            .modifier(PaneHoverLift(fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging))
             .onHover { isHoveringWhileRearranging = $0 }
             .animation(.easeOut(duration: 0.12), value: rearrangeMode.active)
             .animation(.easeOut(duration: 0.12), value: isHoveringWhileRearranging)
@@ -254,7 +268,7 @@ struct PaneCellView: View {
     /// gesture needs from anywhere on the pane.
     private var rearrangePaint: some View {
         ZStack {
-            theme.surfaceDim.opacity(0.62)
+            theme.surfaceDim.opacity(DragVisuals.rearrangeScrimOpacity)
             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                 .font(ChromeType.rearrangeSymbol)
                 .foregroundStyle(theme.accent)

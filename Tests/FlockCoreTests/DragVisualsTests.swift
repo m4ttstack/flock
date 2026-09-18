@@ -3,6 +3,31 @@ import CoreGraphics
 @testable import FlockCore
 
 final class DragVisualsTests: XCTestCase {
+    /// Rearrange mode dims the terminal; it may never black it out.
+    func testRearrangeScrimLeavesTheTerminalReadable() {
+        XCTAssertGreaterThanOrEqual(DragVisuals.rearrangeContentVisibility, 0.6)
+        XCTAssertGreaterThan(DragVisuals.rearrangeScrimOpacity, 0, "a scrim of nothing is not a dim")
+    }
+
+    /// The scrim is `surfaceDim` laid over the pane, so what it actually dims
+    /// is the terminal's TEXT against the terminal's own ground -- on a dark
+    /// theme the two grounds are nearly the same color, so the background
+    /// barely moves and the text carries the whole effect. Held to WCAG AA on
+    /// every built-in palette, light and dark: a mode the user reads the pane
+    /// through is not a mode that may push its text under the readable floor.
+    func testRearrangeScrimKeepsTerminalTextAboveTheAAFloorInEveryTheme() {
+        for palette in ThemePalette.builtins {
+            let scrim = palette.surfaceDim
+            let amount = DragVisuals.rearrangeScrimOpacity
+            let text = palette.text.mixed(with: scrim, amount: amount)
+            let ground = palette.terminalGround.mixed(with: scrim, amount: amount)
+            XCTAssertGreaterThanOrEqual(
+                text.contrastRatio(with: ground), 4.5,
+                "\(palette.id): text \(text) on ground \(ground)"
+            )
+        }
+    }
+
     func testGhostIsCenteredOnTheCursor() {
         let size = CGSize(width: 260, height: 130)
         let top = DragVisuals.ghostTopLeft(forCursor: CGPoint(x: 100, y: 40), ghostSize: size)

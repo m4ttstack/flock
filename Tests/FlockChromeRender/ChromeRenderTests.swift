@@ -139,9 +139,14 @@ final class ChromeRenderTests: XCTestCase {
             padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
         )
         let claude = try XCTUnwrap(boxes.first { $0.pane == GridFixture.claudePane })
-        harness.drag.gridHoverMoved(pane: claude.pane, pointer: CGPoint(x: panes.minX + claude.frame.midX, y: panes.minY + claude.frame.midY))
+        harness.drag.gridHoverMoved(pane: claude.pane)
         harness.drag.gridHoverIntentElapsed(pane: claude.pane)
         await settle(window)
+        // The card is placed against this box, so a card drawn anywhere else
+        // means the grid published a box the layout does not agree with.
+        let anchor = try XCTUnwrap(harness.drag.gridPaneFrame(of: claude.pane))
+        XCTAssertEqual(anchor.minX, panes.minX + claude.frame.minX, accuracy: 0.5)
+        XCTAssertEqual(anchor.minY, panes.minY + claude.frame.minY, accuracy: 0.5)
         let rest = try snapshot(window)
         if let directory {
             try XCTUnwrap(rest.representation(using: .png, properties: [:]))
@@ -1134,7 +1139,53 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// Rearrange mode repaints every pane; it may not move or resize one. The
+    /// rects the canvas lays the cells out at are the same rects
+    /// `CanvasGeometry` publishes for drop hit-testing, so a pane drawn even
+    /// slightly bigger than its box puts the pointer over a rect the drop
+    /// resolver never looks at.
+    ///
+    /// Read along y 400, the row `assertSamples` already reads the resting
+    /// canvas on: the box edges there are every crossing between the canvas
+    /// ground and something drawn on it, which holds whatever colour the
+    /// borders themselves take (they switch to the accent in this mode).
+    func testRearrangeModeRepaintsPanesWithoutMovingOrResizingThem() async throws {
+        let theme = Theme.tokyoNight
+        let harness = try await Harness(theme: theme)
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let restEdges = paneBoxEdges(in: try snapshot(window), theme: theme)
+        XCTAssertFalse(restEdges.isEmpty, "no pane box was found at rest, so this test reads nothing")
+
+        harness.rearrange.toggle()
+        await settle(window)
+        let image = try snapshot(window)
+        XCTAssertTrue(harness.rearrange.active, "the toggle did not enter the mode")
+        if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap({ $0.isEmpty ? nil : $0 }) {
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("rearrange-canvas.png"))
+        }
+        XCTAssertEqual(paneBoxEdges(in: image, theme: theme), restEdges)
+        window.close()
+    }
+
     // MARK: - Helpers
+
+    /// Every crossing between the canvas ground and a pane box along one row,
+    /// left to right, in top-left window points.
+    private func paneBoxEdges(in image: NSBitmapImageRep, theme: Theme, y: CGFloat = 400) -> [CGFloat] {
+        let ground = theme.palette.chromeRoles.canvas.hex
+        var edges: [CGFloat] = []
+        var onGround = true
+        for step in stride(from: 150.0, to: Self.windowSize.width - 1, by: 0.25) {
+            let isGround = hex(image, CGPoint(x: step, y: y)) == ground
+            if isGround != onGround {
+                edges.append(step)
+                onGround = isGround
+            }
+        }
+        return edges
+    }
 
     private func settle(_ window: NSWindow) async {
         for _ in 0..<6 {
@@ -1218,6 +1269,29 @@ final class ChromeRenderTests: XCTestCase {
         for (name, point, expected) in samples {
             XCTAssertEqual(hex(image, point), expected.hex, "\(theme.id) \(name) at \(point)")
         }
+    }
+
+    /// The rail is drawn at the width the user left it at, and the canvas
+    /// starts where the rail stops. Read along y 400, the same row
+    /// `assertSamples` reads the resting window on, where the default rail
+    /// puts its rule at x 192.25 and the first pane's border at x 199.25.
+    ///
+    /// 260 is inside the bounds at this 900pt window (`RailWidth`), so the
+    /// whole difference from the default render is the 68pt the rail gained
+    /// and the canvas gave up.
+    func testTheRailDrawsAtTheWidthItWasLeftAt() async throws {
+        let theme = Theme.tokyoNight
+        let roles = theme.palette.chromeRoles
+        let harness = try await Harness(theme: theme)
+        harness.railWidth.released(at: 260)
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let image = try snapshot(window)
+
+        XCTAssertEqual(hex(image, CGPoint(x: 240, y: 400)), roles.chrome.hex, "the rail stopped short of 260")
+        XCTAssertEqual(hex(image, CGPoint(x: 260.25, y: 400)), roles.rule.hex, "the rail's rule is not at its new edge")
+        XCTAssertEqual(hex(image, CGPoint(x: 264, y: 400)), roles.canvas.hex, "the canvas does not start after the rule")
+        XCTAssertEqual(hex(image, CGPoint(x: 267.25, y: 400)), roles.paneBorder.hex, "the first pane did not move with the canvas")
     }
 
     /// A zoomed tab, read along the same row `assertSamples` reads the resting
@@ -1510,6 +1584,7 @@ final class ChromeRenderTests: XCTestCase {
 private struct Harness {
     let themeStore: ThemeStore
     let textSize: TerminalTextSizeStore
+    let railWidth: RailWidthStore
     let toasts: ToastCenter
     let rearrange: RearrangeMode
     let drag: DragCoordinator
@@ -1530,6 +1605,7 @@ private struct Harness {
         themeStore = ThemeStore(userDefaults: defaults)
         themeStore.select(theme)
         textSize = TerminalTextSizeStore(userDefaults: defaults)
+        railWidth = RailWidthStore(userDefaults: defaults)
         toasts = ToastCenter()
         rearrange = RearrangeMode()
         drag = DragCoordinator(
@@ -1549,6 +1625,7 @@ private struct Harness {
         let root = MainWindow(viewModel: viewModel, sessionLabel: "render")
             .environment(themeStore)
             .environment(textSize)
+            .environment(railWidth)
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)
