@@ -24,6 +24,10 @@ enum ClipboardImageStaging {
 
     /// The absolute path the bytes now live at, or nil if they could not be
     /// written, in which case there is nothing to paste for this item.
+    ///
+    /// `fileExtension` ends up in a filename, so it comes from
+    /// `ClipboardPaste`'s closed table of image types and never from anything
+    /// the clipboard itself names.
     static func stage(_ data: Data, fileExtension: String) -> String? {
         guard let directory = ensureDirectory() else { return nil }
         sweepStale(in: directory)
