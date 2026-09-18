@@ -308,6 +308,19 @@ struct FlockApp: App {
             }
             CommandGroup(after: .sidebar) {
                 Divider()
+                // The pane's own right-click rows, reachable from the keyboard
+                // and aimed at the focused pane rather than at the pane under
+                // the pointer.
+                ForEach(FocusedPaneCommand.all, id: \.title) { command in
+                    Button(command.title) {
+                        guard let pane = viewModel.resolvedFocusedPaneID else { return }
+                        Task { await command.action.perform(paneID: pane, on: viewModel) }
+                    }
+                    .keyboardShortcut(command.shortcut)
+                    .disabled(viewModel.resolvedFocusedPaneID == nil)
+                    .accessibilityIdentifier(command.accessibilityIdentifier)
+                }
+                Divider()
                 // The spec's keyboard-parity half of the drag inventory: each
                 // one compiles the same plan the equivalent drag would,
                 // through the same planner.

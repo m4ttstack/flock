@@ -8,8 +8,9 @@ import SwiftUI
 /// Command is the one modifier a pane's program never receives, which is what
 /// makes a Command key equivalent free to claim at all.
 ///
-/// Not D: ghostty's own macOS defaults bind Cmd+D and Cmd+Shift+D to
-/// `new_split`, and flock runs beside a real ghostty on the same machine.
+/// Not D: Cmd+D and Cmd+Shift+D split the focused pane (`FocusedPaneCommand`),
+/// which is where ghostty's own macOS defaults bind `new_split` and where flock
+/// follows them.
 struct ArrangeShortcut: Equatable, Sendable {
     let key: Character
     let modifiers: EventModifiers
