@@ -237,11 +237,13 @@ final class GhosttySession {
     }
 
     func sendKeyDown(_ event: NSEvent, text: String?) {
+        guard let surface else { return }
         sendKeyEvent(event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS, text: text)
         ghostty_surface_refresh(surface)
     }
 
     func sendKeyUp(_ event: NSEvent) {
+        guard let surface else { return }
         sendKeyEvent(event, action: GHOSTTY_ACTION_RELEASE, text: nil)
         ghostty_surface_refresh(surface)
     }

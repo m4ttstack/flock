@@ -605,10 +605,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         session.sendKeyDown(event, text: text?.isEmpty == true ? nil : text)
     }
 
+    /// Ungated where `keyDown` is gated, and deliberately so: `wantsFocus` can
+    /// flip between a press and its release, and a release withheld from a
+    /// surface that took the press leaves that key held down inside
+    /// libghostty. It is the same rule `ButtonRoute` states for the mouse --
+    /// an up replays where its down went, never where focus is now.
     override func keyUp(with event: NSEvent) {
         session.sendKeyUp(event)
     }
 
+    /// Forwards no key input at all: it refreshes the modifiers libghostty
+    /// carries with the POINTER, which `mouseMoved` and `mouseEntered` update
+    /// for an unfocused pane too.
     override func flagsChanged(with event: NSEvent) {
         session.sendMousePosition(event)
         super.flagsChanged(with: event)
