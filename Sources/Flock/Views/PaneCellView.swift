@@ -308,25 +308,33 @@ struct PaneCellView: View {
             .padding(.top, PaneChrome.verticalPadding)
             .padding(.leading, PaneChrome.horizontalPadding)
             .contentShape(Rectangle())
-        // Ahead of the single tap below, which SwiftUI then only fires for a
-        // click that is not part of a double.
-        .onTapGesture(count: 2) {
-            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-            viewModel.beginRename(.pane(pane.paneID))
-        }
-        // SwiftUI's tap gesture on macOS fires for the secondary button as
-        // well, so the click is checked before it may act as a focus click;
-        // the right-click falls through to the context menu below.
-        .onTapGesture {
-            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-            Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
-        }
+        // ONE tap gesture, which is what keeps a plain click instant: a
+        // `count: 2` sibling for the rename would make this one wait out the
+        // system's double-click interval before it could fire at all
+        // (`ChromeRowClick`). A right-click reads as `.ignore` and falls
+        // through to the context menu below.
+        .onTapGesture { handleTitleClick() }
         // The title is a drag handle at rest as well as in rearrange mode;
         // simultaneous with the tap above, which the 4pt minimum keeps
         // distinct from it.
         .simultaneousGesture(paneDrag)
         .modifier(swiftUIPaneMenu)
         .accessibilityIdentifier("flock.pane.title.\(pane.paneID.rawValue)")
+    }
+
+    /// Focus on the first click, the rename editor on the second. A title the
+    /// user double-clicks is therefore focused on the way into the editor,
+    /// which is the price of never holding a plain click back to find out
+    /// whether a second one is coming.
+    private func handleTitleClick() {
+        switch NSEvent.chromeRowClick(NSApp.currentEvent) {
+        case .select:
+            Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
+        case .beginRename:
+            viewModel.beginRename(.pane(pane.paneID))
+        case .ignore:
+            break
+        }
     }
 
     /// The legend's trailing end: the zoom badge, then the status chip. Both

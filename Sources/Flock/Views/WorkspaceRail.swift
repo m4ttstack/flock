@@ -68,22 +68,12 @@ struct WorkspaceRail: View {
                             // reachable at all.
                             .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("flock.rail.workspace.\(workspace.workspaceID.rawValue)")
-                            // Both guarded: SwiftUI's tap gesture on macOS
-                            // fires for the secondary button too, so without
-                            // this a right-click moves the rail's selection
-                            // and two of them open the rename editor, on top
-                            // of the context menu they were asking for.
-                            .onTapGesture(count: 2) {
-                                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-                                viewModel.beginRename(.workspace(workspace.workspaceID))
-                            }
-                            .onTapGesture {
-                                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-                                let commandHeld = NSEvent.modifierFlags.contains(.command)
-                                if drag.clickWorkspace(workspace.workspaceID, commandHeld: commandHeld, current: viewModel.selectedWorkspaceID) {
-                                    onSelect(workspace.workspaceID)
-                                }
-                            }
+                            // ONE tap gesture, which is what keeps a plain
+                            // click instant: a `count: 2` sibling for the
+                            // rename would make this one wait out the
+                            // system's double-click interval before it
+                            // could fire at all (`ChromeRowClick`).
+                            .onTapGesture { handleClick(on: workspace.workspaceID) }
                             // Disarmed while this row is being renamed: a press
                             // inside the field must reach the text, not start a
                             // drag.
@@ -132,6 +122,24 @@ struct WorkspaceRail: View {
         .reportsDragFrame { drag.railFrame = $0 }
         .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
+    }
+
+    /// Selection on the first click, the rename editor on the second. A row
+    /// the user double-clicks is therefore selected on the way into the
+    /// editor, which is the price of never holding a plain click back to find
+    /// out whether a second one is coming.
+    private func handleClick(on workspace: WorkspaceID) {
+        switch NSEvent.chromeRowClick(NSApp.currentEvent) {
+        case .select:
+            let commandHeld = NSEvent.modifierFlags.contains(.command)
+            if drag.clickWorkspace(workspace, commandHeld: commandHeld, current: viewModel.selectedWorkspaceID) {
+                onSelect(workspace)
+            }
+        case .beginRename:
+            viewModel.beginRename(.workspace(workspace))
+        case .ignore:
+            break
+        }
     }
 
     /// The rail's trailing edge, grabbable. It draws nothing: the rule is
