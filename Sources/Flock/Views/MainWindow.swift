@@ -98,6 +98,27 @@ struct MainWindow: View {
                     + "Closing it closes all of them."
             )
         }
+        // A pane close herdr would escalate into a tab or a workspace. Same
+        // `presenting:` shape, and for the same reason: the pane the confirm
+        // button closes is captured when the prompt goes up.
+        .confirmationDialog(
+            viewModel.pendingPaneClose?.title ?? "",
+            isPresented: Binding(
+                get: { viewModel.pendingPaneClose != nil },
+                set: { shown in if !shown { viewModel.cancelPendingPaneClose() } }
+            ),
+            titleVisibility: .visible,
+            presenting: viewModel.pendingPaneClose
+        ) { pending in
+            Button(pending.confirmButtonTitle, role: .destructive) {
+                Task { await viewModel.confirmPaneClose(pending.paneID) }
+            }
+            .accessibilityIdentifier("flock.pane.close.confirm")
+            Button("Cancel", role: .cancel) { viewModel.cancelPendingPaneClose() }
+                .accessibilityIdentifier("flock.pane.close.cancel")
+        } message: { pending in
+            Text(pending.message)
+        }
     }
 }
 

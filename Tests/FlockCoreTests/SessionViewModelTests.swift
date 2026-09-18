@@ -1506,6 +1506,65 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(journal.canUndo)
     }
 
+    /// The common case is one pane among several, and it stays instant: a
+    /// prompt on every close would be a prompt nobody reads. `w1:t1` holds
+    /// `w1:p1` and `w1:p2`.
+    @MainActor
+    func testClosingAPaneWithSiblingsAsksNothing() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        await viewModel.closePane(PaneID(rawValue: "w1:p1"))
+
+        XCTAssertNil(viewModel.pendingPaneClose)
+        XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.closePane(PaneID(rawValue: "w1:p1"))], label: "Close pane")])
+    }
+
+    /// `w1:p3` is the only pane of `w1:t2`, so herdr would take the tab with
+    /// it, and a close cannot be undone.
+    @MainActor
+    func testClosingATabsLastPaneAsksBeforeSendingAnything() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        await viewModel.closePane(PaneID(rawValue: "w1:p3"))
+
+        XCTAssertTrue(executor.executedPlans.isEmpty, "nothing may reach herdr before the answer")
+        XCTAssertEqual(viewModel.pendingPaneClose?.paneID, PaneID(rawValue: "w1:p3"))
+        XCTAssertEqual(viewModel.pendingPaneClose?.title, "Close the tab \"second\"?")
+    }
+
+    /// The seeded model is one workspace of one tab of one pane, so this close
+    /// takes the whole workspace.
+    @MainActor
+    func testConfirmingAPaneCloseSendsItAndTakesThePromptDown() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        viewModel.update(model: makeModel(), connection: .live)
+        await viewModel.closePane(PaneID(rawValue: "w1:p1"))
+        XCTAssertEqual(viewModel.pendingPaneClose?.confirmButtonTitle, "Close Workspace")
+
+        await viewModel.confirmPaneClose(PaneID(rawValue: "w1:p1"))
+
+        XCTAssertNil(viewModel.pendingPaneClose)
+        XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.closePane(PaneID(rawValue: "w1:p1"))], label: "Close pane")])
+    }
+
+    @MainActor
+    func testCancellingAPaneCloseSendsNothing() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        viewModel.update(model: makeModel(), connection: .live)
+        await viewModel.closePane(PaneID(rawValue: "w1:p1"))
+
+        viewModel.cancelPendingPaneClose()
+
+        XCTAssertNil(viewModel.pendingPaneClose)
+        XCTAssertTrue(executor.executedPlans.isEmpty)
+    }
+
     @MainActor
     func testSetSplitRatioRoutesThroughThePlanExecutorAndRecordsInTheJournal() async {
         let executor = FakePlanExecutor()

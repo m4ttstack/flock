@@ -827,16 +827,52 @@ public final class SessionViewModel {
         launcherRegistryVersion += 1
     }
 
-    /// Closes `pane`. Routed through `planExecutor` as a single-op `OpPlan`
-    /// when one is injected, so the close still lands in the undo journal --
-    /// its inverse is empty and `ExecutedPlan.irreversible` names the close,
-    /// so undoing it surfaces "nothing to undo for a close" rather than
-    /// silently doing nothing. Falls back to a raw `pane.close` send when no
-    /// executor was injected (test doubles that only supply a bare client).
-    /// When an `undoJournal` is also injected, this runs through its shared
-    /// chain (see `UndoJournal.runExclusively`) so it can never interleave
-    /// with an in-flight `perform`/`undo`/`redo`.
+    /// The pane whose close herdr would escalate into a tab or a workspace,
+    /// held while the confirmation is up. It carries the finished prompt so
+    /// the view names what is about to go without a second model read.
+    public private(set) var pendingPaneClose: PaneCloseConfirmation?
+
+    /// Closes `pane` after the prompt was answered. The id is a PARAMETER,
+    /// never read back off `pendingPaneClose`, for the reason
+    /// `confirmGroupClose` states: the dialog clears its own presentation
+    /// state as it dismisses, which runs before this call's async work does.
+    public func confirmPaneClose(_ pane: PaneID) async {
+        pendingPaneClose = nil
+        await sendClose(pane)
+    }
+
+    public func cancelPendingPaneClose() {
+        pendingPaneClose = nil
+    }
+
+    /// Closes `pane`, asking first when herdr would take the tab or the
+    /// workspace with it (`PaneCloseConsequence`) -- a close is irreversible,
+    /// and Close Pane sits one modifier from Cut. One pane among several goes
+    /// straight out with nothing on screen.
+    ///
+    /// Every route to a pane close is this one call (the right-click row, the
+    /// SwiftUI fallback menu and Cmd+Shift+X all dispatch through
+    /// `PaneMenuAction.perform`), so the gate cannot be walked around.
+    /// Without a model there is nothing to weigh, and the close goes as it
+    /// always did.
     public func closePane(_ pane: PaneID) async {
+        if let model, let confirmation = PaneCloseConsequence.of(pane: pane, model: model).confirmation(closing: pane) {
+            pendingPaneClose = confirmation
+            return
+        }
+        await sendClose(pane)
+    }
+
+    /// Routed through `planExecutor` as a single-op `OpPlan` when one is
+    /// injected, so the close still lands in the undo journal -- its inverse
+    /// is empty and `ExecutedPlan.irreversible` names the close, so undoing it
+    /// surfaces "nothing to undo for a close" rather than silently doing
+    /// nothing. Falls back to a raw `pane.close` send when no executor was
+    /// injected (test doubles that only supply a bare client). When an
+    /// `undoJournal` is also injected, this runs through its shared chain (see
+    /// `UndoJournal.runExclusively`) so it can never interleave with an
+    /// in-flight `perform`/`undo`/`redo`.
+    private func sendClose(_ pane: PaneID) async {
         guard let planExecutor else {
             _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
             return
