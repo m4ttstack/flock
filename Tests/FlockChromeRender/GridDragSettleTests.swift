@@ -36,12 +36,23 @@ final class GridDragSettleTests: XCTestCase {
         )
     }
 
+    /// What the commit seam was actually handed, for the cases that assert on
+    /// the drop rather than on where the ghost went.
+    @MainActor
+    private final class CommitRecorder {
+        var last: (subject: DragSubject, target: DropTarget)?
+    }
+
     /// A shown grid with one card and one thumbnail, assembled from frame
     /// reports rather than from a window.
-    private func makeCoordinator(outcome: DragOutcome = .noOp) -> DragCoordinator {
+    private func makeCoordinator(outcome: DragOutcome = .noOp, recorder: CommitRecorder? = nil) -> DragCoordinator {
         let drag = DragCoordinator(
             toasts: ToastCenter(), rearrangeMode: RearrangeMode(),
-            commit: { _, _ in outcome }, reveal: { _ in }
+            commit: { subject, target in
+                recorder?.last = (subject, target)
+                return outcome
+            },
+            reveal: { _ in }
         )
         drag.stripWorkspace = Self.workspace
         drag.toggleGrid()
@@ -78,13 +89,27 @@ final class GridDragSettleTests: XCTestCase {
     private static let secondTab = TabID(rawValue: "w1:t2")
     private static let secondThumbnail = CGRect(x: 130, y: 60, width: 100, height: 82)
 
-    private func makeCoordinatorWithTwoTabs(outcome: DragOutcome) -> DragCoordinator {
-        let drag = makeCoordinator(outcome: outcome)
+    private func makeCoordinatorWithTwoTabs(outcome: DragOutcome, recorder: CommitRecorder? = nil) -> DragCoordinator {
+        let drag = makeCoordinator(outcome: outcome, recorder: recorder)
         drag.setGridOrder([.card(Self.workspace), .tab(Self.tab), .tab(Self.secondTab)])
         drag.setGridItemFrame(Self.thumbnail, for: .tab(Self.tab))
         drag.setGridItemFrame(Self.secondThumbnail, for: .tab(Self.secondTab))
         return drag
     }
+
+    /// The second tab's own lone mini pane, laid out the way a real thumbnail
+    /// lays one out: `thumbnailPadding` inside the thumbnail, below the handle
+    /// strip. The padding either side of it is the tab's own handle, so the
+    /// pane's edge band starts a few points in from the thumbnail's edge --
+    /// which is what makes a point that stops short of the release land on a
+    /// different verb.
+    private static let secondTabPane = PaneID(rawValue: "w1:p3")
+    private static let secondTabPaneBox = CGRect(
+        x: ChromeMetrics.Grid.thumbnailPadding,
+        y: ChromeMetrics.Grid.tabStripHeight + ChromeMetrics.Grid.thumbnailPadding,
+        width: secondThumbnail.width - ChromeMetrics.Grid.thumbnailPadding * 2,
+        height: secondThumbnail.height - ChromeMetrics.Grid.tabStripHeight - ChromeMetrics.Grid.thumbnailPadding * 2
+    )
 
     private static func tabGhost(asMiniature: Bool = false) -> DragCoordinator.Ghost {
         DragCoordinator.Ghost(
@@ -378,6 +403,47 @@ final class GridDragSettleTests: XCTestCase {
         XCTAssertEqual(
             pane.ghostTopLeft, CGPoint(x: 200 - Self.miniPane.width / 2, y: 200 - Self.miniPane.height / 2)
         )
+    }
+
+    /// A drop commits the target under the point the button came up at, not
+    /// the one under the last motion event the drag happened to see. The two
+    /// differ whenever the pointer outruns the motion stream -- a synthesized
+    /// drag whose steps are wider than the band being aimed at, a flick, a
+    /// main thread that stalled through the last few events -- and a mini
+    /// pane's edge band is only a few points inside the thumbnail's own
+    /// padding, so a stale point there is a different verb: the tab's handle
+    /// splits beside its focused pane, while the band composes.
+    func testADropCommitsWhatIsUnderTheReleasePointNotTheLastMotion() async {
+        let recorder = CommitRecorder()
+        let drag = makeCoordinatorWithTwoTabs(outcome: .committed, recorder: recorder)
+        drag.setGridMiniPanes(
+            [MiniPaneLayout.Placed(pane: Self.secondTabPane, frame: Self.secondTabPaneBox)], for: Self.secondTab
+        )
+        drag.beginIfIdle(
+            .pane(Self.pane), ghost: paneGhost(originSize: Self.miniPane.size),
+            at: CGPoint(x: Self.miniPane.midX, y: Self.miniPane.midY), home: paneHome
+        )
+
+        // The thumbnail's padding, which no mini pane covers: the last place
+        // the drag is seen before it reaches the band it is aimed at.
+        let short = CGPoint(
+            x: Self.secondThumbnail.minX + 1,
+            y: Self.secondThumbnail.minY + Self.secondTabPaneBox.midY
+        )
+        drag.move(to: short)
+        XCTAssertEqual(drag.target, .tabThumbnail(Self.secondTab), "the approach itself is not the band")
+
+        let released = CGPoint(
+            x: Self.secondThumbnail.minX + Self.secondTabPaneBox.minX + 2,
+            y: Self.secondThumbnail.minY + Self.secondTabPaneBox.midY
+        )
+        drag.release(at: released)
+        for _ in 0..<100 where recorder.last == nil {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertEqual(recorder.last?.subject, .pane(Self.pane))
+        XCTAssertEqual(recorder.last?.target, .paneEdge(Self.secondTabPane, .left))
     }
 
     /// Released in the gap between cards, where nothing resolves at all: the

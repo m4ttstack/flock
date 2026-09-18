@@ -476,9 +476,15 @@ final class PaneDragTests: XCTestCase {
     private static let miniPaneY: CGFloat = 0.6
 
     /// How far inside a thumbnail's left or right side a point still lands in
-    /// the mini pane there AND inside that pane's own edge band: the band is a
-    /// fifth of the pane (`edgeBandFraction`), the padding is 4pt of 120.
-    private static let miniPaneEdgeX: CGFloat = 0.08
+    /// the mini pane there AND inside that pane's own edge band. On the 120pt
+    /// thumbnail that band runs from 4pt to 26.4pt: below it is
+    /// `thumbnailPadding`, which is the tab's own handle and splits beside the
+    /// tab's focused pane rather than composing anything, and above it is the
+    /// pane's interior. Aimed at the middle of that range rather than at
+    /// either end: both neighbours still land the pane in the right tab beside
+    /// the right pane, so a point that slips into one reads here as the
+    /// composition itself having failed.
+    private static let miniPaneEdgeX: CGFloat = 0.12
 
     /// The seed's `tabA` splits right, so its thumbnail draws two mini panes
     /// side by side: the first (`p1`) covers the left half, the second (`p2`)

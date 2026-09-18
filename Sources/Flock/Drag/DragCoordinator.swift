@@ -692,7 +692,20 @@ final class DragCoordinator {
 
     /// The button coming up, from the window monitor above and from the
     /// offscreen render harness.
-    func release() {
+    ///
+    /// `point` is where it came up, and the drop resolves there before the
+    /// gesture ends: the motion stream is coalesced and can be outrun -- by a
+    /// flick, by a main thread that stalled through the last few events, by a
+    /// synthesized drag whose step is wider than the band aimed at -- and a
+    /// target one step behind the release is a different verb, not a nearby
+    /// one. A mini pane's edge band starts just inside the thumbnail padding
+    /// that means the whole tab; the canvas's bands sit against its interior.
+    /// Resolving here is a no-op when the pointer has not moved since, and
+    /// `move` is itself gated on the drag still being live.
+    func release(at point: CGPoint? = nil) {
+        if let point {
+            move(to: point)
+        }
         guard machine.handle(.release) == .end else {
             removeMonitors()
             return
@@ -879,7 +892,7 @@ final class DragCoordinator {
                     }
                     return event
                 case .leftMouseUp:
-                    self.release()
+                    self.release(at: self.dragSpacePoint(event))
                     return event
                 default:
                     return event
