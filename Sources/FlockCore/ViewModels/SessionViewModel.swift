@@ -184,11 +184,30 @@ public final class SessionViewModel {
         if optimisticFocusedPaneID != nil, model?.focusedPaneID == optimisticFocusedPaneID {
             optimisticFocusedPaneID = nil
         }
+        landSelectionAfterClose(previous: previousModel)
         reconcileRenameTarget()
         refreshLayoutExports()
         reconcileClosedPanes()
         reconcileAgentStatusFeeds()
         reconcileAttentionToasts(previous: previousModel)
+    }
+
+    /// Moves the selection off a tab or workspace this update has closed, to
+    /// wherever herdr's own model already moved (`CloseSelection`). Nothing
+    /// else does: herdr's `tab.close` and `pane.close` answer with no
+    /// `tab.focused` of their own, so a strip and canvas left on the closed id
+    /// would show empty space until the five-minute resnapshot.
+    ///
+    /// A nil model is a gap in the connection, not a close, and is left alone
+    /// for the same reason `reconcileRenameTarget` leaves it alone.
+    private func landSelectionAfterClose(previous: SessionModel?) {
+        guard let model, let previous else { return }
+        let landing = CloseSelection.landing(
+            for: CloseSelection.Selection(workspace: selectedWorkspaceID, tab: selectedTabID),
+            before: previous, after: model
+        )
+        selectedWorkspaceID = landing.workspace
+        selectedTabID = landing.tab
     }
 
     /// One feed per pane herdr reports, since herdr serves

@@ -15,6 +15,18 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         }
         dropFocusOnMissingPanes(in: &model)
         if let closed {
+            // herdr's `Workspace::close_pane` removes the tab whose last pane
+            // has left and emits nothing for it (`pane.close` sends
+            // `PaneClosed` alone), so the tab would otherwise keep its place
+            // in the strip over an empty layout. Its own escalation stops one
+            // rung short of a workspace: a workspace's last tab is taken by
+            // the `WorkspaceClosed` that follows instead, and reading ahead of
+            // it here would invent a workspace with no tabs at all.
+            let emptied = !model.panes.values.contains { $0.tabID == closed.tabID }
+            let workspaceHasOtherTabs = (model.tabs[closed.workspaceID]?.count ?? 0) > 1
+            if emptied, workspaceHasOtherTabs {
+                removeTab(closed.tabID, from: &model)
+            }
             reaggregateAgentStatus(tab: closed.tabID, workspace: closed.workspaceID, in: &model)
         }
 

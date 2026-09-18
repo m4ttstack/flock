@@ -439,6 +439,55 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.tabsForSelectedWorkspace.map(\.tabID), [TabID(rawValue: "w2:t1"), TabID(rawValue: "w2:t2")])
     }
 
+    /// herdr's `tab.close` sends no `tab.focused` after itself, so nothing
+    /// else moves flock off a tab that has just gone: the strip and the canvas
+    /// would sit on a dead id, showing empty space, until the resnapshot.
+    @MainActor
+    func testTheSelectionLeavesAClosedTabForItsNeighbor() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
+        viewModel.select(tab: TabID(rawValue: "w2:t2"))
+
+        var closed = Self.twoWorkspaceModel()
+        closed.tabs[WorkspaceID(rawValue: "w2")]?.removeAll { $0.tabID == TabID(rawValue: "w2:t2") }
+        viewModel.update(model: closed, connection: .live)
+
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t1"))
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
+    }
+
+    /// A tab that was its workspace's last takes the workspace with it, so the
+    /// rail has to move too, and onto the surviving row's own active tab.
+    @MainActor
+    func testTheSelectionLeavesAClosedWorkspaceForASurvivingRow() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
+        viewModel.select(tab: TabID(rawValue: "w2:t2"))
+
+        var closed = Self.twoWorkspaceModel()
+        closed.workspaces.removeAll { $0.workspaceID == WorkspaceID(rawValue: "w2") }
+        closed.tabs[WorkspaceID(rawValue: "w2")] = nil
+        viewModel.update(model: closed, connection: .live)
+
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w1"))
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w1:t1"))
+    }
+
+    /// A dropped connection is a gap, not a close. Landing the selection
+    /// somewhere else on every reconnect would move the user's window while
+    /// nothing at all had happened to their session.
+    @MainActor
+    func testALostConnectionDoesNotMoveTheSelection() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
+        viewModel.select(tab: TabID(rawValue: "w2:t2"))
+
+        viewModel.update(model: nil, connection: .reconnecting(attempt: 1))
+
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t2"))
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
+    }
+
     @MainActor
     func testSelectingATabTheModelDoesNotListKeepsTheWorkspace() {
         let viewModel = SessionViewModel(client: RecordingCommandClient())

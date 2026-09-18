@@ -220,6 +220,50 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(model.focusedPaneID, PaneID(rawValue: "w1:p1"))
     }
 
+    /// herdr's `Workspace::close_pane` removes the tab whose last pane just
+    /// left, and says so with no event of its own: a `pane.close` that empties
+    /// a tab emits `PaneClosed` and nothing else. Without this the tab keeps
+    /// its place in the strip, over a layout with no panes in it, until the
+    /// five-minute resnapshot. `w1:t2` owns exactly one pane, `w1:p3`.
+    func testPaneClosedClosesTheTabItEmptied() throws {
+        var model = try seededModel()
+
+        apply(.paneClosed(PaneID(rawValue: "w1:p3")), to: &model)
+
+        XCTAssertFalse(
+            model.tabs.values.contains { tabs in tabs.contains { $0.tabID == TabID(rawValue: "w1:t2") } },
+            "the tab its last pane left must go with it")
+        XCTAssertNil(model.layouts[TabID(rawValue: "w1:t2")])
+        XCTAssertTrue(model.workspaces.contains { $0.workspaceID == WorkspaceID(rawValue: "w1") }, "its workspace has another tab")
+        XCTAssertNotNil(model.panes[PaneID(rawValue: "w1:p1")], "the surviving tab's panes are untouched")
+    }
+
+    /// The escalation herdr stops short of here: a workspace whose last tab
+    /// would go gets a `WorkspaceClosed` of its own, so leaving the tab for
+    /// that event is what keeps flock from inventing a workspace with no tabs,
+    /// a state herdr never has.
+    func testPaneClosedLeavesAWorkspacesLastTabToTheWorkspaceEvent() throws {
+        var model = try seededModel()
+        apply(.tabClosed(TabID(rawValue: "w1:t1")), to: &model)
+
+        apply(.paneClosed(PaneID(rawValue: "w1:p3")), to: &model)
+
+        XCTAssertTrue(
+            model.tabs.values.contains { tabs in tabs.contains { $0.tabID == TabID(rawValue: "w1:t2") } },
+            "a workspace's last tab is the workspace close's to take")
+    }
+
+    /// A pane leaving a tab that still holds others closes nothing but itself.
+    func testPaneClosedLeavesATabThatStillHoldsPanes() throws {
+        var model = try seededModel()
+
+        apply(.paneClosed(PaneID(rawValue: "w1:p2")), to: &model)
+
+        XCTAssertTrue(
+            model.tabs.values.contains { tabs in tabs.contains { $0.tabID == TabID(rawValue: "w1:t1") } })
+        XCTAssertNotNil(model.layouts[TabID(rawValue: "w1:t1")])
+    }
+
     /// The other two paths that delete panes. herdr emits no `PaneClosed` for
     /// the panes a closed tab or workspace took with it, so the session focus
     /// is left naming one of them here too.
