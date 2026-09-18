@@ -3,6 +3,7 @@
 // the window-chrome config reader in GhosttyConfig.swift is not ported here).
 import AppKit
 import GhosttyKit
+import os
 import FlockCore
 
 /// libghostty's app handle: one per process, plus the callbacks libghostty
@@ -259,6 +260,8 @@ private struct WeakGhosttySession {
 // These run on libghostty's threads, so they only unwrap the userdata pointer
 // and hop to the main actor.
 
+private let clipboardLog = Logger(subsystem: "dev.mattstack.flock", category: "clipboard")
+
 private func ghosttyHostWakeup(_ userdata: UnsafeMutableRawPointer?) {
     guard let host = ghosttyHost(from: userdata) else { return }
     Task { @MainActor in
@@ -315,15 +318,40 @@ private func ghosttyHostReadClipboard(
     return true
 }
 
-/// libghostty asks before pasting something that looks unsafe. This app
-/// pastes what the user asked for and never prompts, which is also what the
-/// read above does by passing `confirmed: false`.
+/// Where a clipboard request libghostty will not complete on its own lands: a
+/// paste its own protection judged unsafe (anything holding a newline, and
+/// flock's surface is never in bracketed-paste mode), or an OSC 52 read under
+/// the `clipboard-read = ask` default flock inherits by loading no user config.
+/// The read above sends every one of them here, by completing with
+/// `confirmed: false`.
+///
+/// EVERY path through here has to complete the request. It is a heap
+/// allocation libghostty stops tracking the moment this callback is entered,
+/// precisely so this route can own it, so returning without completing leaks
+/// it and leaves the program that asked waiting for a reply that never comes.
 private func ghosttyHostConfirmReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
     _ string: UnsafePointer<CChar>?,
     _ state: UnsafeMutableRawPointer?,
     _ request: ghostty_clipboard_request_e
 ) {
+    let disposition = ClipboardReadDisposition.decide(request)
+    guard let session = ghosttySession(from: userdata), let surface = session.surface else {
+        clipboardLog.warning("clipboard request cannot be completed: its surface is already gone")
+        return
+    }
+    let offered = string.map { String(cString: $0) } ?? ""
+    // Completing on libghostty's own thread, re-entering the call that reached
+    // this callback, is what the read above already does: the frame underneath
+    // expects it and frees the request on the way back out.
+    (disposition == .allow ? offered : "").withCString { pointer in
+        ghostty_surface_complete_clipboard_request(surface, pointer, state, true)
+    }
+    if disposition == .deny {
+        clipboardLog.notice(
+            "denied a clipboard read for pane \(session.paneID.rawValue, privacy: .public) and completed it empty"
+        )
+    }
 }
 
 private func ghosttyHostWriteClipboard(

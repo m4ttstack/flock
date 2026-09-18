@@ -339,6 +339,16 @@ transform/opacity only, interruptible springs.
   live pane and the text is already on the clipboard (herdr ships
   `copy_on_select = true`); a quiet "Copied N lines" whisper confirms.
   Selection is flock-local: it never moves herdr's cursor or viewport.
+- **Clipboard, the other direction (ruled 2026-09-17):** a paste is the
+  user's own gesture and completes with what is on the clipboard, multi-line
+  included, whether it came from the menu bar's Paste item or from
+  libghostty's own paste binding. An OSC 52 read is a PROGRAM on the far
+  side of a mirrored herdr pane asking for the host's clipboard: it is
+  denied, completed with an empty clipboard so the program gets its reply,
+  and logged. Ghostty's own macOS app asks the user in a sheet instead;
+  flock has no sheet, and the one outcome ruled out is the one it used to
+  have... a request that neither completes nor tells anybody it failed.
+  `ClipboardReadDisposition` is where the rule lives.
 - **Right-click routing (herdr 0.9, v1):** flock surfaces the per-pane
   `pane.input.set { right_click: "pane" | "herdr" }` toggle in its pane
   context menu and pane header, reflecting the live routing state. The
