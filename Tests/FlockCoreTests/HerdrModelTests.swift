@@ -40,6 +40,55 @@ final class HerdrModelTests: XCTestCase {
         XCTAssertNil(HerdrDecoder.scrollChanged(fromLine: Data("{not json".utf8)))
     }
 
+    /// herdr's own `TabMoved` carries `tabs` unconditionally (no
+    /// `skip_serializing_if`), so a frame without it is not one herdr sends.
+    /// Decoding it as an empty list would hand the reducer a wholesale
+    /// assignment that empties that workspace's tab strip until the next
+    /// snapshot; `.unknown` leaves the strip alone and matches no convergence
+    /// watch, so a plan waiting on the move resnapshots instead.
+    func testTabMovedWithoutItsTabListDecodesAsUnknown() throws {
+        let ev = try HerdrDecoder.event(
+            fromLine: Data(#"{"data":{"type":"tab_moved","tab_id":"w1:t1","workspace_id":"w2","insert_index":0}}"#.utf8))
+
+        guard case .unknown(let type) = ev else { return XCTFail("expected .unknown, got \(ev)") }
+        XCTAssertEqual(type, "tab_moved")
+    }
+
+    func testTabMovedCarryingItsTabListStillDecodes() throws {
+        let ev = try HerdrDecoder.event(fromLine: Data(#"""
+        {"data":{"type":"tab_moved","tab_id":"w1:t1","workspace_id":"w2","insert_index":0,"tabs":[{"tab_id":"w1:t1","workspace_id":"w2","label":"t1","number":1,"pane_count":1,"agent_status":"unknown"}]}}
+        """#.utf8))
+
+        guard case .tabMoved(let tabID, let workspaceID, let tabs) = ev else { return XCTFail("expected .tabMoved, got \(ev)") }
+        XCTAssertEqual(tabID, TabID(rawValue: "w1:t1"))
+        XCTAssertEqual(workspaceID, WorkspaceID(rawValue: "w2"))
+        XCTAssertEqual(tabs.map(\.tabID), [TabID(rawValue: "w1:t1")])
+    }
+
+    /// The rail's own half of the case above: `WorkspaceMoved` and
+    /// `WorkspaceReordered` both carry `workspaces` unconditionally, and an
+    /// empty list assigned wholesale is the entire rail gone.
+    func testWorkspaceMoveAndReorderWithoutTheirWorkspaceListDecodeAsUnknown() throws {
+        let moved = try HerdrDecoder.event(
+            fromLine: Data(#"{"data":{"type":"workspace_moved","workspace_id":"w1","insert_index":2}}"#.utf8))
+        let reordered = try HerdrDecoder.event(
+            fromLine: Data(#"{"data":{"type":"workspace_reordered","workspace_ids":["w1"],"before_workspace_id":"w2"}}"#.utf8))
+
+        guard case .unknown(let movedType) = moved else { return XCTFail("expected .unknown, got \(moved)") }
+        guard case .unknown(let reorderedType) = reordered else { return XCTFail("expected .unknown, got \(reordered)") }
+        XCTAssertEqual(movedType, "workspace_moved")
+        XCTAssertEqual(reorderedType, "workspace_reordered")
+    }
+
+    func testWorkspaceReorderedCarryingItsWorkspaceListStillDecodes() throws {
+        let ev = try HerdrDecoder.event(fromLine: Data(#"""
+        {"data":{"type":"workspace_reordered","workspace_ids":["w2"],"workspaces":[{"workspace_id":"w2","label":"w2","number":1,"active_tab_id":"w2:t1","agent_status":"unknown"},{"workspace_id":"w1","label":"w1","number":2,"active_tab_id":"w1:t1","agent_status":"unknown"}]}}
+        """#.utf8))
+
+        guard case .workspaceReordered(let workspaces) = ev else { return XCTFail("expected .workspaceReordered, got \(ev)") }
+        XCTAssertEqual(workspaces.map(\.workspaceID), [WorkspaceID(rawValue: "w2"), WorkspaceID(rawValue: "w1")])
+    }
+
     /// Payload captured from a live `layout.export` round trip against herdr
     /// 0.9.0 (a two-pane right split), pinning the decoder to the real wire
     /// shape rather than an assumed one.

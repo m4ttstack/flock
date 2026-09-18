@@ -235,10 +235,14 @@ extension HerdrDecoder {
             }
             return .tabRenamed(tabID, label)
         case "tab_moved":
-            guard let tabID = payload.tabID, let workspaceID = payload.workspaceID else {
+            // The list is as required as the ids are: the reducer assigns it
+            // over the workspace's whole tab strip, so an absent one read as
+            // empty is every tab of that workspace gone until the next
+            // snapshot. herdr's own `TabMoved` always carries it.
+            guard let tabID = payload.tabID, let workspaceID = payload.workspaceID, let tabs = payload.tabs else {
                 return .unknown(type: payload.type)
             }
-            return .tabMoved(tabID, workspaceID, payload.tabs ?? [])
+            return .tabMoved(tabID, workspaceID, tabs)
         case "tab_focused":
             guard let tabID = payload.tabID else { return .unknown(type: payload.type) }
             return .tabFocused(tabID)
@@ -254,9 +258,12 @@ extension HerdrDecoder {
             }
             return .workspaceRenamed(workspaceID, label)
         case "workspace_moved":
-            return .workspaceMoved(payload.workspaces ?? [])
+            // Same rule as `tab_moved` above, over the whole rail.
+            guard let workspaces = payload.workspaces else { return .unknown(type: payload.type) }
+            return .workspaceMoved(workspaces)
         case "workspace_reordered":
-            return .workspaceReordered(payload.workspaces ?? [])
+            guard let workspaces = payload.workspaces else { return .unknown(type: payload.type) }
+            return .workspaceReordered(workspaces)
         case "workspace_focused":
             guard let workspaceID = payload.workspaceID else { return .unknown(type: payload.type) }
             return .workspaceFocused(workspaceID)
