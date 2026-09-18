@@ -670,6 +670,39 @@ final class SessionViewModelTests: XCTestCase {
 
     // MARK: - new-pane harness launcher provenance
 
+    /// `recordLauncherKeystroke` runs from `GhosttySurfaceView.keyDown`, so it
+    /// sits on the key path: once per keystroke, per pane, for as long as the
+    /// pane is typed into. `launcherRegistryVersion` is the observation seam
+    /// every pane cell's body depends on through `isPristineLauncherPane`, so
+    /// bumping it when the answer did not change re-renders every visible pane
+    /// on every keystroke for nothing.
+    @MainActor
+    func testRepeatedKeystrokesInAPaneInvalidateNothingAfterTheFirst() async {
+        let client = StubSplitCommandClient(newPaneID: "w1:p2")
+        let viewModel = SessionViewModel(client: client)
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let newPane = PaneID(rawValue: "w1:p2")
+        XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
+
+        viewModel.recordLauncherKeystroke(newPane)
+        XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "the first keystroke hides the launcher")
+        let settled = viewModel.launcherRegistryVersion
+        for _ in 0..<200 {
+            viewModel.recordLauncherKeystroke(newPane)
+        }
+        XCTAssertEqual(viewModel.launcherRegistryVersion, settled, "typing on past the first keystroke changed nothing")
+
+        // A pane flock never created is never pristine, so every keystroke in
+        // it -- which is most of them, most panes coming from herdr -- must
+        // invalidate nothing at all.
+        let herdrPane = PaneID(rawValue: "w1:p1")
+        let before = viewModel.launcherRegistryVersion
+        for _ in 0..<200 {
+            viewModel.recordLauncherKeystroke(herdrPane)
+        }
+        XCTAssertEqual(viewModel.launcherRegistryVersion, before)
+    }
+
     @MainActor
     func testSplitRightSendsExpectedParamsAndRegistersTheNewPaneAsPristine() async {
         let client = StubSplitCommandClient(newPaneID: "w1:p2")
