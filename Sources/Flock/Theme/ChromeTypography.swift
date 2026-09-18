@@ -43,7 +43,6 @@ enum ChromeType {
     static let paneTitle = inter(11.5, .medium)
     static let statusChip = mono(11.5)
     static let chatButtonHandle = inter(10, .semibold)
-    static let chatButtonGlyph = Font.system(size: 10)
     static let emptyCanvas = inter(15.5)
     static let rearrangeSymbol = Font.system(size: 28, weight: .semibold)
 

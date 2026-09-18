@@ -148,8 +148,9 @@ enum ChromeMetrics {
     }
 
     /// The pane legend's chat trigger, also the state it shows: signed in
-    /// carries the handle, signed out shows the glyph alone, and chat
-    /// unavailable on this machine draws no button at all.
+    /// carries the handle, a divider, the glyph and (when there is unread) a
+    /// count; signed out shows the glyph alone; chat unavailable on this
+    /// machine draws no button at all.
     enum ChatButton {
         static let signedInSize = CGSize(width: 71, height: 18)
         static let signedOutSize = CGSize(width: 27, height: 17)
@@ -157,6 +158,10 @@ enum ChromeMetrics {
         static let verticalPadding: CGFloat = 3
         static let horizontalPadding: CGFloat = 8
         static let gap: CGFloat = 6
+        static let handleSize = CGSize(width: 18, height: 12)
+        static let dividerSize = CGSize(width: 1, height: 9)
+        static let iconSize = CGSize(width: 11, height: 11)
+        static let countSize = CGSize(width: 7, height: 12)
     }
 
     enum Card {

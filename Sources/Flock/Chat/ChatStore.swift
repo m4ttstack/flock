@@ -22,6 +22,9 @@ final class ChatStore {
     @ObservationIgnored private var runner: ChatRunning?
     private let toasts: ToastCenter
     private var statuses: [PaneID: ChatStatus] = [:]
+    /// Nothing writes this yet: it renders 0 everywhere until a later task
+    /// reduces chat's peek data to a per-pane count and populates it here.
+    private var unreadCounts: [PaneID: Int] = [:]
     @ObservationIgnored private var requestGenerations: [PaneID: Int] = [:]
 
     /// Resolves once, off the main actor, then installs the runner built from
@@ -62,6 +65,10 @@ final class ChatStore {
 
     func status(for pane: PaneID) -> ChatStatus? {
         statuses[pane]
+    }
+
+    func unreadCount(for pane: PaneID) -> Int {
+        unreadCounts[pane] ?? 0
     }
 
     func refreshStatus(for pane: PaneID) async {

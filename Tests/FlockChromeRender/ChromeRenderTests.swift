@@ -55,6 +55,8 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
         let pane = PaneID(rawValue: "w1:p2")
+        // rt's own printed handle carries the `@`; the design's own button
+        // does not, so the sample below reads "kay" rather than "@kay".
         let signedInJSON = #"""
         {"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
         """#
@@ -80,6 +82,18 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(
             hex(signedInImage, CGPoint(x: signedInFrame.maxX - 0.5, y: signedInFrame.midY)),
             theme.palette.accent.hex, "signed-in stroke"
+        )
+        // The divider and the glyph, at their own measured offsets past the
+        // leading padding and the handle: pad(8) + handle(18) + gap(6) puts
+        // the 1pt divider's center at 32.5; + divider(1) + gap(6) puts the
+        // 11pt glyph's center at 44.5.
+        XCTAssertEqual(
+            hex(signedInImage, CGPoint(x: signedInFrame.minX + 32.5, y: signedInFrame.midY)),
+            theme.palette.surface1.hex, "signed-in divider"
+        )
+        XCTAssertEqual(
+            hex(signedInImage, CGPoint(x: signedInFrame.minX + 44.5, y: signedInFrame.midY)),
+            theme.palette.accent.hex, "signed-in glyph"
         )
         signedInWindow.close()
 

@@ -359,11 +359,10 @@ struct PaneCellView: View {
         .allowsHitTesting(false)
     }
 
-    /// `unread` is not wired to a live count yet: chat's peek data is
-    /// per-buddy and per-room, not yet reduced to "this pane's own unread".
     private var chatButtonAppearance: ChatButtonModel.Appearance {
         ChatButtonModel.appearance(
-            availability: chatStore.isAvailable, status: chatStore.status(for: pane.paneID), unread: 0
+            availability: chatStore.isAvailable, status: chatStore.status(for: pane.paneID),
+            unread: chatStore.unreadCount(for: pane.paneID)
         )
     }
 
@@ -373,37 +372,56 @@ struct PaneCellView: View {
         case .absent:
             EmptyView()
         case .signedOut:
-            Image(systemName: "bubble.left.fill")
-                .font(ChromeType.chatButtonGlyph)
-                .foregroundStyle(theme.overlay0)
+            chatGlyph(color: theme.overlay0)
+                .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
                 .frame(width: ChromeMetrics.ChatButton.signedOutSize.width, height: ChromeMetrics.ChatButton.signedOutSize.height)
                 .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.surface0)))
                 .accessibilityLabel("Chat")
                 .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
         case let .signedIn(handle, unread):
+            // Left-aligned rather than the frame's default center: an
+            // absent count (unread == 0) must not shift the handle, divider
+            // and glyph that stay fixed regardless of the count showing.
             HStack(spacing: ChromeMetrics.ChatButton.gap) {
                 Text(handle)
                     .font(ChromeType.chatButtonHandle)
                     .foregroundStyle(theme.accent)
                     .lineLimit(1)
+                    .frame(width: ChromeMetrics.ChatButton.handleSize.width, height: ChromeMetrics.ChatButton.handleSize.height, alignment: .leading)
+                Rectangle()
+                    .fill(Color(theme.palette.surface1))
+                    .frame(width: ChromeMetrics.ChatButton.dividerSize.width, height: ChromeMetrics.ChatButton.dividerSize.height)
+                chatGlyph(color: theme.accent)
+                    .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
                 if unread > 0 {
                     Text("\(unread)")
                         .font(ChromeType.chatButtonHandle)
-                        .foregroundStyle(theme.accent)
+                        .foregroundStyle(theme.text)
+                        .lineLimit(1)
+                        .frame(width: ChromeMetrics.ChatButton.countSize.width, height: ChromeMetrics.ChatButton.countSize.height, alignment: .leading)
                 }
             }
             .padding(.vertical, ChromeMetrics.ChatButton.verticalPadding)
             .padding(.horizontal, ChromeMetrics.ChatButton.horizontalPadding)
-            .frame(width: ChromeMetrics.ChatButton.signedInSize.width, height: ChromeMetrics.ChatButton.signedInSize.height)
+            .frame(width: ChromeMetrics.ChatButton.signedInSize.width, height: ChromeMetrics.ChatButton.signedInSize.height, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.selectionBg))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).strokeBorder(theme.accent, lineWidth: 1)
             )
-            .accessibilityLabel("Chat: \(handle)")
+            .accessibilityLabel(unread > 0 ? "Chat: \(handle), \(unread) unread" : "Chat: \(handle)")
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
         }
+    }
+
+    /// `bubble.left.fill` sized to its own measured box rather than a point
+    /// size, so the rendered glyph matches the design's icon box exactly.
+    private func chatGlyph(color: Color) -> some View {
+        Image(systemName: "bubble.left.fill")
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(color)
     }
 
     /// Mauve, never a status color (the parity checklist's own rule), so a

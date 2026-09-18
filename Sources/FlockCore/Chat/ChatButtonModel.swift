@@ -18,6 +18,13 @@ public enum ChatButtonModel {
     public static func appearance(availability: Bool, status: ChatStatus?, unread: Int) -> Appearance {
         guard availability else { return .absent }
         guard let status, status.signedIn, let handle = status.handle else { return .signedOut }
-        return .signedIn(handle: handle, unread: unread)
+        return .signedIn(handle: displayHandle(handle), unread: unread)
+    }
+
+    /// The design's own handle carries no `@`; `ChatStatus.handle` always
+    /// does (it is rt's own printed form), so this is the one place that
+    /// difference is resolved rather than left for every view to repeat.
+    private static func displayHandle(_ handle: String) -> String {
+        handle.hasPrefix("@") ? String(handle.dropFirst()) : handle
     }
 }
