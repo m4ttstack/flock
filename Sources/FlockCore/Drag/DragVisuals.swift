@@ -29,16 +29,15 @@ public enum DragVisuals {
     /// covers the very target it is aimed at, the target's own drop wash
     /// included.
     public static let ghostOpacity: Double = 0.7
-    /// The scrim rearrange mode lays over a pane's terminal. The accent
-    /// border and the grip glyph are what announce the mode; the scrim only
-    /// pushes the terminal back, so the value actually being chosen here is
-    /// `rearrangeContentVisibility` below rather than an alpha.
-    public static let rearrangeScrimOpacity: Double = 0.15
+    /// The scrim rearrange mode lays over a pane's terminal, in the theme's
+    /// own accent rather than a neutral dim, so the canvas reads as a mode
+    /// from across the screen and not merely as a darker canvas.
+    public static let rearrangeScrimOpacity: Double = 0.25
     /// How much of the terminal's own light still reaches the eye through the
-    /// rearrange scrim. Ruled floor: 0.6 (Matt, 2026-09-17: content must stay
-    /// readable in the mode, always). The binding constraint on the value is
-    /// the contrast the dimmed text keeps in the LEAST contrasty built-in
-    /// theme, which `DragVisualsTests` measures.
+    /// rearrange scrim. Ruled floor: 0.6, content must stay readable in the
+    /// mode, always. The binding constraint on the value is the contrast the
+    /// tinted text keeps in the LEAST contrasty built-in theme, which
+    /// `DragVisualsTests` measures.
     public static var rearrangeContentVisibility: Double { 1 - rearrangeScrimOpacity }
 
     /// The ghost's top-left for a cursor at `point`, both in the same space.

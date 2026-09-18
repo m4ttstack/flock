@@ -268,7 +268,7 @@ struct PaneCellView: View {
     /// gesture needs from anywhere on the pane.
     private var rearrangePaint: some View {
         ZStack {
-            theme.surfaceDim.opacity(DragVisuals.rearrangeScrimOpacity)
+            theme.accent.opacity(DragVisuals.rearrangeScrimOpacity)
             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                 .font(ChromeType.rearrangeSymbol)
                 .foregroundStyle(theme.accent)
