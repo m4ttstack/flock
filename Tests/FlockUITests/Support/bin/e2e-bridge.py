@@ -15,6 +15,9 @@ contract. Every request begins with the token this process generated:
     <token> control restart-server
     <token> control reseed-session
     <token> control seed-worktree-group
+    <token> control fault-proxy-start
+    <token> control fault-proxy-arm-subscription-cut
+    <token> control fault-proxy-report
     <token> ping
 
 Control replies are {"ok": true} or {"error": {"message": ...}}. A verb whose
@@ -30,6 +33,7 @@ import hmac
 import json
 import os
 import secrets
+import select
 import socket
 import socketserver
 import subprocess
@@ -50,6 +54,158 @@ HERDR_TIMEOUT_SECONDS = 10
 CONNECTION_TIMEOUT_SECONDS = 10
 
 
+class FaultProxy:
+    """A unix socket the app under test is pointed at in place of herdr's own,
+    so ONE of the app's connections can be cut at a chosen point in its
+    bootstrap. Nothing an outside process can do reaches a single socket a
+    running app holds: stopping the server takes every connection at once,
+    which is a different failure.
+
+    Only the app goes through it. The ground-truth channel (`herdr <line>`)
+    talks to the session socket directly, so a fault armed here changes what
+    the app sees and nothing else.
+    """
+
+    # The store's blanket subscription carries this id (`subscribeRequestLine`
+    # in HerdrStore.swift). Every pane-scoped subscription uses the same
+    # `events.subscribe` method, so the id is the only thing that tells the one
+    # connection the session model rides from the per-pane feeds.
+    STORE_SUBSCRIBE_ID = "flock:subscribe"
+
+    # Held between cutting the subscription and forwarding the snapshot request
+    # that triggered the cut, so the app has read the end of its subscription
+    # before the snapshot it is waiting on can answer. That ordering is the
+    # window this exists to reproduce: a store that only learns of the death
+    # through a stream it has not switched to yet forgets it outright.
+    CUT_SETTLE_SECONDS = 0.25
+
+    def __init__(self, upstream_path, listen_path):
+        self.upstream_path = upstream_path
+        self.listen_path = listen_path
+        self.lock = threading.Lock()
+        self.armed = False
+        self.cuts = 0
+        self.subscriptions = []
+        self.listener = None
+
+    def start(self):
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            os.unlink(self.listen_path)
+        except OSError:
+            pass
+        listener.bind(self.listen_path)
+        listener.listen(128)
+        self.listener = listener
+        threading.Thread(target=self._accept_loop, args=(listener,), daemon=True).start()
+
+    def arm_subscription_cut(self):
+        with self.lock:
+            self.armed = True
+
+    def report(self):
+        with self.lock:
+            return {"armed": self.armed, "cuts": self.cuts, "subscriptions": len(self.subscriptions)}
+
+    def _accept_loop(self, listener):
+        while True:
+            try:
+                client, _ = listener.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._serve, args=(client,), daemon=True).start()
+
+    def _serve(self, client):
+        upstream = None
+        registered = False
+        try:
+            first, rest = self._read_first_line(client)
+            if first is None:
+                return
+            try:
+                request = json.loads(first.decode("utf-8", "replace"))
+            except ValueError:
+                request = {}
+            # Before the request is forwarded, never after: a cut that landed
+            # while the reply was already on its way back would be the ordinary
+            # post-bootstrap death instead.
+            if request.get("method") == "session.snapshot":
+                self._cut_subscription()
+            upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            upstream.connect(self.upstream_path)
+            upstream.sendall(first + b"\n" + rest)
+            if request.get("id") == self.STORE_SUBSCRIBE_ID:
+                with self.lock:
+                    self.subscriptions.append((client, upstream))
+                registered = True
+            self._pump(client, upstream)
+        except OSError:
+            pass
+        finally:
+            if registered:
+                with self.lock:
+                    self.subscriptions = [pair for pair in self.subscriptions if pair[0] is not client]
+            for end in (client, upstream):
+                if end is not None:
+                    try:
+                        end.close()
+                    except OSError:
+                        pass
+
+    def _cut_subscription(self):
+        with self.lock:
+            if not self.armed or not self.subscriptions:
+                return
+            pairs = list(self.subscriptions)
+            self.armed = False
+            self.cuts += len(pairs)
+        # `shutdown`, not `close`: the connection's own thread is parked in
+        # select() on these, and only a shutdown both wakes it and hands the
+        # app the end-of-stream it has to notice.
+        for pair in pairs:
+            for end in pair:
+                try:
+                    end.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+        time.sleep(self.CUT_SETTLE_SECONDS)
+
+    @staticmethod
+    def _read_first_line(client):
+        buffered = b""
+        while b"\n" not in buffered:
+            try:
+                chunk = client.recv(65536)
+            except OSError:
+                return None, b""
+            if not chunk:
+                return None, b""
+            buffered += chunk
+        line, _, rest = buffered.partition(b"\n")
+        return line, rest
+
+    @staticmethod
+    def _pump(client, upstream):
+        ends = [client, upstream]
+        while True:
+            try:
+                readable, _, _ = select.select(ends, [], [])
+            except (OSError, ValueError):
+                return
+            for source in readable:
+                target = upstream if source is client else client
+                try:
+                    chunk = source.recv(65536)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                try:
+                    target.sendall(chunk)
+                except OSError:
+                    return
+
+
 class Bridge:
     def __init__(self, socket_path, lib_dir, session_name, herdr_bin, work_dir, token):
         self.socket_path = socket_path
@@ -66,6 +222,7 @@ class Bridge:
         # that sends and then stops reading would otherwise block every other
         # request until its connection timed out.
         self.lock = threading.Lock()
+        self.fault_proxy = None
 
     def authorized(self, presented):
         return hmac.compare_digest(presented.encode("utf-8", "replace"), self.token_bytes)
@@ -108,7 +265,39 @@ class Bridge:
             return self.run_helper(
                 "seed-worktree-group.sh", [self.socket_path, self.work_dir], capture=True
             )
+        if verb == "fault-proxy-start":
+            return self.start_fault_proxy()
+        if verb == "fault-proxy-arm-subscription-cut":
+            if self.fault_proxy is None:
+                return json.dumps({"error": {"message": "no fault proxy is running; start one first"}})
+            self.fault_proxy.arm_subscription_cut()
+            return json.dumps({"ok": True})
+        if verb == "fault-proxy-report":
+            if self.fault_proxy is None:
+                return json.dumps({"error": {"message": "no fault proxy is running; start one first"}})
+            return json.dumps({"ok": True, "result": self.fault_proxy.report()})
         return json.dumps({"error": {"message": "unknown control verb: %s" % verb[:40]}})
+
+    def start_fault_proxy(self):
+        """Idempotent: a second call hands back the socket the first one bound,
+        so a case that starts one after another has left theirs running still
+        gets a proxy pointed at this run's session."""
+        if self.fault_proxy is None:
+            # Named for the run's own session, and only 7 characters past that
+            # name: `Scripts/e2e.sh` sweeps this run's processes by matching
+            # that name in argv and environment, and a pane bridge the app
+            # launches against this path carries the path in place of the
+            # session socket. sun_path is 104 bytes including its terminator.
+            path = os.path.join(self.work_dir, "flock-%s-p.sock" % self.session_name)
+            if len(path) > 100:
+                return json.dumps({"error": {"message": "fault proxy path too long for a unix socket: %s" % path}})
+            proxy = FaultProxy(self.socket_path, path)
+            try:
+                proxy.start()
+            except OSError as error:
+                return json.dumps({"error": {"message": "fault proxy could not bind %s: %s" % (path, error)}})
+            self.fault_proxy = proxy
+        return json.dumps({"ok": True, "result": {"socket": self.fault_proxy.listen_path}})
 
     def reseed(self):
         stopped = self.run_helper("scratch-session.sh", ["stop", self.session_name])

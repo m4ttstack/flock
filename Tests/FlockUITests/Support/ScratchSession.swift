@@ -160,6 +160,39 @@ final class ScratchSession {
         try awaitLiveServer()
     }
 
+    /// A unix socket that relays to the session's own and can cut one of the
+    /// app's connections mid-flight, returned as the path to launch the app
+    /// against in place of `socketPath`. Nothing else in a case goes through
+    /// it: the ground truth read here still comes from herdr directly.
+    func startFaultProxy() throws -> String {
+        let result = try controlResult("fault-proxy-start")
+        guard let path = result["socket"] as? String, !path.isEmpty else {
+            throw ScratchSessionError("fault-proxy-start carried no socket path: \(result)")
+        }
+        return path
+    }
+
+    /// Arms a one-shot cut: the next `session.snapshot` the app sends through
+    /// the proxy closes the app's blanket subscription connection first, and
+    /// is answered only afterwards. Arm it BEFORE the app launches -- the
+    /// bootstrap is the window this reproduces, and it is over in
+    /// milliseconds.
+    func armSubscriptionCut() throws {
+        try control("fault-proxy-arm-subscription-cut")
+    }
+
+    /// How many subscription connections the proxy has actually cut. A case
+    /// that asserts recovery has to check this: an arm that never fired
+    /// leaves an ordinary launch, which converges whether or not the app
+    /// handles the fault.
+    func faultProxyCutCount() throws -> Int {
+        let result = try controlResult("fault-proxy-report")
+        guard let cuts = result["cuts"] as? Int else {
+            throw ScratchSessionError("fault-proxy-report carried no cut count: \(result)")
+        }
+        return cuts
+    }
+
     /// A workspace on a throwaway git repo plus the linked-worktree workspace
     /// that makes the two a group herdr refuses to close one at a time. Both
     /// the repo and the checkout live in the wrapper's own work directory,
