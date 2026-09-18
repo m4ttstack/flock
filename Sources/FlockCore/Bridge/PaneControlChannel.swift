@@ -20,6 +20,10 @@ import Darwin
 /// pane's wheel is the only caller (`GhosttySession.sendPaneScroll`), gated
 /// upstream by `MouseForwarding.decide` dropping every mouse event for an
 /// unfocused pane before a scroll command could ever be built.
+///
+/// A paste cannot ride the PTY either, for a different reason: it has to reach
+/// herdr as one intact run of bytes, and the PTY neither preserves the escape
+/// bytes that frame it nor keeps it in one piece (see `paste(_:)`).
 public final class PaneControlChannel {
     /// Environment variable the bridge reads the FIFO path from.
     public static let environmentKey = "HERDR_TERM_CONTROL_PIPE"
@@ -68,7 +72,38 @@ public final class PaneControlChannel {
 
     public func send(_ command: [String: Any]) {
         guard fd >= 0, let payload = ControlBridge.encodeLine(command) else { return }
-        writeIgnoringBrokenPipe(fd, payload)
+        writeWholeLine(payload)
+    }
+
+    /// How long a write waits for the bridge to drain the FIFO before giving
+    /// up. Only a bridge that has stopped reading can reach it, and this runs
+    /// on the main actor, so it bounds a stall behind an already dead pane
+    /// rather than budgeting anything a working one spends.
+    private static let drainTimeout: TimeInterval = 2
+
+    /// The descriptor is non-blocking, so a line longer than the FIFO's buffer
+    /// comes back `EAGAIN` partway through. Stopping there would leave half a
+    /// line in the FIFO, and the bridge splits on newlines: the remainder would
+    /// fuse with whatever command came next and take that one down with it.
+    private func writeWholeLine(_ payload: Data) {
+        let deadline = Date().addingTimeInterval(Self.drainTimeout)
+        payload.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            var sent = 0
+            while sent < raw.count {
+                let written = write(fd, base.advanced(by: sent), raw.count - sent)
+                if written > 0 {
+                    sent += written
+                    continue
+                }
+                if written < 0, errno == EINTR { continue }
+                guard written < 0, errno == EAGAIN else { return }
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else { return }
+                var writable = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+                _ = poll(&writable, 1, Int32(remaining * 1000))
+            }
+        }
     }
 
     /// A `terminal.scroll` line: moves the pane's real, shared herdr
@@ -84,6 +119,23 @@ public final class PaneControlChannel {
             "lines": lines,
             "source": source.rawValue,
         ])
+    }
+
+    /// One `terminal.input` line carrying exactly one complete bracketed
+    /// paste, which is the only shape herdr reads as a paste rather than as
+    /// typed input (`src/server/pane_input.rs`'s
+    /// `apply_terminal_attach_input`). herdr then re-frames it only for a pane
+    /// whose own terminal asked for bracketed paste, so a frame sent from here
+    /// is right whichever way the program in the pane has it set.
+    ///
+    /// This channel, never the surface's PTY: libghostty's text entry point
+    /// replaces every ESC byte with a space before it writes
+    /// (`Vendor/ghostty/src/input/paste.zig`), and it writes a frame's three
+    /// pieces as three separate PTY writes, either of which leaves herdr
+    /// reading something that is not one complete bracketed paste.
+    public func paste(_ text: String) {
+        guard let payload = BracketedPaste.payload(text) else { return }
+        send(["type": "terminal.input", "bytes": payload.base64EncodedString()])
     }
 
     /// A hold command. Unlike everything else on this channel these are acted
