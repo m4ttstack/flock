@@ -7,9 +7,10 @@ struct HerdrKeysSection: Equatable, Sendable {
     /// One entry per `[keys]` key, the scalar form carried as a one-element
     /// list so a `BindingConfig` written either way reads the same.
     var values: [String: [String]] = [:]
-    /// Each `[[keys.command]]` table in the order it appeared, string-valued
-    /// fields only.
-    var commands: [[String: String]] = []
+    /// Each `[[keys.command]]` table in the order it appeared, carried in the
+    /// same list form as `values` because a command's `key` is a binding and
+    /// may name several.
+    var commands: [[String: [String]]] = []
 }
 
 /// A reader for the TOML shapes a `[keys]` section is written in: string and
@@ -20,7 +21,7 @@ enum HerdrConfigToml {
     static func keysSection(in text: String) -> HerdrKeysSection {
         var section = HerdrKeysSection()
         var path: [String] = []
-        var command: [String: String]?
+        var command: [String: [String]]?
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var index = 0
 
@@ -57,13 +58,16 @@ enum HerdrConfigToml {
             switch value(of: raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
             case .string(let string):
                 if command != nil {
-                    command?[key] = string
+                    command?[key] = [string]
                 } else {
                     section.values[key] = [string]
                 }
             case .list(let strings):
-                guard command == nil else { continue }
-                section.values[key] = strings
+                if command != nil {
+                    command?[key] = strings
+                } else {
+                    section.values[key] = strings
+                }
             case .unreadable:
                 continue
             }

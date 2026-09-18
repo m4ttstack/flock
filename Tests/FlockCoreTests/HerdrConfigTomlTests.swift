@@ -53,11 +53,11 @@ final class HerdrConfigTomlTests: XCTestCase {
             command = "git status"
             """)
         XCTAssertEqual(section.commands.count, 2)
-        XCTAssertEqual(section.commands.first?["key"], "prefix+C")
-        XCTAssertEqual(section.commands.first?["type"], "plugin_action")
-        XCTAssertEqual(section.commands.first?["description"], "chat launcher")
-        XCTAssertEqual(section.commands.last?["key"], "prefix+G")
-        XCTAssertEqual(section.commands.last?["command"], "git status")
+        XCTAssertEqual(section.commands.first?["key"], ["prefix+C"])
+        XCTAssertEqual(section.commands.first?["type"], ["plugin_action"])
+        XCTAssertEqual(section.commands.first?["description"], ["chat launcher"])
+        XCTAssertEqual(section.commands.last?["key"], ["prefix+G"])
+        XCTAssertEqual(section.commands.last?["command"], ["git status"])
         XCTAssertNil(section.commands.last?["type"])
     }
 
