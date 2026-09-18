@@ -163,6 +163,11 @@ public enum ControlBridge {
         var processEnv = ProcessInfo.processInfo.environment
         if let socket = options.socketPath { processEnv["HERDR_SOCKET_PATH"] = socket }
 
+        // One pipe for every child's stderr rather than one per child: this
+        // process keeps the write end for its whole life, so the drain never
+        // sees an EOF a retake would have to rearm it through.
+        let herdrDiagnostics = Pipe()
+
         // Every child, the first and every retake, is spawned the same way and
         // at whatever the PTY reports right then: the size herdr is told still
         // comes only from this process's own tty.
@@ -179,7 +184,12 @@ public enum ControlBridge {
                 let fromHerdr = Pipe()
                 proc.standardInput = toHerdr
                 proc.standardOutput = fromHerdr
-                proc.standardError = FileHandle.standardError
+                // Never `FileHandle.standardError`: libghostty hands its PTY
+                // child `pty.slave` for all three descriptors
+                // (Vendor/ghostty/src/termio/Exec.zig), so a herdr that
+                // inherited this process's stderr would write its diagnostics
+                // straight onto the pane's mirrored screen.
+                proc.standardError = herdrDiagnostics.fileHandleForWriting
                 do {
                     try proc.run()
                 } catch {
@@ -214,6 +224,7 @@ public enum ControlBridge {
 
         io.startStdin()
         io.startPTYSizeRelay()
+        io.startHerdrDiagnostics(herdrDiagnostics.fileHandleForReading)
         supervisor.installOutput(for: first)
         if let controlPipe = options.controlPipe {
             io.startControlPipe(at: controlPipe)
@@ -993,6 +1004,13 @@ final class BridgeIO: @unchecked Sendable {
     /// this pane has real content. Guarded by `stdoutLock` alongside the frame
     /// write it is decided next to.
     private var firstFrameSent = false
+    /// Latches on the first frame of any kind written to the PTY, which is the
+    /// moment the pane becomes a mirror of herdr's screen and stops being a
+    /// place anything else may write. Separate from `firstFrameSent`, which
+    /// answers a different question (has the APP been told) and is gated on a
+    /// full frame and on a status pipe existing at all. Guarded by
+    /// `stdoutLock`.
+    private var paintedAnyFrame = false
     private var stdinSource: DispatchSourceRead?
     private var controlSource: DispatchSourceRead?
     private var winchSource: DispatchSourceSignal?
@@ -1249,7 +1267,10 @@ final class BridgeIO: @unchecked Sendable {
                 if let frame = ControlBridge.parseFrame(line) {
                     stdoutLock.lock()
                     let stillCurrent = herdrOutputGeneration == generation
-                    if stillCurrent { writeIgnoringBrokenPipe(stdoutFD, frame.bytes) }
+                    if stillCurrent {
+                        writeIgnoringBrokenPipe(stdoutFD, frame.bytes)
+                        paintedAnyFrame = true
+                    }
                     var firstFrameLine: Data?
                     if stillCurrent, frame.full, !firstFrameSent, statusFD >= 0 {
                         firstFrameSent = true
@@ -1275,6 +1296,36 @@ final class BridgeIO: @unchecked Sendable {
         }
         return generation
     }
+
+    func startHerdrDiagnostics(_ herdrErr: FileHandle) {
+        let lines = BridgeLineBuffer()
+        herdrErr.readabilityHandler = { [self] handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            lines.append(data)
+            while let line = lines.popLine() {
+                relayHerdrDiagnostic(line)
+            }
+        }
+    }
+
+    private func relayHerdrDiagnostic(_ line: Data) {
+        // The PTY is in raw mode (`enterRawMode`), so ONLCR is off and a bare
+        // newline would leave the next line indented by the whole width.
+        var bytes = line
+        bytes.append(contentsOf: [0x0D, 0x0A])
+        stdoutLock.lock()
+        let mirrored = paintedAnyFrame
+        if !mirrored { writeIgnoringBrokenPipe(stdoutFD, bytes) }
+        stdoutLock.unlock()
+        guard mirrored else { return }
+        Self.herdrLog.error("\(String(decoding: line, as: UTF8.self), privacy: .public)")
+    }
+
+    private static let herdrLog = Logger(subsystem: "dev.mattstack.flock", category: "herdr")
 
     /// One app-bound line on the status FIFO for something the frame stream
     /// cannot carry. Under `stdoutLock`, like the other two status writes.

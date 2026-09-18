@@ -365,6 +365,58 @@ final class ControlBridgeTests: XCTestCase {
             "first_frame must be emitted exactly once, ever, even across a later full frame")
     }
 
+    /// A pane with nothing painted yet shows herdr's own stderr: an attach
+    /// that never succeeded has no frames to be spoiled, and the text is the
+    /// only account of why the pane is empty.
+    func testHerdrDiagnosticsReachThePTYWhileNoFrameHasBeenPainted() async throws {
+        let herdrErr = Pipe()
+        let stdoutCapture = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
+            onPeerGone: { _ in }
+        )
+        io.startHerdrDiagnostics(herdrErr.fileHandleForReading)
+
+        herdrErr.fileHandleForWriting.write(Data("herdr: connection failed\n".utf8))
+        let shown = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(
+            String(decoding: shown, as: UTF8.self), "herdr: connection failed\r\n",
+            "the PTY is in raw mode, so the line needs its own carriage return")
+    }
+
+    /// Once a frame has been painted, the pane is a mirror of herdr's screen
+    /// and nothing else may write to it. herdr answers every control command
+    /// it does not recognize with a ~200 byte diagnostic, so a herdr without
+    /// the mouse verbs would otherwise scribble one over the mirror per click.
+    func testHerdrDiagnosticsStayOffThePTYOnceAFrameIsPainted() async throws {
+        let fromHerdr = Pipe()
+        let herdrErr = Pipe()
+        let stdoutCapture = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
+            onPeerGone: { _ in }
+        )
+        io.startHerdrOutput(fromHerdr.fileHandleForReading)
+        io.startHerdrDiagnostics(herdrErr.fileHandleForReading)
+
+        let painted = Data("PAINT".utf8)
+        fromHerdr.fileHandleForWriting.write(
+            ControlBridge.encodeLine(["type": "terminal.frame", "bytes": painted.base64EncodedString()])!)
+        let mirrored = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(mirrored, painted)
+
+        herdrErr.fileHandleForWriting.write(
+            Data("herdr: terminal session control input ignored: invalid json command\n".utf8))
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(
+            readAllAvailableForTest(stdoutCapture.fileHandleForReading.fileDescriptor).count, 0,
+            "a diagnostic must never be painted over a live mirror")
+    }
+
     func testHerdrOutputSkipsMalformedLineWithoutStoppingSubsequentFrames() async throws {
         let fromHerdr = Pipe()
         let stdoutCapture = Pipe()
