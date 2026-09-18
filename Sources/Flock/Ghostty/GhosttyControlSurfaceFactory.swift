@@ -6,10 +6,14 @@ import FlockCore
 /// binary, re-invoked with `--bridge <pane> --socket <path>`, per
 /// `Sources/Flock/main.swift`'s dispatch) and asks the host for a session.
 ///
-/// `--herdr-bin` is passed only when `FLOCK_HERDR_BIN` is set, so a scratch
-/// run can point the bridge at a patched herdr while the installed one stays
-/// the default: absent it, the bridge inherits this app's environment and
-/// falls back to its own `HERDR_BIN`/`PATH` resolution
+/// `--herdr-bin` carries the herdr binary the bridge is to spawn, resolved
+/// here against the app's own resolved PATH (`ToolPath`) rather than left to
+/// the bridge: libghostty gives a surface's PTY child this app's environment,
+/// so a bridge in an app launched from Finder or the tray would look for herdr
+/// on launchd's PATH and exit 2 with a dead pane. `FLOCK_HERDR_BIN` still
+/// wins, so a scratch run can point the bridge at a patched herdr while the
+/// installed one stays the default. Only a herdr this cannot resolve at all
+/// leaves the bridge to its own `HERDR_BIN`/`PATH` fallback
 /// (`ControlBridge.resolveHerdrBinary`).
 @MainActor
 final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
@@ -55,11 +59,18 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         if statusChannel == nil {
             FileHandle.standardError.write(Data("flock: failed to create status channel for pane \(pane.rawValue); mouse passthrough disabled for it\n".utf8))
         }
+        // Resolved per surface, not once at init: the PATH is fixed for the
+        // process but a herdr installed or moved mid-session is found by the
+        // next pane rather than only by the next launch.
+        let herdrBinary = herdrBinaryOverride ?? ToolPath.resolve("herdr")
+        if herdrBinary == nil {
+            ToolPath.log.error("no herdr on the resolved PATH; pane \(pane.rawValue, privacy: .public) is left to the bridge's own lookup")
+        }
         let argv = BridgeOptions.argv(
             executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0],
             target: pane.rawValue,
             socketPath: socketPath,
-            herdrBinary: herdrBinaryOverride,
+            herdrBinary: herdrBinary,
             controlPipe: channel?.path,
             statusPipe: statusChannel?.path
         )

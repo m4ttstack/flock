@@ -154,7 +154,7 @@ public enum ControlBridge {
             fputs("flock-bridge: --bridge <pane> is required\n", stderr)
             exit(2)
         }
-        guard let (executableURL, prefixArguments) = resolveHerdrBinary(explicit: options.herdrBinary) else {
+        guard let executableURL = resolveHerdrBinary(explicit: options.herdrBinary) else {
             fputs("flock-bridge: cannot locate herdr (set --herdr-bin/HERDR_BIN or add it to PATH)\n", stderr)
             exit(2)
         }
@@ -173,8 +173,7 @@ public enum ControlBridge {
                 proc.executableURL = executableURL
                 // Target before flags: herdr's CLI mis-parses a leading
                 // `--takeover` as an unknown option.
-                proc.arguments = prefixArguments
-                    + childArgv(target: options.target, cols: size.cols, rows: size.rows)
+                proc.arguments = childArgv(target: options.target, cols: size.cols, rows: size.rows)
                 proc.environment = processEnv
                 let toHerdr = Pipe()
                 let fromHerdr = Pipe()
@@ -887,22 +886,17 @@ private func currentWinSize(fd: Int32) -> PTYSize {
 }
 
 /// `herdrBinary` explicit (from `--herdr-bin`/`HERDR_BIN`, already resolved
-/// into `BridgeOptions`) wins; otherwise a bare `herdr` found on `PATH` is
-/// run through `/usr/bin/env`, since `Process.executableURL` needs a real
-/// path and will not search `PATH` itself.
-private func resolveHerdrBinary(explicit: String?) -> (URL, [String])? {
+/// into `BridgeOptions`) wins, and flock itself always passes one it resolved
+/// against the user's real PATH (`GhosttyControlSurfaceFactory`). The `PATH`
+/// fallback is for a bridge run by hand, and inherits whatever PATH that hand
+/// had: a bridge started by an app under launchd has no profile on its PATH
+/// and would find nothing here.
+private func resolveHerdrBinary(explicit: String?) -> URL? {
     if let explicit, !explicit.isEmpty {
-        return (URL(fileURLWithPath: explicit), [])
+        return URL(fileURLWithPath: explicit)
     }
-    guard pathHasHerdr() else { return nil }
-    return (URL(fileURLWithPath: "/usr/bin/env"), ["herdr"])
-}
-
-private func pathHasHerdr() -> Bool {
-    guard let path = ProcessInfo.processInfo.environment["PATH"] else { return false }
-    return path.split(separator: ":").contains { segment in
-        FileManager.default.isExecutableFile(atPath: "\(segment)/herdr")
-    }
+    let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
+    return UserPath.resolve("herdr", on: path).map { URL(fileURLWithPath: $0) }
 }
 
 /// Writes every byte, tolerating a reader that has already gone away.
