@@ -370,40 +370,54 @@ final class GridGeometryTests: XCTestCase {
 
     private let container = CGRect(x: 0, y: 0, width: 400, height: 300)
     private let card = CGSize(width: 200, height: 80)
-    private let offset = CGSize(width: 12, height: 16)
+    private let gap: CGFloat = 8
 
-    func testTheCardSitsBelowAndRightOfThePointer() {
-        XCTAssertEqual(HoverCardPlacement.origin(pointer: CGPoint(x: 50, y: 40), card: card, container: container, offset: offset), CGPoint(x: 62, y: 56))
+    private func origin(_ pane: CGRect, container: CGRect? = nil) -> CGPoint {
+        HoverCardPlacement.origin(pane: pane, card: card, container: container ?? self.container, gap: gap)
     }
 
-    func testNearTheTrailingEdgeTheCardFlipsLeftOfThePointer() {
-        XCTAssertEqual(HoverCardPlacement.origin(pointer: CGPoint(x: 300, y: 40), card: card, container: container, offset: offset), CGPoint(x: 88, y: 56))
+    func testTheCardSitsBesideItsPaneTopsAligned() {
+        XCTAssertEqual(origin(CGRect(x: 20, y: 40, width: 60, height: 30)), CGPoint(x: 88, y: 40))
     }
 
-    func testNearTheBottomTheCardFlipsAboveThePointer() {
-        XCTAssertEqual(HoverCardPlacement.origin(pointer: CGPoint(x: 50, y: 250), card: card, container: container, offset: offset), CGPoint(x: 62, y: 154))
+    func testNearTheTrailingEdgeTheCardFlipsToThePanesOtherSide() {
+        XCTAssertEqual(origin(CGRect(x: 300, y: 40, width: 60, height: 30)), CGPoint(x: 92, y: 40))
     }
 
-    func testInTheBottomTrailingCornerTheCardFlipsBothWays() {
-        XCTAssertEqual(HoverCardPlacement.origin(pointer: CGPoint(x: 390, y: 290), card: card, container: container, offset: offset), CGPoint(x: 178, y: 194))
+    func testNearTheBottomTheCardRisesToStayInTheGrid() {
+        XCTAssertEqual(origin(CGRect(x: 20, y: 260, width: 60, height: 30)), CGPoint(x: 88, y: 220))
     }
 
-    /// The pointer is part of the card's frame, never under it, wherever the
-    /// pointer sits and whichever way the card flips.
-    func testTheCardNeverCoversThePointerAndNeverLeavesTheContainer() {
-        for x in stride(from: 0.0, through: 400.0, by: 25.0) {
-            for y in stride(from: 0.0, through: 300.0, by: 25.0) {
-                let pointer = CGPoint(x: x, y: y)
-                let frame = CGRect(origin: HoverCardPlacement.origin(pointer: pointer, card: card, container: container, offset: offset), size: card)
-                XCTAssertTrue(container.contains(frame), "\(pointer) -> \(frame)")
-                XCTAssertFalse(frame.insetBy(dx: 1, dy: 1).contains(pointer), "\(pointer) -> \(frame)")
+    /// The whole point of anchoring: the card is beside the pane it describes,
+    /// so the pane's own title is never under it and the pointer can leave the
+    /// pane and arrive on the card. True at every pane position of a grid wide
+    /// enough to hold the card beside a pane on one side or the other, which
+    /// the window's own 900pt minimum guarantees.
+    func testTheCardNeverCoversItsOwnPaneAndNeverLeavesTheContainer() {
+        let grid = CGRect(x: 0, y: 0, width: 700, height: 300)
+        for x in stride(from: 0.0, through: 640.0, by: 20.0) {
+            for y in stride(from: 0.0, through: 270.0, by: 15.0) {
+                let pane = CGRect(x: x, y: y, width: 60, height: 30)
+                let frame = CGRect(origin: origin(pane, container: grid), size: card)
+                XCTAssertTrue(grid.contains(frame), "\(pane) -> \(frame)")
+                XCTAssertFalse(frame.intersects(pane), "\(pane) -> \(frame)")
             }
         }
     }
 
+    /// Only a container too narrow to hold the card beside the pane at all can
+    /// force an overlap, and even then the card stays inside the grid.
     func testAContainerSmallerThanTheCardPinsItToTheLeadingTopCorner() {
         let tiny = CGRect(x: 10, y: 10, width: 100, height: 50)
-        XCTAssertEqual(HoverCardPlacement.origin(pointer: CGPoint(x: 50, y: 30), card: card, container: tiny, offset: offset), CGPoint(x: 10, y: 10))
+        XCTAssertEqual(origin(CGRect(x: 30, y: 20, width: 20, height: 10), container: tiny), CGPoint(x: 10, y: 10))
+    }
+
+    /// A pane with room on neither side takes whichever side has more of it,
+    /// which is the side the card is least clipped on.
+    func testAPaneWithRoomOnNeitherSideTakesTheWiderSide() {
+        let narrow = CGRect(x: 0, y: 0, width: 300, height: 300)
+        XCTAssertEqual(HoverCardPlacement.origin(pane: CGRect(x: 180, y: 0, width: 60, height: 30), card: card, container: narrow, gap: gap), CGPoint(x: 0, y: 0))
+        XCTAssertEqual(HoverCardPlacement.origin(pane: CGRect(x: 60, y: 0, width: 60, height: 30), card: card, container: narrow, gap: gap), CGPoint(x: 100, y: 0))
     }
 
     // MARK: - grid drop resolution

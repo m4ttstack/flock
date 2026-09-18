@@ -59,23 +59,33 @@ public struct PaneHoverCardContent: Equatable, Sendable {
     }
 }
 
-/// Where the hover card sits relative to the pointer.
+/// Where the hover card sits: beside the pane it describes, never over it.
+///
+/// It followed the pointer until the pointer could never reach it. Anchoring
+/// to the pane keeps both properties that bought: the card is outside the
+/// pane's own box, so it cannot cover the title it is describing, and the box
+/// is read live, so a scroll or an expanding card under a still pointer moves
+/// the card with the pane rather than leaving it behind.
 public enum HoverCardPlacement {
-    /// `offset` below and right of the pointer, flipped left or up past the
-    /// pointer on whichever axis would leave `container`, and never outside
-    /// it.
-    public static func origin(pointer: CGPoint, card: CGSize, container: CGRect, offset: CGSize) -> CGPoint {
-        var x = pointer.x + offset.width
-        if x + card.width > container.maxX {
-            x = pointer.x - offset.width - card.width
-        }
-        var y = pointer.y + offset.height
-        if y + card.height > container.maxY {
-            y = pointer.y - offset.height - card.height
+    /// `gap` to the trailing side of `pane`, flipped to the leading side when
+    /// that would leave `container`, tops aligned, and never outside the
+    /// container. A container too narrow to hold the card beside the pane on
+    /// either side (under about 600pt, which the window's 900pt minimum rules
+    /// out) keeps the card inside the grid at the cost of covering the pane.
+    public static func origin(pane: CGRect, card: CGSize, container: CGRect, gap: CGFloat) -> CGPoint {
+        let trailing = pane.maxX + gap
+        let leading = pane.minX - gap - card.width
+        var x = trailing
+        if trailing + card.width > container.maxX {
+            x = leading >= container.minX ? leading : widerSide(of: pane, in: container, trailing: trailing, leading: leading)
         }
         return CGPoint(
             x: max(container.minX, min(x, container.maxX - card.width)),
-            y: max(container.minY, min(y, container.maxY - card.height))
+            y: max(container.minY, min(pane.minY, container.maxY - card.height))
         )
+    }
+
+    private static func widerSide(of pane: CGRect, in container: CGRect, trailing: CGFloat, leading: CGFloat) -> CGFloat {
+        container.maxX - pane.maxX >= pane.minX - container.minX ? trailing : leading
     }
 }

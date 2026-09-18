@@ -286,8 +286,9 @@ final class DragCoordinator {
     @ObservationIgnored private(set) var grid = AllWorkspacesGridState()
     private(set) var isGridShown = false
     private(set) var expandedGridCards: Set<WorkspaceID> = []
-    private(set) var gridHover: AllWorkspacesGridState.Hover?
+    private(set) var gridHover: PaneID?
     @ObservationIgnored var gridHoverIntent: Task<Void, Never>?
+    @ObservationIgnored var gridHoverGrace: Task<Void, Never>?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
     /// Selects what a fired dwell uncovers. Synchronous and run before the
@@ -456,7 +457,9 @@ final class DragCoordinator {
         )
     }
 
-    private var gridSurfaces: GridDropSurfaces? {
+    /// Read on its own by the hover card, which is placed against a mini
+    /// pane's box while nothing is being dragged at all.
+    var gridSurfaces: GridDropSurfaces? {
         guard grid.isShown else { return nil }
         var thumbnails: [TabItemFrame] = []
         var tiles: [WorkspaceItemFrame] = []

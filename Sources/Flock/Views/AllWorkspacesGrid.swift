@@ -632,13 +632,10 @@ private struct TabThumbnail: View {
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
                         .gesture(paneDrag(pane, box: placed.frame))
-                        // In the drag space, where the card is placed: a
-                        // scroll or reflow under a still pointer leaves the
-                        // pointer, and so the card, where it is.
                         .onContinuousHover(coordinateSpace: DragSpace.coordinateSpace) { phase in
                             switch phase {
-                            case .active(let pointer):
-                                drag.gridHoverMoved(pane: pane.paneID, pointer: pointer)
+                            case .active:
+                                drag.gridHoverMoved(pane: pane.paneID)
                                 GridCursor.hover(true, dragInFlight: drag.holdsGrabCursor)
                             case .ended:
                                 drag.gridHoverEnded(pane: pane.paneID)
@@ -886,16 +883,17 @@ private struct GridHoverCard: View {
     @State private var size = CGSize(width: ChromeMetrics.HoverCard.width, height: ChromeMetrics.HoverCard.estimatedHeight)
 
     var body: some View {
-        if let hover = drag.gridHoverCard,
+        if let hovered = drag.gridHoverCard,
            let viewport = drag.gridViewport,
+           let box = drag.gridPaneFrame(of: hovered),
            let model = viewModel.model,
-           let pane = model.panes[hover.pane],
+           let pane = model.panes[hovered],
            let content = PaneHoverCardContent.make(
-               pane: hover.pane, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory()
+               pane: hovered, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory()
            ) {
             let origin = HoverCardPlacement.origin(
-                pointer: CGPoint(x: hover.pointer.x - viewport.minX, y: hover.pointer.y - viewport.minY),
-                card: size, container: CGRect(origin: .zero, size: viewport.size), offset: ChromeMetrics.HoverCard.pointerOffset
+                pane: box.offsetBy(dx: -viewport.minX, dy: -viewport.minY),
+                card: size, container: CGRect(origin: .zero, size: viewport.size), gap: ChromeMetrics.HoverCard.paneGap
             )
             PaneHoverCardView(theme: theme, content: content, lastLine: viewModel.lastLine(for: pane))
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }

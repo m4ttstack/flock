@@ -268,8 +268,10 @@ enum ChromeMetrics {
         static let cornerRadius: CGFloat = 4
         static let titleSpacing: CGFloat = 6
         static let statusDot: CGFloat = 6
-        /// Right of and below the pointer, clear of the arrow cursor.
-        static let pointerOffset = CGSize(width: 13, height: 18)
+        /// Between the pane and the card beside it: wide enough to read as
+        /// two things, short enough for the pointer to cross it well inside
+        /// `AllWorkspacesGridState.hoverCardGrace`.
+        static let paneGap: CGFloat = 8
         /// Where placement starts before the card has measured itself once.
         static let estimatedHeight: CGFloat = 110
     }
