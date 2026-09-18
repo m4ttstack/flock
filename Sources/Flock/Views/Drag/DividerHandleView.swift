@@ -88,7 +88,7 @@ struct DividerHandleView: View {
                 }
                 dividerDrag.moved(to: value.location, for: divider)
             }
-            .onEnded { _ in dividerDrag.ended() }
+            .onEnded { value in dividerDrag.ended(at: value.location, for: divider) }
     }
 
     /// Always drawn, so the divider is findable without hunting for it:

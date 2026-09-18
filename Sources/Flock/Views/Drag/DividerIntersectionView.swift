@@ -60,9 +60,10 @@ struct DividerIntersectionView: View {
                 }
                 dividerDrag.moved(to: value.location, for: divider)
             }
-            .onEnded { _ in
+            .onEnded { value in
+                let divider = lockedDivider ?? DividerIntersections.resolve(intersection, at: value.startLocation)
                 lockedDivider = nil
-                dividerDrag.ended()
+                dividerDrag.ended(at: value.location, for: divider)
             }
     }
 }

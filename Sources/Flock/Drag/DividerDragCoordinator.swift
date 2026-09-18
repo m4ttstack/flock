@@ -89,6 +89,14 @@ final class DividerDragCoordinator {
         popCursorIfPushed()
     }
 
+    /// A view's own release, which knows where the button came up in canvas
+    /// space; see `DividerDragSession.ended(at:for:)`.
+    func ended(at pointer: CGPoint, for divider: DividerHandle) {
+        guard session.ended(at: pointer, for: divider) else { return }
+        removeMonitors()
+        popCursorIfPushed()
+    }
+
     private func cancel() {
         session.cancel()
         popCursorIfPushed()

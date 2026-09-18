@@ -112,6 +112,48 @@ final class DividerDragPointerPathTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(log.entries.first?.ratio), 1000.0 / 1200.0, accuracy: 0.0001)
     }
 
+    /// The release commits where the button came up, not where the last
+    /// motion report left the boundary. Motion is coalesced and can be
+    /// outrun -- a flick, a main thread that stalled through the last few
+    /// events -- so the two are different points, and the pointer's own is the
+    /// one the hand chose.
+    @MainActor
+    func testTheReleaseCommitsItsOwnPointRatherThanTheLastMotionReport() async throws {
+        let log = CommitLog()
+        let session = makeSession(log)
+        let divider = try XCTUnwrap(geometry().dividers.first)
+        XCTAssertTrue(session.began(divider))
+        session.moved(to: CGPoint(x: 473, y: divider.regionFrame.midY), for: divider)
+
+        XCTAssertTrue(session.ended(at: CGPoint(x: 738, y: divider.regionFrame.midY), for: divider))
+        await session.pendingCommit?.value
+
+        XCTAssertEqual(log.entries.count, 1)
+        XCTAssertEqual(try XCTUnwrap(log.entries.first?.ratio), 738.0 / 1200.0, accuracy: 0.0001)
+    }
+
+    /// The release point carries the same guard its motion reports carry:
+    /// measured against another divider's region, it names a boundary the
+    /// dragged divider never had.
+    @MainActor
+    func testAReleasePointFromAnotherDividerLeavesTheCommitWhereTheDragWas() async throws {
+        let log = CommitLog()
+        let session = makeSession(log)
+        let divider = try XCTUnwrap(geometry().dividers.first)
+        XCTAssertTrue(session.began(divider))
+        session.moved(to: CGPoint(x: 473, y: divider.regionFrame.midY), for: divider)
+
+        let other = DividerHandle(
+            tabID: tabID, path: [true],
+            frame: divider.frame, direction: .right,
+            regionFrame: divider.regionFrame, cellExtent: divider.cellExtent
+        )
+        XCTAssertTrue(session.ended(at: CGPoint(x: 900, y: divider.regionFrame.midY), for: other))
+        await session.pendingCommit?.value
+
+        XCTAssertEqual(try XCTUnwrap(log.entries.first?.ratio), 473.0 / 1200.0, accuracy: 0.0001)
+    }
+
     /// Each divider's own view reports into the one session, so a report that
     /// arrives from a divider that is not the one being dragged carries a
     /// pointer measured against a different region. Taking it would move the

@@ -84,6 +84,22 @@ public final class DividerDragSession {
         return true
     }
 
+    /// The release with the point the button came up at, which is the one the
+    /// commit takes. Motion is coalesced and can be outrun -- a flick, a main
+    /// thread that stalled through the last few events -- so the last position
+    /// `moved(to:for:)` reported is not where the pointer finished. A pointer
+    /// from a divider that is not the one dragging is ignored exactly as a
+    /// motion report from it is.
+    ///
+    /// `DividerDragCoordinator`'s release monitor calls `ended()` instead: it
+    /// observes an AppKit event, which carries no canvas-space point, and a
+    /// view torn down mid-drag has no coordinate space left to convert one in.
+    @discardableResult
+    public func ended(at pointer: CGPoint, for divider: DividerHandle) -> Bool {
+        moved(to: pointer, for: divider)
+        return ended()
+    }
+
     /// Esc with the button still down.
     public func cancel() {
         generation += 1
