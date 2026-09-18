@@ -30,6 +30,14 @@ enum ChatToolLocator {
         }
     }
 
+    /// `ChatStore`'s own probe: awaits the first read of `binaryPath` from a
+    /// detached task, so the caller -- however soon after launch it awaits
+    /// this -- is never the thread that pays for the filesystem walk, even if
+    /// it arrives before `warm()`'s own dispatch has started.
+    static func probeBinaryPath() async -> String? {
+        await Task.detached(priority: .userInitiated) { binaryPath }.value
+    }
+
     /// `pluginsDirectory` is a parameter rather than always the real
     /// `~/.config/herdr/plugins` so a test can point it at a temporary tree.
     static func resolve(environmentOverride: String?, pluginsDirectory: URL) -> String? {
