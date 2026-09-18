@@ -279,6 +279,7 @@ struct FlockApp: App {
         // for this scene, alongside the two lower-level opt-outs above.
         .restorationBehavior(.disabled)
         .commands {
+            PasteboardCommands()
             // Creation's macOS home. It is also the only always-visible route
             // to it: the strip and rail take a plain click on their own empty
             // space, and the tab menu carries New Tab, but neither the strip
@@ -320,8 +321,10 @@ struct FlockApp: App {
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(store: terminalTextSizeStore)
-                // No key equivalent: the momentary route into rearrange mode
-                // is a held Option, not a shortcut on this item.
+                // Cmd+D, D for drag: the only key into rearrange mode, and the
+                // same switch this item's checkmark reflects. Command is the
+                // one modifier a pane's program never receives, so claiming a
+                // key under it takes nothing away from a terminal.
                 Button {
                     rearrangeMode.toggle()
                 } label: {
@@ -331,6 +334,7 @@ struct FlockApp: App {
                         Text("Rearrange Mode")
                     }
                 }
+                .keyboardShortcut("d", modifiers: .command)
                 .accessibilityIdentifier("flock.view.rearrangeMode")
                 Button {
                     dragCoordinator.toggleGrid()
@@ -341,9 +345,10 @@ struct FlockApp: App {
                         Text("All Workspaces")
                     }
                 }
-                // A letter key: SwiftUI does not reliably match a shifted
-                // punctuation key equivalent.
-                .keyboardShortcut("a", modifiers: [.command, .shift])
+                // Shift of the rearrange key, because it is the same gesture
+                // at a wider scope: Cmd+D arranges the panes of one workspace,
+                // Cmd+Shift+D arranges across all of them.
+                .keyboardShortcut("d", modifiers: [.command, .shift])
                 .accessibilityIdentifier("flock.view.allWorkspaces")
                 // The attention stack's only keyboard route, and the only way
                 // to clear a "needs input" toast without answering the pane or

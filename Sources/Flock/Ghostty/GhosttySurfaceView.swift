@@ -6,7 +6,7 @@ import FlockCore
 /// The `NSView` libghostty draws a surface into, and the AppKit end of its
 /// input: keys (including input methods), mouse, scroll and the context menu.
 @MainActor
-final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
+final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @preconcurrency NSMenuItemValidation {
     enum MouseButton: Equatable {
         case left
         case right
@@ -638,9 +638,24 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         session.copySelection()
     }
 
+    /// Where Cmd+V lands once the menu bar's Paste item (`PasteboardCommands`)
+    /// sends `paste(_:)` down the responder chain and this view is the first
+    /// responder -- which it only is when this is the focused pane and no
+    /// rename editor is up.
+    ///
     /// Gated on the same disposition as `keyDown`: a paste is input for the
     /// pane's program exactly like a keystroke is, and AppKit can route
     /// Cmd+V here through a first responder this view did not ask for.
+    ///
+    /// The pasteboard is read here rather than left to libghostty's own
+    /// `paste_from_clipboard` binding, and that is the difference between a
+    /// paste that arrives and one that does not: the binding completes its
+    /// clipboard request unconfirmed, so libghostty rejects anything holding a
+    /// newline and asks the host to confirm, and this app's confirm callback
+    /// does nothing -- every multi-line paste through that route is dropped in
+    /// silence. `session.paste` goes through `ghostty_surface_text`, which
+    /// pastes what it is given and still brackets it when the terminal has
+    /// asked for bracketed paste.
     @objc func paste(_ sender: Any?) {
         guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
@@ -661,6 +676,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         NSPasteboard.general.setString(url, forType: .string)
     }
 
+    /// Reached only through `NSMenuItemValidation`: without the conformance
+    /// this method is invisible to the Objective-C runtime, AppKit's
+    /// `respondsToSelector:` check fails, and every item it means to speak for
+    /// falls back to AppKit's default "enabled because something answers the
+    /// action".
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         isMenuActionEnabled(menuItem.action)
     }
