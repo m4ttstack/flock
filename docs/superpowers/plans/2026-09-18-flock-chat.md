@@ -57,6 +57,47 @@ reads. Every shape below was taken from that table, not from the spec.
 
 ---
 
+## Visual fidelity is a gate, not a goal
+
+Every view in tasks 7 to 10 must match the canvas exactly. "Looks close" is not
+a passing state, and neither is a view that was built by looking at a PNG.
+
+**The numbers live in `docs/design/chat/measurements.md`.** They were read out of
+`flock-chat.pen` itself, so they are the design, not an interpretation of it:
+every frame size, band height, padding, gap, corner radius, font size and font
+weight, plus the mapping from each canvas token to the flock palette role that
+carries it. Build from that file. The PNGs are for looking at, never for
+measuring.
+
+Four rules bind every chat view:
+
+1. **No literal hex in Swift.** Colours come from the theme palette through the
+   mapping table. A hardcoded `#1A1B26` is a defect even when it is the right
+   colour, because the popover themes with the app and a literal freezes it to
+   one theme.
+2. **A geometry test** that renders the view offscreen and asserts its own size
+   and each band's height against the measurements file.
+3. **A hex sample test** that renders in `tokyo-night` and asserts the exact
+   palette hex at named points, the way `ChromeRenderTests.assertSamples`
+   already does for the window chrome. Sample the fill of every distinct
+   surface in the view, not a representative one.
+4. **A PNG written** under `FLOCK_CHROME_RENDER_DIR`, named for the design it
+   pairs with (`popover-signed-in.png` renders to `chat-popover-signed-in.png`),
+   at the design's own point size so the two can be held side by side.
+
+**A view task is not complete until the render and the design have been compared
+by eye, image against image.** The tests catch colour and geometry; they cannot
+see a wrong glyph, a wrong baseline, or a row that reads wrong. That comparison
+is the controller's, not an implementer's self-assessment, and it happens after
+the task review and before the task is marked complete.
+
+One known difference: the canvas holds `text` as `#E6E0FF`, inherited from
+another document's variables, while flock's tokyo-night text role is `#C0CAF5`.
+The palette wins. Body text in a render is a shade cooler than in the PNG beside
+it, and that is the only colour on which the two are expected to differ.
+
+---
+
 ## The contract, verbatim from herdr-chat's README
 
 Every task reads from this table rather than re-deriving it.
@@ -664,13 +705,19 @@ git commit -m "chat: one store, per-pane status, failures as toasts"
 - Test: `Tests/FlockCoreTests/ChatButtonModelTests.swift`, plus a render test in
   `Tests/FlockChromeRender/ChromeRenderTests.swift`
 
-Design: `trigger-and-placement.png`. The button sits in the pane's top chrome,
-left of the agent status dot, and is both the trigger and the state:
+Design: `trigger-and-placement.png`, measured in `measurements.md` under "The
+chat button in a pane's chrome". The button sits in the pane's top chrome, left
+of the agent status dot, and is both the trigger and the state:
 
-- **signed in:** the pane's chat handle, a divider, the chat glyph, the unread
-  count; accent-bordered
-- **signed out:** the chat glyph alone, muted, no border
+- **signed in:** 71x18, fill `selectionBg`, stroke `accent`, r4, pad 3/8, gap 6,
+  the handle at 10/600 in `accent`, with the unread count
+- **signed out:** 27x17, fill `surface0`, r4, pad 3/8, gap 6, glyph only
 - **no chat binary:** no button at all
+
+The chrome row is 32 tall with pad 7/10 and gap 8, and the button sits at y 7.
+Note that `PaneCellView` has no chrome row today: `statusChip` is an
+`.overlay(alignment: .topTrailing)` at line 139, so the button joins that same
+overlay rather than a row that does not exist.
 
 - [ ] **Step 1:** Write `ChatButtonModel.appearance(availability:status:unread:)`
   returning an enum of those three cases, and test all three plus the boundary
@@ -697,7 +744,10 @@ git commit -m "pane: a chat button that is also the unread badge"
 - Modify: `Sources/Flock/Views/PaneCellView.swift` (present it from the button)
 - Test: render tests for both states
 
-Designs: `popover-signed-out.png`, `popover-signed-in.png`.
+Designs: `popover-signed-out.png`, `popover-signed-in.png`, measured in
+`measurements.md` under "Popover, both states". 360 wide, 325 tall signed out
+and 348 signed in, r10, fill `panelBg`, stroke `surface1`. Build the six bands
+to the heights and paddings in that table.
 
 Structure, top to bottom:
 - **Status block:** dot, handle, state word, a chip naming the pane it acts on,
@@ -731,7 +781,11 @@ git commit -m "chat: a popover that is the launcher, anchored to its pane"
 - Create: `Sources/FlockCore/Chat/ChatBroadcastSummary.swift`
 - Test: `Tests/FlockCoreTests/ChatBroadcastSummaryTests.swift`, render tests for each view
 
-Designs: `peek.png`, `quick-send.png`, `broadcast.png`.
+Designs: `peek.png`, `quick-send.png`, `broadcast.png`, measured in
+`measurements.md` under their own headings. Peek is 360x326, quick send
+360x234, broadcast 400x370. Broadcast is the wider one and its send button
+fills `mauve` rather than `accent`, which is the one place the two compose
+surfaces deliberately differ.
 
 - **Peek:** buddies with status dot, handle, where, unread, and a jump
   affordance; rooms with unread below. Clicking a buddy row calls `jump` and
@@ -771,9 +825,16 @@ public enum ChatBroadcastSummary {
 - Modify: `Sources/Flock/FlockApp.swift` (add the command group)
 - Test: `Tests/FlockCoreTests/ChatDegradationTests.swift`
 
-Design: `menu-bar.png`. Every action with its shortcut; Sign Out dimmed when the
-focused pane is not signed in, Sign In when it is; **the whole menu absent when
-the binary is.**
+Design: `menu-bar.png`, measured in `measurements.md` under "Menu bar". Every
+action with its shortcut; Sign Out dimmed when the focused pane is not signed
+in, Sign In when it is; **the whole menu absent when the binary is.**
+
+The order and keys are Chat Panel `⌘⇧C`, a separator, Broadcast to Panes…
+`⌘⇧B`, Chat Peek `⌘⇧P`, Quick Send… `⌘⇧S`, Open Viewer `⌘⇧V`, a separator,
+Sign In This Pane `⌘⇧I`, Sign Out This Pane `⌘⇧O`. A real `Commands` menu is
+drawn by AppKit, so the measurements govern the mock, not the menu: what the
+tests assert here is the item list, the key equivalents, and which items are
+enabled.
 
 The spec's degradation table is the test matrix, one test per row:
 
