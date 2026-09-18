@@ -21,15 +21,33 @@ enum ChatToolLocator {
             .appendingPathComponent(".config/herdr/plugins", isDirectory: true)
     )
 
+    /// Forces the first read off the main actor, at startup, mirroring
+    /// `ToolPath.warm(reporting:)`: a reader that gets to `binaryPath` first
+    /// otherwise pays for the filesystem walk on whatever thread it is on.
+    static func warm() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = binaryPath
+        }
+    }
+
     /// `pluginsDirectory` is a parameter rather than always the real
     /// `~/.config/herdr/plugins` so a test can point it at a temporary tree.
     static func resolve(environmentOverride: String?, pluginsDirectory: URL) -> String? {
         let candidates = installCandidates(under: pluginsDirectory)
-        let resolved = ChatAvailability.resolve(environmentOverride: environmentOverride, candidates: candidates)
+        let validatedOverride = validated(environmentOverride)
+        let resolved = ChatAvailability.resolve(environmentOverride: validatedOverride, candidates: candidates)
         log.log(
-            "chat tool override=\(environmentOverride != nil, privacy: .public) candidates=\(candidates.count, privacy: .public) resolved=\(resolved != nil, privacy: .public)"
+            "chat tool override=\(environmentOverride != nil, privacy: .public) overrideValid=\(validatedOverride != nil, privacy: .public) candidates=\(candidates.count, privacy: .public) resolved=\(resolved != nil, privacy: .public)"
         )
         return resolved
+    }
+
+    /// An override the caller asked for but that does not exist, or exists
+    /// but is not executable, is worth exactly as much as no override: falling
+    /// through to a real install beats reporting chat present at a dead path.
+    private static func validated(_ override: String?) -> String? {
+        guard let override, !override.isEmpty else { return nil }
+        return executableModificationDate(URL(fileURLWithPath: override)) != nil ? override : nil
     }
 
     private static func installCandidates(under pluginsDirectory: URL) -> [(path: String, modified: TimeInterval)] {

@@ -50,9 +50,12 @@ final class ChatToolLocatorTests: XCTestCase {
 
     func testAnOverrideWinsEvenWithAnInstallPresent() throws {
         try installBinary(at: "github", plugin: "m4ttstack.chat-abc123")
-        XCTAssertEqual(
-            ChatToolLocator.resolve(environmentOverride: "/opt/chat", pluginsDirectory: root),
-            "/opt/chat"
+        let override = root.appendingPathComponent("override-chat")
+        FileManager.default.createFile(atPath: override.path, contents: Data([0x00]))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: override.path)
+        assertSamePath(
+            ChatToolLocator.resolve(environmentOverride: override.path, pluginsDirectory: root),
+            override.path
         )
     }
 
@@ -92,5 +95,30 @@ final class ChatToolLocatorTests: XCTestCase {
     func testNoPluginsDirectoryAtAllIsAbsent() {
         let missing = root.appendingPathComponent("does-not-exist", isDirectory: true)
         XCTAssertNil(ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: missing))
+    }
+
+    /// A typo or a deleted binary must fall through to a real install rather
+    /// than report chat present at a path nothing is at.
+    func testAnOverrideAtAMissingPathFallsThroughToACandidate() throws {
+        let installed = try installBinary(at: "github", plugin: "m4ttstack.chat-abc123")
+        assertSamePath(
+            ChatToolLocator.resolve(
+                environmentOverride: root.appendingPathComponent("nowhere").path, pluginsDirectory: root
+            ),
+            installed.path
+        )
+    }
+
+    /// A directory or an unbuilt file at the override path is the same failure
+    /// as a missing one: present on disk, not runnable.
+    func testAnOverrideAtANonExecutablePathFallsThroughToACandidate() throws {
+        let installed = try installBinary(at: "github", plugin: "m4ttstack.chat-abc123")
+        let notExecutable = root.appendingPathComponent("not-executable")
+        FileManager.default.createFile(atPath: notExecutable.path, contents: Data([0x00]))
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: notExecutable.path)
+        assertSamePath(
+            ChatToolLocator.resolve(environmentOverride: notExecutable.path, pluginsDirectory: root),
+            installed.path
+        )
     }
 }
