@@ -140,6 +140,26 @@ final class GhosttyThemeConfigTests: XCTestCase {
         ))
     }
 
+    /// A program in the pane never gets the host clipboard, and stating that
+    /// here is also what leaves the read-clipboard callback with one kind of
+    /// caller. libghostty hands that callback no request kind, so under the
+    /// `ask` default a program's OSC 52 read and the user's own paste arrive
+    /// there indistinguishable; `deny` refuses the read before the callback
+    /// (`Vendor/ghostty/src/Surface.zig`'s `startClipboardRequest`), leaving
+    /// only the paste.
+    func testConfigTextDeniesAProgramsClipboardRead() {
+        let colors = GhosttyThemeColors(
+            background: color(0, 0, 0),
+            foreground: color(255, 255, 255),
+            ansi: Array(repeating: color(0, 0, 0), count: 16)
+        )
+        let text = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 13.0
+        )
+        let lines = text.split(separator: "\n").map(String.init)
+        XCTAssertTrue(lines.contains("clipboard-read = deny"), "missing clipboard-read = deny in:\n\(text)")
+    }
+
     /// The scratch config zeroes libghostty's default 2px grid padding: the
     /// mouse-to-cell conversion divides the raw view point from origin 0, so
     /// any padding would shift every click toward the previous cell.

@@ -104,6 +104,15 @@ public enum GhosttyThemeConfig {
             + "font-size = \(fontSizeText(fontSizePoints))\n"
             + "window-padding-x = 0\n"
             + "window-padding-y = 0\n"
+            // A program in the pane is on the far side of a herdr pane flock
+            // only mirrors and never gets the host clipboard. Saying it here
+            // rather than in the read-clipboard callback is what leaves that
+            // callback one kind of caller: libghostty passes it no request
+            // kind, and under the `ask` default an OSC 52 read and the user's
+            // own paste reach it indistinguishable, while `deny` refuses the
+            // read first (`Vendor/ghostty/src/Surface.zig`'s
+            // `startClipboardRequest`).
+            + "clipboard-read = deny\n"
             + "command = shell:\(command)\n"
     }
 
