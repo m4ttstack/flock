@@ -291,6 +291,142 @@ final class PaneDragTests: XCTestCase {
     /// interval, which are what a late correction would ride in on.
     private static let settleWindowSeconds: TimeInterval = 3
 
+    /// The composition on the other axis: the top band is the second of the
+    /// two bands `pane.move` cannot place directly, so this is the same split
+    /// and swap turned ninety degrees, and the moved pane ending ABOVE is the
+    /// point.
+    ///
+    /// Both neighbours of this aim produce a side by side pair rather than a
+    /// stacked one: the handle strip above the band splits right of the tab's
+    /// focused pane, and the interior below it splits right of the pane itself.
+    /// So an aim that slips either way fails here rather than passing on a
+    /// different verb's result.
+    @MainActor
+    func testTopEdgeDropComposesTheMovedPaneAboveItsTarget() throws {
+        let ids = session.seedIDs()
+        let app = try launchOnSeed()
+        openGrid(app, ids: ids)
+
+        let trace = dragElement(
+            app,
+            fromID: gridTab(ids.tabA), grabbing: Self.firstMiniPaneOfTwo,
+            toID: gridTab(ids.tabB), aiming: .fraction(x: 0.5, y: Self.miniPaneEdgeY)
+        )
+
+        let after = try session.settledLayout(inTab: ids.tabB, holding: [ids.p1, ids.p3], "\(trace)")
+        XCTAssertEqual(
+            after.paneIDs(inTab: ids.tabA), [ids.p2],
+            "the pane should have left \(ids.tabA) entirely; \(after.outline())"
+        )
+        let moved = try XCTUnwrap(after.paneRect(ids.p1), "\(ids.p1) has no rect in any layout")
+        let anchor = try XCTUnwrap(after.paneRect(ids.p3), "\(ids.p3) has no rect in any layout")
+        XCTAssertLessThan(
+            moved.y, anchor.y,
+            "a top-edge drop splits down and then swaps, so the moved pane ends ABOVE; got \(ids.p1) at "
+                + "y=\(moved.y) and \(ids.p3) at y=\(anchor.y), which is the un-composed order"
+        )
+        XCTAssertEqual(moved.x, anchor.x, "a down split leaves both panes on the same x, got \(moved.x) and \(anchor.x)")
+
+        showTabFromGrid(app, ids.tabB)
+        assertCanvasHolds(app, [ids.p1, ids.p3], "after a top-edge drop into \(ids.tabB)")
+        assertCellIsAbove(app, ids.p1, ids.p3, "the canvas did not draw the composed order")
+    }
+
+    /// The same-tab composition: herdr refuses a same-tab `pane.move`, so a
+    /// left-edge drop inside one tab parks the pane in a tab of its own,
+    /// splits it back in beside its target, closes the tab it made, and then
+    /// swaps the pair. Four ops, and the last one is the whole difference
+    /// between this and doing nothing.
+    ///
+    /// Started from a split deliberately off the middle, because the order
+    /// alone cannot tell this apart from the plain interior swap the case
+    /// below drives: both end with the dragged pane on the left. The widths
+    /// can. An interior swap trades the panes and leaves the ratio where it
+    /// was (84 and 36 cells here); the bounce rebuilds the split at a half, so
+    /// the pair comes back even. Measured against a live herdr, not assumed.
+    ///
+    /// Aimed by `Aim.edge`, a twentieth of the target cell in from its side,
+    /// which is a quarter of the way into the fifth of the cell the band
+    /// covers: a twentieth of the cell to the outside of it and three
+    /// twentieths to the interior.
+    @MainActor
+    func testSameTabLeftEdgeBounceRebuildsTheSplitEvenly() throws {
+        let ids = session.seedIDs()
+        // Before the launch: the window then comes up on the shape the drag
+        // starts from rather than relaying out underneath it.
+        try session.mutate(
+            #"{"id":"e2e-ratio","method":"layout.set_split_ratio","params":{"tab_id":"\#(ids.tabA)","path":[],"ratio":0.7}}"#
+        )
+        let widened = try session.snapshot(waitingFor: "\(ids.tabA)'s split to move off the middle") {
+            guard let left = $0.paneRect(ids.p1), let right = $0.paneRect(ids.p2) else { return false }
+            return left.width != right.width
+        }
+        let uneven = try XCTUnwrap(widened.paneRect(ids.p1), "\(ids.p1) has no rect in the widened seed")
+        let app = try launchOnSeed()
+
+        let trace = dragElement(app, fromID: canvasPane(ids.p2), toID: canvasPane(ids.p1), aiming: .edge(.left))
+
+        let after = try session.settledLayout(inTab: ids.tabA, holding: [ids.p1, ids.p2], "\(trace)")
+        XCTAssertEqual(
+            after.tabIDs(inWorkspace: ids.ws), [ids.tabA, ids.tabB],
+            "the tab the bounce parked the pane in was not closed; \(after.outline())"
+        )
+        let moved = try XCTUnwrap(after.paneRect(ids.p2), "\(ids.p2) has no rect in any layout")
+        let anchor = try XCTUnwrap(after.paneRect(ids.p1), "\(ids.p1) has no rect in any layout")
+        XCTAssertLessThan(
+            moved.x, anchor.x,
+            "a left-edge drop splits right and then swaps, so the moved pane ends on the LEFT; got \(ids.p2) "
+                + "at x=\(moved.x) and \(ids.p1) at x=\(anchor.x)"
+        )
+        XCTAssertEqual(
+            moved.width, anchor.width,
+            "the bounce splits back in at a half, so the pair must come back even; got \(ids.p2) at "
+                + "\(moved.width) cells and \(ids.p1) at \(anchor.width). A pair still \(uneven.width) and "
+                + "\(after.paneRect(ids.p1)?.width ?? -1) apart is the plain swap the interior sends, which "
+                + "means this drop landed in the pane's middle rather than its left band"
+        )
+
+        assertCanvasHolds(app, [ids.p1, ids.p2], "after a same-tab left-edge bounce")
+        assertCellIsLeftOf(app, ids.p2, ids.p1, "the canvas did not draw the composed order")
+    }
+
+    /// The same bounce on the other axis: four ops again, ending with the
+    /// swap that puts the moved pane on TOP.
+    ///
+    /// This one needs no ratio to be honest: the drop the interior sends
+    /// leaves the pair side by side, and the one the bottom band sends puts
+    /// the moved pane underneath, so neither can produce what this asserts.
+    /// A missing trailing swap leaves the target on top, which is the same
+    /// arrangement the bottom-edge case ends in and the opposite of this one.
+    @MainActor
+    func testSameTabTopEdgeBounceStacksTheMovedPaneOnTop() throws {
+        let ids = session.seedIDs()
+        let app = try launchOnSeed()
+
+        let trace = dragElement(app, fromID: canvasPane(ids.p2), toID: canvasPane(ids.p1), aiming: .edge(.top))
+
+        let after = try session.settledLayout(inTab: ids.tabA, holding: [ids.p1, ids.p2], "\(trace)")
+        XCTAssertEqual(
+            after.tabIDs(inWorkspace: ids.ws), [ids.tabA, ids.tabB],
+            "the tab the bounce parked the pane in was not closed; \(after.outline())"
+        )
+        XCTAssertEqual(
+            after.splitDirections(inTab: ids.tabA), ["down"],
+            "a top-edge drop restructures the tab into a down split; \(after.outline())"
+        )
+        let moved = try XCTUnwrap(after.paneRect(ids.p2), "\(ids.p2) has no rect in any layout")
+        let anchor = try XCTUnwrap(after.paneRect(ids.p1), "\(ids.p1) has no rect in any layout")
+        XCTAssertLessThan(
+            moved.y, anchor.y,
+            "a top-edge drop splits down and then swaps, so the moved pane ends ABOVE; got \(ids.p2) at "
+                + "y=\(moved.y) and \(ids.p1) at y=\(anchor.y), which is what a missing swap leaves"
+        )
+        XCTAssertEqual(moved.x, anchor.x, "a down split leaves both panes on the same x, got \(moved.x) and \(anchor.x)")
+
+        assertCanvasHolds(app, [ids.p1, ids.p2], "after a same-tab top-edge bounce")
+        assertCellIsAbove(app, ids.p2, ids.p1, "the canvas did not draw the composed order")
+    }
+
     /// The middle of another tab's pane takes the drop too, and lands the pane
     /// beside THAT pane. Driven with the second mini pane of the two-pane
     /// thumbnail, so the grab point is the other side of the same thumbnail
@@ -653,6 +789,16 @@ final class PaneDragTests: XCTestCase {
     /// handle above and the edge bands the drop resolver reads.
     private static let miniPaneY: CGFloat = 0.6
 
+    /// How far below a thumbnail's top a point lands in the mini pane's own
+    /// TOP band. Swept offscreen against the real grid at hundredths of the
+    /// thumbnail: the band runs from 19pt to 34.6pt of the 101pt thumbnail,
+    /// with the tab's handle strip and the padding under it above that and the
+    /// pane's interior below. This aims at 26.3pt, 7.3pt clear of the handle
+    /// and 8.3pt clear of the interior, and both of those neighbours split
+    /// right rather than down, so a slip either way fails a stacked assertion
+    /// rather than passing one.
+    private static let miniPaneEdgeY: CGFloat = 0.26
+
     /// How far inside a thumbnail's left or right side a point still lands in
     /// the mini pane there AND inside that pane's own edge band. On the 120pt
     /// thumbnail that band runs from 4pt to 26.4pt: below it is
@@ -836,6 +982,29 @@ final class PaneDragTests: XCTestCase {
         } describing: {
             let seen = app.flockIdentifiers(prefix: Self.canvasPanePrefix)
             return "the canvas holds [\(seen.joined(separator: ", "))], expected [\(wanted.sorted().joined(separator: ", "))]"
+        }
+    }
+
+    /// The same comparison down the other axis, for the two drops that stack
+    /// a pair rather than setting it side by side.
+    @MainActor
+    private func assertCellIsAbove(
+        _ app: XCUIApplication, _ topPane: String, _ bottomPane: String, _ what: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        func boxes() -> (top: CGRect, bottom: CGRect)? {
+            let drawn = app.flockBoxes(prefix: Self.canvasPanePrefix)
+            guard let top = drawn[canvasPane(topPane)], let bottom = drawn[canvasPane(bottomPane)] else { return nil }
+            return (top, bottom)
+        }
+        assertEventually(what, file: file, line: line) {
+            guard let pair = boxes() else { return false }
+            return pair.top.maxY <= pair.bottom.minY + 1
+        } describing: {
+            guard let pair = boxes() else {
+                return "the canvas is not drawing both \(topPane) and \(bottomPane)"
+            }
+            return "\(topPane) is at \(pair.top), \(bottomPane) at \(pair.bottom)"
         }
     }
 

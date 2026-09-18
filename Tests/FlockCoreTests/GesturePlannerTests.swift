@@ -84,6 +84,20 @@ final class GesturePlannerTests: XCTestCase {
         ])
     }
 
+    /// The same composition on the other axis. Asserted separately from the
+    /// left one because the two differ in the direction they split, and a
+    /// mapping that lost the swap for one edge alone would still pass the
+    /// other's case.
+    func testTopEdgeCrossTabComposesSplitDownThenSwap() {
+        let model = twoTabModel()
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .paneEdge(PaneID(rawValue: "w1:p2"), .top), model: model)
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [
+            .movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: PaneID(rawValue: "w1:p2"), split: .down, ratio: 0.5),
+            .swapPanes(PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")),
+        ])
+    }
+
     // MARK: - Named tests 2-4: same-tab bounce
 
     func testSameTabBottomEdgeUsesBounce() {
@@ -123,6 +137,29 @@ final class GesturePlannerTests: XCTestCase {
             .movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
             .movePaneToTab(PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p2"), split: .right, ratio: 0.5),
             .closeTab(TabID.planPlaceholder(createdByStep: 0)),
+        ])
+    }
+
+    /// The fourth corner of the same-tab table, and the only one of the four
+    /// that had no case: the bounce plus the swap, splitting right.
+    func testSameTabLeftEdgeBouncesThenSwaps() {
+        let sameTabModel = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 2)],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true), paneRecord("w1:p2", workspace: "w1", tab: "w1:t1")],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24), focused: true), paneRect("w1:p2", rect(40, 0, 40, 24))],
+                splits: [splitInfo("s1", .right, 0.5, rect(0, 0, 80, 24))]
+            )]
+        )
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p2")), onto: .paneEdge(PaneID(rawValue: "w1:p1"), .left), model: sameTabModel)
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:p2"), workspace: WorkspaceID(rawValue: "w1"), label: nil),
+            .movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w1:t1"), target: PaneID(rawValue: "w1:p1"), split: .right, ratio: 0.5),
+            .closeTab(TabID.planPlaceholder(createdByStep: 0)),
+            .swapPanes(PaneID(rawValue: "w1:p2"), PaneID(rawValue: "w1:p1")),
         ])
     }
 
