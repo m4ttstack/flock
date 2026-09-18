@@ -99,6 +99,7 @@ struct FlockApp: App {
     @State private var scrollSpeedStore = ScrollSpeedStore()
     @State private var railWidthStore = RailWidthStore()
     @State private var toastCenter: ToastCenter
+    @State private var chatStore: ChatStore
     @State private var herdrStore: HerdrStore
     @State private var viewModel: SessionViewModel
     @State private var undoJournal: UndoJournal
@@ -144,6 +145,7 @@ struct FlockApp: App {
         // bridge is handed the herdr binary it resolves and a reader that gets
         // there first has to wait for it.
         ToolPath.warm(reporting: ["herdr"] + HarnessRoster.known.map(\.binary))
+        ChatToolLocator.warm()
         let socketPath = Self.resolveSocketPath()
         // A plain local, not `self.themeStore`: an escaping closure built
         // here (below) cannot capture any part of `self` before every stored
@@ -158,6 +160,10 @@ struct FlockApp: App {
         _scrollSpeedStore = State(initialValue: scrollSpeedStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
+        let chatStore = ChatStore(
+            runner: ChatRunner(binaryPath: ChatToolLocator.binaryPath ?? ""), toasts: toastCenter
+        )
+        _chatStore = State(initialValue: chatStore)
         let herdrStore = Self.makeHerdrStore(socketPath: socketPath)
         _herdrStore = State(initialValue: herdrStore)
         let undoJournal = UndoJournal(
@@ -245,6 +251,7 @@ struct FlockApp: App {
                 .environment(terminalTextSizeStore)
                 .environment(railWidthStore)
                 .environment(toastCenter)
+                .environment(chatStore)
                 .environment(undoJournal)
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)
