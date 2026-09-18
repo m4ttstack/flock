@@ -190,6 +190,49 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(model.layouts, before)
     }
 
+    /// `LayoutSnapshot.focusedPane` prefers `focusedPaneID` over its
+    /// first-pane fallback, and `MutationEngine` sends what it returns to
+    /// herdr as a real target (the pane an unzoom lands on), so a focus left
+    /// naming the pane that just closed is a plan herdr rejects rather than an
+    /// inert stale id.
+    func testPaneClosedClearsAFocusLeftPointingAtTheDeadPane() throws {
+        var model = try seededModel()
+        let tabID = TabID(rawValue: "w1:t1")
+        let closed = PaneID(rawValue: "w1:p1")
+        XCTAssertEqual(model.focusedPaneID, closed)
+        XCTAssertEqual(model.layouts[tabID]?.focusedPaneID, closed)
+
+        apply(.paneClosed(closed), to: &model)
+
+        XCTAssertNil(model.layouts[tabID]?.focusedPaneID)
+        XCTAssertEqual(model.layouts[tabID]?.focusedPane, PaneID(rawValue: "w1:p2"), "the fallback is what a consumer must reach")
+        XCTAssertNil(model.focusedPaneID)
+        XCTAssertEqual(model.layouts[TabID(rawValue: "w1:t2")]?.focusedPaneID, PaneID(rawValue: "w1:p3"), "another tab's focus moved")
+    }
+
+    func testPaneClosedLeavesAFocusOnAPaneThatIsStillThereAlone() throws {
+        var model = try seededModel()
+        let tabID = TabID(rawValue: "w1:t1")
+
+        apply(.paneClosed(PaneID(rawValue: "w1:p2")), to: &model)
+
+        XCTAssertEqual(model.layouts[tabID]?.focusedPaneID, PaneID(rawValue: "w1:p1"))
+        XCTAssertEqual(model.focusedPaneID, PaneID(rawValue: "w1:p1"))
+    }
+
+    /// The other two paths that delete panes. herdr emits no `PaneClosed` for
+    /// the panes a closed tab or workspace took with it, so the session focus
+    /// is left naming one of them here too.
+    func testClosingATabOrAWorkspaceClearsASessionFocusItTookWithIt() throws {
+        var byTab = try seededModel()
+        apply(.tabClosed(TabID(rawValue: "w1:t1")), to: &byTab)
+        XCTAssertNil(byTab.focusedPaneID)
+
+        var byWorkspace = try seededModel()
+        apply(.workspaceClosed(WorkspaceID(rawValue: "w1")), to: &byWorkspace)
+        XCTAssertNil(byWorkspace.focusedPaneID)
+    }
+
     func testUnknownEventIsNoOp() throws {
         let before = try seededModel()
         var after = before

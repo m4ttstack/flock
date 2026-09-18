@@ -13,6 +13,7 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         for tabID in model.layouts.keys {
             model.layouts[tabID]?.panes.removeAll { $0.paneID == paneID }
         }
+        dropFocusOnMissingPanes(in: &model)
         if let closed {
             reaggregateAgentStatus(tab: closed.tabID, workspace: closed.workspaceID, in: &model)
         }
@@ -76,6 +77,7 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
 
     case .tabClosed(let tabID):
         removeTab(tabID, from: &model)
+        dropFocusOnMissingPanes(in: &model)
 
     case .tabRenamed(let tabID, let label):
         for workspaceID in model.tabs.keys {
@@ -97,6 +99,7 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
 
     case .workspaceClosed(let workspaceID):
         removeWorkspace(workspaceID, from: &model)
+        dropFocusOnMissingPanes(in: &model)
 
     case .workspaceRenamed(let workspaceID, let label):
         guard let index = model.workspaces.firstIndex(where: { $0.workspaceID == workspaceID }) else { break }
@@ -110,6 +113,27 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
 
     case .unknown:
         break
+    }
+}
+
+/// Focus that outlived the pane it named, on every path that deletes panes.
+/// It is not inert there: `LayoutSnapshot.focusedPane` returns
+/// `focusedPaneID` in preference to its first-pane fallback, and
+/// `MutationEngine` sends what that returns to herdr as a real target, so a
+/// dead id reaches the wire as a plan herdr rejects.
+///
+/// Cleared rather than re-derived: herdr decides which pane takes focus after
+/// a close and says so in the `pane.focused` that follows, and the fallback is
+/// what a consumer is owed in between. Keyed on the pane record's absence, not
+/// on the layout's own pane list, so it cannot misfire on a layout that is one
+/// event behind a move.
+private func dropFocusOnMissingPanes(in model: inout SessionModel) {
+    if let focused = model.focusedPaneID, model.panes[focused] == nil {
+        model.focusedPaneID = nil
+    }
+    for tabID in model.layouts.keys {
+        guard let focused = model.layouts[tabID]?.focusedPaneID, model.panes[focused] == nil else { continue }
+        model.layouts[tabID]?.focusedPaneID = nil
     }
 }
 
