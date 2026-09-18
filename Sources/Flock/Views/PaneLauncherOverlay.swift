@@ -14,9 +14,11 @@ struct HarnessEntry: Identifiable, Equatable {
     var mark: HarnessMark?
 }
 
-/// Every harness flock knows how to offer, resolved against PATH at
-/// launcher-render time. Extend `known` to add one; PATH resolution alone
-/// decides what actually renders for a given machine.
+/// Every harness flock knows how to offer, resolved at launcher-render time
+/// against the PATH the app resolved at startup (`ToolPath`), never against
+/// the one it was handed: a launch from Finder or from the tray inherits
+/// launchd's PATH, which holds no agent CLI at all. Extend `known` to add one;
+/// resolution alone decides what actually renders for a given machine.
 enum HarnessRoster {
     static let known: [HarnessEntry] = [
         HarnessEntry(
@@ -29,14 +31,13 @@ enum HarnessRoster {
         ),
     ]
 
-    /// A fresh PATH probe each call (cheap: one `isExecutableFile` per
-    /// candidate directory) rather than a cached snapshot, so a harness
+    /// A fresh directory scan each call (cheap: one `isExecutableFile` per
+    /// candidate directory) rather than a cached result, so a harness
     /// installed mid-session shows up the next time a pristine pane is
     /// created rather than only at process start.
-    static func detected(pathEnvironment: String = ProcessInfo.processInfo.environment["PATH"] ?? "") -> [HarnessEntry] {
-        let directories = pathEnvironment.split(separator: ":").map(String.init)
-        return known.filter { entry in
-            directories.contains { FileManager.default.isExecutableFile(atPath: $0 + "/" + entry.binary) }
+    static func detected(pathEnvironment: String = ToolPath.resolved) -> [HarnessEntry] {
+        known.filter { entry in
+            UserPath.resolve(entry.binary, on: pathEnvironment) != nil
         }
     }
 }
@@ -44,12 +45,15 @@ enum HarnessRoster {
 /// Renders on a pristine flock-created pane: the bare shell prompt stays
 /// visible above (this view never covers it -- it only occupies the space
 /// below, via its own top spacer), one button per detected harness centered
-/// in that space, and a dim hint at the very bottom. The buttons are the
-/// only thing here that answers the pointer: the spacers draw nothing and so
-/// claim nothing, and the hint opts itself out, which leaves every other
-/// click reaching the terminal underneath (plain-click-to-focus, or
-/// typing). `PaneLauncherOverlayTests` asserts both halves of that by
-/// hit-testing the real view.
+/// in that space, and a dim hint at the very bottom -- which is also where a
+/// PATH that resolved no harness at all says so (`LauncherHint`), rather than
+/// leaving an empty button row to be read as a pane with nothing to offer.
+///
+/// The buttons are the only thing here that answers the pointer: the spacers
+/// draw nothing and so claim nothing, and the hint opts itself out, which
+/// leaves every other click reaching the terminal underneath
+/// (plain-click-to-focus, or typing). `PaneLauncherOverlayTests` asserts both
+/// halves of that by hit-testing the real view.
 struct PaneLauncherOverlay: View {
     let theme: Theme
     let entries: [HarnessEntry]
@@ -77,7 +81,9 @@ struct PaneLauncherOverlay: View {
                 }
             }
             Spacer(minLength: 0)
-            Text("detected on PATH · click launches in this pane · typing hides these")
+            Text(LauncherHint.text(
+                detected: entries.map(\.binary), searched: HarnessRoster.known.map(\.binary)
+            ))
                 .font(ChromeType.launcherHint)
                 .foregroundStyle(theme.textLabel)
                 .multilineTextAlignment(.center)
