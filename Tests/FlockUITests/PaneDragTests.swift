@@ -81,6 +81,13 @@ final class PaneDragTests: XCTestCase {
     /// The composition case: the left and top bands are the two that herdr's
     /// own `pane.move` cannot place directly, so the plan splits right and
     /// appends a swap. The moved pane ending on the LEFT is the whole point.
+    ///
+    /// Waited out by settling rather than by the pane's arrival, and that is
+    /// the difference between this case reading the drop and reading its own
+    /// timing: the arrival is the FIRST of the plan's two ops, true about a
+    /// millisecond before the swap that composes the pair, so a snapshot taken
+    /// on it holds the split without the swap every time rather than now and
+    /// then. Settling names no side, so the assertions below can still fail.
     @MainActor
     func testLeftEdgeDropComposesTheMovedPaneOntoTheLeft() throws {
         let ids = session.seedIDs()
@@ -93,12 +100,10 @@ final class PaneDragTests: XCTestCase {
             toID: gridTab(ids.tabB), aiming: .fraction(x: Self.miniPaneEdgeX, y: Self.miniPaneY)
         )
 
-        let after = try session.snapshot(waitingFor: "\(ids.p1) to join \(ids.tabB). \(trace)") {
-            $0.tabID(ofPane: ids.p1) == ids.tabB
-        }
+        let after = try session.settledLayout(inTab: ids.tabB, holding: [ids.p1, ids.p3], "\(trace)")
         XCTAssertEqual(
-            after.paneIDs(inTab: ids.tabB).sorted(), [ids.p1, ids.p3].sorted(),
-            "\(ids.tabB) should hold the moved pane beside its own; \(after.outline())"
+            after.paneIDs(inTab: ids.tabA), [ids.p2],
+            "the pane should have left \(ids.tabA) entirely; \(after.outline())"
         )
         let moved = try XCTUnwrap(after.paneRect(ids.p1), "\(ids.p1) has no rect in any layout")
         let anchor = try XCTUnwrap(after.paneRect(ids.p3), "\(ids.p3) has no rect in any layout")

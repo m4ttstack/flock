@@ -296,6 +296,63 @@ final class ScratchSession {
         )
     }
 
+    /// A snapshot taken once `tab` holds exactly `panes` and two consecutive
+    /// reads agree on where each of them is.
+    ///
+    /// The wait a case ends on has to be one the WHOLE plan satisfies, not one
+    /// an early op does. A composition is a `pane.move` and then a `pane.swap`;
+    /// "the pane has joined the tab" is true from the move, about a
+    /// millisecond before the swap lands, so a case that reads rects out of
+    /// the snapshot ending such a wait reads the half-done arrangement every
+    /// time rather than occasionally. That is what
+    /// `testLeftEdgeDropComposesTheMovedPaneOntoTheLeft` did, and the drop it
+    /// was blaming was correct throughout.
+    ///
+    /// Settledness is what ends the wait without presupposing the answer: it
+    /// says the arrangement has stopped moving, and nothing about which side
+    /// of it a pane ended on, so the assertions afterwards can still fail. It
+    /// is the session-side twin of `settledCanvasBoxes`, which reads the
+    /// window the same way and for the same reason.
+    ///
+    /// `stillFor` is the whole strength of it, and it is a margin rather than
+    /// a guess: the gap between a composition's two ops is 0.8ms measured on
+    /// the app's own traffic through the fault proxy, so a second of stillness
+    /// is three orders of magnitude past it. Two consecutive agreeing reads
+    /// are NOT enough -- driven against a deliberately widened gap, a
+    /// hundred-millisecond stillness settles INSIDE it and hands back the same
+    /// half-done arrangement this exists to stop reading.
+    func settledLayout(
+        inTab tabID: String, holding panes: [String], _ context: String = "",
+        stillFor: TimeInterval = 1, timeout: TimeInterval = 20
+    ) throws -> HerdrSnapshotJSON {
+        let wanted = panes.sorted()
+        let deadline = Date().addingTimeInterval(timeout)
+        var previous: [String: HerdrRect] = [:]
+        var unchangedSince = Date()
+        var latest: HerdrSnapshotJSON?
+        while Date() < deadline {
+            let current = try snapshot()
+            latest = current
+            let rects = panes.reduce(into: [String: HerdrRect]()) { rects, pane in
+                rects[pane] = current.paneRect(pane)
+            }
+            if rects != previous {
+                previous = rects
+                unchangedSince = Date()
+            }
+            let holds = current.paneIDs(inTab: tabID).sorted() == wanted && rects.count == panes.count
+            if holds, Date().timeIntervalSince(unchangedSince) >= stillFor {
+                return current
+            }
+            usleep(100_000)
+        }
+        throw ScratchSessionError(
+            "timed out after \(timeout)s waiting for \(tabID) to hold "
+                + "\(panes.joined(separator: ", ")) unchanged for \(stillFor)s. \(context) herdr holds: "
+                + (latest?.outline() ?? "<no snapshot answered>")
+        )
+    }
+
     /// Changes the world the app is mirroring without going through the app,
     /// so a case can assert on what the app does with a change it did not
     /// make. Throws on a herdr error response rather than letting a rejected
