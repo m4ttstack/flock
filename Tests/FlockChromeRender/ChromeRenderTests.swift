@@ -147,6 +147,11 @@ final class ChromeRenderTests: XCTestCase {
         let anchor = try XCTUnwrap(harness.drag.gridPaneFrame(of: claude.pane))
         XCTAssertEqual(anchor.minX, panes.minX + claude.frame.minX, accuracy: 0.5)
         XCTAssertEqual(anchor.minY, panes.minY + claude.frame.minY, accuracy: 0.5)
+        // The tail end to end, through the real decode: a card that opened and
+        // read nothing is what this render exists to catch.
+        let tail = try XCTUnwrap(harness.viewModel.paneTails[claude.pane], "the card opened without reading its pane")
+        XCTAssertEqual(tail.lines.count, PaneTailPolicy.lines)
+        XCTAssertEqual(tail.lines.last, "Editing lib/daemon.ts")
         let rest = try snapshot(window)
         if let directory {
             try XCTUnwrap(rest.representation(using: .png, properties: [:]))
@@ -1671,11 +1676,26 @@ private struct GroundSurfaceFactory: GhosttyPaneFactory {
     }
 }
 
-/// Answers the hover card's last-line read and nothing else.
+/// Answers the hover card's tail read and nothing else, in herdr's own
+/// envelope shape: the screen sits under `result.read`, and a payload written
+/// anywhere else decodes to nothing and leaves every card blank with no error
+/// to show for it.
 private struct GridFixtureClient: HerdrCommandClient {
+    static let screen = """
+        $ bun test lib/daemon
+        lib/daemon/port-allocator.test.ts:
+        (pass) allocates the first free port
+        (pass) refuses a port already held
+        (pass) releases on close
+
+         31 pass, 0 fail
+        Editing lib/daemon.ts
+
+        """
+
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         guard method == "pane.read" else { throw OfflineHerdrClient.Offline() }
-        return Data(#"{"result":{"text":"Editing lib/daemon.ts\n"}}"#.utf8)
+        return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": Self.screen]]])
     }
 }
 

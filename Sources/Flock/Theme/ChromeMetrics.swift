@@ -272,8 +272,13 @@ enum ChromeMetrics {
         /// two things, short enough for the pointer to cross it well inside
         /// `AllWorkspacesGridState.hoverCardGrace`.
         static let paneGap: CGFloat = 8
-        /// Where placement starts before the card has measured itself once.
-        static let estimatedHeight: CGFloat = 110
+        /// The tail's lines sit at the terminal's own rhythm, tighter than the
+        /// card's rows, so a screenful reads as one block of output.
+        static let tailLineSpacing: CGFloat = 1
+        /// Where placement starts before the card has measured itself once:
+        /// a card with a full tail, since that is what nearly every card
+        /// settles at.
+        static let estimatedHeight: CGFloat = 220
     }
 
     enum Ghost {

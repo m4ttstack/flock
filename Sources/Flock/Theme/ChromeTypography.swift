@@ -59,7 +59,7 @@ enum ChromeType {
 
     static let hoverCardTitle = inter(14, .medium)
     static let hoverCardDetail = inter(11.5)
-    static let hoverCardLastLine = mono(11.5)
+    static let hoverCardTail = mono(11.5)
 
     static let launcherName = inter(16.5, .medium)
     static let launcherMonogram = inter(14, .bold)

@@ -28,11 +28,16 @@ public final class SessionViewModel {
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
+    /// The grid hover card's tails, one per pane it has opened on.
+    public private(set) var paneTails: [PaneID: PaneTail] = [:]
     public private(set) var attentionToasts = AttentionToastStack()
 
     /// Written from inside view bodies, which must not invalidate the views
     /// reading it; `lastLines` is what they observe.
     @ObservationIgnored private var lastLineRequests = LastLineRequests()
+    /// The panes with a tail read in flight, for the same reason and read the
+    /// same way: `paneTails` is what the card observes.
+    @ObservationIgnored private var tailReads: Set<PaneID> = []
     // One chained task per pane: every attach/park/teardown request for a
     // pane waits for whatever request came immediately before it (for that
     // SAME pane only; other panes are unaffected) before touching
@@ -458,15 +463,58 @@ public final class SessionViewModel {
         }
     }
 
+    /// The cached tail for the pane the grid's hover card is showing, reading
+    /// it once when the card first asks. Keyed by pane alone, never by
+    /// `revision`: a pane that prints changes nothing herdr reports about
+    /// itself, so a revision-keyed tail would sit there while its pane ran.
+    /// `refreshPaneTail` is what keeps it current for as long as the card is
+    /// up.
+    public func paneTail(for pane: PaneID) -> PaneTail? {
+        if paneTails[pane] == nil {
+            readTail(for: pane)
+        }
+        return paneTails[pane]
+    }
+
+    /// One tick of the open card's own cadence.
+    public func refreshPaneTail(for pane: PaneID) {
+        readTail(for: pane)
+    }
+
+    /// One read at a time per pane: a tick that arrives while the last read is
+    /// still out leaves it to land rather than adding a second. The answer is
+    /// kept whether or not the card is still open, so re-hovering a pane shows
+    /// its last tail at once and refreshes behind it.
+    private func readTail(for pane: PaneID) {
+        guard tailReads.insert(pane).inserted else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let params: [String: JSONValue] = [
+                "pane_id": .string(pane.rawValue),
+                "source": .string("visible"),
+                "lines": .int(PaneTailPolicy.lines),
+            ]
+            let data = try? await self.client.requestRaw("pane.read", params)
+            self.tailReads.remove(pane)
+            guard let data, let text = Self.extractReadText(data) else { return }
+            self.paneTails[pane] = PaneTailPolicy.make(from: text)
+        }
+    }
+
     /// `pane.read`'s payload sits under its own wrapper key, as every herdr
     /// success payload does; decoding `result.text` directly finds nothing and
     /// leaves the card blank with no error to show for it.
-    static func extractLastLine(_ data: Data) -> String? {
+    static func extractReadText(_ data: Data) -> String? {
         struct Read: Decodable { let text: String }
         struct Result: Decodable { let read: Read }
         struct Envelope: Decodable { let result: Result }
         guard let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else { return nil }
-        let trimmed = envelope.result.read.text.trimmingCharacters(in: .newlines)
+        return envelope.result.read.text
+    }
+
+    static func extractLastLine(_ data: Data) -> String? {
+        guard let text = extractReadText(data) else { return nil }
+        let trimmed = text.trimmingCharacters(in: .newlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed.split(separator: "\n").last.map(String.init) ?? trimmed
     }
@@ -678,8 +726,16 @@ public final class SessionViewModel {
         return paneLauncherRegistry.isPristine(pane)
     }
 
+    /// On the key path: `GhosttySurfaceView.keyDown` calls this for every real
+    /// keystroke, so the seam is bumped only when the registry's answer
+    /// actually moved. Every visible pane cell's body depends on that seam
+    /// through `isPristineLauncherPane`, and the answer stops changing after
+    /// the pane's first keystroke -- for a pane flock never created it never
+    /// changes at all.
     public func recordLauncherKeystroke(_ pane: PaneID) {
+        let wasPristine = paneLauncherRegistry.isPristine(pane)
         paneLauncherRegistry.recordKeystroke(pane)
+        guard wasPristine else { return }
         launcherRegistryVersion += 1
     }
 

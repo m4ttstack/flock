@@ -895,10 +895,22 @@ private struct GridHoverCard: View {
                 pane: box.offsetBy(dx: -viewport.minX, dy: -viewport.minY),
                 card: size, container: CGRect(origin: .zero, size: viewport.size), gap: ChromeMetrics.HoverCard.paneGap
             )
-            PaneHoverCardView(theme: theme, content: content, lastLine: viewModel.lastLine(for: pane))
+            PaneHoverCardView(theme: theme, content: content, tail: viewModel.paneTail(for: hovered))
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
                 .offset(x: origin.x, y: origin.y)
                 .allowsHitTesting(false)
+                // The card's own cadence, and the whole of what keeps a
+                // running pane's tail current: nothing herdr reports about a
+                // pane changes when it prints, so there is no event to follow.
+                // Cancelled with the card, so no pane is read once its card
+                // has gone.
+                .task(id: hovered) {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: PaneTailPolicy.refreshInterval)
+                        guard !Task.isCancelled else { return }
+                        viewModel.refreshPaneTail(for: hovered)
+                    }
+                }
         }
     }
 }
@@ -906,7 +918,7 @@ private struct GridHoverCard: View {
 private struct PaneHoverCardView: View {
     let theme: Theme
     let content: PaneHoverCardContent
-    let lastLine: String?
+    let tail: PaneTail?
 
     var body: some View {
         VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.spacing) {
@@ -930,17 +942,13 @@ private struct PaneHoverCardView: View {
                 .foregroundStyle(theme.textDim)
                 .lineLimit(1)
                 .truncationMode(.head)
-            // Until the read lands there is no line to set apart, so the rule
-            // waits for it too.
-            if let lastLine, !lastLine.isEmpty {
+            // Until the read lands there is no output to set apart, so the
+            // rule waits for it too.
+            if let tail, !tail.isEmpty {
                 Rectangle()
                     .fill(theme.rule)
                     .frame(height: ChromeMetrics.ruleWidth)
-                Text(lastLine)
-                    .font(ChromeType.hoverCardLastLine)
-                    .foregroundStyle(theme.textDim)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                tailLines(tail)
             }
         }
         .padding(.vertical, ChromeMetrics.HoverCard.verticalPadding)
@@ -951,5 +959,24 @@ private struct PaneHoverCardView: View {
             RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.cornerRadius)
                 .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
         )
+    }
+
+    /// The pane's own last lines, in the terminal face. Each line stands alone
+    /// and clips: the card is one fixed width, and a line allowed to wrap
+    /// would make the card's height depend on how long the pane's output
+    /// happens to be.
+    private func tailLines(_ tail: PaneTail) -> some View {
+        VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.tailLineSpacing) {
+            ForEach(Array(tail.lines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(ChromeType.hoverCardTail)
+                    .foregroundStyle(theme.textDim)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("flock.grid.hoverCard.tail")
     }
 }
