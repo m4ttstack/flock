@@ -304,6 +304,23 @@ private func ghosttyHostAction(
     return true
 }
 
+/// libghostty's own paste road: the `paste_from_clipboard` binding (the
+/// physical Paste key, and Cmd+V whenever AppKit's menu item did not take it
+/// first) starts a clipboard request, and it arrives here.
+///
+/// Only a paste ever does. This callback is handed no request kind, so what
+/// tells a paste from a program's OSC 52 read is that every surface is
+/// configured `clipboard-read = deny` (`GhosttyThemeConfig.configText`) and
+/// libghostty refuses the read before reaching here.
+///
+/// The text goes to the pane through the session, the same road the menu's
+/// Paste takes, and the request is completed EMPTY so libghostty writes
+/// nothing of its own: its text path strips the escape bytes that frame a
+/// paste and splits what is left across three PTY writes (see
+/// `PaneControlChannel.paste`). Completing rather than reporting the request
+/// unstarted is what keeps the paste from ALSO landing as a literal Cmd+V --
+/// that binding is `performable`, so a request libghostty is told never began
+/// falls through to the key encoder.
 private func ghosttyHostReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
@@ -312,18 +329,21 @@ private func ghosttyHostReadClipboard(
     guard location != GHOSTTY_CLIPBOARD_SELECTION else { return false }
     guard let session = ghosttySession(from: userdata), let surface = session.surface else { return false }
     guard let text = NSPasteboard.general.pasteText() else { return false }
-    text.withCString { ptr in
+    "".withCString { ptr in
         ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+    }
+    // Resolved above, not inside the hop, for the same lifetime reason as
+    // `ghosttyHostAction`.
+    Task { @MainActor in
+        session.paste(text)
     }
     return true
 }
 
-/// Where a clipboard request libghostty will not complete on its own lands: a
-/// paste its own protection judged unsafe (anything holding a newline, and
-/// flock's surface is never in bracketed-paste mode), or an OSC 52 read under
-/// the `clipboard-read = ask` default flock inherits by loading no user config.
-/// The read above sends every one of them here, by completing with
-/// `confirmed: false`.
+/// Where a clipboard request libghostty will not complete on its own lands.
+/// Nothing routes here today: the read above completes a paste with an empty
+/// string, which libghostty never judges unsafe, and `clipboard-read = deny`
+/// refuses a program's OSC 52 read before a request exists to confirm.
 ///
 /// EVERY path through here has to complete the request. It is a heap
 /// allocation libghostty stops tracking the moment this callback is entered,

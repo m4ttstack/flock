@@ -4,14 +4,17 @@ import GhosttyKit
 /// decided PURELY from the kind of request -- no surface, pasteboard or
 /// libghostty call inside this type.
 ///
-/// The line is who is asking. A paste is the user's own gesture and gets the
-/// clipboard, the same answer flock's menu-bar Paste already gives through
-/// `ghostty_surface_text`; if the two disagreed, one paste would land and the
-/// other would not, by nothing but which key started it. An OSC 52 read is a
-/// PROGRAM asking for the host's clipboard, on the far side of a herdr pane
-/// flock only mirrors, so it is denied. Ghostty's own macOS app asks the user
-/// instead, in a sheet; flock has no sheet and will not hand the clipboard
-/// over without one.
+/// The line is who is asking. An OSC 52 read is a PROGRAM asking for the
+/// host's clipboard, on the far side of a herdr pane flock only mirrors, so it
+/// is denied. Ghostty's own macOS app asks the user instead, in a sheet; flock
+/// has no sheet and will not hand the clipboard over without one.
+///
+/// This is the backstop for that policy rather than where it is enforced:
+/// `GhosttyThemeConfig.configText` sets `clipboard-read = deny`, which makes
+/// libghostty refuse a program's read before any callback runs, and a paste is
+/// completed empty and re-sent over the pane's control channel
+/// (`GhosttyHost`'s read-clipboard callback), so neither kind reaches the
+/// confirmation route any more.
 ///
 /// Every kind gets an answer, the unrecognized ones included: a request is a
 /// libghostty allocation that only a completion frees.

@@ -647,12 +647,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// pane's program exactly like a keystroke is, and AppKit can route
     /// Cmd+V here through a first responder this view did not ask for.
     ///
-    /// `session.paste` goes through `ghostty_surface_text`, which pastes what
-    /// it is given and still brackets it when the terminal has asked for
-    /// bracketed paste. libghostty's own `paste_from_clipboard` binding
-    /// (shift+insert) reaches the same text by a longer road: its request is
-    /// unconfirmed, so anything holding a newline comes back to the host as a
-    /// confirmation, which `GhosttyHost` answers by completing it.
+    /// `session.paste` is the one road a paste takes out of flock, whether it
+    /// started here or at libghostty's own `paste_from_clipboard` binding
+    /// (`GhosttyHost`'s read-clipboard callback, which routes to this same
+    /// method).
     @objc func paste(_ sender: Any?) {
         guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
         guard let text = NSPasteboard.general.pasteText() else { return }

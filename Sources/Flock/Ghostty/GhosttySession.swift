@@ -361,8 +361,22 @@ final class GhosttySession {
         return String(cString: text.text).components(separatedBy: "\n")
     }
 
+    /// Every paste road ends here, and every paste leaves on the pane's control
+    /// channel rather than through the surface: the terminal whose mode decides
+    /// what a paste means is herdr's, not this one, and only a complete
+    /// bracketed paste tells it a paste from typed input
+    /// (`PaneControlChannel.paste`).
+    ///
+    /// `insertText` remains for a pane whose control FIFO could not be made
+    /// (`GhosttyControlSurfaceFactory` logs that). It reaches the program
+    /// unframed, which is what every paste did before, and is the only thing
+    /// left that reaches it at all.
     func paste(_ text: String) {
-        insertText(text)
+        guard let controlChannel else {
+            insertText(text)
+            return
+        }
+        controlChannel.paste(text)
     }
 
     /// Records the pane app's mouse-reporting state as reported by the bridge
