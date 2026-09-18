@@ -75,14 +75,38 @@ fallback to the TUI. Mode is chosen by the caller, not inferred from a TTY.
 | Verb | Inputs | Output |
 | --- | --- | --- |
 | `status --json` | `--pane <id>` | `{ handle, state, pane, signedIn, rooms[] }` |
-| `peek --json` | | `{ panes: [{handle, paneId, workspaceId, tabId, title, where, agentStatus, unread}], rooms: [{name, unread}] }` |
-| `targets --json` | | `{ rooms: [name], people: [handle] }` |
+| `peek --json` | | `{ buddies: [{handle, paneId, status, repo, branch, title, unread, mentions}], rooms: [{room, unread, mentions}] }` |
+| `targets --json` | | `{ rooms: [#name], people: [@handle] }` |
 | `quick-send --json` | `--to <#room\|@handle> --body <text>` | `{ ok, to }` |
-| `broadcast --json` | `--panes <id,...> --body <text>` | `{ ok, results: [{paneId, ok, error?}] }` |
-| `sign-in --json` | `--pane <id>` | `{ handle, state }` |
-| `sign-out --json` | `--pane <id>` | `{ handle, state }` |
-| `jump --json` | `--handle <h>` | `{ paneId, workspaceId, tabId }` |
+| `broadcast --json` | `--panes <id,...> --body <text>` | `{ ok, results: [{paneId, ok, delivered, error?}] }` |
+| `sign-in --json` | `--pane <id>` | the same object as `status` |
+| `sign-out --json` | `--pane <id>` | the same object as `status` |
+| `jump --json` | `--handle <h>` | `{ paneId, workspace, handle }` |
 | `open-viewer --json` | `--room <name>` optional | `{ url }` |
+
+Four of those shapes carry a reason.
+
+**`peek` and `jump` answer with a `paneId` and no workspace or tab id.** rt's
+pane roster has neither: a pane row carries `paneId` and a workspace *name*, and
+nothing about tabs. herdr's own snapshot does have the ids, but reaching for
+them would mean this binary calling herdr to compute something flock already
+holds... flock renders the whole layout, so it maps a pane id to its workspace
+and tab from the model in memory, with no call at all.
+
+**The sign verbs answer with the full status object rather than a bare
+handle.** rt's own reply is `{ok, handle, room}` for sign-in and `{ok}` for
+sign-out, which does not say what the header should now read. The caller's next
+question after signing is always "what does the header say now", so the verb
+answers it in the same call instead of leaving a second round trip and a race.
+
+**`broadcast` carries rt's own `delivered` word beside `ok`.** rt answers a
+send with `accepted`, `queued`, or `refused`; only `refused` is a failure, and a
+caller that wants to tell a queued send from an accepted one needs the word rt
+used.
+
+**`targets` returns prefixed names.** `#room` and `@handle` are one namespace
+the caller passes straight back as `--to`, where a bare name would be ambiguous
+between a room and a person.
 
 Two verbs deserve their reasoning stated. `jump` returns ids rather than moving
 focus, because flock focuses panes itself and moving focus twice fights its own
