@@ -17,6 +17,119 @@ struct ScratchSessionError: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
+/// One request the app sent through the fault proxy, with herdr's reply to it.
+///
+/// Times are milliseconds from the moment the proxy started recording, which
+/// is what separates two verbs of one plan from two plans: the second op of a
+/// composition follows its first by a millisecond or so, while a later gesture
+/// is seconds away.
+struct ProxyExchange: CustomStringConvertible {
+    /// What herdr said back. Every case is distinct on purpose: a verb that
+    /// was never answered, one whose answer could not be read, one herdr
+    /// refused and one that did something are four different findings, and
+    /// folding any two of them together is how "the app never sent it" gets
+    /// mistaken for "herdr said no".
+    enum Answer: Equatable {
+        /// Nothing came back before the connection ended. The proxy records a
+        /// reply as it relays it, so this is also what a caller that hung up
+        /// without reading its own answer leaves behind.
+        case none
+        case unreadable(String)
+        case error(code: String, message: String)
+        case refused(String)
+        case ok
+    }
+
+    let method: String?
+    let id: String?
+    let request: String
+    let requestAtMilliseconds: Double
+    let reply: String?
+    let replyAtMilliseconds: Double?
+    let replyTruncated: Bool
+
+    init(row: [String: Any]) {
+        method = row["method"] as? String
+        id = row["id"] as? String
+        request = row["request"] as? String ?? ""
+        requestAtMilliseconds = (row["requestAt"] as? NSNumber)?.doubleValue ?? 0
+        reply = row["reply"] as? String
+        replyAtMilliseconds = (row["replyAt"] as? NSNumber)?.doubleValue
+        replyTruncated = row["replyTruncated"] as? Bool ?? false
+    }
+
+    /// The request's own `params`, or nil when the line was not a request this
+    /// proxy could read (the pane bridges the app spawns share the socket and
+    /// speak their own protocol over it).
+    var params: [String: Any]? { Self.object(request)?["params"] as? [String: Any] }
+
+    /// One step down into `params`, for the nested `destination` a `pane.move`
+    /// carries.
+    func param(_ path: String...) -> Any? {
+        var current: Any? = params
+        for key in path {
+            guard let step = (current as? [String: Any])?[key] else { return nil }
+            current = step
+        }
+        return current
+    }
+
+    /// herdr answers a verb it declined with a success envelope carrying a
+    /// `reason` rather than with an error, so both shapes are read here: the
+    /// reason lives one level inside `result` (`move_result.reason`,
+    /// `swap.reason`), beside the `changed` flag it explains.
+    var answer: Answer {
+        guard let reply else { return .none }
+        if replyTruncated { return .unreadable("the reply was longer than the proxy records") }
+        guard let object = Self.object(reply) else { return .unreadable("the reply was not a JSON object") }
+        if let error = object["error"] as? [String: Any] {
+            return .error(
+                code: error["code"] as? String ?? "unknown",
+                message: error["message"] as? String ?? ""
+            )
+        }
+        guard let result = object["result"] as? [String: Any] else {
+            return .unreadable("the reply carried neither a result nor an error")
+        }
+        for value in result.values {
+            if let payload = value as? [String: Any], let reason = payload["reason"] as? String {
+                return .refused(reason)
+            }
+        }
+        return .ok
+    }
+
+    var description: String {
+        let name = method ?? "<not a request>"
+        let stamp = String(format: "%.1fms", requestAtMilliseconds)
+        let answered = replyAtMilliseconds.map { String(format: " answered +%.1fms", $0 - requestAtMilliseconds) } ?? ""
+        return "\(stamp) \(name)\(id.map { " id=\($0)" } ?? "") -> \(answer)\(answered) params=\(Self.digest(params))"
+    }
+
+    private static func object(_ line: String) -> [String: Any]? {
+        guard let data = line.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    private static func digest(_ params: [String: Any]?) -> String {
+        guard let params,
+              let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "<none>"
+        }
+        return text.count <= 240 ? text : String(text.prefix(240)) + "..."
+    }
+}
+
+extension Array where Element == ProxyExchange {
+    /// Every exchange on its own line, for a failure message: what actually
+    /// left the app is the whole point of recording it, so a case that fails
+    /// here says so rather than leaving the next run to find out.
+    func outline() -> String {
+        isEmpty ? "the app sent nothing through the proxy" : "\n" + map { "  \($0)" }.joined(separator: "\n")
+    }
+}
+
 /// The test bundle's end of the e2e harness: a ground-truth channel into the
 /// herdr session `Scripts/e2e.sh` created for this run, independent of the app
 /// under test.
@@ -164,6 +277,9 @@ final class ScratchSession {
     /// app's connections mid-flight, returned as the path to launch the app
     /// against in place of `socketPath`. Nothing else in a case goes through
     /// it: the ground truth read here still comes from herdr directly.
+    ///
+    /// It also starts the recording the app's traffic lands in, clearing
+    /// whatever the previous case left there.
     func startFaultProxy() throws -> String {
         let result = try controlResult("fault-proxy-start")
         guard let path = result["socket"] as? String, !path.isEmpty else {
@@ -191,6 +307,22 @@ final class ScratchSession {
             throw ScratchSessionError("fault-proxy-report carried no cut count: \(result)")
         }
         return cuts
+    }
+
+    /// Every request the app sent through the fault proxy since it was
+    /// started, in the order it sent them, each paired with herdr's reply.
+    ///
+    /// This is the only view of what the app itself asked for: herdr keeps no
+    /// record of who asked it what, and a case reading the session afterwards
+    /// sees the result of a plan without seeing the plan. A verb that never
+    /// left the app and a verb herdr refused are the same layout from the
+    /// outside, and they want opposite fixes.
+    func faultProxyRecording() throws -> [ProxyExchange] {
+        let result = try controlResult("fault-proxy-recording")
+        guard let rows = result["exchanges"] as? [[String: Any]] else {
+            throw ScratchSessionError("fault-proxy-recording carried no exchanges: \(result)")
+        }
+        return rows.map(ProxyExchange.init(row:))
     }
 
     /// A workspace on a throwaway git repo plus the linked-worktree workspace

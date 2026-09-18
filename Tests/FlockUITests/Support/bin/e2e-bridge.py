@@ -18,6 +18,7 @@ contract. Every request begins with the token this process generated:
     <token> control fault-proxy-start
     <token> control fault-proxy-arm-subscription-cut
     <token> control fault-proxy-report
+    <token> control fault-proxy-recording
     <token> ping
 
 Control replies are {"ok": true} or {"error": {"message": ...}}. A verb whose
@@ -57,13 +58,15 @@ CONNECTION_TIMEOUT_SECONDS = 10
 class FaultProxy:
     """A unix socket the app under test is pointed at in place of herdr's own,
     so ONE of the app's connections can be cut at a chosen point in its
-    bootstrap. Nothing an outside process can do reaches a single socket a
-    running app holds: stopping the server takes every connection at once,
-    which is a different failure.
+    bootstrap, and so every request the app makes can be recorded. Nothing an
+    outside process can do reaches a single socket a running app holds:
+    stopping the server takes every connection at once, which is a different
+    failure, and herdr's own socket keeps no record of who asked it what.
 
     Only the app goes through it. The ground-truth channel (`herdr <line>`)
     talks to the session socket directly, so a fault armed here changes what
-    the app sees and nothing else.
+    the app sees and nothing else, and the recording is the app's traffic
+    alone rather than the traffic of the case reading up on it.
     """
 
     # The store's blanket subscription carries this id (`subscribeRequestLine`
@@ -79,6 +82,18 @@ class FaultProxy:
     # through a stream it has not switched to yet forgets it outright.
     CUT_SETTLE_SECONDS = 0.25
 
+    # A recorded line is kept whole up to this, and truncated past it with its
+    # true length carried beside it. Every verb a drop sends answers well
+    # inside it (a `pane.move` reply carries two layouts and runs about 1.5KB);
+    # `session.snapshot` does not, and nothing asserts on one.
+    MAX_RECORDED_LINE = 4096
+
+    # The app resnapshots on a timer and exports a layout per tab, so a case
+    # that dwells records steadily. Past this the recording stops growing and
+    # counts what it refused, which is honest about a truncated tail in a way
+    # that dropping the oldest entries would not be.
+    MAX_RECORDED_EXCHANGES = 400
+
     def __init__(self, upstream_path, listen_path):
         self.upstream_path = upstream_path
         self.listen_path = listen_path
@@ -87,6 +102,9 @@ class FaultProxy:
         self.cuts = 0
         self.subscriptions = []
         self.listener = None
+        self.exchanges = []
+        self.dropped = 0
+        self.epoch = time.monotonic()
 
     def start(self):
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -106,6 +124,66 @@ class FaultProxy:
     def report(self):
         with self.lock:
             return {"armed": self.armed, "cuts": self.cuts, "subscriptions": len(self.subscriptions)}
+
+    def clear_recording(self):
+        """Called when a case starts the proxy, so what it reads back is its
+        own app's traffic: one bridge process serves a whole `xcodebuild test`
+        invocation, and the proxy outlives the app that was launched against
+        it."""
+        with self.lock:
+            self.exchanges = []
+            self.dropped = 0
+            self.epoch = time.monotonic()
+
+    def recording(self):
+        with self.lock:
+            return {"exchanges": [dict(entry) for entry in self.exchanges], "dropped": self.dropped}
+
+    def _elapsed_ms(self):
+        return round((time.monotonic() - self.epoch) * 1000, 1)
+
+    def _record_request(self, line, request):
+        """Returns the entry this connection fills the reply into, or None once
+        the recording is full. `request` is the decoded line when it decoded:
+        the pane bridges the app spawns are pointed at this same socket and
+        their traffic is not JSON-RPC, so a line that is not a request is
+        recorded with no method rather than dropped."""
+        text, truncated, length = self._cap(line)
+        entry = {
+            "n": None,
+            "method": request.get("method") if isinstance(request, dict) else None,
+            "id": request.get("id") if isinstance(request, dict) else None,
+            "request": text,
+            "requestTruncated": truncated,
+            "requestBytes": length,
+            "requestAt": self._elapsed_ms(),
+            "reply": None,
+            "replyTruncated": False,
+            "replyBytes": 0,
+            "replyAt": None,
+        }
+        with self.lock:
+            if len(self.exchanges) >= self.MAX_RECORDED_EXCHANGES:
+                self.dropped += 1
+                return None
+            entry["n"] = len(self.exchanges)
+            self.exchanges.append(entry)
+        return entry
+
+    def _record_reply(self, entry, line):
+        text, truncated, length = self._cap(line)
+        with self.lock:
+            entry["reply"] = text
+            entry["replyTruncated"] = truncated
+            entry["replyBytes"] = length
+            entry["replyAt"] = self._elapsed_ms()
+
+    @classmethod
+    def _cap(cls, line):
+        text = line.decode("utf-8", "replace")
+        if len(text) <= cls.MAX_RECORDED_LINE:
+            return text, False, len(text)
+        return text[: cls.MAX_RECORDED_LINE], True, len(text)
 
     def _accept_loop(self, listener):
         while True:
@@ -131,6 +209,10 @@ class FaultProxy:
             # post-bootstrap death instead.
             if request.get("method") == "session.snapshot":
                 self._cut_subscription()
+            # Recorded before the forward, so the order the entries carry is
+            # the order the app sent them in rather than the order herdr got
+            # round to answering them.
+            entry = self._record_request(first, request)
             upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             upstream.connect(self.upstream_path)
             upstream.sendall(first + b"\n" + rest)
@@ -138,7 +220,7 @@ class FaultProxy:
                 with self.lock:
                     self.subscriptions.append((client, upstream))
                 registered = True
-            self._pump(client, upstream)
+            self._pump(client, upstream, entry)
         except OSError:
             pass
         finally:
@@ -184,9 +266,23 @@ class FaultProxy:
         line, _, rest = buffered.partition(b"\n")
         return line, rest
 
-    @staticmethod
-    def _pump(client, upstream):
+    def _pump(self, client, upstream, entry=None):
+        """Relays both ways, and records the FIRST line coming back as the
+        reply to the request this connection opened with.
+
+        The first line only: herdr answers one request per connection, so
+        everything after it belongs to a stream rather than to the request.
+        The subscription's event firehose and a pane bridge's terminal output
+        both ride connections that opened with a request, and recording those
+        would be an unbounded log of a session's whole output.
+
+        A reply is recorded as it passes through, so a client that hangs up
+        without reading its answer leaves the entry with none: the app always
+        reads its own, but a hand-driven probe piped into `head` does not, and
+        an unanswered entry there is the probe's doing rather than herdr's.
+        """
         ends = [client, upstream]
+        pending = b"" if entry is not None else None
         while True:
             try:
                 readable, _, _ = select.select(ends, [], [])
@@ -200,6 +296,18 @@ class FaultProxy:
                     return
                 if not chunk:
                     return
+                if pending is not None and source is upstream:
+                    pending += chunk
+                    line, separator, _ = pending.partition(b"\n")
+                    if separator:
+                        self._record_reply(entry, line)
+                        pending = None
+                    elif len(pending) > self.MAX_RECORDED_LINE:
+                        # A reply that never ends is not a reply. Recorded as
+                        # far as it got so the entry says what arrived rather
+                        # than reading as a request nothing answered.
+                        self._record_reply(entry, pending)
+                        pending = None
                 try:
                     target.sendall(chunk)
                 except OSError:
@@ -276,12 +384,18 @@ class Bridge:
             if self.fault_proxy is None:
                 return json.dumps({"error": {"message": "no fault proxy is running; start one first"}})
             return json.dumps({"ok": True, "result": self.fault_proxy.report()})
+        if verb == "fault-proxy-recording":
+            if self.fault_proxy is None:
+                return json.dumps({"error": {"message": "no fault proxy is running; start one first"}})
+            return json.dumps({"ok": True, "result": self.fault_proxy.recording()})
         return json.dumps({"error": {"message": "unknown control verb: %s" % verb[:40]}})
 
     def start_fault_proxy(self):
         """Idempotent: a second call hands back the socket the first one bound,
         so a case that starts one after another has left theirs running still
-        gets a proxy pointed at this run's session."""
+        gets a proxy pointed at this run's session. It always clears the
+        recording, since the caller is about to launch its own app through
+        it and the previous case's traffic is not its evidence."""
         if self.fault_proxy is None:
             # Named for the run's own session, and only 7 characters past that
             # name: `Scripts/e2e.sh` sweeps this run's processes by matching
@@ -297,6 +411,7 @@ class Bridge:
             except OSError as error:
                 return json.dumps({"error": {"message": "fault proxy could not bind %s: %s" % (path, error)}})
             self.fault_proxy = proxy
+        self.fault_proxy.clear_recording()
         return json.dumps({"ok": True, "result": {"socket": self.fault_proxy.listen_path}})
 
     def reseed(self):

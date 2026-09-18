@@ -113,6 +113,81 @@ final class PaneDragTests: XCTestCase {
         assertCellIsLeftOf(app, ids.p1, ids.p3, "the canvas did not draw the composed order")
     }
 
+    /// The same gesture, read off the wire instead of off the layout it left.
+    ///
+    /// Three targets put the moved pane beside `p3` in `tabB`, and only one of
+    /// them composes: the tab's own handle names no pane and splits beside
+    /// whichever one that tab has focused, the pane's interior splits right of
+    /// it, and the left band splits right and then swaps. The layout afterwards
+    /// is the same for the first two and for a composition whose swap never
+    /// ran, so the case above cannot say which of them it got. This one reads
+    /// what the app actually asked herdr for, through the fault proxy it is
+    /// launched against.
+    ///
+    /// The four outcomes it separates: no `pane.move` at all (the drop never
+    /// committed), a move naming no target pane (the handle), a move with no
+    /// `pane.swap` behind it (the interior, or a composition that stopped),
+    /// and a swap herdr answered with a reason (a composition it refused).
+    @MainActor
+    func testTheLeftEdgeDropSendsBothOpsItPlans() throws {
+        let ids = session.seedIDs()
+        let proxy = try session.startFaultProxy()
+        let app = try launchOnSeed(socket: proxy)
+        openGrid(app, ids: ids)
+
+        let trace = dragElement(
+            app,
+            fromID: gridTab(ids.tabA), grabbing: Self.firstMiniPaneOfTwo,
+            toID: gridTab(ids.tabB), aiming: .fraction(x: Self.miniPaneEdgeX, y: Self.miniPaneY)
+        )
+        _ = try session.snapshot(waitingFor: "\(ids.p1) to join \(ids.tabB). \(trace)") {
+            $0.tabID(ofPane: ids.p1) == ids.tabB
+        }
+
+        // The swap follows its move by about a millisecond, but reading the
+        // recording is a round trip of its own, so it is given a moment rather
+        // than read on the instant the move's effect shows up in herdr. The
+        // wait ends either way: what it did not find is what the assertions
+        // below report.
+        let sent = try waitForRecording(carrying: "pane.swap")
+        let moves = sent.filter { $0.method == "pane.move" }
+        XCTAssertEqual(
+            moves.count, 1,
+            "one left-edge drop is one pane.move; the app sent \(moves.count). \(sent.outline())"
+        )
+        guard let move = moves.first else { return }
+        XCTAssertEqual(
+            move.param("destination", "tab_id") as? String, ids.tabB,
+            "the move did not name \(ids.tabB). \(sent.outline())"
+        )
+        XCTAssertEqual(
+            move.param("destination", "target_pane_id") as? String, ids.p3,
+            "the move named no target pane, which is the drop the tab's own handle sends: the pointer "
+                + "resolved to \(ids.tabB) rather than to \(ids.p3)'s left band. \(sent.outline())"
+        )
+        XCTAssertEqual(move.answer, .ok, "herdr did not take the move. \(sent.outline())")
+
+        let swaps = sent.filter { $0.method == "pane.swap" }
+        XCTAssertEqual(
+            swaps.count, 1,
+            "a left-edge drop splits right and then swaps; the app sent \(swaps.count) pane.swap. \(sent.outline())"
+        )
+        guard let swap = swaps.first else { return }
+        XCTAssertGreaterThan(
+            swap.requestAtMilliseconds, move.requestAtMilliseconds,
+            "the swap must follow the move it compensates for. \(sent.outline())"
+        )
+        XCTAssertEqual(
+            swap.param("source_pane_id") as? String, ids.p1,
+            "the swap named the wrong pane to move. \(sent.outline())"
+        )
+        XCTAssertEqual(
+            swap.param("target_pane_id") as? String, ids.p3,
+            "the swap named the wrong pane to trade with. \(sent.outline())"
+        )
+        XCTAssertEqual(swap.answer, .ok, "herdr did not take the swap. \(sent.outline())")
+    }
+
     /// The middle of another tab's pane takes the drop too, and lands the pane
     /// beside THAT pane. Driven with the second mini pane of the two-pane
     /// thumbnail, so the grab point is the other side of the same thumbnail
@@ -512,6 +587,19 @@ final class PaneDragTests: XCTestCase {
 
     private func zoomBadge(_ paneID: String) -> String { Self.zoomBadgePrefix + paneID }
 
+    /// The proxy's recording once it carries `method`, or once the wait runs
+    /// out. It never fails on its own: a recording that is missing the verb is
+    /// the finding, and the assertions that read it are where that is said.
+    private func waitForRecording(carrying method: String, timeout: TimeInterval = 5) throws -> [ProxyExchange] {
+        let deadline = Date().addingTimeInterval(timeout)
+        var sent = try session.faultProxyRecording()
+        while Date() < deadline, !sent.contains(where: { $0.method == method }) {
+            usleep(200_000)
+            sent = try session.faultProxyRecording()
+        }
+        return sent
+    }
+
     /// A second workspace for the rail row a pane is dropped on, made through
     /// herdr rather than through the app so the window has nothing to do with
     /// it existing. Returns its id, its one tab's, and that tab's one pane's.
@@ -540,8 +628,11 @@ final class PaneDragTests: XCTestCase {
     /// (`CanvasComposition`), so the case that zooms first names that one:
     /// waiting for a cell a zoomed canvas never draws would time out before
     /// the gesture ran.
+    ///
+    /// `socket` is the session's own unless a case hands over the fault
+    /// proxy's, which relays to it and records what the app asks for.
     @MainActor
-    private func launchOnSeed(drawing panes: [String]? = nil) throws -> XCUIApplication {
+    private func launchOnSeed(drawing panes: [String]? = nil, socket: String? = nil) throws -> XCUIApplication {
         let ids = session.seedIDs()
         let wanted = panes ?? [ids.p1, ids.p2]
         // Registered before the launch that needs it, and capturing nothing:
@@ -550,7 +641,7 @@ final class PaneDragTests: XCTestCase {
         // and an app left attached to a session the wrapper is about to stop
         // outlives the whole run.
         addTeardownBlock { await MainActor.run { XCUIApplication().terminate() } }
-        let app = XCUIApplication.flock(socket: session.socketPath)
+        let app = XCUIApplication.flock(socket: socket ?? session.socketPath)
         for (index, pane) in wanted.enumerated() {
             XCTAssertTrue(
                 app.flockElement(canvasPane(pane)).waitForExistence(timeout: index == 0 ? 60 : 30),
