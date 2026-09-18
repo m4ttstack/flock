@@ -34,8 +34,12 @@ public enum RailMenuAction: Equatable, Sendable {
 
 /// Pure model for a tab's right-click menu. Mirrors herdr's own
 /// `ClientContextMenuTarget::Tab` list (`src/client/shell/context_menu.rs`):
-/// New tab, Rename, Close, in that order and unconditionally -- herdr offers
-/// Close even on a workspace's last tab, and flock does not second-guess it.
+/// New tab, Rename, Close, in that order and unconditionally. herdr offers
+/// Close on a workspace's last tab too, and so does flock; what differs is
+/// what the row then does. herdr closes the workspace outright, while flock
+/// asks first, since a close cannot be undone (`CloseConsequence`, reached
+/// through `SessionViewModel.closeTab`). The row is never hidden or disabled
+/// for it: the verb stays available, it just says what it costs.
 /// Empty for a tab the model does not carry, which is what leaves the view
 /// with no menu at all rather than one whose rows name a dead id.
 public enum TabMenuModel {

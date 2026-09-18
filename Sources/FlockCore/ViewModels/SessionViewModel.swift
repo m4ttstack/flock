@@ -827,40 +827,65 @@ public final class SessionViewModel {
         launcherRegistryVersion += 1
     }
 
-    /// The pane whose close herdr would escalate into a tab or a workspace,
-    /// held while the confirmation is up. It carries the finished prompt so
-    /// the view names what is about to go without a second model read.
-    public private(set) var pendingPaneClose: PaneCloseConfirmation?
+    /// The close herdr would escalate into a tab or a workspace, held while the
+    /// confirmation is up. It carries the finished prompt so the view names
+    /// what is about to go without a second model read.
+    public private(set) var pendingClose: CloseConfirmation?
 
-    /// Closes `pane` after the prompt was answered. The id is a PARAMETER,
-    /// never read back off `pendingPaneClose`, for the reason
+    /// Closes `subject` after the prompt was answered. The subject is a
+    /// PARAMETER, never read back off `pendingClose`, for the reason
     /// `confirmGroupClose` states: the dialog clears its own presentation
     /// state as it dismisses, which runs before this call's async work does.
-    public func confirmPaneClose(_ pane: PaneID) async {
-        pendingPaneClose = nil
-        await sendClose(pane)
+    public func confirmClose(_ subject: CloseSubject) async {
+        pendingClose = nil
+        await sendClose(subject)
     }
 
-    public func cancelPendingPaneClose() {
-        pendingPaneClose = nil
+    public func cancelPendingClose() {
+        pendingClose = nil
     }
 
     /// Closes `pane`, asking first when herdr would take the tab or the
-    /// workspace with it (`PaneCloseConsequence`) -- a close is irreversible,
-    /// and Close Pane sits one modifier from Cut. One pane among several goes
-    /// straight out with nothing on screen.
+    /// workspace with it -- a close is irreversible, and Close Pane sits one
+    /// modifier from Cut. One pane among siblings goes straight out with
+    /// nothing on screen.
     ///
     /// Every route to a pane close is this one call (the right-click row, the
     /// SwiftUI fallback menu and Cmd+Shift+X all dispatch through
     /// `PaneMenuAction.perform`), so the gate cannot be walked around.
+    public func closePane(_ pane: PaneID) async {
+        await close(.pane(pane))
+    }
+
+    /// Closes `tab`, asking first when it is its workspace's last and herdr
+    /// would close the workspace with it. Both routes to the verb, the strip's
+    /// hover close button and the tab menu's Close row, are this one call.
+    ///
+    /// The `.closeTab` ops a migration plan and a `MutationEngine` inverse
+    /// build are deliberately NOT this: they name a tab the plan itself made,
+    /// and a prompt in the middle of a drag or an undo would be asking the
+    /// user about bookkeeping they never requested.
+    public func closeTab(_ tab: TabID) async {
+        await close(.tab(tab))
+    }
+
     /// Without a model there is nothing to weigh, and the close goes as it
     /// always did.
-    public func closePane(_ pane: PaneID) async {
-        if let model, let confirmation = PaneCloseConsequence.of(pane: pane, model: model).confirmation(closing: pane) {
-            pendingPaneClose = confirmation
+    private func close(_ subject: CloseSubject) async {
+        if let model, let confirmation = CloseConsequence.of(subject, model: model).confirmation(closing: subject) {
+            pendingClose = confirmation
             return
         }
-        await sendClose(pane)
+        await sendClose(subject)
+    }
+
+    private func sendClose(_ subject: CloseSubject) async {
+        switch subject {
+        case .pane(let pane):
+            await sendPaneClose(pane)
+        case .tab(let tab):
+            await run(OpPlan(ops: [.closeTab(tab)], label: "Close tab"))
+        }
     }
 
     /// Routed through `planExecutor` as a single-op `OpPlan` when one is
@@ -872,7 +897,7 @@ public final class SessionViewModel {
     /// `undoJournal` is also injected, this runs through its shared chain (see
     /// `UndoJournal.runExclusively`) so it can never interleave with an
     /// in-flight `perform`/`undo`/`redo`.
-    private func sendClose(_ pane: PaneID) async {
+    private func sendPaneClose(_ pane: PaneID) async {
         guard let planExecutor else {
             _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
             return
@@ -1120,10 +1145,6 @@ public final class SessionViewModel {
     /// step that reports nothing to undo.
     public func toggleZoom(_ pane: PaneID) async {
         await run(OpPlan(ops: [.zoom(pane, mode: .toggle)], label: "Zoom pane"), recordsUndo: false)
-    }
-
-    public func closeTab(_ tab: TabID) async {
-        await run(OpPlan(ops: [.closeTab(tab)], label: "Close tab"))
     }
 
     /// Asks herdr to close `workspace` WITHOUT its group. herdr refuses that

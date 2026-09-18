@@ -20,22 +20,22 @@ private func makeModel(workspaceLabel: String = "seed", tabs: [(String, [String]
     return SessionModel(snapshot: snapshot)
 }
 
-final class PaneCloseConsequenceTests: XCTestCase {
+final class CloseConsequenceTests: XCTestCase {
     /// The common case, and the one that must stay instant: nothing is lost
     /// but the pane, so there is nothing to ask about.
     func testAPaneWithSiblingsTakesNothingWithIt() {
         let model = makeModel(tabs: [("w1:t1", ["w1:p1", "w1:p2"], nil)])
 
-        let consequence = PaneCloseConsequence.of(pane: PaneID(rawValue: "w1:p1"), model: model)
+        let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p1")), model: model)
 
-        XCTAssertEqual(consequence, .paneOnly)
-        XCTAssertNil(consequence.confirmation(closing: PaneID(rawValue: "w1:p1")))
+        XCTAssertEqual(consequence, .subjectOnly)
+        XCTAssertNil(consequence.confirmation(closing: .pane(PaneID(rawValue: "w1:p1"))))
     }
 
     func testTheLastPaneOfATabTakesTheTab() {
         let model = makeModel(tabs: [("w1:t1", ["w1:p1"], "Deploy logs"), ("w1:t2", ["w1:p2"], nil)])
 
-        let consequence = PaneCloseConsequence.of(pane: PaneID(rawValue: "w1:p1"), model: model)
+        let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p1")), model: model)
 
         XCTAssertEqual(consequence, .closesTab(description: "the tab \"Deploy logs\""))
     }
@@ -46,7 +46,7 @@ final class PaneCloseConsequenceTests: XCTestCase {
     func testAnUnrenamedTabIsNamedByItsPosition() {
         let model = makeModel(tabs: [("w1:t1", ["w1:p1"], nil), ("w1:t2", ["w1:p2"], nil)])
 
-        let consequence = PaneCloseConsequence.of(pane: PaneID(rawValue: "w1:p2"), model: model)
+        let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p2")), model: model)
 
         XCTAssertEqual(consequence, .closesTab(description: "tab 2"))
     }
@@ -54,7 +54,7 @@ final class PaneCloseConsequenceTests: XCTestCase {
     func testTheLastPaneOfTheLastTabTakesTheWorkspace() {
         let model = makeModel(workspaceLabel: "flock", tabs: [("w1:t1", ["w1:p1"], nil)])
 
-        let consequence = PaneCloseConsequence.of(pane: PaneID(rawValue: "w1:p1"), model: model)
+        let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p1")), model: model)
 
         XCTAssertEqual(consequence, .closesWorkspace(description: "the workspace \"flock\""))
     }
@@ -63,11 +63,11 @@ final class PaneCloseConsequenceTests: XCTestCase {
     /// escalated rungs name the thing and the verb that takes it.
     func testTheTabPromptNamesTheTabAndTheVerb() {
         let model = makeModel(tabs: [("w1:t1", ["w1:p1"], "Deploy logs"), ("w1:t2", ["w1:p2"], nil)])
-        let pane = PaneID(rawValue: "w1:p1")
+        let pane = CloseSubject.pane(PaneID(rawValue: "w1:p1"))
 
-        let confirmation = PaneCloseConsequence.of(pane: pane, model: model).confirmation(closing: pane)
+        let confirmation = CloseConsequence.of(pane, model: model).confirmation(closing: pane)
 
-        XCTAssertEqual(confirmation?.paneID, pane)
+        XCTAssertEqual(confirmation?.subject, pane)
         XCTAssertEqual(confirmation?.title, "Close the tab \"Deploy logs\"?")
         XCTAssertEqual(confirmation?.confirmButtonTitle, "Close Tab")
         XCTAssertEqual(
@@ -77,9 +77,9 @@ final class PaneCloseConsequenceTests: XCTestCase {
 
     func testTheWorkspacePromptNamesTheWorkspaceAndTheVerb() {
         let model = makeModel(workspaceLabel: "flock", tabs: [("w1:t1", ["w1:p1"], nil)])
-        let pane = PaneID(rawValue: "w1:p1")
+        let pane = CloseSubject.pane(PaneID(rawValue: "w1:p1"))
 
-        let confirmation = PaneCloseConsequence.of(pane: pane, model: model).confirmation(closing: pane)
+        let confirmation = CloseConsequence.of(pane, model: model).confirmation(closing: pane)
 
         XCTAssertEqual(confirmation?.title, "Close the workspace \"flock\"?")
         XCTAssertEqual(confirmation?.confirmButtonTitle, "Close Workspace")
@@ -94,7 +94,7 @@ final class PaneCloseConsequenceTests: XCTestCase {
     func testAnUnlabelledWorkspaceIsNamedByItsNumber() {
         let model = makeModel(workspaceLabel: "", tabs: [("w1:t1", ["w1:p1"], nil)])
 
-        let consequence = PaneCloseConsequence.of(pane: PaneID(rawValue: "w1:p1"), model: model)
+        let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p1")), model: model)
 
         XCTAssertEqual(consequence, .closesWorkspace(description: "workspace 4"))
     }
@@ -104,6 +104,51 @@ final class PaneCloseConsequenceTests: XCTestCase {
     func testAnUnknownPaneRaisesNoPrompt() {
         let model = makeModel(tabs: [("w1:t1", ["w1:p1"], nil)])
 
-        XCTAssertEqual(PaneCloseConsequence.of(pane: PaneID(rawValue: "w9:p9"), model: model), .paneOnly)
+        XCTAssertEqual(CloseConsequence.of(.pane(PaneID(rawValue: "w9:p9")), model: model), .subjectOnly)
+    }
+
+    // MARK: - closing a tab
+
+    /// The common case for the other entry point, and it stays instant for the
+    /// same reason: the tab is what the user asked to lose.
+    func testATabAmongTabsTakesNothingWithIt() {
+        let model = makeModel(tabs: [("w1:t1", ["w1:p1"], nil), ("w1:t2", ["w1:p2"], nil)])
+
+        let consequence = CloseConsequence.of(.tab(TabID(rawValue: "w1:t1")), model: model)
+
+        XCTAssertEqual(consequence, .subjectOnly)
+        XCTAssertNil(consequence.confirmation(closing: .tab(TabID(rawValue: "w1:t1"))))
+    }
+
+    /// `handle_tab_close` closes the workspace outright when the tab it is
+    /// handed is the workspace's last, however many panes that tab holds.
+    func testTheLastTabOfAWorkspaceTakesTheWorkspace() {
+        let model = makeModel(workspaceLabel: "flock", tabs: [("w1:t1", ["w1:p1", "w1:p2"], nil)])
+
+        let consequence = CloseConsequence.of(.tab(TabID(rawValue: "w1:t1")), model: model)
+
+        XCTAssertEqual(consequence, .closesWorkspace(description: "the workspace \"flock\""))
+    }
+
+    /// The prompt says which workspace, and says it in the closing tab's own
+    /// terms rather than the pane prompt's.
+    func testTheTabPromptNamesTheWorkspaceAndTheVerb() {
+        let model = makeModel(workspaceLabel: "flock", tabs: [("w1:t1", ["w1:p1"], nil)])
+        let tab = CloseSubject.tab(TabID(rawValue: "w1:t1"))
+
+        let confirmation = CloseConsequence.of(tab, model: model).confirmation(closing: tab)
+
+        XCTAssertEqual(confirmation?.subject, tab)
+        XCTAssertEqual(confirmation?.title, "Close the workspace \"flock\"?")
+        XCTAssertEqual(confirmation?.confirmButtonTitle, "Close Workspace")
+        XCTAssertEqual(
+            confirmation?.message,
+            "This is its last tab, so closing the tab closes the workspace. A close cannot be undone.")
+    }
+
+    func testAnUnknownTabRaisesNoPrompt() {
+        let model = makeModel(tabs: [("w1:t1", ["w1:p1"], nil)])
+
+        XCTAssertEqual(CloseConsequence.of(.tab(TabID(rawValue: "w9:t9")), model: model), .subjectOnly)
     }
 }

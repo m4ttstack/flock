@@ -98,24 +98,25 @@ struct MainWindow: View {
                     + "Closing it closes all of them."
             )
         }
-        // A pane close herdr would escalate into a tab or a workspace. Same
-        // `presenting:` shape, and for the same reason: the pane the confirm
-        // button closes is captured when the prompt goes up.
+        // A pane or tab close herdr would escalate into a tab or a workspace.
+        // One prompt for both verbs, since one rule decides both. Same
+        // `presenting:` shape, and for the same reason: what the confirm button
+        // closes is captured when the prompt goes up.
         .confirmationDialog(
-            viewModel.pendingPaneClose?.title ?? "",
+            viewModel.pendingClose?.title ?? "",
             isPresented: Binding(
-                get: { viewModel.pendingPaneClose != nil },
-                set: { shown in if !shown { viewModel.cancelPendingPaneClose() } }
+                get: { viewModel.pendingClose != nil },
+                set: { shown in if !shown { viewModel.cancelPendingClose() } }
             ),
             titleVisibility: .visible,
-            presenting: viewModel.pendingPaneClose
+            presenting: viewModel.pendingClose
         ) { pending in
             Button(pending.confirmButtonTitle, role: .destructive) {
-                Task { await viewModel.confirmPaneClose(pending.paneID) }
+                Task { await viewModel.confirmClose(pending.subject) }
             }
-            .accessibilityIdentifier("flock.pane.close.confirm")
-            Button("Cancel", role: .cancel) { viewModel.cancelPendingPaneClose() }
-                .accessibilityIdentifier("flock.pane.close.cancel")
+            .accessibilityIdentifier("flock.close.confirm")
+            Button("Cancel", role: .cancel) { viewModel.cancelPendingClose() }
+                .accessibilityIdentifier("flock.close.cancel")
         } message: { pending in
             Text(pending.message)
         }

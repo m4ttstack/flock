@@ -1517,7 +1517,7 @@ final class SessionViewModelTests: XCTestCase {
 
         await viewModel.closePane(PaneID(rawValue: "w1:p1"))
 
-        XCTAssertNil(viewModel.pendingPaneClose)
+        XCTAssertNil(viewModel.pendingClose)
         XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.closePane(PaneID(rawValue: "w1:p1"))], label: "Close pane")])
     }
 
@@ -1532,8 +1532,8 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.closePane(PaneID(rawValue: "w1:p3"))
 
         XCTAssertTrue(executor.executedPlans.isEmpty, "nothing may reach herdr before the answer")
-        XCTAssertEqual(viewModel.pendingPaneClose?.paneID, PaneID(rawValue: "w1:p3"))
-        XCTAssertEqual(viewModel.pendingPaneClose?.title, "Close the tab \"second\"?")
+        XCTAssertEqual(viewModel.pendingClose?.subject, .pane(PaneID(rawValue: "w1:p3")))
+        XCTAssertEqual(viewModel.pendingClose?.title, "Close the tab \"second\"?")
     }
 
     /// The seeded model is one workspace of one tab of one pane, so this close
@@ -1544,11 +1544,11 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
         viewModel.update(model: makeModel(), connection: .live)
         await viewModel.closePane(PaneID(rawValue: "w1:p1"))
-        XCTAssertEqual(viewModel.pendingPaneClose?.confirmButtonTitle, "Close Workspace")
+        XCTAssertEqual(viewModel.pendingClose?.confirmButtonTitle, "Close Workspace")
 
-        await viewModel.confirmPaneClose(PaneID(rawValue: "w1:p1"))
+        await viewModel.confirmClose(.pane(PaneID(rawValue: "w1:p1")))
 
-        XCTAssertNil(viewModel.pendingPaneClose)
+        XCTAssertNil(viewModel.pendingClose)
         XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.closePane(PaneID(rawValue: "w1:p1"))], label: "Close pane")])
     }
 
@@ -1559,9 +1559,65 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.update(model: makeModel(), connection: .live)
         await viewModel.closePane(PaneID(rawValue: "w1:p1"))
 
-        viewModel.cancelPendingPaneClose()
+        viewModel.cancelPendingClose()
 
-        XCTAssertNil(viewModel.pendingPaneClose)
+        XCTAssertNil(viewModel.pendingClose)
+        XCTAssertTrue(executor.executedPlans.isEmpty)
+    }
+
+    /// A tab among other tabs is the common case for the other verb, and it
+    /// stays instant: `w1` holds `w1:t1` and `w1:t2`.
+    @MainActor
+    func testClosingATabAmongTabsAsksNothing() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        await viewModel.closeTab(TabID(rawValue: "w1:t2"))
+
+        XCTAssertNil(viewModel.pendingClose)
+        XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.closeTab(TabID(rawValue: "w1:t2"))], label: "Close tab")])
+    }
+
+    /// The seeded model is one workspace of one tab, so herdr would close the
+    /// workspace outright. The prompt has to say which workspace.
+    @MainActor
+    func testClosingAWorkspacesLastTabAsksBeforeSendingAnything() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        viewModel.update(model: makeModel(), connection: .live)
+
+        await viewModel.closeTab(TabID(rawValue: "w1:t1"))
+
+        XCTAssertTrue(executor.executedPlans.isEmpty, "nothing may reach herdr before the answer")
+        XCTAssertEqual(viewModel.pendingClose?.subject, .tab(TabID(rawValue: "w1:t1")))
+        XCTAssertEqual(viewModel.pendingClose?.title, "Close the workspace \"seed\"?")
+        XCTAssertEqual(viewModel.pendingClose?.confirmButtonTitle, "Close Workspace")
+    }
+
+    @MainActor
+    func testConfirmingATabCloseSendsItAndTakesThePromptDown() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        viewModel.update(model: makeModel(), connection: .live)
+        await viewModel.closeTab(TabID(rawValue: "w1:t1"))
+
+        await viewModel.confirmClose(.tab(TabID(rawValue: "w1:t1")))
+
+        XCTAssertNil(viewModel.pendingClose)
+        XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.closeTab(TabID(rawValue: "w1:t1"))], label: "Close tab")])
+    }
+
+    @MainActor
+    func testCancellingATabCloseSendsNothing() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        viewModel.update(model: makeModel(), connection: .live)
+        await viewModel.closeTab(TabID(rawValue: "w1:t1"))
+
+        viewModel.cancelPendingClose()
+
+        XCTAssertNil(viewModel.pendingClose)
         XCTAssertTrue(executor.executedPlans.isEmpty)
     }
 
@@ -1979,13 +2035,16 @@ final class SessionViewModelTests: XCTestCase {
 
     // MARK: - Close tab / workspace, and the group-close prompt
 
+    /// A two-tab workspace, so this close takes the tab and no more. A tab
+    /// that is its workspace's last goes through the prompt instead
+    /// (`testClosingAWorkspacesLastTabAsksBeforeSendingAnything`).
     @MainActor
     func testClosingATabRunsAndRecordsIt() async {
-        let harness = renameHarness()
+        let harness = renameHarness(model: makeModelWithAPaneInASecondTab())
 
-        await harness.viewModel.closeTab(TabID(rawValue: "w1:t1"))
+        await harness.viewModel.closeTab(TabID(rawValue: "w1:t2"))
 
-        XCTAssertEqual(harness.executor.executedPlans, [OpPlan(ops: [.closeTab(TabID(rawValue: "w1:t1"))], label: "Close tab")])
+        XCTAssertEqual(harness.executor.executedPlans, [OpPlan(ops: [.closeTab(TabID(rawValue: "w1:t2"))], label: "Close tab")])
         XCTAssertEqual(harness.journal.undoLabel, "Close tab")
     }
 
