@@ -77,4 +77,37 @@ final class ClipboardImageStagingTests: XCTestCase {
         _ = try XCTUnwrap(stage(Data([0x02])))
         XCTAssertTrue(FileManager.default.fileExists(atPath: earlier))
     }
+
+    /// A user who pastes one screenshot and never pastes again never reaches
+    /// the sweep every stage runs, so the sweep has to be reachable without
+    /// staging anything.
+    func testTheSweepRemovesAStaleFileWithoutStagingAnything() throws {
+        _ = try XCTUnwrap(stage(Data([0x01])))
+        let stale = ClipboardImageStaging.directory
+            .appendingPathComponent("clipboard-stale-\(UUID().uuidString).png")
+        XCTAssertTrue(FileManager.default.createFile(atPath: stale.path, contents: Data([0x00])))
+        staged.append(stale.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-ClipboardImageStaging.maximumAge - 60)],
+            ofItemAtPath: stale.path
+        )
+
+        ClipboardImageStaging.sweep()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
+    }
+
+    func testTheSweepLeavesAFileYoungerThanTheMaximumAgeAlone() throws {
+        let fresh = try XCTUnwrap(stage(Data([0x01])))
+        ClipboardImageStaging.sweep()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh))
+    }
+
+    /// Reached on every launch, including the first one on a machine, where
+    /// nothing has ever staged an image and the directory does not exist.
+    func testTheSweepIsSilentWhenNothingHasEverBeenStaged() {
+        try? FileManager.default.removeItem(at: ClipboardImageStaging.directory)
+        ClipboardImageStaging.sweep()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ClipboardImageStaging.directory.path))
+    }
 }

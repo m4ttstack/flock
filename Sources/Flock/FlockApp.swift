@@ -30,6 +30,10 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { false }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Ahead of the window guard below, which returns and would take the
+        // sweep with it.
+        DispatchQueue.global(qos: .utility).async { ClipboardImageStaging.sweep() }
+
         guard let window = NSApp.windows.first else { return }
         if let saved = UserDefaults.standard.string(forKey: Self.frameDefaultsKey) {
             let frame = NSRectFromString(saved)

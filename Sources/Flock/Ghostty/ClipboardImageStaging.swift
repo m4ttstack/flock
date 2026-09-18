@@ -22,6 +22,14 @@ enum ClipboardImageStaging {
             .appendingPathComponent("flock-clipboard-images-\(geteuid())", isDirectory: true)
     }
 
+    /// The other reaper. `stage` sweeps as it writes, which never runs for a
+    /// user who pastes one image and none after it, so a launch sweeps too.
+    /// Creates nothing: a machine that has never staged an image has no
+    /// directory here and still has none afterwards.
+    static func sweep() {
+        sweepStale(in: directory)
+    }
+
     /// The absolute path the bytes now live at, or nil if they could not be
     /// written, in which case there is nothing to paste for this item.
     ///
