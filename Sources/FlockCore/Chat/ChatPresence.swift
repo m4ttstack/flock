@@ -1,12 +1,12 @@
 import Foundation
 
-enum ButtonState: Equatable {
+public enum ButtonState: Equatable {
     case primary
     case secondary
 }
 
-struct ChatPresence {
-    static func buttons(for status: ChatStatus) -> (signIn: ButtonState, signOut: ButtonState) {
+public struct ChatPresence {
+    public static func buttons(for status: ChatStatus) -> (signIn: ButtonState, signOut: ButtonState) {
         if status.signedIn {
             return (signIn: .secondary, signOut: .primary)
         } else {
@@ -14,7 +14,7 @@ struct ChatPresence {
         }
     }
 
-    static func canSend(_ status: ChatStatus?) -> Bool {
+    public static func canSend(_ status: ChatStatus?) -> Bool {
         guard let status else { return false }
         return status.signedIn
     }
