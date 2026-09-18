@@ -65,6 +65,135 @@ final class PaneTailTests: XCTestCase {
         XCTAssertLessThanOrEqual(PaneTailPolicy.lines, 12)
         XCTAssertGreaterThanOrEqual(PaneTailPolicy.refreshInterval, .milliseconds(500))
     }
+
+    /// The trim spends rows, so the read has to carry more than the card draws
+    /// or a trimmed screen would arrive short of a cardful.
+    func testTheReadCarriesACardfulPastTheTallestFrameItWouldDrop() {
+        XCTAssertGreaterThanOrEqual(PaneTailPolicy.readLines - PaneTailPolicy.inputFrameRows, PaneTailPolicy.lines)
+    }
+}
+
+/// The rows an agent's prompt owns, over screens shaped as the panes that
+/// prompted this rule really are.
+///
+/// `zsh` and `nvim` are the two captures that say the rule is off for a plain
+/// pane; the agent screen is herdr's own model of a Claude Code prompt (a `─`
+/// rule, a field carrying `❯`, a closing rule, then a status strip), which is
+/// what its agent detection reads to call such a pane idle.
+final class PaneTailInputFrameTests: XCTestCase {
+    private let rule = String(repeating: "─", count: 66)
+
+    /// Captured from `nvim -u NONE` in a scratch herdr session: no rules and no
+    /// prompt field, so every row is output and the tail is the rows the screen
+    /// ends on.
+    func testAPlainTUIPaneKeepsEveryRowItEndsOn() {
+        let screen = Array(repeating: "~", count: 6) + ["probe.txt                    "]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), screen)
+        XCTAssertEqual(PaneTailPolicy.make(from: screen.joined(separator: "\n"), limit: 3).lines, ["~", "~", "probe.txt"])
+    }
+
+    /// A shell pane is rows of output under rows of output, whatever its prompt
+    /// character is.
+    func testAShellPaneKeepsEveryRowItEndsOn() {
+        let screen = ["$ swift build", "Compiling FlockCore", "Build complete!", "/private/tmp", "❯"]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), screen)
+    }
+
+    /// The complaint: every row under the rule is the agent's own input UI, and
+    /// the conversation is the rows above it.
+    func testTheRowsAnAgentsPromptOwnsAreDropped() {
+        let screen = [
+            "● Re-ran the check against the drafted addendum (chronic 30-day window).",
+            "● The artifact is live, and the table now matches the addendum.",
+            rule,
+            "  ❯ ) posted, update the artifact with the new numbers",
+            rule,
+            "  F 5 [xhigh] | @example.com | 42% context",
+            "  auto mode on (shift+tab to cycle)",
+            "  cv2-pdf-reliability",
+        ]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), Array(screen.prefix(2)))
+        XCTAssertEqual(
+            PaneTailPolicy.make(from: screen.joined(separator: "\n"), limit: 4).lines,
+            Array(screen.prefix(2))
+        )
+    }
+
+    /// A field the user has typed several rows into is still one field, and the
+    /// status strip under the frame goes with it.
+    func testAMultiRowFieldAndTheStripUnderItGoTogether() {
+        let screen = [
+            "● Done.",
+            rule,
+            "  ❯ first line of the message",
+            "    second line of the message",
+            rule,
+            "",
+            "  main · 12% context",
+        ]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), ["● Done."])
+    }
+
+    /// A frame with nothing typed into it is a box in the output, not a prompt:
+    /// the rule fires on the prompt character, never on the rules alone.
+    func testAFramedBlockWithNoPromptFieldIsOutput() {
+        let screen = [
+            "running 3 suites",
+            rule,
+            "  FlockCoreTests    1130 passed",
+            rule,
+            "  ok",
+        ]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), screen)
+    }
+
+    /// Captured from `fzf --border=horizontal --prompt='❯ '` in a scratch herdr
+    /// session: a picker's frame carries a prompt character and rules, and the
+    /// rows between them are its results, which are the pane's output. A frame
+    /// that is a screenful rather than a strip is refused.
+    func testAFrameTallerThanAStripIsNotAPrompt() {
+        let screen = [rule] + (1...30).reversed().map { "▌ \($0)" } + ["❯   < 30/30 " + rule, rule]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), screen)
+    }
+
+    /// A screen whose every row is the agent's prompt shows the prompt rather
+    /// than nothing: a blank card is the one outcome worse than a card full of
+    /// furniture.
+    func testAScreenThatIsNothingButAPromptKeepsItsUntrimmedTail() {
+        let screen = [rule, "  ❯", rule, "  main · 12% context"]
+        XCTAssertTrue(PaneTailPolicy.outputRows(of: screen).isEmpty)
+        XCTAssertEqual(PaneTailPolicy.make(from: screen.joined(separator: "\n")).lines, screen)
+    }
+
+    /// Rules in the transcript are not the frame: the frame is the pair the
+    /// screen ends on.
+    func testRulesEarlierInTheTranscriptAreNotTheFrame() {
+        let screen = [
+            rule,
+            "  ❯ an earlier turn, still on screen",
+            rule,
+            "● and its answer, which is output",
+            rule,
+            "  ❯ what is being typed now",
+            rule,
+            "  main · 12% context",
+        ]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), Array(screen.prefix(4)))
+    }
+
+    /// Codex marks its field with `›` where Claude Code marks it with `❯`, the
+    /// same two marks herdr's agent detection reads.
+    func testTheOtherAgentsPromptMarkIsRecognised() {
+        let screen = ["• ran the tests", rule, "› ask something", rule, "  ⏎ send"]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), ["• ran the tests"])
+    }
+
+    /// `>` opens a quote, a diff hunk and a shell continuation, so it is not a
+    /// mark the trim may act on.
+    func testAGreaterThanSignIsNotAPromptMark() {
+        let screen = ["diff:", rule, "> quoted line from the report", rule, "  end"]
+        XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), screen)
+    }
 }
 
 /// What a `pane.read` for the card asks for, which is the whole of what the
@@ -123,7 +252,7 @@ final class PaneTailReadTests: XCTestCase {
         let landed = try await tail(viewModel)
         XCTAssertEqual(landed.lines, ["one", "two"])
         let asks = await client.asks
-        XCTAssertEqual(asks, [TailAsk(paneID: pane.rawValue, source: "visible", lines: PaneTailPolicy.lines)])
+        XCTAssertEqual(asks, [TailAsk(paneID: pane.rawValue, source: "visible", lines: PaneTailPolicy.readLines)])
     }
 
     /// Every render of the card asks for the tail, and the card's cadence asks
