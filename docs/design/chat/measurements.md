@@ -138,12 +138,51 @@ Order and keys: Chat Panel `⌘⇧C`, then Broadcast to Panes… `⌘⇧B`, Chat
 `⌘⇧P`, Quick Send… `⌘⇧S`, Open Viewer `⌘⇧V`, then Sign In This Pane `⌘⇧I` and
 Sign Out This Pane `⌘⇧O`.
 
+## Icons
+
+The canvas draws lucide icons; flock draws SF Symbols. Every icon in the designs,
+with the symbol it becomes. A symbol name that does not resolve renders as
+nothing, silently, so any view using these carries a test asserting every symbol
+it names resolves through `NSImage(systemSymbolName:accessibilityDescription:)`.
+If a symbol below does not exist on the deployment target, pick the nearest one
+that does and say so in your report rather than shipping an empty glyph.
+
+| Lucide | SF Symbol | Where |
+| --- | --- | --- |
+| `message-circle` | `bubble.left.fill` | the pane's chat button, both states |
+| `external-link` | `arrow.up.forward.square` | popover header, Open viewer row |
+| `square-terminal` | `terminal` | the pane chip in the status block |
+| `radio` | `dot.radiowaves.left.and.right` | Broadcast to panes row |
+| `users` | `person.2.fill` | Chat peek row |
+| `send-horizontal` | `paperplane.fill` | Quick send row |
+| `log-in` | `rectangle.portrait.and.arrow.forward` | Sign in button |
+| `log-out` | `rectangle.portrait.and.arrow.right` | Sign out button |
+| `chevron-left` | `chevron.left` | the back chevron on every sub-view |
+| `x` | `xmark` | the close control on every sub-view |
+| `corner-up-right` | `arrow.turn.up.right` | a peek row's jump affordance |
+| `check` | `checkmark` | a broadcast checkbox tick |
+
 ## The chat button in a pane's chrome
 
 The chrome row is 32 tall with pad 7/10 and gap 8; the button sits at y 7 and the
 status dot stays to its right.
 
-- **Signed in:** 71x18, fill `selectionBg`, stroke `accent`, r4, pad 3/8, gap 6,
-  the handle at 10/600 in `accent`.
-- **Signed out:** 27x17, fill `surface0`, r4, pad 3/8, gap 6, glyph only.
-- **No chat binary:** no button.
+**Signed in:** 71x18, fill `selectionBg`, stroke `accent`, r4, pad 3/8, gap 6.
+Four children in this order, and all four are part of the design:
+
+| Child | Size | Colour | Type |
+| --- | --- | --- | --- |
+| Handle | 18x12 | `accent` | 10/600, the handle with NO `@` prefix |
+| Divider | 1x9 | `surface1` | a rule, not a gap |
+| Icon | 11x11 | `accent` | `bubble.left.fill` |
+| Count | 7x12 | `text` | 10/600 |
+
+The count is `palette.text`, not `accent` and not `panelBg`: it differs from the
+unread pills in the popover and peek, which are `panelBg` on an `accent` ground.
+The count shows only when there is unread; at zero the button is handle, divider
+and icon.
+
+**Signed out:** 27x17, fill `surface0`, r4, pad 3/8, gap 6, no border. One child,
+an 11x11 `bubble.left.fill` in `overlay0`.
+
+**No chat binary:** no button.

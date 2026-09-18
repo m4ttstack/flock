@@ -85,6 +85,17 @@ Four rules bind every chat view:
    pairs with (`popover-signed-in.png` renders to `chat-popover-signed-in.png`),
    at the design's own point size so the two can be held side by side.
 
+**Capturing those PNGs needs the `TEST_RUNNER_` prefix.** The XCTest runner is a
+separate process and does not inherit the shell's environment, so
+`FLOCK_CHROME_RENDER_DIR=... xcodebuild test` sets the variable for xcodebuild
+and the tests never see it... the suite passes and writes nothing, with no error.
+The working invocation is:
+
+```bash
+TEST_RUNNER_FLOCK_CHROME_RENDER_DIR=<dir> xcodebuild test \
+  -scheme FlockChromeRender -destination 'platform=macOS'
+```
+
 **A view task is not complete until the render and the design have been compared
 by eye, image against image.** The tests catch colour and geometry; they cannot
 see a wrong glyph, a wrong baseline, or a row that reads wrong. That comparison
