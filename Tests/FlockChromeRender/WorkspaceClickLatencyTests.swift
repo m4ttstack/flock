@@ -62,15 +62,49 @@ final class WorkspaceClickLatencyTests: XCTestCase {
         window.close()
     }
 
-    /// The delay a rail row's selection waits out before it ever reaches the
-    /// view model: the row carries a `count: 2` tap for rename, so SwiftUI
-    /// holds the single tap until a second click can no longer arrive.
+    /// The delay a chrome row's selection waits out before it ever reaches the
+    /// view model when a `count: 2` tap for rename sits over its single tap:
+    /// SwiftUI holds the single one until a second click can no longer arrive.
     /// `NSEvent.doubleClickInterval` is the width of that window, read from the
-    /// running system rather than assumed.
-    func testDoubleClickIntervalIsTheDelayAGatedTapWaitsOut() {
+    /// running system rather than assumed. `ChromeRowClick` is why no row in
+    /// the chrome carries that pair any more.
+    func testDoubleClickIntervalIsTheDelayAGatedTapWouldWaitOut() {
         let interval = NSEvent.doubleClickInterval
         print("CLICKPATH NSEvent.doubleClickInterval: \(String(format: "%.0f", interval * 1000))ms")
         XCTAssertGreaterThan(interval, 0)
+    }
+
+    /// What a pane the warm pool has no surface for costs the main actor when
+    /// the switch brings it on screen: two FIFOs, the PATH lookup for herdr,
+    /// and the session object. The bridge child is NOT in this number -- a
+    /// session only builds its libghostty surface once its view enters a
+    /// window, which is where the PTY child is spawned.
+    ///
+    /// The FIRST cold pane in a process is reported apart from the rest: it is
+    /// the one that can find `ToolPath.resolved` unresolved and block the main
+    /// actor on a login-shell PATH probe, which `ToolPath.warm` is racing to
+    /// absorb on a background queue from launch.
+    func testColdPaneSurfaceCostOnTheMainActor() async throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let factory = GhosttyControlSurfaceFactory(
+            host: host, socketPath: "/tmp/flock-latency-never-connected.sock",
+            themeColors: { Theme.tokyoNight.ghosttyThemeColors() }, fontSizePoints: { 13 }
+        )
+        var samples: [Double] = []
+        for index in 0..<12 {
+            let before = DispatchTime.now().uptimeNanoseconds
+            let surface = await factory.makeSurface(
+                for: PaneID(rawValue: "w9:p\(index)"), onUserInput: {}, onScreenActivity: { _ in false }
+            )
+            samples.append(Double(DispatchTime.now().uptimeNanoseconds - before) / 1_000_000)
+            await surface.detach()
+        }
+        print(String(format: "CLICKPATH cold pane surface, first in the process: %.2fms", samples[0]))
+        report("cold pane surface, every one after", Array(samples.dropFirst()))
+        XCTAssertLessThan(
+            median(Array(samples.dropFirst())), 50,
+            "a cold pane now costs the main actor a twentieth of a second before it can paint"
+        )
     }
 
     // MARK: - helpers
