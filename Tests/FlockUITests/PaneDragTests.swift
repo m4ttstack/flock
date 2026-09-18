@@ -150,16 +150,33 @@ final class PaneDragTests: XCTestCase {
             $0.tabID(ofPane: ids.p1) == ids.tabB
         }
 
-        // The swap follows its move by about a millisecond, but reading the
-        // recording is a round trip of its own, so it is given a moment rather
-        // than read on the instant the move's effect shows up in herdr. The
-        // wait ends either way: what it did not find is what the assertions
-        // below report.
-        let sent = try waitForRecording(carrying: "pane.swap")
-        // Printed as well as carried in the failure messages: a pass is the
-        // more interesting outcome here, and the timings are the evidence
-        // either way.
+        // Waited for the swap's ANSWER, not for the swap. The wait above ends
+        // the instant the move's own effect reaches herdr, which is a
+        // millisecond before the swap is even sent, so a recording read on the
+        // strength of the request alone reports "no answer" for a verb that is
+        // still in flight and reads exactly like one herdr never took. This
+        // wait is generous against the client's own 15s deadline: a swap still
+        // unanswered here is one the app is genuinely parked on.
+        let sent = try waitForRecording { exchanges in
+            exchanges.contains { $0.method == "pane.swap" && $0.answer != .none }
+        }
+
+        // Everything is gathered before anything is asserted, and every
+        // reading is printed. The suite stops at its first failure, so an
+        // assertion placed before a reading is a reading the run never takes,
+        // and each of these is the evidence for a different answer.
+        let composed = try settledSnapshot { snapshot in
+            guard let moved = snapshot.paneRect(ids.p1), let anchor = snapshot.paneRect(ids.p3) else { return false }
+            return moved.x < anchor.x
+        }
+        Thread.sleep(forTimeInterval: Self.settleWindowSeconds)
+        let afterwards = try session.snapshot()
+        let tail = try session.faultProxyRecording()
         print("PROXY what the drop sent:\(sent.outline())")
+        print("PROXY everything the app asked for, the tail included:\(tail.outline())")
+        print("PROXY herdr held [\(Self.sides(composed, ids))] once it settled, "
+            + "and [\(Self.sides(afterwards, ids))] \(Self.settleWindowSeconds)s later")
+
         let moves = sent.filter { $0.method == "pane.move" }
         XCTAssertEqual(
             moves.count, 1,
@@ -209,7 +226,11 @@ final class PaneDragTests: XCTestCase {
                 swapAnswered - moveAnswered, moveAnswered, swapAnswered
             ))
         }
-        XCTAssertEqual(swap.answer, .ok, "herdr did not take the swap. \(sent.outline())")
+        XCTAssertEqual(
+            swap.answer, .ok,
+            "herdr did not take the swap, with \(Self.recordingWaitSeconds)s allowed for the answer and the "
+                + "app's own deadline at 15s. \(sent.outline())"
+        )
         // An acknowledgement is not an effect. herdr answers a verb it
         // declined with a success carrying a reason, but a verb it took and
         // had nothing to do about answers with neither, and a composition
@@ -239,10 +260,6 @@ final class PaneDragTests: XCTestCase {
 
         // And what the session holds, read from herdr directly rather than
         // through the app, once it has had a moment to settle.
-        let composed = try settledSnapshot { snapshot in
-            guard let moved = snapshot.paneRect(ids.p1), let anchor = snapshot.paneRect(ids.p3) else { return false }
-            return moved.x < anchor.x
-        }
         let moved = try XCTUnwrap(composed.paneRect(ids.p1), "\(ids.p1) has no rect in any layout")
         let anchor = try XCTUnwrap(composed.paneRect(ids.p3), "\(ids.p3) has no rect in any layout")
         XCTAssertLessThan(
@@ -251,14 +268,9 @@ final class PaneDragTests: XCTestCase {
                 + "\(ids.p3) at x=\(anchor.x). \(composed.outline()) \(sent.outline())"
         )
 
-        // Held, rather than caught on the instant it lands: a correction that
-        // arrives after the plan finishes is the other way this ends
-        // un-composed, and the only way to see one is to keep looking. Every
-        // request the app made in that window is in the tail.
-        Thread.sleep(forTimeInterval: Self.settleWindowSeconds)
-        let afterwards = try session.snapshot()
-        let tail = try session.faultProxyRecording()
-        print("PROXY everything the app asked for, the tail included:\(tail.outline())")
+        // The settle window read last, though it was taken first: a correction
+        // arriving after the plan finishes is the other way this ends
+        // un-composed, and the tail beside it names whatever sent one.
         let held = try XCTUnwrap(afterwards.paneRect(ids.p1), "\(ids.p1) has no rect in any layout")
         let heldAnchor = try XCTUnwrap(afterwards.paneRect(ids.p3), "\(ids.p3) has no rect in any layout")
         XCTAssertLessThan(
@@ -692,17 +704,34 @@ final class PaneDragTests: XCTestCase {
         return latest
     }
 
-    /// The proxy's recording once it carries `method`, or once the wait runs
-    /// out. It never fails on its own: a recording that is missing the verb is
-    /// the finding, and the assertions that read it are where that is said.
-    private func waitForRecording(carrying method: String, timeout: TimeInterval = 5) throws -> [ProxyExchange] {
+    /// The proxy's recording once `predicate` holds, or once the wait runs
+    /// out. It never fails on its own: what the wait did not find is the
+    /// finding, and the assertions that read it are where that is said.
+    private func waitForRecording(
+        timeout: TimeInterval = PaneDragTests.recordingWaitSeconds, until predicate: ([ProxyExchange]) -> Bool
+    ) throws -> [ProxyExchange] {
         let deadline = Date().addingTimeInterval(timeout)
         var sent = try session.faultProxyRecording()
-        while Date() < deadline, !sent.contains(where: { $0.method == method }) {
+        while Date() < deadline, !predicate(sent) {
             usleep(200_000)
             sent = try session.faultProxyRecording()
         }
         return sent
+    }
+
+    /// How long a verb is given to be answered before the recording is read as
+    /// final. Under the client's own 15s deadline, so a verb still unanswered
+    /// here is one the app is still parked on rather than one it has given up
+    /// on, and far enough over herdr's sub-millisecond answers that the gap is
+    /// a finding rather than a schedule.
+    private static let recordingWaitSeconds: TimeInterval = 10
+
+    /// Which side of `tabB` each pane is on, for a line of output that reads
+    /// at a glance.
+    private static func sides(_ snapshot: HerdrSnapshotJSON, _ ids: SeedIDs) -> String {
+        [ids.p1, ids.p3]
+            .map { pane in snapshot.paneRect(pane).map { "\(pane)@x=\($0.x)" } ?? "\(pane) nowhere" }
+            .joined(separator: " ")
     }
 
     /// A second workspace for the rail row a pane is dropped on, made through
