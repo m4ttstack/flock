@@ -12,7 +12,6 @@ struct WorkspaceRail: View {
 
     @Environment(DragCoordinator.self) private var drag
     @State private var scrollPosition = ScrollPosition()
-    @State private var hoveredWorkspaceID: WorkspaceID?
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
@@ -44,13 +43,11 @@ struct WorkspaceRail: View {
                                 paneCount: viewModel.paneCount(for: workspace.workspaceID),
                                 isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
                                 isRenaming: isRenaming,
-                                showsClose: hoveredWorkspaceID == workspace.workspaceID && !isRenaming,
                                 renameText: viewModel.renameText(for: .workspace(workspace.workspaceID)),
                                 onCommitRename: { text in
                                     Task { await viewModel.commitRename(text, for: .workspace(workspace.workspaceID)) }
                                 },
                                 onCancelRename: { viewModel.cancelRename() },
-                                onClose: { Task { await viewModel.closeWorkspace(workspace.workspaceID) } },
                                 showsFill: drag.showsWorkspaceFill(
                                     workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.selectedWorkspaceID
                                 ),
@@ -66,15 +63,10 @@ struct WorkspaceRail: View {
                             // whole row and the controls inside it keep their
                             // own. Without it SwiftUI folds the row into its
                             // name text: the row reads as a label a third of
-                            // its width, and its close button and rename
-                            // editor are not reachable at all.
+                            // its width, and its rename editor is not
+                            // reachable at all.
                             .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("flock.rail.workspace.\(workspace.workspaceID.rawValue)")
-                            .onHover { hovering in
-                                hoveredWorkspaceID = hovering
-                                    ? workspace.workspaceID
-                                    : (hoveredWorkspaceID == workspace.workspaceID ? nil : hoveredWorkspaceID)
-                            }
                             // Both guarded: SwiftUI's tap gesture on macOS
                             // fires for the secondary button too, so without
                             // this a right-click moves the rail's selection
@@ -228,13 +220,9 @@ private struct WorkspaceRow: View {
     let paneCount: Int
     let isSelected: Bool
     var isRenaming = false
-    /// The hover-reveal close: laid out on every row either way, so a row
-    /// never reflows as the pointer crosses it.
-    var showsClose = false
     var renameText = ""
     var onCommitRename: (String) -> Void = { _ in }
     var onCancelRename: () -> Void = {}
-    var onClose: () -> Void = {}
     /// The selection fill alone. The accent bar and weight always mark
     /// herdr's selected workspace; the fill follows the Cmd+click selection
     /// whenever one exists.
@@ -267,12 +255,6 @@ private struct WorkspaceRow: View {
                     .font(ChromeType.workspaceCount)
                     .foregroundStyle(theme.textLabel)
             }
-        }
-        .overlay(alignment: .trailing) {
-            HoverCloseButton(
-                theme: theme, isRevealed: showsClose, help: "Close workspace",
-                accessibilityIdentifier: "flock.rail.close.\(workspace.workspaceID.rawValue)", action: onClose
-            )
         }
         // Fixed rather than taken from the label's line height, which varies
         // with face and size, so rows keep a whole-point pitch.

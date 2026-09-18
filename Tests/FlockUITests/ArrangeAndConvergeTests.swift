@@ -352,12 +352,12 @@ final class ArrangeAndConvergeTests: XCTestCase {
         }
     }
 
-    /// The hover-revealed close on a tab and on a rail row. Neither is
-    /// laid out into existence by the hover -- both are always there -- but
-    /// neither takes a click until the row under the pointer reveals it,
-    /// which is why the pointer is parked first and the control waited for.
+    /// The two close routes the chrome offers: a tab's hover-revealed close,
+    /// which is laid out at all times but takes no click until the row under
+    /// the pointer reveals it, and a workspace's right-click menu, which is
+    /// the only way to close a workspace.
     @MainActor
-    func testTheHoverRevealedCloseDropsATabAndThenAWorkspace() throws {
+    func testTheHoverCloseDropsATabAndTheRowMenuDropsAWorkspace() throws {
         let ids = session.seedIDs()
         let other = try makeWorkspace(label: "other")
         let app = try launchOnSeed()
@@ -380,9 +380,8 @@ final class ArrangeAndConvergeTests: XCTestCase {
             "the strip holds \(app.flockIdentifiers(prefix: "flock.strip.tab.").joined(separator: ", "))"
         }
 
-        hoverElement(app, railRow(other.workspace))
-        waitForControl(app, "flock.rail.close.\(other.workspace)", revealedBy: railRow(other.workspace))
-        clickElement(app, "flock.rail.close.\(other.workspace)")
+        openWorkspaceMenu(app, on: other.workspace)
+        clickMenuItem(app, "flock.workspace.menu.close")
 
         let closedWorkspace = try session.snapshot(waitingFor: "\(other.workspace) to close") {
             $0.orderedWorkspaceIDs() == [ids.ws]
@@ -401,6 +400,9 @@ final class ArrangeAndConvergeTests: XCTestCase {
     /// herdr refuses a plain close on a workspace that is a worktree group's
     /// primary, and flock turns that refusal into a question. Confirming it
     /// re-asks with the group included, which closes both workspaces at once.
+    ///
+    /// Driven from the row's own menu, which is the only route a workspace
+    /// close has.
     @MainActor
     func testTheGroupClosePromptClosesBothWorkspacesAtOnce() throws {
         let ids = session.seedIDs()
@@ -411,9 +413,8 @@ final class ArrangeAndConvergeTests: XCTestCase {
         let app = try launchOnSeed()
         waitForRailRows(app, [ids.ws, group.primary, group.linked])
 
-        hoverElement(app, railRow(group.primary))
-        waitForControl(app, "flock.rail.close.\(group.primary)", revealedBy: railRow(group.primary))
-        clickElement(app, "flock.rail.close.\(group.primary)")
+        openWorkspaceMenu(app, on: group.primary)
+        clickMenuItem(app, "flock.workspace.menu.close")
 
         assertEventually("the group-close prompt appears") {
             app.flockElement("flock.workspace.closeGroup.confirm").exists
@@ -984,6 +985,19 @@ final class ArrangeAndConvergeTests: XCTestCase {
         } describing: {
             "the rail holds [\(app.flockIdentifiers(prefix: "flock.rail.workspace.").joined(separator: ", "))], "
                 + "expected [\(wanted.sorted().joined(separator: ", "))]"
+        }
+    }
+
+    /// Opens a workspace row's own menu, which is the only route a workspace
+    /// close has. Its rows come from the model the rail draws from, so a row
+    /// on screen is what makes the menu carry anything at all.
+    @MainActor
+    private func openWorkspaceMenu(_ app: XCUIApplication, on workspaceID: String) {
+        rightClickElement(app, railRow(workspaceID))
+        assertEventually("the workspace menu opens on \(workspaceID)") {
+            app.menuItems.matching(identifier: "flock.workspace.menu.close").firstMatch.exists
+        } describing: {
+            "no workspace menu is up: the app has \(app.menuItems.count) menu items in all"
         }
     }
 

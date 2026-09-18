@@ -81,9 +81,9 @@ struct InlineRenameField: View {
     }
 }
 
-/// The hover-reveal close control a tab and a rail row carry. Present in the
-/// layout at all times so a row never reflows as the pointer crosses it; only
-/// its opacity follows the hover.
+/// The hover-reveal close control a tab and an attention toast carry. Present
+/// in the layout at all times so a row never reflows as the pointer crosses
+/// it; only its opacity follows the hover.
 struct HoverCloseButton: View {
     let theme: Theme
     let isRevealed: Bool
