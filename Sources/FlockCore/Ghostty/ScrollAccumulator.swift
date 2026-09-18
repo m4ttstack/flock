@@ -25,30 +25,38 @@ public struct ScrollAccumulator: Equatable, Sendable {
     /// Whole-cell steps to emit on each axis for one wheel event; the sign is
     /// the direction (positive y = scroll up, positive x = scroll left, the
     /// AppKit `scrollingDelta` convention).
+    ///
+    /// `speed` scales the event as it arrives, never the remainder already
+    /// carried, so a speed changed between two events of one gesture leaves
+    /// what the old one measured exactly as it was.
     public mutating func add(
-        deltaX: Double, deltaY: Double, precise: Bool, cellSize: MouseForwarding.CellSize
+        deltaX: Double, deltaY: Double, precise: Bool, cellSize: MouseForwarding.CellSize,
+        speed: ScrollSpeed
     ) -> (x: Int, y: Int) {
         let y: Int
         if deltaY == 0 {
             y = 0
         } else {
-            let adjusted: Double
+            let points: Double
             if precise {
-                adjusted = deltaY
+                points = deltaY
             } else {
                 let notches = deltaY > 0 ? max(deltaY, 1) : min(deltaY, -1)
-                adjusted = notches * cellSize.height
+                points = notches * cellSize.height
             }
-            (y, pendingY) = Self.step(pending: pendingY + adjusted, cell: cellSize.height)
+            // After the slow-click round-out, so a 0.1 magnitude is a whole
+            // notch taken at the chosen speed rather than a tenth of one
+            // scaled back up.
+            (y, pendingY) = Self.step(pending: pendingY + points * speed.multiplier, cell: cellSize.height)
         }
 
         let x: Int
         if deltaX == 0 {
             x = 0
         } else if !precise {
-            x = Int(deltaX.rounded())
+            x = Int((deltaX * speed.multiplier).rounded())
         } else {
-            (x, pendingX) = Self.step(pending: pendingX + deltaX, cell: cellSize.width)
+            (x, pendingX) = Self.step(pending: pendingX + deltaX * speed.multiplier, cell: cellSize.width)
         }
         return (x, y)
     }

@@ -419,7 +419,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
         let steps = scrollAccumulator.add(
             deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
-            precise: event.hasPreciseScrollingDeltas, cellSize: cell
+            precise: event.hasPreciseScrollingDeltas, cellSize: cell, speed: .normal
         )
         routeScrollSteps(steps.y, positive: .scrollUp, negative: .scrollDown, event: event)
         routeScrollSteps(steps.x, positive: .scrollLeft, negative: .scrollRight, event: event)
