@@ -71,6 +71,13 @@ final class ChatStore {
         unreadCounts[pane] ?? 0
     }
 
+    /// The write half of `unreadCount(for:)`. Nothing in this store calls it
+    /// yet; a later task's peek-to-per-pane reduction is meant to call this
+    /// exact setter rather than adding a second unread source.
+    func setUnreadCount(_ count: Int, for pane: PaneID) {
+        unreadCounts[pane] = count
+    }
+
     func refreshStatus(for pane: PaneID) async {
         await applyStatus(from: .status(pane: pane.rawValue), pane: pane)
     }

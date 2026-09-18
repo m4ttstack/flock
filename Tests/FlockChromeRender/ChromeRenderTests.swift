@@ -138,6 +138,72 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// The Count child, only ever exercised at the model level until now, and
+    /// the ordering the review could not confirm without a dot to compare
+    /// against: a fixture pane carrying both a non-idle agent status (so the
+    /// status chip actually draws) and a signed-in chat with unread. Neither
+    /// element's exact frame is assumed here -- both are found by scanning the
+    /// legend row's own pixels, which is what proves the source order
+    /// (`PaneCellView.swift`'s chat button written before `statusColor`)
+    /// actually reaches the screen rather than just the compiler.
+    func testChatButtonDrawsUnreadAndSitsLeftOfTheStatusDot() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = Theme.tokyoNight
+        let pane = PaneID(rawValue: "w1:p2")
+        let signedInJSON = #"""
+        {"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
+        """#
+        let harness = try await Harness(
+            theme: theme, model: try Fixture.model(focusedPaneAgentStatus: "working"),
+            chatAvailable: true, chatStatusJSON: [pane: signedInJSON], chatUnread: [pane: 3]
+        )
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let image = try snapshot(window)
+        if let directory {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-in-unread.png")
+            try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+        }
+        let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
+        let insetBox = PaneBox.frame(in: box, dividerThickness: DividerBand.gutter)
+        // The legend row's own vertical center: the chat button is its
+        // tallest child (18pt against the status pill's 14), so the row's
+        // top is the button's own top, and both center on the same line.
+        let legendY = insetBox.minY + PaneChrome.verticalPadding + ChromeMetrics.ChatButton.signedInSize.height / 2
+        let scanFrom = insetBox.midX
+        let scanTo = insetBox.maxX - PaneChrome.horizontalPadding
+
+        let buttonMaxX = try XCTUnwrap(
+            lastX(image, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.accent.hex),
+            "no accent pixel on the legend row -- the chat button did not draw"
+        )
+        let buttonMinX = buttonMaxX - ChromeMetrics.ChatButton.signedInSize.width
+        // pad(8) + handle(18) + gap(6) + divider(1) + gap(6) + icon(11) + gap(6):
+        // the count's own slot starts 56pt past the button's own leading edge.
+        // A single digit at this size antialiases across its whole slot with
+        // no pixel at full coverage (confirmed by dumping the row: the
+        // closest sampled pixel to `palette.text` was #B5BEE9, twelve units
+        // off in the worst channel, against a plain background over a
+        // hundred units off) -- so this takes the CLOSEST pixel in the slot
+        // rather than demanding an exact match, the same tolerance the file's
+        // own `channelDistance`/`washDither` pattern uses for opacity blends.
+        let countSlotStart = buttonMinX + 56
+        let countDistance = minChannelDistance(
+            image, y: legendY, from: countSlotStart, to: countSlotStart + ChromeMetrics.ChatButton.countSize.width,
+            target: theme.palette.text.hex
+        )
+        XCTAssertLessThanOrEqual(
+            countDistance, 20, "no pixel close enough to palette.text in the count's slot (closest off by \(countDistance))"
+        )
+
+        let pillMinX = try XCTUnwrap(
+            firstX(image, y: legendY, after: buttonMaxX + 2, to: scanTo, notMatching: theme.palette.chromeRoles.pane.hex),
+            "no status pill pixel found to the right of the chat button"
+        )
+        XCTAssertLessThan(buttonMaxX, pillMinX, "the chat button does not sit left of the status dot")
+        window.close()
+    }
+
     /// Where the chat button lands: `drag.canvas.paneFrames` carries the
     /// UNINSET split rect, and `PaneCanvas` insets it by the divider gutter
     /// before ever handing `PaneCellView` a box (`PaneBox.frame`) -- the same
@@ -150,6 +216,50 @@ final class ChromeRenderTests: XCTestCase {
             x: box.maxX - PaneChrome.horizontalPadding - size.width, y: box.minY + PaneChrome.verticalPadding,
             width: size.width, height: size.height
         )
+    }
+
+    /// The rightmost `x` (searching `from` to `to`, inclusive) whose pixel
+    /// matches `target` exactly, or nil if it never appears in the range --
+    /// finds an element by its own known colour rather than an assumed frame,
+    /// for a legend that draws more than one thing at once.
+    private func lastX(
+        _ image: NSBitmapImageRep, y: CGFloat, from: CGFloat, to: CGFloat, matching target: String, step: CGFloat = 0.25
+    ) -> CGFloat? {
+        var found: CGFloat?
+        var x = from
+        while x <= to {
+            if hex(image, CGPoint(x: x, y: y)) == target { found = x }
+            x += step
+        }
+        return found
+    }
+
+    /// The first `x` strictly after `after` (up to `to`) whose pixel is NOT
+    /// `background`, or nil if the rest of the row is bare ground.
+    private func firstX(
+        _ image: NSBitmapImageRep, y: CGFloat, after: CGFloat, to: CGFloat, notMatching background: String, step: CGFloat = 0.25
+    ) -> CGFloat? {
+        var x = after
+        while x <= to {
+            if hex(image, CGPoint(x: x, y: y)) != background { return x }
+            x += step
+        }
+        return nil
+    }
+
+    /// The smallest `channelDistance` to `target` found anywhere in the range
+    /// -- for text small enough that no single pixel reaches full coverage,
+    /// this is what "this glyph is drawn in this colour" has to mean.
+    private func minChannelDistance(
+        _ image: NSBitmapImageRep, y: CGFloat, from: CGFloat, to: CGFloat, target: String, step: CGFloat = 0.25
+    ) -> Int {
+        var best = Int.max
+        var x = from
+        while x <= to {
+            best = min(best, channelDistance(hex(image, CGPoint(x: x, y: y)), target))
+            x += step
+        }
+        return best
     }
 
     /// A face that failed to register resolves to the system font with no
@@ -1735,7 +1845,7 @@ private struct Harness {
         // Absent by default, same as a machine with no chat binary: a render
         // test that does not care about chat must keep seeing exactly what it
         // saw before this button existed.
-        chatAvailable: Bool = false, chatStatusJSON: [PaneID: String] = [:],
+        chatAvailable: Bool = false, chatStatusJSON: [PaneID: String] = [:], chatUnread: [PaneID: Int] = [:],
         // Frozen by any test that renders the attention stack: a finished
         // toast expires six seconds after it is raised, and a render that
         // read the wall clock would flip on a loaded machine that took that
@@ -1764,6 +1874,9 @@ private struct Harness {
         await chatStore.probeTask.value
         for pane in chatStatusJSON.keys {
             await chatStore.refreshStatus(for: pane)
+        }
+        for (pane, count) in chatUnread {
+            chatStore.setUnreadCount(count, for: pane)
         }
         viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory(), now: now)
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
@@ -1989,7 +2102,13 @@ private enum Fixture {
     /// `flockTabLabels` replaces the four tabs of the selected workspace, for
     /// a test that needs a title of its own. Four of them either way: the
     /// third is the selected tab the rest of the fixture is written around.
-    static func model(zoomed: Bool = false, flockTabLabels: [String]? = nil) throws -> SessionModel {
+    /// `focusedPaneAgentStatus` overrides only `w1:p2` (every other pane stays
+    /// `idle`, the default every existing caller still gets): the one pane a
+    /// test can also carry a chat status on, for a fixture with both a status
+    /// dot and a chat button on the same legend.
+    static func model(
+        zoomed: Bool = false, flockTabLabels: [String]? = nil, focusedPaneAgentStatus: String = "idle"
+    ) throws -> SessionModel {
         let workspaces: [(id: String, label: String, panes: Int, status: String)] = [
             ("w1", "flock", 5, "idle"), ("w2", "repo-tools", 3, "blocked"), ("w3", "board", 2, "working"),
             ("w4", "mattstack-apps", 4, "done"), ("w5", "herdr", 1, "idle"),
@@ -2012,10 +2131,12 @@ private enum Fixture {
             }
             let flockTabs = ["w1:t3", "w1:t3", "w1:t1", "w1:t2", "w1:t4"]
             for paneIndex in 0..<workspace.panes {
+                let paneID = "\(workspace.id):p\(paneIndex + 1)"
                 paneRows.append([
-                    "pane_id": "\(workspace.id):p\(paneIndex + 1)", "workspace_id": workspace.id,
+                    "pane_id": paneID, "workspace_id": workspace.id,
                     "tab_id": isFlock ? flockTabs[paneIndex] : "\(workspace.id):t1",
-                    "focused": isFlock && paneIndex == 1, "agent_status": "idle", "revision": 1,
+                    "focused": isFlock && paneIndex == 1,
+                    "agent_status": paneID == "w1:p2" ? focusedPaneAgentStatus : "idle", "revision": 1,
                     "terminal_title_stripped": "shell", "cwd": "/private/tmp",
                 ])
             }
