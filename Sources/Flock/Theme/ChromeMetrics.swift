@@ -275,6 +275,10 @@ enum ChromeMetrics {
         /// The tail's lines sit at the terminal's own rhythm, tighter than the
         /// card's rows, so a screenful reads as one block of output.
         static let tailLineSpacing: CGFloat = 1
+        static let copySpacing: CGFloat = 4
+        static let copyHorizontalPadding: CGFloat = 6
+        static let copyVerticalPadding: CGFloat = 3
+        static let copyCornerRadius: CGFloat = 3
         /// Where placement starts before the card has measured itself once:
         /// a card with a full tail, since that is what nearly every card
         /// settles at.

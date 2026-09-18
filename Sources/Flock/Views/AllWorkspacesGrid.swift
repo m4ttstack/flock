@@ -898,7 +898,19 @@ private struct GridHoverCard: View {
             PaneHoverCardView(theme: theme, content: content, tail: viewModel.paneTail(for: hovered))
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
                 .offset(x: origin.x, y: origin.y)
-                .allowsHitTesting(false)
+                // The card takes the pointer, which is what makes anything in
+                // it usable at all: entering it holds it open for as long as
+                // the pointer stays, past the grace the pane's own exit armed.
+                .onHover { hovering in
+                    if hovering {
+                        drag.gridHoverCardEntered()
+                        // The card is not draggable, so the open hand the pane
+                        // under the pointer set has no meaning over it.
+                        GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor)
+                    } else {
+                        drag.gridHoverCardExited()
+                    }
+                }
                 // The card's own cadence, and the whole of what keeps a
                 // running pane's tail current: nothing herdr reports about a
                 // pane changes when it prints, so there is no event to follow.
@@ -943,12 +955,17 @@ private struct PaneHoverCardView: View {
                 .lineLimit(1)
                 .truncationMode(.head)
             // Until the read lands there is no output to set apart, so the
-            // rule waits for it too.
-            if let tail, !tail.isEmpty {
+            // rule waits for it too, and a pane with nothing on screen is
+            // offered no copy of it.
+            if let tail, let copy = PaneHoverCardCopy.text(of: tail) {
                 Rectangle()
                     .fill(theme.rule)
                     .frame(height: ChromeMetrics.ruleWidth)
                 tailLines(tail)
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    HoverCardCopyButton(theme: theme, text: copy)
+                }
             }
         }
         .padding(.vertical, ChromeMetrics.HoverCard.verticalPadding)
@@ -959,6 +976,11 @@ private struct PaneHoverCardView: View {
             RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.cornerRadius)
                 .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
         )
+        // A container, not one combined element: the card holds a control now,
+        // and combining would fold the button into the card's own text and
+        // leave nothing to press.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("flock.grid.hoverCard")
     }
 
     /// The pane's own last lines, in the terminal face. Each line stands alone
@@ -978,5 +1000,55 @@ private struct PaneHoverCardView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("flock.grid.hoverCard.tail")
+    }
+}
+
+/// Puts the tail the card is showing on the pasteboard, and says so where the
+/// pointer already is. It confirms in place rather than through the window's
+/// toast: the grid covers the window, and a whisper somewhere else is a
+/// confirmation for a copy nobody watched.
+private struct HoverCardCopyButton: View {
+    let theme: Theme
+    let text: String
+
+    @State private var isHovering = false
+    @State private var confirming = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            confirming = true
+        } label: {
+            HStack(spacing: ChromeMetrics.HoverCard.copySpacing) {
+                Image(systemName: confirming ? "checkmark" : "doc.on.doc")
+                    .font(ChromeType.hoverCardCopySymbol)
+                Text(confirming ? PaneHoverCardCopy.confirmation : PaneHoverCardCopy.label)
+                    .font(ChromeType.hoverCardCopy)
+            }
+            .foregroundStyle(foreground)
+            .padding(.horizontal, ChromeMetrics.HoverCard.copyHorizontalPadding)
+            .padding(.vertical, ChromeMetrics.HoverCard.copyVerticalPadding)
+            .background(
+                RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.copyCornerRadius)
+                    .fill(theme.selection)
+                    .opacity(isHovering ? 1 : 0)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityIdentifier("flock.grid.hoverCard.copy")
+        .task(id: confirming) {
+            guard confirming else { return }
+            try? await Task.sleep(for: PaneHoverCardCopy.confirmationDuration)
+            guard !Task.isCancelled else { return }
+            confirming = false
+        }
+    }
+
+    private var foreground: Color {
+        if confirming { return theme.green }
+        return isHovering ? theme.textStrong : theme.textLabel
     }
 }

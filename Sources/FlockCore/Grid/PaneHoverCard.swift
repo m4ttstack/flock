@@ -89,3 +89,26 @@ public enum HoverCardPlacement {
         container.maxX - pane.maxX >= pane.minX - container.minX ? trailing : leading
     }
 }
+
+/// The card's copy control: the one thing in it that is not text.
+///
+/// It is what the anchored placement is for. A card that follows the pointer
+/// has no interior the pointer can reach, so a control drawn in one is a
+/// picture of a control; a card that holds still while the pointer travels to
+/// it can carry a real one.
+public enum PaneHoverCardCopy {
+    /// Says what it copies, since the card holds more than the output.
+    public static let label = "copy output"
+    public static let confirmation = "copied"
+    /// The card outlives a copy, so the confirmation has to end on its own.
+    /// The beat the pane's own copied whisper uses.
+    public static let confirmationDuration: Duration = .milliseconds(1200)
+
+    /// What a copy puts on the pasteboard, or nil when the card is showing no
+    /// output to copy: the tail exactly as the card has it, so what lands on
+    /// the pasteboard is what was read on screen.
+    public static func text(of tail: PaneTail?) -> String? {
+        guard let tail, !tail.isEmpty else { return nil }
+        return tail.text
+    }
+}

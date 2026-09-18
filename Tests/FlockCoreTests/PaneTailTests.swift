@@ -46,6 +46,16 @@ final class PaneTailTests: XCTestCase {
     func testTheCopiedTextIsTheLinesTheCardShows() {
         XCTAssertEqual(PaneTailPolicy.make(from: "one\ntwo\n").text, "one\ntwo")
         XCTAssertEqual(PaneTail(lines: []).text, "")
+        XCTAssertEqual(PaneHoverCardCopy.text(of: PaneTailPolicy.make(from: "one\ntwo\n")), "one\ntwo")
+    }
+
+    /// A card with nothing read yet, or a pane with a blank screen, offers no
+    /// copy at all: a control that puts an empty string on the pasteboard is
+    /// worse than no control.
+    func testAnEmptyTailOffersNothingToCopy() {
+        XCTAssertNil(PaneHoverCardCopy.text(of: nil))
+        XCTAssertNil(PaneHoverCardCopy.text(of: PaneTail(lines: [])))
+        XCTAssertNil(PaneHoverCardCopy.text(of: PaneTailPolicy.make(from: "\n \n")))
     }
 
     /// The card is read while scanning a grid, so the cost has to stay small
