@@ -88,7 +88,8 @@ final class WorkspaceClickLatencyTests: XCTestCase {
         let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
         let factory = GhosttyControlSurfaceFactory(
             host: host, socketPath: "/tmp/flock-latency-never-connected.sock",
-            themeColors: { Theme.tokyoNight.ghosttyThemeColors() }, fontSizePoints: { 13 }
+            themeColors: { Theme.tokyoNight.ghosttyThemeColors() }, fontSizePoints: { 13 },
+            scrollSpeed: { .normal }
         )
         var samples: [Double] = []
         for index in 0..<12 {

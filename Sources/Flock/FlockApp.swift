@@ -120,6 +120,7 @@ struct FlockApp: App {
     @NSApplicationDelegateAdaptor(FlockAppDelegate.self) private var appDelegate
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
+    @State private var scrollSpeedStore = ScrollSpeedStore()
     @State private var railWidthStore = RailWidthStore()
     @State private var toastCenter: ToastCenter
     @State private var herdrStore: HerdrStore
@@ -178,6 +179,8 @@ struct FlockApp: App {
         _themeStore = State(initialValue: themeStore)
         let terminalTextSizeStore = TerminalTextSizeStore()
         _terminalTextSizeStore = State(initialValue: terminalTextSizeStore)
+        let scrollSpeedStore = ScrollSpeedStore()
+        _scrollSpeedStore = State(initialValue: scrollSpeedStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
         let herdrStore = Self.makeHerdrStore(socketPath: socketPath)
@@ -199,7 +202,8 @@ struct FlockApp: App {
             GhosttyControlSurfaceFactory(
                 host: host, socketPath: socketPath,
                 themeColors: { themeStore.active.ghosttyThemeColors() },
-                fontSizePoints: { terminalTextSizeStore.points }
+                fontSizePoints: { terminalTextSizeStore.points },
+                scrollSpeed: { scrollSpeedStore.active }
             )
         }
         // Pane-scoped scroll state rides one subscription connection per
@@ -385,6 +389,7 @@ struct FlockApp: App {
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(store: terminalTextSizeStore)
+                ScrollSpeedMenu(store: scrollSpeedStore)
                 // The only key into rearrange mode, and the same switch this
                 // item's checkmark reflects.
                 Button {

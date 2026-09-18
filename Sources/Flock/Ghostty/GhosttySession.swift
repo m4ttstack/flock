@@ -77,6 +77,12 @@ final class GhosttySession {
     /// the launcher overlay, leaving it hit-testable over live terminal
     /// output.
     var onUserInput: (() -> Void)?
+    /// The chosen scroll speed, asked for at wheel time rather than carried
+    /// in `configuration` the way the font size is: a speed picked from the
+    /// View menu has to reach the panes that already exist, and nothing is
+    /// drawn from it, so there is no appearance for a snapshot to keep in
+    /// step. Set by `GhosttyControlSurfaceFactory.makeSurface` at creation.
+    var scrollSpeed: () -> ScrollSpeed = { .normal }
     nonisolated(unsafe) private var secureEventInputEnabled = false
     /// The FIFO to this pane's bridge, set by `GhosttyControlSurfaceFactory`
     /// right after construction (before the session is ever attached to a

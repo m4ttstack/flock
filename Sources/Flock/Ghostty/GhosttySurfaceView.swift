@@ -412,6 +412,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// more for this to fall back to, since herdr streams viewport repaints,
     /// not a retainable scrollback. An unfocused pane drops the wheel
     /// entirely, same as every other mouse event.
+    ///
+    /// The chosen speed decides how many cells the gesture crossed, upstream
+    /// of that fork, so both routes carry it: a wheel that moved one pane's
+    /// program further than it moved herdr's viewport would read as a bug.
     override func scrollWheel(with event: NSEvent) {
         guard let cell = cellSizeInPoints() else {
             scrollAccumulator.reset()
@@ -419,7 +423,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
         let steps = scrollAccumulator.add(
             deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
-            precise: event.hasPreciseScrollingDeltas, cellSize: cell, speed: .normal
+            precise: event.hasPreciseScrollingDeltas, cellSize: cell, speed: session.scrollSpeed()
         )
         routeScrollSteps(steps.y, positive: .scrollUp, negative: .scrollDown, event: event)
         routeScrollSteps(steps.x, positive: .scrollLeft, negative: .scrollRight, event: event)

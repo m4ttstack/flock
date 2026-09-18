@@ -25,18 +25,23 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     /// same way `themeColors` is: a later change flows through
     /// `GhosttySession.updateAppearance`, not back through a fresh `Launch`.
     private let fontSizePoints: () -> Double
+    /// Handed to the session rather than read here: unlike the two above, the
+    /// answer is wanted at wheel time, not at creation.
+    private let scrollSpeed: () -> ScrollSpeed
 
     init(
         host: GhosttyHost, socketPath: String,
         herdrBinaryOverride: String? = ProcessInfo.processInfo.environment["FLOCK_HERDR_BIN"],
         themeColors: @escaping () -> GhosttyThemeColors,
-        fontSizePoints: @escaping () -> Double
+        fontSizePoints: @escaping () -> Double,
+        scrollSpeed: @escaping () -> ScrollSpeed
     ) {
         self.host = host
         self.socketPath = socketPath
         self.herdrBinaryOverride = (herdrBinaryOverride?.isEmpty == false) ? herdrBinaryOverride : nil
         self.themeColors = themeColors
         self.fontSizePoints = fontSizePoints
+        self.scrollSpeed = scrollSpeed
     }
 
     func makeSurface(
@@ -80,6 +85,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         )
         session.onUserInput = onUserInput
         session.onScreenActivity = onScreenActivity
+        session.scrollSpeed = scrollSpeed
         session.controlChannel = channel
         session.statusChannel = statusChannel
         // without a status channel at all, the bridge has no way to
