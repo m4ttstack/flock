@@ -9,7 +9,10 @@ final class PasteboardPasteTextTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        pasteboard = NSPasteboard(name: .init("dev.mattstack.flock.tests.paste"))
+        // A name of this test's own: a pasteboard released and recreated under
+        // one name starts its change count over, and a change count is how a
+        // clipboard's contents are recognized again.
+        pasteboard = NSPasteboard(name: .init("dev.mattstack.flock.tests.paste.\(UUID().uuidString)"))
         pasteboard.clearContents()
     }
 
@@ -68,6 +71,36 @@ final class PasteboardPasteTextTests: XCTestCase {
         let path = text.replacingOccurrences(of: "\\", with: "")
         staged.append(path)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), bytes)
+    }
+
+    /// libghostty answers a program's OSC 52 read through the same clipboard
+    /// read as the user's own paste, so a program asking in a loop must not
+    /// write a copy of the user's screenshot for every ask.
+    func testOneClipboardStagesOneFileHoweverOftenItIsRead() throws {
+        write([imageItem(Data([0x89, 0x50, 0x20, 0x21]))])
+        let before = try stagedFileCount()
+
+        let first = try XCTUnwrap(pasteboard.pasteText())
+        let second = try XCTUnwrap(pasteboard.pasteText())
+
+        staged.append(first.replacingOccurrences(of: "\\", with: ""))
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(try stagedFileCount(), before + 1)
+    }
+
+    func testANewClipboardStagesAFileOfItsOwn() throws {
+        write([imageItem(Data([0x89, 0x50, 0x30]))])
+        let first = try XCTUnwrap(pasteboard.pasteText())
+        staged.append(first.replacingOccurrences(of: "\\", with: ""))
+
+        let later = Data([0x89, 0x50, 0x31, 0x32])
+        write([imageItem(later)])
+        let second = try XCTUnwrap(pasteboard.pasteText())
+        let path = second.replacingOccurrences(of: "\\", with: "")
+        staged.append(path)
+
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), later)
     }
 
     func testAnEmptyClipboardPastesNothing() {
