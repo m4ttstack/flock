@@ -33,10 +33,12 @@ public enum DragVisuals {
     /// border and the grip glyph are what announce the mode; the scrim only
     /// pushes the terminal back, so the value actually being chosen here is
     /// `rearrangeContentVisibility` below rather than an alpha.
-    public static let rearrangeScrimOpacity: Double = 0.35
+    public static let rearrangeScrimOpacity: Double = 0.15
     /// How much of the terminal's own light still reaches the eye through the
     /// rearrange scrim. Ruled floor: 0.6 (Matt, 2026-09-17: content must stay
-    /// readable in the mode, always).
+    /// readable in the mode, always). The binding constraint on the value is
+    /// the contrast the dimmed text keeps in the LEAST contrasty built-in
+    /// theme, which `DragVisualsTests` measures.
     public static var rearrangeContentVisibility: Double { 1 - rearrangeScrimOpacity }
 
     /// The ghost's top-left for a cursor at `point`, both in the same space.

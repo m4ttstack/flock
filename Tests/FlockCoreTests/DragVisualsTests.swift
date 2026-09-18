@@ -11,18 +11,24 @@ final class DragVisualsTests: XCTestCase {
 
     /// The scrim is `surfaceDim` laid over the pane, so what it actually dims
     /// is the terminal's TEXT against the terminal's own ground -- on a dark
-    /// theme the two grounds are nearly the same color, so the background
-    /// barely moves and the text carries the whole effect. Held to WCAG AA on
-    /// every built-in palette, light and dark: a mode the user reads the pane
-    /// through is not a mode that may push its text under the readable floor.
-    func testRearrangeScrimKeepsTerminalTextAboveTheAAFloorInEveryTheme() {
+    /// theme the two grounds are nearly the same color, so the ground barely
+    /// moves and the text carries the whole effect; on a light theme both
+    /// move and the compression is worse.
+    ///
+    /// Held to 3:1 -- WCAG's floor for large text and UI components -- on
+    /// every built-in palette. Not 4.5:1: solarized-light and tokyo-night-day
+    /// sit at 4.09 and 4.47 UNSCRIMMED, so a text floor no dim could ever
+    /// reach would be a rule about those themes rather than about this mode.
+    /// solarized-light is what binds the value: measured across the built-ins,
+    /// 0.15 leaves it at 3.20 and 0.20 drops it to 2.94.
+    func testRearrangeScrimKeepsEveryThemesTerminalTextAboveThreeToOne() {
         for palette in ThemePalette.builtins {
             let scrim = palette.surfaceDim
             let amount = DragVisuals.rearrangeScrimOpacity
             let text = palette.text.mixed(with: scrim, amount: amount)
             let ground = palette.terminalGround.mixed(with: scrim, amount: amount)
             XCTAssertGreaterThanOrEqual(
-                text.contrastRatio(with: ground), 4.5,
+                text.contrastRatio(with: ground), 3,
                 "\(palette.id): text \(text) on ground \(ground)"
             )
         }
