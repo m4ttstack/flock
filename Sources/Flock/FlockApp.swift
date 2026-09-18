@@ -158,6 +158,10 @@ struct FlockApp: App {
         // `NSWindow`'s own `setFrameAutosaveName`/`saveFrame(usingName:)`.
         UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
         ChromeType.install()
+        // Ahead of everything that resolves a tool, because the first pane's
+        // bridge is handed the herdr binary it resolves and a reader that gets
+        // there first has to wait for it.
+        ToolPath.warm(reporting: ["herdr"] + HarnessRoster.known.map(\.binary))
         let socketPath = Self.resolveSocketPath()
         // A plain local, not `self.themeStore`: an escaping closure built
         // here (below) cannot capture any part of `self` before every stored
