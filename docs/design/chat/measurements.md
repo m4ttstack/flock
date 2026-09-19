@@ -40,7 +40,7 @@ of `600` is semibold, `500` is medium, `normal` is regular.
 ## Popover, both states
 
 360 wide. Signed out is 325 tall, signed in is 348. Corner radius 10, fill
-`panelBg`, stroke `surface1`.
+`panelBg`, outer stroke `surface1` at 1pt.
 
 | Band | Height | Padding | Gap |
 | --- | --- | --- | --- |
@@ -50,6 +50,16 @@ of `600` is semibold, `500` is medium, `normal` is regular.
 | Features | 124 | 0 / 8 | |
 | Label THIS PANE | 33 | 14 / 14 / 7 / 14 | |
 | Sign Buttons | 49 | 0 / 14 / 16 / 14 | 8 |
+
+**The rules between bands are part of the design.** The Header and the Status
+band each carry a 1pt BOTTOM border in `surface0`. Nothing else does: the
+FEATURES and THIS PANE labels, the feature rows and the button row have no
+rules, so the popover reads as three groups rather than six.
+
+The signed-out frame on the canvas is missing the outer `surface1` stroke that
+the signed-in frame, Peek, Quick send and Broadcast all carry. Treat that as a
+slip and stroke both states: a popover does not grow a border when its pane
+signs in.
 
 Header: title "Chat" at 14/600 in `text`, an open-viewer icon 15x15 in
 `overlay0` at the trailing edge.
@@ -72,9 +82,14 @@ are Broadcast to panes, Chat peek, Quick send, Open viewer, carrying `⌘⇧B`,
 
 Sign buttons: two 162x33 buttons, r6, pad 9/10, gap 7, with 13x13 icons. The
 primary one fills `accent` with its icon and label in `panelBg` at 12/600; the
-secondary fills `surface0` with icon and label in `subtext0` at 12/500. Signed
-out puts Sign in first as primary; signed in puts Sign out second as primary.
-Neither is ever hidden.
+secondary fills `surface0` with icon and label in `subtext0` at 12/500, and
+carries a 1pt `surface1` stroke. Signed out puts Sign in first as primary;
+signed in puts Sign out second as primary. Neither is ever hidden.
+
+The canvas also strokes the signed-in state's PRIMARY button, which the
+signed-out state does not. Follow the signed-out frame: the stroke belongs to
+the secondary button, where it separates a dark fill from a dark ground, and an
+accent fill needs no edge to be found.
 
 ## Peek
 
