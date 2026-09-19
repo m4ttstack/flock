@@ -425,9 +425,6 @@ struct PaneCellView: View {
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
         case let .signedIn(handle, unread):
             Button(action: { openChatPopover() }) {
-                // Left-aligned rather than the frame's default center: an
-                // absent count (unread == 0) must not shift the handle and
-                // glyph that stay fixed regardless of the count showing.
                 HStack(spacing: ChromeMetrics.ChatButton.gap) {
                     Text(handle)
                         .font(ChromeType.chatButtonHandle)
@@ -446,7 +443,7 @@ struct PaneCellView: View {
                 }
                 .padding(.vertical, ChromeMetrics.ChatButton.verticalPadding)
                 .padding(.horizontal, ChromeMetrics.ChatButton.horizontalPadding)
-                .frame(width: ChromeMetrics.ChatButton.signedInSize.width, height: ChromeMetrics.ChatButton.signedInSize.height, alignment: .leading)
+                .frame(height: ChromeMetrics.ChatButton.signedInHeight)
                 .background(
                     RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.selectionBg))
                 )

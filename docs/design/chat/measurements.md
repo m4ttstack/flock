@@ -192,23 +192,30 @@ that does and say so in your report rather than shipping an empty glyph.
 The chrome row is 32 tall with pad 7/10 and gap 8; the button sits at y 7 and the
 status dot stays to its right.
 
-**Signed in:** 71x18, fill `selectionBg`, NO stroke, r4, pad 3/8, gap 6.
-Four children in this order, and all four are part of the design:
+**Signed in:** height 18, WIDTH SIZED TO CONTENT, fill `selectionBg`, NO stroke,
+r4, pad 3/8, gap 6. Three children, and a fourth only when there is unread:
 
 | Child | Size | Colour | Type |
 | --- | --- | --- | --- |
 | Handle | 18x12 | `green` | 10/600, the handle with NO `@` prefix |
-| Divider | 1x9 | `surface1` | a rule, not a gap |
 | Icon | 11x11 | `green` | `bubble.left.fill` |
-| Count | 7x12 | `text` | 10/600 |
+| Count | 7x12 | `text` | 10/600, present only when unread is non-zero |
 
-**This overrides the canvas, deliberately, and must not be "corrected" back.**
-The canvas draws the handle and glyph in `accent` inside an `accent` stroke.
-Seen in the running app that was wrong twice over: blue is already carrying
-too much of this UI, and a bordered pill reads as a selected item rather than
-a state. Online is green here, the way a status dot is green everywhere else in
-these designs, and the border is gone. The soft `selectionBg` fill stays, which
-is what still marks the button as active without claiming selection.
+**This overrides the canvas in four ways, deliberately, and none of them may be
+"corrected" back.** The canvas draws a fixed 71x18 pill, handle and glyph in
+`accent`, an `accent` stroke, and a 1x9 `surface1` divider between handle and
+glyph. Every one of those was wrong in the running app:
+
+- **Green, not `accent`.** Blue already carries too much of this UI, and green
+  is what a status dot means by online everywhere else in these designs.
+- **No stroke.** A bordered pill reads as a selected item rather than a state.
+  The soft `selectionBg` fill is enough to mark it active.
+- **No divider.** Green lettering beside the glyph separates itself, and a 1pt
+  rule inside an 18pt pill is one thing too many.
+- **No fixed width.** The canvas sized the pill around a count that is usually
+  absent, so a zero-unread button carried a permanent empty gap where the
+  number would go. Sizing to content trades a rare reflow when a message
+  lands for a gap that was visible all the time.
 
 The count is `palette.text`, not `accent` and not `panelBg`: it differs from the
 unread pills in the popover and peek, which are `panelBg` on an `accent` ground.

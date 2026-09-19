@@ -23,6 +23,14 @@ final class ChromeRenderTests: XCTestCase {
         "catppuccin-latte", "tokyo-night-day", "gruvbox-light", "one-light",
         "solarized-light", "kanagawa-lotus", "rose-pine-dawn",
     ]
+    /// The signed-in chat button's content-derived width with no unread:
+    /// leading and trailing padding around the handle, one gap, the glyph.
+    private static let chatButtonNoUnreadWidth =
+        ChromeMetrics.ChatButton.horizontalPadding * 2 + ChromeMetrics.ChatButton.handleSize.width
+            + ChromeMetrics.ChatButton.gap + ChromeMetrics.ChatButton.iconSize.width
+    /// The same button with a count child: one more gap and the count's slot.
+    private static let chatButtonWithUnreadWidth =
+        chatButtonNoUnreadWidth + ChromeMetrics.ChatButton.gap + ChromeMetrics.ChatButton.countSize.width
 
     override func tearDown() {
         UserDefaults().removePersistentDomain(forName: Self.defaultsSuite)
@@ -47,10 +55,12 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// The pane legend's chat button, both states it can actually draw: fill
-    /// and stroke sampled against the palette by name, and its frame against
-    /// the sizes `measurements.md` gives. The button is the only thing in its
-    /// pane's legend here (idle, unzoomed), so its box sits flush against the
-    /// legend's own padding with nothing else to make room for.
+    /// sampled against the palette by name, and its frame against the sizes
+    /// `measurements.md` gives -- signed out is fixed, signed in is measured
+    /// from the render, since its width follows its content. The button is
+    /// the only thing in its pane's legend here (idle, unzoomed), so its box
+    /// sits flush against the legend's own padding with nothing else to make
+    /// room for.
     func testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSizeAndHex() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
@@ -70,8 +80,26 @@ final class ChromeRenderTests: XCTestCase {
             try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
         }
         let signedInBox = try XCTUnwrap(signedIn.drag.canvas.paneFrames[pane])
-        let signedInFrame = Self.chatButtonFrame(inRawFrame: signedInBox, size: ChromeMetrics.ChatButton.signedInSize)
-        XCTAssertEqual(signedInFrame.size, ChromeMetrics.ChatButton.signedInSize, "signed-in size")
+        let noUnreadSize = CGSize(width: Self.chatButtonNoUnreadWidth, height: ChromeMetrics.ChatButton.signedInHeight)
+        let signedInFrame = Self.chatButtonFrame(inRawFrame: signedInBox, size: noUnreadSize)
+        // Measured against the render, not assumed: this is what catches a
+        // fixed frame coming back, which an assumed size cannot.
+        let insetBox = PaneBox.frame(in: signedInBox, dividerThickness: DividerBand.gutter)
+        let legendY = insetBox.minY + PaneChrome.verticalPadding + ChromeMetrics.ChatButton.signedInHeight / 2
+        let scanFrom = insetBox.midX
+        let scanTo = insetBox.maxX - PaneChrome.horizontalPadding
+        let measuredMinX = try XCTUnwrap(
+            firstX(signedInImage, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
+            "no selectionBg pixel on the legend row -- the chat button did not draw"
+        )
+        let measuredMaxX = try XCTUnwrap(
+            lastX(signedInImage, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
+            "no selectionBg pixel on the legend row -- the chat button did not draw"
+        )
+        XCTAssertEqual(
+            measuredMaxX - measuredMinX, Self.chatButtonNoUnreadWidth, accuracy: 0.5,
+            "signed-in width sized to content with no unread, not a fixed frame"
+        )
         // Inside the leading padding, ahead of the handle text: the frame's
         // own center sits on the glyph, whose antialiased edge blends fill
         // and text color rather than reading as either.
@@ -158,7 +186,9 @@ final class ChromeRenderTests: XCTestCase {
         // signed-out box's plain `surface0` fill when it did not -- the same
         // point `testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSizeAndHex`
         // reads for each state on its own.
-        let frame = Self.chatButtonFrame(inRawFrame: box, size: ChromeMetrics.ChatButton.signedInSize)
+        let frame = Self.chatButtonFrame(
+            inRawFrame: box, size: CGSize(width: Self.chatButtonNoUnreadWidth, height: ChromeMetrics.ChatButton.signedInHeight)
+        )
         XCTAssertEqual(
             hex(image, CGPoint(x: frame.maxX - 0.5, y: frame.midY)),
             theme.palette.selectionBg.hex, "signed-in fill absent: the button still reads as signed out"
@@ -196,7 +226,7 @@ final class ChromeRenderTests: XCTestCase {
         // The legend row's own vertical center: the chat button is its
         // tallest child (18pt against the status pill's 14), so the row's
         // top is the button's own top, and both center on the same line.
-        let legendY = insetBox.minY + PaneChrome.verticalPadding + ChromeMetrics.ChatButton.signedInSize.height / 2
+        let legendY = insetBox.minY + PaneChrome.verticalPadding + ChromeMetrics.ChatButton.signedInHeight / 2
         let scanFrom = insetBox.midX
         let scanTo = insetBox.maxX - PaneChrome.horizontalPadding
 
@@ -204,7 +234,21 @@ final class ChromeRenderTests: XCTestCase {
             lastX(image, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
             "no selectionBg pixel on the legend row -- the chat button did not draw"
         )
-        let buttonMinX = buttonMaxX - ChromeMetrics.ChatButton.signedInSize.width
+        let buttonMinX = try XCTUnwrap(
+            firstX(image, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
+            "no selectionBg pixel on the legend row -- the chat button did not draw"
+        )
+        // Measured, not assumed: a fixed frame reappearing would widen this
+        // past the no-unread button's own measured width instead of matching
+        // it, since a fixed frame draws the same width either way.
+        XCTAssertEqual(
+            buttonMaxX - buttonMinX, Self.chatButtonWithUnreadWidth, accuracy: 0.5,
+            "signed-in width sized to content with unread present"
+        )
+        XCTAssertGreaterThan(
+            buttonMaxX - buttonMinX, Self.chatButtonNoUnreadWidth,
+            "the with-unread button is not wider than the empty one -- a fixed frame came back"
+        )
         // pad(8) + handle(18) + gap(6) + icon(11) + gap(6): the count's own
         // slot starts 49pt past the button's own leading edge. A single digit
         // at this size antialiases across its whole slot with no pixel at
@@ -534,6 +578,21 @@ final class ChromeRenderTests: XCTestCase {
             x += step
         }
         return found
+    }
+
+    /// The leftmost `x` (searching `from` to `to`, inclusive) whose pixel
+    /// matches `target` exactly, or nil if it never appears in the range --
+    /// `lastX(matching:)`'s twin, for measuring a fill's own left edge rather
+    /// than assuming a width no fixed frame guarantees any more.
+    private func firstX(
+        _ image: NSBitmapImageRep, y: CGFloat, from: CGFloat, to: CGFloat, matching target: String, step: CGFloat = 0.25
+    ) -> CGFloat? {
+        var x = from
+        while x <= to {
+            if hex(image, CGPoint(x: x, y: y)) == target { return x }
+            x += step
+        }
+        return nil
     }
 
     /// The rightmost `x` (searching `from` to `to`) whose pixel is NOT

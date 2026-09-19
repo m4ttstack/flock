@@ -159,7 +159,11 @@ enum ChromeMetrics {
     /// signed out shows the glyph alone; chat unavailable on this machine
     /// draws no button at all.
     enum ChatButton {
-        static let signedInSize = CGSize(width: 71, height: 18)
+        /// The signed-in button's only fixed dimension. Its width is
+        /// whatever the handle, the glyph and (when present) the count add
+        /// up to: a count that only sometimes shows must not leave a gap
+        /// behind when it is absent.
+        static let signedInHeight: CGFloat = 18
         static let signedOutSize = CGSize(width: 27, height: 17)
         static let cornerRadius: CGFloat = 4
         static let verticalPadding: CGFloat = 3
