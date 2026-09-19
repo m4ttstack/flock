@@ -239,8 +239,8 @@ final class DragVisualsTests: XCTestCase {
     }
 
     func testPaneContentStartsBelowThePaddingAndTitleRow() {
-        XCTAssertEqual(PaneChrome.contentTop, 28)
-        XCTAssertEqual(PaneChrome.size, CGSize(width: 26, height: 38))
+        XCTAssertEqual(PaneChrome.contentTop, 34)
+        XCTAssertEqual(PaneChrome.size, CGSize(width: 26, height: 44))
     }
 
     func testPaneBodyIsTheTerminalsAtRest() {

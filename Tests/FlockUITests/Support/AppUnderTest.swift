@@ -24,7 +24,7 @@ enum Aim {
     case edge(Edge)
 
     /// A canvas pane cell's at-rest drag handle: the chrome band across the
-    /// top of the box. `PaneChrome.contentTop` makes it 28pt deep, and a press
+    /// top of the box. `PaneChrome.contentTop` makes it 34pt deep, and a press
     /// below it belongs to the terminal surface and starts no drag at all
     /// (`PaneGrabRegion`), so a pane cell is the one source that must never be
     /// grabbed in the middle.
@@ -332,7 +332,7 @@ private func offset(_ aim: Aim, in frame: CGRect) -> CGVector {
 /// spare, and off the boundary the target shares with its neighbor.
 private let edgeAimInset: CGFloat = 0.05
 
-/// `PaneChrome.contentTop`: 10pt of padding, a 14pt title row, a 4pt gap. Not
+/// `PaneChrome.contentTop`: 10pt of padding, an 18pt title row, a 6pt gap. Not
 /// importable here (the UI test bundle links the app, not FlockCore), so it
 /// is restated -- a canvas pane grabbed below this band starts no drag.
-private let paneChromeBandDepth: CGFloat = 28
+private let paneChromeBandDepth: CGFloat = 34
