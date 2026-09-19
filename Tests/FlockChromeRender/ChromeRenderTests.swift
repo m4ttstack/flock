@@ -138,10 +138,42 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The Count child, only ever exercised at the model level until now, and
-    /// the ordering the review could not confirm without a dot to compare
-    /// against: a fixture pane carrying both a non-idle agent status (so the
-    /// status chip actually draws) and a signed-in chat with unread. Neither
+    /// A pane already signed in must read that way on first render, with no
+    /// popover ever opened: `seedChatStatus: false` withholds the harness's
+    /// own direct `refreshStatus` call, so the button's appearance can only
+    /// come from whatever production code fetches status on its own. A
+    /// button still drawing the muted signed-out glyph here means nothing
+    /// but a popover open ever populates `chatStore.status(for:)`.
+    func testChatButtonReadsSignedInOnFirstRenderWithNoPopoverEverOpened() async throws {
+        let theme = Theme.tokyoNight
+        let pane = PaneID(rawValue: "w1:p2")
+        let signedInJSON = #"""
+        {"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
+        """#
+        let harness = try await Harness(
+            theme: theme, chatAvailable: true, chatStatusJSON: [pane: signedInJSON], seedChatStatus: false
+        )
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let image = try snapshot(window)
+        let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
+        // Every button size shares the same right edge (`chatButtonFrame`'s
+        // own `box.maxX - horizontalPadding`), so this trailing-edge sample
+        // reads the signed-in stroke's accent when it fetched, or the
+        // signed-out box's plain `surface0` edge when it did not -- the same
+        // point `testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSizeAndHex`
+        // reads for each state on its own.
+        let frame = Self.chatButtonFrame(inRawFrame: box, size: ChromeMetrics.ChatButton.signedInSize)
+        XCTAssertEqual(
+            hex(image, CGPoint(x: frame.maxX - 0.5, y: frame.midY)),
+            theme.palette.accent.hex, "signed-in stroke absent: the button still reads as signed out"
+        )
+        window.close()
+    }
+
+    /// The Count child, at render level rather than only the model: a
+    /// fixture pane carrying both a non-idle agent status (so the status
+    /// chip actually draws) and a signed-in chat with unread. Neither
     /// element's exact frame is assumed here -- both are found by scanning the
     /// legend row's own pixels, which is what proves the source order
     /// (`PaneCellView.swift`'s chat button written before `statusColor`)
@@ -2160,6 +2192,10 @@ private struct Harness {
         // test that does not care about chat must keep seeing exactly what it
         // saw before this button existed.
         chatAvailable: Bool = false, chatStatusJSON: [PaneID: String] = [:], chatUnread: [PaneID: Int] = [:],
+        // False only for a test proving the production fetch wiring itself:
+        // every other test wants status/unread in place before the first
+        // render, which calling the store here directly gives for free.
+        seedChatStatus: Bool = true,
         // Frozen by any test that renders the attention stack: a finished
         // toast expires six seconds after it is raised, and a render that
         // read the wall clock would flip on a loaded machine that took that
@@ -2187,11 +2223,13 @@ private struct Harness {
             makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON) }
         )
         await chatStore.probeTask.value
-        for pane in chatStatusJSON.keys {
-            await chatStore.refreshStatus(for: pane)
-        }
-        for (pane, count) in chatUnread {
-            chatStore.setUnreadCount(count, for: pane)
+        if seedChatStatus {
+            for pane in chatStatusJSON.keys {
+                await chatStore.refreshStatus(for: pane)
+            }
+            for (pane, count) in chatUnread {
+                chatStore.setUnreadCount(count, for: pane)
+            }
         }
         viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory(), now: now)
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)

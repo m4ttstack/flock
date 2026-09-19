@@ -53,5 +53,9 @@ struct ChatComposeSendButton: View {
             .background(RoundedRectangle(cornerRadius: cornerRadius).fill(fill))
         }
         .buttonStyle(.plain)
+        // The one binding for the `⌘⏎` this button already draws: disabled
+        // state (`.disabled` at each call site) suppresses the shortcut the
+        // same way it suppresses the click.
+        .keyboardShortcut(.return, modifiers: .command)
     }
 }

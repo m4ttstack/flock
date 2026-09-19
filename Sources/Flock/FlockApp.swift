@@ -270,7 +270,14 @@ struct FlockApp: App {
         .restorationBehavior(.disabled)
         .commands {
             PasteboardCommands()
-            ChatCommands(chatStore: chatStore, viewModel: viewModel)
+            ChatCommands(
+                chatStore: chatStore, viewModel: viewModel,
+                rows: ChatMenuModel.rows(
+                    isAvailable: chatStore.isAvailable, hasFocusedPane: viewModel.resolvedFocusedPaneID != nil,
+                    isSignedIn: viewModel.resolvedFocusedPaneID.flatMap { chatStore.status(for: $0) }?.signedIn ?? false,
+                    viewerDisabledReason: chatStore.viewerDisabledReason
+                )
+            )
             // Creation's macOS home. It is also the only always-visible route
             // to it: the strip and rail take a plain click on their own empty
             // space, and the tab menu carries New Tab, but neither the strip

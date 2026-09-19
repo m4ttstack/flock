@@ -176,15 +176,18 @@ final class ChatDegradationRenderTests: XCTestCase {
     /// clears a prior failure and never spawns anything beyond the one verb
     /// it was asked to run.
     func testRetrySucceedingClearsTheBannerAndRunsNothingButTheStatusVerb() async {
-        actor RecordingRunner: ChatRunning {
+        actor FlakyRunner: ChatRunning {
             private(set) var calls: [ChatVerb] = []
             func run(_ verb: ChatVerb) async throws -> (stdout: Data, exitCode: Int32) {
                 calls.append(verb)
-                return (Data(#"{"error":"chat daemon unreachable"}"#.utf8), 1)
+                guard calls.count > 1 else {
+                    return (Data(#"{"error":"chat daemon unreachable"}"#.utf8), 1)
+                }
+                return (Data(#"{"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":[]}"#.utf8), 0)
             }
             func recordedCalls() -> [ChatVerb] { calls }
         }
-        let runner = RecordingRunner()
+        let runner = FlakyRunner()
         let toasts = ToastCenter()
         let store = ChatStore(
             toasts: toasts, probe: { "/usr/bin/true" }, rtProbe: { true }, deckProbe: { true },
@@ -193,10 +196,16 @@ final class ChatDegradationRenderTests: XCTestCase {
         await store.probeTask.value
 
         await store.refreshStatus(for: Self.pane)
-        XCTAssertNotNil(store.statusError(for: Self.pane))
+        XCTAssertNotNil(store.statusError(for: Self.pane), "the first, failing call must set the banner")
+
+        await store.refreshStatus(for: Self.pane)
+        XCTAssertNil(store.statusError(for: Self.pane), "the retry succeeding must clear the banner")
 
         let calls = await runner.recordedCalls()
-        XCTAssertEqual(calls, [.status(pane: Self.pane.rawValue)], "a failed status call must never trigger anything but that same verb -- nothing here ever tries to start rt")
+        XCTAssertEqual(
+            calls, [.status(pane: Self.pane.rawValue), .status(pane: Self.pane.rawValue)],
+            "retry must never trigger anything but that same verb -- nothing here ever tries to start rt"
+        )
     }
 
     // MARK: - the popover: absent vs broken never collapse

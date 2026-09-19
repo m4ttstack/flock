@@ -84,15 +84,20 @@ enum ChatMenuModel {
 /// its `.commands` block, keeping the menu's own logic out of a file
 /// `FlockChromeRender` cannot compile (`ChatMenuModel` above is what a test
 /// reaches instead).
+///
+/// `rows` arrives already computed, read from `FlockApp.body`'s own
+/// `.commands` closure rather than from `chatStore`/`viewModel` in here: that
+/// closure is the one place in this app SwiftUI is proven to re-evaluate on
+/// an `@Observable` change (`FlockApp.swift`'s `.disabled(viewModel
+/// .selectedWorkspaceID == nil)`), and a `Commands` conformer holding only
+/// plain `let`s has no such guarantee for its own `body`.
 struct ChatCommands: Commands {
     let chatStore: ChatStore
     let viewModel: SessionViewModel
+    let rows: [ChatMenuModel.Row]?
 
     var body: some Commands {
-        if let rows = ChatMenuModel.rows(
-            isAvailable: chatStore.isAvailable, hasFocusedPane: viewModel.resolvedFocusedPaneID != nil,
-            isSignedIn: focusedStatus?.signedIn ?? false, viewerDisabledReason: chatStore.viewerDisabledReason
-        ) {
+        if let rows {
             CommandMenu("Chat") {
                 ForEach(rows, id: \.item) { row in
                     if row.item.hasSeparatorBefore { Divider() }
@@ -103,10 +108,6 @@ struct ChatCommands: Commands {
                 }
             }
         }
-    }
-
-    private var focusedStatus: ChatStatus? {
-        viewModel.resolvedFocusedPaneID.flatMap { chatStore.status(for: $0) }
     }
 
     /// Chat Panel opens the popover's status root, since that IS the panel;

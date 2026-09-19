@@ -96,6 +96,11 @@ final class ChatStore {
             guard ChatDegradation.isAvailable(chatBinaryFound: true, rtBinaryFound: rtIsFound) else { return }
             self.runner = makeRunner(path)
             self.isAvailable = true
+            // The only launch-time entry for unread: after this, it only
+            // ever changes from an explicit peek (Chat Peek, Broadcast), per
+            // the spec's no-polling rule -- so a badge can go stale between
+            // actions, which is accepted rather than chased with a timer.
+            Task { [weak self] in await self?.peek() }
         }
     }
 

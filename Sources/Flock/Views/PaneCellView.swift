@@ -173,6 +173,16 @@ struct PaneCellView: View {
         .task(id: pane.paneID) {
             ghosttySurface = await viewModel.attachPane(pane.paneID)
         }
+        // Keyed on availability rather than the pane: this cancels and
+        // restarts the moment `isAvailable` flips from false to true, which
+        // is the ONLY other time this pane's status can newly become
+        // fetchable. The guard is what keeps a machine without chat from
+        // spawning anything on every launch (`isAvailable` starts false, so
+        // the very first run of this task is a no-op there).
+        .task(id: chatStore.isAvailable) {
+            guard chatStore.isAvailable else { return }
+            await chatStore.refreshStatus(for: pane.paneID)
+        }
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }
         }
@@ -386,8 +396,20 @@ struct PaneCellView: View {
         )
     }
 
-    @ViewBuilder
+    /// One `.popover` wrapping the whole switch below, never one per branch:
+    /// signing in flips `chatButtonAppearance` from `.signedOut` to
+    /// `.signedIn`, and a modifier attached inside a branch is torn down and
+    /// re-presented along with it, resetting the popover's own route.
+    /// Wrapping the switch as a whole keeps the popover's host stable across
+    /// that flip, since the conditional content's outer type does not change
+    /// with which branch is live.
     private var chatButton: some View {
+        chatButtonContent
+            .popover(isPresented: $isChatPopoverPresented, arrowEdge: .bottom) { chatPopover }
+    }
+
+    @ViewBuilder
+    private var chatButtonContent: some View {
         switch chatButtonAppearance {
         case .absent:
             EmptyView()
@@ -401,7 +423,6 @@ struct PaneCellView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Chat")
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
-            .popover(isPresented: $isChatPopoverPresented, arrowEdge: .bottom) { chatPopover }
         case let .signedIn(handle, unread):
             Button(action: { openChatPopover() }) {
                 // Left-aligned rather than the frame's default center: an
@@ -440,7 +461,6 @@ struct PaneCellView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(unread > 0 ? "Chat: \(handle), \(unread) unread" : "Chat: \(handle)")
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
-            .popover(isPresented: $isChatPopoverPresented, arrowEdge: .bottom) { chatPopover }
         }
     }
 
@@ -457,8 +477,10 @@ struct PaneCellView: View {
             initialFeature: pendingPopoverFeature,
             onJump: { paneID in Task { await viewModel.focusFromChat(pane: paneID) } }
         )
-        // The one place this pane's status is ever actually fetched: opening
-        // the popover is what a Retry banner has something to retry.
+        // A fresh fetch on every open, on top of the launch/availability
+        // fetch above: a popover left closed for a while must not show a
+        // status stale enough to contradict a Retry the user is about to
+        // read as current.
         .task { await chatStore.refreshStatus(for: pane.paneID) }
     }
 
