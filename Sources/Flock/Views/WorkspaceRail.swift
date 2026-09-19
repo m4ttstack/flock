@@ -87,11 +87,29 @@ struct WorkspaceRail: View {
                                 }
                             }
                         }
+                        // Real content, filling whatever height the rows
+                        // leave inside the viewport: a `ScrollView` bridges to
+                        // an `NSScrollView`, whose clip view claims hit
+                        // testing across its own bounds, so a right-click
+                        // past where a shorter document actually ends never
+                        // reaches a layer drawn behind the scroll view at
+                        // all. herdr draws a "+" of its own in the sidebar;
+                        // flock's equivalent is this zone plus File > New
+                        // Workspace, so the resting chrome carries no control
+                        // the design never drew.
+                        newWorkspaceZone
                     }
                     .padding(.top, ChromeMetrics.Rail.headingToFirstRow)
                     .padding(.bottom, ChromeMetrics.Rail.verticalPadding)
                     .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
                     .frame(width: railWidth.width, alignment: .leading)
+                    // Gives the row stack a concrete height to allocate
+                    // rather than the unbounded one a `ScrollView` proposes to
+                    // its content: only that turns `newWorkspaceZone`'s own
+                    // `maxHeight: .infinity` into a real fill of the leftover
+                    // space rather than the near-zero share SwiftUI gives a
+                    // flexible child under an unbounded proposal.
+                    .frame(minHeight: drag.railViewport?.height, alignment: .top)
                     .coordinateSpace(.named(DragSpace.railContent))
                     .reportsDragFrame { drag.setRailContentOrigin($0.origin) }
                 }
@@ -101,11 +119,6 @@ struct WorkspaceRail: View {
                 .reportsScrollExtent(.vertical) { drag.setRailScroll(offset: $0, maximumOffset: $1) }
                 .frame(maxHeight: .infinity)
                 .reportsDragFrame { drag.railViewport = $0 }
-                // Behind the rows, so only rail space no row occupies reaches
-                // it. herdr draws a "+" of its own in the sidebar; flock's
-                // equivalent is this zone plus File > New Workspace, so the
-                // resting chrome carries no control the design never drew.
-                .background { newWorkspaceZone }
                 .onAppear { drag.railScroller = { y in scrollPosition.scrollTo(y: y) } }
             }
             .frame(width: railWidth.width)
@@ -171,11 +184,12 @@ struct WorkspaceRail: View {
 
     /// A plain click on rail space no row occupies creates a workspace, and a
     /// right-click there offers the same thing by name. Invisible by
-    /// construction, so it costs the resting chrome nothing. A row carries its
-    /// own menu and sits in front of this zone, so a right-click that lands on
-    /// a row never reaches here.
+    /// construction, so it costs the resting chrome nothing. A row of its own
+    /// height sits above this zone in the row stack rather than overlapping
+    /// it, so a right-click that lands on a row never reaches here.
     private var newWorkspaceZone: some View {
         Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .onTapGesture {
                 guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
