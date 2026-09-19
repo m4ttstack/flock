@@ -22,8 +22,7 @@ final class ChatStore {
     @ObservationIgnored private var runner: ChatRunning?
     private let toasts: ToastCenter
     private var statuses: [PaneID: ChatStatus] = [:]
-    /// Nothing writes this yet: it renders 0 everywhere until a later task
-    /// reduces chat's peek data to a per-pane count and populates it here.
+    /// Populated by `peek()`, keyed by each buddy's own pane.
     private var unreadCounts: [PaneID: Int] = [:]
     @ObservationIgnored private var requestGenerations: [PaneID: Int] = [:]
 
@@ -71,9 +70,7 @@ final class ChatStore {
         unreadCounts[pane] ?? 0
     }
 
-    /// The write half of `unreadCount(for:)`. Nothing in this store calls it
-    /// yet; a later task's peek-to-per-pane reduction is meant to call this
-    /// exact setter rather than adding a second unread source.
+    /// The write half of `unreadCount(for:)`, and `peek()`'s own seam for it.
     func setUnreadCount(_ count: Int, for pane: PaneID) {
         unreadCounts[pane] = count
     }
@@ -90,8 +87,16 @@ final class ChatStore {
         await applyStatus(from: .signOut(pane: pane.rawValue), pane: pane)
     }
 
+    /// Peek is where unread enters the app: every buddy it names carries its
+    /// own pane's unread count, which lands in `unreadCounts` here so the
+    /// pane's own chat button (fed by `unreadCount(for:)`) reflects it
+    /// without a second, competing source of truth.
     func peek() async -> ChatPeek? {
-        await run(.peek)
+        guard let peek: ChatPeek = await run(.peek) else { return nil }
+        for buddy in peek.buddies {
+            setUnreadCount(buddy.unread, for: PaneID(rawValue: buddy.paneID))
+        }
+        return peek
     }
 
     func targets() async -> ChatTargets? {

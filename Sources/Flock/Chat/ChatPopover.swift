@@ -59,6 +59,11 @@ struct ChatPopover: View {
     let onSignIn: () -> Void
     let onSignOut: () -> Void
     let onOpenViewer: () -> Void
+    /// Peek's own jump affordance: the pane id its `jump` call resolves,
+    /// handed back so the caller can focus it FROM FLOCK'S OWN MODEL. A
+    /// no-op default keeps every existing call site (render tests included)
+    /// compiling; only the real pane chrome supplies the real one.
+    let onJump: (PaneID) -> Void
 
     @Binding private var isPresented: Bool
     @State private var route: Route = .status
@@ -76,7 +81,7 @@ struct ChatPopover: View {
     init(
         theme: Theme, paneName: String, status: ChatStatus?, isPresented: Binding<Bool>,
         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onOpenViewer: @escaping () -> Void,
-        previewHoveredFeature: ChatPopoverFeature? = nil
+        onJump: @escaping (PaneID) -> Void = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil
     ) {
         self.theme = theme
         self.paneName = paneName
@@ -85,6 +90,7 @@ struct ChatPopover: View {
         self.onSignIn = onSignIn
         self.onSignOut = onSignOut
         self.onOpenViewer = onOpenViewer
+        self.onJump = onJump
         self._hoveredFeature = State(initialValue: previewHoveredFeature)
     }
 
@@ -92,7 +98,7 @@ struct ChatPopover: View {
         Group {
             switch route {
             case .status: statusRoute
-            case let .feature(feature): featurePlaceholder(feature)
+            case let .feature(feature): featureBody(feature)
             }
         }
         .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(Color(theme.palette.panelBg)))
@@ -354,28 +360,24 @@ struct ChatPopover: View {
 
     // MARK: - Feature route
 
-    /// What Broadcast, Peek and Quick send fall back to until each has its
-    /// own body: a back chevron and the feature's own title, at the same
-    /// header height the status route uses. The real bodies are each a
-    /// separate view hung off `ChatPopoverFeature`; this carries only the
-    /// affordance back to the status route.
-    private func featurePlaceholder(_ feature: ChatPopoverFeature) -> some View {
-        HStack(spacing: ChromeMetrics.ChatPopover.Features.rowGap) {
-            Button(action: { route = .status }) {
-                Image(systemName: "chevron.left")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(theme.overlay0)
-                    .frame(width: ChromeMetrics.ChatPopover.Features.iconSize.width, height: ChromeMetrics.ChatPopover.Features.iconSize.height)
+    /// Broadcast and Quick send never reach the `.openViewer` arm: `select`
+    /// intercepts it before `route` is ever set to it, so it renders nothing
+    /// rather than a fourth sub-view.
+    private func featureBody(_ feature: ChatPopoverFeature) -> some View {
+        let onBack = { route = .status }
+        let onClose = { isPresented = false }
+        return Group {
+            switch feature {
+            case .broadcast:
+                ChatBroadcastView(theme: theme, onBack: onBack, onClose: onClose)
+            case .peek:
+                ChatPeekView(theme: theme, onBack: onBack, onClose: onClose, onJump: onJump)
+            case .quickSend:
+                ChatQuickSendView(theme: theme, status: status, onBack: onBack, onClose: onClose)
+            case .openViewer:
+                EmptyView()
             }
-            .buttonStyle(.plain)
-            Text(feature.title)
-                .font(ChromeType.chatPopoverTitle)
-                .foregroundStyle(theme.text)
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, ChromeMetrics.ChatPopover.Header.horizontalPadding)
-        .frame(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.Header.height)
     }
 }
 

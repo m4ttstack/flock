@@ -433,7 +433,8 @@ struct PaneCellView: View {
             status: chatStore.status(for: pane.paneID), isPresented: $isChatPopoverPresented,
             onSignIn: { Task { await chatStore.signIn(pane.paneID) } },
             onSignOut: { Task { await chatStore.signOut(pane.paneID) } },
-            onOpenViewer: { openChatViewer() }
+            onOpenViewer: { openChatViewer() },
+            onJump: { paneID in Task { await viewModel.focusFromChat(pane: paneID) } }
         )
     }
 

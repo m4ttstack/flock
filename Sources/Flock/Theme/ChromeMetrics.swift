@@ -251,6 +251,145 @@ enum ChromeMetrics {
         }
     }
 
+    /// The back-chevron/title/close header every chat sub-view (Peek, Quick
+    /// send, Broadcast) opens with. One shared height and icon size; each
+    /// view supplies its own width, since Broadcast is wider than the other
+    /// two.
+    enum ChatSubviewHeader {
+        static let height: CGFloat = 41
+        static let verticalPadding: CGFloat = 12
+        static let horizontalPadding: CGFloat = 14
+        static let iconSize = CGSize(width: 14, height: 14)
+        static let gap: CGFloat = 9
+    }
+
+    /// Chat peek: buddies with a jump affordance, then rooms, each carrying
+    /// an unread pill. `signedInHeight`-style total is `height`, cross-checked
+    /// by a geometry test against the sum of every band below the header.
+    enum ChatPeek {
+        static let width: CGFloat = 360
+        static let height: CGFloat = 326
+        static let cornerRadius: CGFloat = 10
+
+        enum Label {
+            static let height: CGFloat = 31
+            static let topPadding: CGFloat = 13
+            static let trailingPadding: CGFloat = 14
+            static let bottomPadding: CGFloat = 6
+            static let leadingPadding: CGFloat = 14
+        }
+
+        enum PaneRow {
+            static let height: CGFloat = 42
+            static let verticalPadding: CGFloat = 7
+            static let horizontalPadding: CGFloat = 14
+            static let gap: CGFloat = 9
+            static let dotSize: CGFloat = 7
+            static let stackGap: CGFloat = 1
+            static let pillSize = CGSize(width: 19, height: 16)
+            static let pillCornerRadius: CGFloat = 8
+            static let pillVerticalPadding: CGFloat = 2
+            static let pillHorizontalPadding: CGFloat = 6
+            static let jumpIconSize = CGSize(width: 12, height: 12)
+        }
+
+        /// The first room row is 28pt, every one after it 27pt -- the only
+        /// two heights the design names, for however many rooms there are.
+        enum RoomRow {
+            static let firstHeight: CGFloat = 28
+            static let subsequentHeight: CGFloat = 27
+            static let verticalPadding: CGFloat = 6
+            static let horizontalPadding: CGFloat = 14
+            static let gap: CGFloat = 9
+        }
+    }
+
+    /// Chat quick send: one target chip selected at a time, a message field,
+    /// and a send button naming the sender's own handle.
+    enum ChatQuickSend {
+        static let width: CGFloat = 360
+        static let height: CGFloat = 234
+        static let cornerRadius: CGFloat = 10
+
+        enum TargetBand {
+            static let height: CGFloat = 57
+            static let topPadding: CGFloat = 13
+            static let trailingPadding: CGFloat = 14
+            static let bottomPadding: CGFloat = 4
+            static let leadingPadding: CGFloat = 14
+            static let gap: CGFloat = 7
+            static let chipHeight: CGFloat = 21
+            static let chipCornerRadius: CGFloat = 4
+            static let chipVerticalPadding: CGFloat = 4
+            static let chipHorizontalPadding: CGFloat = 9
+            static let chipGap: CGFloat = 6
+        }
+
+        enum FieldBand {
+            static let height: CGFloat = 136
+            static let topPadding: CGFloat = 10
+            static let trailingPadding: CGFloat = 14
+            static let bottomPadding: CGFloat = 14
+            static let leadingPadding: CGFloat = 14
+            static let gap: CGFloat = 9
+            static let fieldSize = CGSize(width: 332, height: 74)
+            static let fieldCornerRadius: CGFloat = 6
+            static let fieldVerticalPadding: CGFloat = 10
+            static let fieldHorizontalPadding: CGFloat = 11
+            static let footerHeight: CGFloat = 29
+            static let sendButtonSize = CGSize(width: 82, height: 29)
+            static let sendButtonCornerRadius: CGFloat = 6
+            static let sendButtonVerticalPadding: CGFloat = 7
+            static let sendButtonHorizontalPadding: CGFloat = 13
+            static let sendButtonGap: CGFloat = 6
+        }
+    }
+
+    /// Chat broadcast: the widest of the three sub-views, a checkbox per
+    /// pane, and a `mauve` send button -- the one place it and Quick send's
+    /// own `accent` button deliberately differ.
+    enum ChatBroadcast {
+        static let width: CGFloat = 400
+        static let height: CGFloat = 370
+        static let cornerRadius: CGFloat = 10
+
+        enum SelectHead {
+            static let height: CGFloat = 31
+            static let topPadding: CGFloat = 13
+            static let trailingPadding: CGFloat = 14
+            static let bottomPadding: CGFloat = 6
+            static let leadingPadding: CGFloat = 14
+        }
+
+        enum PaneRow {
+            static let height: CGFloat = 42
+            static let verticalPadding: CGFloat = 7
+            static let horizontalPadding: CGFloat = 14
+            static let gap: CGFloat = 10
+            static let checkboxSize: CGFloat = 15
+            static let checkboxCornerRadius: CGFloat = 3
+            static let checkTickSize: CGFloat = 10
+            static let dotSize: CGFloat = 7
+            static let stackGap: CGFloat = 1
+        }
+
+        enum FieldBand {
+            static let height: CGFloat = 130
+            static let padding: CGFloat = 14
+            static let gap: CGFloat = 9
+            static let fieldSize = CGSize(width: 372, height: 64)
+            static let fieldCornerRadius: CGFloat = 6
+            static let fieldVerticalPadding: CGFloat = 10
+            static let fieldHorizontalPadding: CGFloat = 11
+            static let footerHeight: CGFloat = 29
+            static let sendButtonSize = CGSize(width: 112, height: 29)
+            static let sendButtonCornerRadius: CGFloat = 6
+            static let sendButtonVerticalPadding: CGFloat = 7
+            static let sendButtonHorizontalPadding: CGFloat = 13
+            static let sendButtonGap: CGFloat = 6
+        }
+    }
+
     enum Card {
         static let spacing: CGFloat = 10
         static let padding: CGFloat = 18
