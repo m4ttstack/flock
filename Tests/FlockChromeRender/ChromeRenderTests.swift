@@ -1,5 +1,5 @@
 import AppKit
-import FlockCore
+@testable import FlockCore
 import SwiftUI
 import XCTest
 
@@ -202,6 +202,172 @@ final class ChromeRenderTests: XCTestCase {
         )
         XCTAssertLessThan(buttonMaxX, pillMinX, "the chat button does not sit left of the status dot")
         window.close()
+    }
+
+    /// The popover's six bands, isolated from the whole view so each one's
+    /// height is read directly rather than inferred from pixel scanning: a
+    /// SwiftUI view with an explicit `.frame(height:)` reports that height as
+    /// its `NSHostingView.fittingSize`, with no window or snapshot needed.
+    /// The sum is cross-checked against the two named totals `measurements.md`
+    /// gives, so the per-band constants and the totals can never drift apart.
+    func testChatPopoverBandsMatchTheirMeasuredHeights() throws {
+        ChromeType.install()
+        let theme = Theme.tokyoNight
+        let signedOutStatus = ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: [])
+        let signedInStatus = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: ["#rt", "#flock"])
+
+        let popover = ChatPopover(
+            theme: theme, paneName: "claude", status: signedOutStatus, isPresented: .constant(true),
+            onSignIn: {}, onSignOut: {}, onOpenViewer: {}
+        )
+        XCTAssertEqual(fittingHeight(popover.header), ChromeMetrics.ChatPopover.Header.height, "header band")
+        XCTAssertEqual(fittingHeight(popover.statusBlock), ChromeMetrics.ChatPopover.Status.heightSignedOut, "status band, signed out")
+        XCTAssertEqual(fittingHeight(popover.featuresBlock), ChromeMetrics.ChatPopover.Features.bandHeight, "features band")
+        XCTAssertEqual(fittingHeight(popover.signButtonsBlock), ChromeMetrics.ChatPopover.SignButtons.bandHeight, "sign buttons band")
+        XCTAssertEqual(fittingHeight(popover.statusRoute), ChromeMetrics.ChatPopover.signedOutHeight, "signed-out total")
+
+        let signedInPopover = ChatPopover(
+            theme: theme, paneName: "claude", status: signedInStatus, isPresented: .constant(true),
+            onSignIn: {}, onSignOut: {}, onOpenViewer: {}
+        )
+        XCTAssertEqual(fittingHeight(signedInPopover.statusBlock), ChromeMetrics.ChatPopover.Status.heightSignedIn, "status band, signed in")
+        XCTAssertEqual(fittingHeight(signedInPopover.statusRoute), ChromeMetrics.ChatPopover.signedInHeight, "signed-in total")
+
+        XCTAssertEqual(
+            ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedOut
+                + 2 * ChromeMetrics.ChatPopover.SectionLabel.height + ChromeMetrics.ChatPopover.Features.bandHeight
+                + ChromeMetrics.ChatPopover.SignButtons.bandHeight,
+            ChromeMetrics.ChatPopover.signedOutHeight, "the six bands must sum to the named signed-out total"
+        )
+        XCTAssertEqual(
+            ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedIn
+                + 2 * ChromeMetrics.ChatPopover.SectionLabel.height + ChromeMetrics.ChatPopover.Features.bandHeight
+                + ChromeMetrics.ChatPopover.SignButtons.bandHeight,
+            ChromeMetrics.ChatPopover.signedInHeight, "the six bands must sum to the named signed-in total"
+        )
+    }
+
+    /// Every distinct surface the popover paints, both states: the ground,
+    /// the pane chip, a room chip (signed in only), the hovered/selected
+    /// feature row with its accent icon, and both sign buttons -- whichever
+    /// one is primary flips between the two states, so both fills are
+    /// exercised across the pair. `previewHoveredFeature` seeds Chat peek as
+    /// hovered, the same row the approved PNGs show, without a real pointer.
+    func testChatPopoverPaintsExactHexSignedOutAndSignedIn() async throws {
+        ChromeType.install()
+        let theme = Theme.tokyoNight
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+
+        let signedOutStatus = ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: [])
+        let signedOutPopover = ChatPopover(
+            theme: theme, paneName: "claude", status: signedOutStatus, isPresented: .constant(true),
+            onSignIn: {}, onSignOut: {}, onOpenViewer: {}, previewHoveredFeature: .peek
+        )
+        let signedOutWindow = popoverWindow(signedOutPopover)
+        await settle(signedOutWindow)
+        let signedOutImage = try snapshot(signedOutWindow)
+        if let directory {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-popover-signed-out.png")
+            try XCTUnwrap(signedOutImage.representation(using: .png, properties: [:])).write(to: url)
+        }
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 20)), theme.palette.panelBg.hex, "signed-out popover ground")
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 343, y: 63)), theme.palette.surface0.hex, "signed-out pane chip fill")
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 165)), theme.palette.selectionBg.hex, "signed-out selected feature row fill")
+        var bestIconDistance = Int.max
+        for y in stride(from: CGFloat(159), through: 171, by: 0.5) {
+            bestIconDistance = min(bestIconDistance, minChannelDistance(signedOutImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
+        }
+        XCTAssertLessThanOrEqual(bestIconDistance, 20, "signed-out selected feature icon (closest off by \(bestIconDistance))")
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 30, y: 292.5)), theme.palette.accent.hex, "signed-out Sign in is primary")
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 292.5)), theme.palette.surface0.hex, "signed-out Sign out is secondary")
+        signedOutWindow.close()
+
+        let signedInStatus = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: ["#rt", "#flock"])
+        let signedInPopover = ChatPopover(
+            theme: theme, paneName: "claude", status: signedInStatus, isPresented: .constant(true),
+            onSignIn: {}, onSignOut: {}, onOpenViewer: {}, previewHoveredFeature: .peek
+        )
+        let signedInWindow = popoverWindow(signedInPopover)
+        await settle(signedInWindow)
+        let signedInImage = try snapshot(signedInWindow)
+        if let directory {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-popover-signed-in.png")
+            try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
+        }
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 20)), theme.palette.panelBg.hex, "signed-in popover ground")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 343, y: 63)), theme.palette.surface0.hex, "signed-in pane chip fill")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 17, y: 87)), theme.palette.activeRowBg.hex, "signed-in room chip fill")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 188)), theme.palette.selectionBg.hex, "signed-in selected feature row fill")
+        var bestSignedInIconDistance = Int.max
+        for y in stride(from: CGFloat(182), through: 194, by: 0.5) {
+            bestSignedInIconDistance = min(bestSignedInIconDistance, minChannelDistance(signedInImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
+        }
+        XCTAssertLessThanOrEqual(bestSignedInIconDistance, 20, "signed-in selected feature icon (closest off by \(bestSignedInIconDistance))")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 30, y: 315.5)), theme.palette.surface0.hex, "signed-in Sign in is secondary")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 315.5)), theme.palette.accent.hex, "signed-in Sign out is primary")
+        signedInWindow.close()
+    }
+
+    /// A pane with no status yet is neither signed in nor out: both sign
+    /// buttons must read as secondary rather than one being fabricated as
+    /// primary from a guessed status.
+    func testChatPopoverWithNoStatusYetShowsBothSignButtonsAsSecondary() async throws {
+        ChromeType.install()
+        let theme = Theme.tokyoNight
+        let popover = ChatPopover(
+            theme: theme, paneName: "claude", status: nil, isPresented: .constant(true),
+            onSignIn: {}, onSignOut: {}, onOpenViewer: {}
+        )
+        let window = popoverWindow(popover)
+        await settle(window)
+        let image = try snapshot(window)
+        XCTAssertEqual(hex(image, CGPoint(x: 30, y: 292.5)), theme.palette.surface0.hex, "Sign in reads secondary with no status yet")
+        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 292.5)), theme.palette.surface0.hex, "Sign out reads secondary with no status yet")
+        window.close()
+    }
+
+    /// Every SF Symbol the popover names, beyond `bubble.left.fill`
+    /// (already covered by the chat button's own test): a typo'd name
+    /// resolves to nothing, silently, so this is the guard that catches it.
+    func testChatPopoverSymbolsResolve() {
+        for symbolName in [
+            "arrow.up.forward.square", "terminal", "dot.radiowaves.left.and.right", "person.2.fill",
+            "paperplane.fill", "rectangle.portrait.and.arrow.forward", "rectangle.portrait.and.arrow.right",
+            "chevron.left",
+        ] {
+            XCTAssertNotNil(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil), symbolName)
+        }
+    }
+
+    /// A plain SwiftUI view's own ideal height, with no window and no
+    /// snapshot: what `.frame(height:)` declares is what this reports, so a
+    /// band's constant and its actually-laid-out height can never quietly
+    /// disagree.
+    private func fittingHeight(_ view: some View) -> CGFloat {
+        let hosting = NSHostingView(rootView: view)
+        hosting.layoutSubtreeIfNeeded()
+        return hosting.fittingSize.height
+    }
+
+    /// Hosts a standalone view (never `MainWindow`) flush against the
+    /// window's own top-left corner, so the sample coordinates below are the
+    /// view's own coordinates with no canvas or chrome offset to account for.
+    /// Borderless rather than `.titled`: a title bar is itself an opaque
+    /// subview AppKit adds to the theme frame, which would paint over the
+    /// content's own top band and shift every sample below it.
+    private func popoverWindow(_ view: some View) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
+            styleMask: [.borderless],
+            backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.colorSpace = .sRGB
+        window.contentView = NSHostingView(
+            rootView: ZStack(alignment: .topLeading) { view }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        )
+        window.contentView?.layoutSubtreeIfNeeded()
+        return window
     }
 
     /// Where the chat button lands: `drag.canvas.paneFrames` carries the

@@ -76,6 +76,7 @@ struct PaneCellView: View {
     @Environment(ChatStore.self) private var chatStore
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
+    @State private var isChatPopoverPresented = false
     /// The terminal body's frame in the drag space: what turns the body's own
     /// top-left point (AppKit) into a drag-space one.
     @State private var bodyFrame: CGRect = .zero
@@ -338,12 +339,14 @@ struct PaneCellView: View {
         }
     }
 
-    /// The legend's trailing end: the zoom badge, then the status chip. Both
-    /// are readouts, so the whole stack yields its part of the chrome band to
-    /// the drag handle underneath it.
+    /// The legend's trailing end: the zoom badge, then the status chip. The
+    /// chat button is the one live control here, so hit testing is turned off
+    /// on the zoom badge and the status pill themselves -- never on a
+    /// container around all three -- since a disabled ancestor cannot be
+    /// re-enabled from below it.
     private var statusChip: some View {
         HStack(spacing: ChromeMetrics.Pane.statusChipPadding) {
-            if isZoomed { zoomBadge }
+            if isZoomed { zoomBadge.allowsHitTesting(false) }
             if chatButtonAppearance != .absent { chatButton }
             if let statusColor {
                 Text(pane.agentStatus.rawValue)
@@ -352,11 +355,11 @@ struct PaneCellView: View {
                     .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
                     .frame(height: PaneChrome.titleRowHeight)
                     .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(statusColor.opacity(0.14)))
+                    .allowsHitTesting(false)
             }
         }
         .padding(.top, PaneChrome.verticalPadding)
         .padding(.trailing, PaneChrome.horizontalPadding)
-        .allowsHitTesting(false)
     }
 
     private var chatButtonAppearance: ChatButtonModel.Appearance {
@@ -372,46 +375,74 @@ struct PaneCellView: View {
         case .absent:
             EmptyView()
         case .signedOut:
-            chatGlyph(color: theme.overlay0)
-                .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
-                .frame(width: ChromeMetrics.ChatButton.signedOutSize.width, height: ChromeMetrics.ChatButton.signedOutSize.height)
-                .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.surface0)))
-                .accessibilityLabel("Chat")
-                .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
-        case let .signedIn(handle, unread):
-            // Left-aligned rather than the frame's default center: an
-            // absent count (unread == 0) must not shift the handle, divider
-            // and glyph that stay fixed regardless of the count showing.
-            HStack(spacing: ChromeMetrics.ChatButton.gap) {
-                Text(handle)
-                    .font(ChromeType.chatButtonHandle)
-                    .foregroundStyle(theme.accent)
-                    .lineLimit(1)
-                    .frame(width: ChromeMetrics.ChatButton.handleSize.width, height: ChromeMetrics.ChatButton.handleSize.height, alignment: .leading)
-                Rectangle()
-                    .fill(Color(theme.palette.surface1))
-                    .frame(width: ChromeMetrics.ChatButton.dividerSize.width, height: ChromeMetrics.ChatButton.dividerSize.height)
-                chatGlyph(color: theme.accent)
+            Button(action: { isChatPopoverPresented = true }) {
+                chatGlyph(color: theme.overlay0)
                     .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
-                if unread > 0 {
-                    Text("\(unread)")
-                        .font(ChromeType.chatButtonHandle)
-                        .foregroundStyle(theme.text)
-                        .lineLimit(1)
-                        .frame(width: ChromeMetrics.ChatButton.countSize.width, height: ChromeMetrics.ChatButton.countSize.height, alignment: .leading)
-                }
+                    .frame(width: ChromeMetrics.ChatButton.signedOutSize.width, height: ChromeMetrics.ChatButton.signedOutSize.height)
+                    .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.surface0)))
             }
-            .padding(.vertical, ChromeMetrics.ChatButton.verticalPadding)
-            .padding(.horizontal, ChromeMetrics.ChatButton.horizontalPadding)
-            .frame(width: ChromeMetrics.ChatButton.signedInSize.width, height: ChromeMetrics.ChatButton.signedInSize.height, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.selectionBg))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).strokeBorder(theme.accent, lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+            .accessibilityLabel("Chat")
+            .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
+            .popover(isPresented: $isChatPopoverPresented, arrowEdge: .bottom) { chatPopover }
+        case let .signedIn(handle, unread):
+            Button(action: { isChatPopoverPresented = true }) {
+                // Left-aligned rather than the frame's default center: an
+                // absent count (unread == 0) must not shift the handle,
+                // divider and glyph that stay fixed regardless of the count
+                // showing.
+                HStack(spacing: ChromeMetrics.ChatButton.gap) {
+                    Text(handle)
+                        .font(ChromeType.chatButtonHandle)
+                        .foregroundStyle(theme.accent)
+                        .lineLimit(1)
+                        .frame(width: ChromeMetrics.ChatButton.handleSize.width, height: ChromeMetrics.ChatButton.handleSize.height, alignment: .leading)
+                    Rectangle()
+                        .fill(Color(theme.palette.surface1))
+                        .frame(width: ChromeMetrics.ChatButton.dividerSize.width, height: ChromeMetrics.ChatButton.dividerSize.height)
+                    chatGlyph(color: theme.accent)
+                        .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
+                    if unread > 0 {
+                        Text("\(unread)")
+                            .font(ChromeType.chatButtonHandle)
+                            .foregroundStyle(theme.text)
+                            .lineLimit(1)
+                            .frame(width: ChromeMetrics.ChatButton.countSize.width, height: ChromeMetrics.ChatButton.countSize.height, alignment: .leading)
+                    }
+                }
+                .padding(.vertical, ChromeMetrics.ChatButton.verticalPadding)
+                .padding(.horizontal, ChromeMetrics.ChatButton.horizontalPadding)
+                .frame(width: ChromeMetrics.ChatButton.signedInSize.width, height: ChromeMetrics.ChatButton.signedInSize.height, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.selectionBg))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).strokeBorder(theme.accent, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
             .accessibilityLabel(unread > 0 ? "Chat: \(handle), \(unread) unread" : "Chat: \(handle)")
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
+            .popover(isPresented: $isChatPopoverPresented, arrowEdge: .bottom) { chatPopover }
+        }
+    }
+
+    private var chatPopover: some View {
+        ChatPopover(
+            theme: theme, paneName: pane.terminalTitleStripped ?? pane.label ?? "shell",
+            status: chatStore.status(for: pane.paneID), isPresented: $isChatPopoverPresented,
+            onSignIn: { Task { await chatStore.signIn(pane.paneID) } },
+            onSignOut: { Task { await chatStore.signOut(pane.paneID) } },
+            onOpenViewer: { openChatViewer() }
+        )
+    }
+
+    /// Fire-and-forget: the store's own toast covers a failed call, and
+    /// there is nothing else here for a viewer URL to report back to.
+    private func openChatViewer() {
+        Task {
+            guard let url = await chatStore.viewerURL(room: nil) else { return }
+            NSWorkspace.shared.open(url)
         }
     }
 

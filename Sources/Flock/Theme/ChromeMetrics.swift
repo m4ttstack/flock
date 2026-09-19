@@ -164,6 +164,91 @@ enum ChromeMetrics {
         static let countSize = CGSize(width: 7, height: 12)
     }
 
+    /// The chat button's popover: the plugin's launcher, six bands stacked
+    /// with zero gap between them, each sized to its own row content rather
+    /// than sharing one uniform inset. `signedOutHeight`/`signedInHeight` are
+    /// each band's own height summed; a geometry test cross-checks the sum
+    /// against these named totals so the two can never drift apart.
+    enum ChatPopover {
+        static let width: CGFloat = 360
+        static let signedOutHeight: CGFloat = 325
+        static let signedInHeight: CGFloat = 348
+        static let cornerRadius: CGFloat = 10
+
+        enum Header {
+            static let height: CGFloat = 41
+            static let verticalPadding: CGFloat = 12
+            static let horizontalPadding: CGFloat = 14
+            static let iconSize = CGSize(width: 15, height: 15)
+        }
+
+        /// The dot/handle/state-word row, then (signed in only) a room-chip
+        /// row 38pt below the band's own top. That offset is `topPadding` +
+        /// the main row's own height (the chip's 18) + `gap`, which is also
+        /// this band's vertical gap to the room row -- one number serving
+        /// both, per the canvas's own single gap token for this band.
+        enum Status {
+            static let heightSignedOut: CGFloat = 45
+            static let heightSignedIn: CGFloat = 68
+            static let topPadding: CGFloat = 13
+            static let trailingPadding: CGFloat = 14
+            static let bottomPadding: CGFloat = 14
+            static let leadingPadding: CGFloat = 14
+            static let gap: CGFloat = 7
+            static let dotSize: CGFloat = 7
+            static let paneChipSize = CGSize(width: 63, height: 18)
+            static let paneChipCornerRadius: CGFloat = 4
+            static let paneChipVerticalPadding: CGFloat = 3
+            static let paneChipHorizontalPadding: CGFloat = 8
+            static let paneChipGap: CGFloat = 5
+            static let paneChipIconSize = CGSize(width: 10, height: 10)
+            static let roomChipHeight: CGFloat = 16
+            static let roomChipCornerRadius: CGFloat = 4
+            static let roomChipVerticalPadding: CGFloat = 2
+            static let roomChipHorizontalPadding: CGFloat = 7
+            static let roomChipGap: CGFloat = 6
+        }
+
+        /// Shared by the FEATURES and THIS PANE section labels: 14 top, 14
+        /// trailing, 7 bottom, 14 leading.
+        enum SectionLabel {
+            static let height: CGFloat = 33
+            static let topPadding: CGFloat = 14
+            static let trailingPadding: CGFloat = 14
+            static let bottomPadding: CGFloat = 7
+            static let leadingPadding: CGFloat = 14
+        }
+
+        /// Four rows, zero gap, exactly filling the band (4 x 31 = 124): the
+        /// band's own padding is horizontal only (8 each side, matching each
+        /// row's own narrower 344 width), never vertical.
+        enum Features {
+            static let bandHeight: CGFloat = 124
+            static let horizontalInset: CGFloat = 8
+            static let rowSize = CGSize(width: 344, height: 31)
+            static let rowCornerRadius: CGFloat = 5
+            static let rowHorizontalPadding: CGFloat = 8
+            static let rowGap: CGFloat = 9
+            static let iconSize = CGSize(width: 14, height: 14)
+        }
+
+        /// Two buttons, zero top padding (the band sits flush under THIS
+        /// PANE's own bottom padding), 16 clear below them to the popover's
+        /// own bottom edge.
+        enum SignButtons {
+            static let bandHeight: CGFloat = 49
+            static let topPadding: CGFloat = 0
+            static let trailingPadding: CGFloat = 14
+            static let bottomPadding: CGFloat = 16
+            static let leadingPadding: CGFloat = 14
+            static let gap: CGFloat = 8
+            static let buttonSize = CGSize(width: 162, height: 33)
+            static let cornerRadius: CGFloat = 6
+            static let contentGap: CGFloat = 7
+            static let iconSize = CGSize(width: 13, height: 13)
+        }
+    }
+
     enum Card {
         static let spacing: CGFloat = 10
         static let padding: CGFloat = 18
