@@ -426,18 +426,14 @@ struct PaneCellView: View {
         case let .signedIn(handle, unread):
             Button(action: { openChatPopover() }) {
                 // Left-aligned rather than the frame's default center: an
-                // absent count (unread == 0) must not shift the handle,
-                // divider and glyph that stay fixed regardless of the count
-                // showing.
+                // absent count (unread == 0) must not shift the handle and
+                // glyph that stay fixed regardless of the count showing.
                 HStack(spacing: ChromeMetrics.ChatButton.gap) {
                     Text(handle)
                         .font(ChromeType.chatButtonHandle)
                         .foregroundStyle(theme.green)
                         .lineLimit(1)
                         .frame(width: ChromeMetrics.ChatButton.handleSize.width, height: ChromeMetrics.ChatButton.handleSize.height, alignment: .leading)
-                    Rectangle()
-                        .fill(Color(theme.palette.surface1))
-                        .frame(width: ChromeMetrics.ChatButton.dividerSize.width, height: ChromeMetrics.ChatButton.dividerSize.height)
                     chatGlyph(color: theme.green)
                         .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
                     if unread > 0 {

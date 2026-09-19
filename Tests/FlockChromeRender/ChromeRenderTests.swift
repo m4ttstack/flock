@@ -83,16 +83,11 @@ final class ChromeRenderTests: XCTestCase {
             hex(signedInImage, CGPoint(x: signedInFrame.maxX - 0.5, y: signedInFrame.midY)),
             theme.palette.selectionBg.hex, "signed-in carries no separate stroke"
         )
-        // The divider and the glyph, at their own measured offsets past the
-        // leading padding and the handle: pad(8) + handle(18) + gap(6) puts
-        // the 1pt divider's center at 32.5; + divider(1) + gap(6) puts the
-        // 11pt glyph's center at 44.5.
+        // The glyph, at its own measured offset past the leading padding and
+        // the handle: pad(8) + handle(18) + gap(6) puts the 11pt glyph's
+        // center at 37.5.
         XCTAssertEqual(
-            hex(signedInImage, CGPoint(x: signedInFrame.minX + 32.5, y: signedInFrame.midY)),
-            theme.palette.surface1.hex, "signed-in divider"
-        )
-        XCTAssertEqual(
-            hex(signedInImage, CGPoint(x: signedInFrame.minX + 44.5, y: signedInFrame.midY)),
+            hex(signedInImage, CGPoint(x: signedInFrame.minX + 37.5, y: signedInFrame.midY)),
             theme.palette.green.hex, "signed-in glyph"
         )
         signedInWindow.close()
@@ -210,16 +205,16 @@ final class ChromeRenderTests: XCTestCase {
             "no selectionBg pixel on the legend row -- the chat button did not draw"
         )
         let buttonMinX = buttonMaxX - ChromeMetrics.ChatButton.signedInSize.width
-        // pad(8) + handle(18) + gap(6) + divider(1) + gap(6) + icon(11) + gap(6):
-        // the count's own slot starts 56pt past the button's own leading edge.
-        // A single digit at this size antialiases across its whole slot with
-        // no pixel at full coverage (confirmed by dumping the row: the
-        // closest sampled pixel to `palette.text` was #B5BEE9, twelve units
-        // off in the worst channel, against a plain background over a
-        // hundred units off) -- so this takes the CLOSEST pixel in the slot
-        // rather than demanding an exact match, the same tolerance the file's
-        // own `channelDistance`/`washDither` pattern uses for opacity blends.
-        let countSlotStart = buttonMinX + 56
+        // pad(8) + handle(18) + gap(6) + icon(11) + gap(6): the count's own
+        // slot starts 49pt past the button's own leading edge. A single digit
+        // at this size antialiases across its whole slot with no pixel at
+        // full coverage (confirmed by dumping the row: the closest sampled
+        // pixel to `palette.text` was #B5BEE9, twelve units off in the worst
+        // channel, against a plain background over a hundred units off) --
+        // so this takes the CLOSEST pixel in the slot rather than demanding
+        // an exact match, the same tolerance the file's own
+        // `channelDistance`/`washDither` pattern uses for opacity blends.
+        let countSlotStart = buttonMinX + 49
         let countDistance = minChannelDistance(
             image, y: legendY, from: countSlotStart, to: countSlotStart + ChromeMetrics.ChatButton.countSize.width,
             target: theme.palette.text.hex
