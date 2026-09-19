@@ -81,7 +81,7 @@ final class ChromeRenderTests: XCTestCase {
         )
         XCTAssertEqual(
             hex(signedInImage, CGPoint(x: signedInFrame.maxX - 0.5, y: signedInFrame.midY)),
-            theme.palette.accent.hex, "signed-in stroke"
+            theme.palette.selectionBg.hex, "signed-in carries no separate stroke"
         )
         // The divider and the glyph, at their own measured offsets past the
         // leading padding and the handle: pad(8) + handle(18) + gap(6) puts
@@ -159,14 +159,14 @@ final class ChromeRenderTests: XCTestCase {
         let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
         // Every button size shares the same right edge (`chatButtonFrame`'s
         // own `box.maxX - horizontalPadding`), so this trailing-edge sample
-        // reads the signed-in stroke's accent when it fetched, or the
-        // signed-out box's plain `surface0` edge when it did not -- the same
+        // reads the signed-in box's `selectionBg` fill when it fetched, or the
+        // signed-out box's plain `surface0` fill when it did not -- the same
         // point `testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSizeAndHex`
         // reads for each state on its own.
         let frame = Self.chatButtonFrame(inRawFrame: box, size: ChromeMetrics.ChatButton.signedInSize)
         XCTAssertEqual(
             hex(image, CGPoint(x: frame.maxX - 0.5, y: frame.midY)),
-            theme.palette.accent.hex, "signed-in stroke absent: the button still reads as signed out"
+            theme.palette.selectionBg.hex, "signed-in fill absent: the button still reads as signed out"
         )
         window.close()
     }
@@ -206,8 +206,8 @@ final class ChromeRenderTests: XCTestCase {
         let scanTo = insetBox.maxX - PaneChrome.horizontalPadding
 
         let buttonMaxX = try XCTUnwrap(
-            lastX(image, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.accent.hex),
-            "no accent pixel on the legend row -- the chat button did not draw"
+            lastX(image, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
+            "no selectionBg pixel on the legend row -- the chat button did not draw"
         )
         let buttonMinX = buttonMaxX - ChromeMetrics.ChatButton.signedInSize.width
         // pad(8) + handle(18) + gap(6) + divider(1) + gap(6) + icon(11) + gap(6):

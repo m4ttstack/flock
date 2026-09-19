@@ -454,9 +454,6 @@ struct PaneCellView: View {
                 .background(
                     RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.selectionBg))
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).strokeBorder(theme.accent, lineWidth: 1)
-                )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(unread > 0 ? "Chat: \(handle), \(unread) unread" : "Chat: \(handle)")
