@@ -192,15 +192,23 @@ that does and say so in your report rather than shipping an empty glyph.
 The chrome row is 32 tall with pad 7/10 and gap 8; the button sits at y 7 and the
 status dot stays to its right.
 
-**Signed in:** 71x18, fill `selectionBg`, stroke `accent`, r4, pad 3/8, gap 6.
+**Signed in:** 71x18, fill `selectionBg`, NO stroke, r4, pad 3/8, gap 6.
 Four children in this order, and all four are part of the design:
 
 | Child | Size | Colour | Type |
 | --- | --- | --- | --- |
-| Handle | 18x12 | `accent` | 10/600, the handle with NO `@` prefix |
+| Handle | 18x12 | `green` | 10/600, the handle with NO `@` prefix |
 | Divider | 1x9 | `surface1` | a rule, not a gap |
-| Icon | 11x11 | `accent` | `bubble.left.fill` |
+| Icon | 11x11 | `green` | `bubble.left.fill` |
 | Count | 7x12 | `text` | 10/600 |
+
+**This overrides the canvas, deliberately, and must not be "corrected" back.**
+The canvas draws the handle and glyph in `accent` inside an `accent` stroke.
+Seen in the running app that was wrong twice over: blue is already carrying
+too much of this UI, and a bordered pill reads as a selected item rather than
+a state. Online is green here, the way a status dot is green everywhere else in
+these designs, and the border is gone. The soft `selectionBg` fill stays, which
+is what still marks the button as active without claiming selection.
 
 The count is `palette.text`, not `accent` and not `panelBg`: it differs from the
 unread pills in the popover and peek, which are `panelBg` on an `accent` ground.
