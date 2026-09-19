@@ -112,6 +112,38 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         }
     }
 
+    // MARK: - Shared header: both glyphs read the same colour
+
+    /// The back chevron and the close X sit in the same header at the same
+    /// size and the same `foregroundStyle`; a hex sample (not a look at a
+    /// scaled screenshot) is what actually proves neither one is drawing in
+    /// some other tone. `xmark`'s outline covers more of a square box than
+    /// `chevron.left`'s does at the same point size, which is a weight
+    /// difference worth guarding against too -- this only asserts colour;
+    /// `ChatSubviewHeader`'s own font-sized (not `.resizable()`) rendering is
+    /// what keeps the two visually matched in weight.
+    func testChatSubviewHeaderGlyphsAreBothExactlyOverlay0() async throws {
+        let theme = Self.theme
+        let header = ChatSubviewHeader(theme: theme, title: "Chat peek", width: ChromeMetrics.ChatPeek.width, onBack: {}, onClose: {})
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 60), styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.colorSpace = .sRGB
+        window.contentView = NSHostingView(
+            rootView: ZStack(alignment: .topLeading) { header }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        )
+        window.contentView?.layoutSubtreeIfNeeded()
+        await settle(window)
+        let image = try snapshot(window)
+
+        let chevronDistance = closestDistance(image, xRange: 12...30, yRange: 10...31, target: theme.palette.overlay0.hex)
+        let closeDistance = closestDistance(image, xRange: ChromeMetrics.ChatPeek.width - 30...ChromeMetrics.ChatPeek.width - 12, yRange: 10...31, target: theme.palette.overlay0.hex)
+        XCTAssertLessThanOrEqual(chevronDistance, 2, "back chevron is not overlay0 (closest off by \(chevronDistance))")
+        XCTAssertLessThanOrEqual(closeDistance, 2, "close glyph is not overlay0 (closest off by \(closeDistance))")
+        window.close()
+    }
+
     // MARK: - Quick send: geometry
 
     func testChatQuickSendViewMatchesItsMeasuredSizeAndBandHeights() {
@@ -320,6 +352,26 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
             return stride(from: 0, to: 6, by: 2).map { Int(String(digits[$0...$0 + 1]), radix: 16) ?? 0 }
         }
         return zip(channels(lhs), channels(rhs)).map { abs($0 - $1) }.max() ?? 0
+    }
+
+    /// The smallest `channelDistance` to `target` found anywhere in the box
+    /// -- for a glyph small enough that no single pixel reaches full
+    /// coverage, this is what "this icon is drawn in this colour" has to
+    /// mean, the same tolerance `ChromeRenderTests`'s own icon checks use.
+    private func closestDistance(
+        _ image: NSBitmapImageRep, xRange: ClosedRange<CGFloat>, yRange: ClosedRange<CGFloat>, target: String, step: CGFloat = 0.5
+    ) -> Int {
+        var best = Int.max
+        var y = yRange.lowerBound
+        while y <= yRange.upperBound {
+            var x = xRange.lowerBound
+            while x <= xRange.upperBound {
+                best = min(best, channelDistance(hex(image, CGPoint(x: x, y: y)), target))
+                x += step
+            }
+            y += step
+        }
+        return best
     }
 
     private func regionContainsHex(

@@ -53,6 +53,11 @@ struct ChatQuickSendView: View {
 
     /// Not `private`: a geometry test measures a band's own height directly
     /// off its `.frame`, the same way `ChatPopover`'s own bands are read.
+    ///
+    /// `alignment: .topLeading`, never plain `.top`: the label and chip row
+    /// are narrower than the band, so a bare `.top` (top-CENTER) would
+    /// center this content instead of holding it at the band's own 14pt
+    /// inset the field and footer below it share.
     var targetBand: some View {
         VStack(alignment: .leading, spacing: ChromeMetrics.ChatQuickSend.TargetBand.gap) {
             Text("TO").font(ChromeType.chatPopoverSectionLabel).foregroundStyle(theme.overlay0)
@@ -66,7 +71,7 @@ struct ChatQuickSendView: View {
         .padding(.trailing, ChromeMetrics.ChatQuickSend.TargetBand.trailingPadding)
         .padding(.bottom, ChromeMetrics.ChatQuickSend.TargetBand.bottomPadding)
         .padding(.leading, ChromeMetrics.ChatQuickSend.TargetBand.leadingPadding)
-        .frame(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.TargetBand.height, alignment: .top)
+        .frame(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.TargetBand.height, alignment: .topLeading)
     }
 
     private func chip(_ target: String) -> some View {
@@ -86,6 +91,10 @@ struct ChatQuickSendView: View {
         .buttonStyle(.plain)
     }
 
+    /// `alignment: .topLeading` for the same reason `targetBand` needs it:
+    /// the field happens to fill the band's own width today, but that is the
+    /// field's declared size plus its padding summing to the band width, not
+    /// anything this frame can rely on if either number ever moves.
     var fieldBand: some View {
         VStack(alignment: .leading, spacing: ChromeMetrics.ChatQuickSend.FieldBand.gap) {
             ChatComposeField(
@@ -114,7 +123,7 @@ struct ChatQuickSendView: View {
         .padding(.trailing, ChromeMetrics.ChatQuickSend.FieldBand.trailingPadding)
         .padding(.bottom, ChromeMetrics.ChatQuickSend.FieldBand.bottomPadding)
         .padding(.leading, ChromeMetrics.ChatQuickSend.FieldBand.leadingPadding)
-        .frame(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.FieldBand.height, alignment: .top)
+        .frame(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.FieldBand.height, alignment: .topLeading)
     }
 
     private var footerHint: String {

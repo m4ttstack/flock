@@ -30,11 +30,15 @@ struct ChatSubviewHeader: View {
         }
     }
 
+    /// Font-sized, not `.resizable().scaledToFit()`: that path force-scales
+    /// each symbol's own outline into the box, and `xmark`'s outline fills
+    /// far more of a square box than `chevron.left`'s does, so the two read
+    /// at different weights even under the identical `overlay0` colour. A
+    /// point-size font lets each symbol use its own optical sizing instead.
     private func iconButton(_ symbolName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbolName)
-                .resizable()
-                .scaledToFit()
+                .font(.system(size: ChromeMetrics.ChatSubviewHeader.iconSize.width, weight: .regular))
                 .foregroundStyle(theme.overlay0)
                 .frame(width: ChromeMetrics.ChatSubviewHeader.iconSize.width, height: ChromeMetrics.ChatSubviewHeader.iconSize.height)
         }

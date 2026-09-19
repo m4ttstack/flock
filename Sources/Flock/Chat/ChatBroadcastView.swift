@@ -117,6 +117,10 @@ struct ChatBroadcastView: View {
             .frame(width: ChromeMetrics.ChatBroadcast.PaneRow.checkboxSize, height: ChromeMetrics.ChatBroadcast.PaneRow.checkboxSize)
     }
 
+    /// `alignment: .topLeading`, matching Quick send's own field band: the
+    /// field happens to fill the band's own width today (its declared size
+    /// plus padding sums to the band width), not anything this frame can
+    /// rely on if either number ever moves.
     var fieldBand: some View {
         VStack(alignment: .leading, spacing: ChromeMetrics.ChatBroadcast.FieldBand.gap) {
             ChatComposeField(
@@ -140,7 +144,7 @@ struct ChatBroadcastView: View {
             .frame(height: ChromeMetrics.ChatBroadcast.FieldBand.footerHeight)
         }
         .padding(ChromeMetrics.ChatBroadcast.FieldBand.padding)
-        .frame(width: ChromeMetrics.ChatBroadcast.width, height: ChromeMetrics.ChatBroadcast.FieldBand.height, alignment: .top)
+        .frame(width: ChromeMetrics.ChatBroadcast.width, height: ChromeMetrics.ChatBroadcast.FieldBand.height, alignment: .topLeading)
         .overlay(alignment: .top) {
             Rectangle().fill(Color(theme.palette.surface0)).frame(height: 1)
         }
