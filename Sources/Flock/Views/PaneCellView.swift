@@ -129,6 +129,15 @@ struct PaneCellView: View {
             // drop target is read against the layout the drag started from.
             .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
             .animation(.easeOut(duration: 0.12), value: drag.isDragging(pane: pane.paneID))
+            // The Chat menu's own route into a specific pane's popover,
+            // mirroring how a rename shortcut opens the rename editor rather
+            // than a local click: consumed once so requesting this same
+            // pane again later still reads as a change.
+            .onChange(of: chatStore.requestedPopoverPane) { _, requested in
+                guard requested == pane.paneID else { return }
+                isChatPopoverPresented = true
+                chatStore.clearPopoverRequest()
+            }
     }
 
     private func cell(editorIsOpen: Bool) -> some View {
@@ -430,12 +439,18 @@ struct PaneCellView: View {
     private var chatPopover: some View {
         ChatPopover(
             theme: theme, paneName: pane.terminalTitleStripped ?? pane.label ?? "shell",
-            status: chatStore.status(for: pane.paneID), isPresented: $isChatPopoverPresented,
+            status: chatStore.status(for: pane.paneID), statusError: chatStore.statusError(for: pane.paneID),
+            isPresented: $isChatPopoverPresented,
             onSignIn: { Task { await chatStore.signIn(pane.paneID) } },
             onSignOut: { Task { await chatStore.signOut(pane.paneID) } },
             onOpenViewer: { openChatViewer() },
+            viewerDisabledReason: chatStore.viewerDisabledReason,
+            onRetry: { Task { await chatStore.refreshStatus(for: pane.paneID) } },
             onJump: { paneID in Task { await viewModel.focusFromChat(pane: paneID) } }
         )
+        // The one place this pane's status is ever actually fetched: opening
+        // the popover is what a Retry banner has something to retry.
+        .task { await chatStore.refreshStatus(for: pane.paneID) }
     }
 
     /// Fire-and-forget: the store's own toast covers a failed call, and

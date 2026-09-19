@@ -270,7 +270,7 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     private func makeChatStore(peekJSON: String, targetsJSON: String) async -> ChatStore {
         let store = ChatStore(
             toasts: ToastCenter(),
-            probe: { "/usr/bin/true" },
+            probe: { "/usr/bin/true" }, rtProbe: { true }, deckProbe: { true },
             makeRunner: { _ in FeatureFixtureChatRunning(peekJSON: peekJSON, targetsJSON: targetsJSON) }
         )
         await store.probeTask.value
@@ -309,7 +309,7 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     /// so a geometry check can host a whole view (its `.task` included)
     /// without a real fixture -- only the environment slot needs filling.
     private func makeInertChatStore() -> ChatStore {
-        ChatStore(toasts: ToastCenter(), probe: { nil })
+        ChatStore(toasts: ToastCenter(), probe: { nil }, rtProbe: { true }, deckProbe: { true })
     }
 
     private func settle(_ window: NSWindow) async {

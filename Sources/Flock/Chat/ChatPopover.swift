@@ -56,9 +56,17 @@ struct ChatPopover: View {
     /// `nil` while signed out, but the popover always knows its own pane.
     let paneName: String
     let status: ChatStatus?
+    /// Set only when this pane's last status call failed: chat is available
+    /// (this view exists at all), the call itself is what is broken, never
+    /// read as the pane being merely signed out.
+    let statusError: String?
     let onSignIn: () -> Void
     let onSignOut: () -> Void
     let onOpenViewer: () -> Void
+    /// Non-nil disables Open Viewer alone and names why, on both the header
+    /// icon and the feature row -- every other row keeps working.
+    let viewerDisabledReason: String?
+    let onRetry: () -> Void
     /// Peek's own jump affordance: the pane id its `jump` call resolves,
     /// handed back so the caller can focus it FROM FLOCK'S OWN MODEL. A
     /// no-op default keeps every existing call site (render tests included)
@@ -79,17 +87,21 @@ struct ChatPopover: View {
     /// real pointer -- production call sites never pass it, and hovering
     /// updates the same `hoveredFeature` state afterward regardless.
     init(
-        theme: Theme, paneName: String, status: ChatStatus?, isPresented: Binding<Bool>,
+        theme: Theme, paneName: String, status: ChatStatus?, statusError: String? = nil, isPresented: Binding<Bool>,
         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onOpenViewer: @escaping () -> Void,
+        viewerDisabledReason: String? = nil, onRetry: @escaping () -> Void = {},
         onJump: @escaping (PaneID) -> Void = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil
     ) {
         self.theme = theme
         self.paneName = paneName
         self.status = status
+        self.statusError = statusError
         self._isPresented = isPresented
         self.onSignIn = onSignIn
         self.onSignOut = onSignOut
         self.onOpenViewer = onOpenViewer
+        self.viewerDisabledReason = viewerDisabledReason
+        self.onRetry = onRetry
         self.onJump = onJump
         self._hoveredFeature = State(initialValue: previewHoveredFeature)
     }
@@ -124,6 +136,7 @@ struct ChatPopover: View {
     var statusRoute: some View {
         VStack(spacing: 0) {
             header
+            failureBanner
             statusBlock
             sectionLabel("FEATURES")
             featuresBlock
@@ -150,11 +163,38 @@ struct ChatPopover: View {
                     )
             }
             .buttonStyle(.plain)
+            .disabled(viewerDisabledReason != nil)
+            .help(viewerDisabledReason ?? "")
         }
         .padding(.vertical, ChromeMetrics.ChatPopover.Header.verticalPadding)
         .padding(.horizontal, ChromeMetrics.ChatPopover.Header.horizontalPadding)
         .frame(width: ChromeMetrics.ChatPopover.width)
         .overlay(alignment: .bottom) { bandRule }
+    }
+
+    /// Not governed by `measurements.md` -- the designs never modelled a
+    /// broken machine -- so this draws only when `statusError` is set and
+    /// costs zero height otherwise, leaving every existing band measurement
+    /// untouched.
+    @ViewBuilder
+    private var failureBanner: some View {
+        if let statusError {
+            HStack(spacing: ChromeMetrics.ChatPopover.Status.gap) {
+                Text(statusError)
+                    .font(ChromeType.chatPopoverStateWord)
+                    .foregroundStyle(theme.red)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Button("Retry", action: onRetry)
+                    .buttonStyle(.plain)
+                    .font(ChromeType.chatPopoverFeatureShortcut)
+                    .foregroundStyle(theme.accent)
+            }
+            .padding(.vertical, ChromeMetrics.ChatPopover.Status.gap)
+            .padding(.horizontal, ChromeMetrics.ChatPopover.Status.leadingPadding)
+            .frame(width: ChromeMetrics.ChatPopover.width, alignment: .leading)
+            .overlay(alignment: .bottom) { bandRule }
+        }
     }
 
     var statusBlock: some View {
@@ -260,16 +300,17 @@ struct ChatPopover: View {
 
     private func featureRow(_ feature: ChatPopoverFeature) -> some View {
         let isHighlighted = hoveredFeature == feature
+        let isDisabled = feature == .openViewer && viewerDisabledReason != nil
         return Button(action: { select(feature) }) {
             HStack(spacing: ChromeMetrics.ChatPopover.Features.rowGap) {
                 Image(systemName: feature.symbolName)
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(isHighlighted ? theme.accent : theme.overlay0)
+                    .foregroundStyle(isDisabled ? theme.overlay0 : (isHighlighted ? theme.accent : theme.overlay0))
                     .frame(width: ChromeMetrics.ChatPopover.Features.iconSize.width, height: ChromeMetrics.ChatPopover.Features.iconSize.height)
                 Text(feature.title)
                     .font(ChromeType.chatPopoverFeatureName)
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(isDisabled ? theme.overlay0 : theme.text)
                 Spacer(minLength: 0)
                 Text(feature.shortcut)
                     .font(ChromeType.chatPopoverFeatureShortcut)
@@ -279,10 +320,12 @@ struct ChatPopover: View {
             .frame(width: ChromeMetrics.ChatPopover.Features.rowSize.width, height: ChromeMetrics.ChatPopover.Features.rowSize.height)
             .background(
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Features.rowCornerRadius)
-                    .fill(isHighlighted ? Color(theme.palette.selectionBg) : Color.clear)
+                    .fill(isHighlighted && !isDisabled ? Color(theme.palette.selectionBg) : Color.clear)
             )
         }
         .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .help(isDisabled ? (viewerDisabledReason ?? "") : "")
         .onHover { hovering in hoveredFeature = hovering ? feature : (hoveredFeature == feature ? nil : hoveredFeature) }
     }
 

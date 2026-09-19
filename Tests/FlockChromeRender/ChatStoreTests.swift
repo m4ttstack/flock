@@ -88,7 +88,8 @@ final class ChatStoreTests: XCTestCase {
         let runner = FakeChatRunning(results)
         let toasts = ToastCenter()
         let store = ChatStore(
-            toasts: toasts, probe: { available ? "/bin/echo" : nil }, makeRunner: { _ in runner }
+            toasts: toasts, probe: { available ? "/bin/echo" : nil },
+            rtProbe: { true }, deckProbe: { true }, makeRunner: { _ in runner }
         )
         await store.probeTask.value
         return (store, runner, toasts)
@@ -199,7 +200,9 @@ final class ChatStoreTests: XCTestCase {
     func testAStaleResponseNeverOverwritesANewerOneForTheSamePane() async {
         let runner = OrderedChatRunning()
         let toasts = ToastCenter()
-        let store = ChatStore(toasts: toasts, probe: { "/bin/echo" }, makeRunner: { _ in runner })
+        let store = ChatStore(
+            toasts: toasts, probe: { "/bin/echo" }, rtProbe: { true }, deckProbe: { true }, makeRunner: { _ in runner }
+        )
         await store.probeTask.value
 
         let older = Task { await store.refreshStatus(for: Self.pane) }

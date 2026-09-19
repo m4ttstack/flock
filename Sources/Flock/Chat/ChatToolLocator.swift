@@ -28,6 +28,19 @@ enum ChatToolLocator {
         await Task.detached(priority: .userInitiated) { binaryPath }.value
     }
 
+    /// herdr-chat shells out to `rt` for every verb it runs, so `rt` missing
+    /// is exactly as absent as the plugin binary itself -- checked here,
+    /// off the main actor, rather than inferred later from a failed call.
+    static func probeRTBinaryFound() async -> Bool {
+        await Task.detached(priority: .userInitiated) { ToolPath.resolve("rt") != nil }.value
+    }
+
+    /// Open Viewer alone depends on `deck`; checked the same way as `rt`,
+    /// but its absence disables only that one row.
+    static func probeDeckBinaryFound() async -> Bool {
+        await Task.detached(priority: .userInitiated) { ToolPath.resolve("deck") != nil }.value
+    }
+
     /// `pluginsDirectory` is a parameter rather than always the real
     /// `~/.config/herdr/plugins` so a test can point it at a temporary tree.
     static func resolve(environmentOverride: String?, pluginsDirectory: URL) -> String? {

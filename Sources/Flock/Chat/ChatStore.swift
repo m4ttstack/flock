@@ -19,11 +19,26 @@ final class ChatStore {
     /// about whether chat exists on this machine.
     private(set) var isAvailable = false
 
+    /// Set once from the same probe that resolves `isAvailable`: Open Viewer
+    /// alone depends on deck, so its absence names its own reason instead of
+    /// pulling the whole feature down.
+    private(set) var viewerDisabledReason: String?
+
+    /// Which pane a global chat command (the Chat menu, a keyboard shortcut)
+    /// wants its popover opened for -- consumed once by that pane's own
+    /// view, the same shape `SessionViewModel.renameTarget` uses to open the
+    /// rename editor from a shortcut instead of a local click.
+    private(set) var requestedPopoverPane: PaneID?
+
     @ObservationIgnored private var runner: ChatRunning?
     private let toasts: ToastCenter
     private var statuses: [PaneID: ChatStatus] = [:]
     /// Populated by `peek()`, keyed by each buddy's own pane.
     private var unreadCounts: [PaneID: Int] = [:]
+    /// Set when a status call fails and cleared on its next success: what
+    /// the popover's Retry banner reads, kept separate from the toast so the
+    /// reason stays on screen after a transient toast has faded.
+    private var statusErrors: [PaneID: String] = [:]
     @ObservationIgnored private var requestGenerations: [PaneID: Int] = [:]
 
     /// Resolves once, off the main actor, then installs the runner built from
@@ -46,17 +61,28 @@ final class ChatStore {
     init(
         toasts: ToastCenter,
         probe: @escaping () async -> String? = ChatToolLocator.probeBinaryPath,
+        rtProbe: @escaping () async -> Bool = ChatToolLocator.probeRTBinaryFound,
+        deckProbe: @escaping () async -> Bool = ChatToolLocator.probeDeckBinaryFound,
         makeRunner: @escaping (String) -> ChatRunning = { ChatRunner(binaryPath: $0) }
     ) {
         self.toasts = toasts
-        startProbe(probe: probe, makeRunner: makeRunner)
+        startProbe(probe: probe, rtProbe: rtProbe, deckProbe: deckProbe, makeRunner: makeRunner)
     }
 
     private func startProbe(
-        probe: @escaping () async -> String?, makeRunner: @escaping (String) -> ChatRunning
+        probe: @escaping () async -> String?, rtProbe: @escaping () async -> Bool,
+        deckProbe: @escaping () async -> Bool, makeRunner: @escaping (String) -> ChatRunning
     ) {
         probeTask = Task { [weak self] in
-            guard let path = await probe(), let self else { return }
+            // No chat binary is the whole story already: rt and deck are
+            // never checked, and nothing about a machine without the plugin
+            // touches the real PATH at all.
+            guard let path = await probe() else { return }
+            let rtIsFound = await rtProbe()
+            let deckIsFound = await deckProbe()
+            guard let self else { return }
+            self.viewerDisabledReason = ChatDegradation.viewerDisabledReason(deckBinaryFound: deckIsFound)
+            guard ChatDegradation.isAvailable(chatBinaryFound: true, rtBinaryFound: rtIsFound) else { return }
             self.runner = makeRunner(path)
             self.isAvailable = true
         }
@@ -64,6 +90,24 @@ final class ChatStore {
 
     func status(for pane: PaneID) -> ChatStatus? {
         statuses[pane]
+    }
+
+    /// The one-line reason the popover's Retry banner shows, or nil once a
+    /// status call for this pane has last succeeded.
+    func statusError(for pane: PaneID) -> String? {
+        statusErrors[pane]
+    }
+
+    /// A global chat command's request to open this pane's popover, read
+    /// once by that pane's own view via `onChange`.
+    func requestPopover(for pane: PaneID) {
+        requestedPopoverPane = pane
+    }
+
+    /// Consumed by the targeted pane once it has acted on the request, so
+    /// requesting the same pane again later is still seen as a change.
+    func clearPopoverRequest() {
+        requestedPopoverPane = nil
     }
 
     func unreadCount(for pane: PaneID) -> Int {
@@ -129,27 +173,60 @@ final class ChatStore {
     /// Sign-in and sign-out answer with the same status shape a plain status
     /// call would, so all three verbs update the cache identically -- guarded
     /// by a per-pane generation so a slower, older call can never overwrite a
-    /// faster, newer one that already landed for the same pane.
+    /// faster, newer one that already landed for the same pane. Unlike
+    /// `run`, a failure here is kept (`statusErrors`) rather than only
+    /// toasted, since the popover's Retry banner has to outlive the toast.
     private func applyStatus(from verb: ChatVerb, pane: PaneID) async {
         let generation = (requestGenerations[pane] ?? 0) + 1
         requestGenerations[pane] = generation
-        guard let status: ChatStatus = await run(verb) else { return }
+        let outcome: RunOutcome<ChatStatus> = await attempt(verb)
         guard requestGenerations[pane] == generation else { return }
-        statuses[pane] = status
+        switch outcome {
+        case let .success(status):
+            statuses[pane] = status
+            statusErrors[pane] = nil
+        case let .failure(message):
+            statusErrors[pane] = message
+            toasts.show(message, kind: .info)
+        case .cancelled, .unavailable:
+            break
+        }
+    }
+
+    private enum RunOutcome<T> {
+        case success(T)
+        case failure(String)
+        case cancelled
+        case unavailable
     }
 
     private func run<T: Decodable>(_ verb: ChatVerb) async -> T? {
-        guard isAvailable, let runner else { return nil }
+        let outcome: RunOutcome<T> = await attempt(verb)
+        switch outcome {
+        case let .success(value):
+            return value
+        case let .failure(message):
+            toasts.show(message, kind: .info)
+            return nil
+        case .cancelled, .unavailable:
+            return nil
+        }
+    }
+
+    /// The one gate every verb passes through before anything is spawned
+    /// (`ChatDegradation.shouldRunVerb`), and the one place a thrown failure
+    /// becomes a plain message rather than an error type callers must catch.
+    private func attempt<T: Decodable>(_ verb: ChatVerb) async -> RunOutcome<T> {
+        guard ChatDegradation.shouldRunVerb(isAvailable: isAvailable), let runner else { return .unavailable }
         do {
             let (stdout, exitCode) = try await runner.run(verb)
-            return try ChatOutcome.decode(T.self, stdout: stdout, exitCode: exitCode)
+            return .success(try ChatOutcome.decode(T.self, stdout: stdout, exitCode: exitCode))
         } catch is CancellationError {
             // A popover's `.task` cancels on teardown; that is not a failure
             // the user asked about, so it must never surface as a toast.
-            return nil
+            return .cancelled
         } catch {
-            toasts.show((error as? ChatFailure)?.message ?? "chat failed", kind: .info)
-            return nil
+            return .failure((error as? ChatFailure)?.message ?? "chat failed")
         }
     }
 }

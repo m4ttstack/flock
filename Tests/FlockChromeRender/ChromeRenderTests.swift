@@ -2183,6 +2183,7 @@ private struct Harness {
         chatStore = ChatStore(
             toasts: ToastCenter(),
             probe: { chatAvailable ? "/usr/bin/true" : nil },
+            rtProbe: { true }, deckProbe: { true },
             makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON) }
         )
         await chatStore.probeTask.value

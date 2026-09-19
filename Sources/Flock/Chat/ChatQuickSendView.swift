@@ -126,8 +126,12 @@ struct ChatQuickSendView: View {
         .frame(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.FieldBand.height, alignment: .topLeading)
     }
 
-    private var footerHint: String {
-        guard let handle = status?.handle else { return "" }
+    /// Signed out is not a failure, so the footer says why sending is
+    /// disabled rather than staying blank -- the send button's own
+    /// `canSend` is what actually enforces it. Not `private`: a test reads
+    /// this directly, the same way it reads `targetBand`/`fieldBand`.
+    var footerHint: String {
+        guard let handle = status?.handle, status?.signedIn == true else { return "Sign in to send" }
         return "sent as \(handle)"
     }
 
