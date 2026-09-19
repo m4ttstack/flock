@@ -178,7 +178,12 @@ final class ChatDegradationRenderTests: XCTestCase {
     func testRetrySucceedingClearsTheBannerAndRunsNothingButTheStatusVerb() async {
         actor FlakyRunner: ChatRunning {
             private(set) var calls: [ChatVerb] = []
+            /// The store's own untracked launch-time `.peek` reaches this
+            /// fake before the test's own calls do; answering it here,
+            /// without touching `calls`, is what keeps "the first call"
+            /// below meaning the test's own first `refreshStatus`.
             func run(_ verb: ChatVerb) async throws -> (stdout: Data, exitCode: Int32) {
+                if case .peek = verb { return (Data(#"{"buddies":[],"rooms":[]}"#.utf8), 0) }
                 calls.append(verb)
                 guard calls.count > 1 else {
                     return (Data(#"{"error":"chat daemon unreachable"}"#.utf8), 1)
@@ -194,6 +199,7 @@ final class ChatDegradationRenderTests: XCTestCase {
             makeRunner: { _ in runner }
         )
         await store.probeTask.value
+        await store.peekTask?.value
 
         await store.refreshStatus(for: Self.pane)
         XCTAssertNotNil(store.statusError(for: Self.pane), "the first, failing call must set the banner")

@@ -14,7 +14,13 @@ private actor FakeChatRunning: ChatRunning {
         self.queuedResults = queuedResults
     }
 
+    /// `ChatStore` fires its own untracked launch-time `.peek` the instant
+    /// availability resolves, ahead of anything a test issues. Answering it
+    /// here, off the queue and out of `calls`, is what keeps every other
+    /// test in this file free to assert its own verbs by exact order and
+    /// count without accounting for a call it never asked for.
     func run(_ verb: ChatVerb) async throws -> (stdout: Data, exitCode: Int32) {
+        if case .peek = verb { return (Data(#"{"buddies":[],"rooms":[]}"#.utf8), 0) }
         calls.append(verb)
         guard !queuedResults.isEmpty else {
             throw ChatFailure(message: "FakeChatRunning has no queued result for \(verb)")
@@ -33,7 +39,12 @@ private actor OrderedChatRunning: ChatRunning {
     private var resultContinuations: [CheckedContinuation<(stdout: Data, exitCode: Int32), Error>] = []
     private var arrivalWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
 
+    /// The store's own untracked launch-time `.peek` reaches this fake
+    /// before the test's two tracked calls do; answering it inline, without
+    /// touching `arrivalCount`, is what keeps arrival index 0 meaning what
+    /// this test's own `waitForArrival`/`resolve` calls assume it means.
     func run(_ verb: ChatVerb) async throws -> (stdout: Data, exitCode: Int32) {
+        if case .peek = verb { return (Data(#"{"buddies":[],"rooms":[]}"#.utf8), 0) }
         let index = arrivalCount
         arrivalCount += 1
         arrivalWaiters.removeValue(forKey: index)?.resume()
@@ -81,7 +92,10 @@ final class ChatStoreTests: XCTestCase {
 
     /// Awaits `probeTask` before handing the store back: every test but the
     /// one proving the pre-answer state wants a settled `isAvailable`, not a
-    /// race against the store's own background probe.
+    /// race against the store's own background probe. Also awaits
+    /// `peekTask`, the launch-time `.peek` that same probe starts, so a
+    /// test's own calls never race it even though `FakeChatRunning` answers
+    /// that verb inline regardless.
     private func makeStore(
         results: [Result<(stdout: Data, exitCode: Int32), Error>] = [], available: Bool = true
     ) async -> (ChatStore, FakeChatRunning, ToastCenter) {
@@ -92,6 +106,7 @@ final class ChatStoreTests: XCTestCase {
             rtProbe: { true }, deckProbe: { true }, makeRunner: { _ in runner }
         )
         await store.probeTask.value
+        await store.peekTask?.value
         return (store, runner, toasts)
     }
 
@@ -204,6 +219,7 @@ final class ChatStoreTests: XCTestCase {
             toasts: toasts, probe: { "/bin/echo" }, rtProbe: { true }, deckProbe: { true }, makeRunner: { _ in runner }
         )
         await store.probeTask.value
+        await store.peekTask?.value
 
         let older = Task { await store.refreshStatus(for: Self.pane) }
         await runner.waitForArrival(of: 0)

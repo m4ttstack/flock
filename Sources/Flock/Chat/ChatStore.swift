@@ -62,6 +62,13 @@ final class ChatStore {
     /// the closure captures `self` before this very property counts as set.
     @ObservationIgnored private(set) var probeTask: Task<Void, Never> = Task {}
 
+    /// The launch-time `peek()` fired once availability resolves, tracked
+    /// only so a test can await the exact moment it settles instead of
+    /// racing its own calls against it; production never awaits this, since
+    /// launch must not block on a subprocess. Nil until `startProbe` decides
+    /// chat is actually available.
+    @ObservationIgnored private(set) var peekTask: Task<Void, Never>?
+
     /// `probe` runs off the main actor by construction (`ChatToolLocator
     /// .probeBinaryPath`'s own detached task): reading `ChatToolLocator
     /// .binaryPath` here, rather than synchronously at construction, is what
@@ -100,7 +107,7 @@ final class ChatStore {
             // ever changes from an explicit peek (Chat Peek, Broadcast), per
             // the spec's no-polling rule -- so a badge can go stale between
             // actions, which is accepted rather than chased with a timer.
-            Task { [weak self] in await self?.peek() }
+            self.peekTask = Task { [weak self] in await self?.peek() }
         }
     }
 
