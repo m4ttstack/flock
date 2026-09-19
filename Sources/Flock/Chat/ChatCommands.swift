@@ -109,16 +109,21 @@ struct ChatCommands: Commands {
         viewModel.resolvedFocusedPaneID.flatMap { chatStore.status(for: $0) }
     }
 
-    /// Chat Panel, Broadcast, Peek and Quick Send all open the focused
-    /// pane's popover at its status root -- landing directly on a feature's
-    /// own sub-view from a global shortcut is not wired yet, since doing so
-    /// needs the popover's route exposed as init state, which no other row
-    /// here requires.
+    /// Chat Panel opens the popover's status root, since that IS the panel;
+    /// Broadcast, Peek and Quick Send each land directly on their own
+    /// sub-view -- a shortcut names an action, so it must deliver that
+    /// action, not a launcher the user still has to navigate.
     private func perform(_ item: ChatMenuItem) {
         guard let pane = viewModel.resolvedFocusedPaneID else { return }
         switch item {
-        case .chatPanel, .broadcast, .peek, .quickSend:
+        case .chatPanel:
             chatStore.requestPopover(for: pane)
+        case .broadcast:
+            chatStore.requestPopover(for: pane, feature: .broadcast)
+        case .peek:
+            chatStore.requestPopover(for: pane, feature: .peek)
+        case .quickSend:
+            chatStore.requestPopover(for: pane, feature: .quickSend)
         case .openViewer:
             Task {
                 guard let url = await chatStore.viewerURL(room: nil) else { return }

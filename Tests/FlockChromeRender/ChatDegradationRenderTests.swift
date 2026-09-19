@@ -76,6 +76,42 @@ final class ChatDegradationRenderTests: XCTestCase {
         rows.first { $0.item == item }!
     }
 
+    // MARK: - a shortcut names an action and has to deliver it, not a launcher
+
+    /// `ChatCommands.perform` is AppKit menu wiring and out of scope; what is
+    /// worth pinning is the seam it drives -- `ChatStore.requestPopover`
+    /// recording the right feature, and `ChatPopover` actually starting on
+    /// the route that feature names.
+    func testRequestPopoverRecordsTheFeatureAlongsideThePane() {
+        let store = ChatStore(toasts: ToastCenter(), probe: { nil })
+
+        store.requestPopover(for: Self.pane)
+        XCTAssertEqual(store.requestedPopover, ChatPopoverRequest(pane: Self.pane, feature: nil))
+
+        store.requestPopover(for: Self.pane, feature: .broadcast)
+        XCTAssertEqual(store.requestedPopover, ChatPopoverRequest(pane: Self.pane, feature: .broadcast))
+
+        store.clearPopoverRequest()
+        XCTAssertNil(store.requestedPopover)
+    }
+
+    /// Chat Panel opens the root (that IS the panel); Broadcast, Peek and
+    /// Quick Send each have to start the popover already on their own view,
+    /// never on a launcher the user still has to navigate from.
+    func testInitialFeatureSetsThePopoversStartingRoute() {
+        func popover(initialFeature: ChatPopoverFeature?) -> ChatPopover {
+            ChatPopover(
+                theme: .tokyoNight, paneName: "claude", status: nil, isPresented: .constant(true),
+                onSignIn: {}, onSignOut: {}, onOpenViewer: {}, initialFeature: initialFeature
+            )
+        }
+
+        XCTAssertEqual(popover(initialFeature: nil).currentRoute, .status, "Chat Panel opens the root")
+        XCTAssertEqual(popover(initialFeature: .broadcast).currentRoute, .feature(.broadcast))
+        XCTAssertEqual(popover(initialFeature: .peek).currentRoute, .feature(.peek))
+        XCTAssertEqual(popover(initialFeature: .quickSend).currentRoute, .feature(.quickSend))
+    }
+
     // MARK: - rt missing collapses to the same absence as the plugin binary
 
     func testMissingRTMakesChatUnavailableEvenWithThePluginBinaryFound() async {

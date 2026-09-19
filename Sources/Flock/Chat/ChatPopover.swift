@@ -77,11 +77,23 @@ struct ChatPopover: View {
     @State private var route: Route = .status
     @State private var hoveredFeature: ChatPopoverFeature?
 
-    private enum Route: Equatable {
+    enum Route: Equatable {
         case status
         case feature(ChatPopoverFeature)
     }
 
+    /// Not `private`: a test reads this directly to pin `initialFeature`
+    /// actually landing where it says, without hosting a window. Read-only
+    /// from outside -- the chevron, Esc and `select(_:)` are the only
+    /// writers.
+    var currentRoute: Route { route }
+
+    /// `initialFeature` is a global chat command's route: set, the popover
+    /// opens straight onto that feature's own sub-view instead of the status
+    /// root, since a shortcut names an action and has to deliver it. Read
+    /// only at construction, the same as SwiftUI `@State` always is -- the
+    /// chevron and Esc still drive `route` locally from there on.
+    ///
     /// `previewHoveredFeature` exists only so a render test can sample the
     /// hovered/selected row's exact fill and icon colour without simulating a
     /// real pointer -- production call sites never pass it, and hovering
@@ -89,7 +101,7 @@ struct ChatPopover: View {
     init(
         theme: Theme, paneName: String, status: ChatStatus?, statusError: String? = nil, isPresented: Binding<Bool>,
         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onOpenViewer: @escaping () -> Void,
-        viewerDisabledReason: String? = nil, onRetry: @escaping () -> Void = {},
+        viewerDisabledReason: String? = nil, onRetry: @escaping () -> Void = {}, initialFeature: ChatPopoverFeature? = nil,
         onJump: @escaping (PaneID) -> Void = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil
     ) {
         self.theme = theme
@@ -103,6 +115,7 @@ struct ChatPopover: View {
         self.viewerDisabledReason = viewerDisabledReason
         self.onRetry = onRetry
         self.onJump = onJump
+        self._route = State(initialValue: initialFeature.map(Route.feature) ?? .status)
         self._hoveredFeature = State(initialValue: previewHoveredFeature)
     }
 

@@ -77,6 +77,11 @@ struct PaneCellView: View {
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
+    /// Read once by `chatPopover`'s own `initialFeature`: nil for an
+    /// ordinary click (always the status root), set only by the Chat menu's
+    /// `onChange` below, and cleared alongside every open so a later plain
+    /// click never inherits a stale route from an earlier shortcut.
+    @State private var pendingPopoverFeature: ChatPopoverFeature?
     /// The terminal body's frame in the drag space: what turns the body's own
     /// top-left point (AppKit) into a drag-space one.
     @State private var bodyFrame: CGRect = .zero
@@ -132,9 +137,12 @@ struct PaneCellView: View {
             // The Chat menu's own route into a specific pane's popover,
             // mirroring how a rename shortcut opens the rename editor rather
             // than a local click: consumed once so requesting this same
-            // pane again later still reads as a change.
-            .onChange(of: chatStore.requestedPopoverPane) { _, requested in
-                guard requested == pane.paneID else { return }
+            // pane again later still reads as a change. The requested
+            // feature rides along to `chatPopover`'s own `initialFeature`,
+            // so a shortcut lands on the view it names rather than the root.
+            .onChange(of: chatStore.requestedPopover) { _, requested in
+                guard requested?.pane == pane.paneID else { return }
+                pendingPopoverFeature = requested?.feature
                 isChatPopoverPresented = true
                 chatStore.clearPopoverRequest()
             }
@@ -384,7 +392,7 @@ struct PaneCellView: View {
         case .absent:
             EmptyView()
         case .signedOut:
-            Button(action: { isChatPopoverPresented = true }) {
+            Button(action: { openChatPopover() }) {
                 chatGlyph(color: theme.overlay0)
                     .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
                     .frame(width: ChromeMetrics.ChatButton.signedOutSize.width, height: ChromeMetrics.ChatButton.signedOutSize.height)
@@ -395,7 +403,7 @@ struct PaneCellView: View {
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
             .popover(isPresented: $isChatPopoverPresented, arrowEdge: .bottom) { chatPopover }
         case let .signedIn(handle, unread):
-            Button(action: { isChatPopoverPresented = true }) {
+            Button(action: { openChatPopover() }) {
                 // Left-aligned rather than the frame's default center: an
                 // absent count (unread == 0) must not shift the handle,
                 // divider and glyph that stay fixed regardless of the count
@@ -446,11 +454,20 @@ struct PaneCellView: View {
             onOpenViewer: { openChatViewer() },
             viewerDisabledReason: chatStore.viewerDisabledReason,
             onRetry: { Task { await chatStore.refreshStatus(for: pane.paneID) } },
+            initialFeature: pendingPopoverFeature,
             onJump: { paneID in Task { await viewModel.focusFromChat(pane: paneID) } }
         )
         // The one place this pane's status is ever actually fetched: opening
         // the popover is what a Retry banner has something to retry.
         .task { await chatStore.refreshStatus(for: pane.paneID) }
+    }
+
+    /// Always the status root: only the Chat menu's `onChange` above sets
+    /// `pendingPopoverFeature`, so a plain click never inherits a stale one
+    /// left over from an earlier shortcut.
+    private func openChatPopover() {
+        pendingPopoverFeature = nil
+        isChatPopoverPresented = true
     }
 
     /// Fire-and-forget: the store's own toast covers a failed call, and

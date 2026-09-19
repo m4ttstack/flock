@@ -2,6 +2,15 @@ import FlockCore
 import Foundation
 import Observation
 
+/// One pane's popover, opened at one of its views: `feature` nil means the
+/// status root. What a global chat command hands `ChatStore.requestPopover`,
+/// and what that pane's own view reads back to open at the right place
+/// rather than always at the root.
+struct ChatPopoverRequest: Equatable {
+    let pane: PaneID
+    let feature: ChatPopoverFeature?
+}
+
 /// The one thing every chat view reads and drives: whether chat exists on
 /// this machine, each pane's cached sign-in status, and every headless verb,
 /// each landing as a toast on failure rather than a thrown error a view would
@@ -25,10 +34,12 @@ final class ChatStore {
     private(set) var viewerDisabledReason: String?
 
     /// Which pane a global chat command (the Chat menu, a keyboard shortcut)
-    /// wants its popover opened for -- consumed once by that pane's own
-    /// view, the same shape `SessionViewModel.renameTarget` uses to open the
-    /// rename editor from a shortcut instead of a local click.
-    private(set) var requestedPopoverPane: PaneID?
+    /// wants its popover opened for, and at which view -- consumed once by
+    /// that pane's own view, the same shape `SessionViewModel.renameTarget`
+    /// uses to open the rename editor from a shortcut instead of a local
+    /// click. A shortcut names an action, so it has to land on that action's
+    /// own view rather than a launcher the user still has to navigate.
+    private(set) var requestedPopover: ChatPopoverRequest?
 
     @ObservationIgnored private var runner: ChatRunning?
     private let toasts: ToastCenter
@@ -99,15 +110,17 @@ final class ChatStore {
     }
 
     /// A global chat command's request to open this pane's popover, read
-    /// once by that pane's own view via `onChange`.
-    func requestPopover(for pane: PaneID) {
-        requestedPopoverPane = pane
+    /// once by that pane's own view via `onChange`. `feature` nil opens the
+    /// status root (Chat Panel, which IS that root); set, it opens straight
+    /// to that feature's own sub-view.
+    func requestPopover(for pane: PaneID, feature: ChatPopoverFeature? = nil) {
+        requestedPopover = ChatPopoverRequest(pane: pane, feature: feature)
     }
 
     /// Consumed by the targeted pane once it has acted on the request, so
     /// requesting the same pane again later is still seen as a change.
     func clearPopoverRequest() {
-        requestedPopoverPane = nil
+        requestedPopover = nil
     }
 
     func unreadCount(for pane: PaneID) -> Int {
