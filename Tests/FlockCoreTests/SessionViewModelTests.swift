@@ -408,6 +408,19 @@ final class SessionViewModelTests: XCTestCase {
         return SessionModel(snapshot: try! JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8)))
     }
 
+    /// `twoWorkspaceModel` plus a second pane living in `w2:t1`, focus
+    /// nowhere near it -- what `focusFromChat` needs to prove it derives the
+    /// workspace and tab from the pane's OWN record rather than from
+    /// whatever is already selected.
+    private static func twoWorkspaceModelWithASecondPane() -> SessionModel {
+        var model = twoWorkspaceModel()
+        model.panes[PaneID(rawValue: "w2:p5")] = PaneRecord(
+            paneID: PaneID(rawValue: "w2:p5"), workspaceID: WorkspaceID(rawValue: "w2"), tabID: TabID(rawValue: "w2:t1"),
+            focused: false, agentStatus: .unknown, revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp"
+        )
+        return model
+    }
+
     /// The strip shows only the selected workspace's tabs, so a tab picked
     /// from another workspace (a grid thumbnail, or its dwell) brings its
     /// workspace with it.
@@ -525,6 +538,39 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(calls.count, 1)
         XCTAssertEqual(calls.first?.method, "pane.focus")
         XCTAssertEqual(stringParam(calls.first?.params ?? [:], "pane_id"), "w1:p9")
+    }
+
+    /// Peek's jump verb answers with a bare pane id; the workspace and tab it
+    /// focuses come from this pane's own record in the model, not from
+    /// anything the verb carries.
+    @MainActor
+    func testFocusFromChatFocusesTheOwningWorkspaceTabAndPaneFromTheModelAlone() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: Self.twoWorkspaceModelWithASecondPane(), connection: .live)
+
+        await viewModel.focusFromChat(pane: PaneID(rawValue: "w2:p5"))
+
+        let calls = await client.calls
+        XCTAssertEqual(calls.map(\.method), ["workspace.focus", "tab.focus", "pane.focus"])
+        XCTAssertEqual(stringParam(calls[0].params, "workspace_id"), "w2")
+        XCTAssertEqual(stringParam(calls[1].params, "tab_id"), "w2:t1")
+        XCTAssertEqual(stringParam(calls[2].params, "pane_id"), "w2:p5")
+    }
+
+    /// A pane the model no longer carries (closed since the verb answered)
+    /// has nowhere to focus: nothing is sent, rather than a workspace/tab
+    /// jump firing with no pane to land on.
+    @MainActor
+    func testFocusFromChatForAPaneNoLongerInTheModelSendsNothing() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: makeModel(), connection: .live)
+
+        await viewModel.focusFromChat(pane: PaneID(rawValue: "gone"))
+
+        let calls = await client.calls
+        XCTAssertTrue(calls.isEmpty)
     }
 
     @MainActor
