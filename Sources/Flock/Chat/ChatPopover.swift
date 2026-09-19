@@ -101,7 +101,14 @@ struct ChatPopover: View {
                 .strokeBorder(Color(theme.palette.surface1), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius))
-        .background(ChatPopoverEscMonitor(isPresented: $isPresented))
+        .background(ChatPopoverEscMonitor(isPresented: $isPresented, isDrilledIn: isDrilledIn))
+    }
+
+    /// What Esc steps back from: open on a feature sub-view, one press
+    /// returns to the status root rather than closing the popover outright,
+    /// the same destination the chevron itself gives.
+    private var isDrilledIn: Binding<Bool> {
+        Binding(get: { route != .status }, set: { if !$0 { route = .status } })
     }
 
     private var hasRooms: Bool { status?.signedIn == true }
@@ -138,8 +145,9 @@ struct ChatPopover: View {
             }
             .buttonStyle(.plain)
         }
+        .padding(.vertical, ChromeMetrics.ChatPopover.Header.verticalPadding)
         .padding(.horizontal, ChromeMetrics.ChatPopover.Header.horizontalPadding)
-        .frame(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.Header.height)
+        .frame(width: ChromeMetrics.ChatPopover.width)
         .overlay(alignment: .bottom) { bandRule }
     }
 
@@ -371,7 +379,8 @@ struct ChatPopover: View {
     }
 }
 
-/// Consumes Esc only when it actually closes this popover, the same
+/// Consumes Esc only when it actually leaves a level of this popover (a
+/// feature sub-view stepping back, or the root closing outright), the same
 /// precedence `RearrangeModeMachine.handleEscape` gives rearrange mode.
 /// Scoped to the popover's OWN window (`event.window === window`): the
 /// monitor exists only while this content view is mounted, so an Esc typed
@@ -379,15 +388,16 @@ struct ChatPopover: View {
 /// it and is never at risk of being swallowed here.
 private struct ChatPopoverEscMonitor: NSViewRepresentable {
     @Binding var isPresented: Bool
+    @Binding var isDrilledIn: Bool
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        DispatchQueue.main.async { context.coordinator.attach(view, isPresented: $isPresented) }
+        DispatchQueue.main.async { context.coordinator.attach(view, isPresented: $isPresented, isDrilledIn: $isDrilledIn) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.attach(nsView, isPresented: $isPresented)
+        context.coordinator.attach(nsView, isPresented: $isPresented, isDrilledIn: $isDrilledIn)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -401,15 +411,17 @@ private struct ChatPopoverEscMonitor: NSViewRepresentable {
         private weak var monitoredWindow: NSWindow?
 
         @MainActor
-        func attach(_ view: NSView, isPresented: Binding<Bool>) {
+        func attach(_ view: NSView, isPresented: Binding<Bool>, isDrilledIn: Binding<Bool>) {
             guard let window = view.window, monitoredWindow !== window else { return }
             detach()
             monitoredWindow = window
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 guard event.window === window, Int(event.keyCode) == kVK_Escape else { return event }
                 var presented = isPresented.wrappedValue
-                let consumed = ChatPopoverEsc.handle(isPresented: &presented)
+                var drilledIn = isDrilledIn.wrappedValue
+                let consumed = ChatPopoverEsc.handle(isPresented: &presented, isDrilledIn: &drilledIn)
                 isPresented.wrappedValue = presented
+                isDrilledIn.wrappedValue = drilledIn
                 return consumed ? nil : event
             }
         }

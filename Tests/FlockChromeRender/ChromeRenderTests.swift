@@ -247,6 +247,103 @@ final class ChromeRenderTests: XCTestCase {
         )
     }
 
+    /// A sign button centers its own icon-and-label content rather than
+    /// left-anchoring it against a literal `.padding()`: the button's fixed
+    /// width has to stay equal for both labels regardless of glyph width,
+    /// which centering gives and a pinned leading inset does not. What
+    /// centering promises, and what the band-height test above cannot see,
+    /// is that the content sits with EQUAL clearance on every side -- never
+    /// closer than the measured padding, and never nearer one edge than its
+    /// opposite. This finds that content block by its own colour against the
+    /// button's fill (not by an assumed position) and checks both.
+    func testSignButtonContentIsCenteredWithAtLeastItsMeasuredPadding() async throws {
+        ChromeType.install()
+        let theme = Theme.tokyoNight
+        let signedOutStatus = ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: [])
+        let popover = ChatPopover(
+            theme: theme, paneName: "claude", status: signedOutStatus, isPresented: .constant(true),
+            onSignIn: {}, onSignOut: {}, onOpenViewer: {}
+        )
+        let window = popoverWindow(popover)
+        await settle(window)
+        let image = try snapshot(window)
+
+        let bandTop = ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedOut
+            + 2 * ChromeMetrics.ChatPopover.SectionLabel.height + ChromeMetrics.ChatPopover.Features.bandHeight
+        let buttonHeight = ChromeMetrics.ChatPopover.SignButtons.buttonSize.height
+        let buttonWidth = ChromeMetrics.ChatPopover.SignButtons.buttonSize.width
+        let primaryLeft = ChromeMetrics.ChatPopover.SignButtons.leadingPadding
+        let secondaryLeft = primaryLeft + buttonWidth + ChromeMetrics.ChatPopover.SignButtons.gap
+        let minHorizontalMargin = ChromeMetrics.ChatPopover.SignButtons.buttonHorizontalPadding
+        let minVerticalMargin = ChromeMetrics.ChatPopover.SignButtons.buttonVerticalPadding
+
+        // Signed out: Sign in is primary (accent fill), Sign out is
+        // secondary (surface0 fill); each button's own fill is what
+        // "background" means for that button's scan.
+        try assertContentCentered(
+            image, buttonLeft: primaryLeft, buttonTop: bandTop, width: buttonWidth, height: buttonHeight,
+            background: theme.palette.accent.hex, minHorizontalMargin: minHorizontalMargin, minVerticalMargin: minVerticalMargin,
+            label: "signed-out Sign in"
+        )
+        try assertContentCentered(
+            image, buttonLeft: secondaryLeft, buttonTop: bandTop, width: buttonWidth, height: buttonHeight,
+            background: theme.palette.surface0.hex, minHorizontalMargin: minHorizontalMargin, minVerticalMargin: minVerticalMargin,
+            label: "signed-out Sign out"
+        )
+        window.close()
+    }
+
+    /// Brackets a button's icon-and-label content by scanning inward from
+    /// each of its four straight edges (never the rounded corners, which can
+    /// leak the ground behind the button and read as "content" falsely) for
+    /// the first pixel that is not the button's own fill, then asserts the
+    /// margin on every side is at least the measured padding and that
+    /// opposite margins match -- centered, not merely present.
+    private func assertContentCentered(
+        _ image: NSBitmapImageRep, buttonLeft: CGFloat, buttonTop: CGFloat, width: CGFloat, height: CGFloat,
+        background: String, minHorizontalMargin: CGFloat, minVerticalMargin: CGFloat, label: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let midY = buttonTop + height / 2
+        let midX = buttonLeft + width / 2
+        // Inset from the button's own true edges: at the vertical (or
+        // horizontal) center a rounded rect's side is dead straight, but the
+        // outermost pixel is still antialiased against the ground beyond it,
+        // and a secondary button's own 1pt stroke sits just inside that --
+        // both would otherwise read as "not background" the same as real
+        // content.
+        let edgeInset: CGFloat = 2
+        let leftMargin = try XCTUnwrap(
+            firstX(image, y: midY, after: buttonLeft + edgeInset, to: midX, notMatching: background), "\(label): no content found left of center",
+            file: file, line: line
+        ) - buttonLeft
+        let rightEdge = try XCTUnwrap(
+            lastX(image, y: midY, from: midX, to: buttonLeft + width - edgeInset, notMatching: background), "\(label): no content found right of center",
+            file: file, line: line
+        )
+        let rightMargin = (buttonLeft + width) - rightEdge
+        let topMargin = try XCTUnwrap(
+            firstY(image, x: midX, after: buttonTop + edgeInset, to: midY, notMatching: background), "\(label): no content found above center",
+            file: file, line: line
+        ) - buttonTop
+        let bottomEdge = try XCTUnwrap(
+            lastY(image, x: midX, from: midY, to: buttonTop + height - edgeInset, notMatching: background), "\(label): no content found below center",
+            file: file, line: line
+        )
+        let bottomMargin = (buttonTop + height) - bottomEdge
+
+        XCTAssertGreaterThanOrEqual(leftMargin, minHorizontalMargin, "\(label): left margin narrower than the measured padding", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(rightMargin, minHorizontalMargin, "\(label): right margin narrower than the measured padding", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(topMargin, minVerticalMargin, "\(label): top margin narrower than the measured padding", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(bottomMargin, minVerticalMargin, "\(label): bottom margin narrower than the measured padding", file: file, line: line)
+        XCTAssertEqual(leftMargin, rightMargin, accuracy: 2, "\(label): content is not horizontally centered", file: file, line: line)
+        // A wider tolerance than the horizontal check: a font's line-height
+        // box is not symmetric around a glyph's visual center the way an
+        // icon's own bounding box is, so a few points of vertical offset is
+        // normal typography, not a redistribution bug.
+        XCTAssertEqual(topMargin, bottomMargin, accuracy: 5, "\(label): content is not vertically centered", file: file, line: line)
+    }
+
     /// Every distinct surface the popover paints, both states: the ground,
     /// the pane chip, a room chip (signed in only), the hovered/selected
     /// feature row with its accent icon, and both sign buttons -- whichever
@@ -412,6 +509,20 @@ final class ChromeRenderTests: XCTestCase {
         return found
     }
 
+    /// The rightmost `x` (searching `from` to `to`) whose pixel is NOT
+    /// `background`, or nil if the whole range is bare ground.
+    private func lastX(
+        _ image: NSBitmapImageRep, y: CGFloat, from: CGFloat, to: CGFloat, notMatching background: String, step: CGFloat = 0.25
+    ) -> CGFloat? {
+        var found: CGFloat?
+        var x = from
+        while x <= to {
+            if hex(image, CGPoint(x: x, y: y)) != background { found = x }
+            x += step
+        }
+        return found
+    }
+
     /// The first `x` strictly after `after` (up to `to`) whose pixel is NOT
     /// `background`, or nil if the rest of the row is bare ground.
     private func firstX(
@@ -423,6 +534,31 @@ final class ChromeRenderTests: XCTestCase {
             x += step
         }
         return nil
+    }
+
+    /// The vertical twins of `firstX`/`lastX`: a fixed column, scanning down
+    /// or up for the first pixel that is not `background`.
+    private func firstY(
+        _ image: NSBitmapImageRep, x: CGFloat, after: CGFloat, to: CGFloat, notMatching background: String, step: CGFloat = 0.25
+    ) -> CGFloat? {
+        var y = after
+        while y <= to {
+            if hex(image, CGPoint(x: x, y: y)) != background { return y }
+            y += step
+        }
+        return nil
+    }
+
+    private func lastY(
+        _ image: NSBitmapImageRep, x: CGFloat, from: CGFloat, to: CGFloat, notMatching background: String, step: CGFloat = 0.25
+    ) -> CGFloat? {
+        var found: CGFloat?
+        var y = from
+        while y <= to {
+            if hex(image, CGPoint(x: x, y: y)) != background { found = y }
+            y += step
+        }
+        return found
     }
 
     /// The smallest `channelDistance` to `target` found anywhere in the range

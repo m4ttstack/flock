@@ -244,6 +244,8 @@ enum ChromeMetrics {
             static let gap: CGFloat = 8
             static let buttonSize = CGSize(width: 162, height: 33)
             static let cornerRadius: CGFloat = 6
+            static let buttonVerticalPadding: CGFloat = 9
+            static let buttonHorizontalPadding: CGFloat = 10
             static let contentGap: CGFloat = 7
             static let iconSize = CGSize(width: 13, height: 13)
         }
