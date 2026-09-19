@@ -328,6 +328,9 @@ enum ChromeMetrics {
         static let cornerRadius: CGFloat = 10
 
         enum TargetBand {
+            /// The single-row height the canvas modelled -- still exactly
+            /// right for however many chips fit one row; a target count that
+            /// wraps grows past it, up to `maxVisibleRows`.
             static let height: CGFloat = 57
             static let topPadding: CGFloat = 13
             static let trailingPadding: CGFloat = 14
@@ -339,6 +342,16 @@ enum ChromeMetrics {
             static let chipVerticalPadding: CGFloat = 4
             static let chipHorizontalPadding: CGFloat = 9
             static let chipGap: CGFloat = 6
+            /// Chips wrap onto further rows rather than compress, and the
+            /// row gap reuses `chipGap`'s own rhythm rather than a value the
+            /// canvas never modelled. Beyond this many rows the band scrolls
+            /// instead of growing further, so a target list in the dozens
+            /// can never make the popover taller than the screen.
+            static let maxVisibleRows: Int = 3
+            static var maxChipsHeight: CGFloat {
+                let rows = CGFloat(maxVisibleRows)
+                return rows * chipHeight + (rows - 1) * chipGap
+            }
         }
 
         enum FieldBand {

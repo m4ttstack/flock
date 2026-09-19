@@ -194,6 +194,71 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         window.close()
     }
 
+    // MARK: - Quick send: chips keep full text at a real target count, and growth caps
+
+    /// The owner's own failure: about a dozen real targets, packed into the
+    /// old fixed `HStack`, compressed every chip to one unreadable
+    /// character. This renders the actual band at production width with
+    /// twelve targets and proves the widest run of one chip's own fill
+    /// colour in the render is at least as wide as that same chip measured
+    /// in isolation -- the direct way a render can show "the label kept its
+    /// full text" rather than "a chip drew some non-zero width".
+    func testChatQuickSendViewKeepsFullChipLabelsWithTwelveTargets() async throws {
+        let theme = Self.theme
+        let targets = [
+            "#rt", "#flock", "#glance", "#gitq", "#mr-board",
+            "@codex", "@kay", "@scout", "@herdglass", "@odin", "@blossom", "@paddock",
+        ]
+        let status = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: [])
+        let view = ChatQuickSendView(theme: theme, status: status, onBack: {}, onClose: {}, previewTargets: targets)
+
+        // Not the first target, so it renders unselected (`surface0`-filled,
+        // never compressed by the selected chip's own background reading
+        // the same hex as the ground it sits on).
+        let sample = "@herdglass"
+        let naturalWidth = fittingWidth(view.chip(sample))
+        let targetBandHeight = fittingHeight(view.targetBand)
+
+        let window = hostWindow(view, chatStore: makeInertChatStore(), size: CGSize(width: ChromeMetrics.ChatQuickSend.width, height: 300))
+        await settle(window)
+        let image = try snapshot(window)
+
+        let widestUnselectedRun = widestHorizontalRun(
+            image, target: theme.palette.surface0.hex,
+            xRange: 0...ChromeMetrics.ChatQuickSend.width,
+            yRange: ChromeMetrics.ChatSubviewHeader.height...(ChromeMetrics.ChatSubviewHeader.height + targetBandHeight - 2)
+        )
+        XCTAssertGreaterThanOrEqual(
+            widestUnselectedRun, naturalWidth - 2,
+            "no unselected chip rendered as wide as its own natural label -- a label was compressed"
+        )
+        window.close()
+    }
+
+    /// Wrapping cannot grow forever: past `maxVisibleRows` the band stops
+    /// growing and scrolls instead, so a machine reporting fifty targets
+    /// cannot make the popover taller than the screen. The expected cap
+    /// adds `maxChipsHeight` to the band's own label-plus-padding chrome,
+    /// measured directly rather than backed out of `TargetBand.height`:
+    /// that constant is pinned to the canvas's own declared total via
+    /// `minHeight` in production, which is 2pt above what "TO" actually
+    /// renders at, so subtracting `chipHeight` from it would overstate the
+    /// chrome by that same 2pt.
+    func testChatQuickSendViewCapsGrowthPastMaxVisibleRows() {
+        let status = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: [])
+        let many = (0..<50).map { "@target-\($0)" }
+        let view = ChatQuickSendView(theme: Self.theme, status: status, onBack: {}, onClose: {}, previewTargets: many)
+
+        let labelHeight = fittingHeight(Text("TO").font(ChromeType.chatPopoverSectionLabel))
+        let chromeHeight = ChromeMetrics.ChatQuickSend.TargetBand.topPadding + labelHeight
+            + ChromeMetrics.ChatQuickSend.TargetBand.gap + ChromeMetrics.ChatQuickSend.TargetBand.bottomPadding
+        let expectedCapTotal = chromeHeight + ChromeMetrics.ChatQuickSend.TargetBand.maxChipsHeight
+
+        let measured = fittingHeight(view.targetBand)
+        XCTAssertGreaterThan(measured, ChromeMetrics.ChatQuickSend.TargetBand.height, "fifty targets must wrap past the single-row height")
+        XCTAssertEqual(measured, expectedCapTotal, accuracy: 1, "growth must stop at maxVisibleRows and scroll beyond it, never grow past the popover")
+    }
+
     func testChatQuickSendViewSymbolsResolve() {
         for symbolName in ["chevron.left", "xmark"] {
             XCTAssertNotNil(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil), symbolName)
@@ -388,6 +453,32 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
             y += step
         }
         return false
+    }
+
+    /// The longest contiguous run of `target` found on any single scanned
+    /// row in the box -- proof of an actual filled width, where
+    /// `regionContainsHex` only proves the colour appears somewhere at all.
+    private func widestHorizontalRun(
+        _ image: NSBitmapImageRep, target: String, xRange: ClosedRange<CGFloat>, yRange: ClosedRange<CGFloat>, step: CGFloat = 1
+    ) -> CGFloat {
+        var best: CGFloat = 0
+        var y = yRange.lowerBound
+        while y <= yRange.upperBound {
+            var runStart: CGFloat?
+            var x = xRange.lowerBound
+            while x <= xRange.upperBound {
+                if hex(image, CGPoint(x: x, y: y)) == target {
+                    if runStart == nil { runStart = x }
+                } else if let start = runStart {
+                    best = max(best, x - start)
+                    runStart = nil
+                }
+                x += step
+            }
+            if let start = runStart { best = max(best, xRange.upperBound - start) }
+            y += step
+        }
+        return best
     }
 
     private func writePNG(_ image: NSBitmapImageRep, to directory: String, name: String) throws {

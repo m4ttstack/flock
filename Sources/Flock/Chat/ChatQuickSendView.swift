@@ -58,28 +58,52 @@ struct ChatQuickSendView: View {
     /// are narrower than the band, so a bare `.top` (top-CENTER) would
     /// center this content instead of holding it at the band's own 14pt
     /// inset the field and footer below it share.
+    ///
+    /// The chip row wraps (`ChipFlowLayout`) rather than staying one
+    /// `HStack`: the canvas modelled four targets, and a real machine can
+    /// report several times that many, which an unwrapped row can only
+    /// answer by compressing every label to an unreadable sliver. Wrapping
+    /// can grow the band past its single-row `height`; `minHeight:` (not a
+    /// bare frame) is what keeps the common, unwrapped case at exactly that
+    /// measured total while still letting more rows push it taller, capped
+    /// at `maxChipsHeight` (`maxVisibleRows` rows) and scrollable beyond
+    /// that, so no target count can make the popover taller than the
+    /// screen.
     var targetBand: some View {
         VStack(alignment: .leading, spacing: ChromeMetrics.ChatQuickSend.TargetBand.gap) {
             Text("TO").font(ChromeType.chatPopoverSectionLabel).foregroundStyle(theme.overlay0)
-            HStack(spacing: ChromeMetrics.ChatQuickSend.TargetBand.chipGap) {
-                ForEach(targets, id: \.self) { target in
-                    chip(target)
+            ScrollView(.vertical, showsIndicators: false) {
+                ChipFlowLayout(
+                    horizontalSpacing: ChromeMetrics.ChatQuickSend.TargetBand.chipGap,
+                    verticalSpacing: ChromeMetrics.ChatQuickSend.TargetBand.chipGap
+                ) {
+                    ForEach(targets, id: \.self) { target in
+                        chip(target)
+                    }
                 }
             }
+            .frame(maxHeight: ChromeMetrics.ChatQuickSend.TargetBand.maxChipsHeight)
         }
         .padding(.top, ChromeMetrics.ChatQuickSend.TargetBand.topPadding)
         .padding(.trailing, ChromeMetrics.ChatQuickSend.TargetBand.trailingPadding)
         .padding(.bottom, ChromeMetrics.ChatQuickSend.TargetBand.bottomPadding)
         .padding(.leading, ChromeMetrics.ChatQuickSend.TargetBand.leadingPadding)
-        .frame(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.TargetBand.height, alignment: .topLeading)
+        .frame(width: ChromeMetrics.ChatQuickSend.width, alignment: .topLeading)
+        .frame(minHeight: ChromeMetrics.ChatQuickSend.TargetBand.height, alignment: .topLeading)
     }
 
-    private func chip(_ target: String) -> some View {
+    /// Not `private`: a test measures a chip's own rendered width directly,
+    /// the same way a geometry test reads `targetBand`/`fieldBand`.
+    func chip(_ target: String) -> some View {
         let isSelected = selectedTarget == target
         return Button(action: { selectedTarget = target }) {
             Text(target)
                 .font(isSelected ? ChromeType.chatQuickSendChipSelected : ChromeType.chatQuickSendChipUnselected)
                 .foregroundStyle(isSelected ? Color(theme.palette.panelBg) : theme.subtext0)
+                // Refuses to compress: without this, a row packed with a
+                // real machine's dozen-plus targets squeezes every label
+                // down to as little as one unreadable character.
+                .fixedSize()
                 .padding(.vertical, ChromeMetrics.ChatQuickSend.TargetBand.chipVerticalPadding)
                 .padding(.horizontal, ChromeMetrics.ChatQuickSend.TargetBand.chipHorizontalPadding)
                 .frame(height: ChromeMetrics.ChatQuickSend.TargetBand.chipHeight)
@@ -142,5 +166,50 @@ struct ChatQuickSendView: View {
             guard await chatStore.quickSend(to: target, body: body) else { return }
             message = ""
         }
+    }
+}
+
+/// Places children left to right at their own natural size, starting a new
+/// row whenever the next one would not fit the proposed width. Measuring and
+/// placement share `rowLayout(subviews:width:)` so the two can never
+/// disagree about where a wrap happens.
+private struct ChipFlowLayout: Layout {
+    let horizontalSpacing: CGFloat
+    let verticalSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        rowLayout(subviews: subviews, width: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let frames = rowLayout(subviews: subviews, width: bounds.width).frames
+        for (subview, frame) in zip(subviews, frames) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                anchor: .topLeading, proposal: ProposedViewSize(frame.size)
+            )
+        }
+    }
+
+    private func rowLayout(subviews: Subviews, width: CGFloat) -> (frames: [CGRect], size: CGSize) {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var maxX: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + horizontalSpacing + size.width > width {
+                x = 0
+                y += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+            if x > 0 { x += horizontalSpacing }
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
+            x += size.width
+            maxX = max(maxX, x)
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (frames, CGSize(width: maxX, height: y + rowHeight))
     }
 }
