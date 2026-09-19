@@ -432,13 +432,13 @@ struct PaneCellView: View {
                 HStack(spacing: ChromeMetrics.ChatButton.gap) {
                     Text(handle)
                         .font(ChromeType.chatButtonHandle)
-                        .foregroundStyle(theme.accent)
+                        .foregroundStyle(theme.green)
                         .lineLimit(1)
                         .frame(width: ChromeMetrics.ChatButton.handleSize.width, height: ChromeMetrics.ChatButton.handleSize.height, alignment: .leading)
                     Rectangle()
                         .fill(Color(theme.palette.surface1))
                         .frame(width: ChromeMetrics.ChatButton.dividerSize.width, height: ChromeMetrics.ChatButton.dividerSize.height)
-                    chatGlyph(color: theme.accent)
+                    chatGlyph(color: theme.green)
                         .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
                     if unread > 0 {
                         Text("\(unread)")

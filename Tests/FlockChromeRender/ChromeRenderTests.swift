@@ -93,7 +93,7 @@ final class ChromeRenderTests: XCTestCase {
         )
         XCTAssertEqual(
             hex(signedInImage, CGPoint(x: signedInFrame.minX + 44.5, y: signedInFrame.midY)),
-            theme.palette.accent.hex, "signed-in glyph"
+            theme.palette.green.hex, "signed-in glyph"
         )
         signedInWindow.close()
 
