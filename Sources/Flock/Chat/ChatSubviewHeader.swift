@@ -30,18 +30,43 @@ struct ChatSubviewHeader: View {
         }
     }
 
-    /// Font-sized, not `.resizable().scaledToFit()`: that path force-scales
-    /// each symbol's own outline into the box, and `xmark`'s outline fills
-    /// far more of a square box than `chevron.left`'s does, so the two read
-    /// at different weights even under the identical `overlay0` colour. A
-    /// point-size font lets each symbol use its own optical sizing instead.
     private func iconButton(_ symbolName: String, action: @escaping () -> Void) -> some View {
+        ChatHeaderIconButton(theme: theme, symbolName: symbolName, action: action)
+    }
+}
+
+/// One header glyph's hit target: a square filling the header's own
+/// vertical lane (`iconHitSize`), so the button covers area around the
+/// 14pt glyph rather than only its stroke. Its own `@State` -- `iconButton`
+/// is a plain function and cannot hold one -- is what lets the two header
+/// buttons hover independently.
+private struct ChatHeaderIconButton: View {
+    let theme: Theme
+    let symbolName: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
         Button(action: action) {
+            // Font-sized, not `.resizable().scaledToFit()`: that path
+            // force-scales each symbol's own outline into the box, and
+            // `xmark`'s outline fills far more of a square box than
+            // `chevron.left`'s does, so the two read at different weights
+            // even under the identical colour. A point-size font lets each
+            // symbol use its own optical sizing instead.
             Image(systemName: symbolName)
                 .font(.system(size: ChromeMetrics.ChatSubviewHeader.iconSize.width, weight: .regular))
-                .foregroundStyle(theme.overlay0)
-                .frame(width: ChromeMetrics.ChatSubviewHeader.iconSize.width, height: ChromeMetrics.ChatSubviewHeader.iconSize.height)
+                .foregroundStyle(isHovering ? theme.text : theme.subtext0)
+                .frame(width: ChromeMetrics.ChatSubviewHeader.iconHitSize, height: ChromeMetrics.ChatSubviewHeader.iconHitSize)
+                .background(
+                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatSubviewHeader.iconHitCornerRadius)
+                        .fill(Color(theme.palette.selectionBg))
+                        .opacity(isHovering ? 1 : 0)
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }

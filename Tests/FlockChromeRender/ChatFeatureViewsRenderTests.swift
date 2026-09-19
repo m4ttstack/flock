@@ -121,8 +121,10 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     /// `chevron.left`'s does at the same point size, which is a weight
     /// difference worth guarding against too -- this only asserts colour;
     /// `ChatSubviewHeader`'s own font-sized (not `.resizable()`) rendering is
-    /// what keeps the two visually matched in weight.
-    func testChatSubviewHeaderGlyphsAreBothExactlyOverlay0() async throws {
+    /// what keeps the two visually matched in weight. Resting colour is
+    /// `subtext0`, not `overlay0`: at this icon's size `overlay0` on
+    /// `panelBg` reads as barely there.
+    func testChatSubviewHeaderGlyphsAreBothExactlySubtext0AtRest() async throws {
         let theme = Self.theme
         let header = ChatSubviewHeader(theme: theme, title: "Chat peek", width: ChromeMetrics.ChatPeek.width, onBack: {}, onClose: {})
         let window = NSWindow(
@@ -137,10 +139,10 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         await settle(window)
         let image = try snapshot(window)
 
-        let chevronDistance = closestDistance(image, xRange: 12...30, yRange: 10...31, target: theme.palette.overlay0.hex)
-        let closeDistance = closestDistance(image, xRange: ChromeMetrics.ChatPeek.width - 30...ChromeMetrics.ChatPeek.width - 12, yRange: 10...31, target: theme.palette.overlay0.hex)
-        XCTAssertLessThanOrEqual(chevronDistance, 2, "back chevron is not overlay0 (closest off by \(chevronDistance))")
-        XCTAssertLessThanOrEqual(closeDistance, 2, "close glyph is not overlay0 (closest off by \(closeDistance))")
+        let chevronDistance = closestDistance(image, xRange: 12...30, yRange: 10...31, target: theme.palette.subtext0.hex)
+        let closeDistance = closestDistance(image, xRange: ChromeMetrics.ChatPeek.width - 30...ChromeMetrics.ChatPeek.width - 12, yRange: 10...31, target: theme.palette.subtext0.hex)
+        XCTAssertLessThanOrEqual(chevronDistance, 2, "back chevron is not subtext0 (closest off by \(chevronDistance))")
+        XCTAssertLessThanOrEqual(closeDistance, 2, "close glyph is not subtext0 (closest off by \(closeDistance))")
         window.close()
     }
 

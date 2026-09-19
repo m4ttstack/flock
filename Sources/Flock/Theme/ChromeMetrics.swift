@@ -271,6 +271,12 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 14
         static let iconSize = CGSize(width: 14, height: 14)
         static let gap: CGFloat = 9
+        /// The chevron/close glyph's own clickable box: `height - 2 *
+        /// verticalPadding` is the whole band's own vertical lane, so this
+        /// is the largest square hit target that fits without growing the
+        /// header past its fixed 41pt total.
+        static let iconHitSize: CGFloat = height - 2 * verticalPadding
+        static let iconHitCornerRadius: CGFloat = 4
     }
 
     /// Chat peek: buddies with a jump affordance, then rooms, each carrying
