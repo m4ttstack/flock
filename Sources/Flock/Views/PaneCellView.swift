@@ -372,7 +372,7 @@ struct PaneCellView: View {
     /// container around all three -- since a disabled ancestor cannot be
     /// re-enabled from below it.
     private var statusChip: some View {
-        HStack(spacing: ChromeMetrics.Pane.statusChipPadding) {
+        HStack(spacing: ChromeMetrics.Pane.legendItemGap) {
             if isZoomed { zoomBadge.allowsHitTesting(false) }
             if chatButtonAppearance != .absent { chatButton }
             if let statusColor {
