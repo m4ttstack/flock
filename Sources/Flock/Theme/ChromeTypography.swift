@@ -39,6 +39,11 @@ enum ChromeType {
     static func tabLabelWeight(selected: Bool) -> Weight { selected ? .medium : .regular }
     static func tabLabel(selected: Bool) -> Font { inter(tabLabelSize, tabLabelWeight(selected: selected)) }
     static let protocolReadout = mono(11.5)
+    /// The new-tab affordance's glyph. Named apart from the SF Symbol string
+    /// literal it draws, so a render test can assert that exact name still
+    /// resolves rather than duplicating it.
+    static let newTabSymbol = Font.system(size: 11, weight: .semibold)
+    static let newTabSymbolName = "plus"
 
     static let paneTitle = inter(11.5, .medium)
     static let statusChip = mono(11.5)

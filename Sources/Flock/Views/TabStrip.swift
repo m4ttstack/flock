@@ -13,6 +13,11 @@ struct TabStrip: View {
     let selectedTabID: TabID?
     let protocolVersion: Int
     let onSelect: (TabID) -> Void
+    /// Exists only so a render test can sample the new-tab affordance's drawn
+    /// state without simulating a real pointer -- production call sites never
+    /// pass it, and hovering still drives the affordance's own state from
+    /// there on.
+    var previewHoversNewTabAffordance = false
 
     @Environment(DragCoordinator.self) private var drag
     @State private var scrollPosition = ScrollPosition()
@@ -66,6 +71,21 @@ struct TabStrip: View {
                                     .accessibilityIdentifier(entry.accessibilityIdentifier)
                                 }
                             }
+                        }
+                        // A real sibling in the same content, so it scrolls
+                        // and hit-tests with the tabs rather than behind them
+                        // (`newTabZone` below sits behind the scroll view for
+                        // exactly the reason the rail's own zone once broke
+                        // there: an `NSScrollView` claims hit testing across
+                        // its own bounds). `nil` when the strip has no
+                        // unscrolled room left, which leaves nothing drawn at
+                        // all rather than an affordance no hover could ever
+                        // reach without scrolling first.
+                        if let workspace, newTabAffordanceFrame != nil {
+                            NewTabAffordanceButton(
+                                theme: theme, onCreate: { Task { await viewModel.createTab(in: workspace) } },
+                                previewHovering: previewHoversNewTabAffordance
+                            )
                         }
                     }
                     .padding(.leading, ChromeMetrics.Strip.horizontalPadding)
@@ -122,6 +142,19 @@ struct TabStrip: View {
         .onChange(of: tabs.map(\.tabID)) { _, _ in publishIdentity() }
         .onChange(of: workspace) { _, _ in publishIdentity() }
         .onChange(of: selectedTabID) { _, id in if let id { drag.revealTab(id) } }
+    }
+
+    /// `tabsEnd` -- every current tab's own width, gaps and the strip's own
+    /// leading inset summed -- is what `TabSizing` already knows for each tab
+    /// on screen; the pure decision of where that leaves room, and whether
+    /// there is any, is `NewTabAffordance`'s.
+    private var newTabAffordanceFrame: CGRect? {
+        let gap = ChromeMetrics.Strip.tabGap
+        let tabsWidth = tabs.reduce(CGFloat(0)) { $0 + TabSizing.width(of: $1.label) }
+        let tabsEnd = ChromeMetrics.Strip.horizontalPadding + tabsWidth + gap * CGFloat(max(tabs.count - 1, 0))
+        return NewTabAffordance.frame(
+            tabsEnd: tabsEnd, gap: gap, viewportWidth: drag.stripViewport?.width ?? 0, height: ChromeMetrics.Tab.height
+        )
     }
 
     /// A plain click on strip space no tab occupies creates one. Invisible by
@@ -264,5 +297,40 @@ private struct TabBlock: View {
         .offset(x: displacement)
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
         .animation(.easeOut(duration: 0.12), value: isGhosted)
+    }
+}
+
+/// The strip's own free run past the last tab, previewing the tab a click
+/// there creates: an outline rather than a filled block, which is what keeps
+/// it reading as a preview beside the real tabs it borrows its shape from.
+/// Invisible at rest -- `isHovering` alone decides whether anything is drawn,
+/// so a hover that ends mid-press leaves nothing behind.
+private struct NewTabAffordanceButton: View {
+    let theme: Theme
+    let onCreate: () -> Void
+
+    init(theme: Theme, onCreate: @escaping () -> Void, previewHovering: Bool = false) {
+        self.theme = theme
+        self.onCreate = onCreate
+        self._isHovering = State(initialValue: previewHovering)
+    }
+
+    @State private var isHovering: Bool
+
+    var body: some View {
+        Rectangle()
+            .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
+            .overlay(
+                Image(systemName: ChromeType.newTabSymbolName)
+                    .font(ChromeType.newTabSymbol)
+                    .foregroundStyle(theme.textLabel)
+            )
+            .frame(width: NewTabAffordance.width, height: ChromeMetrics.Tab.height)
+            .opacity(isHovering ? 1 : 0)
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .onTapGesture(perform: onCreate)
+            .accessibilityIdentifier("flock.strip.newTab.affordance")
+            .accessibilityLabel("New Tab")
     }
 }
