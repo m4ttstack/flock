@@ -271,6 +271,9 @@ final class ChromeRenderTests: XCTestCase {
             try XCTUnwrap(signedOutImage.representation(using: .png, properties: [:])).write(to: url)
         }
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 20)), theme.palette.panelBg.hex, "signed-out popover ground")
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 0.5, y: 150)), theme.palette.surface1.hex, "signed-out outer stroke")
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "signed-out header rule")
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 85.5)), theme.palette.surface0.hex, "signed-out status band rule")
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 343, y: 63)), theme.palette.surface0.hex, "signed-out pane chip fill")
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 165)), theme.palette.selectionBg.hex, "signed-out selected feature row fill")
         var bestIconDistance = Int.max
@@ -280,6 +283,9 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertLessThanOrEqual(bestIconDistance, 20, "signed-out selected feature icon (closest off by \(bestIconDistance))")
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 30, y: 292.5)), theme.palette.accent.hex, "signed-out Sign in is primary")
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 292.5)), theme.palette.surface0.hex, "signed-out Sign out is secondary")
+        XCTAssertEqual(
+            hex(signedOutImage, CGPoint(x: 184.5, y: 292.5)), theme.palette.surface1.hex, "signed-out secondary Sign out stroke"
+        )
         signedOutWindow.close()
 
         let signedInStatus = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: ["#rt", "#flock"])
@@ -295,6 +301,9 @@ final class ChromeRenderTests: XCTestCase {
             try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
         }
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 20)), theme.palette.panelBg.hex, "signed-in popover ground")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 0.5, y: 150)), theme.palette.surface1.hex, "signed-in outer stroke")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "signed-in header rule")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 108.5)), theme.palette.surface0.hex, "signed-in status band rule")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 343, y: 63)), theme.palette.surface0.hex, "signed-in pane chip fill")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 17, y: 87)), theme.palette.activeRowBg.hex, "signed-in room chip fill")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 188)), theme.palette.selectionBg.hex, "signed-in selected feature row fill")
@@ -305,6 +314,9 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertLessThanOrEqual(bestSignedInIconDistance, 20, "signed-in selected feature icon (closest off by \(bestSignedInIconDistance))")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 30, y: 315.5)), theme.palette.surface0.hex, "signed-in Sign in is secondary")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 315.5)), theme.palette.accent.hex, "signed-in Sign out is primary")
+        XCTAssertEqual(
+            hex(signedInImage, CGPoint(x: 14.5, y: 315.5)), theme.palette.surface1.hex, "signed-in secondary Sign in stroke"
+        )
         signedInWindow.close()
     }
 

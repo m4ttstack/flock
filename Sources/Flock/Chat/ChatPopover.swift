@@ -140,6 +140,7 @@ struct ChatPopover: View {
         }
         .padding(.horizontal, ChromeMetrics.ChatPopover.Header.horizontalPadding)
         .frame(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.Header.height)
+        .overlay(alignment: .bottom) { bandRule }
     }
 
     var statusBlock: some View {
@@ -178,6 +179,13 @@ struct ChatPopover: View {
             height: hasRooms ? ChromeMetrics.ChatPopover.Status.heightSignedIn : ChromeMetrics.ChatPopover.Status.heightSignedOut,
             alignment: .top
         )
+        .overlay(alignment: .bottom) { bandRule }
+    }
+
+    /// The header and the status band are the only bands the popover rules
+    /// off: a 1pt line in `surface0`, never the outer stroke's own colour.
+    private var bandRule: some View {
+        Rectangle().fill(Color(theme.palette.surface0)).frame(height: 1)
     }
 
     private var paneChip: some View {
@@ -324,6 +332,14 @@ struct ChatPopover: View {
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.SignButtons.cornerRadius)
                     .fill(isPrimary ? theme.accent : Color(theme.palette.surface0))
             )
+            .overlay {
+                // An accent fill needs no edge to be found against the
+                // popover's ground; the dark secondary fill does.
+                if !isPrimary {
+                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.SignButtons.cornerRadius)
+                        .strokeBorder(Color(theme.palette.surface1), lineWidth: 1)
+                }
+            }
         }
         .buttonStyle(.plain)
     }
