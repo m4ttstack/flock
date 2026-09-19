@@ -215,9 +215,10 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     // MARK: - Broadcast: hex samples
 
     /// The ground, the header and field-band rules, a checked row's fill and
-    /// tick beside the not-signed-in row's disabled, unchecked box, every dot
-    /// colour, the field's `accent` stroke, and the send button's `mauve`
-    /// fill -- the one point Broadcast and Quick send deliberately differ.
+    /// tick, the ghost buddy (an unrecognised status string) checked and
+    /// filled the same as every other row, every dot colour, the field's
+    /// `accent` stroke, and the send button's `mauve` fill -- the one point
+    /// Broadcast and Quick send deliberately differ.
     func testChatBroadcastViewPaintsExactHex() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Self.theme
@@ -238,14 +239,12 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         XCTAssertEqual(hex(image, CGPoint(x: 42.5, y: 135)), theme.palette.green.hex, "codex dot: idle")
         XCTAssertEqual(hex(image, CGPoint(x: 42.5, y: 177)), theme.palette.accent.hex, "kay dot: done")
         XCTAssertEqual(hex(image, CGPoint(x: 42.5, y: 219)), theme.palette.red.hex, "scout dot: blocked")
-        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 261)), theme.palette.panelBg.hex, "ghost row (not signed in) is unfilled")
-        // macOS dims a `.disabled` row's own content, so the checkbox and dot
-        // read as a blend toward the row's ground rather than the pure
-        // stroke/fill hex a selectable row shows -- what a test can still
-        // prove is that the checkbox never reads as CHECKED and the dot
-        // reads closest to `overlay0` of the five colours this view ever
-        // paints a dot with.
-        XCTAssertNotEqual(hex(image, CGPoint(x: 21.5, y: 261)), theme.palette.accent.hex, "ghost checkbox must not read as checked -- it cannot be selected")
+        // A buddy `peek` reports is on chat by definition, whatever its
+        // agent-status string says, so the ghost row starts checked and
+        // filled exactly like every other row -- only its dot colour reads
+        // `status` at all.
+        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 261)), theme.palette.activeRowBg.hex, "ghost row is selectable and starts checked, so it is filled")
+        XCTAssertEqual(hex(image, CGPoint(x: 21.5, y: 261)), theme.palette.accent.hex, "ghost checkbox starts checked like any other pane")
         let ghostDot = hex(image, CGPoint(x: 42.5, y: 261))
         let candidates: [(String, RGB)] = [
             ("yellow", theme.palette.yellow), ("green", theme.palette.green), ("accent", theme.palette.accent),

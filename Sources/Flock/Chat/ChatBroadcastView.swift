@@ -10,6 +10,12 @@ import SwiftUI
 /// included), while an empty `--panes` throws and the store answers `nil`.
 /// Either way, summarizing what actually happened is this view's job --
 /// `ChatBroadcastSummary` is the pure rule for whether that is worth a toast.
+///
+/// Every buddy here already came back from `peek`, which is itself the
+/// definition of being on chat, so every row starts checked and every row
+/// stays selectable regardless of what `status` says: that string is an
+/// agent-state vocabulary a real pane can report outside of, and only
+/// `dotColor(for:)` reads it.
 struct ChatBroadcastView: View {
     let theme: Theme
     let onBack: () -> Void
@@ -31,7 +37,7 @@ struct ChatBroadcastView: View {
         self.onClose = onClose
         let seeded = previewBuddies ?? []
         self._buddies = State(initialValue: seeded)
-        self._checked = State(initialValue: Set(seeded.filter(Self.isSelectable).map(\.paneID)))
+        self._checked = State(initialValue: Set(seeded.map(\.paneID)))
     }
 
     var body: some View {
@@ -52,7 +58,7 @@ struct ChatBroadcastView: View {
             guard buddies.isEmpty else { return }
             guard let peek = await chatStore.peek() else { return }
             buddies = peek.buddies
-            checked = Set(peek.buddies.filter(Self.isSelectable).map(\.paneID))
+            checked = Set(peek.buddies.map(\.paneID))
         }
     }
 
@@ -75,7 +81,6 @@ struct ChatBroadcastView: View {
     }
 
     func paneRow(_ buddy: ChatBuddy) -> some View {
-        let selectable = Self.isSelectable(buddy)
         let isChecked = checked.contains(buddy.paneID)
         return Button(action: { toggle(buddy) }) {
             HStack(spacing: ChromeMetrics.ChatBroadcast.PaneRow.gap) {
@@ -95,7 +100,6 @@ struct ChatBroadcastView: View {
             .background(isChecked ? Color(theme.palette.activeRowBg) : Color.clear)
         }
         .buttonStyle(.plain)
-        .disabled(!selectable)
     }
 
     private func checkbox(checked isChecked: Bool) -> some View {
@@ -150,14 +154,6 @@ struct ChatBroadcastView: View {
         }
     }
 
-    /// A buddy whose status is not one of chat's own live words is not
-    /// currently signed in, and cannot be selected: forcing it out of
-    /// `checked` here as well as disabling its row keeps the two in
-    /// agreement even if a peek refresh drops a pane mid-selection.
-    private static func isSelectable(_ buddy: ChatBuddy) -> Bool {
-        AgentStatus(rawValue: buddy.status) != nil
-    }
-
     private func dotColor(for status: String) -> Color {
         switch AgentStatus(rawValue: status) ?? .unknown {
         case .working: theme.yellow
@@ -184,7 +180,7 @@ struct ChatBroadcastView: View {
     }
 
     private func selectAll() {
-        checked = Set(buddies.filter(Self.isSelectable).map(\.paneID))
+        checked = Set(buddies.map(\.paneID))
     }
 
     private func send() {
