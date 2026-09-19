@@ -219,8 +219,8 @@ glyph. Every one of those was wrong in the running app:
 
 The count is `palette.text`, not `accent` and not `panelBg`: it differs from the
 unread pills in the popover and peek, which are `panelBg` on an `accent` ground.
-The count shows only when there is unread; at zero the button is handle, divider
-and icon.
+The count shows only when there is unread; at zero the button is the handle and
+the glyph, and nothing else.
 
 **Signed out:** 27x17, fill `surface0`, r4, pad 3/8, gap 6, no border. One child,
 an 11x11 `bubble.left.fill` in `overlay0`.
