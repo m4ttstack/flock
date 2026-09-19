@@ -104,8 +104,12 @@ Pane rows: 42 tall, pad 7/14, gap 9. A 7x7 status dot coloured by agent state
 (`yellow`, `green`, `accent`, `red`), then a two-line stack with gap 1: the
 handle at 12/500 in `text` and the location at 10/regular in `overlay0`. A row
 with unread carries a 19x16 pill, `accent`, r8, pad 2/6, count at 10/600 in
-`panelBg`; a 12x12 jump glyph in `overlay0` closes the row. Rows alternate
-`activeRowBg` and no fill.
+`panelBg`; a 12x12 jump glyph in `overlay0` closes the row.
+
+**A row's fill tracks its state, it does not alternate.** A row with unread
+fills `activeRowBg`; a row without has no fill. On the canvas that is rows one
+and four of four, which reads as alternation at a glance and is not: rows two
+and three are the ones with nothing waiting.
 
 Label ROOMS: 31 tall, same padding. Room rows 28 and 27 tall, pad 6/14, gap 9,
 name at 12/regular in `subtext0`, same unread pill.
@@ -136,6 +140,12 @@ Select head 31 tall, pad 13 / 14 / 6 / 14: "PANES" at 10/600 in `overlay0` and
 Pane rows 42 tall, pad 7/14, gap 10. A 15x15 checkbox, r3: checked fills `accent`
 with a 10x10 tick in `panelBg`, unchecked is empty with a `surface1` stroke. Then
 the 7x7 status dot and the same two-line stack as peek.
+
+**A row's fill tracks its checkbox**, the same way peek's tracks unread: a
+checked row fills `activeRowBg`, an unchecked row has no fill. The canvas shows
+one row of four unchecked, which is there to show the unchecked state, not to
+say that a particular pane starts out unselected. Every selectable pane starts
+checked.
 
 Field band 130 tall, pad 14, gap 9, stroke `surface0` above. Field 372x64, same
 treatment as quick send. Footer hint counts the selected panes. The send button
