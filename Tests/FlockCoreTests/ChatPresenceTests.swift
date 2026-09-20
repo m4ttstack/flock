@@ -7,16 +7,18 @@ final class ChatPresenceTests: XCTestCase {
                    pane: "w1:p1", signedIn: signedIn, rooms: signedIn ? ["#rt"] : [])
     }
 
-    func testSignInLeadsWhenThePaneIsNotSignedIn() {
-        let buttons = ChatPresence.buttons(for: status(signedIn: false))
-        XCTAssertEqual(buttons.signIn, .primary)
-        XCTAssertEqual(buttons.signOut, .secondary)
+    func testSignedOutPaneShowsSignInEnabled() {
+        XCTAssertEqual(ChatPresence.signAction(for: status(signedIn: false)), .signIn(enabled: true))
     }
 
-    func testSignOutLeadsOnceThePaneIsSignedIn() {
-        let buttons = ChatPresence.buttons(for: status(signedIn: true))
-        XCTAssertEqual(buttons.signOut, .primary)
-        XCTAssertEqual(buttons.signIn, .secondary)
+    func testSignedInPaneShowsSignOut() {
+        XCTAssertEqual(ChatPresence.signAction(for: status(signedIn: true)), .signOut)
+    }
+
+    /// An unknown pane is not a signed-out pane: the control must not invite
+    /// an action whose outcome nobody has established yet.
+    func testUnknownStatusShowsSignInDisabled() {
+        XCTAssertEqual(ChatPresence.signAction(for: nil), .signIn(enabled: false))
     }
 
     /// A pane that is not signed in cannot send, and the compose footer says
