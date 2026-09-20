@@ -899,6 +899,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
                         Task { @MainActor [weak self] in
                             guard let self else { return }
                             self.session.setDisplayID(self.currentDisplayID())
+                            // The window's new screen can carry a different
+                            // backing scale than the one it left, and nothing
+                            // else observes a single window moving screens.
+                            self.session.updateContentScale()
                         }
                     }
                 )
