@@ -843,6 +843,48 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// The trailing slot must sit at the tab's own right edge, not wherever
+    /// the label happens to end: a one-character label leaves the tab at its
+    /// minimum width with slack to spare, and a title too long for the
+    /// maximum truncates with none at all. Both must land the slot at the
+    /// same formula (`maxX - horizontalPadding - trailingSlot`), which is
+    /// what tells a slot that floats with the label apart from one that is
+    /// actually pinned to the edge.
+    func testTheTrailingSlotSitsAtTheTabsRightEdgeNotAfterTheLabel() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let long = String(repeating: "wide ", count: 20)
+        let harness = try await Harness(
+            theme: .tokyoNight, model: try Fixture.model(flockTabLabels: ["2", "web", "claude", long])
+        )
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let image = try snapshot(window)
+        if let directory {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("tab-trailing-slot.png")
+            try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+        }
+
+        let frames = harness.drag.tabFrames
+        let short = try XCTUnwrap(frames.first { $0.id == TabID(rawValue: "w1:t1") }).frame
+        let wide = try XCTUnwrap(frames.first { $0.id == TabID(rawValue: "w1:t4") }).frame
+        XCTAssertEqual(short.width, TabWidth.minimum, "a one-character label already fits the minimum, so this proves nothing about slack")
+        XCTAssertEqual(wide.width, TabWidth.maximum, "the long title fits short of the maximum, so this proves nothing about the clamped case")
+
+        for frame in [short, wide] {
+            let slotMaxX = frame.maxX - ChromeMetrics.Tab.horizontalPadding
+            let slotMinX = slotMaxX - ChromeMetrics.Tab.trailingSlot
+            let dotMinX = slotMinX + (ChromeMetrics.Tab.trailingSlot - ChromeMetrics.Tab.statusDot) / 2
+            let distance = minChannelDistance(
+                image, y: frame.midY, from: dotMinX, to: dotMinX + ChromeMetrics.Tab.statusDot,
+                target: Theme.tokyoNight.palette.green.hex
+            )
+            XCTAssertLessThanOrEqual(
+                distance, 20, "no idle ring found at the tab's right edge, frame \(frame) (closest off by \(distance))"
+            )
+        }
+        window.close()
+    }
+
     /// A pane dragged out of a mini pane, first over another workspace's
     /// thumbnail and then over a third workspace's card where no thumbnail
     /// sits. Both renders carry the ghost, the drop wash and the targeted

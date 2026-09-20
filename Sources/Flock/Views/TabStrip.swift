@@ -264,7 +264,10 @@ private struct TabBlock: View {
         // selected label centers on the block above it; resting tabs have no
         // underline slot at all.
         VStack(spacing: 0) {
-            HStack(spacing: ChromeMetrics.Tab.labelDotGap) {
+            // No stack spacing here: the gap comes from the spacer's own
+            // minLength, so a tab with slack cannot double it up between the
+            // label and a spacer both.
+            HStack(spacing: 0) {
                 if isRenaming {
                     InlineRenameField(
                         theme: theme, font: ChromeType.tabLabel(selected: isSelected), initialText: renameText,
@@ -276,6 +279,7 @@ private struct TabBlock: View {
                         .font(ChromeType.tabLabel(selected: isSelected))
                         .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
                         .lineLimit(1)
+                    Spacer(minLength: ChromeMetrics.Tab.labelDotGap)
                     trailingSlot
                 }
             }
