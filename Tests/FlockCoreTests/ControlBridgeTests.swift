@@ -995,6 +995,122 @@ final class ControlBridgeTests: XCTestCase {
         let decoded = try await waitForNonEmptyRead(stdoutCapture.fileHandleForReading.fileDescriptor)
         XCTAssertEqual(decoded, freshPayload, "the current-generation handle's own frame must still decode normally")
     }
+
+    // MARK: - a surface that stops draining
+
+    /// The one the whole write path exists for. A pane's frame write runs
+    /// inside the herdr-output handler, so a write that does not return while
+    /// the surface stops taking bytes parks that handler, every other write
+    /// queued behind its lock, and the drain of herdr's own output with it.
+    func testWriteToAStalledReaderReturnsPromptly() {
+        let stalled = Pipe()
+        let writeFD = stalled.fileHandleForWriting.fileDescriptor
+        // Well past the 64 KiB a macOS pipe grows to, so the far end is full
+        // long before the last byte.
+        let payload = Data(repeating: 0x41, count: 512 * 1024)
+        let returned = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInteractive).async {
+            _ = writeIgnoringBrokenPipe(writeFD, payload)
+            returned.signal()
+        }
+
+        let promptly = returned.wait(timeout: .now() + 2) == .success
+        // Drained before the assertion, never after: a failure otherwise
+        // leaves a thread parked in write() for the rest of the run, on a
+        // descriptor whose number a later test's pipe can reclaim.
+        _ = drainForTest(stalled.fileHandleForReading.fileDescriptor, for: .seconds(2))
+        _ = returned.wait(timeout: .now() + 5)
+
+        XCTAssertTrue(promptly, "a reader that stopped draining parked the writer")
+    }
+
+    /// These are terminal bytes: a chunk dropped or reordered lands mid escape
+    /// sequence and corrupts the pane's screen. A stall may delay the stream
+    /// and must never reshape it.
+    func testFrameBytesCrossAStallInOrderAndExactlyOnce() {
+        let fromHerdr = Pipe()
+        let toSurface = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: toSurface.fileHandleForWriting.fileDescriptor,
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startHerdrOutput(fromHerdr.fileHandleForReading)
+
+        var expected = Data()
+        var feed = Data()
+        for index in 0..<64 {
+            let payload = Data("[\(index)]\(String(repeating: "x", count: 4_000))".utf8)
+            expected.append(payload)
+            feed.append(ControlBridge.encodeLine([
+                "type": "terminal.frame", "bytes": payload.base64EncodedString(),
+            ])!)
+        }
+
+        let herdrFD = fromHerdr.fileHandleForWriting.fileDescriptor
+        let fed = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInteractive).async {
+            _ = writeAllForTest(herdrFD, feed)
+            fed.signal()
+        }
+        // The surface takes nothing until every frame has been handed over,
+        // so what is asserted below really did cross a stall rather than
+        // trickling out behind a reader that kept up.
+        let handedOverDuringTheStall = fed.wait(timeout: .now() + 3) == .success
+        let collected = collectForTest(
+            toSurface.fileHandleForReading.fileDescriptor, bytes: expected.count, timeout: .seconds(10))
+        _ = fed.wait(timeout: .now() + 5)
+
+        XCTAssertTrue(handedOverDuringTheStall, "the bridge stopped taking frames while the surface was stalled")
+        XCTAssertEqual(collected.count, expected.count, "the stall lost bytes")
+        XCTAssertTrue(collected == expected, "every frame's bytes, once each, in the order herdr sent them")
+    }
+
+    /// The other half of the deadlock. The frame write runs on the
+    /// herdr-output handler's own queue, so a parked write stops the bridge
+    /// reading herdr at all. The status line below is reachable only by a
+    /// handler that went on draining while the surface took nothing.
+    func testHerdrOutputKeepsDrainingWhileTheSurfaceIsStalled() {
+        let fromHerdr = Pipe()
+        let toSurface = Pipe()
+        let statusCapture = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: toSurface.fileHandleForWriting.fileDescriptor,
+            statusFD: statusCapture.fileHandleForWriting.fileDescriptor,
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startHerdrOutput(fromHerdr.fileHandleForReading)
+
+        var feed = Data()
+        for _ in 0..<40 {
+            let payload = Data(String(repeating: "f", count: 8_000).utf8)
+            feed.append(ControlBridge.encodeLine([
+                "type": "terminal.frame", "bytes": payload.base64EncodedString(),
+            ])!)
+        }
+        feed.append(ControlBridge.encodeLine(["type": "terminal.mouse_capture", "enabled": true])!)
+
+        let herdrFD = fromHerdr.fileHandleForWriting.fileDescriptor
+        let fed = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInteractive).async {
+            _ = writeAllForTest(herdrFD, feed)
+            fed.signal()
+        }
+
+        let status = collectForTest(
+            statusCapture.fileHandleForReading.fileDescriptor, bytes: 1, timeout: .seconds(5))
+        _ = drainForTest(toSurface.fileHandleForReading.fileDescriptor, for: .seconds(2))
+        _ = fed.wait(timeout: .now() + 5)
+
+        XCTAssertTrue(
+            String(decoding: status, as: UTF8.self).contains("flock.mouse_capture"),
+            "herdr's output stopped being drained while the surface was stalled")
+    }
 }
 
 /// A plain locked box for accumulating values from a `DispatchSource`
@@ -1081,6 +1197,56 @@ private func waitForNonEmptyReadOfAtLeast(_ fd: Int32, lines: Int, timeout: Dura
         if ContinuousClock.now >= deadline { throw BridgeTimeoutError() }
         try await Task.sleep(for: .milliseconds(20))
     }
+}
+
+/// Writes every byte, blocking for as long as the far end needs, the way a
+/// real herdr child's own stdout write does.
+private func writeAllForTest(_ fd: Int32, _ data: Data) -> Bool {
+    data.withUnsafeBytes { raw -> Bool in
+        guard let base = raw.baseAddress else { return false }
+        var sent = 0
+        while sent < raw.count {
+            let n = write(fd, base.advanced(by: sent), raw.count - sent)
+            if n < 0 && errno == EINTR { continue }
+            if n <= 0 { return false }
+            sent += n
+        }
+        return true
+    }
+}
+
+/// Accumulates until `bytes` have arrived or the timeout runs out; returns
+/// whatever did arrive, so the caller can say how much was missing.
+private func collectForTest(_ fd: Int32, bytes: Int, timeout: Duration) -> Data {
+    let deadline = ContinuousClock.now + timeout
+    var collected = Data()
+    while collected.count < bytes, ContinuousClock.now < deadline {
+        let chunk = readAllAvailableForTest(fd)
+        if chunk.isEmpty {
+            usleep(2_000)
+        } else {
+            collected.append(chunk)
+        }
+    }
+    return collected
+}
+
+/// Reads and discards for `duration`. Also the release valve for a test that
+/// stalled a reader on purpose: a writer parked on a full pipe returns the
+/// moment its bytes are taken.
+@discardableResult
+private func drainForTest(_ fd: Int32, for duration: Duration) -> Int {
+    let deadline = ContinuousClock.now + duration
+    var drained = 0
+    while ContinuousClock.now < deadline {
+        let chunk = readAllAvailableForTest(fd)
+        if chunk.isEmpty {
+            usleep(2_000)
+        } else {
+            drained += chunk.count
+        }
+    }
+    return drained
 }
 
 func readAllAvailableForTest(_ fd: Int32) -> Data {
