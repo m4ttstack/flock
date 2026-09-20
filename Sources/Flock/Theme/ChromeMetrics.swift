@@ -242,17 +242,17 @@ enum ChromeMetrics {
             static let iconSize = CGSize(width: 14, height: 14)
         }
 
-        /// Two buttons, zero top padding (the band sits flush under THIS
-        /// PANE's own bottom padding), 16 clear below them to the popover's
-        /// own bottom edge.
+        /// One button spanning the band's full inner width (360 - the 14pt
+        /// insets on each side), zero top padding (the band sits flush under
+        /// THIS PANE's own bottom padding), 16 clear below it to the
+        /// popover's own bottom edge.
         enum SignButtons {
             static let bandHeight: CGFloat = 49
             static let topPadding: CGFloat = 0
             static let trailingPadding: CGFloat = 14
             static let bottomPadding: CGFloat = 16
             static let leadingPadding: CGFloat = 14
-            static let gap: CGFloat = 8
-            static let buttonSize = CGSize(width: 162, height: 33)
+            static let buttonSize = CGSize(width: 332, height: 33)
             static let cornerRadius: CGFloat = 6
             static let buttonVerticalPadding: CGFloat = 9
             static let buttonHorizontalPadding: CGFloat = 10

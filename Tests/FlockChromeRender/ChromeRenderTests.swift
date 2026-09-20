@@ -318,15 +318,13 @@ final class ChromeRenderTests: XCTestCase {
         )
     }
 
-    /// A sign button centers its own icon-and-label content rather than
-    /// left-anchoring it against a literal `.padding()`: the button's fixed
-    /// width has to stay equal for both labels regardless of glyph width,
-    /// which centering gives and a pinned leading inset does not. What
-    /// centering promises, and what the band-height test above cannot see,
-    /// is that the content sits with EQUAL clearance on every side -- never
-    /// closer than the measured padding, and never nearer one edge than its
-    /// opposite. This finds that content block by its own colour against the
-    /// button's fill (not by an assumed position) and checks both.
+    /// The sign button centers its own icon-and-label content rather than
+    /// left-anchoring it against a literal `.padding()`: what centering
+    /// promises, and what the band-height test above cannot see, is that the
+    /// content sits with EQUAL clearance on every side -- never closer than
+    /// the measured padding, and never nearer one edge than its opposite.
+    /// This finds that content block by its own colour against the button's
+    /// fill (not by an assumed position).
     func testSignButtonContentIsCenteredWithAtLeastItsMeasuredPadding() async throws {
         ChromeType.install()
         let theme = Theme.tokyoNight
@@ -343,23 +341,14 @@ final class ChromeRenderTests: XCTestCase {
             + 2 * ChromeMetrics.ChatPopover.SectionLabel.height + ChromeMetrics.ChatPopover.Features.bandHeight
         let buttonHeight = ChromeMetrics.ChatPopover.SignButtons.buttonSize.height
         let buttonWidth = ChromeMetrics.ChatPopover.SignButtons.buttonSize.width
-        let primaryLeft = ChromeMetrics.ChatPopover.SignButtons.leadingPadding
-        let secondaryLeft = primaryLeft + buttonWidth + ChromeMetrics.ChatPopover.SignButtons.gap
+        let buttonLeft = ChromeMetrics.ChatPopover.SignButtons.leadingPadding
         let minHorizontalMargin = ChromeMetrics.ChatPopover.SignButtons.buttonHorizontalPadding
         let minVerticalMargin = ChromeMetrics.ChatPopover.SignButtons.buttonVerticalPadding
 
-        // Signed out: Sign in is primary (accent fill), Sign out is
-        // secondary (surface0 fill); each button's own fill is what
-        // "background" means for that button's scan.
         try assertContentCentered(
-            image, buttonLeft: primaryLeft, buttonTop: bandTop, width: buttonWidth, height: buttonHeight,
+            image, buttonLeft: buttonLeft, buttonTop: bandTop, width: buttonWidth, height: buttonHeight,
             background: theme.palette.accent.hex, minHorizontalMargin: minHorizontalMargin, minVerticalMargin: minVerticalMargin,
             label: "signed-out Sign in"
-        )
-        try assertContentCentered(
-            image, buttonLeft: secondaryLeft, buttonTop: bandTop, width: buttonWidth, height: buttonHeight,
-            background: theme.palette.surface0.hex, minHorizontalMargin: minHorizontalMargin, minVerticalMargin: minVerticalMargin,
-            label: "signed-out Sign out"
         )
         window.close()
     }
@@ -449,10 +438,10 @@ final class ChromeRenderTests: XCTestCase {
             bestIconDistance = min(bestIconDistance, minChannelDistance(signedOutImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
         }
         XCTAssertLessThanOrEqual(bestIconDistance, 20, "signed-out selected feature icon (closest off by \(bestIconDistance))")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 30, y: 292.5)), theme.palette.accent.hex, "signed-out Sign in is primary")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 292.5)), theme.palette.surface0.hex, "signed-out Sign out is secondary")
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 20, y: 292.5)), theme.palette.accent.hex, "signed-out sign button fill, near the leading edge")
         XCTAssertEqual(
-            hex(signedOutImage, CGPoint(x: 184.5, y: 292.5)), theme.palette.surface1.hex, "signed-out secondary Sign out stroke"
+            hex(signedOutImage, CGPoint(x: 340, y: 292.5)), theme.palette.accent.hex,
+            "signed-out sign button fill spans the band's full inner width"
         )
         signedOutWindow.close()
 
@@ -480,18 +469,20 @@ final class ChromeRenderTests: XCTestCase {
             bestSignedInIconDistance = min(bestSignedInIconDistance, minChannelDistance(signedInImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
         }
         XCTAssertLessThanOrEqual(bestSignedInIconDistance, 20, "signed-in selected feature icon (closest off by \(bestSignedInIconDistance))")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 30, y: 315.5)), theme.palette.surface0.hex, "signed-in Sign in is secondary")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 315.5)), theme.palette.accent.hex, "signed-in Sign out is primary")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 20, y: 315.5)), theme.palette.accent.hex, "signed-in sign button fill, near the leading edge")
         XCTAssertEqual(
-            hex(signedInImage, CGPoint(x: 14.5, y: 315.5)), theme.palette.surface1.hex, "signed-in secondary Sign in stroke"
+            hex(signedInImage, CGPoint(x: 340, y: 315.5)), theme.palette.accent.hex,
+            "signed-in sign button fill spans the band's full inner width"
         )
         signedInWindow.close()
     }
 
-    /// A pane with no status yet is neither signed in nor out: both sign
-    /// buttons must read as secondary rather than one being fabricated as
-    /// primary from a guessed status.
-    func testChatPopoverWithNoStatusYetShowsBothSignButtonsAsSecondary() async throws {
+    /// A pane with no status yet is neither signed in nor out: the button
+    /// still reads Sign in (the only honest label until a status arrives),
+    /// but `.disabled` must actually be wired -- SwiftUI dims a disabled
+    /// button's own content on its own, which this tells apart from the
+    /// full-strength accent an enabled button paints.
+    func testChatPopoverWithNoStatusYetShowsSignInDisabled() async throws {
         ChromeType.install()
         let theme = Theme.tokyoNight
         let popover = ChatPopover(
@@ -501,8 +492,10 @@ final class ChromeRenderTests: XCTestCase {
         let window = popoverWindow(popover)
         await settle(window)
         let image = try snapshot(window)
-        XCTAssertEqual(hex(image, CGPoint(x: 30, y: 292.5)), theme.palette.surface0.hex, "Sign in reads secondary with no status yet")
-        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 292.5)), theme.palette.surface0.hex, "Sign out reads secondary with no status yet")
+        XCTAssertNotEqual(
+            hex(image, CGPoint(x: 20, y: 292.5)), theme.palette.accent.hex,
+            "a disabled sign button must not paint at full accent strength"
+        )
         window.close()
     }
 

@@ -357,34 +357,31 @@ struct ChatPopover: View {
     }
 
     var signButtonsBlock: some View {
-        HStack(spacing: ChromeMetrics.ChatPopover.SignButtons.gap) {
-            signButton(
-                title: "Sign in", symbolName: "rectangle.portrait.and.arrow.forward",
-                state: signButtonStates.signIn, action: onSignIn
-            )
-            signButton(
-                title: "Sign out", symbolName: "rectangle.portrait.and.arrow.right",
-                state: signButtonStates.signOut, action: onSignOut
-            )
+        signButton(for: ChatPresence.signAction(for: status))
+            .padding(.top, ChromeMetrics.ChatPopover.SignButtons.topPadding)
+            .padding(.trailing, ChromeMetrics.ChatPopover.SignButtons.trailingPadding)
+            .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
+            .padding(.leading, ChromeMetrics.ChatPopover.SignButtons.leadingPadding)
+            .frame(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.SignButtons.bandHeight, alignment: .top)
+    }
+
+    private func signButton(for signAction: ChatSignAction) -> some View {
+        let title: String
+        let symbolName: String
+        let isEnabled: Bool
+        let action: () -> Void
+        switch signAction {
+        case let .signIn(enabled):
+            title = "Sign in"
+            symbolName = "rectangle.portrait.and.arrow.forward"
+            isEnabled = enabled
+            action = onSignIn
+        case .signOut:
+            title = "Sign out"
+            symbolName = "rectangle.portrait.and.arrow.right"
+            isEnabled = true
+            action = onSignOut
         }
-        .padding(.top, ChromeMetrics.ChatPopover.SignButtons.topPadding)
-        .padding(.trailing, ChromeMetrics.ChatPopover.SignButtons.trailingPadding)
-        .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
-        .padding(.leading, ChromeMetrics.ChatPopover.SignButtons.leadingPadding)
-        .frame(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.SignButtons.bandHeight, alignment: .top)
-    }
-
-    /// A pane with no status yet is neither signed in nor out: rather than
-    /// fabricate a `ChatStatus` to hand `ChatPresence.buttons(for:)`, both
-    /// buttons read as secondary until a real status arrives.
-    private var signButtonStates: (signIn: ButtonState, signOut: ButtonState) {
-        guard let status else { return (.secondary, .secondary) }
-        return ChatPresence.buttons(for: status)
-    }
-
-    private func signButton(title: String, symbolName: String, state: ButtonState, action: @escaping () -> Void) -> some View {
-        let isPrimary = state == .primary
-        let foreground = isPrimary ? Color(theme.palette.panelBg) : theme.subtext0
         return Button(action: action) {
             HStack(spacing: ChromeMetrics.ChatPopover.SignButtons.contentGap) {
                 Image(systemName: symbolName)
@@ -395,24 +392,17 @@ struct ChatPopover: View {
                         height: ChromeMetrics.ChatPopover.SignButtons.iconSize.height
                     )
                 Text(title)
-                    .font(isPrimary ? ChromeType.chatPopoverButtonLabelPrimary : ChromeType.chatPopoverButtonLabelSecondary)
+                    .font(ChromeType.chatPopoverButtonLabel)
             }
-            .foregroundStyle(foreground)
+            .foregroundStyle(Color(theme.palette.panelBg))
             .frame(width: ChromeMetrics.ChatPopover.SignButtons.buttonSize.width, height: ChromeMetrics.ChatPopover.SignButtons.buttonSize.height)
             .background(
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.SignButtons.cornerRadius)
-                    .fill(isPrimary ? theme.accent : Color(theme.palette.surface0))
+                    .fill(theme.accent)
             )
-            .overlay {
-                // An accent fill needs no edge to be found against the
-                // popover's ground; the dark secondary fill does.
-                if !isPrimary {
-                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.SignButtons.cornerRadius)
-                        .strokeBorder(Color(theme.palette.surface1), lineWidth: 1)
-                }
-            }
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
     }
 
     // MARK: - Feature route
