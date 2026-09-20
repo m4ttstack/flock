@@ -80,16 +80,26 @@ turns `accent`; every other row has no fill and an `overlay0` icon. The four row
 are Broadcast to panes, Chat peek, Quick send, Open viewer, carrying `⌘⇧B`,
 `⌘⇧P`, `⌘⇧S`, `⌘⇧V`.
 
-Sign buttons: two 162x33 buttons, r6, pad 9/10, gap 7, with 13x13 icons. The
-primary one fills `accent` with its icon and label in `panelBg` at 12/600; the
-secondary fills `surface0` with icon and label in `subtext0` at 12/500, and
-carries a 1pt `surface1` stroke. Signed out puts Sign in first as primary;
-signed in puts Sign out second as primary. Neither is ever hidden.
+Sign button: ONE button, never two. Signed in shows Sign out; signed out shows
+Sign in. It fills `accent` with its icon and label in `panelBg` at 12/600, r6,
+pad 9/10, gap 7, with a 13x13 icon, and it spans the band's full inner width
+rather than half of it.
 
-The canvas also strokes the signed-in state's PRIMARY button, which the
-signed-out state does not. Follow the signed-out frame: the stroke belongs to
-the secondary button, where it separates a dark fill from a dark ground, and an
-accent fill needs no edge to be found.
+**This overrides the canvas and must not be "corrected" back.** The canvas draws
+two 162x33 buttons side by side, the applicable one primary and the other
+secondary with a 1pt `surface1` stroke, on the theory that a fixed pair reads as
+a state rather than a menu that changes shape. In use it reads as a question
+with two answers, one of which is always wrong: a signed-in pane has no use for
+a Sign in button. The single button says what will happen if you press it.
+
+Until a pane's status is known, the button reads Sign in and is disabled. An
+unknown pane is not a signed-out pane, so the control must not invite an action
+whose outcome nobody has established yet.
+
+The Chat MENU is unchanged and still lists both Sign In This Pane and Sign Out
+This Pane with the inapplicable one dimmed. A menu is a list of everything you
+could do, where dimming carries the state; a panel button is the one thing you
+are about to do.
 
 ## Peek
 
