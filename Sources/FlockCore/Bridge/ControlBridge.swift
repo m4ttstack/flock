@@ -116,8 +116,17 @@ public enum ControlBridge {
 
     /// Split out so a test can drive it over a plain pipe fd instead of the
     /// process's real `STDOUT_FILENO`.
+    ///
+    /// One non-blocking pass, and nothing retries what will not fit: this runs
+    /// before anything has been written to the PTY, so a surface that cannot
+    /// take seven bytes here is one that was never going to, and wiping a
+    /// login banner is not worth parking this process's first instruction on.
     static func writeStartupClearScreen(to fd: Int32) {
-        writeIgnoringBrokenPipe(fd, startupClearScreen)
+        makeNonBlocking(fd)
+        startupClearScreen.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            _ = attemptWrite(fd, base, raw.count)
+        }
     }
 
     /// The herdr child argv at `cols`x`rows`. `--takeover` is unconditional:
@@ -910,41 +919,41 @@ private func resolveHerdrBinary(explicit: String?) -> URL? {
     return UserPath.resolve("herdr", on: path).map { URL(fileURLWithPath: $0) }
 }
 
-/// Writes every byte, tolerating a reader that has already gone away.
-/// Requires `SIGPIPE` to be ignored process-wide (`ControlBridge.run` does
-/// this before any of these are reachable).
-/// Returns whether every byte actually went. A caller that only needs the
-/// side effect can ignore it; the size relay cannot, since a size counts as
-/// herdr's only once it has really been written (see `PTYResizeRelay`).
-@discardableResult
-func writeIgnoringBrokenPipe(_ fd: Int32, _ data: Data) -> Bool {
-    data.withUnsafeBytes { raw in
-        guard let base = raw.baseAddress else { return false }
-        var sent = 0
-        while sent < raw.count {
-            let n = write(fd, base.advanced(by: sent), raw.count - sent)
-            if n < 0 && errno == EINTR { continue }
-            if n <= 0 { return false }
-            sent += n
-        }
-        return true
-    }
+/// What one read of a descriptor found.
+private enum ReadOutcome {
+    /// Always non-empty.
+    case bytes(Data)
+    /// Nothing to read right now, which on a non-blocking descriptor is not
+    /// the reader going away.
+    case again
+    /// EOF, or an error the descriptor does not come back from.
+    case ended
 }
 
-/// Reads every available byte off `fd`, retrying a `read()` interrupted by
+/// Reads whatever is available off `fd`, retrying a `read()` interrupted by
 /// an unrelated signal (`EINTR`) instead of treating it as EOF. Herdglass's
 /// original bridge did not retry here, which meant any signal delivered
 /// while a read was blocked (SIGWINCH included, since GCD's signal source
 /// and classic signal delivery both observe the same process-wide
 /// disposition) could tear down the whole pane connection on a transient
-/// interrupt rather than the reader actually going away. Returns `nil` on
-/// genuine EOF/error, the (always non-empty) bytes read otherwise.
-private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
+/// interrupt rather than the reader actually going away.
+///
+/// `EAGAIN` is separated from EOF for the same reason. The PTY's outbound
+/// side is non-blocking (`BridgeWriteChannel`), and `O_NONBLOCK` belongs to
+/// the open file description libghostty hands this process as all three
+/// standard descriptors -- so a readable event whose bytes are already gone
+/// answers `EAGAIN` here, and reading that as the surface being gone would
+/// tear the pane down over nothing.
+private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> ReadOutcome {
     while true {
         let n = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-        if n < 0 && errno == EINTR { continue }
-        guard n > 0 else { return nil }
-        return Data(buffer.prefix(n))
+        if n < 0 {
+            if errno == EINTR { continue }
+            if errno == EAGAIN || errno == EWOULDBLOCK { return .again }
+            return .ended
+        }
+        guard n > 0 else { return .ended }
+        return .bytes(Data(buffer.prefix(n)))
     }
 }
 
@@ -954,9 +963,14 @@ private func readAvailable(_ fd: Int32, into buffer: inout [UInt8]) -> Data? {
 /// required. `stdinFD`/`stdoutFD` default to the process's real stdin/
 /// stdout for production use.
 ///
-/// `@unchecked Sendable`: `stdinFD`/`stdoutFD`/`onPeerGone` are immutable
-/// after init. `herdrInFD`/`closed` are read and written only inside
-/// `writeLock`. `herdrOutputGeneration` and every write to `stdoutFD` are
+/// Every outbound descriptor is written through a `BridgeWriteChannel`, so
+/// no write here can park the thread that makes it however long the far end
+/// stops draining.
+///
+/// `@unchecked Sendable`: `stdinFD`/`stdoutFD`/`onPeerGone` and the two
+/// long-lived channels are immutable after init. `herdrInFD`/
+/// `herdrInChannel`/`closed` are read and written only inside `writeLock`.
+/// `herdrOutputGeneration` and every write to `stdoutFD` are
 /// guarded by `stdoutLock` (see `startHerdrOutput`'s own doc for why a
 /// separate lock from `writeLock` is needed). `stdinSource`/`controlSource`
 /// are each written exactly once, by `startStdin`/`startControlPipe`, both
@@ -972,6 +986,13 @@ final class BridgeIO: @unchecked Sendable {
     /// close it on the next swap. Nil for the bare-descriptor form the tests
     /// use, which owns nothing.
     private var herdrInHandle: FileHandle?
+    /// One per outbound descriptor. `herdrInChannel` is replaced with the
+    /// descriptor it writes to, so a retake's queue is never the previous
+    /// child's; nil parks the writes the way `herdrInFD` at -1 did.
+    private var herdrInChannel: BridgeWriteChannel?
+    private let stdoutChannel: BridgeWriteChannel
+    private let statusChannel: BridgeWriteChannel?
+    private let outboundLimit: Int
     private let stdinFD: Int32
     private let stdoutFD: Int32
     /// The bridge -> app status FIFO (`--status-pipe`), write-only from here,
@@ -1019,22 +1040,37 @@ final class BridgeIO: @unchecked Sendable {
     /// decided on different queues reach herdr in the order they were read.
     private let resizeLock = NSLock()
     private var resizeRelay: PTYResizeRelay
+    /// Which resize is the newest one sent, so one that flushes late cannot
+    /// record a size herdr has since been sent past. Under `resizeLock`.
+    private var resizeSequence = 0
     /// The PTY winsize; nil when it cannot be read.
     private let ptySize: () -> PTYSize?
 
     init(
         herdrInFD: Int32, stdinFD: Int32 = STDIN_FILENO, stdoutFD: Int32 = STDOUT_FILENO,
-        statusFD: Int32 = -1, spawnedSize: PTYSize? = nil, ptySize: (() -> PTYSize?)? = nil,
+        statusFD: Int32 = -1, outboundLimit: Int = BridgeWriteChannel.defaultLimit,
+        spawnedSize: PTYSize? = nil, ptySize: (() -> PTYSize?)? = nil,
         onHold: @escaping (HoldCommand) -> Void = { _ in },
         onSurfaceGone: (() -> Void)? = nil,
         onPeerGone: @escaping (Int) -> Void
     ) {
+        let surfaceGone = onSurfaceGone ?? { onPeerGone(0) }
         self.onHold = onHold
-        self.onSurfaceGone = onSurfaceGone ?? { onPeerGone(0) }
+        self.onSurfaceGone = surfaceGone
         self.herdrInFD = herdrInFD
         self.stdinFD = stdinFD
         self.stdoutFD = stdoutFD
         self.statusFD = statusFD
+        self.outboundLimit = outboundLimit
+        // A surface that has left megabytes of its own frames unread is a
+        // pane that is gone: the bridge exists to mirror herdr into it, and
+        // it cannot.
+        stdoutChannel = BridgeWriteChannel(
+            fd: stdoutFD, name: "pty", limit: outboundLimit, onOverflow: surfaceGone)
+        statusChannel = statusFD >= 0
+            ? BridgeWriteChannel(fd: statusFD, name: "status", limit: outboundLimit) : nil
+        herdrInChannel = herdrInFD >= 0
+            ? BridgeWriteChannel(fd: herdrInFD, name: "herdr-in", limit: outboundLimit) : nil
         self.resizeRelay = PTYResizeRelay(spawned: spawnedSize)
         self.ptySize = ptySize ?? {
             let size = currentWinSize(fd: stdinFD)
@@ -1046,7 +1082,10 @@ final class BridgeIO: @unchecked Sendable {
     func close() {
         writeLock.lock()
         closed = true
+        herdrInChannel?.close()
         writeLock.unlock()
+        stdoutChannel.close()
+        statusChannel?.close()
         stdinSource?.cancel()
         controlSource?.cancel()
         winchSource?.cancel()
@@ -1084,9 +1123,16 @@ final class BridgeIO: @unchecked Sendable {
     func swapHerdrInput(to handle: FileHandle?) {
         writeLock.lock()
         defer { writeLock.unlock() }
+        // Whatever the previous child never read goes with it. The release
+        // that precedes a park is told to herdr on a live descriptor or not
+        // at all, and closing its stdin says the same thing again.
+        herdrInChannel?.close()
         herdrInHandle?.closeFile()
         herdrInHandle = handle
         herdrInFD = handle?.fileDescriptor ?? -1
+        herdrInChannel = handle.map {
+            BridgeWriteChannel(fd: $0.fileDescriptor, name: "herdr-in", limit: outboundLimit)
+        }
     }
 
     /// The descriptor herdr-bound lines are written to. A read-only seam for
@@ -1133,7 +1179,13 @@ final class BridgeIO: @unchecked Sendable {
     }
 
     /// Sends herdr the PTY's current size unless herdr already has it, and
-    /// records it as herdr's only if the write actually went.
+    /// records it as herdr's only once its bytes have really left.
+    ///
+    /// A size that goes out behind a stalled child is recorded when it
+    /// flushes, not when it is queued: the relay's whole contract is that a
+    /// size herdr never received stays owed, and nothing re-reads a winsize
+    /// that has not changed since. The window between the two is a resend at
+    /// worst, which herdr takes idempotently.
     ///
     /// Logged, both ways. Twice now a resize that never reached herdr has been
     /// read off a screenshot as a pane that would not resize, when what had
@@ -1144,27 +1196,53 @@ final class BridgeIO: @unchecked Sendable {
         resizeLock.lock()
         defer { resizeLock.unlock() }
         guard let size = resizeRelay.pending(ptySize()) else { return }
-        guard send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows]) else {
+        resizeSequence += 1
+        let sequence = resizeSequence
+        let outcome = send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows]) { [weak self] in
+            self?.recordResizeDelivered(size, sequence: sequence)
+        }
+        switch outcome {
+        case .failed:
             Self.sizeLog.error(
                 "pty resize not delivered trigger=\(trigger, privacy: .public) cols=\(size.cols) rows=\(size.rows) herdrFD=\(self.herdrInputDescriptor)"
             )
-            return
+        case .queued:
+            Self.sizeLog.log(
+                "pty resize queued behind a stalled herdr trigger=\(trigger, privacy: .public) cols=\(size.cols) rows=\(size.rows)"
+            )
+        case .delivered:
+            resizeRelay.delivered(size)
+            Self.sizeLog.log(
+                "pty resize sent trigger=\(trigger, privacy: .public) cols=\(size.cols) rows=\(size.rows)"
+            )
         }
+    }
+
+    /// herdr's stdin took the last byte of a resize that had to wait. Only
+    /// the newest size sent may be recorded: an older one flushing late would
+    /// leave the relay believing herdr has a size it has since been sent past,
+    /// and the newer one would then never be resent.
+    private func recordResizeDelivered(_ size: PTYSize, sequence: Int) {
+        resizeLock.lock()
+        defer { resizeLock.unlock() }
+        guard sequence == resizeSequence else { return }
         resizeRelay.delivered(size)
-        Self.sizeLog.log(
-            "pty resize sent trigger=\(trigger, privacy: .public) cols=\(size.cols) rows=\(size.rows)"
-        )
+        Self.sizeLog.log("pty resize flushed cols=\(size.cols) rows=\(size.rows)")
     }
 
     private static let sizeLog = Logger(subsystem: "dev.mattstack.flock", category: "size")
 
+    /// One NDJSON line to herdr's stdin. `.delivered` means every byte has
+    /// left this process; `.queued` means a stalled child has them and
+    /// `onDelivered` will say when they went; `.failed` means they never will
+    /// (no live descriptor, a dead child, or a channel past its bound).
     @discardableResult
-    func send(_ object: [String: Any]) -> Bool {
-        guard let payload = ControlBridge.encodeLine(object) else { return false }
+    func send(_ object: [String: Any], onDelivered: (() -> Void)? = nil) -> BridgeWriteChannel.Outcome {
+        guard let payload = ControlBridge.encodeLine(object) else { return .failed }
         writeLock.lock()
         defer { writeLock.unlock() }
-        guard !closed else { return false }
-        return writeIgnoringBrokenPipe(herdrInFD, payload)
+        guard !closed, let channel = herdrInChannel else { return .failed }
+        return channel.write(payload, onDelivered: onDelivered)
     }
 
     func startStdin() {
@@ -1172,13 +1250,16 @@ final class BridgeIO: @unchecked Sendable {
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .userInteractive))
         source.setEventHandler { [self] in
             var buffer = [UInt8](repeating: 0, count: 4096)
-            guard let data = readAvailable(fd, into: &buffer) else {
+            switch readAvailable(fd, into: &buffer) {
+            case .bytes(let data):
+                send(ControlBridge.encodeInput(data))
+            case .again:
+                return
+            case .ended:
                 send(["type": "terminal.release"])
                 source.cancel()
                 onSurfaceGone()
-                return
             }
-            send(ControlBridge.encodeInput(data))
         }
         source.resume()
         stdinSource = source
@@ -1268,7 +1349,7 @@ final class BridgeIO: @unchecked Sendable {
                     stdoutLock.lock()
                     let stillCurrent = herdrOutputGeneration == generation
                     if stillCurrent {
-                        writeIgnoringBrokenPipe(stdoutFD, frame.bytes)
+                        stdoutChannel.write(frame.bytes)
                         paintedAnyFrame = true
                     }
                     var firstFrameLine: Data?
@@ -1279,7 +1360,7 @@ final class BridgeIO: @unchecked Sendable {
                     stdoutLock.unlock()
                     if !stillCurrent { return }
                     if let firstFrameLine {
-                        writeIgnoringBrokenPipe(statusFD, firstFrameLine)
+                        statusChannel?.write(firstFrameLine)
                     }
                     continue
                 }
@@ -1288,7 +1369,7 @@ final class BridgeIO: @unchecked Sendable {
                 if statusFD >= 0, let statusLine = ControlBridge.encodeMouseCaptureStatus(line) {
                     stdoutLock.lock()
                     let stillCurrent = herdrOutputGeneration == generation
-                    if stillCurrent { writeIgnoringBrokenPipe(statusFD, statusLine) }
+                    if stillCurrent { statusChannel?.write(statusLine) }
                     stdoutLock.unlock()
                     if !stillCurrent { return }
                 }
@@ -1319,7 +1400,7 @@ final class BridgeIO: @unchecked Sendable {
         bytes.append(contentsOf: [0x0D, 0x0A])
         stdoutLock.lock()
         let mirrored = paintedAnyFrame
-        if !mirrored { writeIgnoringBrokenPipe(stdoutFD, bytes) }
+        if !mirrored { stdoutChannel.write(bytes) }
         stdoutLock.unlock()
         guard mirrored else { return }
         Self.herdrLog.error("\(String(decoding: line, as: UTF8.self), privacy: .public)")
@@ -1330,10 +1411,10 @@ final class BridgeIO: @unchecked Sendable {
     /// One app-bound line on the status FIFO for something the frame stream
     /// cannot carry. Under `stdoutLock`, like the other two status writes.
     func sendStatus(_ object: [String: Any]) {
-        guard statusFD >= 0, let payload = ControlBridge.encodeLine(object) else { return }
+        guard let statusChannel, let payload = ControlBridge.encodeLine(object) else { return }
         stdoutLock.lock()
         defer { stdoutLock.unlock() }
-        writeIgnoringBrokenPipe(statusFD, payload)
+        statusChannel.write(payload)
     }
 
     /// Un-latches the first-frame gate so the next full frame announces itself

@@ -1004,13 +1004,15 @@ final class ControlBridgeTests: XCTestCase {
     /// queued behind its lock, and the drain of herdr's own output with it.
     func testWriteToAStalledReaderReturnsPromptly() {
         let stalled = Pipe()
-        let writeFD = stalled.fileHandleForWriting.fileDescriptor
+        let channel = BridgeWriteChannel(fd: stalled.fileHandleForWriting.fileDescriptor, name: "stall-test")
         // Well past the 64 KiB a macOS pipe grows to, so the far end is full
         // long before the last byte.
         let payload = Data(repeating: 0x41, count: 512 * 1024)
+        let outcome = LockedBox(BridgeWriteChannel.Outcome.failed)
         let returned = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInteractive).async {
-            _ = writeIgnoringBrokenPipe(writeFD, payload)
+            let result = channel.write(payload)
+            outcome.mutate { $0 = result }
             returned.signal()
         }
 
@@ -1022,6 +1024,54 @@ final class ControlBridgeTests: XCTestCase {
         _ = returned.wait(timeout: .now() + 5)
 
         XCTAssertTrue(promptly, "a reader that stopped draining parked the writer")
+        XCTAssertEqual(outcome.value, .queued, "bytes the far end would not take must be held, not dropped")
+    }
+
+    /// Unbounded buffering only moves the failure from a hang to memory
+    /// growth. A far end that has left megabytes unread is gone, so the
+    /// channel stops accepting outright rather than quietly discarding part
+    /// of a stream: no caller is ever told bytes went when they did not.
+    func testAChannelPastItsBoundRefusesEverythingAndSaysSo() {
+        let stalled = Pipe()
+        let overflowed = DispatchSemaphore(value: 0)
+        let channel = BridgeWriteChannel(
+            fd: stalled.fileHandleForWriting.fileDescriptor, name: "bound-test",
+            limit: 128 * 1024, onOverflow: { overflowed.signal() }
+        )
+
+        var outcome = BridgeWriteChannel.Outcome.delivered
+        var attempts = 0
+        while outcome != .failed, attempts < 64 {
+            outcome = channel.write(Data(repeating: 0x41, count: 32 * 1024))
+            attempts += 1
+        }
+
+        XCTAssertEqual(outcome, .failed, "the buffer grew past its bound without refusing anything")
+        XCTAssertEqual(overflowed.wait(timeout: .now() + 2), .success, "the bound was hit without telling the owner")
+        XCTAssertEqual(
+            channel.write(Data("late".utf8)), .failed,
+            "a channel past its bound must never accept anything again")
+        XCTAssertEqual(channel.queuedByteCount, 0)
+        drainForTest(stalled.fileHandleForReading.fileDescriptor, for: .milliseconds(200))
+    }
+
+    /// What `PTYResizeRelay` rests on: a queued write reports delivery when
+    /// its own last byte leaves, never when it is accepted.
+    func testAQueuedWriteReportsDeliveryOnlyOnceItsBytesHaveLeft() {
+        let stalled = Pipe()
+        let channel = BridgeWriteChannel(fd: stalled.fileHandleForWriting.fileDescriptor, name: "delivery-test")
+        let delivered = DispatchSemaphore(value: 0)
+
+        XCTAssertEqual(channel.write(Data(repeating: 0x41, count: 256 * 1024)), .queued)
+        XCTAssertEqual(channel.write(Data("tail".utf8), onDelivered: { delivered.signal() }), .queued)
+
+        XCTAssertEqual(
+            delivered.wait(timeout: .now() + 0.3), .timedOut,
+            "a write still standing in the buffer reported itself delivered")
+        drainForTest(stalled.fileHandleForReading.fileDescriptor, for: .seconds(2))
+        XCTAssertEqual(
+            delivered.wait(timeout: .now() + 2), .success,
+            "the far end took every byte and the write never reported it")
     }
 
     /// These are terminal bytes: a chunk dropped or reordered lands mid escape
@@ -1050,9 +1100,10 @@ final class ControlBridgeTests: XCTestCase {
         }
 
         let herdrFD = fromHerdr.fileHandleForWriting.fileDescriptor
+        let stream = feed
         let fed = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInteractive).async {
-            _ = writeAllForTest(herdrFD, feed)
+            _ = writeAllForTest(herdrFD, stream)
             fed.signal()
         }
         // The surface takes nothing until every frame has been handed over,
@@ -1096,9 +1147,10 @@ final class ControlBridgeTests: XCTestCase {
         feed.append(ControlBridge.encodeLine(["type": "terminal.mouse_capture", "enabled": true])!)
 
         let herdrFD = fromHerdr.fileHandleForWriting.fileDescriptor
+        let stream = feed
         let fed = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInteractive).async {
-            _ = writeAllForTest(herdrFD, feed)
+            _ = writeAllForTest(herdrFD, stream)
             fed.signal()
         }
 
@@ -1110,6 +1162,48 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertTrue(
             String(decoding: status, as: UTF8.self).contains("flock.mouse_capture"),
             "herdr's output stopped being drained while the surface was stalled")
+    }
+
+    /// The relay's contract through a stall: a size counts as herdr's only
+    /// once its bytes have really left, so a resize that had to queue is
+    /// recorded when it flushes and never sent twice afterward. Recording it
+    /// on the attempt would leave the relay believing herdr has a size that
+    /// could still be dropped; never recording it would resend that size for
+    /// the pane's whole life.
+    func testAResizeQueuedBehindAStalledChildIsRecordedOnlyOnceItFlushes() {
+        let herdrIn = Pipe()
+        let winsize = LockedBox(PTYSize(cols: 30, rows: 40))
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor,
+            spawnedSize: PTYSize(cols: 30, rows: 40), ptySize: { winsize.value },
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+
+        // A child that has stopped reading its own stdin: everything from
+        // here has to stand in the buffer.
+        let filler = Data(repeating: 0x41, count: 256 * 1024).base64EncodedString()
+        XCTAssertEqual(
+            io.send(["type": "terminal.input", "bytes": filler]), .queued,
+            "the child's stdin never filled, so nothing below ever queued")
+
+        winsize.mutate { $0 = PTYSize(cols: 60, rows: 41) }
+        io.startPTYSizeRelay()
+        winsize.mutate { $0 = PTYSize(cols: 61, rows: 42) }
+        io.startPTYSizeRelay()
+
+        let flushed = collectLinesForTest(herdrIn.fileHandleForReading.fileDescriptor, for: .seconds(3))
+        io.startPTYSizeRelay()
+        let afterFlush = collectLinesForTest(herdrIn.fileHandleForReading.fileDescriptor, for: .milliseconds(500))
+
+        XCTAssertEqual(
+            flushed.compactMap(resizeDimsForTest), [[60, 41], [61, 42]],
+            "each new size, once, in the order the PTY took them")
+        XCTAssertEqual(
+            afterFlush.compactMap(resizeDimsForTest), [],
+            "a size herdr has already been sent was owed all over again")
     }
 }
 
@@ -1229,6 +1323,31 @@ private func collectForTest(_ fd: Int32, bytes: Int, timeout: Duration) -> Data 
         }
     }
     return collected
+}
+
+/// Everything that arrives over `duration`, split into NDJSON records.
+private func collectLinesForTest(_ fd: Int32, for duration: Duration) -> [Data] {
+    let deadline = ContinuousClock.now + duration
+    var accumulated = Data()
+    while ContinuousClock.now < deadline {
+        let chunk = readAllAvailableForTest(fd)
+        if chunk.isEmpty {
+            usleep(2_000)
+        } else {
+            accumulated.append(chunk)
+        }
+    }
+    return accumulated.split(separator: 0x0A).map(Data.init)
+}
+
+/// `[cols, rows]` for a `terminal.resize` line, nil for anything else.
+private func resizeDimsForTest(_ line: Data) -> [Int]? {
+    guard
+        let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+        object["type"] as? String == "terminal.resize",
+        let cols = object["cols"] as? Int, let rows = object["rows"] as? Int
+    else { return nil }
+    return [cols, rows]
 }
 
 /// Reads and discards for `duration`. Also the release valve for a test that
