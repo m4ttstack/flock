@@ -225,6 +225,26 @@ final class GhosttyHost {
         return sessions.values.compactMap(\.value)
     }
 
+    /// A display was added, removed or reconfigured -- the one notification
+    /// that reaches a pane whose OWN window never changed screen, because the
+    /// window it sits in was not the one on screen when the arrangement
+    /// changed. Every other scale path (`GhosttySurfaceView`'s per-view and
+    /// per-window observers) only fires for a view that is currently in a
+    /// window, so this is also the only path that ever reaches a warm surface
+    /// that missed the change entirely while detached.
+    ///
+    /// A session whose view has no window right now is skipped rather than
+    /// refreshed: `GhosttySession`'s own scale lookup falls back to
+    /// `NSScreen.main` with no window to read, which is only right by
+    /// coincidence for a surface about to be mounted somewhere else. Such a
+    /// session corrects itself on its own next mount instead (see
+    /// `GhosttySurfaceView.viewDidMoveToWindow` -> `GhosttySession.attach`).
+    func refreshContentScaleForLiveSessions() {
+        for session in liveSessions() where session.view?.window != nil {
+            session.updateContentScale()
+        }
+    }
+
     private func beginObservingApplicationFocus() {
         guard observers.isEmpty else { return }
         let notificationCenter = NotificationCenter.default
@@ -239,6 +259,13 @@ final class GhosttyHost {
             notificationCenter.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     self?.setAppFocused(false)
+                }
+            }
+        )
+        observers.append(
+            notificationCenter.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshContentScaleForLiveSessions()
                 }
             }
         )
