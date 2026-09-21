@@ -25,18 +25,24 @@ at all.
 The mark carries the meaning the old card was trying to assemble out of
 fragments: this is flock, it is working, wait a moment.
 
-## The mark has no background
+## The mark is vector, not an image
 
-The app icon's squircle ground is `#1A1B26`, exactly `panelBg`, so the tile
-edge already disappeared against a pane. Rather than rely on that coincidence,
-the loader uses a transparent render of the ram and its trail alone.
+No squircle ground: just the ram and its trail over the pane.
 
-**It comes from the same geometry as the icon.** `Scripts/make-icon.swift`
-draws the squircle, clips to it, then paints three echoes and the leader.
-The mark render is that same code with the ground and its clip dropped, so the
-two can never drift into being different drawings of the same animal. A script
-under `Scripts/` should emit both from one source; a hand-traced copy would
-diverge the first time the icon changed.
+**It is drawn from the icon's own path, in the app.** `HerdrRam.path()` in
+`Scripts/HerdrRamPath.swift` is a real `CGPath`, and `Scripts/make-icon.swift`
+already paints the trail as FOUR SEPARATE FILLS of it: three echoes, each
+offset along one axis with its own colour and alpha, then the leader on top.
+The loader draws the same four copies as SwiftUI paths.
+
+An earlier version of this design called for exporting a transparent PNG. That
+was a mistake: flattening to pixels is what would have made the trail
+unanimatable, and it would have added an asset to keep in sync with the icon.
+Vector costs nothing extra and removes both problems.
+
+The echoes step back at the SAME scale as the leader. Scaling them down would
+read as three animals standing at different distances rather than one animal
+moving.
 
 ## Minimum display: 2000ms
 
@@ -56,21 +62,21 @@ shape of the feature does not change.
 
 Ruled by Matt on 2026-09-20, the largest of the three the canvas compares.
 
-## It animates, within what the art allows
+## The trail is the animation
 
-**The echoes cannot move independently.** They are baked into a single flat
-image, so the earlier idea of having them catch up to the leader and
-re-separate is not buildable without new layered artwork. Anything claiming to
-animate the trail itself would be animating a picture of a trail.
+The echoes slide forward into the leader and re-separate, on a loop. Catching
+up is literally what attaching is, which is why this beats a spinner: the motion
+means something.
 
-What does move:
+Alongside it:
 
 - **The mark fades in**, rather than appearing hard.
-- **A slow breathing scale** on the mark for the duration. Slow enough to read
-  as alive rather than as a spinner, since nothing here is measuring progress.
 - **The ellipsis cycles** through one, two and three dots.
 - **A fade out** when the first frame arrives, so the handover to real terminal
   content is a transition rather than a cut.
+
+No breathing or pulsing scale. An earlier draft proposed one as a substitute
+for real motion, and with the trail moving it would only compete.
 
 The 2000ms minimum is what makes any of this worth building. At the 80ms a fast
 attach actually takes, every one of these would be invisible.
