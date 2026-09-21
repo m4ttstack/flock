@@ -109,6 +109,16 @@ That leaves one genuinely unanswerable case: herdr has the pane, flock is
 running, and flock still fails to focus it. That would be a flock bug rather
 than a stale request, and a reply channel is the wrong place to discover it.
 
+**The proxy holds only while both talk to the same herdr session.** The tray
+shells out to `herdr`, which uses the default socket; flock takes
+`HERDR_SOCKET_PATH` when it is set, which is how it is pointed at a scratch
+session during testing. A flock launched that way mirrors panes the tray's
+herdr has never heard of, and vice versa, so the tray would 404 a pane flock
+is showing. Normal use has one session on the default socket and the question
+does not arise. This is not worth code: a focus request aimed at a test
+session is a test artefact, and making the tray chase flock's socket would
+mean flock answering a question it has no channel to answer.
+
 If a caller ever needs more than this, that is the moment to add a real
 transport, not before.
 
@@ -151,6 +161,7 @@ somehow are.
 | both bundles installed | each owns its own scheme; the tray opens the one matching the running app, preferring prod |
 | a malformed URL | rejected at parse; flock does nothing |
 | a notification click or the process panel | same branch, because it lives in `focusPane(_:)` rather than in the HTTP handler |
+| flock pointed at a different herdr session (`HERDR_SOCKET_PATH`) | the tray answers from its own herdr, so a pane only flock has is a 404. A test-harness situation, not a real one |
 
 ## Testing
 

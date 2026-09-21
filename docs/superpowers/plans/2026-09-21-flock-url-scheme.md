@@ -30,9 +30,13 @@ Swift + Network.framework (rt-tray).
   (`dev.mattstack.Flock.dev`) registers `flock-dev`. Never both in one bundle.
 - No comment in source may cite a task number, a review finding, or this plan.
 - No em dashes or en dashes anywhere, including commit messages.
-- Two repos, two histories: flock changes commit in
-  `~/Documents/GitHub/flock/.worktrees/phase-0`, rt-tray changes in
-  `~/Documents/GitHub/repo-tools`. Never one commit spanning both.
+- Two repos, two histories, and never one commit spanning both. flock
+  changes commit in `~/Documents/GitHub/flock/.worktrees/phase-0`.
+- **The rt-tray half does not go in the shared repo-tools checkout.** That
+  checkout is what the dev-mode `rt` wrapper executes and other sessions
+  work in, and it is not always on `main`. Take an rt worktree for Task 3
+  (`EnterWorktree`, name mode) and run `git branch --show-current` before
+  the first edit either way.
 
 ---
 
@@ -182,7 +186,7 @@ Expected: PASS, 7 tests.
 
 ```bash
 cd ~/Documents/GitHub/flock/.worktrees/phase-0
-git add Sources/FlockCore/URL/FlockURL.swift Tests/FlockCoreTests/FlockURLTests.swift project.yml
+git add Sources/FlockCore/URL/FlockURL.swift Tests/FlockCoreTests/FlockURLTests.swift Flock.xcodeproj
 git commit -m "flock url: parse a focus request, refuse everything else"
 ```
 
@@ -274,8 +278,8 @@ add `.onOpenURL` to its content view, alongside the existing modifiers:
             .onOpenURL { url in
                 guard case let .focusPane(pane) = FlockURL.parse(url) else { return }
                 // Explicit, rather than relying on how the URL was opened:
-                // the caller uses `open -g` so that a request flock decides
-                // to ignore never steals the user's foreground app.
+                // the caller opens it WITHOUT activating, so that a request
+                // flock decides to ignore never steals the foreground.
                 NSApp.activate(ignoringOtherApps: true)
                 Task { await viewModel.focusPane(byID: pane) }
             }
@@ -305,7 +309,8 @@ This is the part no test covers. Build and launch, then from a terminal:
 ```bash
 cd ~/Documents/GitHub/flock/.worktrees/phase-0
 bash Scripts/build.sh
-open ~/Library/Developer/Xcode/DerivedData/Flock-*/Build/Products/Debug/Flock.app
+open "$(xcodebuild -scheme Flock -configuration Debug -showBuildSettings \
+  | awk -F' = ' '/ BUILT_PRODUCTS_DIR/ {print $2}')/Flock.app"
 # With flock in the background and a different app in front, using a pane id
 # from flock's own rail:
 open -g "flock://focus?pane=<a real pane id>"
@@ -503,7 +508,14 @@ enum FlockBridge {
         // do it: a request flock decides to ignore would otherwise still
         // steal the user's foreground app.
         configuration.activates = false
-        NSWorkspace.shared.open(url, configuration: configuration, completionHandler: nil)
+        // Hopped to main for the same reason the terminal raise below this
+        // in `HerdrBridge.focusPane` is: callers reach here from the
+        // tray's connection queue, and AppKit is not owed a background
+        // thread. The open is asynchronous either way, so this costs the
+        // caller nothing.
+        DispatchQueue.main.async {
+            NSWorkspace.shared.open(url, configuration: configuration, completionHandler: nil)
+        }
         TrayLog.info("asked flock to focus pane", ["pane_id": paneId, "scheme": scheme])
         return true
     }
