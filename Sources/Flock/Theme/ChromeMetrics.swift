@@ -426,6 +426,13 @@ enum ChromeMetrics {
         static let lineVerticalPadding: CGFloat = 5
     }
 
+    /// The pane attach loader: the mark over "gathering the flock...", shown
+    /// only while a surface's first frame is outstanding.
+    enum Loader {
+        static let markSize: CGFloat = 128
+        static let spacing: CGFloat = 14
+    }
+
     enum NoHerdr {
         static let spacing: CGFloat = 14
         static let horizontalPadding: CGFloat = 60

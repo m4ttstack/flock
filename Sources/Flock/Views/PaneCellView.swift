@@ -87,6 +87,15 @@ struct PaneCellView: View {
     /// top-left point (AppKit) into a drag-space one.
     @State private var bodyFrame: CGRect = .zero
 
+    /// When the attach loader first became visible for the surface's CURRENT
+    /// wait -- reset whenever `hasFirstFrame` drops back to false, since a
+    /// hold-lost reattach is a fresh wait, not a continuation of the last
+    /// one. `nil` means the loader has never shown for this surface (a warm,
+    /// pool-seeded pane skips it entirely).
+    @State private var loaderShownAt: ContinuousClock.Instant?
+    @State private var loaderDismissed = false
+    @State private var loaderDismissTask: Task<Void, Never>?
+
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
     /// a warm (parked) pane's surface is already there, so it never renders
     /// the status card even for one frame while `.task(id:)` catches up. A
@@ -186,6 +195,7 @@ struct PaneCellView: View {
         }
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }
+            loaderDismissTask?.cancel()
         }
     }
 
@@ -526,6 +536,43 @@ struct PaneCellView: View {
         theme.agentStatusColor(pane.agentStatus)
     }
 
+    /// True while a first frame is outstanding, and for however much longer
+    /// `PaneLoaderPolicy` holds the loader up once it arrives. A surface that
+    /// never sets `loaderShownAt` (already had its first frame the moment
+    /// this cell first saw it) never shows the loader at all.
+    private var showsAttachLoader: Bool {
+        guard let ghosttySurface, loaderShownAt != nil else { return false }
+        return !ghosttySurface.hasFirstFrame || !loaderDismissed
+    }
+
+    /// Reacts to both directions `hasFirstFrame` can move: forward into a
+    /// real frame arms the dismiss floor, and back to false (a herdr hold
+    /// lost mid-attach) starts a fresh wait rather than honoring the one that
+    /// was already in flight -- `markHoldLost`'s own doc comment is what
+    /// makes this an actual, recurring transition rather than a one-shot.
+    private func handleFirstFrameChange(_ hasFirstFrame: Bool) {
+        if hasFirstFrame {
+            guard loaderShownAt != nil else { return }
+            scheduleLoaderDismissal()
+        } else {
+            loaderDismissTask?.cancel()
+            loaderDismissTask = nil
+            loaderDismissed = false
+            loaderShownAt = ContinuousClock.now
+        }
+    }
+
+    private func scheduleLoaderDismissal() {
+        guard let loaderShownAt, loaderDismissTask == nil else { return }
+        let deadline = PaneLoaderPolicy.dismissAt(shownAt: loaderShownAt, firstFrameAt: ContinuousClock.now)
+        loaderDismissTask = Task {
+            try? await Task.sleep(until: deadline, clock: .continuous)
+            guard !Task.isCancelled else { return }
+            loaderDismissed = true
+            loaderDismissTask = nil
+        }
+    }
+
     /// `ghosttySurface` mounts as soon as it exists, whether or not its
     /// bridge has painted a first frame yet -- libghostty needs a real
     /// window to render into, so a cold attach's surface has to be in the
@@ -554,8 +601,8 @@ struct PaneCellView: View {
                 )
                 .reportsDragFrame { bodyFrame = $0 }
                 .opacity(ghosttySurface.hasFirstFrame ? 1 : 0)
-                if !ghosttySurface.hasFirstFrame {
-                    cardContent
+                if showsAttachLoader {
+                    PaneLoaderView(theme: theme)
                         .transition(.opacity)
                 }
                 // Routed through `pane.send_input`, never straight into the
@@ -587,6 +634,10 @@ struct PaneCellView: View {
                 Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
             }
             .animation(.easeOut(duration: 0.15), value: ghosttySurface.hasFirstFrame)
+            .animation(.easeOut(duration: 0.15), value: loaderDismissed)
+            .onChange(of: ghosttySurface.hasFirstFrame, initial: true) { _, hasFirstFrame in
+                handleFirstFrameChange(hasFirstFrame)
+            }
             .overlay(alignment: .bottomTrailing) {
                 if let ownToast {
                     PaneCopiedToastPill(theme: theme, toast: ownToast)

@@ -74,6 +74,8 @@ enum ChromeType {
     static let cardText = mono(13)
     static let cardHint = inter(11.5)
 
+    static let loaderCaption = inter(12)
+
     static let noHerdrSymbol = Font.system(size: 40, weight: .medium)
     static let noHerdrHeadline = inter(19, .semibold)
     static let noHerdrBody = inter(14)
