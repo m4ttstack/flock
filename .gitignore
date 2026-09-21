@@ -8,5 +8,6 @@ docs/design/src/flock-design.html
 Vendor/GhosttyKit.xcframework/
 Vendor/zig/
 Vendor/libghostty.version
+Sources/Flock/Resources/herdr-mouse-patch-*
 __pycache__/
 *.pyc
