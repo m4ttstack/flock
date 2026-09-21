@@ -368,14 +368,6 @@ final class GhosttySession {
     private var screenActivityStillWanted = true
     private var lastScreenActivityCheck = Date.distantPast
 
-    /// Throttled to at most 4 times a second, and only while some listener
-    /// still wants to know: `GHOSTTY_ACTION_RENDER` is ghostty's own "real
-    /// content changed, please redraw" signal (see `handle`'s own case for
-    /// it), which is what makes this an actual content-change hook rather
-    /// than a blind timer -- counting non-empty rows is a full retained-
-    /// buffer scan (`readScreenRows`'s underlying `ghostty_surface_read_text`
-    /// call is documented "expensive" by libghostty itself), so it must
-    /// never run once per render.
     /// Turns row counting back on after it has been switched off. A clear key
     /// is the only caller: the question it reopens ("is this pane empty
     /// again?") can only be answered by counting, and the answer has to be
@@ -388,6 +380,14 @@ final class GhosttySession {
         lastScreenActivityCheck = .distantPast
     }
 
+    /// Throttled to at most 4 times a second, and only while some listener
+    /// still wants to know: `GHOSTTY_ACTION_RENDER` is ghostty's own "real
+    /// content changed, please redraw" signal (see `handle`'s own case for
+    /// it), which is what makes this an actual content-change hook rather
+    /// than a blind timer -- counting non-empty rows walks the whole active
+    /// screen (`readScreenRows`'s underlying `ghostty_surface_read_text` call
+    /// is documented "expensive" by libghostty itself), so it must never run
+    /// once per render.
     private func reportScreenActivityIfDue() {
         guard screenActivityStillWanted, let onScreenActivity else { return }
         let now = Date()
@@ -399,13 +399,23 @@ final class GhosttySession {
         screenActivityStillWanted = onScreenActivity(nonEmptyRows)
     }
 
+    /// The ACTIVE area -- the editable screen a running program can address --
+    /// not `GHOSTTY_POINT_SCREEN`, which ghostty defines as reaching "the
+    /// furthest back in the scrollback history" (`terminal/point.zig`).
+    ///
+    /// That distinction is the whole feature. Clearing a pane empties the
+    /// screen and keeps the scrollback, so a scrollback-wide count barely
+    /// moves and never returns to what the pane settled at: the clear can
+    /// never be detected, which is exactly how it shipped. It also makes the
+    /// scan cost grow with the session's history rather than staying the size
+    /// of the window.
     private func readScreenRows() -> [String] {
         guard let surface else { return [] }
         var text = ghostty_text_s()
         let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
             bottom_right: ghostty_point_s(
-                tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+                tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
             rectangle: false)
         guard ghostty_surface_read_text(surface, selection, &text) else { return [] }
         defer { ghostty_surface_free_text(surface, &text) }

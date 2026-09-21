@@ -72,12 +72,16 @@ public final class PaneLauncherRegistry {
         isPristine(pane) || hasPendingClear(pane, at: time)
     }
 
-    /// `nonEmptyRowCount` is the surface's own retained-screen count, reported
-    /// on every real content change. A count that differs from the one the
-    /// pane settled at is output, and output the user did not type is the
-    /// other way a pane is in use; a repeat of the settled count is a repaint
-    /// of the same screen (a blinking cursor, a prompt redrawing its clock)
-    /// and means nothing.
+    /// `nonEmptyRowCount` counts the surface's ACTIVE screen, not its
+    /// scrollback: a clear empties the screen and keeps the history, so a
+    /// count that reached back through the scrollback could never come down
+    /// again and the clear below would never be seen.
+    ///
+    /// It is reported on every real content change. A count that differs from
+    /// the one the pane settled at is output, and output the user did not type
+    /// is the other way a pane is in use; a repeat of the settled count is a
+    /// repaint of the same screen (a blinking cursor, a prompt redrawing its
+    /// clock) and means nothing.
     public func recordScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int, at time: Date) {
         guard var screen = screens[pane] else {
             screens[pane] = Screen(firstReport: time, settledRowCount: nonEmptyRowCount)
