@@ -44,12 +44,13 @@ Swift + Network.framework (rt-tray).
 | `Tests/FlockCoreTests/FlockURLTests.swift` (create) | Every accepted and rejected URL form. |
 | `Sources/FlockCore/ViewModels/SessionViewModel.swift` (modify) | Rename `focusFromChat(pane:)` to `focusPane(byID:)`. |
 | `Tests/FlockCoreTests/SessionViewModelTests.swift` (modify) | Follow the rename. |
-| `Sources/Flock/Views/ChatPeekView.swift` and any other caller (modify) | Follow the rename. |
+| `Sources/Flock/Views/PaneCellView.swift:516` (modify) | The one caller of the renamed method. |
 | `project.yml` (modify) | `CFBundleURLTypes` per bundle. |
 | `Sources/Flock/FlockApp.swift` (modify) | `.onOpenURL`, dispatch, window activation. |
-| `rt-tray/Sources/FlockBridge.swift` (create, repo-tools) | Is flock running, and open a focus URL at it. |
-| `rt-tray/Sources/TrayServer.swift` (modify, repo-tools) | Prefer flock in `POST /pane/focus`. |
-| `rt-tray/Tests/FlockBridgeTests.swift` (create, repo-tools) | URL building and bundle choice. |
+| `rt-tray/Sources-core/Flock/FlockFocusURL.swift` (create, repo-tools) | Pure: the bundle-to-scheme table, choosing a scheme from a set of running bundle ids, and building the URL. No AppKit. |
+| `rt-tray/Tests/MattstackCoreChecks/FlockFocusURLChecks.swift` (create, repo-tools) | Checks for the above. |
+| `rt-tray/Sources/FlockBridge.swift` (create, repo-tools) | The AppKit binding: which bundles are running, and opening the URL. |
+| `rt-tray/Sources/HerdrBridge.swift:213` (modify, repo-tools) | Try flock first inside `focusPane(_:)`, the one function every focus path funnels through. |
 
 ---
 
@@ -336,95 +337,119 @@ the pane's own record and already did nothing for a pane the model had lost."
 ## Task 3: The tray prefers flock
 
 **Files:**
+- Create: `rt-tray/Sources-core/Flock/FlockFocusURL.swift` (repo-tools)
+- Create: `rt-tray/Tests/MattstackCoreChecks/FlockFocusURLChecks.swift` (repo-tools)
+- Modify: `rt-tray/Tests/MattstackCoreChecks/AllChecks.swift:3` (repo-tools)
 - Create: `rt-tray/Sources/FlockBridge.swift` (repo-tools)
-- Create: `rt-tray/Tests/FlockBridgeTests.swift` (repo-tools)
-- Modify: `rt-tray/Sources/TrayServer.swift:320-339` (repo-tools)
+- Modify: `rt-tray/Sources/HerdrBridge.swift:213-228` (repo-tools)
 
 **Interfaces:**
 - Consumes: nothing from Tasks 1 and 2 at compile time. The URL string is the
   contract between the two repos, and it is `flock://focus?pane=<encoded id>`.
-- Produces: `FlockBridge.shared.focusPane(_ paneId: String) -> Bool` (true
-  when a running flock was asked, false when none is running),
-  `FlockBridge.focusURL(paneId:scheme:) -> URL?` (pure, for the test).
+- Produces: `FlockFocusURL.scheme(forRunningBundleIDs: Set<String>) -> String?`
+  and `FlockFocusURL.url(paneId: String, scheme: String) -> URL?` in
+  `MattstackCore`; `FlockBridge.focusPane(_ paneId: String) -> Bool` in the
+  app target.
 
-- [ ] **Step 1: Write the failing tests**
+**Why the branch goes in `HerdrBridge.focusPane(_:)`.** Four call sites reach
+the ancestry walk, not one: `TrayServer.swift:329` and
+`NotificationManager.swift:406` and `:417` through `focusPaneById`, and
+`ProcessPanelController.swift:415` directly. All four funnel through
+`focusPane(_ pane: HerdrPane)`, so one branch there covers every entry point.
+Branching the HTTP handler instead would leave notification clicks guessing,
+and those are half of why this feature exists.
 
-Create `rt-tray/Tests/FlockBridgeTests.swift`:
+**Why `focusPaneById`'s herdr lookup stays in front of it.** That lookup is
+what still answers "does this pane exist", which the daemon turns into a CLI
+error (`lib/daemon/handlers/pane.ts:399` fails the command on `ok: false`).
+The URL scheme cannot answer it, so the tray keeps answering it from herdr.
+
+- [ ] **Step 1: Write the failing checks**
+
+Create `rt-tray/Tests/MattstackCoreChecks/FlockFocusURLChecks.swift`:
 
 ```swift
-import XCTest
-@testable import rt_tray
+import Foundation
+import MattstackCore
 
-/// The URL is the whole contract with flock, and the two live in different
-/// repositories: nothing here catches a mismatch at compile time, so the
-/// shape is pinned by these.
-final class FlockBridgeTests: XCTestCase {
-    func testTheFocusURLNamesTheVerbAndThePane() {
-        let url = FlockBridge.focusURL(paneId: "w1:p2", scheme: "flock")
-
-        XCTAssertEqual(url?.absoluteString, "flock://focus?pane=w1:p2")
-    }
-
-    /// A pane id is herdr's, not ours, and a character that means something
-    /// in a query has to survive the trip rather than split the value.
-    func testAPaneIDWithAQuerySeparatorIsEncoded() {
-        let url = FlockBridge.focusURL(paneId: "w1:p2&pane=w9:p9", scheme: "flock")
-
-        XCTAssertEqual(url?.absoluteString, "flock://focus?pane=w1:p2%26pane%3Dw9:p9")
-    }
-
-    func testTheDevBundleGetsTheDevScheme() {
-        let url = FlockBridge.focusURL(paneId: "w1:p2", scheme: "flock-dev")
-
-        XCTAssertEqual(url?.absoluteString, "flock-dev://focus?pane=w1:p2")
-    }
-
-    func testAnEmptyPaneIDMakesNoURL() {
-        XCTAssertNil(FlockBridge.focusURL(paneId: "", scheme: "flock"))
-    }
-}
+let flockFocusURLChecks: [Check] = [
+    Check("the focus URL names the verb and the pane") { c in
+        let url = FlockFocusURL.url(paneId: "w1:p2", scheme: "flock")
+        c.expectEqual(url?.absoluteString, "flock://focus?pane=w1:p2")
+    },
+    // A pane id is herdr's, not ours. A character that means something in a
+    // query has to survive the trip rather than split the value.
+    Check("a pane id carrying a query separator is encoded") { c in
+        let url = FlockFocusURL.url(paneId: "w1:p2&pane=w9:p9", scheme: "flock")
+        c.expectEqual(url?.absoluteString, "flock://focus?pane=w1:p2%26pane%3Dw9:p9")
+    },
+    Check("an empty pane id makes no URL") { c in
+        c.expect(FlockFocusURL.url(paneId: "", scheme: "flock") == nil, "empty id must not build a URL")
+    },
+    Check("a running prod flock picks the prod scheme") { c in
+        c.expectEqual(FlockFocusURL.scheme(forRunningBundleIDs: ["dev.mattstack.Flock"]), "flock")
+    },
+    Check("a running dev flock picks the dev scheme") { c in
+        c.expectEqual(FlockFocusURL.scheme(forRunningBundleIDs: ["dev.mattstack.Flock.dev"]), "flock-dev")
+    },
+    // Two installed copies both register a scheme, so the tray has to choose
+    // rather than let macOS pick a handler for it.
+    Check("both running prefers prod") { c in
+        let running: Set<String> = ["dev.mattstack.Flock.dev", "dev.mattstack.Flock"]
+        c.expectEqual(FlockFocusURL.scheme(forRunningBundleIDs: running), "flock")
+    },
+    Check("no flock running picks no scheme") { c in
+        c.expect(FlockFocusURL.scheme(forRunningBundleIDs: ["com.mitchellh.ghostty"]) == nil,
+                 "a machine with no flock must fall back, not build a URL")
+    },
+]
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+Register it in `rt-tray/Tests/MattstackCoreChecks/AllChecks.swift` by adding
+`+ flockFocusURLChecks` to the end of the `allChecks` expression on line 3.
+The registry is explicit by design; a new file that is not added runs nothing
+and reports nothing.
 
-Run: `cd ~/Documents/GitHub/repo-tools/rt-tray && swift test --filter FlockBridgeTests`
+- [ ] **Step 2: Run the checks to verify they fail**
 
-Expected: FAIL, "cannot find 'FlockBridge' in scope".
+Run: `cd ~/Documents/GitHub/repo-tools/rt-tray && swift test`
 
-- [ ] **Step 3: Write the implementation**
+Expected: FAIL to compile, "cannot find 'FlockFocusURL' in scope".
 
-Create `rt-tray/Sources/FlockBridge.swift`:
+- [ ] **Step 3: Write the pure implementation**
+
+Create `rt-tray/Sources-core/Flock/FlockFocusURL.swift`:
 
 ```swift
-import AppKit
 import Foundation
 
-/// Asks a running flock to focus a pane.
+/// The contract with flock's URL scheme: which scheme to use, and how to
+/// build a focus request.
 ///
-/// flock knows which of its own windows holds a pane, so this needs none of
-/// the process-ancestry guessing `HerdrBridge.focusPane` does for a pane
-/// hosted by a terminal emulator. It is a one-way request: macOS URL handling
-/// has no reply channel, so a running flock that does not know the pane is
-/// indistinguishable from one that focused it.
-enum FlockBridge {
-    /// Prod first: when both copies are somehow running, the one the user
-    /// installed wins.
-    private static let bundles: [(id: String, scheme: String)] = [
+/// Pure, and in core rather than the app target, for the same reason
+/// `TerminalResolver` is: the decisions are worth checking and AppKit is not
+/// available to a check. `FlockBridge` binds this to the real running-app
+/// list.
+///
+/// flock lives in another repository, so nothing here fails to compile when
+/// that side changes. These checks are the only thing pinning the shape.
+public enum FlockFocusURL {
+    /// Prod first: two installed copies each register their own scheme, and
+    /// when both are somehow running the one the user installed wins.
+    public static let bundles: [(id: String, scheme: String)] = [
         ("dev.mattstack.Flock", "flock"),
         ("dev.mattstack.Flock.dev", "flock-dev"),
     ]
 
-    static var shared: FlockBridge.Type { FlockBridge.self }
-
-    /// The scheme of whichever flock is running, or nil when none is.
-    static func runningScheme() -> String? {
-        bundles.first { !NSRunningApplication.runningApplications(withBundleIdentifier: $0.id).isEmpty }?.scheme
+    /// The scheme for whichever flock is running, or nil when none is, which
+    /// is the caller's signal to fall back rather than to launch one.
+    public static func scheme(forRunningBundleIDs running: Set<String>) -> String? {
+        bundles.first { running.contains($0.id) }?.scheme
     }
 
-    /// Pure, so the contract with flock can be tested without a running app.
-    /// `queryItems` is what encodes a pane id containing a character that
-    /// would otherwise end the value.
-    static func focusURL(paneId: String, scheme: String) -> URL? {
+    /// `URLComponents` rather than string building: it is what encodes a pane
+    /// id containing a character that would otherwise end the value.
+    public static func url(paneId: String, scheme: String) -> URL? {
         guard !paneId.isEmpty else { return nil }
         var components = URLComponents()
         components.scheme = scheme
@@ -432,114 +457,177 @@ enum FlockBridge {
         components.queryItems = [URLQueryItem(name: "pane", value: paneId)]
         return components.url
     }
+}
+```
 
-    /// False means no flock is running and the caller should fall back.
-    /// True means one was asked, not that it did anything.
+- [ ] **Step 4: Run the checks to verify they pass**
+
+Run: `cd ~/Documents/GitHub/repo-tools/rt-tray && swift test`
+
+Expected: PASS, with seven more checks than before.
+
+- [ ] **Step 5: Write the AppKit binding**
+
+Create `rt-tray/Sources/FlockBridge.swift`:
+
+```swift
+import AppKit
+import Foundation
+import MattstackCore
+
+/// Asks a running flock to focus a pane.
+///
+/// flock knows which of its own windows holds a pane, so this needs none of
+/// the process-ancestry guessing `HerdrBridge.focusPane` does for a pane
+/// hosted by a terminal emulator.
+///
+/// One way only: macOS URL handling has no reply channel. Whether the pane
+/// exists is answered before this runs, by the herdr lookup in
+/// `focusPaneById`, so nothing here needs an answer.
+enum FlockBridge {
+    private static func runningBundleIDs() -> Set<String> {
+        Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+    }
+
+    /// False means no flock is running and the caller should fall back. True
+    /// means one was asked, not that it did anything.
     @discardableResult
     static func focusPane(_ paneId: String) -> Bool {
-        guard let scheme = runningScheme(), let url = focusURL(paneId: paneId, scheme: scheme) else {
-            return false
-        }
+        guard
+            let scheme = FlockFocusURL.scheme(forRunningBundleIDs: runningBundleIDs()),
+            let url = FlockFocusURL.url(paneId: paneId, scheme: scheme)
+        else { return false }
+
         let configuration = NSWorkspace.OpenConfiguration()
-        // flock raises itself in its own handler, so this must not also do
-        // it: a request flock ignores would otherwise still steal the
-        // foreground.
+        // flock raises itself inside its own handler, so this must not also
+        // do it: a request flock decides to ignore would otherwise still
+        // steal the user's foreground app.
         configuration.activates = false
         NSWorkspace.shared.open(url, configuration: configuration, completionHandler: nil)
+        TrayLog.info("asked flock to focus pane", ["pane_id": paneId, "scheme": scheme])
         return true
     }
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 6: Branch inside `focusPane`**
 
-Run: `cd ~/Documents/GitHub/repo-tools/rt-tray && swift test --filter FlockBridgeTests`
-
-Expected: PASS, 4 tests.
-
-- [ ] **Step 5: Branch the tray's handler**
-
-In `rt-tray/Sources/TrayServer.swift`, in the `POST /pane/focus` arm, put
-flock in front of the existing call. Replace the `switch` with:
+In `rt-tray/Sources/HerdrBridge.swift`, `focusPane(_ pane: HerdrPane)` at line
+213 currently focuses the workspace and tab through herdr, then hunts for a
+terminal app to activate. Put flock in front of all of it:
 
 ```swift
-                    if FlockBridge.focusPane(req.paneId) {
-                        self.sendResponse(connection: connection, status: 200, body: "{\"ok\":true,\"focused\":true}")
-                    } else {
-                        switch HerdrBridge.shared.focusPaneById(req.paneId) {
-                        case .focused:
-                            self.sendResponse(connection: connection, status: 200, body: "{\"ok\":true,\"focused\":true}")
-                        case .notFound:
-                            self.sendResponse(connection: connection, status: 404, body: "{\"ok\":false,\"error\":\"pane not found\"}", path: path)
-                        case .herdrUnavailable:
-                            self.sendResponse(connection: connection, status: 500, body: "{\"ok\":false,\"error\":\"herdr unavailable\"}", path: path)
-                        }
-                    }
+    func focusPane(_ pane: HerdrPane) {
+        // Every focus path funnels through here: the daemon's POST, both
+        // notification click handlers, and the process panel. A running flock
+        // answers for its own windows and sends its own workspace, tab and
+        // pane focus, so nothing below needs to run.
+        if FlockBridge.focusPane(pane.paneId) { return }
+
+        run(["workspace", "focus", pane.workspaceId])
+        run(["tab", "focus", pane.tabId])
+        // Shell ancestry only reaches the terminal when the pane runs under
+        // it; a daemon-hosted pane's shell hangs off the launchd-parented
+        // herdr server, so fall back to walking up from an attach client.
+        let terminalPid = Self.terminalAppPid(ancestorOf: pane.hostPid)
+            ?? Self.terminalAppPidViaHerdrClient()
+        if let terminalPid {
+            DispatchQueue.main.async {
+                NSRunningApplication(processIdentifier: pid_t(terminalPid))?.activate(options: [.activateAllWindows])
+            }
+        } else {
+            TrayLog.warn("no terminal found for herdr pane", ["pane_id": pane.paneId, "host_pid": pane.hostPid])
+        }
+    }
 ```
 
-And replace the comment above it:
+`focusPaneById` is left alone. Its `listPanes()` lookup runs first and still
+returns `.notFound` for a pane herdr does not have, which is what keeps
+`rt pane focus` reporting a stale id as an error rather than a success.
 
-```swift
-                // The rt daemon's pane:focus verb routes here. A running
-                // flock is asked first and answers for its own windows; with
-                // no flock, this falls back to focusing herdr and hunting for
-                // the terminal emulator hosting the pane, which is the only
-                // thing herdr's own API makes possible.
-```
-
-- [ ] **Step 6: Build the tray and run its suite**
+- [ ] **Step 7: Build the tray and run its suite**
 
 Run: `cd ~/Documents/GitHub/repo-tools/rt-tray && swift build && swift test`
 
 Expected: both PASS.
 
-- [ ] **Step 7: Check it by hand, both ways**
+- [ ] **Step 8: Check all four entry points by hand**
 
-With flock running, from a terminal:
+No test covers activation or the running-app check. With flock running:
 
 ```bash
+# 1. the daemon route
 curl -s -X POST localhost:<tray port>/pane/focus -d '{"paneId":"<a real pane id>"}'
 ```
-
 Expected: flock comes forward on that pane; the response is
 `{"ok":true,"focused":true}`.
 
-Then quit flock and repeat with a pane visible in herdr under Ghostty.
-Expected: Ghostty comes forward, exactly as before this change.
+```bash
+# 2. a stale id, which must still be an error
+curl -s -X POST localhost:<tray port>/pane/focus -d '{"paneId":"w9:p99"}'
+```
+Expected: 404 with `pane not found`, exactly as before this change.
 
-Read the tray port from `~/.rt/logs/tray.*.log` or the tray's own health
-endpoint rather than assuming one.
+3. Click a tray notification for a pane. Expected: flock comes forward.
+4. Focus a pane from the tray's process panel. Expected: flock comes forward.
 
-- [ ] **Step 8: Commit**
+Then quit flock and repeat 1, 3 and 4 against a pane visible in herdr under
+Ghostty. Expected: Ghostty comes forward, exactly as before.
+
+Read the tray port from `~/.rt/logs/tray.*.log` or the tray's health endpoint
+rather than assuming one.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 cd ~/Documents/GitHub/repo-tools
-git add rt-tray/Sources/FlockBridge.swift rt-tray/Tests/FlockBridgeTests.swift rt-tray/Sources/TrayServer.swift
+git add rt-tray/Sources-core/Flock/FlockFocusURL.swift \
+        rt-tray/Tests/MattstackCoreChecks/FlockFocusURLChecks.swift \
+        rt-tray/Tests/MattstackCoreChecks/AllChecks.swift \
+        rt-tray/Sources/FlockBridge.swift \
+        rt-tray/Sources/HerdrBridge.swift
 git commit -m "tray: ask flock to focus a pane when flock is running
 
 flock knows which of its windows holds a pane, so it needs none of the
-process-ancestry hunting a terminal-emulator-hosted pane does. That path stays
-for when flock is not running."
+process-ancestry hunting a terminal-emulator-hosted pane does. The branch sits
+in focusPane, which every focus path funnels through, so notification clicks
+and the process panel get it too rather than only the daemon's POST.
+
+The herdr lookup in focusPaneById stays in front of it, so a pane herdr does
+not have is still a 404 and rt pane focus still reports it."
 ```
 
 ---
-
 ## Self-review notes
 
 **Spec coverage.** URL shape: Task 1. What flock does on receipt, including
 herdr staying in step through `jumpToHerdr`: Task 2 step 4, reusing the
-existing method. Unknown pane does nothing: Task 1 refuses malformed input,
-and the reused method's own guard covers a stale id (Task 2 step 6 checks it
-by hand). Who decides between flock and Ghostty: Task 3. No reply: no task
-needed, it is the absence of one. Security posture: Global Constraints. The
-two-bundle wrinkle: Task 2 step 3 and Task 3's bundle list. Degrading table:
-every row maps to Task 3's branch or the reused method's guard.
+existing method. Unknown pane: Task 1 refuses malformed input, the reused
+method's guard covers a stale id inside flock, and Task 3's herdr lookup is
+what keeps the CLI reporting one as an error. Who decides between flock and
+Ghostty, at all four entry points: Task 3 step 6. No reply, and why it costs
+nothing: Task 3's interfaces block and step 8's stale-id check. Security
+posture: Global Constraints. The two-bundle wrinkle: Task 2 step 3 registers
+one scheme per bundle, Task 3 step 3 chooses between them. Degrading table:
+every row maps to Task 3's branch, Task 3's herdr lookup, or the reused
+method's guard.
 
 **One spec detail sharpened here.** The spec says the tray uses `open -g`;
 the plan uses `NSWorkspace.OpenConfiguration` with `activates = false`, which
 is the same intent from inside a Swift app rather than by shelling out, and
 avoids a process spawn per focus.
 
+**Three things the first round of review corrected, kept here so they are not
+reintroduced.** The rt-tray tests first went in `rt-tray/Tests/` with
+`@testable import rt_tray`, which compiles into nothing: that package's test
+targets are path-scoped and its pure logic lives in `Sources-core` beside a
+checks file, the way `TerminalResolver` does. The branch first went in
+`TrayServer`'s HTTP handler, which would have left notification clicks and
+the process panel still guessing. And the spec first claimed the daemon only
+logs the focus outcome, which is false: it fails the command on `ok: false`,
+so a stale id would have gone from a CLI error to a silent success.
+
 **Not covered by any test, by nature.** Window activation, the running-app
-check, and the two-bundle handler choice all need a real machine. Steps 6 and
-7 of Tasks 2 and 3 are hand checks, and they are the gate for this feature.
+check, and the two-bundle handler choice all need a real machine. Task 2
+step 6 and Task 3 step 8 are hand checks, and they are the gate for this
+feature.

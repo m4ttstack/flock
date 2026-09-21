@@ -63,11 +63,19 @@ something they did not do.
 
 ### Who decides between flock and Ghostty
 
-The tray, in the handler it already owns. `POST /pane/focus` gains one branch
-in front of what it does today:
+The tray, inside `HerdrBridge.focusPane(_:)`, which is the one function every
+focus path already funnels through. Putting the branch there rather than in
+the daemon's HTTP handler is what makes it reach all four callers:
+`TrayServer`'s `POST /pane/focus`, both of `NotificationManager`'s click
+handlers, and `ProcessPanelController`. Notification clicks are half the
+reason this feature exists, so branching only the daemon route would have
+left the guessing in place for the case most worth fixing.
+
+The branch itself:
 
 - flock is running (checked by bundle id through `NSRunningApplication`):
-  `open -g flock://focus?pane=...`, report focused.
+  open the focus URL at it and return. The tray sends no `workspace focus` or
+  `tab focus` of its own, because flock's handler sends all three itself.
 - flock is not running: the existing herdr plus ancestry path, unchanged.
 
 Ruled by Matt on 2026-09-21: flock wins when it is running. The ancestry walk
@@ -79,17 +87,29 @@ The running check is also what keeps the URL scheme from launching flock. A
 starting a terminal multiplexer's GUI because a background notification fired
 is not what anyone asked for.
 
-## No reply
+## No reply, and why that costs nothing here
 
 The scheme is fire-and-forget. macOS URL handling has no return channel, and
 building one would mean a socket or an HTTP listener inside flock.
 
-The cost is one case: flock is running, the pane id is stale, and the tray
-reports success anyway. Today's code has the same gap in a different place (a
-missed ancestry walk reports a warning nobody reads), and the daemon does
-nothing with the outcome except log it.
+**The outcome still matters, so the tray answers it without flock's help.**
+`lib/daemon/handlers/pane.ts:399` fails the command on a non-2xx or an
+`ok: false` body, and `rt pane focus` surfaces that, so an unknown pane id is
+a CLI error today. Reporting a blind success would quietly turn that into
+exit 0, and the caller would have no way to tell a focused pane from a pane
+that closed an hour ago.
 
-If a caller ever genuinely needs the answer, that is the moment to add a real
+`focusPaneById` already resolves the pane through herdr's own `pane list`
+before doing anything, and that lookup is what keeps answering. A pane herdr
+does not have is still a 404, exactly as now; only once the pane is known does
+the flock branch run. flock mirrors herdr, so herdr having the pane is a sound
+proxy for flock having it.
+
+That leaves one genuinely unanswerable case: herdr has the pane, flock is
+running, and flock still fails to focus it. That would be a flock bug rather
+than a stale request, and a reply channel is the wrong place to discover it.
+
+If a caller ever needs more than this, that is the moment to add a real
 transport, not before.
 
 ## Security posture
@@ -124,10 +144,13 @@ somehow are.
 | Situation | What happens |
 | --- | --- |
 | flock not running | the tray takes the existing herdr plus ancestry path |
-| flock running, pane id stale | flock does nothing; the tray reports focused |
-| flock running, herdr unreachable | the local selection still happens; the `jumpToHerdr` RPCs fail the way every other flock action does |
-| both bundles installed | each owns its own scheme; the tray opens the one that matches the running app |
+| pane id stale (herdr does not have it) | 404 from the tray, `rt pane focus` errors, unchanged from today. The flock branch never runs, because the herdr lookup fails first |
+| herdr unreachable | 500 from the tray, unchanged from today |
+| herdr has the pane, flock running, flock fails to focus it | the tray reports focused anyway. The one case no caller can see, and a flock bug rather than a stale request |
+| flock running, herdr reachable, but flock's own RPCs fail | flock's local selection still happens; the `jumpToHerdr` calls fail the way every other flock action does |
+| both bundles installed | each owns its own scheme; the tray opens the one matching the running app, preferring prod |
 | a malformed URL | rejected at parse; flock does nothing |
+| a notification click or the process panel | same branch, because it lives in `focusPane(_:)` rather than in the HTTP handler |
 
 ## Testing
 
@@ -147,5 +170,5 @@ cannot drive a running app.
 - **No reply channel.**
 - **No launching flock.** The tray checks first.
 - **No change to the daemon.** It keeps calling the tray; the tray keeps
-  answering the same way.
+  answering the same way, with the same status codes for the same reasons.
 - **No removal of the ancestry walk.** It is the fallback.
