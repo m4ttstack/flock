@@ -1,18 +1,24 @@
 import Foundation
 
-/// Tracks per-pane provenance and activity for the new-pane harness launcher
-/// overlay: pristine only for a pane flock itself created this session, until
-/// that pane is in use -- the first keystroke routed through it, or the first
-/// screen change after it settled. A pane never registered via
-/// `registerFlockCreated` -- i.e. one herdr itself created -- is never
-/// pristine, whatever else happens to it.
+/// Decides which panes may be offered the harness launcher, and when.
 ///
-/// Hiding is not final. Clearing a pane puts it back to the screen it started
-/// with, so the offer comes back with it (`recordClearRequested`). What makes
-/// that safe is that a clear is only ever *proposed* here: the pane's screen
-/// has to actually come back down to its settled size before the overlay
-/// returns, so a Ctrl-L that a full-screen program handled itself, and
-/// repainted straight over, changes nothing.
+/// Two things make a pane offerable, and the second is why this is not just
+/// provenance: flock created it (a fresh pane, nothing in it yet), or the user
+/// cleared it (they asked for a blank pane, whoever made it). Either way the
+/// offer goes away as soon as the pane is in use -- the first keystroke routed
+/// through it, or the first screen change after it settled.
+///
+/// **A clear counts even on a pane flock never created.** That rule used to be
+/// provenance-only, which made the feature unreliable for the wrong reason:
+/// the set below is in-memory, so restarting flock made every existing pane
+/// permanently ineligible, and clearing one did nothing for the rest of the
+/// session. A user who clears a pane is asking for a fresh start in it, and
+/// that reads the same whoever opened it.
+///
+/// What keeps this from being intrusive is that a clear is only ever
+/// *proposed* here: the pane's screen has to actually come back down to its
+/// settled size before the overlay returns, so a Ctrl-L that a full-screen
+/// program handled itself, and repainted straight over, changes nothing.
 @MainActor
 public final class PaneLauncherRegistry {
     /// How long after a pane's first frame its output is still the shell
@@ -39,7 +45,9 @@ public final class PaneLauncherRegistry {
         var settledRowCount: Int
     }
 
-    private var createdByFlock: Set<PaneID> = []
+    /// Panes the launcher may be offered on at all: created by flock, or
+    /// cleared by the user. A pane in neither category never sees it.
+    private var offerable: Set<PaneID> = []
     private var hidden: Set<PaneID> = []
     private var screens: [PaneID: Screen] = [:]
     private var clearRequests: [PaneID: Date] = [:]
@@ -49,18 +57,21 @@ public final class PaneLauncherRegistry {
     /// Called with the pane id a `pane.split`/`tab.create`/`workspace.create`
     /// response just handed back -- the provenance seam.
     public func registerFlockCreated(_ pane: PaneID) {
-        createdByFlock.insert(pane)
+        offerable.insert(pane)
     }
 
     public func recordKeystroke(_ pane: PaneID) {
         hide(pane)
     }
 
-    /// The user asked this pane to clear. Nothing is shown yet: this only opens
-    /// the window in which a screen dropping back to its settled size is read
-    /// as the clear having landed.
+    /// The user asked this pane to clear. Nothing is shown yet, and this makes
+    /// no judgement about the pane: it opens the window in which a screen
+    /// dropping to its settled size is read as the clear having landed, and
+    /// that is what decides.
+    ///
+    /// Deliberately unguarded by provenance. Clearing is an explicit ask for a
+    /// blank pane, and a pane flock did not open is no less blank for it.
     public func recordClearRequested(_ pane: PaneID, at time: Date) {
-        guard createdByFlock.contains(pane) else { return }
         clearRequests[pane] = time
     }
 
@@ -89,11 +100,13 @@ public final class PaneLauncherRegistry {
         }
         if hasPendingClear(pane, at: time) {
             // The screen is back to the size it was when the pane was new, so
-            // the clear landed and the pane is offerable again. Anything
-            // larger is a program that took Ctrl-L for itself and repainted,
-            // and it keeps the overlay away.
+            // the clear landed. Anything larger is a program that took Ctrl-L
+            // for itself and repainted, and it keeps the overlay away.
             guard nonEmptyRowCount <= screen.settledRowCount else { return }
             clearRequests.removeValue(forKey: pane)
+            // A cleared pane becomes offerable whether or not flock opened it:
+            // the user asked for a blank pane and got one.
+            offerable.insert(pane)
             hidden.remove(pane)
             // The shell redraws its prompt immediately after clearing, and
             // that redraw is startup, not use -- the same reason a fresh pane
@@ -111,7 +124,7 @@ public final class PaneLauncherRegistry {
     }
 
     public func isPristine(_ pane: PaneID) -> Bool {
-        createdByFlock.contains(pane) && !hidden.contains(pane)
+        offerable.contains(pane) && !hidden.contains(pane)
     }
 
     private func hasPendingClear(_ pane: PaneID, at time: Date) -> Bool {

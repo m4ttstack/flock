@@ -110,16 +110,35 @@ final class PaneLauncherRegistryTests: XCTestCase {
         XCTAssertFalse(registry.isPristine(pane))
     }
 
-    /// A pane herdr created is never flock's to offer, and a clear does not
-    /// change whose pane it is.
+    /// Clearing works on a pane flock never opened. This was provenance-gated
+    /// at first, which made the feature unreliable for the wrong reason: the
+    /// registry is in-memory, so restarting flock made every pane already on
+    /// screen permanently ineligible and clearing one did nothing all session.
     @MainActor
-    func testClearingAPaneFlockNeverCreatedOffersNothing() {
+    func testClearingAPaneFlockNeverCreatedStillOffersTheLauncher() {
         let registry = PaneLauncherRegistry()
         let pane = PaneID(rawValue: "w1:p2")
-        registry.recordScreenActivity(pane, nonEmptyRowCount: 2, at: start)
+        XCTAssertFalse(registry.isPristine(pane), "herdr's own pane offers nothing until it is cleared")
 
-        registry.recordClearRequested(pane, at: settled)
-        registry.recordScreenActivity(pane, nonEmptyRowCount: 2, at: settled.addingTimeInterval(0.3))
+        let clearedAt = settled.addingTimeInterval(30)
+        registry.recordClearRequested(pane, at: clearedAt)
+        // Its first report is the one that learns what this pane's prompt
+        // looks like, since it was never watched while pristine.
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 2, at: clearedAt.addingTimeInterval(0.3))
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 2, at: clearedAt.addingTimeInterval(0.6))
+
+        XCTAssertTrue(registry.isPristine(pane))
+    }
+
+    /// Without a clear, a pane flock never opened is still not flock's to put
+    /// an overlay on, however empty its screen happens to look.
+    @MainActor
+    func testAPaneFlockNeverCreatedOffersNothingOnItsOwn() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 2, at: start)
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 2, at: settled.addingTimeInterval(1))
 
         XCTAssertFalse(registry.isPristine(pane))
     }
