@@ -75,6 +75,7 @@ struct PaneCellView: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(ChatStore.self) private var chatStore
     @Environment(OptionAsAltStore.self) private var optionAsAltStore
+    @Environment(DividerDragCoordinator.self) private var dividerDrag
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
@@ -102,6 +103,23 @@ struct PaneCellView: View {
     /// arriving inside the window can cancel it, which is what keeps a fast
     /// attach silent.
     @State private var loaderArmTask: Task<Void, Never>?
+
+    /// The terminal's size at the instant a divider drag started, held for the
+    /// drag's whole life so the surface is never resized while it is moving.
+    ///
+    /// Resizing is what makes a divider drag flash. A surface narrowed by even
+    /// one column DISCARDS everything past the new width -- ghostty's own
+    /// `Screen: resize (no reflow) less cols` test has "1ABCD" become "1ABC" --
+    /// and herdr paints these panes as absolutely positioned lines, not a
+    /// wrapped stream that could be reflowed back. So every step of a drag
+    /// destroys the right of every line and leaves the pane bare until herdr's
+    /// next full frame lands a round trip later. Thirty steps, thirty flashes.
+    ///
+    /// Frozen, the surface keeps its content and the pane box simply clips it.
+    /// The one real resize happens when the drag is over. herdr's own terminal
+    /// never has this problem because dragging ITS divider repaints a fixed
+    /// grid and resizes no terminal at all.
+    @State private var frozenTerminalSize: CGSize?
 
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
     /// a warm (parked) pane's surface is already there, so it never renders
@@ -633,6 +651,10 @@ struct PaneCellView: View {
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }
+                // Both nil except during a divider drag, where the pair is the
+                // size the surface had when the drag began. `nil` constrains
+                // nothing, so this is a pass-through the rest of the time.
+                .frame(width: frozenTerminalSize?.width, height: frozenTerminalSize?.height, alignment: .topLeading)
                 .opacity(
                     PaneLoaderPolicy.showsTerminalSurface(
                         hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
@@ -675,6 +697,18 @@ struct PaneCellView: View {
                 Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
             }
             .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)
+            // Held through the commit as well as the drag: `isDragging` stays
+            // true until herdr has taken the new ratio, so the surface resizes
+            // once, against the layout that actually won, rather than once on
+            // release and again when the answer comes back.
+            .onChange(of: dividerDrag.isDragging) { _, dragging in
+                guard dragging else {
+                    frozenTerminalSize = nil
+                    return
+                }
+                guard bodyFrame.width > 0, bodyFrame.height > 0 else { return }
+                frozenTerminalSize = bodyFrame.size
+            }
             .onChange(of: ghosttySurface.hasFirstFrame, initial: true) { _, hasFirstFrame in
                 handleFirstFrameChange(hasFirstFrame)
             }
