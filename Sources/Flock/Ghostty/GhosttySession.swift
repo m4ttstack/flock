@@ -200,11 +200,29 @@ final class GhosttySession {
 
     private static let gridLog = Logger(subsystem: "dev.mattstack.flock", category: "grid")
 
+    /// The scale most recently written to the surface, so a call that finds
+    /// nothing changed (every `layout()` pass reasserts it) is a no-op rather
+    /// than a redundant `ghostty_surface_set_content_scale`.
+    private var lastAppliedScale: CGFloat?
+    /// Real writes to libghostty's content scale, counted (not just logged)
+    /// so a test can prove a repeated call with nothing changed issues none.
+    private(set) var contentScaleApplyCount = 0
+
+    /// A display notification can arrive before the window's backing scale
+    /// actually updates, so the event-driven callers alone can leave this
+    /// stale until the app restarts; `GhosttySurfaceView.layout()` calling
+    /// this on every pass is what corrects a miss regardless of ordering.
+    /// Requiring a window here is what keeps that self-heal from writing
+    /// `scale`'s `NSScreen.main` fallback into a session whose view is
+    /// parked in the warm cache awaiting mount elsewhere.
     func updateContentScale() {
-        guard let surface else { return }
-        let scale = Double(scale)
-        guard scale.isFinite, scale > 0 else { return }
-        ghostty_surface_set_content_scale(surface, scale, scale)
+        guard let surface, view?.window != nil else { return }
+        let newScale = scale
+        guard newScale.isFinite, newScale > 0, newScale != lastAppliedScale else { return }
+        lastAppliedScale = newScale
+        contentScaleApplyCount += 1
+        let value = Double(newScale)
+        ghostty_surface_set_content_scale(surface, value, value)
     }
 
     func render() {

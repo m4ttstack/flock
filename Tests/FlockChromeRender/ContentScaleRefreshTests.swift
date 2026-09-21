@@ -102,6 +102,57 @@ final class ContentScaleRefreshTests: XCTestCase {
             "a session with no window must be left alone, not guessed at from NSScreen.main"
         )
     }
+
+    /// A display notification can arrive before the window's backing scale
+    /// actually updates, so the event paths alone can leave a surface stale
+    /// until restart. `GhosttySurfaceView.layout()` is called on every layout
+    /// pass regardless of which, if any, notification fired, so it is where
+    /// a stale scale gets a second chance to correct itself. This test never
+    /// delivers a notification at all: only the window's scale changes,
+    /// then a layout pass, proving the self-heal path works without one.
+    func testLayoutPassSelfHealsStaleContentScaleWithoutNotification() throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let session = host.makeSession(
+            paneID: PaneID(rawValue: "w1:p1"),
+            configuration: GhosttySession.Launch(commandArgv: ["/usr/bin/true"], themeColors: Self.colors)
+        )
+        let view = GhosttySurfaceView(session: session)
+        let window = ScaleStubWindow(scale: 1.0)
+        window.contentView?.addSubview(view)
+        let before = try XCTUnwrap(session.surfaceGeometry(), "surface never reported a grid at creation scale")
+
+        window.scaleOverride = 3.0
+        view.layout()
+
+        let after = try XCTUnwrap(session.surfaceGeometry(), "surface never reported a grid after layout")
+        XCTAssertGreaterThan(
+            after.cellPixels.width, before.cellPixels.width,
+            "a layout pass alone must correct the surface's content scale, with no notification delivered"
+        )
+    }
+
+    /// `layout()` runs on every pass, so reasserting the same scale on every
+    /// one of them would issue a redundant surface command each time. Proves
+    /// the guard belongs in `updateContentScale()` itself.
+    func testLayoutPassWithUnchangedScaleAppliesNoRedundantSurfaceCommand() throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let session = host.makeSession(
+            paneID: PaneID(rawValue: "w1:p1"),
+            configuration: GhosttySession.Launch(commandArgv: ["/usr/bin/true"], themeColors: Self.colors)
+        )
+        let view = GhosttySurfaceView(session: session)
+        let window = ScaleStubWindow(scale: 1.0)
+        window.contentView?.addSubview(view)
+        let settledCount = session.contentScaleApplyCount
+
+        view.layout()
+        view.layout()
+
+        XCTAssertEqual(
+            session.contentScaleApplyCount, settledCount,
+            "an unchanged scale must not issue a redundant ghostty_surface_set_content_scale call"
+        )
+    }
 }
 
 /// Overrides `backingScaleFactor` because no test run can plug in a second

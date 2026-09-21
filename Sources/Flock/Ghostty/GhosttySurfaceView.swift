@@ -212,6 +212,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
 
     override func layout() {
         super.layout()
+        // A layout pass follows the window settling on its new display, so
+        // reasserting the scale here catches a display notification that
+        // arrived before the window's backing scale actually updated, no
+        // matter which (if any) of the event-driven paths lost that race.
+        session.updateContentScale()
         session.resize(to: bounds.size)
     }
 
