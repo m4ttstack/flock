@@ -2,14 +2,9 @@ import XCTest
 @testable import FlockCore
 
 final class PaneLoaderChoreographyTests: XCTestCase {
-    /// The old version of this asserted the loop's literal length and named
-    /// the floor only in a comment, so it could not have caught the floor
-    /// moving out from under it. It now compares the two.
-    func testTheLoopCompletesInsideTheDisplayFloor() {
-        let floor = Double(PaneLoaderPolicy.minimumDisplay.components.seconds)
-            + Double(PaneLoaderPolicy.minimumDisplay.components.attoseconds) / 1e18
-
-        XCTAssertLessThanOrEqual(PaneLoaderChoreography.loopDuration, floor)
+    /// `PaneLoaderPolicyTests` owns how this lines up with the display
+    /// floor, since the floor is what is derived from it.
+    func testOneLoopIsASecondAndAHalf() {
         XCTAssertEqual(PaneLoaderChoreography.loopDuration, 1.5, accuracy: 0.0001)
     }
 

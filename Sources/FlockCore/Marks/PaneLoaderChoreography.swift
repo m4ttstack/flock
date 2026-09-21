@@ -8,10 +8,10 @@ public enum PaneLoaderChoreography {
     public static let gatherDuration: Double = 0.45
     public static let holdDuration: Double = 0.25
     public static let driftDuration: Double = 0.8
-    /// Sized to land inside `PaneLoaderPolicy.minimumDisplay`, so the window
-    /// the loader is guaranteed to be on screen for always contains one whole
-    /// gesture. Move the floor and this has to move with it, or the drift
-    /// apart gets cut off mid-release on every fast attach.
+    /// One whole gather-hold-release. `PaneLoaderPolicy.minimumDisplay` is
+    /// derived from this so the loader's dismissal lands on the end of a
+    /// loop, where the trail is at full spread; changing any of the three
+    /// phases above moves the floor with it by design.
     public static let loopDuration = gatherDuration + holdDuration + driftDuration
 
     /// How much opacity an echo gives up as it reaches the merge, regained

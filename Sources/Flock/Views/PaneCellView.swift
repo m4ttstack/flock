@@ -638,7 +638,7 @@ struct PaneCellView: View {
                 guard !isFocused, viewModel.isPristineLauncherPane(pane.paneID) else { return }
                 Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
             }
-            .animation(.easeOut(duration: 0.15), value: showsAttachLoader)
+            .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)
             .onChange(of: ghosttySurface.hasFirstFrame, initial: true) { _, hasFirstFrame in
                 handleFirstFrameChange(hasFirstFrame)
             }

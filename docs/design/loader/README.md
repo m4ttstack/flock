@@ -44,23 +44,34 @@ The echoes step back at the SAME scale as the leader. Scaling them down would
 read as three animals standing at different distances rather than one animal
 moving.
 
-## Minimum display: 1500ms
+## Minimum display: 1425ms
 
-Ruled by Matt on 2026-09-20 at 2000ms, lowered to 1500ms the same evening after
+Ruled by Matt on 2026-09-20 at 2000ms, then lowered the same evening after
 seeing it run. Once the loader is shown it stays for at least that long, even
 when the first frame arrives sooner.
 
 This is a deliberate trade and it is worth stating plainly: it makes flock
 slower on purpose. A pane that could have shown content in 80ms will hold the
-loader for 1.5s, and a workspace opening four panes holds all four
-(concurrently, so 1.5s total rather than 6s). The gain is that the moment is
-actually seen instead of flickering past.
+loader for about a second and a half, and a workspace opening four panes holds
+all four (concurrently, so once, not four times over). The gain is that the
+moment is actually seen instead of flickering past.
 
-**The trail's loop is sized to this number, not the other way round.** One
-gather-hold-release is `PaneLoaderChoreography.loopDuration`, and it is set to
-land inside the floor so the guaranteed window always contains a whole gesture.
-Lowering the floor again means shortening the loop with it, or the release gets
-cut off mid-drift on every fast attach.
+**The floor is not a free number: it is derived from the trail's loop.** The
+dismissal is a 150ms cross-fade, and it is positioned to straddle the end of a
+loop, where the echoes have drifted back to full spread and are momentarily
+still:
+
+```
+minimumDisplay = loopDuration - crossFade / 2
+               = 1.5s         - 0.075s        = 1.425s
+```
+
+So the widest, most colourful frame of the trail is what the fade is centred
+on. Starting the fade at the loop's end instead leaves the echoes visibly
+gathering again underneath it, which is what 1500ms did.
+
+Changing any phase of the choreography moves the floor with it automatically.
+Wanting a different floor means changing the loop, not the floor.
 
 ## Size: 128pt
 
