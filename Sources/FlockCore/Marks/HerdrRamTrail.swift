@@ -52,11 +52,16 @@ public enum HerdrRamTrail {
     private static let heightFillFraction: CGFloat = 0.87
     private static let echoStepXFraction: CGFloat = 0.105
     private static let echoStepYFraction: CGFloat = 0.075
-    private static let leaderOffsetXFraction: CGFloat = 0.13
-    private static let leaderOffsetYFraction: CGFloat = 0.05
 
-    /// The ram, fit into `square` exactly as `make-icon.swift` fits it into
-    /// the icon's body, offset by `(dx, dy)` points on top of that rest
+    /// The ram, fit into `square` and centred on the WHOLE rest composition
+    /// -- the leader plus the farthest echo's rest offset -- rather than on
+    /// the leader's own raw path bounds. `make-icon.swift` centres the
+    /// leader alone and then nudges it by two fixed fractions to rebalance
+    /// the squircle around the icon's own trail direction; those fractions
+    /// were tuned to that squircle's margins and do not carry to an
+    /// arbitrary pane, so this derives the same idea (shift by half the
+    /// echoes' extent) from `echoStepXFraction`/`echoStepYFraction` instead
+    /// of a hand-picked constant. `dx`/`dy` land on top of that centred rest
     /// position. Rebuilt per call rather than cached: `CGPath` is not
     /// `Sendable`, so a stored one would need isolation this static API
     /// otherwise has no reason to carry.
@@ -68,9 +73,12 @@ public enum HerdrRamTrail {
         let margin = body.width * marginFraction
         let target = body.insetBy(dx: margin, dy: margin)
         let scale = target.height / bounds.height * heightFillFraction
+        let maxBackSteps = CGFloat(echoCount)
+        let compositeOffsetX = target.width * echoStepXFraction * maxBackSteps
+        let compositeOffsetY = target.height * echoStepYFraction * maxBackSteps
         var transform = CGAffineTransform(
-            translationX: target.midX - bounds.midX * scale + dx - target.width * leaderOffsetXFraction,
-            y: target.midY + bounds.midY * scale + dy - target.height * leaderOffsetYFraction
+            translationX: target.midX - compositeOffsetX / 2 - bounds.midX * scale + dx,
+            y: target.midY - compositeOffsetY / 2 + bounds.midY * scale + dy
         ).scaledBy(x: scale, y: -scale)
         return base.copy(using: &transform) ?? base
     }

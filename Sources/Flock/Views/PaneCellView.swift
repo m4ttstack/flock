@@ -576,10 +576,15 @@ struct PaneCellView: View {
     /// `ghosttySurface` mounts as soon as it exists, whether or not its
     /// bridge has painted a first frame yet -- libghostty needs a real
     /// window to render into, so a cold attach's surface has to be in the
-    /// hierarchy (opacity 0, under the card) from the start, not swapped in
-    /// only once ready. `hasFirstFrame` then just crossfades which of the
-    /// two is the one actually visible; a warm (pool-seeded) surface starts
-    /// this already `true`, so its card never appears at all.
+    /// hierarchy (opacity 0, under the loader) from the start, not swapped
+    /// in only once ready. Its opacity follows `showsAttachLoader`, not
+    /// `hasFirstFrame` directly: the loader holds the screen through its own
+    /// 2000ms floor even after the real frame has arrived, and revealing the
+    /// surface the instant `hasFirstFrame` flips would show live content
+    /// UNDER an opaque loader for that whole remaining hold, then have
+    /// nothing left to crossfade when the loader finally goes. A warm
+    /// (pool-seeded) surface never sets `loaderShownAt`, so its loader never
+    /// appears and the surface is visible immediately.
     @ViewBuilder
     private func content(editorIsOpen: Bool) -> some View {
         if let ghosttySurface {
@@ -600,7 +605,7 @@ struct PaneCellView: View {
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }
-                .opacity(ghosttySurface.hasFirstFrame ? 1 : 0)
+                .opacity(showsAttachLoader ? 0 : 1)
                 if showsAttachLoader {
                     PaneLoaderView(theme: theme)
                         .transition(.opacity)
@@ -633,8 +638,7 @@ struct PaneCellView: View {
                 guard !isFocused, viewModel.isPristineLauncherPane(pane.paneID) else { return }
                 Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
             }
-            .animation(.easeOut(duration: 0.15), value: ghosttySurface.hasFirstFrame)
-            .animation(.easeOut(duration: 0.15), value: loaderDismissed)
+            .animation(.easeOut(duration: 0.15), value: showsAttachLoader)
             .onChange(of: ghosttySurface.hasFirstFrame, initial: true) { _, hasFirstFrame in
                 handleFirstFrameChange(hasFirstFrame)
             }

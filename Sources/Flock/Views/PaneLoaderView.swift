@@ -29,12 +29,20 @@ struct PaneLoaderView: View {
     private static let dotCycleInterval = 0.5
 
     var body: some View {
-        VStack(spacing: ChromeMetrics.Loader.spacing) {
-            mark
-            Text(caption)
-                .font(ChromeType.loaderCaption)
-                .foregroundStyle(theme.textLabel)
+        GeometryReader { proxy in
+            VStack(spacing: ChromeMetrics.Loader.spacing) {
+                mark(size: ChromeMetrics.Loader.markSize(paneSize: proxy.size))
+                Text(caption)
+                    .font(ChromeType.loaderCaption)
+                    .foregroundStyle(theme.textLabel)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // Opaque and covering the whole pane: this sits directly over the
+        // live terminal surface (kept mounted underneath at all times, see
+        // `PaneCellView`), and a transparent loader would let its output
+        // show straight through.
+        .background(theme.pane)
         .opacity(appeared ? 1 : 0)
         .onAppear {
             withAnimation(.easeOut(duration: Self.fadeInDuration)) { appeared = true }
@@ -62,26 +70,23 @@ struct PaneLoaderView: View {
     }
 
     @ViewBuilder
-    private var mark: some View {
+    private func mark(size: CGFloat) -> some View {
+        let square = CGSize(width: size, height: size)
         if reduceMotion {
-            trail { _ in 0 }
+            trail(in: square) { _ in 0 }
         } else {
             TimelineView(.animation) { context in
                 let elapsed = context.date.timeIntervalSince(start)
-                trail { delay in PaneLoaderChoreography.mergeProgress(elapsed: elapsed, startDelay: delay) }
+                trail(in: square) { delay in PaneLoaderChoreography.mergeProgress(elapsed: elapsed, startDelay: delay) }
             }
         }
-    }
-
-    private var square: CGSize {
-        CGSize(width: ChromeMetrics.Loader.markSize, height: ChromeMetrics.Loader.markSize)
     }
 
     /// `progress` maps an echo's own start delay to how merged it is right
     /// now (0 rest, 1 merged with the leader). The rest path never moves;
     /// `.offset` is the only thing animated per frame, so a running loader
     /// never forces a layout pass.
-    private func trail(progress: @escaping (Double) -> Double) -> some View {
+    private func trail(in square: CGSize, progress: @escaping (Double) -> Double) -> some View {
         ZStack {
             ForEach(Array(HerdrRamTrail.echoes.enumerated()), id: \.offset) { index, echo in
                 let merge = progress(echo.startDelay)

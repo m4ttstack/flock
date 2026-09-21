@@ -429,8 +429,18 @@ enum ChromeMetrics {
     /// The pane attach loader: the mark over "gathering the flock...", shown
     /// only while a surface's first frame is outstanding.
     enum Loader {
-        static let markSize: CGFloat = 128
         static let spacing: CGFloat = 14
+        /// The mark as a fraction of the pane's shorter side, so it holds up
+        /// in a small split and a full-width pane alike, clamped so it never
+        /// shrinks past legible or grows past absurd.
+        static let markSizeFraction: CGFloat = 0.45
+        static let markSizeMin: CGFloat = 96
+        static let markSizeMax: CGFloat = 220
+
+        static func markSize(paneSize: CGSize) -> CGFloat {
+            let fitted = min(paneSize.width, paneSize.height) * markSizeFraction
+            return min(max(fitted, markSizeMin), markSizeMax)
+        }
     }
 
     enum NoHerdr {

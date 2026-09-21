@@ -3,29 +3,37 @@ import AppKit
 import SwiftUI
 import XCTest
 
-/// The pane attach loader's static composition: the mark and its caption,
-/// forced through the reduced-motion path so the render is deterministic.
-/// The trail's own loop is verified by eye and by `PaneLoaderChoreographyTests`
-/// in FlockCoreTests, never by asserting a frame of a running animation here.
+/// The pane attach loader's static composition, rendered OVER a stand-in for
+/// live terminal content rather than in isolation: an isolated render is
+/// exactly what let the loader ship transparent, with real output showing
+/// straight through it. The trail's own loop is verified by eye and by
+/// `PaneLoaderChoreographyTests` in FlockCoreTests, never by asserting a
+/// frame of a running animation here.
 @MainActor
 final class PaneLoaderViewTests: XCTestCase {
+    /// A colour no pane ground, theme role, or brand mark colour can
+    /// produce, standing in for real terminal output: any pixel of it
+    /// surviving through the loader is the coverage bug back.
+    private static let terminalMarkerColor = Color(red: 1, green: 0, blue: 1)
+    private static let terminalMarkerHex = "#FF00FF"
+
     private struct Probe: View {
-        static let size = CGSize(width: 300, height: 260)
         let theme: Theme
+        let paneSize: CGSize
 
         var body: some View {
             ZStack {
-                theme.pane
+                PaneLoaderViewTests.terminalMarkerColor
                 PaneLoaderView(theme: theme, reducedMotionOverride: true)
             }
-            .frame(width: Self.size.width, height: Self.size.height)
+            .frame(width: paneSize.width, height: paneSize.height)
         }
     }
 
-    private func hostProbe(theme: Theme = .tokyoNight) async -> (window: NSWindow, hosting: NSHostingView<Probe>) {
-        let hosting = NSHostingView(rootView: Probe(theme: theme))
+    private func hostProbe(theme: Theme, paneSize: CGSize) async -> NSWindow {
+        let hosting = NSHostingView(rootView: Probe(theme: theme, paneSize: paneSize))
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: Probe.size),
+            contentRect: NSRect(origin: .zero, size: paneSize),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
@@ -36,7 +44,7 @@ final class PaneLoaderViewTests: XCTestCase {
             hosting.layoutSubtreeIfNeeded()
             try? await Task.sleep(for: .milliseconds(50))
         }
-        return (window, hosting)
+        return window
     }
 
     private func snapshot(_ window: NSWindow, scale: CGFloat = 2) throws -> NSBitmapImageRep {
@@ -61,46 +69,76 @@ final class PaneLoaderViewTests: XCTestCase {
         return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
     }
 
-    /// A human-reviewed PNG plus the one thing a pixel test can actually
-    /// prove for painted vector art: something other than the bare pane
-    /// ground landed in the mark's own square and in the caption's row.
-    func testTheMarkAndCaptionPaintOverThePaneGround() async throws {
-        let theme = Theme.tokyoNight
-        let (window, _) = try await hostProbe(theme: theme)
+    private func render(theme: Theme, paneSize: CGSize, name: String) async throws -> NSBitmapImageRep {
+        let window = await hostProbe(theme: theme, paneSize: paneSize)
         defer { window.close() }
-
         // The fade-in starts at zero opacity; the loader has to actually be
         // visible before any pixel assertion means anything.
         try? await Task.sleep(for: .milliseconds(400))
         let image = try snapshot(window)
         if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("pane-loader.png")
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("pane-loader-\(name).png")
             try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
         }
+        return image
+    }
 
-        let paneHex = theme.palette.chromeRoles.pane.hex
-        var markPixelCount = 0
-        let markBand = CGRect(
-            x: (Probe.size.width - ChromeMetrics.Loader.markSize) / 2, y: 20,
-            width: ChromeMetrics.Loader.markSize, height: ChromeMetrics.Loader.markSize
-        )
-        for y in Int(markBand.minY)..<Int(markBand.maxY) {
-            for x in Int(markBand.minX)..<Int(markBand.maxX) {
-                if hex(image, x: x * 2, y: y * 2) != paneHex {
-                    markPixelCount += 1
-                }
+    /// A human-reviewed PNG at each size, plus the two things a pixel test
+    /// can actually prove: nothing of the marker colour behind the loader
+    /// survives anywhere in the pane (full, opaque coverage), and something
+    /// other than flat pane ground painted (the mark and caption are there).
+    private func assertFullyOpaqueAndPainted(_ image: NSBitmapImageRep, paneSize: CGSize, groundHex: String) {
+        var markerPixelCount = 0
+        var nonGroundPixelCount = 0
+        for y in stride(from: 0, to: image.pixelsHigh, by: 3) {
+            for x in stride(from: 0, to: image.pixelsWide, by: 3) {
+                guard let sampled = hex(image, x: x, y: y) else { continue }
+                if sampled == Self.terminalMarkerHex { markerPixelCount += 1 }
+                if sampled != groundHex { nonGroundPixelCount += 1 }
             }
         }
-        XCTAssertGreaterThan(markPixelCount, 500, "no ram-shaped paint landed in the mark's own square")
+        XCTAssertEqual(markerPixelCount, 0, "terminal content showed through the loader at pane size \(paneSize)")
+        XCTAssertGreaterThan(nonGroundPixelCount, 50, "nothing painted over the ground at pane size \(paneSize)")
+    }
 
-        var captionPixelCount = 0
-        for y in Int(markBand.maxY)..<Int(Probe.size.height) {
-            for x in 0..<Int(Probe.size.width) {
-                if hex(image, x: x * 2, y: y * 2) != paneHex {
-                    captionPixelCount += 1
-                }
-            }
-        }
-        XCTAssertGreaterThan(captionPixelCount, 20, "no caption text painted below the mark")
+    func testTheLoaderFullyCoversTerminalContentAtASmallSplitSize() async throws {
+        let theme = Theme.tokyoNight
+        let paneSize = CGSize(width: 240, height: 160)
+        let image = try await render(theme: theme, paneSize: paneSize, name: "small")
+        assertFullyOpaqueAndPainted(image, paneSize: paneSize, groundHex: theme.palette.chromeRoles.pane.hex)
+    }
+
+    func testTheLoaderFullyCoversTerminalContentAtAMediumPaneSize() async throws {
+        let theme = Theme.tokyoNight
+        let paneSize = CGSize(width: 520, height: 360)
+        let image = try await render(theme: theme, paneSize: paneSize, name: "medium")
+        assertFullyOpaqueAndPainted(image, paneSize: paneSize, groundHex: theme.palette.chromeRoles.pane.hex)
+    }
+
+    func testTheLoaderFullyCoversTerminalContentAtAFullWidthPaneSize() async throws {
+        let theme = Theme.tokyoNight
+        let paneSize = CGSize(width: 1000, height: 640)
+        let image = try await render(theme: theme, paneSize: paneSize, name: "large")
+        assertFullyOpaqueAndPainted(image, paneSize: paneSize, groundHex: theme.palette.chromeRoles.pane.hex)
+    }
+}
+
+/// The mark's own size rule: a fraction of the pane's shorter side, clamped
+/// at both ends. Pure CGFloat/CGSize arithmetic, so this needs no host
+/// window -- it just has to never regress back to a fixed constant.
+final class ChromeMetricsLoaderSizingTests: XCTestCase {
+    func testScalesWithTheShorterSideWithinBounds() {
+        let size = ChromeMetrics.Loader.markSize(paneSize: CGSize(width: 900, height: 400))
+        XCTAssertEqual(size, 400 * ChromeMetrics.Loader.markSizeFraction, accuracy: 0.01)
+    }
+
+    func testClampsToTheMinimumInANarrowSplit() {
+        let size = ChromeMetrics.Loader.markSize(paneSize: CGSize(width: 150, height: 120))
+        XCTAssertEqual(size, ChromeMetrics.Loader.markSizeMin)
+    }
+
+    func testClampsToTheMaximumInAVeryLargePane() {
+        let size = ChromeMetrics.Loader.markSize(paneSize: CGSize(width: 2000, height: 1400))
+        XCTAssertEqual(size, ChromeMetrics.Loader.markSizeMax)
     }
 }
