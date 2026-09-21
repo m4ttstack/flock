@@ -295,7 +295,12 @@ struct PaneCellView: View {
     /// remainder is plain ground).
     private func box(editorIsOpen: Bool) -> some View {
         content(editorIsOpen: editorIsOpen)
-            .frame(width: surfaceSize.width, height: surfaceSize.height)
+            // `.topLeading`, not the default centre: while a divider drag has
+            // the surface frozen it is WIDER than this frame, and a centred
+            // overflow clips both edges, taking the start of every line with
+            // it. Anchoring left means the text the user is reading stays put
+            // and the clip only ever eats the far end of the lines.
+            .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(Self.contentInsets)
             .background(theme.pane)
