@@ -207,11 +207,11 @@ r4, pad 3/8, gap 6. Three children, and a fourth only when there is unread:
 
 | Child | Size | Colour | Type |
 | --- | --- | --- | --- |
-| Handle | 18x12 | `green` | 10/600, the handle with NO `@` prefix |
+| Handle | h12, WIDTH FROM THE TEXT | `green` | 10/600, the handle with NO `@` prefix |
 | Icon | 11x11 | `green` | `bubble.left.fill` |
-| Count | 7x12 | `text` | 10/600, present only when unread is non-zero |
+| Count | h12, WIDTH FROM THE TEXT | `text` | 10/600, present only when unread is non-zero |
 
-**This overrides the canvas in four ways, deliberately, and none of them may be
+**This overrides the canvas in five ways, deliberately, and none of them may be
 "corrected" back.** The canvas draws a fixed 71x18 pill, handle and glyph in
 `accent`, an `accent` stroke, and a 1x9 `surface1` divider between handle and
 glyph. Every one of those was wrong in the running app:
@@ -226,6 +226,16 @@ glyph. Every one of those was wrong in the running app:
   absent, so a zero-unread button carried a permanent empty gap where the
   number would go. Sizing to content trades a rare reflow when a message
   lands for a gap that was visible all the time.
+- **No fixed width ON THE CHILDREN EITHER, which is a separate rule.** The
+  table above once read "Handle 18x12", the measured width of the single
+  handle the canvas happened to draw. A button that sizes to content around a
+  child pinned to one name's width still clips every wider name, and it does
+  it unevenly: "nell" fits in 18pt because two `l`s are barely there, while
+  "olga" renders as "o...". **A handle is somebody's name and is never
+  abbreviated.** The text sizes to itself, refuses to compress
+  (`fixedSize`), and the pane title is what gives when the legend runs out of
+  room. The same applies to the count, which the canvas drew as a single
+  digit.
 
 The count is `palette.text`, not `accent` and not `panelBg`: it differs from the
 unread pills in the popover and peek, which are `panelBg` on an `accent` ground.

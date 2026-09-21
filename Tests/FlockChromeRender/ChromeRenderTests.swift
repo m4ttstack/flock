@@ -23,14 +23,37 @@ final class ChromeRenderTests: XCTestCase {
         "catppuccin-latte", "tokyo-night-day", "gruvbox-light", "one-light",
         "solarized-light", "kanagawa-lotus", "rose-pine-dawn",
     ]
+    /// A string's drawn width in the handle's own face. Every expectation
+    /// about the button's width starts here, because the button's width
+    /// starts at the handle's: a name is never abbreviated, so the text sizes
+    /// to itself and the button grows around it.
+    ///
+    /// AppKit's measurement, not SwiftUI's, which has no public equivalent.
+    /// The two agree to about a point, so every width assertion built on this
+    /// carries a tolerance of `textLayoutSlack` rather than claiming an exact
+    /// match it cannot make. What that still catches is the thing worth
+    /// catching: a fixed frame, which is off by the whole difference between
+    /// the frame and the text, or does not move between two names at all.
+    private static let textLayoutSlack: CGFloat = 2
+
+    private static func handleTextWidth(_ text: String) -> CGFloat {
+        let font = NSFont(
+            name: ChromeType.chatButtonHandleWeight.postScriptName, size: ChromeType.chatButtonHandleSize
+        )
+        return NSAttributedString(string: text, attributes: [.font: font as Any]).size().width
+    }
+
     /// The signed-in chat button's content-derived width with no unread:
     /// leading and trailing padding around the handle, one gap, the glyph.
-    private static let chatButtonNoUnreadWidth =
-        ChromeMetrics.ChatButton.horizontalPadding * 2 + ChromeMetrics.ChatButton.handleSize.width
+    private static func chatButtonNoUnreadWidth(handle: String) -> CGFloat {
+        ChromeMetrics.ChatButton.horizontalPadding * 2 + handleTextWidth(handle)
             + ChromeMetrics.ChatButton.gap + ChromeMetrics.ChatButton.iconSize.width
-    /// The same button with a count child: one more gap and the count's slot.
-    private static let chatButtonWithUnreadWidth =
-        chatButtonNoUnreadWidth + ChromeMetrics.ChatButton.gap + ChromeMetrics.ChatButton.countSize.width
+    }
+
+    /// The same button with a count child: one more gap and the count's text.
+    private static func chatButtonWithUnreadWidth(handle: String, unread: Int) -> CGFloat {
+        chatButtonNoUnreadWidth(handle: handle) + ChromeMetrics.ChatButton.gap + handleTextWidth("\(unread)")
+    }
 
     override func tearDown() {
         UserDefaults().removePersistentDomain(forName: Self.defaultsSuite)
@@ -80,7 +103,7 @@ final class ChromeRenderTests: XCTestCase {
             try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
         }
         let signedInBox = try XCTUnwrap(signedIn.drag.canvas.paneFrames[pane])
-        let noUnreadSize = CGSize(width: Self.chatButtonNoUnreadWidth, height: ChromeMetrics.ChatButton.signedInHeight)
+        let noUnreadSize = CGSize(width: Self.chatButtonNoUnreadWidth(handle: "kay"), height: ChromeMetrics.ChatButton.signedInHeight)
         let signedInFrame = Self.chatButtonFrame(inRawFrame: signedInBox, size: noUnreadSize)
         // Measured against the render, not assumed: this is what catches a
         // fixed frame coming back, which an assumed size cannot.
@@ -97,7 +120,7 @@ final class ChromeRenderTests: XCTestCase {
             "no selectionBg pixel on the legend row -- the chat button did not draw"
         )
         XCTAssertEqual(
-            measuredMaxX - measuredMinX, Self.chatButtonNoUnreadWidth, accuracy: 0.5,
+            measuredMaxX - measuredMinX, Self.chatButtonNoUnreadWidth(handle: "kay"), accuracy: Self.textLayoutSlack,
             "signed-in width sized to content with no unread, not a fixed frame"
         )
         // Inside the leading padding, ahead of the handle text: the frame's
@@ -141,6 +164,52 @@ final class ChromeRenderTests: XCTestCase {
             theme.palette.surface0.hex, "signed-out carries no separate stroke"
         )
         signedOutWindow.close()
+    }
+
+    /// A handle is somebody's name and is never abbreviated, so the button
+    /// grows to hold it.
+    ///
+    /// The handle used to sit in an 18pt frame taken from the canvas, which is
+    /// the width of the one handle the canvas happened to draw. That fits
+    /// "nell", whose two `l`s are barely there, and clips "olga" at "o...".
+    /// Measuring one handle could never have caught that; this measures two of
+    /// the same LENGTH and different widths, which is the actual shape of the
+    /// bug.
+    func testAWiderHandleGetsAWiderButtonRatherThanAnEllipsis() async throws {
+        let theme = Theme.tokyoNight
+        let pane = PaneID(rawValue: "w1:p2")
+
+        func buttonWidth(handle: String) async throws -> CGFloat {
+            // Two pound signs: the room name puts a `"#` inside the literal,
+            // which ends a single-pound raw string right there.
+            let json = ##"{"handle":"@\##(handle)","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}"##
+            let harness = try await Harness(theme: theme, chatAvailable: true, chatStatusJSON: [pane: json])
+            let window = harness.makeWindow(size: Self.windowSize)
+            defer { window.close() }
+            await settle(window)
+            let image = try snapshot(window)
+            let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
+            let insetBox = PaneBox.frame(in: box, dividerThickness: DividerBand.gutter)
+            let legendY = insetBox.minY + PaneChrome.verticalPadding + ChromeMetrics.ChatButton.signedInHeight / 2
+            let scanFrom = insetBox.midX
+            let scanTo = insetBox.maxX - PaneChrome.horizontalPadding
+            let fill = theme.palette.selectionBg.hex
+            let minX = try XCTUnwrap(firstX(image, y: legendY, from: scanFrom, to: scanTo, matching: fill))
+            let maxX = try XCTUnwrap(lastX(image, y: legendY, from: scanFrom, to: scanTo, matching: fill))
+            return maxX - minX
+        }
+
+        let narrow = try await buttonWidth(handle: "nell")
+        let wide = try await buttonWidth(handle: "olga")
+
+        XCTAssertGreaterThan(
+            wide, narrow,
+            "'olga' and 'nell' are both four characters but not the same width; a button that draws them identically is clipping one"
+        )
+        XCTAssertEqual(
+            wide - narrow, Self.handleTextWidth("olga") - Self.handleTextWidth("nell"), accuracy: Self.textLayoutSlack,
+            "the button grew by something other than the difference between the two names"
+        )
     }
 
     /// A machine with no chat binary draws no button: the legend's corner
@@ -187,7 +256,7 @@ final class ChromeRenderTests: XCTestCase {
         // point `testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSizeAndHex`
         // reads for each state on its own.
         let frame = Self.chatButtonFrame(
-            inRawFrame: box, size: CGSize(width: Self.chatButtonNoUnreadWidth, height: ChromeMetrics.ChatButton.signedInHeight)
+            inRawFrame: box, size: CGSize(width: Self.chatButtonNoUnreadWidth(handle: "kay"), height: ChromeMetrics.ChatButton.signedInHeight)
         )
         XCTAssertEqual(
             hex(image, CGPoint(x: frame.maxX - 0.5, y: frame.midY)),
@@ -242,25 +311,30 @@ final class ChromeRenderTests: XCTestCase {
         // past the no-unread button's own measured width instead of matching
         // it, since a fixed frame draws the same width either way.
         XCTAssertEqual(
-            buttonMaxX - buttonMinX, Self.chatButtonWithUnreadWidth, accuracy: 0.5,
+            buttonMaxX - buttonMinX, Self.chatButtonWithUnreadWidth(handle: "kay", unread: 3), accuracy: Self.textLayoutSlack,
             "signed-in width sized to content with unread present"
         )
         XCTAssertGreaterThan(
-            buttonMaxX - buttonMinX, Self.chatButtonNoUnreadWidth,
+            buttonMaxX - buttonMinX, Self.chatButtonNoUnreadWidth(handle: "kay"),
             "the with-unread button is not wider than the empty one -- a fixed frame came back"
         )
-        // pad(8) + handle(18) + gap(6) + icon(11) + gap(6): the count's own
-        // slot starts 49pt past the button's own leading edge. A single digit
-        // at this size antialiases across its whole slot with no pixel at
-        // full coverage (confirmed by dumping the row: the closest sampled
-        // pixel to `palette.text` was #B5BEE9, twelve units off in the worst
-        // channel, against a plain background over a hundred units off) --
-        // so this takes the CLOSEST pixel in the slot rather than demanding
+        // Leading padding, the handle's own drawn width, a gap, the glyph and
+        // another gap: where the count starts is derived rather than written
+        // down, because the handle's width is now the text's and a constant
+        // here would be a second, stale answer for it.
+        //
+        // A single digit at this size antialiases across its whole slot with
+        // no pixel at full coverage (confirmed by dumping the row: the closest
+        // sampled pixel to `palette.text` was #B5BEE9, twelve units off in the
+        // worst channel, against a plain background over a hundred units off)
+        // -- so this takes the CLOSEST pixel in the slot rather than demanding
         // an exact match, the same tolerance the file's own
         // `channelDistance`/`washDither` pattern uses for opacity blends.
-        let countSlotStart = buttonMinX + 49
+        let countSlotStart = buttonMinX + ChromeMetrics.ChatButton.horizontalPadding
+            + Self.handleTextWidth("kay") + ChromeMetrics.ChatButton.gap
+            + ChromeMetrics.ChatButton.iconSize.width + ChromeMetrics.ChatButton.gap
         let countDistance = minChannelDistance(
-            image, y: legendY, from: countSlotStart, to: countSlotStart + ChromeMetrics.ChatButton.countSize.width,
+            image, y: legendY, from: countSlotStart, to: countSlotStart + Self.handleTextWidth("3"),
             target: theme.palette.text.hex
         )
         XCTAssertLessThanOrEqual(

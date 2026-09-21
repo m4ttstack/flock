@@ -47,7 +47,14 @@ enum ChromeType {
 
     static let paneTitle = inter(11.5, .medium)
     static let statusChip = mono(11.5)
-    static let chatButtonHandle = inter(10, .semibold)
+    /// Named apart from the `Font` so a test can measure the handle in the
+    /// exact face that draws it. The button's width now follows the handle's
+    /// own text, so an expectation about that width has to start from the
+    /// same face; a test that names the face itself is a second source of
+    /// truth for it.
+    static let chatButtonHandleWeight = Weight.semibold
+    static let chatButtonHandleSize: CGFloat = 10
+    static let chatButtonHandle = inter(chatButtonHandleSize, chatButtonHandleWeight)
     static let chatPopoverTitle = inter(14, .semibold)
     static let chatPopoverHandle = inter(13, .semibold)
     static let chatPopoverStateWord = inter(12)

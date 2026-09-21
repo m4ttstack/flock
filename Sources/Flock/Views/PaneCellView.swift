@@ -445,11 +445,16 @@ struct PaneCellView: View {
         case let .signedIn(handle, unread):
             Button(action: { openChatPopover() }) {
                 HStack(spacing: ChromeMetrics.ChatButton.gap) {
+                    // `fixedSize` as well as no width: a handle is someone's
+                    // name and is never shortened, so it has to refuse to
+                    // compress even when the legend row runs out of room.
+                    // What gives instead is the pane title, which truncates.
                     Text(handle)
                         .font(ChromeType.chatButtonHandle)
                         .foregroundStyle(theme.green)
                         .lineLimit(1)
-                        .frame(width: ChromeMetrics.ChatButton.handleSize.width, height: ChromeMetrics.ChatButton.handleSize.height, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(height: ChromeMetrics.ChatButton.handleHeight, alignment: .leading)
                     chatGlyph(color: theme.green)
                         .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
                     if unread > 0 {
@@ -457,7 +462,8 @@ struct PaneCellView: View {
                             .font(ChromeType.chatButtonHandle)
                             .foregroundStyle(theme.text)
                             .lineLimit(1)
-                            .frame(width: ChromeMetrics.ChatButton.countSize.width, height: ChromeMetrics.ChatButton.countSize.height, alignment: .leading)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(height: ChromeMetrics.ChatButton.countHeight, alignment: .leading)
                     }
                 }
                 .padding(.vertical, ChromeMetrics.ChatButton.verticalPadding)

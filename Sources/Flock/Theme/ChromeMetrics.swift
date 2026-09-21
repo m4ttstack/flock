@@ -169,9 +169,16 @@ enum ChromeMetrics {
         static let verticalPadding: CGFloat = 3
         static let horizontalPadding: CGFloat = 8
         static let gap: CGFloat = 6
-        static let handleSize = CGSize(width: 18, height: 12)
+        /// Height only. The width the canvas drew was 18pt, the width of the
+        /// one handle it happened to contain, and pinning to it clipped any
+        /// name that measured wider -- "nell" fits where "olga" does not,
+        /// because two narrow `l`s are not four average characters. A name is
+        /// never abbreviated, so the text sizes to itself and the button
+        /// grows.
+        static let handleHeight: CGFloat = 12
         static let iconSize = CGSize(width: 11, height: 11)
-        static let countSize = CGSize(width: 7, height: 12)
+        /// Height only, for the same reason: the canvas drew a single digit.
+        static let countHeight: CGFloat = 12
     }
 
     /// The chat button's popover: the plugin's launcher, six bands stacked
