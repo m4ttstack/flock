@@ -277,6 +277,13 @@ add `.onOpenURL` to its content view, alongside the existing modifiers:
 ```swift
             .onOpenURL { url in
                 guard case let .focusPane(pane) = FlockURL.parse(url) else { return }
+                // Membership before activation, not after. `parse` validates
+                // the URL's SHAPE only, and `focusPane(byID:)` does its own
+                // model check asynchronously, so activating first would raise
+                // the window for a pane that no longer exists and then do
+                // nothing... a visible side effect where the spec promises
+                // silence.
+                guard viewModel.model?.panes[pane] != nil else { return }
                 // Explicit, rather than relying on how the URL was opened:
                 // the caller opens it WITHOUT activating, so that a request
                 // flock decides to ignore never steals the foreground.
