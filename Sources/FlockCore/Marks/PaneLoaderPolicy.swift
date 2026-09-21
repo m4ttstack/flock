@@ -8,7 +8,7 @@ public enum PaneLoaderPolicy {
     /// How long the loader takes to cross-fade into the live terminal.
     /// Seconds rather than `Duration` because SwiftUI's animation curves
     /// take a `Double` and there is one consumer.
-    public static let dismissCrossFade: Double = 0.15
+    public static let dismissCrossFade: Double = 0.1
 
     /// Half a cross-fade short of one whole trail loop, so the fade straddles
     /// the moment the echoes reach full spread rather than beginning there.

@@ -20,7 +20,7 @@ public enum HerdrRamTrail {
 
     public static let echoCount = 3
     /// Seconds between one echo's start and the next.
-    public static let staggerDelay: Double = 0.05
+    public static let staggerDelay: Double = 0.035
 
     public static let echoes: [Echo] = (0..<echoCount).map { index in
         Echo(

@@ -25,8 +25,8 @@ struct PaneLoaderView: View {
 
     private var reduceMotion: Bool { reducedMotionOverride ?? systemReduceMotion }
 
-    private static let fadeInDuration = 0.25
-    private static let dotCycleInterval = 0.5
+    private static let fadeInDuration = 0.18
+    private static let dotCycleInterval = 0.3
 
     var body: some View {
         GeometryReader { proxy in

@@ -5,9 +5,9 @@ import Foundation
 /// per echo. Pure and clock-free so the stagger and the easing shape are
 /// testable without driving an animation.
 public enum PaneLoaderChoreography {
-    public static let gatherDuration: Double = 0.45
-    public static let holdDuration: Double = 0.25
-    public static let driftDuration: Double = 0.8
+    public static let gatherDuration: Double = 0.32
+    public static let holdDuration: Double = 0.18
+    public static let driftDuration: Double = 0.55
     /// One whole gather-hold-release. `PaneLoaderPolicy.minimumDisplay` is
     /// derived from this so the loader's dismissal lands on the end of a
     /// loop, where the trail is at full spread; changing any of the three

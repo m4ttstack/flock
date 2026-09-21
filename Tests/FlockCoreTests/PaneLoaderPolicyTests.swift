@@ -7,8 +7,8 @@ final class PaneLoaderPolicyTests: XCTestCase {
     /// The one place the floor's actual value is asserted, so a choreography
     /// change that moves it cannot pass unnoticed. Every other test below
     /// reads the constant.
-    func testTheFloorWorksOutTo1425ms() {
-        XCTAssertEqual(PaneLoaderPolicy.minimumDisplay, .milliseconds(1425))
+    func testTheFloorWorksOutTo1000ms() {
+        XCTAssertEqual(PaneLoaderPolicy.minimumDisplay, .milliseconds(1000))
     }
 
     /// Why that number: the dismissal cross-fade straddles the end of a trail

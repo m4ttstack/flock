@@ -5,7 +5,7 @@ final class HerdrRamTrailTests: XCTestCase {
     func testEachEchoStartsLaterThanTheOneClosestToTheLeader() {
         let delays = HerdrRamTrail.echoes.map(\.startDelay)
 
-        XCTAssertEqual(delays, [0, 0.05, 0.1])
+        XCTAssertEqual(delays, [0, 0.035, 0.07])
     }
 
     /// Mirrors `make-icon.swift`'s own `back` and alpha: the farthest echo

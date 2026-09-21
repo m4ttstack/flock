@@ -44,31 +44,37 @@ The echoes step back at the SAME scale as the leader. Scaling them down would
 read as three animals standing at different distances rather than one animal
 moving.
 
-## Minimum display: 1425ms
+## Minimum display: 1000ms
 
-Ruled by Matt on 2026-09-20 at 2000ms, then lowered the same evening after
-seeing it run. Once the loader is shown it stays for at least that long, even
-when the first frame arrives sooner.
+Ruled by Matt on 2026-09-20 at 2000ms, then walked down the same evening,
+through 1500 and 1425, to 1000 once he had watched each one attach for real.
+Once the loader is shown it stays for at least that long, even when the first
+frame arrives sooner.
 
 This is a deliberate trade and it is worth stating plainly: it makes flock
 slower on purpose. A pane that could have shown content in 80ms will hold the
-loader for about a second and a half, and a workspace opening four panes holds
-all four (concurrently, so once, not four times over). The gain is that the
-moment is actually seen instead of flickering past.
+loader for a second, and a workspace opening four panes holds all four
+(concurrently, so once, not four times over). The gain is that the moment is
+actually seen instead of flickering past.
 
 **The floor is not a free number: it is derived from the trail's loop.** The
-dismissal is a 150ms cross-fade, and it is positioned to straddle the end of a
-loop, where the echoes have drifted back to full spread and are momentarily
-still:
+dismissal is a 100ms cross-fade, positioned to straddle the end of a loop,
+where the echoes have drifted back to full spread and are momentarily still:
 
 ```
 minimumDisplay = loopDuration - crossFade / 2
-               = 1.5s         - 0.075s        = 1.425s
+               = 1.05s        - 0.05s        = 1.0s
 ```
 
 So the widest, most colourful frame of the trail is what the fade is centred
 on. Starting the fade at the loop's end instead leaves the echoes visibly
-gathering again underneath it, which is what 1500ms did.
+gathering again underneath it.
+
+The whole gesture was scaled to fit, not clipped: every phase came down by the
+same factor, so the gather, the hold and the drift keep their proportions to
+one another. The stagger between echoes, the loader's own fade in, and the
+ellipsis came down with them, because leaving any of those at the old speed
+makes the rest look hurried next to it.
 
 Changing any phase of the choreography moves the floor with it automatically.
 Wanting a different floor means changing the loop, not the floor.

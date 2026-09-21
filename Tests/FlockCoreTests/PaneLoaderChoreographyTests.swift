@@ -4,8 +4,8 @@ import XCTest
 final class PaneLoaderChoreographyTests: XCTestCase {
     /// `PaneLoaderPolicyTests` owns how this lines up with the display
     /// floor, since the floor is what is derived from it.
-    func testOneLoopIsASecondAndAHalf() {
-        XCTAssertEqual(PaneLoaderChoreography.loopDuration, 1.5, accuracy: 0.0001)
+    func testOneLoopIsJustOverASecond() {
+        XCTAssertEqual(PaneLoaderChoreography.loopDuration, 1.05, accuracy: 0.0001)
     }
 
     func testFullySeparatedAtTheStartOfItsOwnCycle() {
