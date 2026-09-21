@@ -6,8 +6,10 @@ import SwiftUI
 /// a loop. `PaneCellView` decides how long this stays on screen
 /// (`PaneLoaderPolicy`); this view only draws the mark and drives its clock.
 ///
-/// The echoes' rest position and colour steps are `HerdrRamTrail`'s, shared
-/// with the app icon so this can never trace a different animal. Only the
+/// The echoes' rest position and the mark's own brand colours are
+/// `HerdrRamTrail`'s, shared with the app icon so this can never trace a
+/// different animal or repaint it in the active theme. Only the ellipsis and
+/// the caption's own text colour follow `theme`; the mark does not. Only the
 /// echoes move -- the leader is what they are catching up TO, so it never
 /// itself moves or scales.
 struct PaneLoaderView: View {
@@ -90,7 +92,7 @@ struct PaneLoaderView: View {
                     .offset(x: offset.width, y: offset.height)
             }
             Path(HerdrRamTrail.path(in: square))
-                .fill(theme.accent)
+                .fill(Color(HerdrRamTrail.Colors.leader))
         }
         .frame(width: square.width, height: square.height)
         // `HerdrRamTrail.path` is fit the way `make-icon.swift` fits it into
@@ -102,10 +104,6 @@ struct PaneLoaderView: View {
     }
 
     private func echoColor(_ index: Int) -> Color {
-        switch index {
-        case 0: theme.blue
-        case 1: theme.mauve
-        default: theme.red
-        }
+        Color(HerdrRamTrail.Colors.echoes[index])
     }
 }

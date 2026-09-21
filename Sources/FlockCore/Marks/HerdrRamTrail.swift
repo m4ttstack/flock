@@ -30,6 +30,23 @@ public enum HerdrRamTrail {
         )
     }
 
+    /// The mark's own brand colours, lifted verbatim from
+    /// `Scripts/make-icon.swift`. This is a logo, not chrome: it has to read
+    /// the same ram under every pane theme, the way the app icon itself does
+    /// not repaint per theme, so these never come from `ThemePalette` --
+    /// picking them from the active theme was tried and reverted, because a
+    /// theme with a green or orange accent turned the ram a colour that read
+    /// as a different mark entirely.
+    public enum Colors {
+        public static let leader = RGB(0xD8, 0xAD, 0xFE)
+        /// One entry per `echoes` index: farthest from the leader first.
+        public static let echoes: [RGB] = [
+            RGB(0x6A, 0x8A, 0xEF),
+            RGB(0xA3, 0x7A, 0xEF),
+            RGB(0xE0, 0x84, 0xD4),
+        ]
+    }
+
     private static let insetFraction: CGFloat = 0.086
     private static let marginFraction: CGFloat = 0.19
     private static let heightFillFraction: CGFloat = 0.87
