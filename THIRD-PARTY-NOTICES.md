@@ -4,6 +4,20 @@ Flock vendors and derives from the third-party software below, which
 remains under its own license regardless of any license Flock itself
 carries.
 
+Flock is licensed under the Business Source License 1.1 (see `LICENSE`), with a
+Change Date of 2030-09-20 and MIT as the Change License. That choice is
+constrained rather than free. The files listed under Herdglass below carry
+derived code, and Herdglass's own BSL-1.1 grant permits production use and
+redistribution while barring anyone from offering the work or a derivative work
+"as a commercial terminal emulator, terminal multiplexer, or remote-session
+client product or service". Flock is exactly such a client, so its Additional
+Use Grant repeats that carve-out word for word rather than widening it.
+Licensing Flock under MIT or Apache-2.0 would purport to grant rights over the
+derived portions that Herdglass does not grant.
+
+Herdglass's own Change Date is 2030-08-21, one month before Flock's, after which
+its portions become MIT.
+
 ---
 
 ## Herdglass
