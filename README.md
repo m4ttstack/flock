@@ -49,10 +49,17 @@ Product > Archive also builds Release now, but it uses the configuration's own
 `CODE_SIGN_IDENTITY`, which is ad-hoc: an archive made that way looks like a
 release artifact and is signed by nobody.
 
-Nothing here notarizes, so `spctl -a -vv` reports `rejected` /
-`source=Unnotarized Developer ID` on every build the script makes. That is
-the expected outcome, not a failure, and the script says so rather than
-exiting non-zero on it.
+With a Developer ID signature, the script also submits the bundle for
+notarization (`xcrun notarytool submit --wait`, keychain profile
+`flock-notary` by default) and staples the ticket on success, so the
+distributed artifact passes `spctl -a -vv` (`accepted` /
+`source=Notarized Developer ID`) on a machine with no prior trust of this
+Developer ID. An ad-hoc build is never a notarization candidate (Apple
+requires Developer ID) and `spctl` rejecting it is expected, not a failure.
+A Developer ID build with no notarization credential configured skips
+notarization with setup instructions rather than failing, since the
+signed artifact it already produced is real. See `--help` for the
+credential and `--skip-notarize`/`--skip-verify` flags.
 
 The bundle is single-architecture: `Vendor/GhosttyKit.xcframework` is built
 for the architecture of the machine that ran `Scripts/libghostty.sh`, so
@@ -60,3 +67,18 @@ there is no second slice to link.
 
 See `THIRD-PARTY-NOTICES.md` for the licenses of vendored and derived
 third-party components.
+
+## Dev build
+
+```bash
+Scripts/dev-build.sh
+```
+
+Builds `build/dev/Flock-dev.app`: same sources, ad-hoc signed, distinct
+bundle id (`dev.mattstack.Flock.dev` vs the release build's
+`dev.mattstack.Flock`) and product name, so it installs and runs side by
+side with a release Flock.app without either shadowing the other. The
+point is to rebuild and re-test without a `/Applications` install in the
+way: rerun the script after an edit and reopen the same
+`build/dev/Flock-dev.app` path. Never notarized, never meant to leave this
+machine.
