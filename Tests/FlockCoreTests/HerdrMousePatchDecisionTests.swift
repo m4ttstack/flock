@@ -6,7 +6,7 @@ import XCTest
 /// out -- no filesystem, no herdr, nothing to mock.
 final class HerdrMousePatchDecisionTests: XCTestCase {
     private let installPath = "/Users/matt/.local/bin/herdr"
-    private let backupPath = "/Users/matt/.local/bin/herdr.pre-flock-mouse-backup"
+    private let backupPath = "/Users/matt/.local/bin/herdr.pre-mouse-backup"
 
     private func decide(
         hasVerbs: Bool, hasBackup: Bool, versionSupported: Bool = true,

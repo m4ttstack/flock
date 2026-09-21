@@ -120,7 +120,7 @@ reads back to the user.
 
 The sequence proved by hand on 2026-09-18, and the reason for each step:
 
-1. Copy the existing herdr beside itself as `herdr.pre-flock-mouse-backup`.
+1. Copy the existing herdr beside itself as `herdr.pre-mouse-backup`.
    A backup the user can find and restore by hand, without flock.
 2. Write the new binary to a temporary name in the same directory, so the
    rename is atomic and cannot leave a half-written file where herdr was.

@@ -28,8 +28,12 @@ public enum HerdrMousePatchInstaller {
         public let versionSupported: Bool
     }
 
+    /// Matches the name the owner's own hand-verified install already uses
+    /// on this machine (`herdr.pre-mouse-backup`): detection and creation
+    /// share one constant, so a future install recognizes a backup that is
+    /// already there instead of trying to make a second one beside it.
     public static func backupPath(for binaryPath: String) -> String {
-        sibling(of: binaryPath, suffix: ".pre-flock-mouse-backup")
+        sibling(of: binaryPath, suffix: ".pre-mouse-backup")
     }
 
     public static func stagingPath(for binaryPath: String) -> String {

@@ -6,7 +6,7 @@ import XCTest
 /// than just its shape.
 final class HerdrMousePatchCopyTests: XCTestCase {
     private let installPath = "/Users/matt/.local/bin/herdr"
-    private let backupPath = "/Users/matt/.local/bin/herdr.pre-flock-mouse-backup"
+    private let backupPath = "/Users/matt/.local/bin/herdr.pre-mouse-backup"
 
     func testSupportedByHerdrOffersNoAction() {
         XCTAssertNil(HerdrMousePatchCopy.actionTitle(for: .supportedByHerdr))
