@@ -579,7 +579,7 @@ struct PaneCellView: View {
     /// hierarchy (opacity 0, under the loader) from the start, not swapped
     /// in only once ready. Its opacity follows `showsAttachLoader`, not
     /// `hasFirstFrame` directly: the loader holds the screen through its own
-    /// 2000ms floor even after the real frame has arrived, and revealing the
+    /// display floor even after the real frame has arrived, and revealing the
     /// surface the instant `hasFirstFrame` flips would show live content
     /// UNDER an opaque loader for that whole remaining hold, then have
     /// nothing left to crossfade when the loader finally goes. A warm

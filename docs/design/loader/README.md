@@ -44,19 +44,23 @@ The echoes step back at the SAME scale as the leader. Scaling them down would
 read as three animals standing at different distances rather than one animal
 moving.
 
-## Minimum display: 2000ms
+## Minimum display: 1500ms
 
-Ruled by Matt on 2026-09-20. Once the loader is shown it stays for at least two
-seconds, even when the first frame arrives sooner.
+Ruled by Matt on 2026-09-20 at 2000ms, lowered to 1500ms the same evening after
+seeing it run. Once the loader is shown it stays for at least that long, even
+when the first frame arrives sooner.
 
 This is a deliberate trade and it is worth stating plainly: it makes flock
 slower on purpose. A pane that could have shown content in 80ms will hold the
-loader for 2s, and a workspace opening four panes holds all four (concurrently,
-so 2s total rather than 8s). The gain is that the moment is actually seen
-instead of flickering past.
+loader for 1.5s, and a workspace opening four panes holds all four
+(concurrently, so 1.5s total rather than 6s). The gain is that the moment is
+actually seen instead of flickering past.
 
-It is one constant. If two seconds wears thin in daily use, lower it; the
-shape of the feature does not change.
+**The trail's loop is sized to this number, not the other way round.** One
+gather-hold-release is `PaneLoaderChoreography.loopDuration`, and it is set to
+land inside the floor so the guaranteed window always contains a whole gesture.
+Lowering the floor again means shortening the loop with it, or the release gets
+cut off mid-drift on every fast attach.
 
 ## Size: 128pt
 
@@ -78,5 +82,5 @@ Alongside it:
 No breathing or pulsing scale. An earlier draft proposed one as a substitute
 for real motion, and with the trail moving it would only compete.
 
-The 2000ms minimum is what makes any of this worth building. At the 80ms a fast
+The display floor is what makes any of this worth building. At the 80ms a fast
 attach actually takes, every one of these would be invisible.

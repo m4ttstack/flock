@@ -5,7 +5,7 @@ import Foundation
 /// attach still holds until `shownAt + minimum`, but a slow one dismisses
 /// the instant its frame arrives, with no extra delay added on top.
 public enum PaneLoaderPolicy {
-    public static let minimumDisplay: Duration = .milliseconds(2000)
+    public static let minimumDisplay: Duration = .milliseconds(1500)
 
     public static func dismissAt(
         shownAt: ContinuousClock.Instant,

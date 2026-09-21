@@ -2,10 +2,15 @@ import XCTest
 @testable import FlockCore
 
 final class PaneLoaderChoreographyTests: XCTestCase {
-    func testTheLoopIsOneCompleteGestureAgainstTheDisplayFloor() {
-        // One loop should read as roughly one gesture against the 2000ms
-        // minimum the loader is guaranteed to be on screen for.
-        XCTAssertEqual(PaneLoaderChoreography.loopDuration, 1.6, accuracy: 0.0001)
+    /// The old version of this asserted the loop's literal length and named
+    /// the floor only in a comment, so it could not have caught the floor
+    /// moving out from under it. It now compares the two.
+    func testTheLoopCompletesInsideTheDisplayFloor() {
+        let floor = Double(PaneLoaderPolicy.minimumDisplay.components.seconds)
+            + Double(PaneLoaderPolicy.minimumDisplay.components.attoseconds) / 1e18
+
+        XCTAssertLessThanOrEqual(PaneLoaderChoreography.loopDuration, floor)
+        XCTAssertEqual(PaneLoaderChoreography.loopDuration, 1.5, accuracy: 0.0001)
     }
 
     func testFullySeparatedAtTheStartOfItsOwnCycle() {
