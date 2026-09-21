@@ -427,12 +427,16 @@ public final class SessionViewModel {
         selectedTabID = id
     }
 
-    /// Peek's jump verb names only a pane; this looks up the workspace and
-    /// tab that pane's OWN record carries and focuses all three, the same
-    /// order `jumpToAttentionToast` uses. The verb itself moves nothing, so a
-    /// pane the model no longer has (closed since the verb answered) sends no
-    /// request rather than jumping a workspace or tab to nowhere.
-    public func focusFromChat(pane id: PaneID) async {
+    /// Focuses a pane named on its own, with no workspace or tab alongside
+    /// it: chat's jump verb and an outside program's focus request both
+    /// arrive that way. The workspace and tab come from the pane's OWN
+    /// record rather than from whatever is selected now, and all three are
+    /// focused in the same order `jumpToAttentionToast` uses.
+    ///
+    /// A pane the model no longer has (closed since the request was made)
+    /// sends no request at all, rather than jumping a workspace or tab to
+    /// nowhere.
+    public func focusPane(byID id: PaneID) async {
         guard let record = model?.panes[id] else { return }
         await jumpToHerdr(workspace: record.workspaceID)
         await jumpToHerdr(tab: record.tabID)

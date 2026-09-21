@@ -276,6 +276,14 @@ struct FlockApp: App {
                 .onChange(of: herdrStore.connection) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
                 }
+                .onOpenURL { url in
+                    guard case let .focusPane(pane) = FlockURL.parse(url) else { return }
+                    // Explicit, rather than relying on how the URL was opened:
+                    // the caller opens it WITHOUT activating, so that a request
+                    // flock decides to ignore never steals the foreground.
+                    NSApp.activate(ignoringOtherApps: true)
+                    Task { await viewModel.focusPane(byID: pane) }
+                }
         }
         .windowStyle(.hiddenTitleBar)
         // Declarative opt-out of SwiftUI's own scene-restoration bookkeeping

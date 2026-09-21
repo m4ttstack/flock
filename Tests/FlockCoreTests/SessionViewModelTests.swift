@@ -412,7 +412,7 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     /// `twoWorkspaceModel` plus a second pane living in `w2:t1`, focus
-    /// nowhere near it -- what `focusFromChat` needs to prove it derives the
+    /// nowhere near it -- what `focusPane` needs to prove it derives the
     /// workspace and tab from the pane's OWN record rather than from
     /// whatever is already selected.
     private static func twoWorkspaceModelWithASecondPane() -> SessionModel {
@@ -547,12 +547,12 @@ final class SessionViewModelTests: XCTestCase {
     /// focuses come from this pane's own record in the model, not from
     /// anything the verb carries.
     @MainActor
-    func testFocusFromChatFocusesTheOwningWorkspaceTabAndPaneFromTheModelAlone() async {
+    func testFocusPaneFocusesTheOwningWorkspaceTabAndPaneFromTheModelAlone() async {
         let client = RecordingCommandClient()
         let viewModel = SessionViewModel(client: client)
         viewModel.update(model: Self.twoWorkspaceModelWithASecondPane(), connection: .live)
 
-        await viewModel.focusFromChat(pane: PaneID(rawValue: "w2:p5"))
+        await viewModel.focusPane(byID: PaneID(rawValue: "w2:p5"))
 
         let calls = await client.calls
         XCTAssertEqual(calls.map(\.method), ["workspace.focus", "tab.focus", "pane.focus"])
@@ -565,12 +565,12 @@ final class SessionViewModelTests: XCTestCase {
     /// has nowhere to focus: nothing is sent, rather than a workspace/tab
     /// jump firing with no pane to land on.
     @MainActor
-    func testFocusFromChatForAPaneNoLongerInTheModelSendsNothing() async {
+    func testFocusPaneForAPaneNoLongerInTheModelSendsNothing() async {
         let client = RecordingCommandClient()
         let viewModel = SessionViewModel(client: client)
         viewModel.update(model: makeModel(), connection: .live)
 
-        await viewModel.focusFromChat(pane: PaneID(rawValue: "gone"))
+        await viewModel.focusPane(byID: PaneID(rawValue: "gone"))
 
         let calls = await client.calls
         XCTAssertTrue(calls.isEmpty)

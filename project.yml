@@ -98,6 +98,9 @@ targets:
       path: Generated/Flock-Info.plist
       properties:
         FlockDevBuild: false
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.mattstack.Flock.focus
+            CFBundleURLSchemes: [flock]
   Flock-dev:
     templates: [FlockApp]
     settings:
@@ -108,6 +111,9 @@ targets:
       path: Generated/Flock-dev-Info.plist
       properties:
         FlockDevBuild: true
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.mattstack.Flock.dev.focus
+            CFBundleURLSchemes: [flock-dev]
   FlockCoreTests:
     type: bundle.unit-test
     platform: macOS

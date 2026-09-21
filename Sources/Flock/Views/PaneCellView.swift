@@ -513,7 +513,7 @@ struct PaneCellView: View {
             viewerDisabledReason: chatStore.viewerDisabledReason,
             onRetry: { Task { await chatStore.refreshStatus(for: pane.paneID) } },
             initialFeature: pendingPopoverFeature,
-            onJump: { paneID in Task { await viewModel.focusFromChat(pane: paneID) } }
+            onJump: { paneID in Task { await viewModel.focusPane(byID: paneID) } }
         )
         // A fresh fetch on every open, on top of the launch/availability
         // fetch above: a popover left closed for a while must not show a
