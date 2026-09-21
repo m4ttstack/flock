@@ -103,6 +103,7 @@ struct FlockApp: App {
     @State private var chatStore: ChatStore
     @State private var herdrStore: HerdrStore
     @State private var herdrToolStore = HerdrToolStore()
+    @State private var herdrMousePatchStore = HerdrMousePatchStore()
     @State private var viewModel: SessionViewModel
     @State private var undoJournal: UndoJournal
     @State private var rearrangeMode: RearrangeMode
@@ -402,6 +403,10 @@ struct FlockApp: App {
                 .disabled(!undoJournal.canRedo || undoJournal.isBusy)
                 .accessibilityIdentifier("flock.edit.redo")
             }
+        }
+
+        Settings {
+            FlockSettingsView(theme: themeStore.active, herdrMousePatchStore: herdrMousePatchStore)
         }
     }
 
