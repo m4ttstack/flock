@@ -186,7 +186,7 @@ Expected: PASS, 7 tests.
 
 ```bash
 cd ~/Documents/GitHub/flock/.worktrees/phase-0
-git add Sources/FlockCore/URL/FlockURL.swift Tests/FlockCoreTests/FlockURLTests.swift Flock.xcodeproj
+git add Sources/FlockCore/URL/FlockURL.swift Tests/FlockCoreTests/FlockURLTests.swift
 git commit -m "flock url: parse a focus request, refuse everything else"
 ```
 
