@@ -74,6 +74,7 @@ struct PaneCellView: View {
     @Environment(RearrangeMode.self) private var rearrangeMode
     @Environment(DragCoordinator.self) private var drag
     @Environment(ChatStore.self) private var chatStore
+    @Environment(OptionAsAltStore.self) private var optionAsAltStore
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
@@ -538,7 +539,8 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, grid: grid, theme: theme, isFocused: isFocused,
-                    fontSizePoints: fontSizePoints, rearrangeActive: rearrangeMode.active,
+                    fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
+                    rearrangeActive: rearrangeMode.active,
                     paneDragInProgress: drag.isPaneDragInFlight,
                     isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
                     // Any open editor, not just this pane's own: the one

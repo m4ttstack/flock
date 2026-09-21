@@ -96,6 +96,7 @@ struct FlockApp: App {
     @NSApplicationDelegateAdaptor(FlockAppDelegate.self) private var appDelegate
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
+    @State private var optionAsAltStore = OptionAsAltStore()
     @State private var scrollSpeedStore = ScrollSpeedStore()
     @State private var railWidthStore = RailWidthStore()
     @State private var toastCenter: ToastCenter
@@ -156,6 +157,8 @@ struct FlockApp: App {
         _themeStore = State(initialValue: themeStore)
         let terminalTextSizeStore = TerminalTextSizeStore()
         _terminalTextSizeStore = State(initialValue: terminalTextSizeStore)
+        let optionAsAltStore = OptionAsAltStore()
+        _optionAsAltStore = State(initialValue: optionAsAltStore)
         let scrollSpeedStore = ScrollSpeedStore()
         _scrollSpeedStore = State(initialValue: scrollSpeedStore)
         let toastCenter = ToastCenter()
@@ -184,6 +187,7 @@ struct FlockApp: App {
                 host: host, socketPath: socketPath,
                 themeColors: { themeStore.active.ghosttyThemeColors() },
                 fontSizePoints: { terminalTextSizeStore.points },
+                optionAsAlt: { optionAsAltStore.active },
                 scrollSpeed: { scrollSpeedStore.active }
             )
         }
@@ -255,6 +259,7 @@ struct FlockApp: App {
             }
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
+                .environment(optionAsAltStore)
                 .environment(railWidthStore)
                 .environment(toastCenter)
                 .environment(chatStore)
@@ -339,6 +344,7 @@ struct FlockApp: App {
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(store: terminalTextSizeStore)
+                OptionAsAltMenu(store: optionAsAltStore)
                 ScrollSpeedMenu(store: scrollSpeedStore)
                 // The only key into rearrange mode, and the same switch this
                 // item's checkmark reflects.

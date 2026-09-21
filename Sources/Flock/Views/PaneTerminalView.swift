@@ -18,6 +18,8 @@ struct GhosttyPaneTerminalView: View {
     let isFocused: Bool
     /// The Terminal Text size every pane shares.
     let fontSizePoints: Double
+    /// Whether Option acts as Alt, and on which key, every pane shares.
+    let optionAsAlt: OptionAsAlt
     /// `RearrangeMode.active`: while true, `GhosttySurfaceView` forwards no
     /// mouse event to the terminal.
     let rearrangeActive: Bool
@@ -51,6 +53,7 @@ struct GhosttyPaneTerminalView: View {
 
     init(
         surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
+        optionAsAlt: OptionAsAlt,
         rearrangeActive: Bool = false, paneDragInProgress: Bool = false, isPristineLauncherPane: Bool = false,
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
@@ -61,6 +64,7 @@ struct GhosttyPaneTerminalView: View {
         self.theme = theme
         self.isFocused = isFocused
         self.fontSizePoints = fontSizePoints
+        self.optionAsAlt = optionAsAlt
         self.rearrangeActive = rearrangeActive
         self.paneDragInProgress = paneDragInProgress
         self.isPristineLauncherPane = isPristineLauncherPane
@@ -73,6 +77,7 @@ struct GhosttyPaneTerminalView: View {
     var body: some View {
         GhosttySurfaceRepresentable(
             surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
+            optionAsAlt: optionAsAlt,
             rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress,
             isPristineLauncherPane: isPristineLauncherPane, editorIsOpen: editorIsOpen,
             onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
@@ -92,6 +97,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let theme: Theme
     let isFocused: Bool
     let fontSizePoints: Double
+    let optionAsAlt: OptionAsAlt
     var rearrangeActive: Bool = false
     var paneDragInProgress: Bool = false
     var isPristineLauncherPane: Bool = false
@@ -103,6 +109,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     final class Coordinator {
         var lastAppliedThemeID: String?
         var lastAppliedFontSize: Double?
+        var lastAppliedOptionAsAlt: OptionAsAlt?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -145,11 +152,14 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             // once the chained one does run is a harmless no-op.
             handle.unpark()
             let incomingColors = theme.ghosttyThemeColors()
-            if session.configuration.themeColors != incomingColors || session.configuration.fontSizePoints != fontSizePoints {
-                session.updateAppearance(incomingColors, fontSizePoints: fontSizePoints)
+            if session.configuration.themeColors != incomingColors
+                || session.configuration.fontSizePoints != fontSizePoints
+                || session.configuration.optionAsAlt != optionAsAlt {
+                session.updateAppearance(incomingColors, fontSizePoints: fontSizePoints, optionAsAlt: optionAsAlt)
             }
             context.coordinator.lastAppliedThemeID = theme.id
             context.coordinator.lastAppliedFontSize = fontSizePoints
+            context.coordinator.lastAppliedOptionAsAlt = optionAsAlt
             existingView.wantsFocus = isFocused
             existingView.rearrangeActive = rearrangeActive
             existingView.paneDragInProgress = paneDragInProgress
@@ -162,6 +172,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         }
         context.coordinator.lastAppliedThemeID = theme.id
         context.coordinator.lastAppliedFontSize = fontSizePoints
+        context.coordinator.lastAppliedOptionAsAlt = optionAsAlt
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.rearrangeActive = rearrangeActive
@@ -177,10 +188,15 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let ghosttyView = nsView as? GhosttySurfaceView else { return }
         ghosttyView.session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
-        if context.coordinator.lastAppliedThemeID != theme.id || context.coordinator.lastAppliedFontSize != fontSizePoints {
+        if context.coordinator.lastAppliedThemeID != theme.id
+            || context.coordinator.lastAppliedFontSize != fontSizePoints
+            || context.coordinator.lastAppliedOptionAsAlt != optionAsAlt {
             context.coordinator.lastAppliedThemeID = theme.id
             context.coordinator.lastAppliedFontSize = fontSizePoints
-            ghosttyView.session.updateAppearance(theme.ghosttyThemeColors(), fontSizePoints: fontSizePoints)
+            context.coordinator.lastAppliedOptionAsAlt = optionAsAlt
+            ghosttyView.session.updateAppearance(
+                theme.ghosttyThemeColors(), fontSizePoints: fontSizePoints, optionAsAlt: optionAsAlt
+            )
         }
         ghosttyView.wantsFocus = isFocused
         ghosttyView.rearrangeActive = rearrangeActive
