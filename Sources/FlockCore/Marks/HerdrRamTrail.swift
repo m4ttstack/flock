@@ -1,0 +1,73 @@
+import CoreGraphics
+
+/// The ram and its three-echo motion trail, as vector geometry rather than a
+/// flattened image -- `Scripts/make-icon.swift`'s own four fills of
+/// `HerdrRam.path()` (three echoes plus the leader), with the squircle ground
+/// and its clip dropped. Every fraction below is copied from that script
+/// so the loader's fit can never drift from the icon's.
+public enum HerdrRamTrail {
+    /// One echo's resting geometry, before any animation is applied.
+    public struct Echo: Equatable, Sendable {
+        /// Steps behind the leader at rest, matching `make-icon.swift`'s
+        /// `back` (farthest echo has the most steps).
+        public let restBackSteps: CGFloat
+        public let restOpacity: Double
+        /// How long after the loop starts this echo begins gathering --
+        /// what keeps the trail reading as one thing catching up rather
+        /// than three shapes sliding as a block.
+        public let startDelay: Double
+    }
+
+    public static let echoCount = 3
+    /// Seconds between one echo's start and the next.
+    public static let staggerDelay: Double = 0.05
+
+    public static let echoes: [Echo] = (0..<echoCount).map { index in
+        Echo(
+            restBackSteps: CGFloat(echoCount - index),
+            restOpacity: 0.58 + 0.13 * Double(index),
+            startDelay: staggerDelay * Double(index)
+        )
+    }
+
+    private static let insetFraction: CGFloat = 0.086
+    private static let marginFraction: CGFloat = 0.19
+    private static let heightFillFraction: CGFloat = 0.87
+    private static let echoStepXFraction: CGFloat = 0.105
+    private static let echoStepYFraction: CGFloat = 0.075
+    private static let leaderOffsetXFraction: CGFloat = 0.13
+    private static let leaderOffsetYFraction: CGFloat = 0.05
+
+    /// The ram, fit into `square` exactly as `make-icon.swift` fits it into
+    /// the icon's body, offset by `(dx, dy)` points on top of that rest
+    /// position. Rebuilt per call rather than cached: `CGPath` is not
+    /// `Sendable`, so a stored one would need isolation this static API
+    /// otherwise has no reason to carry.
+    public static func path(in square: CGSize, dx: CGFloat = 0, dy: CGFloat = 0) -> CGPath {
+        let base = HerdrRam.path()
+        let bounds = base.boundingBoxOfPath
+        let inset = square.width * insetFraction
+        let body = CGRect(x: inset, y: inset, width: square.width - inset * 2, height: square.height - inset * 2)
+        let margin = body.width * marginFraction
+        let target = body.insetBy(dx: margin, dy: margin)
+        let scale = target.height / bounds.height * heightFillFraction
+        var transform = CGAffineTransform(
+            translationX: target.midX - bounds.midX * scale + dx - target.width * leaderOffsetXFraction,
+            y: target.midY + bounds.midY * scale + dy - target.height * leaderOffsetYFraction
+        ).scaledBy(x: scale, y: -scale)
+        return base.copy(using: &transform) ?? base
+    }
+
+    /// An echo's offset from the leader at animation `progress` (0 fully
+    /// separated at rest, 1 merged with the leader). Steps back at the SAME
+    /// scale as the leader: scaling an echo down would read as a smaller
+    /// animal standing farther away rather than the same animal a moment
+    /// earlier.
+    public static func offset(restBackSteps: CGFloat, in square: CGSize, progress: Double) -> CGSize {
+        let remaining = 1 - progress
+        return CGSize(
+            width: square.width * echoStepXFraction * restBackSteps * remaining,
+            height: square.height * echoStepYFraction * restBackSteps * remaining
+        )
+    }
+}

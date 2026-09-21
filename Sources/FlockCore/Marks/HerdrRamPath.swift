@@ -3,8 +3,13 @@ import CoreGraphics
 /// herdr's own ram, traced from its brand asset. The source SVG carries a
 /// `translate(0 512) scale(.1 -.1)` transform, applied here so the path is
 /// already in a 512-point, y-up space.
-enum HerdrRam {
-    static func path() -> CGPath {
+///
+/// The one shape both the app icon (`Scripts/make-icon.swift`) and the pane
+/// loader draw: living here rather than under `Scripts/` lets the app target
+/// import it too, so the two can never trace the ram differently.
+/// `make-icon.swift` compiles it in by file path, same as before the move.
+public enum HerdrRam {
+    public static func path() -> CGPath {
         let path = CGMutablePath()
         path.move(to: CGPoint(x: 2794.0, y: 3710.0))
         path.addCurve(to: CGPoint(x: 2435.0, y: 3496.0), control1: CGPoint(x: 2665.0, y: 3677.0), control2: CGPoint(x: 2495.0, y: 3575.0))
