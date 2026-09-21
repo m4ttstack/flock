@@ -278,6 +278,13 @@ struct FlockApp: App {
                 }
                 .onOpenURL { url in
                     guard case let .focusPane(pane) = FlockURL.parse(url) else { return }
+                    // FlockURL.parse only checks the URL's shape; it has no model to
+                    // check the pane against. That check has to happen here, before
+                    // activating, because activation is synchronous and irreversible
+                    // the moment it fires: doing it first and letting focusPane(byID:)
+                    // discover a missing pane afterward, inside its own Task, would
+                    // already have stolen the foreground for a request going nowhere.
+                    guard viewModel.model?.panes[pane] != nil else { return }
                     // Explicit, rather than relying on how the URL was opened:
                     // the caller opens it WITHOUT activating, so that a request
                     // flock decides to ignore never steals the foreground.
