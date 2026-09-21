@@ -115,11 +115,18 @@ public protocol GhosttyPaneFactory {
     /// whenever the surface reports new content, so a pane whose program
     /// prints real output (never typed into) also hides the overlay, not
     /// only a pane that received a keystroke. Returns whether the surface
-    /// should keep reporting; a `false` (the pane is no longer pristine, by
-    /// either path) is the surface's own signal to stop polling for this
-    /// pane's whole remaining life.
+    /// should keep reporting; a `false` is the surface's own signal to stop
+    /// counting rows, which is a full buffer scan and not something to leave
+    /// running on a pane whose answer can no longer change.
+    ///
+    /// `onClearRequested` fires on the key that asks a pane to clear its
+    /// screen. It shows nothing on its own -- it turns the row count back on
+    /// for long enough to see whether the screen actually came back down to
+    /// the size it started at, which is what separates a shell that cleared
+    /// from a full-screen program that took the key and repainted.
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
+        onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface
 }

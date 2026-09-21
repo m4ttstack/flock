@@ -52,6 +52,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
 
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
+        onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
         // `nil` when the FIFO cannot be created (`PaneControlChannel.init?`'s
@@ -93,6 +94,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
             )
         )
         session.onUserInput = onUserInput
+        session.onClearRequested = onClearRequested
         session.onScreenActivity = onScreenActivity
         session.scrollSpeed = scrollSpeed
         session.controlChannel = channel

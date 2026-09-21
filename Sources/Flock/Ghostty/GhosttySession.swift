@@ -80,6 +80,11 @@ final class GhosttySession {
     /// the launcher overlay, leaving it hit-testable over live terminal
     /// output.
     var onUserInput: (() -> Void)?
+    /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
+    /// clear its screen, AFTER `onUserInput` for the same event: clearing is
+    /// still typing, so the keystroke has to land first and the clear is what
+    /// reopens the question the keystroke just closed.
+    var onClearRequested: (() -> Void)?
     /// The chosen scroll speed, asked for at wheel time rather than carried
     /// in `configuration` the way the font size is: a speed picked from the
     /// View menu has to reach the panes that already exist, and nothing is
@@ -371,6 +376,18 @@ final class GhosttySession {
     /// buffer scan (`readScreenRows`'s underlying `ghostty_surface_read_text`
     /// call is documented "expensive" by libghostty itself), so it must
     /// never run once per render.
+    /// Turns row counting back on after it has been switched off. A clear key
+    /// is the only caller: the question it reopens ("is this pane empty
+    /// again?") can only be answered by counting, and the answer has to be
+    /// read from the screen the shell paints a moment later, not from the key
+    /// itself. `lastScreenActivityCheck` is reset too, so the very next render
+    /// reports rather than waiting out a throttle interval that began while
+    /// the pane was still busy.
+    func resumeScreenActivityReporting() {
+        screenActivityStillWanted = true
+        lastScreenActivityCheck = .distantPast
+    }
+
     private func reportScreenActivityIfDue() {
         guard screenActivityStillWanted, let onScreenActivity else { return }
         let now = Date()

@@ -607,6 +607,19 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if !event.modifierFlags.contains(.command) {
             session.onUserInput?()
         }
+        // After `onUserInput`, never before: clearing is typing too, and the
+        // keystroke is what puts the launcher away. This reopens the question
+        // the keystroke just closed, so running it first would be undone.
+        if ClearKey.isClear(
+            characters: event.charactersIgnoringModifiers,
+            control: event.modifierFlags.contains(.control),
+            option: event.modifierFlags.contains(.option),
+            command: event.modifierFlags.contains(.command),
+            shift: event.modifierFlags.contains(.shift)
+        ) {
+            session.resumeScreenActivityReporting()
+            session.onClearRequested?()
+        }
         keyTextAccumulator = []
         interpretKeyEvents([event])
         let text = keyTextAccumulator?.joined()

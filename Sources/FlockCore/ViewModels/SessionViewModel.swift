@@ -674,19 +674,20 @@ public final class SessionViewModel {
             paneScrollSubscriber?.subscribe(pane: pane)
             return
         }
-        // Both closures are the launcher-pristine contract's ghostty half:
-        // see `GhosttyPaneFactory.makeSurface`'s doc comment. The screen-
-        // activity one guards on `isPristineLauncherPane` itself before
-        // ever touching the registry -- once ANY path (a keystroke, or this
-        // one) has hidden the pane, every later call is a cheap no-op that
-        // also tells the surface to stop reporting for good.
+        // All three closures are the launcher-pristine contract's ghostty
+        // half: see `GhosttyPaneFactory.makeSurface`'s doc comment. The
+        // screen-activity one hands back whether to keep reporting at all,
+        // because counting a surface's rows is a full buffer scan: it stays
+        // on only while the pane is still offering the launcher, or while a
+        // clear it was just asked for has yet to land.
         let surface = await factory.makeSurface(
             for: pane,
             onUserInput: { [weak self] in self?.recordLauncherKeystroke(pane) },
+            onClearRequested: { [weak self] in self?.recordLauncherClearRequested(pane) },
             onScreenActivity: { [weak self] nonEmptyRowCount in
-                guard let self, self.isPristineLauncherPane(pane) else { return false }
+                guard let self, self.wantsLauncherScreenActivity(pane) else { return false }
                 self.recordLauncherScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
-                return self.isPristineLauncherPane(pane)
+                return self.wantsLauncherScreenActivity(pane)
             }
         )
         ghosttySurfaces[pane] = surface
@@ -779,6 +780,24 @@ public final class SessionViewModel {
     public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
         paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount, at: now())
         launcherRegistryVersion += 1
+    }
+
+    /// The pane was asked to clear its screen. This shows nothing by itself:
+    /// it opens the window in which the pane's screen dropping back to its
+    /// settled size means the clear landed and the launcher can be offered
+    /// again. A program that handled the key itself and repainted never makes
+    /// that drop, so it keeps the overlay away.
+    public func recordLauncherClearRequested(_ pane: PaneID) {
+        paneLauncherRegistry.recordClearRequested(pane, at: now())
+        launcherRegistryVersion += 1
+    }
+
+    /// Whether this pane's surface should still be counting its rows for the
+    /// launcher. That count is a full buffer scan, so it is not left running
+    /// on panes whose answer can no longer change.
+    public func wantsLauncherScreenActivity(_ pane: PaneID) -> Bool {
+        _ = launcherRegistryVersion
+        return paneLauncherRegistry.wantsScreenActivity(pane, at: now())
     }
 
     /// Sends `binary` to `pane` and submits it in one `send_input` call (the

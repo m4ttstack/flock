@@ -202,6 +202,7 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     private(set) var makeSurfaceCalls: [PaneID] = []
     private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
     private(set) var onUserInputHandlers: [PaneID: () -> Void] = [:]
+    private(set) var onClearRequestedHandlers: [PaneID: () -> Void] = [:]
     private(set) var onScreenActivityHandlers: [PaneID: (Int) -> Bool] = [:]
     private var holdEnabled = false
     private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
@@ -217,10 +218,12 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
 
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
+        onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
         makeSurfaceCalls.append(pane)
         onUserInputHandlers[pane] = onUserInput
+        onClearRequestedHandlers[pane] = onClearRequested
         onScreenActivityHandlers[pane] = onScreenActivity
         if holdEnabled {
             await withCheckedContinuation { pendingContinuations.append($0) }

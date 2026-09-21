@@ -2392,6 +2392,7 @@ private final class GroundSurface: GhosttyPaneSurface {
 private struct GroundSurfaceFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
+        onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
         GroundSurface()
