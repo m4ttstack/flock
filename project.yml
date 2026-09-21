@@ -23,6 +23,50 @@ settings:
       # notarization refuses. Flock ships no entitlements of its own, so
       # turning the injection off leaves the release binary with none at all.
       CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+targetTemplates:
+  # Shared by Flock and Flock-dev: same sources, same Info.plist keys. Each
+  # concrete target below points `info.path` at its OWN file under Generated/
+  # rather than the committed Sources/Flock/Info.plist -- xcodegen writes the
+  # merged plist back to whatever path it names, and two targets sharing one
+  # path would each overwrite the other's FlockDevBuild value in that shared,
+  # checked-in file on every `xcodegen generate`. PRODUCT_NAME,
+  # PRODUCT_BUNDLE_IDENTIFIER and EXECUTABLE_NAME stay build-setting
+  # variables here, so Xcode substitutes each target's own values at build
+  # time from one identical template.
+  FlockApp:
+    type: application
+    platform: macOS
+    sources: [Sources/Flock]
+    dependencies: [{ target: FlockCore }]
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      properties:
+        CFBundleDevelopmentRegion: "$(DEVELOPMENT_LANGUAGE)"
+        CFBundleExecutable: "$(EXECUTABLE_NAME)"
+        CFBundleIdentifier: "$(PRODUCT_BUNDLE_IDENTIFIER)"
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleName: "$(PRODUCT_NAME)"
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        # Evaluated by AppKit at the earliest point in launch, before any of
+        # our own code (the app delegate included) runs -- a stale window-
+        # restoration identity cached outside the app (an
+        # `AppWindowsController`-owned entry keyed by bundle id, survives
+        # every per-app default/preference reset) otherwise makes every
+        # launch's automatic window-restoration attempt resolve to a null
+        # window with no error and no fallback to a fresh default window.
+        # `.restorationBehavior(.disabled)` on the scene and
+        # `NSApplicationDelegate.applicationSupportsSecureRestorableState`
+        # both run too late in the launch sequence to prevent this specific
+        # attempt (confirmed empirically: neither stopped it, and an
+        # `NSLog` inside the delegate method never fired before the
+        # restoration attempt logged). This Info.plist key is read before
+        # either of those.
+        NSApplicationSupportsSecureRestorableState: NO
+
 targets:
   FlockCore:
     type: framework
@@ -45,31 +89,25 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
   Flock:
-    type: application
-    platform: macOS
-    sources: [Sources/Flock]
-    dependencies: [{ target: FlockCore }]
+    templates: [FlockApp]
     settings:
       base:
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        PRODUCT_NAME: Flock
+        PRODUCT_BUNDLE_IDENTIFIER: dev.mattstack.Flock
     info:
-      path: Sources/Flock/Info.plist
+      path: Generated/Flock-Info.plist
       properties:
-        # Evaluated by AppKit at the earliest point in launch, before any of
-        # our own code (the app delegate included) runs -- a stale window-
-        # restoration identity cached outside the app (an
-        # `AppWindowsController`-owned entry keyed by bundle id, survives
-        # every per-app default/preference reset) otherwise makes every
-        # launch's automatic window-restoration attempt resolve to a null
-        # window with no error and no fallback to a fresh default window.
-        # `.restorationBehavior(.disabled)` on the scene and
-        # `NSApplicationDelegate.applicationSupportsSecureRestorableState`
-        # both run too late in the launch sequence to prevent this specific
-        # attempt (confirmed empirically: neither stopped it, and an
-        # `NSLog` inside the delegate method never fired before the
-        # restoration attempt logged). This Info.plist key is read before
-        # either of those.
-        NSApplicationSupportsSecureRestorableState: NO
+        FlockDevBuild: false
+  Flock-dev:
+    templates: [FlockApp]
+    settings:
+      base:
+        PRODUCT_NAME: Flock-dev
+        PRODUCT_BUNDLE_IDENTIFIER: dev.mattstack.Flock.dev
+    info:
+      path: Generated/Flock-dev-Info.plist
+      properties:
+        FlockDevBuild: true
   FlockCoreTests:
     type: bundle.unit-test
     platform: macOS
@@ -129,6 +167,15 @@ schemes:
     test:
       config: Debug
       targets: [FlockCoreTests, FlockUITests]
+    archive:
+      config: Release
+  Flock-dev:
+    build:
+      targets:
+        Flock-dev: all
+        FlockCore: all
+    run:
+      config: Debug
     archive:
       config: Release
   FlockChromeRender:

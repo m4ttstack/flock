@@ -1,4 +1,5 @@
 Flock.xcodeproj/
+Generated/
 DerivedData/
 build/
 .DS_Store
