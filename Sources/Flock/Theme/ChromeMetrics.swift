@@ -426,6 +426,13 @@ enum ChromeMetrics {
         static let lineVerticalPadding: CGFloat = 5
     }
 
+    enum NoHerdr {
+        static let spacing: CGFloat = 14
+        static let horizontalPadding: CGFloat = 60
+        static let symbolSpacing: CGFloat = 6
+        static let primaryActionTopPadding: CGFloat = 8
+    }
+
     enum Launcher {
         static let spacing: CGFloat = 13
         static let buttonSpacing: CGFloat = 15

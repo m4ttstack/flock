@@ -74,6 +74,11 @@ enum ChromeType {
     static let cardText = mono(13)
     static let cardHint = inter(11.5)
 
+    static let noHerdrSymbol = Font.system(size: 40, weight: .medium)
+    static let noHerdrHeadline = inter(19, .semibold)
+    static let noHerdrBody = inter(14)
+    static let noHerdrHint = inter(12.5)
+
     static let gridTitle = inter(14, .medium)
     static let gridCount = inter(11.5)
     static let gridHint = mono(11.5)

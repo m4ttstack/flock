@@ -101,6 +101,7 @@ struct FlockApp: App {
     @State private var toastCenter: ToastCenter
     @State private var chatStore: ChatStore
     @State private var herdrStore: HerdrStore
+    @State private var herdrToolStore = HerdrToolStore()
     @State private var viewModel: SessionViewModel
     @State private var undoJournal: UndoJournal
     @State private var rearrangeMode: RearrangeMode
@@ -245,7 +246,13 @@ struct FlockApp: App {
 
     var body: some Scene {
         WindowGroup("Flock") {
-            MainWindow(viewModel: viewModel, sessionLabel: sessionLabel)
+            Group {
+                if HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound) {
+                    NoHerdrScreen(theme: themeStore.active)
+                } else {
+                    MainWindow(viewModel: viewModel, sessionLabel: sessionLabel)
+                }
+            }
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(railWidthStore)
