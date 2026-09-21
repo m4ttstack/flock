@@ -2272,6 +2272,7 @@ private struct Harness {
     let drag: DragCoordinator
     let dividerDrag: DividerDragCoordinator
     let chatStore: ChatStore
+    let optionAsAlt: OptionAsAltStore
     let viewModel: SessionViewModel
 
     init(
@@ -2305,6 +2306,7 @@ private struct Harness {
             reveal: { _ in }
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
+        optionAsAlt = OptionAsAltStore(userDefaults: defaults)
         chatStore = ChatStore(
             toasts: ToastCenter(),
             probe: { chatAvailable ? "/usr/bin/true" : nil },
@@ -2337,6 +2339,7 @@ private struct Harness {
             .environment(drag)
             .environment(dividerDrag)
             .environment(chatStore)
+            .environment(optionAsAlt)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
