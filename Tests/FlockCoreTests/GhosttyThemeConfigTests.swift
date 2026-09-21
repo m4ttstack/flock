@@ -133,7 +133,7 @@ final class GhosttyThemeConfigTests: XCTestCase {
         let text = GhosttyThemeConfig.configText(
             colors: colors,
             commandArgv: ["/path/to/Flock", "--bridge", "w1:p1", "--socket", "/tmp/a b.sock"],
-            fontFamily: "Menlo", fontSizePoints: 13.0
+            fontFamily: "Menlo", fontSizePoints: 13.0, optionAsAlt: .left
         )
         XCTAssertTrue(text.hasSuffix(
             "command = shell:'/path/to/Flock' '--bridge' 'w1:p1' '--socket' '/tmp/a b.sock'\n"
@@ -154,7 +154,8 @@ final class GhosttyThemeConfigTests: XCTestCase {
             ansi: Array(repeating: color(0, 0, 0), count: 16)
         )
         let text = GhosttyThemeConfig.configText(
-            colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 13.0
+            colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 13.0,
+            optionAsAlt: .left
         )
         let lines = text.split(separator: "\n").map(String.init)
         XCTAssertTrue(lines.contains("clipboard-read = deny"), "missing clipboard-read = deny in:\n\(text)")
@@ -170,7 +171,8 @@ final class GhosttyThemeConfigTests: XCTestCase {
             ansi: Array(repeating: color(0, 0, 0), count: 16)
         )
         let text = GhosttyThemeConfig.configText(
-            colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 13.0
+            colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 13.0,
+            optionAsAlt: .left
         )
         let lines = text.split(separator: "\n").map(String.init)
         XCTAssertTrue(lines.contains("window-padding-x = 0"), "missing window-padding-x = 0 in:\n\(text)")
@@ -189,7 +191,8 @@ final class GhosttyThemeConfigTests: XCTestCase {
         )
         for points in [11.0, 13.0, 15.0] {
             let text = GhosttyThemeConfig.configText(
-                colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: points
+                colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: points,
+                optionAsAlt: .left
             )
             let lines = text.split(separator: "\n").map(String.init)
             XCTAssertTrue(lines.contains("font-family = Menlo"), "missing font-family line at \(points)pt in:\n\(text)")
@@ -207,7 +210,8 @@ final class GhosttyThemeConfigTests: XCTestCase {
             ansi: Array(repeating: color(0, 0, 0), count: 16)
         )
         let text = GhosttyThemeConfig.configText(
-            colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 12.5
+            colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 12.5,
+            optionAsAlt: .left
         )
         XCTAssertTrue(text.split(separator: "\n").contains("font-size = 12.5"), text)
     }
@@ -225,6 +229,27 @@ final class GhosttyThemeConfigTests: XCTestCase {
         ).ansi.count, 16)
     }
 
+    /// This key defaults OFF in libghostty (`Vendor/ghostty/src/input/config.zig`'s
+    /// `OptionAsAlt`), so Option produces no Alt at all without it: absent
+    /// this line, Option+Backspace reaches a shell as nothing rather than as
+    /// the `ESC DEL` that means delete-word.
+    func testConfigTextIncludesOptionAsAltLinePerValue() {
+        let colors = GhosttyThemeColors(
+            background: color(0, 0, 0), foreground: color(255, 255, 255),
+            ansi: Array(repeating: color(0, 0, 0), count: 16)
+        )
+        for value in OptionAsAlt.allCases {
+            let text = GhosttyThemeConfig.configText(
+                colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 13.0,
+                optionAsAlt: value
+            )
+            XCTAssertTrue(
+                text.contains("macos-option-as-alt = \(value.configValue)\n"),
+                "missing macos-option-as-alt = \(value.configValue) in:\n\(text)"
+            )
+        }
+    }
+
     /// A family given only as `font-family` leaves ghostty to synthesize
     /// bold by smearing the regular face, which is a pixel heavier and
     /// softer than the family's real bold member.
@@ -236,7 +261,7 @@ final class GhosttyThemeConfigTests: XCTestCase {
         )
         let text = GhosttyThemeConfig.configText(
             colors: colors, commandArgv: ["/bin/zsh"], fontFamily: "JetBrainsMono Nerd Font",
-            fontSizePoints: 13
+            fontSizePoints: 13, optionAsAlt: .left
         )
         for key in ["font-family", "font-family-bold", "font-family-italic", "font-family-bold-italic"] {
             XCTAssertTrue(

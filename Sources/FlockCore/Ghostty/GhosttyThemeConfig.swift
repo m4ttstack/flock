@@ -89,7 +89,8 @@ public enum GhosttyThemeConfig {
     /// and topmost slice of every cell onto the previous one; the pane chrome
     /// already provides the visual inset.
     public static func configText(
-        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Double
+        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Double,
+        optionAsAlt: OptionAsAlt
     ) -> String {
         let command = commandArgv.map(\.shellEscaped).joined(separator: " ")
         return configText(colors: colors)
@@ -104,6 +105,10 @@ public enum GhosttyThemeConfig {
             + "font-size = \(fontSizeText(fontSizePoints))\n"
             + "window-padding-x = 0\n"
             + "window-padding-y = 0\n"
+            // This key defaults OFF in libghostty (`OptionAsAlt`'s own `.off`
+            // case), so without it Option produces no Alt at all and
+            // Option+Backspace reaches a shell as nothing.
+            + "macos-option-as-alt = \(optionAsAlt.configValue)\n"
             // A program in the pane is on the far side of a herdr pane flock
             // only mirrors and never gets the host clipboard. Saying it here
             // rather than in the read-clipboard callback is what leaves that
