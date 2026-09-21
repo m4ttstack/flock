@@ -89,7 +89,7 @@ final class WorkspaceClickLatencyTests: XCTestCase {
         let factory = GhosttyControlSurfaceFactory(
             host: host, socketPath: "/tmp/flock-latency-never-connected.sock",
             themeColors: { Theme.tokyoNight.ghosttyThemeColors() }, fontSizePoints: { 13 },
-            scrollSpeed: { .normal }
+            optionAsAlt: { .left }, scrollSpeed: { .normal }
         )
         var samples: [Double] = []
         for index in 0..<12 {

@@ -154,11 +154,13 @@ final class GhosttyHost {
     /// one's scratch file is still being written or read.
     @discardableResult
     func configureNextSurface(
-        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Double
+        colors: GhosttyThemeColors, commandArgv: [String], fontFamily: String, fontSizePoints: Double,
+        optionAsAlt: OptionAsAlt
     ) -> Bool {
         guard let app, let baseConfig, !commandArgv.isEmpty else { return false }
         let text = GhosttyThemeConfig.configText(
-            colors: colors, commandArgv: commandArgv, fontFamily: fontFamily, fontSizePoints: fontSizePoints
+            colors: colors, commandArgv: commandArgv, fontFamily: fontFamily, fontSizePoints: fontSizePoints,
+            optionAsAlt: optionAsAlt
         )
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("flock-surface-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")
@@ -195,11 +197,12 @@ final class GhosttyHost {
     @discardableResult
     func updateLiveConfig(
         surface: ghostty_surface_t, colors: GhosttyThemeColors, commandArgv: [String],
-        fontFamily: String, fontSizePoints: Double
+        fontFamily: String, fontSizePoints: Double, optionAsAlt: OptionAsAlt
     ) -> Bool {
         guard let baseConfig, !commandArgv.isEmpty else { return false }
         let text = GhosttyThemeConfig.configText(
-            colors: colors, commandArgv: commandArgv, fontFamily: fontFamily, fontSizePoints: fontSizePoints
+            colors: colors, commandArgv: commandArgv, fontFamily: fontFamily, fontSizePoints: fontSizePoints,
+            optionAsAlt: optionAsAlt
         )
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("flock-surface-update-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")

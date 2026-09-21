@@ -25,7 +25,11 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     /// same way `themeColors` is: a later change flows through
     /// `GhosttySession.updateAppearance`, not back through a fresh `Launch`.
     private let fontSizePoints: () -> Double
-    /// Handed to the session rather than read here: unlike the two above, the
+    /// The effective Option-as-Alt setting, read once at surface creation the
+    /// same way `fontSizePoints` is: a later change flows through
+    /// `GhosttySession.updateAppearance`, not back through a fresh `Launch`.
+    private let optionAsAlt: () -> OptionAsAlt
+    /// Handed to the session rather than read here: unlike the others, the
     /// answer is wanted at wheel time, not at creation.
     private let scrollSpeed: () -> ScrollSpeed
 
@@ -34,6 +38,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         herdrBinaryOverride: String? = ProcessInfo.processInfo.environment["FLOCK_HERDR_BIN"],
         themeColors: @escaping () -> GhosttyThemeColors,
         fontSizePoints: @escaping () -> Double,
+        optionAsAlt: @escaping () -> OptionAsAlt,
         scrollSpeed: @escaping () -> ScrollSpeed
     ) {
         self.host = host
@@ -41,6 +46,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         self.herdrBinaryOverride = (herdrBinaryOverride?.isEmpty == false) ? herdrBinaryOverride : nil
         self.themeColors = themeColors
         self.fontSizePoints = fontSizePoints
+        self.optionAsAlt = optionAsAlt
         self.scrollSpeed = scrollSpeed
     }
 
@@ -81,7 +87,10 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         )
         let session = host.makeSession(
             paneID: pane,
-            configuration: .init(commandArgv: argv, themeColors: themeColors(), fontSizePoints: fontSizePoints())
+            configuration: .init(
+                commandArgv: argv, themeColors: themeColors(), fontSizePoints: fontSizePoints(),
+                optionAsAlt: optionAsAlt()
+            )
         )
         session.onUserInput = onUserInput
         session.onScreenActivity = onScreenActivity

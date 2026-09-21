@@ -25,6 +25,9 @@ final class GhosttySession {
         /// the launch the same way `themeColors` does. A later change flows
         /// through `updateAppearance`, not back through this struct.
         var fontSizePoints: Double = Double(TerminalTextSize.regular.points)
+        /// Whether Option acts as Alt at creation time, same travel rule as
+        /// `fontSizePoints`.
+        var optionAsAlt: OptionAsAlt = .left
     }
 
     /// The parts of the terminal's state this app reads back.
@@ -504,13 +507,14 @@ final class GhosttySession {
     /// (BSL-1.1, attributed): push, then re-apply the light/dark scheme the
     /// same way `attach` does, since a config push does not imply one.
     @discardableResult
-    func updateAppearance(_ colors: GhosttyThemeColors, fontSizePoints: Double) -> Bool {
+    func updateAppearance(_ colors: GhosttyThemeColors, fontSizePoints: Double, optionAsAlt: OptionAsAlt) -> Bool {
         configuration.themeColors = colors
         configuration.fontSizePoints = fontSizePoints
+        configuration.optionAsAlt = optionAsAlt
         guard let surface else { return false }
         guard host.updateLiveConfig(
             surface: surface, colors: colors, commandArgv: configuration.commandArgv,
-            fontFamily: TerminalFont.face, fontSizePoints: fontSizePoints
+            fontFamily: TerminalFont.face, fontSizePoints: fontSizePoints, optionAsAlt: optionAsAlt
         ) else {
             return false
         }
@@ -626,7 +630,8 @@ final class GhosttySession {
         // app's config once, at creation.
         guard host.configureNextSurface(
             colors: configuration.themeColors, commandArgv: configuration.commandArgv,
-            fontFamily: TerminalFont.face, fontSizePoints: configuration.fontSizePoints
+            fontFamily: TerminalFont.face, fontSizePoints: configuration.fontSizePoints,
+            optionAsAlt: configuration.optionAsAlt
         ) else { return }
 
         if let scheme = colorScheme(for: view.effectiveAppearance) {
