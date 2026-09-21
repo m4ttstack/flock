@@ -202,3 +202,62 @@ final class PaneLauncherOverlayTests: XCTestCase {
         return HostedProbe(window: window, hosting: hosting, terminal: try XCTUnwrap(captured, "the stand-in terminal never reached the window"))
     }
 }
+
+/// These buttons shipped on `.plain`, which paints rest, hover and press
+/// identically: putting the pointer on one or clicking it changed nothing on
+/// screen, so it read as a label rather than a control. Each state has to be
+/// visibly different from the other two.
+///
+/// Asserted on the resolved appearance rather than on pixels because
+/// `ButtonStyle.Configuration` cannot be constructed by a test and no test can
+/// move a real pointer over the view, which is why the flat version had no
+/// failing test to begin with.
+@MainActor
+final class LauncherButtonAppearanceTests: XCTestCase {
+    private let theme = Theme.builtins[0]
+
+    private var rest: LauncherButtonAppearance {
+        LauncherButtonAppearance.resolve(theme: theme, isHovering: false, isPressed: false)
+    }
+
+    private var hovered: LauncherButtonAppearance {
+        LauncherButtonAppearance.resolve(theme: theme, isHovering: true, isPressed: false)
+    }
+
+    private var pressed: LauncherButtonAppearance {
+        LauncherButtonAppearance.resolve(theme: theme, isHovering: true, isPressed: true)
+    }
+
+    func testRestHoverAndPressAreThreeDifferentAppearances() {
+        XCTAssertNotEqual(rest, hovered, "hovering a launcher button must change how it is drawn")
+        XCTAssertNotEqual(hovered, pressed, "pressing a hovered launcher button must change how it is drawn")
+        XCTAssertNotEqual(rest, pressed)
+    }
+
+    /// Both halves move together, so a later edit cannot satisfy the test
+    /// above by moving one of them and leaving the button still reading flat.
+    func testHoverMovesBothTheFillAndTheBorder() {
+        XCTAssertNotEqual(rest.fill, hovered.fill)
+        XCTAssertNotEqual(rest.border, hovered.border)
+    }
+
+    func testOnlyAPressWashesAccentOverTheFillAndShrinksTheButton() {
+        XCTAssertEqual(rest.pressWash, 0)
+        XCTAssertEqual(hovered.pressWash, 0)
+        XCTAssertGreaterThan(pressed.pressWash, 0)
+
+        XCTAssertEqual(rest.scale, 1)
+        XCTAssertEqual(hovered.scale, 1)
+        XCTAssertLessThan(pressed.scale, 1)
+    }
+
+    /// A press can begin without a hover ever being recorded (a click landing
+    /// as the overlay appears under a stationary pointer), and it still has to
+    /// light up rather than stay at rest colours.
+    func testAPressWithoutHoverStillLightsTheButton() {
+        let pressedCold = LauncherButtonAppearance.resolve(theme: theme, isHovering: false, isPressed: true)
+
+        XCTAssertEqual(pressedCold.fill, hovered.fill)
+        XCTAssertGreaterThan(pressedCold.pressWash, 0)
+    }
+}

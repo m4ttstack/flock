@@ -466,6 +466,15 @@ enum ChromeMetrics {
         /// is measured against terminal rows, which the chrome scale leaves
         /// alone, so it is not scaled.
         static let promptClearance: CGFloat = 28
+        /// How far the border brightens toward the accent under the pointer.
+        /// The fill moving on its own reads as a shadow rather than a target,
+        /// which is what these buttons looked like with no hover state at all.
+        static let hoverBorderAccent: Double = 0.55
+        /// Wash of accent over the fill while a press is held, the same value
+        /// the rail's heading buttons use.
+        static let pressedAccent: Double = 0.2
+        static let pressedScale: CGFloat = 0.97
+        static let hoverFade: Double = 0.12
     }
 
     enum Toast {

@@ -34,4 +34,17 @@ public enum PaneLoaderPolicy {
     ) -> ContinuousClock.Instant {
         max(shownAt.advanced(by: minimum), firstFrameAt)
     }
+
+    /// A fresh pane is both things at once for the loader's whole hold: it has
+    /// no first frame yet, and it is a pristine pane the launcher wants to
+    /// offer harnesses on. Both drew, so the launcher's buttons sat across the
+    /// middle of the mark on every new tab.
+    ///
+    /// The loader wins because it is the one that ends on its own. Holding the
+    /// launcher back costs the user nothing: the loader covers the pane
+    /// opaquely, so a button under it could not have been read or aimed at
+    /// anyway.
+    public static func showsLauncherOverlay(isPristineLauncherPane: Bool, loaderVisible: Bool) -> Bool {
+        isPristineLauncherPane && !loaderVisible
+    }
 }

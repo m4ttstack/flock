@@ -50,6 +50,30 @@ final class PaneLoaderPolicyTests: XCTestCase {
         XCTAssertEqual(dismissAt, firstFrameAt)
     }
 
+    /// A fresh pane is a pristine launcher pane AND has no first frame, so
+    /// both the loader and the launcher wanted to draw, and the buttons
+    /// landed across the middle of the mark on every new tab.
+    func testTheLauncherStandsDownWhileTheLoaderIsUp() {
+        XCTAssertFalse(
+            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, loaderVisible: true)
+        )
+    }
+
+    func testTheLauncherShowsOnAPristinePaneOnceTheLoaderIsGone() {
+        XCTAssertTrue(
+            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, loaderVisible: false)
+        )
+    }
+
+    func testAPaneThatIsNotPristineNeverShowsTheLauncher() {
+        XCTAssertFalse(
+            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: false, loaderVisible: false)
+        )
+        XCTAssertFalse(
+            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: false, loaderVisible: true)
+        )
+    }
+
     func testACustomMinimumIsHonoredJustLikeTheDefault() {
         let firstFrameAt = shownAt.advanced(by: .milliseconds(10))
 

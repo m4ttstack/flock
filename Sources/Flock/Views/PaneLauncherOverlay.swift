@@ -64,20 +64,7 @@ struct PaneLauncherOverlay: View {
             Spacer(minLength: 0)
             HStack(spacing: ChromeMetrics.Launcher.buttonSpacing) {
                 ForEach(entries) { entry in
-                    Button { onLaunch(entry) } label: {
-                        HStack(spacing: ChromeMetrics.Launcher.labelSpacing) {
-                            HarnessBadge(entry: entry)
-                            Text(entry.displayName)
-                                .font(ChromeType.launcherName)
-                                .foregroundStyle(theme.textStrong)
-                        }
-                        .padding(.horizontal, ChromeMetrics.Launcher.buttonHorizontalPadding)
-                        .padding(.vertical, ChromeMetrics.Launcher.buttonVerticalPadding)
-                        .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.tabRest))
-                        .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("flock.pane.launcher.\(entry.binary)")
+                    LauncherButton(theme: theme, entry: entry) { onLaunch(entry) }
                 }
             }
             Spacer(minLength: 0)
@@ -96,6 +83,84 @@ struct PaneLauncherOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, ChromeMetrics.Launcher.promptClearance)
+    }
+}
+
+/// One harness's button. `isHovering` is held here rather than lifted to the
+/// row so each button answers only for the pointer being over ITSELF; a row
+/// -level hover lights both buttons at once.
+private struct LauncherButton: View {
+    let theme: Theme
+    let entry: HarnessEntry
+    let onLaunch: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onLaunch) {
+            HStack(spacing: ChromeMetrics.Launcher.labelSpacing) {
+                HarnessBadge(entry: entry)
+                Text(entry.displayName)
+                    .font(ChromeType.launcherName)
+                    .foregroundStyle(theme.textStrong)
+            }
+        }
+        .buttonStyle(LauncherButtonStyle(theme: theme, isHovering: isHovering))
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade)) { isHovering = hovering }
+        }
+        .accessibilityIdentifier("flock.pane.launcher.\(entry.binary)")
+    }
+}
+
+/// What a launcher button looks like in one of its three states. Split out of
+/// the `ButtonStyle` because `ButtonStyle.Configuration` cannot be built by a
+/// test, so a style that reads `isPressed` inline has no assertable press
+/// state at all -- and "all three states look identical" is precisely the bug
+/// this replaced.
+struct LauncherButtonAppearance: Equatable {
+    let fill: Color
+    let border: Color
+    let pressWash: Double
+    let scale: CGFloat
+
+    static func resolve(theme: Theme, isHovering: Bool, isPressed: Bool) -> LauncherButtonAppearance {
+        let lit = isHovering || isPressed
+        return LauncherButtonAppearance(
+            fill: lit ? theme.selection : theme.tabRest,
+            border: lit ? theme.accent.opacity(ChromeMetrics.Launcher.hoverBorderAccent) : theme.rule,
+            pressWash: isPressed ? ChromeMetrics.Launcher.pressedAccent : 0,
+            scale: isPressed ? ChromeMetrics.Launcher.pressedScale : 1
+        )
+    }
+}
+
+/// Rest, hover and press as three visibly different states. `.plain` shipped
+/// here first, which draws all three identically: the button took a click and
+/// gave nothing back, so it read as decoration rather than a control.
+private struct LauncherButtonStyle: ButtonStyle {
+    let theme: Theme
+    let isHovering: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let appearance = LauncherButtonAppearance.resolve(
+            theme: theme, isHovering: isHovering, isPressed: configuration.isPressed
+        )
+        let shape = RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
+        return configuration.label
+            .padding(.horizontal, ChromeMetrics.Launcher.buttonHorizontalPadding)
+            .padding(.vertical, ChromeMetrics.Launcher.buttonVerticalPadding)
+            .background(
+                shape
+                    .fill(appearance.fill)
+                    .overlay(shape.fill(theme.accent).opacity(appearance.pressWash))
+            )
+            .overlay(shape.strokeBorder(appearance.border, lineWidth: 1))
+            .scaleEffect(appearance.scale)
+            // Only the press animates here; the hover fade is driven from the
+            // `onHover` that owns `isHovering`, since a ButtonStyle cannot see
+            // that change coming.
+            .animation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade), value: configuration.isPressed)
     }
 }
 

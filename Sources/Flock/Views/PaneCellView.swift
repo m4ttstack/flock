@@ -616,10 +616,14 @@ struct PaneCellView: View {
                 // original pane, then click the overlay on the new pane), and
                 // only the focused pane holds AppKit key focus. send_input is
                 // focus-independent.
-                if viewModel.isPristineLauncherPane(pane.paneID) {
+                if PaneLoaderPolicy.showsLauncherOverlay(
+                    isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
+                    loaderVisible: showsAttachLoader
+                ) {
                     PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
                         Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }
                     }
+                    .transition(.opacity)
                 }
             }
             // While the launcher shows, the surface below claims no point at
