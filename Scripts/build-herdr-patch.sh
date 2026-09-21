@@ -116,7 +116,12 @@ BUILT="$WORK/target/release/herdr"
   exit 1
 }
 
-if ! strings "$BUILT" | grep -q "terminal.mouse"; then
+# `grep -c`, never `grep -q`, and the reason is this script's own
+# `set -o pipefail`: `-q` exits on its first match, which SIGPIPEs `strings`
+# for a pipeline status of 141. That made the guard fail precisely WHEN the
+# verb was found, so it reported "the patch did not land" on every correct
+# build and passed only on a broken one.
+if [ "$(strings "$BUILT" | grep -cF "terminal.mouse")" -eq 0 ]; then
   echo "build-herdr-patch: built binary carries no terminal.mouse verb; the patch did not land" >&2
   exit 1
 fi
