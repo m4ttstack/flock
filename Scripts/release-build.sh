@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Builds Flock.app in the Release configuration, signed with the hardened
-# runtime, into build/release/.
+# runtime, into build/release/, then notarizes and staples it.
 #
 # The signing identity is a parameter rather than a constant: a Developer ID is
 # a per-machine credential, and a machine without one still has to be able to
 # produce a bundle it can launch, which an ad-hoc signature is enough for.
 #
-# Nothing here notarizes, so two Gatekeeper rejections are expected and pass: a
-# Developer ID build rejected for want of notarization, and an ad-hoc build,
-# which is not a notarization candidate at all. Any other rejection fails.
+# An ad-hoc build is never a notarization candidate (Apple requires a Developer
+# ID signature) and is expected to fail spctl for that reason alone. A
+# Developer-ID build with no notarization credential configured skips
+# notarization with an explanation rather than failing the build, since the
+# artifact it already produced is real and correctly signed, just not yet
+# submitted.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -18,6 +21,8 @@ OUTPUT_DIR="build/release"
 DERIVED_DIR="build/release-derived"
 FORCE_ADHOC=0
 VERIFY=1
+NOTARIZE=1
+NOTARY_PROFILE="${FLOCK_NOTARY_PROFILE:-flock-notary}"
 
 usage() {
   cat <<'USAGE'
@@ -31,7 +36,13 @@ usage: Scripts/release-build.sh [options]
                      A relative path resolves against the repo root, not the
                      directory this was invoked from.
   --skip-verify      build and sign without the codesign/spctl checks
-Also read from the environment: FLOCK_SIGN_IDENTITY.
+  --skip-notarize    build and sign without submitting for notarization
+  --notary-profile <name>  keychain profile name passed to
+                     `notarytool --keychain-profile` (default: flock-notary)
+Also read from the environment: FLOCK_SIGN_IDENTITY, FLOCK_NOTARY_PROFILE.
+An App Store Connect API key takes over from the keychain profile when all
+three of FLOCK_NOTARY_KEY_ID, FLOCK_NOTARY_KEY_ISSUER and FLOCK_NOTARY_KEY_PATH
+are set.
 USAGE
 }
 
@@ -45,12 +56,14 @@ while [ $# -gt 0 ]; do
     --output) require_value "$1" "${2:-}"; OUTPUT_DIR="$2"; shift 2 ;;
     --adhoc) FORCE_ADHOC=1; shift ;;
     --skip-verify) VERIFY=0; shift ;;
+    --skip-notarize) NOTARIZE=0; shift ;;
+    --notary-profile) require_value "$1" "${2:-}"; NOTARY_PROFILE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "release-build.sh: unknown option $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-for tool in xcodegen xcodebuild codesign ditto security spctl sed; do
+for tool in xcodegen xcodebuild codesign ditto security spctl sed xcrun; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "release-build.sh: $tool is required" >&2; exit 1
   }
@@ -182,6 +195,94 @@ if [ "$VERIFY" = 1 ]; then
           exit 1
           ;;
       esac
+    fi
+  fi
+fi
+
+if [ "$NOTARIZE" = 1 ] && [ "$VERIFY" = 0 ]; then
+  echo
+  echo "release-build.sh: --skip-verify also skips notarization (it depends on the hardened-runtime/entitlements checks above)."
+  NOTARIZE=0
+fi
+
+if [ "$NOTARIZE" = 1 ] && [ "$IDENTITY" = "-" ]; then
+  echo
+  echo "release-build.sh: an ad-hoc signature cannot be notarized (Apple requires a Developer ID signer); skipping."
+  NOTARIZE=0
+fi
+
+if [ "$NOTARIZE" = 1 ]; then
+  NOTARY_AUTH_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+  if [ -n "${FLOCK_NOTARY_KEY_ID:-}" ] && [ -n "${FLOCK_NOTARY_KEY_ISSUER:-}" ] && [ -n "${FLOCK_NOTARY_KEY_PATH:-}" ]; then
+    NOTARY_AUTH_ARGS=(--key "$FLOCK_NOTARY_KEY_PATH" --key-id "$FLOCK_NOTARY_KEY_ID" --issuer "$FLOCK_NOTARY_KEY_ISSUER")
+  fi
+
+  ZIP_PATH="$OUTPUT_DIR/Flock-notarization-submission.zip"
+  rm -f "$ZIP_PATH"
+  # notarytool wants a zip/dmg/pkg, never a raw .app directory.
+  ditto -c -k --keepParent "$APP_OUT" "$ZIP_PATH"
+
+  echo
+  echo "=== xcrun notarytool submit ==="
+  set +e
+  submit_output=$(xcrun notarytool submit "$ZIP_PATH" "${NOTARY_AUTH_ARGS[@]}" --wait 2>&1)
+  submit_status=$?
+  set -e
+  printf '%s\n' "$submit_output"
+  rm -f "$ZIP_PATH"
+
+  # notarytool's own exit code for an unknown keychain profile (69, checked
+  # against this machine) is not documented as stable, so the message text is
+  # the primary match and the exit code only a secondary signal.
+  if printf '%s' "$submit_output" | grep -q "No Keychain password item found" \
+     || { [ "$submit_status" -ne 0 ] && printf '%s' "$submit_output" | grep -qi "credentials"; }; then
+    cat <<EOF
+
+release-build.sh: no notarization credential configured ($NOTARY_PROFILE); skipping notarization and stapling.
+This build is signed with Developer ID and the hardened runtime, but WILL
+trip Gatekeeper's "cannot verify" block on any machine that has not already
+chosen to trust this Developer ID. Set up ONE of the following, then rerun:
+
+  App-specific password in a keychain profile (simplest for one machine):
+    xcrun notarytool store-credentials "$NOTARY_PROFILE" \\
+      --apple-id "<your Apple ID email>" \\
+      --team-id 5BF66B3X4V \\
+      --password "<an app-specific password from appleid.apple.com>"
+
+  App Store Connect API key (works headless, e.g. CI):
+    export FLOCK_NOTARY_KEY_ID="<key id>"
+    export FLOCK_NOTARY_KEY_ISSUER="<issuer id>"
+    export FLOCK_NOTARY_KEY_PATH="<path to the downloaded AuthKey_XXXX.p8>"
+EOF
+  elif [ "$submit_status" -ne 0 ]; then
+    echo "release-build.sh: notarytool submit failed for a reason other than a missing credential" >&2
+    exit 1
+  else
+    case "$submit_output" in
+      *"status: Accepted"*) ;;
+      *)
+        submission_id=$(printf '%s' "$submit_output" | sed -n 's/^[[:space:]]*id: \(.*\)/\1/p' | head -1)
+        echo "release-build.sh: notarization did not report Accepted" >&2
+        [ -n "$submission_id" ] && xcrun notarytool log "$submission_id" "${NOTARY_AUTH_ARGS[@]}"
+        exit 1
+        ;;
+    esac
+
+    echo
+    echo "=== xcrun stapler staple ==="
+    xcrun stapler staple "$APP_OUT"
+
+    echo
+    echo "=== xcrun stapler validate ==="
+    xcrun stapler validate "$APP_OUT"
+
+    echo
+    echo "=== spctl -a -vv (post-notarization) ==="
+    assessment=$(spctl -a -vv "$APP_OUT" 2>&1) && assessed=0 || assessed=$?
+    printf '%s\n' "$assessment"
+    if [ "$assessed" -ne 0 ]; then
+      echo "release-build.sh: notarized and stapled, but spctl still rejects the bundle" >&2
+      exit 1
     fi
   fi
 fi
