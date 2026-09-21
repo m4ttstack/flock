@@ -55,15 +55,26 @@ public enum CloseConsequence: Equatable, Sendable {
     }
 
     /// The prompt to raise before closing `subject`, or `nil` when the close
-    /// destroys nothing but what it names.
-    public func confirmation(closing subject: CloseSubject) -> CloseConfirmation? {
-        guard let casualty else { return nil }
+    /// destroys nothing but what it names and interrupts nothing that is
+    /// running.
+    ///
+    /// Two independent reasons to ask, and either alone is enough. The close
+    /// escalates, which is what `casualty` answers, or it takes a pane that is
+    /// mid-task, which is what `busy` answers. When both are true the prompt
+    /// says both, because they are different losses: one destroys a container
+    /// the user did not name, the other throws away work in progress.
+    public func confirmation(closing subject: CloseSubject, busy: BusyPanes = .none) -> CloseConfirmation? {
+        guard casualty != nil || !busy.isEmpty else { return nil }
+        let escalation = casualty.map { _ in
+            "This is its last \(subject.noun), so closing the \(subject.noun) closes \(taken(by: subject))."
+        }
+        let interruption = busy.sentence
         return CloseConfirmation(
             subject: subject,
-            title: "Close \(casualty.description)?",
-            message: "This is its last \(subject.noun), so closing the \(subject.noun) closes "
-                + "\(taken(by: subject)). A close cannot be undone.",
-            confirmButtonTitle: casualty.buttonTitle
+            title: casualty.map { "Close \($0.description)?" } ?? "Close this \(subject.noun)?",
+            message: ([escalation, interruption].compactMap { $0 } + ["A close cannot be undone."])
+                .joined(separator: " "),
+            confirmButtonTitle: casualty?.buttonTitle ?? "Close \(subject.noun.capitalized)"
         )
     }
 

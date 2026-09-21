@@ -93,9 +93,14 @@ struct MainWindow: View {
             Button("Cancel", role: .cancel) { viewModel.cancelPendingGroupClose() }
                 .accessibilityIdentifier("flock.workspace.closeGroup.cancel")
         } message: { pending in
+            // The busy sentence is absent when nothing is, so a quiet
+            // workspace reads exactly as it did before.
             Text(
-                "herdr keeps \"\(pending.label)\" and its linked worktree workspaces together. "
-                    + "Closing it closes all of them."
+                ([
+                    "herdr keeps \"\(pending.label)\" and its linked worktree workspaces together. "
+                        + "Closing it closes all of them.",
+                    pending.busy.groupSentence,
+                ] as [String?]).compactMap { $0 }.joined(separator: " ")
             )
         }
         // A pane or tab close herdr would escalate into a tab or a workspace.

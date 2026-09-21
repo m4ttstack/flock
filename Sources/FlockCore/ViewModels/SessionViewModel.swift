@@ -903,9 +903,13 @@ public final class SessionViewModel {
     /// Without a model there is nothing to weigh, and the close goes as it
     /// always did.
     private func close(_ subject: CloseSubject) async {
-        if let model, let confirmation = CloseConsequence.of(subject, model: model).confirmation(closing: subject) {
-            pendingClose = confirmation
-            return
+        if let model {
+            let consequence = CloseConsequence.of(subject, model: model)
+            let busy = BusyPanes(closing: subject, consequence: consequence, model: model)
+            if let confirmation = consequence.confirmation(closing: subject, busy: busy) {
+                pendingClose = confirmation
+                return
+            }
         }
         await sendClose(subject)
     }
@@ -1111,12 +1115,17 @@ public final class SessionViewModel {
     public struct PendingGroupClose: Equatable, Identifiable, Sendable {
         public let workspaceID: WorkspaceID
         public let label: String
+        /// Busy panes in the PRIMARY workspace only. The linked worktree
+        /// workspaces this close also takes cannot be counted: nothing in the
+        /// model says which they are.
+        public let busy: BusyPanes
 
         public var id: WorkspaceID { workspaceID }
 
-        public init(workspaceID: WorkspaceID, label: String) {
+        public init(workspaceID: WorkspaceID, label: String, busy: BusyPanes = .none) {
             self.workspaceID = workspaceID
             self.label = label
+            self.busy = busy
         }
     }
 
@@ -1210,7 +1219,11 @@ public final class SessionViewModel {
         let label = model?.workspaces.first { $0.workspaceID == workspace }?.label ?? workspace.rawValue
         await run(plan) { [weak self] failure in
             guard failure.code == "workspace_group_close_required" else { return false }
-            self?.pendingGroupClose = PendingGroupClose(workspaceID: workspace, label: label)
+            // Counted here rather than in the view, and at refusal time
+            // rather than at confirm time, so the number describes the
+            // session the user is being asked about.
+            let busy = self?.model.map { BusyPanes(inWorkspace: workspace, model: $0) } ?? BusyPanes.none
+            self?.pendingGroupClose = PendingGroupClose(workspaceID: workspace, label: label, busy: busy)
             return true
         }
     }
