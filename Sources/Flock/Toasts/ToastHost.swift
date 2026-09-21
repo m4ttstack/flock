@@ -1,10 +1,21 @@
 import FlockCore
 import SwiftUI
 
-/// The window's top-right corner, below the title bar: the attention stack
-/// first, then a window-scope `ToastCenter.current` under it. One column
-/// rather than two overlays, so a notice can never land on top of a toast
-/// the user is about to click.
+/// The window's bottom-right corner: a window-scope `ToastCenter.current`
+/// nearest the edge, with the attention stack growing upward above it. One
+/// column rather than two overlays, so a notice can never land on top of a
+/// toast the user is about to click.
+///
+/// The notice sits closest to the corner because it is the transient half:
+/// it replaces itself and leaves, while attention cards accumulate and wait
+/// to be clicked. Putting the accumulating half on the outside means a new
+/// card never shoves the others past where the user was already looking.
+///
+/// This corner is shared. A pane's own copied whisper and its attach badge
+/// both draw bottom-right INSIDE their pane cell, so a toast can overlap the
+/// bottom-right pane's furniture. Accepted deliberately: both of those are
+/// brief and clear themselves, and the alternative was insetting this stack
+/// by a number that would drift out of step with the pane chrome.
 ///
 /// Only the attention stack takes hits. The notice never does: the pane
 /// underneath keeps the mouse. A pane-scoped toast (`paneID != nil`, e.g. the
@@ -18,21 +29,21 @@ struct ToastHost: View {
 
     var body: some View {
         // Zero spacing, with the gap owned by the attention stack: an empty
-        // stack must leave the notice exactly where it has always sat.
+        // stack must leave the notice exactly where it sits on its own.
         VStack(alignment: .trailing, spacing: 0) {
             AttentionToastStackView(theme: themeStore.active, viewModel: viewModel)
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .bottomTrailing) {
                 if let toast = toastCenter.current, toast.paneID == nil {
                     ToastPill(theme: themeStore.active, toast: toast)
                         .id(toast.id)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
             .animation(.easeOut(duration: 0.15), value: toastCenter.current)
             .allowsHitTesting(false)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(.top, ChromeMetrics.TitleBar.height + ChromeMetrics.Strip.height + ChromeMetrics.ruleWidth + ChromeMetrics.Toast.topGap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .padding(.bottom, ChromeMetrics.Toast.bottomGap)
         .padding(.trailing, ChromeMetrics.Toast.trailingInset)
     }
 }

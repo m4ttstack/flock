@@ -484,7 +484,10 @@ enum ChromeMetrics {
     }
 
     enum Toast {
-        static let topGap: CGFloat = 13
+        /// Clears the window's bottom edge. The stack used to hang below the
+        /// title bar and tab strip, which is what `topGap` measured against;
+        /// nothing is stacked under a pane, so this is a plain inset.
+        static let bottomGap: CGFloat = 13
         static let trailingInset: CGFloat = 18
         static let spacing: CGFloat = 8
         static let horizontalPadding: CGFloat = 13

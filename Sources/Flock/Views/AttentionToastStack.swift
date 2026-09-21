@@ -2,10 +2,13 @@ import AppKit
 import FlockCore
 import SwiftUI
 
-/// The top-right attention stack: one card per pane that wants the user, over
-/// a "+N more" pill once there are more than three. Every rule about what is
-/// in it lives in `AttentionToastStack`; this draws what the rules decided
-/// and owns only the pointer.
+/// The bottom-right attention stack: one card per pane that wants the user,
+/// over a "+N more" pill once there are more than three. Every rule about
+/// what is in it lives in `AttentionToastStack`; this draws what the rules
+/// decided and owns only the pointer.
+///
+/// It grows upward, away from the corner, so a card arriving never shifts the
+/// ones already on screen out from under the user's eye.
 struct AttentionToastStackView: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -17,12 +20,16 @@ struct AttentionToastStackView: View {
     var body: some View {
         if !stack.isEmpty {
             VStack(alignment: .trailing, spacing: ChromeMetrics.AttentionToast.stackSpacing) {
-                ForEach(stack.visible) { toast in
-                    AttentionToastCard(theme: theme, toast: toast, viewModel: viewModel)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
                 if stack.collapsedCount > 0 {
                     MorePill(theme: theme, count: stack.collapsedCount)
+                }
+                // Reversed because `visible` is newest first and this column
+                // is read from the bottom up: the newest card belongs nearest
+                // the corner, where the eye already is, with older ones
+                // pushed away above it.
+                ForEach(Array(stack.visible.reversed())) { toast in
+                    AttentionToastCard(theme: theme, toast: toast, viewModel: viewModel)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
             .padding(.bottom, ChromeMetrics.AttentionToast.stackSpacing)

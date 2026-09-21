@@ -2244,9 +2244,11 @@ final class ChromeRenderTests: XCTestCase {
     /// code. The check is the status hue appearing in the corner the stack
     /// occupies, against the same corner at rest -- a single pixel is not
     /// nameable on a mark this small with a glow behind it.
-    func testTheAttentionStackFillsTheTopRightCornerAndOverflowsToAPill() async throws {
+    func testTheAttentionStackFillsTheBottomRightCornerAndOverflowsToAPill() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let corner = CGRect(x: 600, y: 66, width: 300, height: 240)
+        // The bottom right of a 900x560 window. The stack grows upward
+        // from that corner, so the band reaches well above it.
+        let corner = CGRect(x: 600, y: 320, width: 300, height: 240)
         let red = Theme.tokyoNight.palette.red.hex
 
         let resting = try await Harness(theme: .tokyoNight, model: try Fixture.model())
@@ -2288,7 +2290,7 @@ final class ChromeRenderTests: XCTestCase {
         )
         XCTAssertNotNil(
             firstPoint(in: corner, matching: red, of: image),
-            "no \(red) anywhere in the top-right corner: the attention stack did not paint"
+            "no \(red) anywhere in the bottom-right corner: the attention stack did not paint"
         )
         window.close()
         restingWindow.close()
