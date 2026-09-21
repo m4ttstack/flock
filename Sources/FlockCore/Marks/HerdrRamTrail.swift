@@ -47,38 +47,46 @@ public enum HerdrRamTrail {
         ]
     }
 
-    private static let insetFraction: CGFloat = 0.086
-    private static let marginFraction: CGFloat = 0.19
-    private static let heightFillFraction: CGFloat = 0.87
+    /// Breathing room around the whole composition. The icon's own fit
+    /// instead chains two much larger insets (a squircle inset, then a
+    /// margin inside it) because the ram has to sit inside a rounded ground
+    /// with visible shoulder on every side. A pane has no ground, so
+    /// carrying those over just made the ram small in the middle of a lot of
+    /// nothing.
+    private static let marginFraction: CGFloat = 0.03
     private static let echoStepXFraction: CGFloat = 0.105
     private static let echoStepYFraction: CGFloat = 0.075
 
-    /// The ram, fit into `square` and centred on the WHOLE rest composition
-    /// -- the leader plus the farthest echo's rest offset -- rather than on
-    /// the leader's own raw path bounds. `make-icon.swift` centres the
-    /// leader alone and then nudges it by two fixed fractions to rebalance
-    /// the squircle around the icon's own trail direction; those fractions
-    /// were tuned to that squircle's margins and do not carry to an
-    /// arbitrary pane, so this derives the same idea (shift by half the
-    /// echoes' extent) from `echoStepXFraction`/`echoStepYFraction` instead
-    /// of a hand-picked constant. `dx`/`dy` land on top of that centred rest
-    /// position. Rebuilt per call rather than cached: `CGPath` is not
-    /// `Sendable`, so a stored one would need isolation this static API
-    /// otherwise has no reason to carry.
+    /// The leader ram, positioned so that the WHOLE rest composition -- the
+    /// leader plus the farthest echo's rest offset -- both fits `square` and
+    /// is centred in it. Sizing and centring on the leader alone is the
+    /// mistake to avoid: the echoes extend up and to the right of it by a
+    /// third of the square, so a leader-centred mark reads as sitting high
+    /// and right of the middle, and a leader-sized one pushes the farthest
+    /// echo out of frame.
+    ///
+    /// The spread is measured against `square`, the same basis `offset` uses
+    /// for the offsets actually applied to those echoes. Measuring it
+    /// against any inset box under-corrects by exactly the ratio between
+    /// them. `dx`/`dy` land on top of the centred rest position. Rebuilt per
+    /// call rather than cached: `CGPath` is not `Sendable`, so a stored one
+    /// would need isolation this static API otherwise has no reason to
+    /// carry.
     public static func path(in square: CGSize, dx: CGFloat = 0, dy: CGFloat = 0) -> CGPath {
         let base = HerdrRam.path()
         let bounds = base.boundingBoxOfPath
-        let inset = square.width * insetFraction
-        let body = CGRect(x: inset, y: inset, width: square.width - inset * 2, height: square.height - inset * 2)
-        let margin = body.width * marginFraction
-        let target = body.insetBy(dx: margin, dy: margin)
-        let scale = target.height / bounds.height * heightFillFraction
-        let maxBackSteps = CGFloat(echoCount)
-        let compositeOffsetX = target.width * echoStepXFraction * maxBackSteps
-        let compositeOffsetY = target.height * echoStepYFraction * maxBackSteps
+        guard bounds.width > 0, bounds.height > 0 else { return base }
+        let available = CGRect(origin: .zero, size: square)
+            .insetBy(dx: square.width * marginFraction, dy: square.height * marginFraction)
+        let spread = offset(restBackSteps: CGFloat(echoCount), in: square, progress: 0)
+        let scale = min(
+            (available.width - spread.width) / bounds.width,
+            (available.height - spread.height) / bounds.height
+        )
+        guard scale > 0 else { return base }
         var transform = CGAffineTransform(
-            translationX: target.midX - compositeOffsetX / 2 - bounds.midX * scale + dx,
-            y: target.midY - compositeOffsetY / 2 + bounds.midY * scale + dy
+            translationX: available.midX - spread.width / 2 - bounds.midX * scale + dx,
+            y: available.midY - spread.height / 2 + bounds.midY * scale + dy
         ).scaledBy(x: scale, y: -scale)
         return base.copy(using: &transform) ?? base
     }
