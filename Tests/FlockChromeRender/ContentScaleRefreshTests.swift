@@ -131,6 +131,45 @@ final class ContentScaleRefreshTests: XCTestCase {
         )
     }
 
+    /// How many cells a surface holds is a function of the view's POINT size
+    /// and the font's point size, so a backing-scale change must not move it:
+    /// the cell's pixels and the surface's pixels both scale, and the grid
+    /// stays put. Every other test here asserts only that the CELL changed,
+    /// which is true the moment the content scale is pushed and says nothing
+    /// about the surface's own size -- that gap is how a pane on a 1x display
+    /// ended up holding twice the columns it had room for, at half the
+    /// legible size.
+    func testAScaleChangeAloneLeavesTheGridTheViewsPointSizeImplies() throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let session = host.makeSession(
+            paneID: PaneID(rawValue: "w1:p1"),
+            configuration: GhosttySession.Launch(commandArgv: ["/usr/bin/true"], themeColors: Self.colors)
+        )
+        let view = GhosttySurfaceView(session: session)
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let window = ScaleStubWindow(scale: 2.0)
+        window.contentView?.addSubview(view)
+        view.layout()
+        let onRetina = try XCTUnwrap(session.surfaceGeometry(), "surface never reported a grid at 2x")
+
+        // The plug-in, as the notification path sees it: the window's scale
+        // changes and the scale update runs, with no layout pass behind it.
+        // AppKit runs none when a window moves between displays of the same
+        // point size, which is exactly the move that changes the scale.
+        window.scaleOverride = 1.0
+        session.updateContentScale()
+
+        let onExternal = try XCTUnwrap(session.surfaceGeometry(), "surface never reported a grid at 1x")
+        XCTAssertEqual(
+            onExternal.grid.columns, onRetina.grid.columns,
+            "a scale change alone must not change how many columns fit the same view"
+        )
+        XCTAssertEqual(
+            onExternal.grid.rows, onRetina.grid.rows,
+            "a scale change alone must not change how many rows fit the same view"
+        )
+    }
+
     /// `layout()` runs on every pass, so reasserting the same scale on every
     /// one of them would issue a redundant surface command each time. Proves
     /// the guard belongs in `updateContentScale()` itself.

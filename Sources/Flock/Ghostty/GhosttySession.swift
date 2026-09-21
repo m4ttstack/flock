@@ -219,13 +219,21 @@ final class GhosttySession {
     /// `scale`'s `NSScreen.main` fallback into a session whose view is
     /// parked in the warm cache awaiting mount elsewhere.
     func updateContentScale() {
-        guard let surface, view?.window != nil else { return }
+        guard let surface, let view, view.window != nil else { return }
         let newScale = scale
         guard newScale.isFinite, newScale > 0, newScale != lastAppliedScale else { return }
         lastAppliedScale = newScale
         contentScaleApplyCount += 1
         let value = Double(newScale)
         ghostty_surface_set_content_scale(surface, value, value)
+        // The surface's size is in PIXELS and `resize` derives it from this
+        // scale, so the size the surface still holds now names the wrong
+        // number of pixels and its grid moves by the scale ratio: twice the
+        // columns dropping to 1x, half of them going back up. Nothing else
+        // re-issues it, because AppKit runs no layout pass when a window
+        // moves between displays of the same point size, and that is exactly
+        // the move plugging a monitor in makes.
+        resize(to: view.bounds.size)
     }
 
     func render() {
