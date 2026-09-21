@@ -4,26 +4,31 @@ import XCTest
 final class PaneLoaderPolicyTests: XCTestCase {
     private let shownAt = ContinuousClock.now
 
-    /// The one place the floor's actual value is asserted, so a choreography
-    /// change that moves it cannot pass unnoticed. Every other test below
-    /// reads the constant.
-    func testTheFloorWorksOutTo1000ms() {
-        XCTAssertEqual(PaneLoaderPolicy.minimumDisplay, .milliseconds(1000))
+    /// The two numbers that decide whether the badge is felt at all, asserted
+    /// here so moving either is a deliberate edit. Everything below reads the
+    /// constants rather than repeating them.
+    func testTheTwoTimersAreTheOnesChosen() {
+        XCTAssertEqual(PaneLoaderPolicy.appearDelay, .milliseconds(200))
+        XCTAssertEqual(PaneLoaderPolicy.minimumDisplay, .milliseconds(400))
     }
 
-    /// Why that number: the dismissal cross-fade straddles the end of a trail
-    /// loop, so the trail is at full spread in the middle of the fade rather
-    /// than at the start of it. Beginning the fade at the loop's end instead
-    /// leaves the echoes visibly gathering again underneath it.
-    func testTheFadeIsCentredOnTheEndOfATrailLoop() {
-        let floor = Double(PaneLoaderPolicy.minimumDisplay.components.seconds)
-            + Double(PaneLoaderPolicy.minimumDisplay.components.attoseconds) / 1e18
+    /// The point of the whole feature: a pane that paints quickly says
+    /// nothing. Every attach announcing itself, including the ones already
+    /// finished, is what made the loader feel like a toll booth.
+    func testAPaneThatPaintsInsideTheDelayNeverShowsTheBadge() {
+        XCTAssertFalse(PaneLoaderPolicy.showsBadge(hasFirstFrame: false, elapsed: .milliseconds(80)))
+        XCTAssertFalse(PaneLoaderPolicy.showsBadge(hasFirstFrame: true, elapsed: .milliseconds(80)))
+    }
 
-        XCTAssertEqual(
-            floor + PaneLoaderPolicy.dismissCrossFade / 2,
-            PaneLoaderChoreography.loopDuration,
-            accuracy: 0.0001
-        )
+    func testAPaneStillWaitingPastTheDelayShowsTheBadge() {
+        XCTAssertTrue(PaneLoaderPolicy.showsBadge(hasFirstFrame: false, elapsed: .milliseconds(201)))
+        XCTAssertTrue(PaneLoaderPolicy.showsBadge(hasFirstFrame: false, elapsed: PaneLoaderPolicy.appearDelay))
+    }
+
+    /// A frame that lands after the delay has passed means the badge already
+    /// appeared; the floor, not this, is what decides when it leaves.
+    func testAFrameArrivingLateDoesNotRetractTheBadge() {
+        XCTAssertFalse(PaneLoaderPolicy.showsBadge(hasFirstFrame: true, elapsed: .seconds(3)))
     }
 
     func testFirstFrameBeforeMinimumHoldsToTheFloor() {
@@ -50,27 +55,50 @@ final class PaneLoaderPolicyTests: XCTestCase {
         XCTAssertEqual(dismissAt, firstFrameAt)
     }
 
-    /// A fresh pane is a pristine launcher pane AND has no first frame, so
-    /// both the loader and the launcher wanted to draw, and the buttons
-    /// landed across the middle of the mark on every new tab.
-    func testTheLauncherStandsDownWhileTheLoaderIsUp() {
+    /// The regression that put a frame of live terminal on screen before the
+    /// badge dropped in front of it: a cold pane's first render runs before
+    /// the cell has decided anything, so "no badge yet" is not "no badge
+    /// coming", and libghostty has usually painted real content by then.
+    func testAnUndecidedPaneHidesTheTerminalRatherThanFlashingIt() {
         XCTAssertFalse(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, loaderVisible: true)
+            PaneLoaderPolicy.showsTerminalSurface(hasFirstFrame: false, badgeVisible: false)
         )
     }
 
-    func testTheLauncherShowsOnAPristinePaneOnceTheLoaderIsGone() {
+    /// The other half: revealing on the frame alone puts live content under a
+    /// badge that is still holding its floor.
+    func testTheTerminalStaysHiddenWhileTheBadgeHoldsItsFloor() {
+        XCTAssertFalse(
+            PaneLoaderPolicy.showsTerminalSurface(hasFirstFrame: true, badgeVisible: true)
+        )
+    }
+
+    func testTheTerminalShowsOnceItHasAFrameAndTheBadgeIsGone() {
         XCTAssertTrue(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, loaderVisible: false)
+            PaneLoaderPolicy.showsTerminalSurface(hasFirstFrame: true, badgeVisible: false)
+        )
+    }
+
+    /// A pane that has not painted has no shell ready to be typed into, and
+    /// the launcher's buttons work by sending the harness name as input.
+    func testTheLauncherWaitsForTheBadgeToGo() {
+        XCTAssertFalse(
+            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, badgeVisible: true)
+        )
+    }
+
+    func testTheLauncherShowsOnAPristinePaneOnceTheBadgeIsGone() {
+        XCTAssertTrue(
+            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, badgeVisible: false)
         )
     }
 
     func testAPaneThatIsNotPristineNeverShowsTheLauncher() {
         XCTAssertFalse(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: false, loaderVisible: false)
+            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: false, badgeVisible: false)
         )
         XCTAssertFalse(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: false, loaderVisible: true)
+            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: false, badgeVisible: true)
         )
     }
 

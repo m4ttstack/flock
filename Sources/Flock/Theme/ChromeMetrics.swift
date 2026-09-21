@@ -426,21 +426,20 @@ enum ChromeMetrics {
         static let lineVerticalPadding: CGFloat = 5
     }
 
-    /// The pane attach loader: the mark over "gathering the flock...", shown
-    /// only while a surface's first frame is outstanding.
+    /// The pane attach badge: the mark beside "flocking...", in the corner of
+    /// a pane whose first frame is still outstanding.
     enum Loader {
-        static let spacing: CGFloat = 14
-        /// The mark as a fraction of the pane's shorter side, so it holds up
-        /// in a small split and a full-width pane alike, clamped so it never
-        /// shrinks past legible or grows past absurd.
-        static let markSizeFraction: CGFloat = 0.45
-        static let markSizeMin: CGFloat = 96
-        static let markSizeMax: CGFloat = 220
-
-        static func markSize(paneSize: CGSize) -> CGFloat {
-            let fitted = min(paneSize.width, paneSize.height) * markSizeFraction
-            return min(max(fitted, markSizeMin), markSizeMax)
-        }
+        /// Between the mark and the word, which sit on one line.
+        static let spacing: CGFloat = 8
+        /// One fixed size at every pane size. The full-pane version this
+        /// replaced scaled with the pane because it was the pane's whole
+        /// content; a badge is furniture, and furniture that grows with its
+        /// container stops reading as furniture.
+        static let badgeMarkSize: CGFloat = 32
+        /// From the pane's own inner edge. Matches nothing else deliberately:
+        /// it is measured against the pane's rounded corner, which is what it
+        /// has to clear.
+        static let badgeInset: CGFloat = 12
     }
 
     enum NoHerdr {

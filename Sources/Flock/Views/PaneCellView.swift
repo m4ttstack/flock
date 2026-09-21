@@ -87,14 +87,21 @@ struct PaneCellView: View {
     /// top-left point (AppKit) into a drag-space one.
     @State private var bodyFrame: CGRect = .zero
 
-    /// When the attach loader first became visible for the surface's CURRENT
-    /// wait -- reset whenever `hasFirstFrame` drops back to false, since a
-    /// hold-lost reattach is a fresh wait, not a continuation of the last
-    /// one. `nil` means the loader has never shown for this surface (a warm,
-    /// pool-seeded pane skips it entirely).
+    /// When the attach badge actually appeared for the surface's CURRENT wait
+    /// -- reset whenever `hasFirstFrame` drops back to false, since a
+    /// hold-lost reattach is a fresh wait, not a continuation of the last one.
+    ///
+    /// `nil` means the badge is not up: either the surface was warm and never
+    /// waited at all, or it is waiting but has not yet been waiting long
+    /// enough to be worth saying so (`PaneLoaderPolicy.appearDelay`). Most
+    /// attaches finish inside that window and never set this.
     @State private var loaderShownAt: ContinuousClock.Instant?
     @State private var loaderDismissed = false
     @State private var loaderDismissTask: Task<Void, Never>?
+    /// The delay before the badge is allowed to appear. Held so a first frame
+    /// arriving inside the window can cancel it, which is what keeps a fast
+    /// attach silent.
+    @State private var loaderArmTask: Task<Void, Never>?
 
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
     /// a warm (parked) pane's surface is already there, so it never renders
@@ -196,6 +203,7 @@ struct PaneCellView: View {
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }
             loaderDismissTask?.cancel()
+            loaderArmTask?.cancel()
         }
     }
 
@@ -536,29 +544,46 @@ struct PaneCellView: View {
         theme.agentStatusColor(pane.agentStatus)
     }
 
-    /// True while a first frame is outstanding, and for however much longer
-    /// `PaneLoaderPolicy` holds the loader up once it arrives. A surface that
-    /// never sets `loaderShownAt` (already had its first frame the moment
-    /// this cell first saw it) never shows the loader at all.
+    /// True once the badge has actually appeared, and for however much longer
+    /// `PaneLoaderPolicy` holds it once the frame arrives. A surface whose
+    /// attach finishes inside `appearDelay` never sets `loaderShownAt`, so
+    /// this is never true for it and the pane simply appears.
     private var showsAttachLoader: Bool {
         guard let ghosttySurface, loaderShownAt != nil else { return false }
         return !ghosttySurface.hasFirstFrame || !loaderDismissed
     }
 
-    /// Reacts to both directions `hasFirstFrame` can move: forward into a
-    /// real frame arms the dismiss floor, and back to false (a herdr hold
-    /// lost mid-attach) starts a fresh wait rather than honoring the one that
-    /// was already in flight -- `markHoldLost`'s own doc comment is what
-    /// makes this an actual, recurring transition rather than a one-shot.
+    /// Reacts to both directions `hasFirstFrame` can move: forward into a real
+    /// frame ends the wait, and back to false (a herdr hold lost mid-attach)
+    /// starts a fresh one rather than honoring the wait already in flight --
+    /// `markHoldLost`'s own doc comment is what makes this an actual,
+    /// recurring transition rather than a one-shot.
     private func handleFirstFrameChange(_ hasFirstFrame: Bool) {
         if hasFirstFrame {
+            // Cancelling the arm task is what makes a fast attach silent: the
+            // badge was scheduled, the frame beat it, and it never appears.
+            loaderArmTask?.cancel()
+            loaderArmTask = nil
             guard loaderShownAt != nil else { return }
             scheduleLoaderDismissal()
         } else {
             loaderDismissTask?.cancel()
             loaderDismissTask = nil
             loaderDismissed = false
+            loaderShownAt = nil
+            armLoader()
+        }
+    }
+
+    /// Starts the badge's appearance timer. Nothing is shown until it fires,
+    /// and it is cancelled if the frame arrives first.
+    private func armLoader() {
+        loaderArmTask?.cancel()
+        loaderArmTask = Task {
+            try? await Task.sleep(for: PaneLoaderPolicy.appearDelay, clock: .continuous)
+            guard !Task.isCancelled else { return }
             loaderShownAt = ContinuousClock.now
+            loaderArmTask = nil
         }
     }
 
@@ -573,18 +598,15 @@ struct PaneCellView: View {
         }
     }
 
-    /// `ghosttySurface` mounts as soon as it exists, whether or not its
-    /// bridge has painted a first frame yet -- libghostty needs a real
-    /// window to render into, so a cold attach's surface has to be in the
-    /// hierarchy (opacity 0, under the loader) from the start, not swapped
-    /// in only once ready. Its opacity follows `showsAttachLoader`, not
-    /// `hasFirstFrame` directly: the loader holds the screen through its own
-    /// display floor even after the real frame has arrived, and revealing the
-    /// surface the instant `hasFirstFrame` flips would show live content
-    /// UNDER an opaque loader for that whole remaining hold, then have
-    /// nothing left to crossfade when the loader finally goes. A warm
-    /// (pool-seeded) surface never sets `loaderShownAt`, so its loader never
-    /// appears and the surface is visible immediately.
+    /// `ghosttySurface` mounts as soon as it exists, whether or not its bridge
+    /// has painted a first frame yet -- libghostty needs a real window to
+    /// render into, so a cold attach's surface has to be in the hierarchy
+    /// (at zero opacity) from the start, not swapped in only once ready.
+    ///
+    /// `PaneLoaderPolicy.showsTerminalSurface` is what decides whether it is
+    /// actually visible, and it needs both halves of its rule; the pane's own
+    /// `theme.pane` ground is all that shows while it is hidden, which is why
+    /// the badge can be a small thing in a corner rather than an opaque cover.
     @ViewBuilder
     private func content(editorIsOpen: Bool) -> some View {
         if let ghosttySurface {
@@ -605,7 +627,11 @@ struct PaneCellView: View {
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }
-                .opacity(showsAttachLoader ? 0 : 1)
+                .opacity(
+                    PaneLoaderPolicy.showsTerminalSurface(
+                        hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
+                    ) ? 1 : 0
+                )
                 if showsAttachLoader {
                     PaneLoaderView(theme: theme)
                         .transition(.opacity)
@@ -618,7 +644,7 @@ struct PaneCellView: View {
                 // focus-independent.
                 if PaneLoaderPolicy.showsLauncherOverlay(
                     isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
-                    loaderVisible: showsAttachLoader
+                    badgeVisible: showsAttachLoader
                 ) {
                     PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
                         Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }

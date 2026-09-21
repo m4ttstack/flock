@@ -3,19 +3,21 @@ import AppKit
 import SwiftUI
 import XCTest
 
-/// The pane attach loader's static composition, rendered OVER a stand-in for
-/// live terminal content rather than in isolation: an isolated render is
-/// exactly what let the loader ship transparent, with real output showing
-/// straight through it. The trail's own loop is verified by eye and by
-/// `PaneLoaderChoreographyTests` in FlockCoreTests, never by asserting a
-/// frame of a running animation here.
+/// The attach badge, rendered over the pane ground it actually sits on.
+///
+/// The previous full-pane version was asserted the other way round: that no
+/// pixel of the content behind it survived. A badge is the opposite promise --
+/// it covers almost nothing, stays in its corner, and leaves the rest of the
+/// pane alone. The trail's own loop is verified by eye and by
+/// `PaneLoaderChoreographyTests`, never by asserting a frame of a running
+/// animation here.
 @MainActor
 final class PaneLoaderViewTests: XCTestCase {
-    /// A colour no pane ground, theme role, or brand mark colour can
-    /// produce, standing in for real terminal output: any pixel of it
-    /// surviving through the loader is the coverage bug back.
-    private static let terminalMarkerColor = Color(red: 1, green: 0, blue: 1)
-    private static let terminalMarkerHex = "#FF00FF"
+    /// Stands in for the pane ground the badge is drawn on. A colour nothing
+    /// else in the composition can produce, so any pixel that is NOT this is
+    /// the badge itself.
+    private static let groundColor = Color(red: 1, green: 0, blue: 1)
+    private static let groundHex = "#FF00FF"
 
     private struct Probe: View {
         let theme: Theme
@@ -23,7 +25,7 @@ final class PaneLoaderViewTests: XCTestCase {
 
         var body: some View {
             ZStack {
-                PaneLoaderViewTests.terminalMarkerColor
+                PaneLoaderViewTests.groundColor
                 PaneLoaderView(theme: theme, reducedMotionOverride: true)
             }
             .frame(width: paneSize.width, height: paneSize.height)
@@ -72,8 +74,8 @@ final class PaneLoaderViewTests: XCTestCase {
     private func render(theme: Theme, paneSize: CGSize, name: String) async throws -> NSBitmapImageRep {
         let window = await hostProbe(theme: theme, paneSize: paneSize)
         defer { window.close() }
-        // The fade-in starts at zero opacity; the loader has to actually be
-        // visible before any pixel assertion means anything.
+        // The badge fades in from zero opacity; it has to actually be visible
+        // before any pixel assertion means anything.
         try? await Task.sleep(for: .milliseconds(400))
         let image = try snapshot(window)
         if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
@@ -83,62 +85,76 @@ final class PaneLoaderViewTests: XCTestCase {
         return image
     }
 
-    /// A human-reviewed PNG at each size, plus the two things a pixel test
-    /// can actually prove: nothing of the marker colour behind the loader
-    /// survives anywhere in the pane (full, opaque coverage), and something
-    /// other than flat pane ground painted (the mark and caption are there).
-    private func assertFullyOpaqueAndPainted(_ image: NSBitmapImageRep, paneSize: CGSize, groundHex: String) {
-        var markerPixelCount = 0
-        var nonGroundPixelCount = 0
-        for y in stride(from: 0, to: image.pixelsHigh, by: 3) {
-            for x in stride(from: 0, to: image.pixelsWide, by: 3) {
-                guard let sampled = hex(image, x: x, y: y) else { continue }
-                if sampled == Self.terminalMarkerHex { markerPixelCount += 1 }
-                if sampled != groundHex { nonGroundPixelCount += 1 }
+    /// Every painted pixel, as a fraction of the pane, and the bounding box
+    /// they fall in.
+    private func paintedRegion(_ image: NSBitmapImageRep) -> (coverage: Double, box: CGRect)? {
+        var painted = 0
+        var sampled = 0
+        var minX = Int.max, minY = Int.max, maxX = Int.min, maxY = Int.min
+        for y in stride(from: 0, to: image.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: image.pixelsWide, by: 2) {
+                guard let sample = hex(image, x: x, y: y) else { continue }
+                sampled += 1
+                guard sample != Self.groundHex else { continue }
+                painted += 1
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
             }
         }
-        XCTAssertEqual(markerPixelCount, 0, "terminal content showed through the loader at pane size \(paneSize)")
-        XCTAssertGreaterThan(nonGroundPixelCount, 50, "nothing painted over the ground at pane size \(paneSize)")
+        guard painted > 0, sampled > 0 else { return nil }
+        return (
+            Double(painted) / Double(sampled),
+            CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        )
     }
 
-    func testTheLoaderFullyCoversTerminalContentAtASmallSplitSize() async throws {
-        let theme = Theme.tokyoNight
+    /// A badge is furniture: it says something is happening and gets out of
+    /// the way. The full-pane version it replaced covered everything, which is
+    /// what made every attach feel like a wait.
+    private func assertIsASmallCornerBadge(
+        _ image: NSBitmapImageRep, paneSize: CGSize, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let region = try XCTUnwrap(paintedRegion(image), "the badge painted nothing at all", file: file, line: line)
+
+        XCTAssertLessThan(
+            region.coverage, 0.1,
+            "the badge covered \(Int(region.coverage * 100))% of a \(paneSize) pane; it is meant to be furniture",
+            file: file, line: line
+        )
+        // Bottom trailing, in a top-left-origin bitmap: past the midpoint on
+        // both axes. Anything centred fails this, which is the regression
+        // that matters -- a badge that drifts back to the middle of the pane
+        // is the thing being replaced.
+        XCTAssertGreaterThan(
+            Double(region.box.minX), Double(image.pixelsWide) / 2,
+            "the badge strayed left of the pane's middle", file: file, line: line
+        )
+        XCTAssertGreaterThan(
+            Double(region.box.minY), Double(image.pixelsHigh) / 2,
+            "the badge strayed above the pane's middle", file: file, line: line
+        )
+    }
+
+    func testTheBadgeStaysSmallAndInTheCornerOfASmallSplit() async throws {
         let paneSize = CGSize(width: 240, height: 160)
-        let image = try await render(theme: theme, paneSize: paneSize, name: "small")
-        assertFullyOpaqueAndPainted(image, paneSize: paneSize, groundHex: theme.palette.chromeRoles.pane.hex)
+        let image = try await render(theme: .tokyoNight, paneSize: paneSize, name: "small")
+        try assertIsASmallCornerBadge(image, paneSize: paneSize)
     }
 
-    func testTheLoaderFullyCoversTerminalContentAtAMediumPaneSize() async throws {
-        let theme = Theme.tokyoNight
+    func testTheBadgeStaysSmallAndInTheCornerOfAnOrdinaryPane() async throws {
         let paneSize = CGSize(width: 520, height: 360)
-        let image = try await render(theme: theme, paneSize: paneSize, name: "medium")
-        assertFullyOpaqueAndPainted(image, paneSize: paneSize, groundHex: theme.palette.chromeRoles.pane.hex)
+        let image = try await render(theme: .tokyoNight, paneSize: paneSize, name: "medium")
+        try assertIsASmallCornerBadge(image, paneSize: paneSize)
     }
 
-    func testTheLoaderFullyCoversTerminalContentAtAFullWidthPaneSize() async throws {
-        let theme = Theme.tokyoNight
+    /// The size is fixed, so the bigger the pane the smaller the share it
+    /// takes. A badge that scaled with its container would fail this.
+    func testTheBadgeTakesAVanishingShareOfAFullWidthPane() async throws {
         let paneSize = CGSize(width: 1000, height: 640)
-        let image = try await render(theme: theme, paneSize: paneSize, name: "large")
-        assertFullyOpaqueAndPainted(image, paneSize: paneSize, groundHex: theme.palette.chromeRoles.pane.hex)
-    }
-}
+        let image = try await render(theme: .tokyoNight, paneSize: paneSize, name: "large")
+        try assertIsASmallCornerBadge(image, paneSize: paneSize)
 
-/// The mark's own size rule: a fraction of the pane's shorter side, clamped
-/// at both ends. Pure CGFloat/CGSize arithmetic, so this needs no host
-/// window -- it just has to never regress back to a fixed constant.
-final class ChromeMetricsLoaderSizingTests: XCTestCase {
-    func testScalesWithTheShorterSideWithinBounds() {
-        let size = ChromeMetrics.Loader.markSize(paneSize: CGSize(width: 900, height: 400))
-        XCTAssertEqual(size, 400 * ChromeMetrics.Loader.markSizeFraction, accuracy: 0.01)
-    }
-
-    func testClampsToTheMinimumInANarrowSplit() {
-        let size = ChromeMetrics.Loader.markSize(paneSize: CGSize(width: 150, height: 120))
-        XCTAssertEqual(size, ChromeMetrics.Loader.markSizeMin)
-    }
-
-    func testClampsToTheMaximumInAVeryLargePane() {
-        let size = ChromeMetrics.Loader.markSize(paneSize: CGSize(width: 2000, height: 1400))
-        XCTAssertEqual(size, ChromeMetrics.Loader.markSizeMax)
+        let region = try XCTUnwrap(paintedRegion(image))
+        XCTAssertLessThan(region.coverage, 0.02)
     }
 }
