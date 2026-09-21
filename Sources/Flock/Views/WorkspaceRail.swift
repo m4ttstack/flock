@@ -182,19 +182,19 @@ struct WorkspaceRail: View {
             .onEnded { railWidth.released(at: $0.location.x) }
     }
 
-    /// A plain click on rail space no row occupies creates a workspace, and a
-    /// right-click there offers the same thing by name. Invisible by
-    /// construction, so it costs the resting chrome nothing. A row of its own
-    /// height sits above this zone in the row stack rather than overlapping
-    /// it, so a right-click that lands on a row never reaches here.
+    /// A right-click on rail space no row occupies offers New Workspace by
+    /// name; File > New Workspace is the other route. No plain-click gesture
+    /// here: the zone is a large target, and a bare click on it is not a
+    /// deliberate way to create a workspace. Invisible by construction, so it
+    /// costs the resting chrome nothing. A row of its own height sits above
+    /// this zone in the row stack rather than overlapping it, so a
+    /// right-click that lands on a row never reaches here. Also the drag
+    /// target for dropping a pane to create a workspace from it
+    /// (`flock.rail.newWorkspace`), unrelated to the context menu.
     private var newWorkspaceZone: some View {
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
-            .onTapGesture {
-                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-                Task { await viewModel.createWorkspace() }
-            }
             .accessibilityIdentifier("flock.rail.newWorkspace")
             .contextMenu {
                 ForEach(RailMenuModel.entries(), id: \.accessibilityIdentifier) { entry in
