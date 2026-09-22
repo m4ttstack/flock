@@ -519,6 +519,9 @@ enum ChromeMetrics {
         /// the parity checklist carries it on `blocked` alone.
         static let blockedGlowRadius: CGFloat = 6
         static let trailingGlyphWidth: CGFloat = 20
+        /// Between the jump arrow and the dismiss x. They do different things
+        /// to the same toast, so they need daylight rather than adjacency.
+        static let glyphSpacing: CGFloat = 4
         static let pillHorizontalPadding: CGFloat = 9
         static let pillVerticalPadding: CGFloat = 4
         static let shadowRadius: CGFloat = 12

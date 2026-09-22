@@ -109,21 +109,26 @@ private struct AttentionToastCard: View {
         .accessibilityIdentifier(toast.accessibilityIdentifier)
     }
 
-    /// The jump arrow at rest, the dismiss x under the pointer, both in the
-    /// same fixed box so a card never reflows as the pointer crosses it.
+    /// Two slots, never one. The arrow says "this jumps" and the x says "this
+    /// dismisses", so they cannot share pixels: stacked, the arrow was what a
+    /// resting card showed and the x was what the pointer armed, and aiming
+    /// at the arrow dismissed the toast instead of jumping to the pane.
+    ///
+    /// Both slots exist at every moment so a card never reflows as the
+    /// pointer crosses it; only the x's opacity and hit testing follow hover.
     private var trailingGlyph: some View {
-        ZStack {
+        HStack(spacing: ChromeMetrics.AttentionToast.glyphSpacing) {
             Image(systemName: "arrow.right")
                 .font(ChromeType.attentionToastGlyph)
                 .foregroundStyle(theme.textLabel)
-                .opacity(isHovering ? 0 : 1)
+                .frame(width: ChromeMetrics.AttentionToast.trailingGlyphWidth)
             HoverCloseButton(
                 theme: theme, isRevealed: isHovering, help: "Dismiss",
                 accessibilityIdentifier: "flock.attention.dismiss.\(toast.paneID.rawValue)",
                 action: { viewModel.dismissAttentionToast(pane: toast.paneID) }
             )
+            .frame(width: ChromeMetrics.AttentionToast.trailingGlyphWidth)
         }
-        .frame(width: ChromeMetrics.AttentionToast.trailingGlyphWidth)
     }
 
     /// A pane waiting on the user carries its status in the border too: the
