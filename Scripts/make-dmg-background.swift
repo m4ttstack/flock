@@ -18,9 +18,21 @@ let iconCenterY: CGFloat = 190
 let appIconCenterX: CGFloat = 140
 let dropLinkCenterX: CGFloat = 400
 
-let ground = NSColor(srgbRed: 0.102, green: 0.106, blue: 0.149, alpha: 1).cgColor
-let groundLow = NSColor(srgbRed: 0.055, green: 0.059, blue: 0.094, alpha: 1).cgColor
-let arrow = NSColor(srgbRed: 0.847, green: 0.678, blue: 0.996, alpha: 0.55).cgColor
+// Lighter than the icon's own ground on purpose. At the icon's exact values
+// the app's dark squircle sinks into the window and loses its edge, and this
+// is the one surface where that icon has to read as a thing you can pick up
+// and move.
+// Light, despite flock being a dark app, because Finder draws the icon
+// labels itself and colours them from the system appearance rather than from
+// this image. On a dark ground a Light-mode user gets near-black text on
+// near-black and cannot read either name. The app's own dark icon carries
+// the brand here instead, and reads better against light than it did against
+// a ground close to its own.
+let ground = NSColor(srgbRed: 0.957, green: 0.953, blue: 0.973, alpha: 1).cgColor
+let groundLow = NSColor(srgbRed: 0.890, green: 0.886, blue: 0.918, alpha: 1).cgColor
+// Deeper and more opaque than the icon's lilac, which disappears on a light
+// ground.
+let arrow = NSColor(srgbRed: 0.435, green: 0.306, blue: 0.702, alpha: 0.75).cgColor
 
 /// Between the two icons, clear of both. 128pt icons plus their labels, so
 /// the arrow starts and ends well outside them rather than touching.
