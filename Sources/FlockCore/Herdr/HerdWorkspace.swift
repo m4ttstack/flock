@@ -20,7 +20,12 @@ public enum HerdWorkspace {
     /// A pane whose workspace is not in the snapshot answers `false`: an
     /// unproven claim of herd membership must not be what silences a toast.
     public static func isHerdPane(_ pane: PaneRecord, in model: SessionModel) -> Bool {
-        guard let label = model.workspaces.first(where: { $0.workspaceID == pane.workspaceID })?.label
+        isHerd(pane.workspaceID, in: model)
+    }
+
+    /// `false` for a workspace missing from the snapshot, for the same reason.
+    public static func isHerd(_ workspace: WorkspaceID, in model: SessionModel) -> Bool {
+        guard let label = model.workspaces.first(where: { $0.workspaceID == workspace })?.label
         else { return false }
         return isHerd(label: label)
     }

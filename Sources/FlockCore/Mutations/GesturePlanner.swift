@@ -29,11 +29,14 @@ public func plan(dragging subject: DragSubject, onto target: DropTarget, model: 
     case let (.tab(tab), .workspaceThumbnail(workspace)):
         return planTabMigration(tab: tab, workspace: workspace, model: model)
 
+    // The rail's slot counts only the rows it drags, which leave herds out.
     case let (.workspace(workspace), .workspaceRail(insertIndex)):
-        return planWorkspaceReorder(workspace: workspace, insertIndex: insertIndex, model: model)
+        let modelIndex = HerdRail.modelInsertIndex(forRailIndex: insertIndex, in: model)
+        return planWorkspaceReorder(workspace: workspace, insertIndex: modelIndex, model: model)
 
     case let (.workspaces(block), .workspaceRail(insertIndex)):
-        return planWorkspaceBlockReorder(block: block, insertIndex: insertIndex, model: model)
+        let modelIndex = HerdRail.modelInsertIndex(forRailIndex: insertIndex, in: model)
+        return planWorkspaceBlockReorder(block: block, insertIndex: modelIndex, model: model)
 
     case (_, .moreTabs):
         return .failure(.noOp)

@@ -483,6 +483,20 @@ final class GesturePlannerTests: XCTestCase {
         XCTAssertEqual(opPlan.ops, [.moveWorkspace(WorkspaceID(rawValue: "w2"), insertIndex: 0)])
     }
 
+    /// The rail's slot counts only regular rows; herdr's index counts herds
+    /// too, so a slot after the first regular row lands after it in herdr.
+    func testARailSlotSkipsTheHerdsHerdrListsBetweenRegularWorkspaces() {
+        var herd = workspaceRecord("w2", activeTab: "w2:t1")
+        herd.label = "herd: review-shapes"
+        let model = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), herd, workspaceRecord("w3", activeTab: "w3:t1"), workspaceRecord("w4", activeTab: "w4:t1")],
+            tabs: [], panes: [], layouts: []
+        )
+        let result = plan(dragging: .workspace(WorkspaceID(rawValue: "w4")), onto: .workspaceRail(insertIndex: 1), model: model)
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [.moveWorkspace(WorkspaceID(rawValue: "w4"), insertIndex: 2)])
+    }
+
     // MARK: - Workspace block -> rail
 
     private func threeWorkspaceModel() -> SessionModel {
