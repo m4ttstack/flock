@@ -410,7 +410,7 @@ struct FlockApp: App {
         }
 
         Settings {
-            FlockSettingsView(theme: themeStore.active, herdrMousePatchStore: herdrMousePatchStore)
+            FlockSettingsView(herdrMousePatchStore: herdrMousePatchStore)
         }
     }
 

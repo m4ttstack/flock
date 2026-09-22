@@ -2,35 +2,32 @@ import FlockCore
 import SwiftUI
 
 /// The one row flock's settings show about herdr's mouse support: whichever
-/// of the four states `HerdrMousePatchDecision` found, its explanation, and
-/// the single action (if any) that state offers. Install and Revert both
-/// gate behind the same confirmation dialog, driven by the store rather than
-/// local view state, so the exact path being replaced is always named.
+/// of the six states `HerdrMousePatchDecision` found, its explanation, and
+/// the single action (if any) that state offers. Install and Revert both gate
+/// behind the same confirmation dialog, driven by the store rather than local
+/// view state, so the exact path being replaced is always named.
+///
+/// Built from `Section` and `LabeledContent` so it inherits the system's
+/// settings appearance instead of painting its own card. The explanation runs
+/// long by design (it names the binary being replaced), so it is the label's
+/// secondary line, which is where macOS puts exactly that kind of text.
 struct HerdrMousePatchRow: View {
-    let theme: Theme
     let store: HerdrMousePatchStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(HerdrMousePatchCopy.heading)
-                    .font(.headline)
-                    .foregroundStyle(theme.textLabel)
-                Spacer(minLength: 12)
+        Section(HerdrMousePatchCopy.heading) {
+            LabeledContent {
                 actionButton
+            } label: {
+                Text(HerdrMousePatchCopy.rowTitle)
+                Text(bodyText)
             }
-            Text(bodyText)
-                .font(.system(size: 12))
-                .foregroundStyle(theme.subtext0)
-                .fixedSize(horizontal: false, vertical: true)
             if let message = store.lastErrorMessage {
-                Text(message)
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.red)
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("flock.settings.herdrMousePatch.error")
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 8).fill(theme.surface1))
         .confirmationDialog(
             store.pendingConfirmation?.confirmation.title ?? "",
             isPresented: Binding(

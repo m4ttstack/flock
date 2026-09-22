@@ -6,6 +6,9 @@ import Foundation
 /// that it can be undone.
 public enum HerdrMousePatchCopy {
     public static let heading = "herdr"
+    /// The row's own label, distinct from the section heading above it: the
+    /// section names the tool, the row names which of its capabilities.
+    public static let rowTitle = "Mouse events"
 
     public static func body(for state: HerdrMousePatchRowState) -> String {
         switch state {
