@@ -106,6 +106,32 @@ APP_OUT="$OUTPUT_DIR/Flock.app"
 Scripts/libghostty.sh --check
 xcodegen
 
+# The vendored herdr patch is a Mach-O sitting in Resources, and Xcode treats
+# anything there as a resource: it seals the bytes into the bundle's signature
+# but never signs the file itself. Notarization rejects the whole app for it,
+# with all three of no Developer ID, no secure timestamp and no hardened
+# runtime against that one path.
+#
+# Signed here, BEFORE the build copies it in, so the bundle seals a binary
+# that is already correct. Signing it afterwards would mean re-signing the app
+# to repair the seal, and that re-sign drops the entitlements xcodebuild
+# applied unless they are extracted and handed back... a step that fails
+# silently and is only visible much later.
+#
+# Idempotent by --force: the artifact is gitignored and rebuilt by
+# Scripts/build-herdr-patch.sh, so it arrives unsigned each time it is made.
+for patch in Sources/Flock/Resources/herdr-mouse-patch-*; do
+  case "$patch" in
+    *.txt|*.LICENSE|*'*') continue ;;
+  esac
+  [ -f "$patch" ] || continue
+  echo
+  echo "=== codesign (bundled herdr patch) ==="
+  # shellcheck disable=SC2086
+  codesign --force --sign "$IDENTITY" $SIGN_FLAGS "$patch"
+  codesign -dv --verbose=2 "$patch" 2>&1 | grep -E "Authority|TeamIdentifier|flags" || true
+done
+
 mkdir -p "$OUTPUT_DIR"
 
 xcodebuild -scheme Flock -configuration Release \
