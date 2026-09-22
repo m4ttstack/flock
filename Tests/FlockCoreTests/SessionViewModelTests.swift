@@ -1790,6 +1790,28 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(outcome, .rejected("Can't move there"))
     }
 
+    /// The rail counts its slot without Board's workspaces, so the names it
+    /// set them aside by have to reach the planner with the drop.
+    @MainActor
+    func testPerformPlacesARailSlotWithBoardsWorkspacesSetAside() async {
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), planExecutor: executor)
+        var model = makeModel()
+        for (index, label) in ["Reviews", "deck", "notes"].enumerated() {
+            model.workspaces.append(WorkspaceRecord(
+                workspaceID: WorkspaceID(rawValue: "w\(index + 2)"), label: label, number: index + 2,
+                activeTabID: TabID(rawValue: "w\(index + 2):t1"), agentStatus: .idle
+            ))
+        }
+        viewModel.update(model: model, connection: .live)
+        let board = BoardWorkspaceNames(reviews: "Reviews", responds: "Responses", doctors: "Doctors")
+
+        let outcome = await viewModel.perform(subject: .workspace(WorkspaceID(rawValue: "w4")), target: .workspaceRail(insertIndex: 1), board: board)
+
+        XCTAssertEqual(outcome, .committed)
+        XCTAssertEqual(executor.executedPlans.map(\.ops), [[.moveWorkspace(WorkspaceID(rawValue: "w4"), insertIndex: 2)]])
+    }
+
     @MainActor
     func testPerformRoutesAnExecutorFailureToTheNoticeSink() async {
         let executor = FakePlanExecutor()

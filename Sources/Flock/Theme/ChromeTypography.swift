@@ -34,7 +34,7 @@ enum ChromeType {
     static let railHeadingSymbol = Font.system(size: 13.5, weight: .medium)
     static func workspaceName(selected: Bool) -> Font { inter(14, selected ? .medium : .regular) }
     static let workspaceCount = inter(11.5)
-    static let herdsChevron = Font.system(size: 8, weight: .bold)
+    static let railSectionChevron = Font.system(size: 8, weight: .bold)
 
     static let tabLabelSize: CGFloat = 14
     static func tabLabelWeight(selected: Bool) -> Weight { selected ? .medium : .regular }

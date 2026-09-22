@@ -1037,14 +1037,16 @@ public final class SessionViewModel {
     /// spring-back). When an `undoJournal` is injected, this runs through its
     /// shared chain so it can never interleave with an in-flight `undo`/`redo`
     /// (a `record` call racing an in-flight `undo`'s own stack mutation would
-    /// otherwise be able to wipe the redo stack mid-step).
+    /// otherwise be able to wipe the redo stack mid-step). `board` names the
+    /// workspaces the rail sets aside in its Board section, which a rail slot
+    /// is counted without.
     @discardableResult
-    public func perform(subject: DragSubject, target: DropTarget) async -> DragOutcome {
+    public func perform(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames? = nil) async -> DragOutcome {
         guard planExecutor != nil else { return .notAttempted }
         guard let undoJournal else {
             guard let model, let planExecutor else { return .notAttempted }
             return await Self.perform(
-                subject: subject, target: target, model: model, executor: planExecutor, notify: noticeSink,
+                subject: subject, target: target, model: model, board: board, executor: planExecutor, notify: noticeSink,
                 record: { _ in }, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
@@ -1057,7 +1059,7 @@ public final class SessionViewModel {
         await undoJournal.runExclusively { [weak self] in
             guard let self, let model = self.model, let planExecutor = self.planExecutor else { return }
             outcome = await Self.perform(
-                subject: subject, target: target, model: model, executor: planExecutor, notify: self.noticeSink,
+                subject: subject, target: target, model: model, board: board, executor: planExecutor, notify: self.noticeSink,
                 record: undoJournal.record, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
@@ -1065,11 +1067,11 @@ public final class SessionViewModel {
     }
 
     private static func perform(
-        subject: DragSubject, target: DropTarget, model: SessionModel,
+        subject: DragSubject, target: DropTarget, model: SessionModel, board: BoardWorkspaceNames?,
         executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void,
         follow: @MainActor (PaneID) async -> Void
     ) async -> DragOutcome {
-        switch plan(dragging: subject, onto: target, model: model) {
+        switch plan(dragging: subject, onto: target, model: model, board: board) {
         case .failure(.noOp):
             return .noOp
         case .failure(.invalidCombination):

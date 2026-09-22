@@ -79,14 +79,19 @@ enum ChromeMetrics {
         static let indicatorSize = CGSize(width: 3, height: 15)
     }
 
-    enum Herds {
+    /// Board and Herds, the rail's folding sections below its workspaces.
+    enum RailSection {
+        /// The header's mark: the ram for Herds, board's own logo for Board.
         static let headerMark: CGFloat = 13
-        static let markEchoOpacity: Double = 0.4
         static let headerChevron: CGFloat = 8
         static let headerChevronGap: CGFloat = 4
-        /// The heading's own gap, doubled: the section has to read as a
-        /// second list, not as more rows of the first.
+        /// The heading's own gap, doubled: a section has to read as another
+        /// list, not as more rows of the one above.
         static let sectionGap: CGFloat = Rail.headingGap * 2
+    }
+
+    enum Herds {
+        static let markEchoOpacity: Double = 0.4
         /// A finished herd, which stays listed until its workspace closes.
         static let finishedOpacity: Double = 0.45
         /// The loader's own loop, slowed and shallowed: rail furniture that

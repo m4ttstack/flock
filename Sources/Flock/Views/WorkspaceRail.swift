@@ -12,12 +12,13 @@ struct WorkspaceRail: View {
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(RailWidthStore.self) private var railWidth
+    @Environment(BoardStore.self) private var board
     @State private var scrollPosition = ScrollPosition()
 
-    private var rail: HerdRail? { viewModel.model.map(HerdRail.init(model:)) }
-    /// The rows this rail lists, drags and reorders. Herds are not among
-    /// them: they sit in their own section below.
-    private var workspaces: [WorkspaceRecord] { rail?.workspaces ?? [] }
+    private var sections: RailSections? { viewModel.model.map { RailSections(model: $0, board: board.names) } }
+    /// The rows this rail lists, drags and reorders. Board's workspaces and
+    /// herds are not among them: they sit in their own sections below.
+    private var workspaces: [WorkspaceRecord] { sections?.workspaces ?? [] }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,12 +91,21 @@ struct WorkspaceRail: View {
                                 }
                             }
                         }
-                        if let rail, let summary = rail.summary {
-                            HerdsSection(
-                                theme: theme, herds: rail.herds, summary: summary,
+                        if let sections, !sections.board.isEmpty {
+                            BoardSection(
+                                theme: theme, workspaces: sections.board, logo: board.logo,
+                                paneCount: { viewModel.paneCount(for: $0) },
                                 selectedWorkspaceID: viewModel.selectedWorkspaceID,
                                 showsFill: { drag.showsWorkspaceFill($0, isCurrent: $0 == viewModel.selectedWorkspaceID) },
-                                onClick: handleHerdClick
+                                onClick: handleSectionRowClick
+                            )
+                        }
+                        if let sections, let summary = sections.herdSummary {
+                            HerdsSection(
+                                theme: theme, herds: sections.herds, summary: summary,
+                                selectedWorkspaceID: viewModel.selectedWorkspaceID,
+                                showsFill: { drag.showsWorkspaceFill($0, isCurrent: $0 == viewModel.selectedWorkspaceID) },
+                                onClick: handleSectionRowClick
                             )
                         }
                         // Real content, filling whatever height the rows
@@ -178,10 +188,10 @@ struct WorkspaceRail: View {
         }
     }
 
-    /// A herd row selects and does nothing else: its label is rt's, so it
-    /// offers no rename, and it joins no Cmd+click selection because herds
-    /// are not reordered from the rail.
-    private func handleHerdClick(_ workspace: WorkspaceID) {
+    /// A Board or herd row selects and does nothing else: its label is
+    /// board's or rt's, so it offers no rename, and it joins no Cmd+click
+    /// selection because neither section is reordered from the rail.
+    private func handleSectionRowClick(_ workspace: WorkspaceID) {
         guard case .select = NSEvent.chromeRowClick(NSApp.currentEvent) else { return }
         if drag.clickWorkspace(workspace, commandHeld: false, current: viewModel.selectedWorkspaceID) {
             onSelect(workspace)
@@ -313,7 +323,7 @@ private struct HeadingButtonStyle: ButtonStyle {
     }
 }
 
-private struct WorkspaceRow: View {
+struct WorkspaceRow: View {
     let theme: Theme
     let workspace: WorkspaceRecord
     let paneCount: Int

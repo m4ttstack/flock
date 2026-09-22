@@ -100,6 +100,7 @@ struct FlockApp: App {
     @State private var scrollSpeedStore = ScrollSpeedStore()
     @State private var railWidthStore = RailWidthStore()
     @State private var sectionCollapseStore = SectionCollapseStore()
+    @State private var boardStore: BoardStore
     @State private var toastCenter: ToastCenter
     @State private var chatStore: ChatStore
     @State private var herdrStore: HerdrStore
@@ -228,10 +229,12 @@ struct FlockApp: App {
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
         let rearrangeMode = RearrangeMode()
         _rearrangeMode = State(initialValue: rearrangeMode)
+        let boardStore = BoardStore()
+        _boardStore = State(initialValue: boardStore)
         _dragCoordinator = State(initialValue: DragCoordinator(
             toasts: toastCenter,
             rearrangeMode: rearrangeMode,
-            commit: { subject, target in await viewModel.perform(subject: subject, target: target) },
+            commit: { subject, target in await viewModel.perform(subject: subject, target: target, board: boardStore.names) },
             // Reveals the dwelled-on tab or workspace in place, which is a
             // local selection only: a `*.focus` RPC mid-drag would move
             // herdr's own focus for what is still just a hover.
@@ -268,6 +271,7 @@ struct FlockApp: App {
                 .environment(optionAsAltStore)
                 .environment(railWidthStore)
                 .environment(sectionCollapseStore)
+                .environment(boardStore)
                 .environment(toastCenter)
                 .environment(chatStore)
                 .environment(undoJournal)
@@ -276,6 +280,10 @@ struct FlockApp: App {
                 .environment(dividerDragCoordinator)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
                 .task { await herdrStore.start() }
+                .task { await boardStore.refresh() }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    Task { await boardStore.refresh() }
+                }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
                 }

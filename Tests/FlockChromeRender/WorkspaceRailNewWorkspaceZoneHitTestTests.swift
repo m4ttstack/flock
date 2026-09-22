@@ -24,6 +24,7 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
         let drag: DragCoordinator
         let railWidth: RailWidthStore
         let collapse: SectionCollapseStore
+        let board: BoardStore
         let toasts: ToastCenter
 
         var body: some View {
@@ -31,6 +32,7 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
                 .environment(drag)
                 .environment(railWidth)
                 .environment(collapse)
+                .environment(board)
                 .environment(toasts)
                 .frame(width: Self.size.width, height: Self.size.height)
         }
@@ -69,8 +71,9 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
         let railWidth = RailWidthStore(userDefaults: defaults)
         let collapse = SectionCollapseStore(userDefaults: defaults)
+        let board = BoardStore(sources: .unconfigured, userDefaults: defaults)
         let hosting = NSHostingView(rootView: Probe(
-            viewModel: viewModel, drag: drag, railWidth: railWidth, collapse: collapse, toasts: toasts
+            viewModel: viewModel, drag: drag, railWidth: railWidth, collapse: collapse, board: board, toasts: toasts
         ))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Probe.size),

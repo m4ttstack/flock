@@ -2,7 +2,7 @@ import AppKit
 import FlockCore
 import SwiftUI
 
-/// The rail's second list: one row per herd, under a header that folds it.
+/// The rail's last list: one row per herd, under a header that folds it.
 /// Herd rows carry no status dot, because every gate a worker raises is the
 /// shepherd's to answer; they say how far the herd has got and whether
 /// anything in it is still moving. `HerdRail` decides all of that.
@@ -17,9 +17,25 @@ struct HerdsSection: View {
     @Environment(SectionCollapseStore.self) private var collapse
 
     var body: some View {
+        let isCollapsed = collapse.isCollapsed(.herds)
         VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
-            header
-            if !collapse.isCollapsed(.herds) {
+            RailSectionHeader(
+                theme: theme, title: "HERDS", isCollapsed: isCollapsed,
+                accessibilityIdentifier: "flock.rail.herds.toggle", toggle: { collapse.toggle(.herds) }
+            ) {
+                // The section's one mark. Rows carry none: one moving glyph
+                // says "something in here is still going" without a row of
+                // them competing for the eye.
+                HerdMark(theme: theme, size: ChromeMetrics.RailSection.headerMark, isMoving: summary.isAnyRunning)
+            } trailing: {
+                // The summary is the only notice a folded section gives, so
+                // it is the last thing a narrow rail gets to cut.
+                Text(summary.text)
+                    .font(ChromeType.workspaceCount)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+            }
+            if !isCollapsed {
                 ForEach(herds, id: \.workspaceID) { herd in
                     HerdRow(
                         theme: theme, herd: herd,
@@ -32,38 +48,7 @@ struct HerdsSection: View {
                 }
             }
         }
-        .padding(.top, ChromeMetrics.Herds.sectionGap)
-    }
-
-    private var header: some View {
-        Button { collapse.toggle(.herds) } label: {
-            HStack(spacing: ChromeMetrics.Herds.headerChevronGap) {
-                // The section's one mark. Rows carry none: one moving glyph
-                // says "something in here is still going" without a row of
-                // them competing for the eye.
-                HerdMark(theme: theme, size: ChromeMetrics.Herds.headerMark, isMoving: summary.isAnyRunning)
-                Text("HERDS")
-                    .font(ChromeType.railHeading)
-                    .tracking(ChromeType.railHeadingTracking)
-                    .fixedSize()
-                Image(systemName: collapse.isCollapsed(.herds) ? "chevron.right" : "chevron.down")
-                    .font(ChromeType.herdsChevron)
-                    .frame(width: ChromeMetrics.Herds.headerChevron)
-                Spacer(minLength: ChromeMetrics.WorkspaceRow.countMinimumGap)
-                // The summary is the only notice a folded section gives, so
-                // it is the last thing a narrow rail gets to cut.
-                Text(summary.text)
-                    .font(ChromeType.workspaceCount)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-            }
-            .foregroundStyle(theme.textLabel)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.bottom, ChromeMetrics.Rail.headingGap)
-        .accessibilityIdentifier("flock.rail.herds.toggle")
-        .accessibilityValue(collapse.isCollapsed(.herds) ? "collapsed" : "expanded")
+        .padding(.top, ChromeMetrics.RailSection.sectionGap)
     }
 }
 
@@ -123,7 +108,7 @@ struct HerdMark: View {
 }
 
 /// A rail row's box: the fixed pitch, the padding and the selection fill,
-/// shared by workspace and herd rows so the two lists read as one rail.
+/// shared by every row in every section so the lists read as one rail.
 struct RailRowChrome: ViewModifier {
     let theme: Theme
     let showsFill: Bool

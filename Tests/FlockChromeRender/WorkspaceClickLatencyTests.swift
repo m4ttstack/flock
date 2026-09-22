@@ -143,6 +143,7 @@ private struct Harness {
     let textSize: TerminalTextSizeStore
     let railWidth: RailWidthStore
     let collapse: SectionCollapseStore
+    let board: BoardStore
     let toasts: ToastCenter
     let rearrange: RearrangeMode
     let drag: DragCoordinator
@@ -159,6 +160,7 @@ private struct Harness {
         textSize = TerminalTextSizeStore(userDefaults: defaults)
         railWidth = RailWidthStore(userDefaults: defaults)
         collapse = SectionCollapseStore(userDefaults: defaults)
+        board = BoardStore(sources: .unconfigured, userDefaults: defaults)
         toasts = ToastCenter()
         rearrange = RearrangeMode()
         drag = DragCoordinator(
@@ -192,6 +194,7 @@ private struct Harness {
             .environment(textSize)
             .environment(railWidth)
             .environment(collapse)
+            .environment(board)
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)

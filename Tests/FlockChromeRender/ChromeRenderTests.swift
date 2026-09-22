@@ -1796,6 +1796,91 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The Board section between the workspaces and Herds, open and folded,
+    /// with board's logo and with its fetch failed, in a dark and a light
+    /// theme. Folded, the header carries the blocked review's red dot at the
+    /// rail's trailing edge; open, the rows carry it and the header does not.
+    /// Without the logo, nothing but the logo's own box changes. PNGs are
+    /// written only when `FLOCK_BOARD_RENDER_DIR` is set.
+    func testTheBoardSectionRendersOpenFoldedAndWithoutItsLogo() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_BOARD_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let railTop = ChromeMetrics.TitleBar.height
+        let railBox = CGRect(x: 0, y: railTop, width: RailWidth.default, height: Self.windowSize.height - railTop)
+        let trailingEdge = CGRect(x: RailWidth.default - 24, y: railTop, width: 24, height: Self.windowSize.height - railTop)
+        let logoColumn = ChromeMetrics.Rail.horizontalPadding...(ChromeMetrics.Rail.horizontalPadding + ChromeMetrics.RailSection.headerMark)
+        let logoFill = "#8A5CF6"
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let red = theme.palette.red.hex
+            var openRenders: [Bool: NSBitmapImageRep] = [:]
+            for withLogo in [true, false] {
+                let harness = try await Harness(
+                    theme: theme, model: try Fixture.boardModel(),
+                    boardSources: .canned(logo: withLogo ? BoardFixture.logo : nil)
+                )
+                XCTAssertEqual(harness.board.names, BoardFixture.names)
+                XCTAssertEqual(harness.board.logo != nil, withLogo)
+                XCTAssertFalse(harness.collapse.isCollapsed(.board), "a Board appearing is never folded for you")
+                let window = harness.makeWindow(size: Self.windowSize)
+                await settle(window)
+                let open = try snapshot(window)
+                let name = withLogo ? "board" : "board-no-logo"
+                XCTAssertEqual(count(red, in: trailingEdge, of: open), 0, "\(name) \(id): an open header carries no dot")
+                XCTAssertEqual(
+                    count(logoFill, in: railBox, of: open) > 0, withLogo, "\(name) \(id): the logo is drawn exactly when there is one"
+                )
+
+                harness.collapse.toggle(.board)
+                await settle(window)
+                let folded = try snapshot(window)
+                XCTAssertGreaterThan(
+                    count(red, in: trailingEdge, of: folded), 0, "\(name) \(id): folded, the blocked review's red is at the header's edge"
+                )
+                harness.collapse.toggle(.board)
+                window.close()
+
+                openRenders[withLogo] = open
+                if let directory {
+                    for (state, image) in [("expanded", open), ("collapsed", folded)] {
+                        let file = "\(name)-\(state)-\(scheme)-\(id)"
+                        try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                            .write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(file).png"))
+                        let crop = try XCTUnwrap(image.cgImage?.cropping(to: CGRect(
+                            x: 0, y: 0, width: Int((RailWidth.default + ChromeMetrics.ruleWidth) * 2), height: image.pixelsHigh
+                        )))
+                        try XCTUnwrap(NSBitmapImageRep(cgImage: crop).representation(using: .png, properties: [:]))
+                            .write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(file)-rail.png"))
+                    }
+                }
+            }
+            let withLogo = try XCTUnwrap(openRenders[true])
+            let without = try XCTUnwrap(openRenders[false])
+            XCTAssertEqual(
+                differingPixels(withLogo, without, in: railBox, outsideColumns: logoColumn), 0,
+                "\(id): without its logo the header keeps every other pixel where it was"
+            )
+        }
+    }
+
+    /// Pixels that differ between two same-sized renders inside `box`,
+    /// skipping the columns `excluded` spans, in window points.
+    private func differingPixels(
+        _ a: NSBitmapImageRep, _ b: NSBitmapImageRep, in box: CGRect, outsideColumns excluded: ClosedRange<CGFloat>, scale: CGFloat = 2
+    ) -> Int {
+        guard let left = a.bitmapData, let right = b.bitmapData, a.bytesPerRow == b.bytesPerRow else { return .max }
+        let skip = Int(excluded.lowerBound * scale)...Int((excluded.upperBound * scale).rounded(.up))
+        var differing = 0
+        for y in Int(box.minY * scale)..<min(Int(box.maxY * scale), a.pixelsHigh) {
+            for x in Int(box.minX * scale)..<min(Int(box.maxX * scale), a.pixelsWide) where !skip.contains(x) {
+                let offset = y * a.bytesPerRow + x * (a.bitsPerPixel / 8)
+                if left[offset] != right[offset] || left[offset + 1] != right[offset + 1] || left[offset + 2] != right[offset + 2] {
+                    differing += 1
+                }
+            }
+        }
+        return differing
+    }
+
     /// The rail with workspaces, the Herds section and the dock under them,
     /// holding a notice, a card that needs input and a finished one; and the
     /// tallest dock there is, three cards over a "more" pill under a notice
@@ -2580,6 +2665,7 @@ private struct Harness {
     let textSize: TerminalTextSizeStore
     let railWidth: RailWidthStore
     let collapse: SectionCollapseStore
+    let board: BoardStore
     let toasts: ToastCenter
     let rearrange: RearrangeMode
     let drag: DragCoordinator
@@ -2603,7 +2689,10 @@ private struct Harness {
         // toast expires six seconds after it is raised, and a render that
         // read the wall clock would flip on a loaded machine that took that
         // long to build and settle two windows.
-        now: @escaping @MainActor () -> Date = { Date() }
+        now: @escaping @MainActor () -> Date = { Date() },
+        // No Board config by default, same as a machine without the board
+        // app, so every render that predates the section is unchanged.
+        boardSources: BoardSources = .unconfigured
     ) async throws {
         ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -2612,6 +2701,10 @@ private struct Harness {
         textSize = TerminalTextSizeStore(userDefaults: defaults)
         railWidth = RailWidthStore(userDefaults: defaults)
         collapse = SectionCollapseStore(userDefaults: defaults)
+        defaults.removeObject(forKey: BoardStore.logoDefaultsKey)
+        let board = BoardStore(sources: boardSources, userDefaults: defaults)
+        await board.refresh()
+        self.board = board
         toasts = ToastCenter()
         rearrange = RearrangeMode()
         drag = DragCoordinator(
@@ -2655,6 +2748,7 @@ private struct Harness {
             .environment(textSize)
             .environment(railWidth)
             .environment(collapse)
+            .environment(board)
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)
@@ -2899,6 +2993,38 @@ private enum Fixture {
             model.focusedWorkspaceID = WorkspaceID(rawValue: herd)
             model.focusedTabID = TabID(rawValue: "\(herd):t1")
             model.focusedPaneID = nil
+        }
+        return model
+    }
+
+    /// `herdModel()` plus the three workspaces board launches into, held in
+    /// herdr's order out of role order and among the others: a review blocked,
+    /// a response working, the doctors idle.
+    static func boardModel() throws -> SessionModel {
+        var model = try herdModel()
+        let board: [(id: String, label: String, index: Int, panes: [AgentStatus])] = [
+            ("b3", "🛹 Doctors", 1, [.idle, .idle]),
+            ("b1", "🛹 Reviews", 3, [.blocked, .working, .done]),
+            ("b2", "🛹 Responses", model.workspaces.count + 2, [.working]),
+        ]
+        for workspace in board {
+            let id = WorkspaceID(rawValue: workspace.id)
+            let tab = TabID(rawValue: "\(workspace.id):t1")
+            model.workspaces.insert(WorkspaceRecord(
+                workspaceID: id, label: workspace.label, number: workspace.index + 1, activeTabID: tab,
+                agentStatus: AgentAttention.aggregate(workspace.panes)
+            ), at: min(workspace.index, model.workspaces.count))
+            model.tabs[id] = [TabRecord(
+                tabID: tab, workspaceID: id, label: "main", number: 1, paneCount: workspace.panes.count,
+                agentStatus: AgentAttention.aggregate(workspace.panes)
+            )]
+            for (index, status) in workspace.panes.enumerated() {
+                let pane = PaneID(rawValue: "\(workspace.id):p\(index + 1)")
+                model.panes[pane] = PaneRecord(
+                    paneID: pane, workspaceID: id, tabID: tab, focused: false, agentStatus: status, revision: 1,
+                    terminalTitleStripped: "claude", label: nil, cwd: "/private/tmp", scroll: nil
+                )
+            }
         }
         return model
     }
