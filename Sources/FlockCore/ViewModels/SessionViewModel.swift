@@ -232,6 +232,10 @@ public final class SessionViewModel {
     /// withdraws whatever the new snapshot has made untrue. Panes are walked
     /// in id order so two transitions in one snapshot always stack the same
     /// way round.
+    ///
+    /// A herd's panes are skipped here rather than hidden in the stack view:
+    /// a toast that is never made cannot reach the collapsed count, the
+    /// "more" pill, or a Clear that would then look like it did nothing.
     private func reconcileAttentionToasts(previous: SessionModel?) {
         guard let model else {
             attentionToasts.clear()
@@ -243,7 +247,8 @@ public final class SessionViewModel {
                 guard let pane = model.panes[paneID],
                       let was = previous.panes[paneID]?.agentStatus,
                       let kind = AttentionToastStack.kind(from: was, to: pane.agentStatus),
-                      paneID != resolvedFocusedPaneID
+                      paneID != resolvedFocusedPaneID,
+                      !HerdWorkspace.isHerdPane(pane, in: model)
                 else { continue }
                 attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt))
             }
@@ -253,15 +258,18 @@ public final class SessionViewModel {
 
     /// A toast is a claim about a pane, so it goes the moment the claim stops
     /// holding: the pane has been read (it is the focused one), herdr no
-    /// longer reports it, or -- for a "needs input" toast -- it is no longer
-    /// blocked. Herdglass withdraws its notification on the first of those;
-    /// the other two are flock's, because a toast here is clickable and a
-    /// click on a stale one would jump somewhere pointless.
+    /// longer reports it, the pane turns out to be herd-run, or -- for a
+    /// "needs input" toast -- it is no longer blocked. Herdglass withdraws
+    /// its notification on the first of those; the others are flock's,
+    /// because a toast here is clickable and a click on a stale one would
+    /// jump somewhere pointless.
     ///
     /// Leaving `blocked` counts only once the toast is older than the
     /// coalescing window. Inside it, an agent that bounces off blocked and
     /// back is flapping, and withdrawing there would defeat the coalescing it
     /// exists for: the pane would get a brand new toast on the way back.
+    /// Joining a herd carries no such grace: it is not a state the pane can
+    /// bounce out of within the window.
     private func withdrawSettledAttentionToasts(model: SessionModel, at now: Date) {
         for toast in attentionToasts.toasts {
             guard let pane = model.panes[toast.paneID] else {
@@ -271,7 +279,8 @@ public final class SessionViewModel {
             let answered = toast.kind == .needsInput
                 && pane.agentStatus != .blocked
                 && now.timeIntervalSince(toast.raisedAt) >= AttentionToastStack.coalescingWindow
-            if toast.paneID == resolvedFocusedPaneID || answered {
+            if toast.paneID == resolvedFocusedPaneID || answered
+                || HerdWorkspace.isHerdPane(pane, in: model) {
                 attentionToasts.dismiss(pane: toast.paneID)
             }
         }

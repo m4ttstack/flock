@@ -20,7 +20,11 @@ private final class TestClock {
 /// One workspace the user is looking at (`w1`, focused pane `w1:p1`) and one
 /// they are not (`w2`, four panes in tab `w2:t1`). Every pane is `idle` unless
 /// `statuses` says otherwise.
-private func attentionModel(focusedPane: String = "w1:p1", statuses: [String: AgentStatus] = [:]) -> SessionModel {
+private func attentionModel(
+    focusedPane: String = "w1:p1",
+    statuses: [String: AgentStatus] = [:],
+    secondWorkspaceLabel: String = "repo-tools"
+) -> SessionModel {
     func status(_ pane: String) -> String { (statuses[pane] ?? .idle).rawValue }
     let panes = [("w2:p1", "migration"), ("w2:p2", "runner"), ("w2:p3", "docs"), ("w2:p4", "bridge")]
         .map { id, label in
@@ -30,7 +34,7 @@ private func attentionModel(focusedPane: String = "w1:p1", statuses: [String: Ag
     let json = #"""
     {"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"\#(focusedPane)",
      "workspaces":[{"workspace_id":"w1","label":"flock","number":1,"active_tab_id":"w1:t1","agent_status":"idle"},
-                   {"workspace_id":"w2","label":"repo-tools","number":2,"active_tab_id":"w2:t1","agent_status":"idle"}],
+                   {"workspace_id":"w2","label":"\#(secondWorkspaceLabel)","number":2,"active_tab_id":"w2:t1","agent_status":"idle"}],
      "tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"main","number":1,"pane_count":1,"agent_status":"idle"},
              {"tab_id":"w2:t1","workspace_id":"w2","label":"agents","number":1,"pane_count":4,"agent_status":"idle"}],
      "panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"\#(status("w1:p1"))","revision":0,"cwd":"/tmp","label":"shell"},\#(panes)],
@@ -112,6 +116,79 @@ final class AttentionToastTests: XCTestCase {
 
         XCTAssertEqual(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:p1"))?.kind, .finished)
         XCTAssertEqual(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:p1"))?.headline, "migration finished")
+    }
+
+    // MARK: - herds
+
+    /// A herd is a batch run somebody else is already watching, so its panes
+    /// have no toast to give: the pane never gets one raised, and the stack
+    /// never learns a count it would then show in the "more" pill.
+    @MainActor
+    func testABlockedTransitionInAHerdWorkspaceRaisesNothing() {
+        let herd = "herd: docs-sweep-20260922-112541"
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(model: attentionModel(secondWorkspaceLabel: herd), connection: .live)
+
+        viewModel.update(
+            model: attentionModel(statuses: ["w2:p1": .blocked], secondWorkspaceLabel: herd), connection: .live)
+
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+        XCTAssertEqual(viewModel.attentionToasts.collapsedCount, 0)
+    }
+
+    @MainActor
+    func testAFinishedTransitionInAHerdWorkspaceRaisesNothing() {
+        let herd = "herd: docs-sweep-20260922-112541"
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(
+            model: attentionModel(statuses: ["w2:p1": .working], secondWorkspaceLabel: herd), connection: .live)
+
+        viewModel.update(
+            model: attentionModel(statuses: ["w2:p1": .done], secondWorkspaceLabel: herd), connection: .live)
+
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
+    /// The workspace a pane sits in is not fixed for the pane's life: a herd
+    /// reuses a workspace that already carries its label, and a pane can be
+    /// moved into one. A toast raised before that is a claim that has stopped
+    /// holding, so it goes the same way the other withdrawals go.
+    @MainActor
+    func testAToastIsWithdrawnOnceItsPaneTurnsOutToBeHerdRun() {
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(model: attentionModel(), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .blocked]), connection: .live)
+        XCTAssertFalse(viewModel.attentionToasts.isEmpty)
+
+        viewModel.update(
+            model: attentionModel(
+                statuses: ["w2:p1": .blocked], secondWorkspaceLabel: "herd: docs-sweep-20260922-112541"),
+            connection: .live)
+
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
+    /// The shepherd itself is hand-driven, and it runs in an ordinary
+    /// workspace rather than the herd's own, so nothing about a herd being on
+    /// screen may quieten the rest of the window.
+    @MainActor
+    func testPanesOutsideTheHerdWorkspaceStillToastWhileAHerdIsRunning() {
+        let herd = "herd: docs-sweep-20260922-112541"
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(
+            model: attentionModel(focusedPane: "w2:p4", secondWorkspaceLabel: herd), connection: .live)
+
+        viewModel.update(
+            model: attentionModel(
+                focusedPane: "w2:p4", statuses: ["w1:p1": .blocked, "w2:p1": .blocked],
+                secondWorkspaceLabel: herd),
+            connection: .live)
+
+        XCTAssertEqual(viewModel.attentionToasts.toasts.map(\.paneID), [PaneID(rawValue: "w1:p1")])
     }
 
     // MARK: - coalescing
