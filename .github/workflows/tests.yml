@@ -14,12 +14,21 @@ on:
 
 jobs:
   test:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # flock is written against the newest Xcode. An older one reads Swift 6
+      # isolation differently (XCTestCase's setUp and tearDown among it) and
+      # rejects tests that build cleanly on a current toolchain.
+      - name: Select the newest Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
 
       # The xcframework is gitignored and reproducible from the pinned ghostty
       # commit, so it is cached on that commit rather than rebuilt every run.
