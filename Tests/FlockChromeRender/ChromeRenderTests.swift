@@ -2749,6 +2749,7 @@ private struct Harness {
             .environment(railWidth)
             .environment(collapse)
             .environment(board)
+            .environment(HerdProgressStore(sources: .unanswered))
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)

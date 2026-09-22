@@ -86,22 +86,10 @@ final class BoardStore {
 
 enum BoardSettingReader {
     static let arguments = ["settings", "get", "board.workspaces", "--json"]
-    static let deadline: Duration = .seconds(5)
 
     @Sendable
     static func read() async -> (stdout: Data, exitCode: Int32)? {
-        let resolved = await Task.detached(priority: .utility) { () -> (rt: String, path: String)? in
-            guard let rt = ToolPath.resolve("rt") else { return nil }
-            return (rt, ToolPath.resolved)
-        }.value
-        guard let resolved else { return nil }
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = resolved.path
-        // rt offers a picker wherever an argument is missing and stdin is a
-        // terminal, which it is when flock was started from one; batch mode
-        // rules that out.
-        environment["RT_BATCH"] = "1"
-        return try? await ToolRunner(binaryPath: resolved.rt, environment: environment, deadline: deadline).run(arguments)
+        await RtCommand.run(arguments)
     }
 }
 

@@ -15,8 +15,8 @@ public struct RailSections: Equatable, Sendable {
 
     /// Board is drawn from what `HerdRail` leaves, so a label that names both
     /// a herd and a board role is the herd's.
-    public init(model: SessionModel, board names: BoardWorkspaceNames?) {
-        let herdRail = HerdRail(model: model)
+    public init(model: SessionModel, board names: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:]) {
+        let herdRail = HerdRail(model: model, progress: herdProgress)
         let labels = names?.labels ?? []
         workspaces = herdRail.workspaces.filter { !labels.contains($0.label) }
         board = labels.flatMap { label in herdRail.workspaces.filter { $0.label == label } }

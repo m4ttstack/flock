@@ -101,6 +101,7 @@ struct FlockApp: App {
     @State private var railWidthStore = RailWidthStore()
     @State private var sectionCollapseStore = SectionCollapseStore()
     @State private var boardStore: BoardStore
+    @State private var herdProgressStore = HerdProgressStore()
     @State private var toastCenter: ToastCenter
     @State private var chatStore: ChatStore
     @State private var herdrStore: HerdrStore
@@ -272,6 +273,7 @@ struct FlockApp: App {
                 .environment(railWidthStore)
                 .environment(sectionCollapseStore)
                 .environment(boardStore)
+                .environment(herdProgressStore)
                 .environment(toastCenter)
                 .environment(chatStore)
                 .environment(undoJournal)

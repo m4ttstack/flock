@@ -13,9 +13,15 @@ struct WorkspaceRail: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(RailWidthStore.self) private var railWidth
     @Environment(BoardStore.self) private var board
+    @Environment(HerdProgressStore.self) private var herdProgress
     @State private var scrollPosition = ScrollPosition()
 
-    private var sections: RailSections? { viewModel.model.map { RailSections(model: $0, board: board.names) } }
+    private var sections: RailSections? {
+        viewModel.model.map { RailSections(model: $0, board: board.names, herdProgress: herdProgress.progress) }
+    }
+    private var herdLabels: Set<String> {
+        Set(viewModel.model?.workspaces.map(\.label).filter(HerdWorkspace.isHerd(label:)) ?? [])
+    }
     /// The rows this rail lists, drags and reorders. Board's workspaces and
     /// herds are not among them: they sit in their own sections below.
     private var workspaces: [WorkspaceRecord] { sections?.workspaces ?? [] }
@@ -168,6 +174,19 @@ struct WorkspaceRail: View {
         .boundedBackground(theme.chrome)
         .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
+        // Keyed on the herds shown, so a herd arriving is asked about at
+        // once rather than at the next tick, and a rail with none stops
+        // asking.
+        .task(id: herdLabels) {
+            await herdProgress.refresh(labels: herdLabels)
+            while !herdLabels.isEmpty, !Task.isCancelled {
+                try? await Task.sleep(for: HerdProgressStore.interval)
+                await herdProgress.refresh(labels: herdLabels)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await herdProgress.refresh(labels: herdLabels) }
+        }
     }
 
     /// Selection on the first click, the rename editor on the second. A row

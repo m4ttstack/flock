@@ -33,6 +33,7 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
                 .environment(railWidth)
                 .environment(collapse)
                 .environment(board)
+                .environment(HerdProgressStore(sources: .unanswered))
                 .environment(toasts)
                 .frame(width: Self.size.width, height: Self.size.height)
         }

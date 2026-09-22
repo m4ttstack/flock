@@ -166,6 +166,34 @@ final class HerdRailTests: XCTestCase {
         XCTAssertFalse(herd.isRunning)
     }
 
+    // MARK: - rt's count
+
+    /// herdr sees four idle panes; rt knows only one worker has reported.
+    /// A worker that has not started reads idle, so the panes alone would
+    /// call this herd finished before it had done anything.
+    func testRtsCountOutranksThePanes() {
+        let herd = HerdRail(
+            model: model([WorkspaceSpec(id: "w1", label: "herd: acme-sweep", statuses: [.idle, .idle, .idle, .idle])]),
+            progress: ["herd: acme-sweep": HerdProgress(done: 1, total: 4, isRunning: true)]
+        ).herds[0]
+        XCTAssertEqual(herd.done, 1)
+        XCTAssertEqual(herd.total, 4)
+        XCTAssertTrue(herd.isRunning)
+        XCTAssertFalse(herd.isFinished)
+    }
+
+    func testAHerdRtHasNotAnsweredForIsCountedFromItsPanes() {
+        let rail = HerdRail(
+            model: model([
+                WorkspaceSpec(id: "w1", label: "herd: acme-sweep", statuses: [.done]),
+                WorkspaceSpec(id: "w2", label: "herd: ci-sweep", statuses: [.done, .working]),
+            ]),
+            progress: ["herd: acme-sweep": HerdProgress(done: 0, total: 3, isRunning: true)]
+        )
+        XCTAssertEqual(rail.herds.map(\.done), [0, 1])
+        XCTAssertEqual(rail.herds.map(\.total), [3, 2])
+    }
+
     // MARK: - The header summary
 
     func testTheSummaryCountsHerdsNotWorkers() {

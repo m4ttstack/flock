@@ -41,7 +41,10 @@ public struct HerdRail: Equatable, Sendable {
         return Summary(running: herds.count - done, done: done, isAnyRunning: herds.contains(where: \.isRunning))
     }
 
-    public init(model: SessionModel) {
+    /// `progress` is rt's count for each herd it answered for, keyed by
+    /// workspace label. A herd without one is counted from herdr's panes,
+    /// which is the best there is until rt answers, or where rt is absent.
+    public init(model: SessionModel, progress: [String: HerdProgress] = [:]) {
         var statuses: [WorkspaceID: [AgentStatus]] = [:]
         for pane in model.panes.values {
             statuses[pane.workspaceID, default: []].append(pane.agentStatus)
@@ -54,12 +57,17 @@ public struct HerdRail: Equatable, Sendable {
                 continue
             }
             let workers = statuses[workspace.workspaceID] ?? []
-            herds.append(Herd(
-                workspaceID: workspace.workspaceID,
-                name: workspace.label.dropFirst(HerdWorkspace.labelPrefix.count).trimmingCharacters(in: .whitespaces),
+            let counted = progress[workspace.label] ?? HerdProgress(
                 done: workers.filter(Self.isFinishedWorker).count,
                 total: workers.count,
                 isRunning: workers.contains(where: Self.isWorkingWorker)
+            )
+            herds.append(Herd(
+                workspaceID: workspace.workspaceID,
+                name: workspace.label.dropFirst(HerdWorkspace.labelPrefix.count).trimmingCharacters(in: .whitespaces),
+                done: counted.done,
+                total: counted.total,
+                isRunning: counted.isRunning
             ))
         }
         self.workspaces = workspaces
