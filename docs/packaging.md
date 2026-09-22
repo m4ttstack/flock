@@ -6,6 +6,60 @@ how to run it.
 The bundle is single-architecture (arm64), because `Vendor/GhosttyKit.xcframework`
 is built native-only and a universal Release fails to link.
 
+## Releasing an update
+
+Installed copies update themselves with Sparkle. Every release on GitHub
+carries three assets: `Flock-<version>.dmg` for first installs,
+`Flock-<version>.zip`, which is what Sparkle downloads, and `appcast.xml`, the
+feed. Installed copies poll
+`https://github.com/m4ttstack/flock/releases/latest/download/appcast.xml`, so
+the feed that counts is whichever one the latest release carries.
+
+From a clean checkout of `main` that is already pushed:
+
+```bash
+Scripts/fetch-sparkle.sh
+Scripts/release-build.sh --version 1.2.0
+Scripts/make-appcast.sh build/release 1.2.0
+Scripts/publish-release.sh 1.2.0
+```
+
+- `fetch-sparkle.sh` vendors Sparkle 2.9.6 into `Vendor/Sparkle/`, checked
+  against pinned sha256 values. It is a no-op once done, and the build scripts
+  run it themselves.
+- `release-build.sh --version` builds, signs, notarizes and staples
+  `build/release/Flock.app`, then writes `Flock-<version>.zip` and
+  `Flock-<version>.dmg` next to it. The build number (`CFBundleVersion`) is the
+  commit count at HEAD, and Sparkle orders updates by it, which is why releases
+  come from `main` and never from a branch that could count lower than a
+  release already out.
+- `make-appcast.sh` starts from the latest release's `appcast.xml` (none on the
+  first release, which GitHub answers with a 404; any other failure stops it),
+  adds the new zip, signs it and writes `build/release/appcast.xml`.
+- `publish-release.sh` creates tag `v<version>` and the release with all three
+  assets. It refuses a dirty tree, an existing tag, a HEAD that is not on
+  GitHub, a zip built from another commit, an unstapled app or disk image, or
+  a feed with no signed item for this version.
+
+Only the Release build of Flock updates. A Debug build and Flock-dev have no
+updater and no feed, because Sparkle replaces the app at its own path and a
+development build that updated would swap itself for the release.
+`Scripts/checks.sh` fails if the feed or the updater reaches either of them.
+
+### The signing key
+
+The feed is signed with an EdDSA key kept in the login keychain of the
+machine that releases, under Sparkle account `flock`.
+`Vendor/Sparkle/bin/generate_keys --account flock -p` prints its public half,
+which every build carries as `SUPublicEDKey` and which is the only key an
+installed copy will accept an update from.
+
+**Back it up.** If the key is lost, no installed copy can ever update again,
+and every user has to download a new build by hand. `generate_keys --account
+flock -x <file>` exports it and `generate_keys --account flock -f <file>`
+imports it on another machine. Keep the exported file in a password manager,
+never in this repository or anywhere else on disk.
+
 ## What a stranger sees on first launch
 
 Checked 2026-09-22 on a clean VM that had never seen this app or this
