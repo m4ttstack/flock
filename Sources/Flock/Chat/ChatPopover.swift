@@ -266,17 +266,23 @@ struct ChatPopover: View {
                     width: ChromeMetrics.ChatPopover.Status.paneChipIconSize.width,
                     height: ChromeMetrics.ChatPopover.Status.paneChipIconSize.height
                 )
+            // From the head, not the tail. These names share long leading
+            // words and differ at the end, so clipping the front is what
+            // keeps the part that tells two panes apart.
             Text(paneName)
                 .font(ChromeType.chatPopoverChipLabel)
-                .foregroundStyle(theme.subtext0)
+                .foregroundStyle(theme.text)
                 .lineLimit(1)
+                .truncationMode(.head)
         }
         .padding(.vertical, ChromeMetrics.ChatPopover.Status.paneChipVerticalPadding)
         .padding(.horizontal, ChromeMetrics.ChatPopover.Status.paneChipHorizontalPadding)
         .frame(
-            width: ChromeMetrics.ChatPopover.Status.paneChipSize.width,
-            height: ChromeMetrics.ChatPopover.Status.paneChipSize.height, alignment: .leading
+            maxWidth: ChromeMetrics.ChatPopover.Status.paneChipMaxWidth,
+            alignment: .leading
         )
+        .frame(height: ChromeMetrics.ChatPopover.Status.paneChipHeight)
+        .fixedSize(horizontal: true, vertical: false)
         .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.paneChipCornerRadius).fill(Color(theme.palette.surface0)))
     }
 
