@@ -22,6 +22,7 @@ DERIVED_DIR="build/release-derived"
 FORCE_ADHOC=0
 VERIFY=1
 NOTARIZE=1
+BUILD_DMG=1
 NOTARY_PROFILE="${FLOCK_NOTARY_PROFILE:-flock-notary}"
 
 usage() {
@@ -37,6 +38,7 @@ usage: Scripts/release-build.sh [options]
                      directory this was invoked from.
   --skip-verify      build and sign without the codesign/spctl checks
   --skip-notarize    build and sign without submitting for notarization
+  --skip-dmg         stop after the .app; build no installer disk image
   --notary-profile <name>  keychain profile name passed to
                      `notarytool --keychain-profile` (default: flock-notary)
 Also read from the environment: FLOCK_SIGN_IDENTITY, FLOCK_NOTARY_PROFILE.
@@ -57,6 +59,7 @@ while [ $# -gt 0 ]; do
     --adhoc) FORCE_ADHOC=1; shift ;;
     --skip-verify) VERIFY=0; shift ;;
     --skip-notarize) NOTARIZE=0; shift ;;
+    --skip-dmg) BUILD_DMG=0; shift ;;
     --notary-profile) require_value "$1" "${2:-}"; NOTARY_PROFILE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "release-build.sh: unknown option $1" >&2; usage >&2; exit 2 ;;
@@ -287,6 +290,80 @@ EOF
   fi
 fi
 
+# ── the installer disk image ─────────────────────────────────────────────────
+#
+# Built after the app is stapled, never before: a user who drags the app out
+# and runs it on a machine that is offline needs the app's OWN ticket, and
+# stapling the image does not put one there.
+#
+# The drag gesture is the point of it, not decoration. macOS applies App
+# Translocation to a quarantined app the user has not explicitly moved, and a
+# real drag from this window to Applications is the gesture that counts as
+# moving it. A clean-room run watched flock launch translocated from
+# /private/var after a Finder copy driven over Apple Events, which is not the
+# same gesture and cannot stand in for it.
+if [ "$BUILD_DMG" = 1 ]; then
+  if ! command -v create-dmg >/dev/null 2>&1; then
+    echo "release-build.sh: create-dmg not found (brew install create-dmg), skipping the disk image" >&2
+  else
+    DMG_PATH="$OUTPUT_DIR/Flock.dmg"
+    DMG_STAGE="$OUTPUT_DIR/dmg-stage"
+    DMG_ART="$OUTPUT_DIR/dmg-art"
+    rm -rf "$DMG_STAGE" "$DMG_ART" "$DMG_PATH"
+    # A folder holding the app and nothing else: create-dmg copies the whole
+    # source directory, so a stray file here ships inside the image.
+    mkdir -p "$DMG_STAGE"
+    ditto "$APP_OUT" "$DMG_STAGE/$(basename "$APP_OUT")"
+    swift Scripts/make-dmg-background.swift "$DMG_ART" >/dev/null
+
+    echo
+    echo "=== create-dmg ==="
+    # Window and icon geometry must match Scripts/make-dmg-background.swift,
+    # which draws the arrow between these two positions.
+    create-dmg \
+      --volname "flock" \
+      --background "$DMG_ART/dmg-background.png" \
+      --window-pos 200 120 \
+      --window-size 540 380 \
+      --icon-size 128 \
+      --icon "$(basename "$APP_OUT")" 140 190 \
+      --app-drop-link 400 190 \
+      --no-internet-enable \
+      "$DMG_PATH" "$DMG_STAGE"
+
+    rm -rf "$DMG_STAGE" "$DMG_ART"
+
+    echo
+    echo "=== codesign (disk image) ==="
+    codesign --sign "$IDENTITY" --timestamp "$DMG_PATH"
+
+    if [ "$NOTARIZE" = 1 ] && [ -n "${NOTARY_AUTH_ARGS+x}" ]; then
+      echo
+      echo "=== xcrun notarytool submit (disk image) ==="
+      set +e
+      dmg_output=$(xcrun notarytool submit "$DMG_PATH" "${NOTARY_AUTH_ARGS[@]}" --wait 2>&1)
+      dmg_status=$?
+      set -e
+      printf '%s\n' "$dmg_output"
+      case "$dmg_output" in
+        *"status: Accepted"*)
+          echo
+          echo "=== xcrun stapler staple (disk image) ==="
+          # The image carries its own ticket, so the download itself clears
+          # Gatekeeper on a machine with no network.
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          ;;
+        *)
+          echo "release-build.sh: the disk image was not notarized; $DMG_PATH is signed but unstapled" >&2
+          [ "$dmg_status" -ne 0 ] && exit 1
+          ;;
+      esac
+    fi
+  fi
+fi
+
 echo
 echo "release-build.sh: $APP_OUT"
+[ -f "${DMG_PATH:-}" ] && echo "release-build.sh: $DMG_PATH"
 echo "release-build.sh: identity $IDENTITY"
