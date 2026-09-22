@@ -8,33 +8,39 @@ public enum HerdrMousePatchCopy {
     public static let heading = "herdr"
     /// The row's own label, distinct from the section heading above it: the
     /// section names the tool, the row names which of its capabilities.
-    public static let rowTitle = "Mouse events"
+    public static let rowTitle = "Mouse support"
+
+    /// A path under the user's home as `~/...`, which is how a settings row
+    /// can show it on one line.
+    public static func displayPath(_ path: String) -> String {
+        (path as NSString).abbreviatingWithTildeInPath
+    }
 
     public static func body(for state: HerdrMousePatchRowState) -> String {
+        let version = HerdrMousePatchVersion.supported
         switch state {
         case .supportedByHerdr:
-            return "This herdr already reports mouse events over its CLI. There is nothing to do."
+            return "On. This herdr passes clicks and scrolling through to panes on its own."
         case .installed(let backupPath):
-            return "flock replaced this herdr binary with a build of herdr \(HerdrMousePatchVersion.supported) "
-                + "carrying an extra CLI verb for mouse events. The original is kept at \(backupPath)."
-        case .patchable(let installPath):
-            return "This is herdr \(HerdrMousePatchVersion.supported). flock can replace \(installPath) with a "
-                + "build of the same version that also reports mouse events, keep the original as a backup "
-                + "beside it, and undo this later."
+            return "On. flock installed a build of herdr \(version) that passes clicks and scrolling through "
+                + "to your panes. Your original herdr is saved at \(displayPath(backupPath))."
+        case .patchable:
+            return "Off. herdr \(version) doesn't pass clicks and scrolling through to panes. flock can "
+                + "install a build of the same version that does, and keep your original to restore later."
         case .artifactUnavailable:
-            return "flock does not carry a prebuilt patch for herdr \(HerdrMousePatchVersion.supported) in this build."
+            return "Not available. This build of flock doesn't include mouse support for herdr \(version)."
         case .notWritable(let installPath):
-            return "\(installPath) is not writable by this account, so flock will not modify it."
+            return "Off. flock can't write to \(displayPath(installPath)) from this account, so it leaves herdr alone."
         case .unsupportedVersion:
-            return "This herdr is not version \(HerdrMousePatchVersion.supported), the only version this "
-                + "build's patch covers."
+            return "Not available. Mouse support is built for herdr \(version) only, and this herdr is a "
+                + "different version."
         }
     }
 
     public static func actionTitle(for state: HerdrMousePatchRowState) -> String? {
         switch state {
         case .patchable: return "Install"
-        case .installed: return "Revert"
+        case .installed: return "Restore Original"
         case .supportedByHerdr, .artifactUnavailable, .notWritable, .unsupportedVersion: return nil
         }
     }
@@ -50,20 +56,21 @@ public enum HerdrMousePatchCopy {
 
     public static func installConfirmation(installPath: String) -> Confirmation {
         Confirmation(
-            title: "Replace \(installPath)?",
-            message: "flock will replace \(installPath) with a build of herdr \(HerdrMousePatchVersion.supported) "
-                + "that also reports mouse events. The current binary is kept beside it as a backup, and this "
-                + "can be undone from the same row.",
+            title: "Install mouse support?",
+            message: "flock will replace \(displayPath(installPath)) with a build of herdr "
+                + "\(HerdrMousePatchVersion.supported) that passes clicks and scrolling through to panes. Your "
+                + "original is saved beside it and can be restored here.",
             confirmButtonTitle: "Install"
         )
     }
 
     public static func revertConfirmation(installPath: String) -> Confirmation {
         Confirmation(
-            title: "Revert \(installPath)?",
-            message: "flock will restore the backup it kept when it patched \(installPath), and remove the "
-                + "backup once the restore is verified.",
-            confirmButtonTitle: "Revert"
+            title: "Restore the original herdr?",
+            message: "flock will put back the herdr it saved at "
+                + "\(displayPath(HerdrMousePatchInstaller.backupPath(for: installPath))), then delete the saved "
+                + "copy once the restore checks out.",
+            confirmButtonTitle: "Restore"
         )
     }
 }

@@ -1,9 +1,10 @@
 import FlockCore
 import SwiftUI
 
-/// How long the dock's attention cards stay. The secondary line says what
-/// the choice does not cover, because a "needs input" card staying put under
-/// "Hide after 5 seconds" would otherwise read as the setting not working.
+/// Whether and how long the dock shows agents that finished or need input.
+/// The secondary line says what the choice does not cover, because a
+/// question staying put under "For 5 seconds" would otherwise read as the
+/// setting not working.
 struct NotificationSettingsSection: View {
     let store: NotificationLifetimeStore
 
@@ -14,8 +15,8 @@ struct NotificationSettingsSection: View {
                     Text(lifetime.displayName).tag(lifetime)
                 }
             } label: {
-                Text("Finished agents")
-                Text("Cards for agents that need input stay until you answer.")
+                Text("Show in sidebar")
+                Text("When an agent finishes or needs your input. A question stays until you answer it.")
             }
             .accessibilityIdentifier("flock.settings.notificationLifetime")
         }
