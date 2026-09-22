@@ -1337,7 +1337,7 @@ private func collectLinesForTest(_ fd: Int32, for duration: Duration) -> [Data] 
             accumulated.append(chunk)
         }
     }
-    return accumulated.split(separator: 0x0A).map(Data.init)
+    return accumulated.split(whereSeparator: { $0 == 0x0A })
 }
 
 /// `[cols, rows]` for a `terminal.resize` line, nil for anything else.
