@@ -1785,7 +1785,9 @@ final class ChromeRenderTests: XCTestCase {
             await settle(herdWindow)
             let herdSelected = try snapshot(herdWindow)
             let stripBox = CGRect(x: RailWidth.default, y: ChromeMetrics.TitleBar.height, width: Self.windowSize.width - RailWidth.default, height: ChromeMetrics.Strip.height)
-            XCTAssertEqual(count(red, in: stripBox, of: herdSelected), 0, "\(id): a herd's blocked worker tab draws no red")
+            // Quiet in the rail, not once you have gone in: opening a herd is
+            // asking to see its workers, and a blocked one still shows it.
+            XCTAssertGreaterThan(count(red, in: stripBox, of: herdSelected), 0, "\(id): a herd's blocked worker tab keeps its red dot")
             if let directory {
                 try XCTUnwrap(herdSelected.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herds-herd-selected-\(scheme)-\(id).png"))
@@ -2870,9 +2872,9 @@ private enum Fixture {
     static func herdModel(focusing herd: String? = nil) throws -> SessionModel {
         var model = try model()
         let herds: [(id: String, name: String, workers: [AgentStatus])] = [
-            ("h1", "review-shapes-20260922", [.done, .working, .done, .blocked, .working]),
-            ("h2", "ci-sweep-20260922", [.working, .working, .done, .working]),
-            ("h3", "acme-sweep", [.done, .done, .idle, .done, .done]),
+            ("h1", "review-shapes-20260922-093843", [.done, .working, .done, .blocked, .working]),
+            ("h2", "ci-sweep-20260922-112541", [.working, .working, .done, .working]),
+            ("h3", "acme-sweep-20260922-081502", [.done, .done, .idle, .done, .done]),
         ]
         for (index, herd) in herds.enumerated() {
             let workspace = WorkspaceID(rawValue: herd.id)

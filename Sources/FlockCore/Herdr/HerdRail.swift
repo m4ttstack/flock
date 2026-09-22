@@ -64,7 +64,40 @@ public struct HerdRail: Equatable, Sendable {
             ))
         }
         self.workspaces = workspaces
-        self.herds = herds
+        self.herds = Self.displayNamed(herds)
+    }
+
+    /// rt mints a herd id as `<name>-YYYYMMDD-HHMMSS`, plus `-N` when that
+    /// collides (`mintHerdId` in rt's herd store). The stamp is for
+    /// uniqueness, not for reading, and at rail width it was most of what
+    /// showed. Only that exact suffix is taken off, so a name that merely
+    /// ends in digits keeps them.
+    static func stripStamp(_ id: String) -> (name: String, time: String?) {
+        let pattern = #"^(.+)-(\d{8})-(\d{2})(\d{2})(\d{2})(?:-\d+)?$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: id, range: NSRange(id.startIndex..., in: id)),
+              let name = Range(match.range(at: 1), in: id),
+              let hours = Range(match.range(at: 3), in: id),
+              let minutes = Range(match.range(at: 4), in: id)
+        else { return (id, nil) }
+        return (String(id[name]), "\(id[hours]):\(id[minutes])")
+    }
+
+    /// Two herds started under one name would read identically once their
+    /// stamps are gone, so those two, and only those, get their start time
+    /// back.
+    static func displayNamed(_ herds: [Herd]) -> [Herd] {
+        let stripped = herds.map { stripStamp($0.name) }
+        var counts: [String: Int] = [:]
+        for entry in stripped { counts[entry.name, default: 0] += 1 }
+        return zip(herds, stripped).map { herd, entry in
+            let shared = (counts[entry.name] ?? 0) > 1
+            let name = shared ? entry.time.map { "\(entry.name) \($0)" } ?? herd.name : entry.name
+            return Herd(
+                workspaceID: herd.workspaceID, name: name, done: herd.done, total: herd.total,
+                isRunning: herd.isRunning
+            )
+        }
     }
 
     /// herdr reports an agent that finished its turn as `done` until someone

@@ -39,12 +39,8 @@ struct StatusDot: View {
     let status: AgentStatus
     let theme: Theme
     var size: CGFloat = ChromeMetrics.Tab.statusDot
-    /// The shape without the hue, for a surface whose agents answer to
-    /// someone other than the person looking: a herd's workers, whose gates
-    /// are the shepherd's.
-    var isNeutral = false
 
-    private var color: Color { isNeutral ? theme.textLabel : theme.agentStatusMarkColor(status) }
+    private var color: Color { theme.agentStatusMarkColor(status) }
 
     var body: some View {
         ZStack {

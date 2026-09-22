@@ -68,6 +68,43 @@ final class HerdRailTests: XCTestCase {
         XCTAssertEqual(rail.herds.first?.name, "review-shapes-20260922")
     }
 
+    /// The shape rt's `mintHerdId` produces. The stamp is there for
+    /// uniqueness and was most of what showed at rail width.
+    func testTheMintedStampIsDropped() {
+        let rail = HerdRail(model: model([
+            WorkspaceSpec(id: "w1", label: "herd: review-shapes-20260922-093843"),
+            WorkspaceSpec(id: "w2", label: "herd: acme-batch-20260922-112541"),
+        ]))
+        XCTAssertEqual(rail.herds.map(\.name), ["review-shapes", "acme-batch"])
+    }
+
+    /// rt appends -N when a minted id is already taken.
+    func testTheCollisionSuffixGoesWithTheStamp() {
+        let rail = HerdRail(model: model([WorkspaceSpec(id: "w1", label: "herd: ci-sweep-20260922-093843-2")]))
+        XCTAssertEqual(rail.herds.first?.name, "ci-sweep")
+    }
+
+    /// Only the exact minted suffix is taken off; a name that simply ends in
+    /// digits keeps them.
+    func testANameThatOnlyLooksStampedIsLeftAlone() {
+        let rail = HerdRail(model: model([
+            WorkspaceSpec(id: "w1", label: "herd: build-2026"),
+            WorkspaceSpec(id: "w2", label: "herd: review-shapes-20260922"),
+        ]))
+        XCTAssertEqual(rail.herds.map(\.name), ["build-2026", "review-shapes-20260922"])
+    }
+
+    /// Two runs of one herd would read identically without their stamps, so
+    /// those two, and only those, keep their start time.
+    func testHerdsSharingANameKeepTheirStartTime() {
+        let rail = HerdRail(model: model([
+            WorkspaceSpec(id: "w1", label: "herd: review-shapes-20260922-093843"),
+            WorkspaceSpec(id: "w2", label: "herd: review-shapes-20260922-141005"),
+            WorkspaceSpec(id: "w3", label: "herd: ci-sweep-20260922-112541"),
+        ]))
+        XCTAssertEqual(rail.herds.map(\.name), ["review-shapes 09:38", "review-shapes 14:10", "ci-sweep"])
+    }
+
     func testNoHerdsMeansNoSection() {
         let rail = HerdRail(model: model([WorkspaceSpec(id: "w1", label: "flock", statuses: [.blocked])]))
         XCTAssertTrue(rail.herds.isEmpty)
