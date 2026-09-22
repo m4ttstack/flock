@@ -658,7 +658,8 @@
                       "fill": "$subtext",
                       "content": "repo-tools",
                       "fontFamily": "$font",
-                      "fontSize": 12
+                      "fontSize": 12,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "ellipse",
@@ -689,7 +690,8 @@
                       "fill": "$subtext",
                       "content": "flock",
                       "fontFamily": "$font",
-                      "fontSize": 12
+                      "fontSize": 12,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "ellipse",
@@ -1814,7 +1816,7 @@
                       "id": "qKOtd",
                       "name": "Where",
                       "fill": "$overlay-0",
-                      "content": "acme / pdf shit",
+                      "content": "acme / pdf export",
                       "fontFamily": "$font",
                       "fontSize": 10,
                       "fontWeight": "normal"
@@ -2342,7 +2344,8 @@
                       "fill": "$subtext",
                       "content": "#flock",
                       "fontFamily": "$font",
-                      "fontSize": 11
+                      "fontSize": 11,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -2364,7 +2367,8 @@
                       "fill": "$subtext",
                       "content": "@scout",
                       "fontFamily": "$font",
-                      "fontSize": 11
+                      "fontSize": 11,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -2386,7 +2390,8 @@
                       "fill": "$subtext",
                       "content": "@codex",
                       "fontFamily": "$font",
-                      "fontSize": 11
+                      "fontSize": 11,
+                      "fontWeight": "normal"
                     }
                   ]
                 }
@@ -2701,7 +2706,7 @@
                       "id": "Y5kWr",
                       "name": "Where",
                       "fill": "$overlay-0",
-                      "content": "acme / pdf shit",
+                      "content": "acme / pdf export",
                       "fontFamily": "$font",
                       "fontSize": 10,
                       "fontWeight": "normal"
