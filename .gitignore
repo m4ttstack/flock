@@ -11,3 +11,8 @@ Vendor/libghostty.version
 Sources/Flock/Resources/herdr-mouse-patch-*
 __pycache__/
 *.pyc
+# Worktrees live inside the checkout they belong to. Git skips a REGISTERED
+# one, but not a directory left behind by a worktree whose repo has moved or
+# been renamed: that becomes an ordinary untracked tree, and a whole second
+# copy of the source turns up as hundreds of files staged into this one.
+.worktrees/
