@@ -41,6 +41,9 @@ jobs:
       - name: Build libghostty if the cache missed
         run: Scripts/libghostty.sh
 
+      - name: Fetch Sparkle
+        run: Scripts/fetch-sparkle.sh
+
       - run: brew install xcodegen
 
       - name: Generate the project
