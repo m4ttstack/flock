@@ -103,14 +103,14 @@ final class PaneTailInputFrameTests: XCTestCase {
     /// the conversation is the rows above it.
     func testTheRowsAnAgentsPromptOwnsAreDropped() {
         let screen = [
-            "● Re-ran the check against the drafted addendum (chronic 30-day window).",
-            "● The artifact is live, and the table now matches the addendum.",
+            "● Re-ran the check against the drafted schedule (rolling 30-day window).",
+            "● The artifact is live, and the table now matches the schedule.",
             rule,
             "  ❯ ) posted, update the artifact with the new numbers",
             rule,
-            "  F 5 [xhigh] | @example.com | 42% context",
+            "  F 5 [xhigh] | @acme.example | 42% context",
             "  auto mode on (shift+tab to cycle)",
-            "  cv2-pdf-reliability",
+            "  acme-pdf-reliability",
         ]
         XCTAssertEqual(PaneTailPolicy.outputRows(of: screen), Array(screen.prefix(2)))
         XCTAssertEqual(
