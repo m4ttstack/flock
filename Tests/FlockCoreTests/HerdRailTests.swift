@@ -140,7 +140,7 @@ final class HerdRailTests: XCTestCase {
         XCTAssertEqual(summary?.running, 2)
         XCTAssertEqual(summary?.done, 1)
         XCTAssertEqual(summary?.isAnyRunning, true)
-        XCTAssertEqual(summary?.text, "2 running \u{00B7} 1 done")
+        XCTAssertEqual(summary?.text, "1/3 done")
     }
 
     func testEveryHerdDoneReadsOnlyDoneAndStops() {
@@ -148,7 +148,7 @@ final class HerdRailTests: XCTestCase {
             WorkspaceSpec(id: "w1", label: "herd: review-shapes", statuses: [.done]),
             WorkspaceSpec(id: "w2", label: "herd: ci-sweep", statuses: [.idle, .done]),
         ])).summary
-        XCTAssertEqual(summary?.text, "2 done")
+        XCTAssertEqual(summary?.text, "2/2 done")
         XCTAssertEqual(summary?.isAnyRunning, false)
     }
 
@@ -156,7 +156,7 @@ final class HerdRailTests: XCTestCase {
         let summary = HerdRail(model: model([
             WorkspaceSpec(id: "w1", label: "herd: review-shapes", statuses: [.working]),
         ])).summary
-        XCTAssertEqual(summary?.text, "1 running")
+        XCTAssertEqual(summary?.text, "0/1 done")
         XCTAssertEqual(summary?.isAnyRunning, true)
     }
 

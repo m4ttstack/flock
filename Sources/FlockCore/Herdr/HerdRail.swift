@@ -25,13 +25,11 @@ public struct HerdRail: Equatable, Sendable {
         public let done: Int
         public let isAnyRunning: Bool
 
-        public var text: String {
-            switch (running, done) {
-            case (0, _): "\(done) done"
-            case (_, 0): "\(running) running"
-            default: "\(running) running \u{00B7} \(done) done"
-            }
-        }
+        /// Herds finished out of all herds, in the same N/M form each herd
+        /// row uses for its workers. Whether anything is still moving is the
+        /// glyph's to say, which is what lets this fit the default rail
+        /// beside the heading and its chevron.
+        public var text: String { "\(done)/\(running + done) done" }
     }
 
     public let workspaces: [WorkspaceRecord]

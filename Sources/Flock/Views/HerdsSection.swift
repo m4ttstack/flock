@@ -38,25 +38,25 @@ struct HerdsSection: View {
     private var header: some View {
         Button(action: store.toggle) {
             HStack(spacing: ChromeMetrics.Herds.headerChevronGap) {
-                Image(systemName: store.isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(ChromeType.herdsChevron)
-                    .frame(width: ChromeMetrics.Herds.headerChevron)
+                // The section's one mark. Rows carry none: one moving glyph
+                // says "something in here is still going" without a row of
+                // them competing for the eye.
+                HerdMark(theme: theme, size: ChromeMetrics.Herds.headerMark, isMoving: summary.isAnyRunning)
                 Text("HERDS")
                     .font(ChromeType.railHeading)
                     .tracking(ChromeType.railHeadingTracking)
                     .fixedSize()
+                Image(systemName: store.isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(ChromeType.herdsChevron)
+                    .frame(width: ChromeMetrics.Herds.headerChevron)
                 Spacer(minLength: ChromeMetrics.WorkspaceRow.countMinimumGap)
                 // The summary is the only notice a folded section gives, so
                 // it is the last thing a narrow rail gets to cut.
-                HStack(spacing: ChromeMetrics.Herds.headerSummaryGap) {
-                    HerdMark(theme: theme, size: ChromeMetrics.Herds.headerMark, isMoving: summary.isAnyRunning)
-                    Text(summary.text)
-                        .font(ChromeType.workspaceCount)
-                        .lineLimit(1)
-                }
-                .layoutPriority(1)
+                Text(summary.text)
+                    .font(ChromeType.workspaceCount)
+                    .lineLimit(1)
+                    .layoutPriority(1)
             }
-            .padding(.leading, -(ChromeMetrics.Herds.headerChevron + ChromeMetrics.Herds.headerChevronGap))
             .foregroundStyle(theme.textLabel)
             .contentShape(Rectangle())
         }
@@ -75,14 +75,19 @@ private struct HerdRow: View {
 
     var body: some View {
         HStack(spacing: ChromeMetrics.WorkspaceRow.spacing) {
-            HerdMark(theme: theme, size: ChromeMetrics.Herds.rowMark, isMoving: herd.isRunning)
-                .frame(width: ChromeMetrics.WorkspaceRow.statusDot)
+            // The dot's slot, left empty, so herd names start where
+            // workspace names do.
+            Color.clear
+                .frame(width: ChromeMetrics.WorkspaceRow.statusDot, height: 1)
             Text(herd.name)
                 .font(ChromeType.workspaceName(selected: isSelected))
                 .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
                 .lineLimit(1)
             Spacer(minLength: ChromeMetrics.WorkspaceRow.countMinimumGap)
-            Text("\(herd.done)/\(herd.total) done")
+            // The same bare figure the workspace rows carry in this column.
+            // "done" cost the name about 35pt at the default rail width,
+            // and the name is the one thing this row is for.
+            Text("\(herd.done)/\(herd.total)")
                 .font(ChromeType.workspaceCount)
                 .foregroundStyle(theme.textLabel)
                 .lineLimit(1)
