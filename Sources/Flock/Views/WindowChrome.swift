@@ -65,6 +65,81 @@ final class TitleBarMouseView: NSView {
     }
 }
 
+/// Publishes whether the window hosting this view is in a user-driven live
+/// resize (the user dragging a window edge), from the moment the gesture
+/// starts to the moment it ends.
+struct WindowLiveResizeReporter: NSViewRepresentable {
+    let report: (Bool) -> Void
+
+    func makeNSView(context: Context) -> WindowLiveResizeObserverView {
+        WindowLiveResizeObserverView(report: report)
+    }
+
+    func updateNSView(_ nsView: WindowLiveResizeObserverView, context: Context) {
+        nsView.report = report
+    }
+}
+
+/// Subscribed to the window this view is actually in, never to the
+/// notification center at large: the Settings scene is a window of its own,
+/// and its resize must not reach the pane canvas.
+///
+/// Leaving a window reports false as well as unsubscribing. AppKit sends the
+/// end of a resize to the WINDOW, so a view pulled out of the hierarchy
+/// mid-gesture (a tab switch, a layout update) would otherwise never hear it,
+/// and whatever the report is holding open would stay open for good.
+final class WindowLiveResizeObserverView: NSView {
+    var report: (Bool) -> Void
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+    init(report: @escaping (Bool) -> Void) {
+        self.report = report
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    deinit {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        unsubscribe()
+        guard let window else {
+            report(false)
+            return
+        }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: NSWindow.willStartLiveResizeNotification, object: window, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.report(true) }
+            },
+            center.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: window, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.report(false) }
+            },
+        ]
+        // A view mounted into a window already being dragged has missed the
+        // start notification for this gesture and gets no other one until it
+        // ends.
+        report(window.inLiveResize)
+    }
+
+    private func unsubscribe() {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers = []
+    }
+}
+
 /// Merges the system title bar into the content so the window buttons sit on
 /// `TitleBar`'s chrome with no system strip above it. `.windowStyle(.hiddenTitleBar)`
 /// alone still leaves a title bar safe-area inset, so `MainWindow` also ignores

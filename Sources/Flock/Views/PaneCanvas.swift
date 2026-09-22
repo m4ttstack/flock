@@ -20,6 +20,11 @@ struct PaneCanvas: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(\.displayScale) private var displayScale
+    /// The window is being dragged by an edge right now. Every cell freezes
+    /// its surface for the whole gesture, the same way a divider drag does:
+    /// this arrives once per gesture, where `proxy.size` arrives once per
+    /// intermediate frame and so can never tell a resize from its end.
+    @State private var isWindowResizing = false
 
     private static let dividerThickness: CGFloat = DividerBand.gutter
 
@@ -70,7 +75,8 @@ struct PaneCanvas: View {
                                 lastLine: viewModel.lastLine(for: pane),
                                 grid: PTYSize(cols: fit.cols, rows: fit.rows),
                                 surfaceSize: fit.size,
-                                fontSizePoints: fontSize
+                                fontSizePoints: fontSize,
+                                windowIsResizing: isWindowResizing
                             )
                             // Placed by offset rather than `.position`, which
                             // centers on a midpoint and so halves the box size:
@@ -131,6 +137,7 @@ struct PaneCanvas: View {
             // in the window's, so the frames are published translated by the
             // canvas's own origin there, once, here.
             .background { canvasReporter(geometry.offset(by: proxy.frame(in: DragSpace.coordinateSpace).origin)) }
+            .background { WindowLiveResizeReporter { isWindowResizing = $0 } }
         }
         .padding(Self.canvasPadding)
         .background(theme.canvas)

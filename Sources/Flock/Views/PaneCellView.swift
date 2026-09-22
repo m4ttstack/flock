@@ -69,6 +69,9 @@ struct PaneCellView: View {
     let surfaceSize: CGSize
     /// The Terminal Text size every pane shares.
     let fontSizePoints: Double
+    /// `PaneCanvas`'s own window is mid live-resize. It freezes this pane's
+    /// surface exactly as a divider drag does; see `frozenTerminalSize`.
+    let windowIsResizing: Bool
 
     @Environment(ToastCenter.self) private var toastCenter
     @Environment(RearrangeMode.self) private var rearrangeMode
@@ -104,11 +107,12 @@ struct PaneCellView: View {
     /// attach silent.
     @State private var loaderArmTask: Task<Void, Never>?
 
-    /// The terminal's size at the instant a divider drag started, held for the
-    /// drag's whole life so the surface is never resized while it is moving.
+    /// The terminal's size at the instant a resize gesture started -- a
+    /// divider drag or the window's own edge -- held for that gesture's whole
+    /// life so the surface is never resized while it is moving.
     ///
-    /// Resizing is what makes a divider drag flash. A surface narrowed by even
-    /// one column DISCARDS everything past the new width -- ghostty's own
+    /// Resizing is what makes a drag flash. A surface narrowed by even one
+    /// column DISCARDS everything past the new width -- ghostty's own
     /// `Screen: resize (no reflow) less cols` test has "1ABCD" become "1ABC" --
     /// and herdr paints these panes as absolutely positioned lines, not a
     /// wrapped stream that could be reflowed back. So every step of a drag
@@ -116,10 +120,24 @@ struct PaneCellView: View {
     /// next full frame lands a round trip later. Thirty steps, thirty flashes.
     ///
     /// Frozen, the surface keeps its content and the pane box simply clips it.
-    /// The one real resize happens when the drag is over. herdr's own terminal
-    /// never has this problem because dragging ITS divider repaints a fixed
-    /// grid and resizes no terminal at all.
+    /// The one real resize happens when the gesture is over. herdr's own
+    /// terminal never has this problem because dragging ITS divider repaints a
+    /// fixed grid and resizes no terminal at all.
     @State private var frozenTerminalSize: CGSize?
+
+    /// The two gestures that resize a pane's box continuously, either of which
+    /// holds the surface at `frozenTerminalSize` for as long as it runs. The
+    /// thaw is the fall to false, so a window resize begun during a divider
+    /// drag's commit keeps the hold rather than handing the surface two
+    /// resizes.
+    ///
+    /// A divider's own half stays true through its commit as well as its drag:
+    /// `isDragging` holds until herdr has taken the new ratio, so the surface
+    /// resizes once, against the layout that actually won, rather than once on
+    /// release and again when the answer comes back.
+    private var holdsTerminalSize: Bool {
+        dividerDrag.isDragging || windowIsResizing
+    }
 
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
     /// a warm (parked) pane's surface is already there, so it never renders
@@ -129,7 +147,8 @@ struct PaneCellView: View {
     /// that case.
     init(
         theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool, isZoomed: Bool,
-        lastLine: String?, grid: PTYSize, surfaceSize: CGSize, fontSizePoints: Double
+        lastLine: String?, grid: PTYSize, surfaceSize: CGSize, fontSizePoints: Double,
+        windowIsResizing: Bool = false
     ) {
         self.theme = theme
         self.viewModel = viewModel
@@ -140,6 +159,7 @@ struct PaneCellView: View {
         self.grid = grid
         self.surfaceSize = surfaceSize
         self.fontSizePoints = fontSizePoints
+        self.windowIsResizing = windowIsResizing
         _ghosttySurface = State(initialValue: viewModel.ghosttySurface(for: pane.paneID))
     }
 
@@ -296,9 +316,9 @@ struct PaneCellView: View {
     private func box(editorIsOpen: Bool) -> some View {
         content(editorIsOpen: editorIsOpen)
             // `.bottomLeading`, not the default centre, and it is the anchor
-            // for BOTH axes while a divider drag holds the surface frozen at a
-            // size bigger than this frame. A centred overflow clips all four
-            // edges at once; this picks which edge loses on each axis, and
+            // for BOTH axes while a resize gesture holds the surface frozen at
+            // a size that differs from this frame. A centred overflow clips all
+            // four edges at once; this picks which edge loses on each axis, and
             // both choices follow what a terminal puts where.
             //
             // Leading, so a narrowing clip eats the far END of the lines and
@@ -661,9 +681,10 @@ struct PaneCellView: View {
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }
-                // Both nil except during a divider drag, where the pair is the
-                // size the surface had when the drag began. `nil` constrains
-                // nothing, so this is a pass-through the rest of the time.
+                // Both nil except during a resize gesture, where the pair is
+                // the size the surface had when the gesture began. `nil`
+                // constrains nothing, so this is a pass-through the rest of
+                // the time.
                 .frame(width: frozenTerminalSize?.width, height: frozenTerminalSize?.height, alignment: .topLeading)
                 .opacity(
                     PaneLoaderPolicy.showsTerminalSurface(
@@ -707,12 +728,8 @@ struct PaneCellView: View {
                 Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
             }
             .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)
-            // Held through the commit as well as the drag: `isDragging` stays
-            // true until herdr has taken the new ratio, so the surface resizes
-            // once, against the layout that actually won, rather than once on
-            // release and again when the answer comes back.
-            .onChange(of: dividerDrag.isDragging) { _, dragging in
-                guard dragging else {
+            .onChange(of: holdsTerminalSize) { _, held in
+                guard held else {
                     frozenTerminalSize = nil
                     return
                 }
