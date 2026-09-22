@@ -115,6 +115,9 @@ struct FlockApp: App {
     @State private var dividerDragCoordinator: DividerDragCoordinator
     /// Held for the app's life so its notification observers outlive `init`.
     @State private var herdrHoldCoordinator: HerdrHoldCoordinator
+    #if FLOCK_SPARKLE
+    @State private var updater = Updater()
+    #endif
 
     private let sessionLabel: String
 
@@ -302,6 +305,9 @@ struct FlockApp: App {
         // for this scene, alongside the two lower-level opt-outs above.
         .restorationBehavior(.disabled)
         .commands {
+            #if FLOCK_SPARKLE
+            CheckForUpdatesCommands(updater: updater)
+            #endif
             PasteboardCommands()
             ChatCommands(
                 chatStore: chatStore, viewModel: viewModel,

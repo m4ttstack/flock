@@ -6,6 +6,10 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
+    # Scripts/release-build.sh overrides both: --version sets the first, and
+    # the second is the commit count, which Sparkle compares to order updates.
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
   configs:
     Release:
       # Vendor/GhosttyKit.xcframework is built `-Dxcframework-target=native`
@@ -49,8 +53,8 @@ targetTemplates:
         CFBundleInfoDictionaryVersion: "6.0"
         CFBundleName: "$(PRODUCT_NAME)"
         CFBundlePackageType: APPL
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Evaluated by AppKit at the earliest point in launch, before any of
         # our own code (the app delegate included) runs -- a stale window-
         # restoration identity cached outside the app (an
@@ -90,10 +94,45 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
   Flock:
     templates: [FlockApp]
+    dependencies:
+      - framework: Vendor/Sparkle/Sparkle.xcframework
+        embed: true
+        codeSign: true
     settings:
       base:
         PRODUCT_NAME: Flock
         PRODUCT_BUNDLE_IDENTIFIER: dev.mattstack.Flock
+      # Sparkle replaces the running app at its own path, so any build that
+      # checks for updates can swap itself for the latest release. Only this
+      # configuration of this target may: it compiles the updater in
+      # (FLOCK_SPARKLE, Sources/Flock/Updates/Updater.swift) and the script
+      # below writes the SU* keys into its Info.plist. Scripts/checks.sh fails
+      # if either appears anywhere else in this file.
+      configs:
+        Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) FLOCK_SPARKLE"
+          FLOCK_SPARKLE_FEED_URL: "https://github.com/m4ttstack/flock/releases/latest/download/appcast.xml"
+          FLOCK_SPARKLE_PUBLIC_ED_KEY: "JM4/Y2AM6z+8j7xVFUzH41zKhoCXvRPCPDOJwWCC4J0="
+    # xcodegen's `info` properties apply to every configuration, so the keys
+    # cannot live there; this writes them into the processed Info.plist, which
+    # code signing then seals.
+    postBuildScripts:
+      - name: Sparkle Info.plist keys
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+        script: |
+          [ -n "${FLOCK_SPARKLE_FEED_URL:-}" ] || exit 0
+          if [ -z "${FLOCK_SPARKLE_PUBLIC_ED_KEY:-}" ]; then
+            echo "error: FLOCK_SPARKLE_FEED_URL is set without FLOCK_SPARKLE_PUBLIC_ED_KEY"
+            exit 1
+          fi
+          plist="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+          plutil -replace SUFeedURL -string "$FLOCK_SPARKLE_FEED_URL" "$plist"
+          plutil -replace SUPublicEDKey -string "$FLOCK_SPARKLE_PUBLIC_ED_KEY" "$plist"
+          plutil -replace SUEnableAutomaticChecks -bool YES "$plist"
+          plutil -replace SUAutomaticallyUpdate -bool YES "$plist"
+          plutil -replace SUVerifyUpdateBeforeExtraction -bool YES "$plist"
+          plutil -replace SUScheduledCheckInterval -integer 21600 "$plist"
     info:
       path: Generated/Flock-Info.plist
       properties:
@@ -143,6 +182,7 @@ targets:
         excludes:
           - main.swift
           - FlockApp.swift
+          - Updates/Updater.swift
           - Info.plist
           - Resources
       - path: Sources/Flock/Resources/Fonts

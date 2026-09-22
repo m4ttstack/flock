@@ -25,6 +25,15 @@ gitlink, and those two are what your machine made of it.
 `Scripts/libghostty.sh --check` reports whether the built artifact still
 matches the pin.
 
+Then vendor Sparkle, which the Flock target links:
+
+```bash
+./Scripts/fetch-sparkle.sh
+```
+
+It downloads the pinned Sparkle release into `Vendor/Sparkle/` (not in git)
+and verifies it against the sha256 in the script; rerunning it is a no-op.
+
 Then build and run:
 
 ```bash

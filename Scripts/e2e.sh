@@ -116,6 +116,7 @@ trap cleanup EXIT INT TERM
 # Compiled before the session exists so a cold build does not run the scratch
 # server's clock; the `test` invocation below re-checks and finds it current.
 Scripts/libghostty.sh --check
+Scripts/fetch-sparkle.sh
 xcodegen
 xcodebuild -scheme Flock -configuration Debug -skipPackagePluginValidation \
   -destination 'platform=macOS' build-for-testing
