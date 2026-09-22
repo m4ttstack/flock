@@ -20,6 +20,13 @@ struct HerdrRamMark: View {
     /// An echo's own start delay to how merged it is right now, 0 resting and
     /// 1 merged with the leader. `nil` is the resting composition.
     var progress: ((Double) -> Double)?
+    /// One chrome colour for the whole trail, for the places the mark is a
+    /// glyph in a list rather than the logo: there it must sit as quietly as
+    /// the text beside it. `nil` keeps the brand colours.
+    var tint: Color?
+    /// Scales every echo's opacity. One colour for leader and echoes reads as
+    /// a single blob at glyph sizes unless the echoes fall well back.
+    var echoOpacityScale: Double = 1
 
     private var square: CGSize { CGSize(width: size, height: size) }
 
@@ -29,12 +36,12 @@ struct HerdrRamMark: View {
                 let merge = progress?(echo.startDelay) ?? 0
                 let offset = HerdrRamTrail.offset(restBackSteps: echo.restBackSteps, in: square, progress: merge)
                 Path(HerdrRamTrail.path(in: square))
-                    .fill(Color(HerdrRamTrail.Colors.echoes[index]))
-                    .opacity(echo.restOpacity - PaneLoaderChoreography.mergeOpacityDrop * merge)
+                    .fill(tint ?? Color(HerdrRamTrail.Colors.echoes[index]))
+                    .opacity((echo.restOpacity - PaneLoaderChoreography.mergeOpacityDrop * merge) * echoOpacityScale)
                     .offset(x: offset.width, y: offset.height)
             }
             Path(HerdrRamTrail.path(in: square))
-                .fill(Color(HerdrRamTrail.Colors.leader))
+                .fill(tint ?? Color(HerdrRamTrail.Colors.leader))
         }
         .frame(width: size, height: size)
         // `HerdrRamTrail.path` is fit the way `make-icon.swift` fits it into a

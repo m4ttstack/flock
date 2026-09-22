@@ -79,6 +79,31 @@ enum ChromeMetrics {
         static let indicatorSize = CGSize(width: 3, height: 15)
     }
 
+    enum Herds {
+        /// Larger than the dot it replaces, which is too small to read as a
+        /// ram. Drawn in a slot the dot's own width so herd names line up
+        /// with workspace names above them; the overhang falls into the
+        /// row's padding and spacing.
+        static let rowMark: CGFloat = 14
+        static let headerMark: CGFloat = 13
+        static let markEchoOpacity: Double = 0.4
+        static let headerChevron: CGFloat = 8
+        /// Hung in the rail's gutter, so the heading's text starts where
+        /// WORKSPACES does and the summary keeps the room it needs at the
+        /// default rail width.
+        static let headerChevronGap: CGFloat = 2
+        static let headerSummaryGap: CGFloat = 4
+        /// The heading's own gap, doubled: the section has to read as a
+        /// second list, not as more rows of the first.
+        static let sectionGap: CGFloat = Rail.headingGap * 2
+        /// A finished herd, which stays listed until its workspace closes.
+        static let finishedOpacity: Double = 0.45
+        /// The loader's own loop, slowed and shallowed: rail furniture that
+        /// moves is only ever a hint, never a spinner.
+        static let motionTempo: Double = 0.4
+        static let motionDepth: Double = 0.5
+    }
+
     enum Strip {
         static let height: CGFloat = 36
         static let horizontalPadding: CGFloat = 10

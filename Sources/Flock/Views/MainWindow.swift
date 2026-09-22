@@ -14,6 +14,11 @@ struct MainWindow: View {
 
     private var theme: Theme { themeStore.active }
 
+    private var isSelectedWorkspaceAHerd: Bool {
+        guard let model = viewModel.model, let workspace = viewModel.selectedWorkspaceID else { return false }
+        return HerdWorkspace.isHerd(workspace, in: model)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             TitleBar(theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState)
@@ -42,7 +47,8 @@ struct MainWindow: View {
                             tabs: viewModel.tabsForSelectedWorkspace,
                             selectedTabID: viewModel.selectedTabID,
                             protocolVersion: HerdrClient.minimumProtocol,
-                            onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
+                            onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } },
+                            neutralStatus: isSelectedWorkspaceAHerd
                         )
                         PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
                     }

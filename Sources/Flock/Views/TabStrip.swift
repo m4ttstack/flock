@@ -13,6 +13,9 @@ struct TabStrip: View {
     let selectedTabID: TabID?
     let protocolVersion: Int
     let onSelect: (TabID) -> Void
+    /// Set for a herd's workspace: its workers' gates are the shepherd's, so
+    /// no tab here may turn red at the person looking.
+    var neutralStatus = false
     /// Exists only so a render test can sample the new-tab affordance's drawn
     /// state without simulating a real pointer -- production call sites never
     /// pass it, and hovering still drives the affordance's own state from
@@ -36,6 +39,7 @@ struct TabStrip: View {
                                 theme: theme,
                                 tab: tab,
                                 isSelected: tab.tabID == selectedTabID,
+                                neutralStatus: neutralStatus,
                                 isRenaming: viewModel.renameTarget == .tab(tab.tabID),
                                 showsClose: hoveredTabID == tab.tabID && viewModel.renameTarget != .tab(tab.tabID),
                                 renameText: viewModel.renameText(for: .tab(tab.tabID)),
@@ -230,6 +234,7 @@ private struct TabBlock: View {
     let theme: Theme
     let tab: TabRecord
     let isSelected: Bool
+    var neutralStatus = false
     var isRenaming = false
     /// The hover-reveal close: laid out on every tab either way, so a tab
     /// never reflows as the pointer crosses it.
@@ -249,7 +254,7 @@ private struct TabBlock: View {
     /// back over the title.
     private var trailingSlot: some View {
         ZStack {
-            StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot)
+            StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot, isNeutral: neutralStatus)
                 .opacity(showsClose ? 0 : 1)
             HoverCloseButton(
                 theme: theme, isRevealed: showsClose, help: "Close tab",

@@ -1743,6 +1743,73 @@ final class ChromeRenderTests: XCTestCase {
         try await renderGrid(themed: "nord", into: "grid-rest-nord.png")
     }
 
+    /// The rail's Herds section, expanded and folded, in a dark and a light
+    /// theme. The herds add no red to the rail however blocked their workers
+    /// are, and a herd's own tab strip draws its dots without a hue.
+    func testTheHerdsSectionRendersExpandedAndCollapsedWithNoRed() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_HERDS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let red = theme.palette.red.hex
+            let railBox = CGRect(x: 0, y: ChromeMetrics.TitleBar.height, width: RailWidth.default, height: Self.windowSize.height - ChromeMetrics.TitleBar.height)
+
+            let baseline = try await Harness(theme: theme)
+            let baselineWindow = baseline.makeWindow(size: Self.windowSize)
+            await settle(baselineWindow)
+            let baselineRed = count(red, in: railBox, of: try snapshot(baselineWindow))
+            baselineWindow.close()
+            XCTAssertGreaterThan(baselineRed, 0, "\(id): the blocked workspace's own dot is red")
+
+            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
+            XCTAssertFalse(harness.herdsSection.isCollapsed)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let expanded = try snapshot(window)
+            XCTAssertEqual(count(red, in: railBox, of: expanded), baselineRed, "\(id): herds add no red to the rail")
+
+            harness.herdsSection.toggle()
+            await settle(window)
+            let collapsed = try snapshot(window)
+            XCTAssertEqual(count(red, in: railBox, of: collapsed), baselineRed, "\(id): folded, still no red")
+            if let directory {
+                try XCTUnwrap(expanded.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herds-rail-expanded-\(scheme)-\(id).png"))
+                try XCTUnwrap(collapsed.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herds-rail-collapsed-\(scheme)-\(id).png"))
+            }
+            harness.herdsSection.toggle()
+            window.close()
+
+            let inHerd = try await Harness(theme: theme, model: try Fixture.herdModel(focusing: "h1"), attaching: [])
+            let herdWindow = inHerd.makeWindow(size: Self.windowSize)
+            await settle(herdWindow)
+            let herdSelected = try snapshot(herdWindow)
+            let stripBox = CGRect(x: RailWidth.default, y: ChromeMetrics.TitleBar.height, width: Self.windowSize.width - RailWidth.default, height: ChromeMetrics.Strip.height)
+            XCTAssertEqual(count(red, in: stripBox, of: herdSelected), 0, "\(id): a herd's blocked worker tab draws no red")
+            if let directory {
+                try XCTUnwrap(herdSelected.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herds-herd-selected-\(scheme)-\(id).png"))
+            }
+            herdWindow.close()
+        }
+    }
+
+    /// Pixels exactly `hex` inside `box`, in window points.
+    private func count(_ hex: String, in box: CGRect, of image: NSBitmapImageRep, scale: CGFloat = 2) -> Int {
+        guard let data = image.bitmapData else { return 0 }
+        let target = hex.uppercased()
+        var hits = 0
+        for y in Int(box.minY * scale)..<min(Int(box.maxY * scale), image.pixelsHigh) {
+            for x in Int(box.minX * scale)..<min(Int(box.maxX * scale), image.pixelsWide) {
+                let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
+                if String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2]) == target {
+                    hits += 1
+                }
+            }
+        }
+        return hits
+    }
+
     private func renderGrid(themed id: String, into file: String) async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
@@ -2346,6 +2413,7 @@ private struct Harness {
     let themeStore: ThemeStore
     let textSize: TerminalTextSizeStore
     let railWidth: RailWidthStore
+    let herdsSection: HerdsSectionStore
     let toasts: ToastCenter
     let rearrange: RearrangeMode
     let drag: DragCoordinator
@@ -2377,6 +2445,7 @@ private struct Harness {
         themeStore.select(theme)
         textSize = TerminalTextSizeStore(userDefaults: defaults)
         railWidth = RailWidthStore(userDefaults: defaults)
+        herdsSection = HerdsSectionStore(userDefaults: defaults)
         toasts = ToastCenter()
         rearrange = RearrangeMode()
         drag = DragCoordinator(
@@ -2419,6 +2488,7 @@ private struct Harness {
             .environment(themeStore)
             .environment(textSize)
             .environment(railWidth)
+            .environment(herdsSection)
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)
@@ -2629,6 +2699,43 @@ private enum GridFixture {
 
 private enum Fixture {
     static let canvasPanes = [PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")]
+
+    /// `model()` plus three herds: one half through, one mostly working with
+    /// a worker blocked on its shepherd, one finished. `focusing` selects a
+    /// herd's workspace and its first tab instead of `flock`.
+    static func herdModel(focusing herd: String? = nil) throws -> SessionModel {
+        var model = try model()
+        let herds: [(id: String, name: String, workers: [AgentStatus])] = [
+            ("h1", "review-shapes-20260922", [.done, .working, .done, .blocked, .working]),
+            ("h2", "ci-sweep-20260922", [.working, .working, .done, .working]),
+            ("h3", "acme-sweep", [.done, .done, .idle, .done, .done]),
+        ]
+        for (index, herd) in herds.enumerated() {
+            let workspace = WorkspaceID(rawValue: herd.id)
+            model.workspaces.append(WorkspaceRecord(
+                workspaceID: workspace, label: HerdWorkspace.labelPrefix + herd.name, number: 6 + index,
+                activeTabID: TabID(rawValue: "\(herd.id):t1"), agentStatus: AgentAttention.aggregate(herd.workers)
+            ))
+            for (worker, status) in herd.workers.enumerated() {
+                let tab = TabID(rawValue: "\(herd.id):t\(worker + 1)")
+                model.tabs[workspace, default: []].append(TabRecord(
+                    tabID: tab, workspaceID: workspace, label: "worker-\(worker + 1)", number: worker + 1,
+                    paneCount: 1, agentStatus: status
+                ))
+                let pane = PaneID(rawValue: "\(herd.id):p\(worker + 1)")
+                model.panes[pane] = PaneRecord(
+                    paneID: pane, workspaceID: workspace, tabID: tab, focused: false, agentStatus: status, revision: 1,
+                    terminalTitleStripped: "claude", label: nil, cwd: "/private/tmp", scroll: nil
+                )
+            }
+        }
+        if let herd {
+            model.focusedWorkspaceID = WorkspaceID(rawValue: herd)
+            model.focusedTabID = TabID(rawValue: "\(herd):t1")
+            model.focusedPaneID = nil
+        }
+        return model
+    }
 
     /// `flockTabLabels` replaces the four tabs of the selected workspace, for
     /// a test that needs a title of its own. Four of them either way: the

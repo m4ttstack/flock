@@ -14,7 +14,10 @@ struct WorkspaceRail: View {
     @Environment(RailWidthStore.self) private var railWidth
     @State private var scrollPosition = ScrollPosition()
 
-    private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
+    private var rail: HerdRail? { viewModel.model.map(HerdRail.init(model:)) }
+    /// The rows this rail lists, drags and reorders. Herds are not among
+    /// them: they sit in their own section below.
+    private var workspaces: [WorkspaceRecord] { rail?.workspaces ?? [] }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -87,6 +90,14 @@ struct WorkspaceRail: View {
                                 }
                             }
                         }
+                        if let rail, let summary = rail.summary {
+                            HerdsSection(
+                                theme: theme, herds: rail.herds, summary: summary,
+                                selectedWorkspaceID: viewModel.selectedWorkspaceID,
+                                showsFill: { drag.showsWorkspaceFill($0, isCurrent: $0 == viewModel.selectedWorkspaceID) },
+                                onClick: handleHerdClick
+                            )
+                        }
                         // Real content, filling whatever height the rows
                         // leave inside the viewport: a `ScrollView` bridges to
                         // an `NSScrollView`, whose clip view claims hit
@@ -152,6 +163,16 @@ struct WorkspaceRail: View {
             viewModel.beginRename(.workspace(workspace))
         case .ignore:
             break
+        }
+    }
+
+    /// A herd row selects and does nothing else: its label is rt's, so it
+    /// offers no rename, and it joins no Cmd+click selection because herds
+    /// are not reordered from the rail.
+    private func handleHerdClick(_ workspace: WorkspaceID) {
+        guard case .select = NSEvent.chromeRowClick(NSApp.currentEvent) else { return }
+        if drag.clickWorkspace(workspace, commandHeld: false, current: viewModel.selectedWorkspaceID) {
+            onSelect(workspace)
         }
     }
 
@@ -322,17 +343,7 @@ private struct WorkspaceRow: View {
                     .foregroundStyle(theme.textLabel)
             }
         }
-        // Fixed rather than taken from the label's line height, which varies
-        // with face and size, so rows keep a whole-point pitch.
-        .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
-        .padding(.vertical, ChromeMetrics.WorkspaceRow.verticalPadding)
-        .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
-        .background(
-            RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius)
-                .fill(theme.selection)
-                .opacity(showsFill ? 1 : 0)
-        )
-        .contentShape(Rectangle())
+        .modifier(RailRowChrome(theme: theme, showsFill: showsFill))
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(y: displacement)
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)

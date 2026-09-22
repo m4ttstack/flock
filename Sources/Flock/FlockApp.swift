@@ -99,6 +99,7 @@ struct FlockApp: App {
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var scrollSpeedStore = ScrollSpeedStore()
     @State private var railWidthStore = RailWidthStore()
+    @State private var herdsSectionStore = HerdsSectionStore()
     @State private var toastCenter: ToastCenter
     @State private var chatStore: ChatStore
     @State private var herdrStore: HerdrStore
@@ -266,6 +267,7 @@ struct FlockApp: App {
                 .environment(terminalTextSizeStore)
                 .environment(optionAsAltStore)
                 .environment(railWidthStore)
+                .environment(herdsSectionStore)
                 .environment(toastCenter)
                 .environment(chatStore)
                 .environment(undoJournal)

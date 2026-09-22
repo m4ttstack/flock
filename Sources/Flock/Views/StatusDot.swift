@@ -39,20 +39,26 @@ struct StatusDot: View {
     let status: AgentStatus
     let theme: Theme
     var size: CGFloat = ChromeMetrics.Tab.statusDot
+    /// The shape without the hue, for a surface whose agents answer to
+    /// someone other than the person looking: a herd's workers, whose gates
+    /// are the shepherd's.
+    var isNeutral = false
+
+    private var color: Color { isNeutral ? theme.textLabel : theme.agentStatusMarkColor(status) }
 
     var body: some View {
         ZStack {
             switch status {
             case .working, .blocked, .done:
-                Circle().fill(theme.agentStatusMarkColor(status))
+                Circle().fill(color)
             case .idle:
                 // Stroked inside the frame, so a ring and a fill of the same
                 // size occupy exactly the same box and rows stay aligned.
                 Circle()
-                    .strokeBorder(theme.agentStatusMarkColor(status), lineWidth: size * ChromeMetrics.statusRingStrokeRatio)
+                    .strokeBorder(color, lineWidth: size * ChromeMetrics.statusRingStrokeRatio)
             case .unknown:
                 Circle()
-                    .fill(theme.agentStatusMarkColor(status))
+                    .fill(color)
                     .frame(width: size * ChromeMetrics.statusUnknownRatio, height: size * ChromeMetrics.statusUnknownRatio)
             }
         }
