@@ -131,7 +131,11 @@ public struct WorkspaceRecord: Codable, Equatable, Sendable {
     public let workspaceID: WorkspaceID
     public var label: String
     public let number: Int
-    public let activeTabID: TabID
+    /// Where this workspace lands when it is selected. A `var` because a tab
+    /// focus moves it: frozen at the last snapshot it goes stale the moment
+    /// anyone switches tabs, and selecting the workspace then lands on the
+    /// tab that was current when the snapshot was taken.
+    public var activeTabID: TabID
     public var agentStatus: AgentStatus
 
     enum CodingKeys: String, CodingKey {

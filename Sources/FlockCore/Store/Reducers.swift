@@ -105,6 +105,16 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
 
     case .tabFocused(let tabID):
         model.focusedTabID = tabID
+        // The owning workspace remembers it too. Without this, activeTabID
+        // moves only on a full snapshot, so selecting a workspace lands on
+        // whichever tab was current when that snapshot was taken and then
+        // jumps to the real one once herdr answers. That jump is what reads
+        // as the window changing its mind.
+        if let owner = model.tabs.first(where: { $0.value.contains { $0.tabID == tabID } })?.key,
+            let index = model.workspaces.firstIndex(where: { $0.workspaceID == owner })
+        {
+            model.workspaces[index].activeTabID = tabID
+        }
 
     case .workspaceCreated(let workspace):
         upsertWorkspace(workspace, into: &model)

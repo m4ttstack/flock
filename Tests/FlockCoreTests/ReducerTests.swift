@@ -302,4 +302,44 @@ final class ReducerTests: XCTestCase {
             XCTAssertTrue(tabExists, "layout key \(tabID) has no owning tab in any workspace")
         }
     }
+
+    /// Selecting a workspace reads its `activeTabID` to decide where to land.
+    /// Left to the snapshot alone that is stale the moment anyone switches
+    /// tabs, and the window shows the snapshot's tab before jumping to the
+    /// real one.
+    func testTabFocusedMovesTheOwningWorkspacesActiveTab() throws {
+        var model = try seededModel()
+        let workspace = WorkspaceID(rawValue: "w1")
+        let second = TabID(rawValue: "w1:t2")
+        XCTAssertEqual(
+            model.workspaces.first { $0.workspaceID == workspace }?.activeTabID,
+            TabID(rawValue: "w1:t1")
+        )
+
+        apply(.tabFocused(second), to: &model)
+
+        XCTAssertEqual(model.focusedTabID, second)
+        XCTAssertEqual(model.workspaces.first { $0.workspaceID == workspace }?.activeTabID, second)
+    }
+
+    /// A focus in one workspace says nothing about where another should land.
+    func testTabFocusedLeavesOtherWorkspacesAlone() throws {
+        var model = try seededModel()
+        let other = WorkspaceRecord(
+            workspaceID: WorkspaceID(rawValue: "w2"),
+            label: "second",
+            number: 2,
+            activeTabID: TabID(rawValue: "w2:t1"),
+            agentStatus: .unknown
+        )
+        model.workspaces.append(other)
+        model.tabs[other.workspaceID] = []
+
+        apply(.tabFocused(TabID(rawValue: "w1:t2")), to: &model)
+
+        XCTAssertEqual(
+            model.workspaces.first { $0.workspaceID == other.workspaceID }?.activeTabID,
+            TabID(rawValue: "w2:t1")
+        )
+    }
 }
