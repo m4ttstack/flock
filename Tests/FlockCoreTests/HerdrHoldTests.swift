@@ -2,7 +2,7 @@ import XCTest
 @testable import FlockCore
 
 /// The hold decision: when flock hands its panes back to herdr and when it
-/// takes them again, from the app's active state alone.
+/// takes them again, from whether flock is on screen.
 final class HerdrHoldTests: XCTestCase {
     // MARK: - the release, and its debounce
 
@@ -14,16 +14,16 @@ final class HerdrHoldTests: XCTestCase {
         XCTAssertFalse(policy.isReleaseScheduled)
     }
 
-    func testResigningActiveSchedulesTheReleaseRatherThanReleasing() {
+    func testGoingOffScreenSchedulesTheReleaseRatherThanReleasing() {
         var policy = HoldPolicy()
-        XCTAssertEqual(policy.handle(.resignedActive), .scheduleRelease(after: HoldPolicy.releaseDelay))
+        XCTAssertEqual(policy.handle(.becameHidden), .scheduleRelease(after: HoldPolicy.releaseDelay))
         XCTAssertTrue(policy.isHolding, "the panes were handed back before the delay was up")
         XCTAssertTrue(policy.isReleaseScheduled)
     }
 
     func testTheScheduledDeadlineIsWhatReleases() {
         var policy = HoldPolicy()
-        _ = policy.handle(.resignedActive)
+        _ = policy.handle(.becameHidden)
         XCTAssertEqual(policy.handle(.releaseDeadline), .release)
         XCTAssertFalse(policy.isHolding)
         XCTAssertFalse(policy.isReleaseScheduled)
@@ -33,8 +33,8 @@ final class HerdrHoldTests: XCTestCase {
     /// herdr nothing at all, not a release followed by a take.
     func testAwayAndBackInsideTheDelayNeitherReleasesNorTakes() {
         var policy = HoldPolicy()
-        XCTAssertEqual(policy.handle(.resignedActive), .scheduleRelease(after: HoldPolicy.releaseDelay))
-        XCTAssertEqual(policy.handle(.becameActive), .cancelScheduledRelease)
+        XCTAssertEqual(policy.handle(.becameHidden), .scheduleRelease(after: HoldPolicy.releaseDelay))
+        XCTAssertEqual(policy.handle(.becameVisible), .cancelScheduledRelease)
         XCTAssertTrue(policy.isHolding)
         XCTAssertFalse(policy.isReleaseScheduled)
         // And the timer that was already in flight decides nothing when it
@@ -43,18 +43,18 @@ final class HerdrHoldTests: XCTestCase {
         XCTAssertTrue(policy.isHolding)
     }
 
-    func testASecondResignWhileOneIsAlreadyScheduledSchedulesNothingFurther() {
+    func testASecondHideWhileOneIsAlreadyScheduledSchedulesNothingFurther() {
         var policy = HoldPolicy()
-        _ = policy.handle(.resignedActive)
-        XCTAssertEqual(policy.handle(.resignedActive), .none)
+        _ = policy.handle(.becameHidden)
+        XCTAssertEqual(policy.handle(.becameHidden), .none)
         XCTAssertTrue(policy.isReleaseScheduled)
     }
 
-    func testResigningWhileAlreadyReleasedSchedulesNothing() {
+    func testHidingWhileAlreadyReleasedSchedulesNothing() {
         var policy = HoldPolicy()
-        _ = policy.handle(.resignedActive)
+        _ = policy.handle(.becameHidden)
         _ = policy.handle(.releaseDeadline)
-        XCTAssertEqual(policy.handle(.resignedActive), .none)
+        XCTAssertEqual(policy.handle(.becameHidden), .none)
         XCTAssertFalse(policy.isHolding)
         XCTAssertFalse(policy.isReleaseScheduled)
     }
@@ -64,11 +64,11 @@ final class HerdrHoldTests: XCTestCase {
     /// Not debounced, and deliberately: the user is looking at flock by the
     /// time this runs, and a pane that is neither sized nor streaming is
     /// visible for exactly as long as the take is put off.
-    func testBecomingActiveAfterAReleaseTakesThePanesBackAtOnce() {
+    func testComingBackIntoViewAfterAReleaseTakesThePanesBackAtOnce() {
         var policy = HoldPolicy()
-        _ = policy.handle(.resignedActive)
+        _ = policy.handle(.becameHidden)
         _ = policy.handle(.releaseDeadline)
-        XCTAssertEqual(policy.handle(.becameActive), .take)
+        XCTAssertEqual(policy.handle(.becameVisible), .take)
         XCTAssertTrue(policy.isHolding)
     }
 
@@ -76,10 +76,10 @@ final class HerdrHoldTests: XCTestCase {
     /// be wrong in one direction (a command dropped on a full FIFO leaves that
     /// pane released with no later edge to correct it), and a bridge that
     /// already holds ignores the repeat.
-    func testBecomingActiveWhileAlreadyHoldingRepeatsTheTake() {
+    func testComingBackIntoViewWhileAlreadyHoldingRepeatsTheTake() {
         var policy = HoldPolicy()
-        XCTAssertEqual(policy.handle(.becameActive), .take)
-        XCTAssertEqual(policy.handle(.becameActive), .take)
+        XCTAssertEqual(policy.handle(.becameVisible), .take)
+        XCTAssertEqual(policy.handle(.becameVisible), .take)
         XCTAssertTrue(policy.isHolding)
     }
 
@@ -87,8 +87,8 @@ final class HerdrHoldTests: XCTestCase {
     /// ever sent, so every pane provably still holds.
     func testCancellingAScheduledReleaseAssertsNothing() {
         var policy = HoldPolicy()
-        _ = policy.handle(.resignedActive)
-        XCTAssertEqual(policy.handle(.becameActive), .cancelScheduledRelease)
+        _ = policy.handle(.becameHidden)
+        XCTAssertEqual(policy.handle(.becameVisible), .cancelScheduledRelease)
     }
 
     /// A full round trip, and then a second one, so the machine is not a
@@ -96,9 +96,9 @@ final class HerdrHoldTests: XCTestCase {
     func testTwoFullRoundTripsDecideTheSameWayBothTimes() {
         var policy = HoldPolicy()
         for _ in 0..<2 {
-            XCTAssertEqual(policy.handle(.resignedActive), .scheduleRelease(after: HoldPolicy.releaseDelay))
+            XCTAssertEqual(policy.handle(.becameHidden), .scheduleRelease(after: HoldPolicy.releaseDelay))
             XCTAssertEqual(policy.handle(.releaseDeadline), .release)
-            XCTAssertEqual(policy.handle(.becameActive), .take)
+            XCTAssertEqual(policy.handle(.becameVisible), .take)
         }
     }
 
@@ -140,7 +140,10 @@ final class HerdrHoldTests: XCTestCase {
     /// taken in a unit test, so the bound is asserted rather than derived.
     func testTheReleaseDelayOutlastsTheRoundTripItExistsToPrevent() {
         XCTAssertGreaterThan(HoldPolicy.releaseDelay, 0.204)
-        XCTAssertLessThanOrEqual(HoldPolicy.releaseDelay, 1.0, "a switch to the terminal waits this long to be sized")
+        XCTAssertLessThanOrEqual(
+            HoldPolicy.releaseDelay, 1.0,
+            "a terminal taking flock's place on screen waits this long to be sized"
+        )
     }
 
     // MARK: - the wire
