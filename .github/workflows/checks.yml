@@ -1,0 +1,19 @@
+name: Checks
+
+# The gates that need no build, so a shell typo or a leaked term comes back in
+# seconds instead of waiting behind a macOS runner and a libghostty build.
+# Scripts/checks.sh is the same thing runnable by hand before pushing; this
+# workflow only calls it, so the two can never drift.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fast checks
+        run: Scripts/checks.sh

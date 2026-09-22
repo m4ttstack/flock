@@ -1,0 +1,64 @@
+name: Build and test
+
+# The unit suites, on the only platform that can run them. Separate from
+# Checks because this needs a macOS runner and a libghostty build, so it is
+# minutes where those are seconds.
+#
+# FlockUITests is deliberately absent: it launches a real Flock against a real
+# herdr session (Scripts/e2e.sh), which a hosted runner has no herdr for. What
+# runs here is what can run unattended and deterministically.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The xcframework is gitignored and reproducible from the pinned ghostty
+      # commit, so it is cached on that commit rather than rebuilt every run.
+      # Keyed on the submodule's SHA: a pin bump is a different key and
+      # rebuilds, which is the only time it should.
+      - name: Resolve the ghostty pin
+        id: pin
+        run: echo "sha=$(git -C Vendor/ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache libghostty
+        uses: actions/cache@v4
+        with:
+          path: |
+            Vendor/GhosttyKit.xcframework
+            Vendor/libghostty.version
+            Vendor/zig
+          key: libghostty-${{ runner.os }}-${{ steps.pin.outputs.sha }}
+
+      - name: Build libghostty if the cache missed
+        run: Scripts/libghostty.sh
+
+      - run: brew install xcodegen
+
+      - name: Generate the project
+        run: xcodegen
+
+      - name: Build
+        run: xcodebuild -scheme Flock -configuration Debug -skipPackagePluginValidation build
+
+      # Scoped to the unit target: the Flock scheme also carries FlockUITests,
+      # which would try to launch the app.
+      - name: FlockCoreTests
+        run: |
+          xcodebuild test -scheme Flock -destination 'platform=macOS' \
+            -only-testing:FlockCoreTests -skipPackagePluginValidation
+
+      # Unscoped, because a scoped run here hides crashes rather than
+      # reporting them.
+      - name: FlockChromeRender
+        run: |
+          xcodebuild test -scheme FlockChromeRender -destination 'platform=macOS' \
+            -skipPackagePluginValidation
