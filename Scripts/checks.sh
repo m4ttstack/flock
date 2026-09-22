@@ -45,11 +45,20 @@ executable_ok() {
 # Em and en dashes, which this project does not use anywhere: code comments,
 # commit messages, docs. Checked here because it is invisible in review and
 # trivially fixed at the point it is written.
+#
+# `git grep` on the dashes' UTF-8 bytes, because macOS grep has no -P: an
+# unsupported flag errors, and an error here must fail the check rather than
+# read as "no hits".
 dashes_ok() {
-  local hits
-  hits=$(git ls-files -z '*.swift' '*.sh' '*.md' '*.yml' \
-    | xargs -0 grep -nP '[\x{2014}\x{2013}]' 2>/dev/null || true)
-  [ -z "$hits" ] || { printf '%s\n' "$hits"; return 1; }
+  local em en hits rc=0
+  em=$(printf '\342\200\224')
+  en=$(printf '\342\200\223')
+  hits=$(LC_ALL=C git grep -nE "$em|$en" -- '*.swift' '*.sh' '*.md' '*.yml') || rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$hits"; return 1 ;;
+    1) return 0 ;;
+    *) echo "      git grep failed ($rc)"; return 1 ;;
+  esac
 }
 
 # The generated Xcode project is derived from project.yml and gitignored, so
