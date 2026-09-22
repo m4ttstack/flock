@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds Flock.app in the Release configuration, signed with the hardened
-# runtime, into build/release/, then notarizes and staples it.
+# runtime, into build/release/, then notarizes and staples it and packages it
+# twice: Flock-<version>.zip, the archive Sparkle updates installed copies
+# from, and Flock-<version>.dmg, the first-install download.
 #
 # The signing identity is a parameter rather than a constant: a Developer ID is
 # a per-machine credential, and a machine without one still has to be able to
@@ -23,11 +25,16 @@ FORCE_ADHOC=0
 VERIFY=1
 NOTARIZE=1
 BUILD_DMG=1
+VERSION=""
 NOTARY_PROFILE="${FLOCK_NOTARY_PROFILE:-flock-notary}"
 
 usage() {
   cat <<'USAGE'
 usage: Scripts/release-build.sh [options]
+  --version <X.Y.Z>  the version this build ships as (CFBundleShortVersionString
+                     and the artifact names). Required for a release; without
+                     it the build keeps project.yml's MARKETING_VERSION. The
+                     build number is always the commit count at HEAD.
   --identity <name>  codesign identity, as the certificate's common name (the
                      quoted field `security find-identity` prints), not its
                      SHA-1 hash. Default: the machine's sole "Developer ID
@@ -54,6 +61,7 @@ require_value() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --version) require_value "$1" "${2:-}"; VERSION="$2"; shift 2 ;;
     --identity) require_value "$1" "${2:-}"; IDENTITY="$2"; shift 2 ;;
     --output) require_value "$1" "${2:-}"; OUTPUT_DIR="$2"; shift 2 ;;
     --adhoc) FORCE_ADHOC=1; shift ;;
@@ -66,11 +74,22 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-for tool in xcodegen xcodebuild codesign ditto security spctl sed xcrun; do
+for tool in git xcodegen xcodebuild codesign ditto security spctl sed xcrun; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "release-build.sh: $tool is required" >&2; exit 1
   }
 done
+
+if [ -n "$VERSION" ] && ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "release-build.sh: --version must be X.Y.Z, got $VERSION" >&2
+  exit 2
+fi
+
+# Sparkle orders updates by CFBundleVersion, so it has to grow with every
+# release; releases are cut from main, whose commit count only grows.
+BUILD_NUMBER=$(git rev-list --count HEAD)
+VERSION_OVERRIDES=(CURRENT_PROJECT_VERSION="$BUILD_NUMBER")
+[ -n "$VERSION" ] && VERSION_OVERRIDES+=(MARKETING_VERSION="$VERSION")
 
 if [ "$FORCE_ADHOC" = 1 ]; then
   IDENTITY="-"
@@ -104,6 +123,7 @@ fi
 APP_OUT="$OUTPUT_DIR/Flock.app"
 
 Scripts/libghostty.sh --check
+Scripts/fetch-sparkle.sh
 xcodegen
 
 # The vendored herdr patch is a Mach-O sitting in Resources, and Xcode treats
@@ -132,6 +152,23 @@ for patch in Sources/Flock/Resources/herdr-mouse-patch-*; do
   codesign -dv --verbose=2 "$patch" 2>&1 | grep -E "Authority|TeamIdentifier|flags" || true
 done
 
+# Sparkle's helpers ship ad-hoc signed, which notarization rejects, and
+# Xcode's sign-on-copy re-signs only the framework's own binary, never the
+# code nested in it. Signed in the vendored copy for the same reason as the
+# herdr patch: the build then embeds and seals code that is already correct.
+# Downloader.xpc keeps its entitlements, as in Sparkle's own re-signing steps;
+# the rest are signed without theirs.
+SPARKLE_VERSIONED="Vendor/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework/Versions/B"
+SPARKLE_HELPERS="XPCServices/Installer.xpc XPCServices/Downloader.xpc Autoupdate Updater.app"
+echo
+echo "=== codesign (Sparkle helpers) ==="
+for helper in $SPARKLE_HELPERS; do
+  preserve=""
+  [ "$helper" = "XPCServices/Downloader.xpc" ] && preserve="--preserve-metadata=entitlements"
+  # shellcheck disable=SC2086
+  codesign --force --sign "$IDENTITY" $SIGN_FLAGS $preserve "$SPARKLE_VERSIONED/$helper"
+done
+
 mkdir -p "$OUTPUT_DIR"
 
 xcodebuild -scheme Flock -configuration Release \
@@ -140,6 +177,7 @@ xcodebuild -scheme Flock -configuration Release \
   -skipPackagePluginValidation \
   CODE_SIGN_IDENTITY="$IDENTITY" \
   OTHER_CODE_SIGN_FLAGS="$SIGN_FLAGS" \
+  "${VERSION_OVERRIDES[@]}" \
   build
 
 BUILT_APP="$DERIVED_DIR/Build/Products/Release/Flock.app"
@@ -153,6 +191,18 @@ rm -rf "$APP_OUT"
 # `ditto`, not `cp`: it is the copy that carries a bundle's extended attributes
 # and code signature across intact.
 ditto "$BUILT_APP" "$APP_OUT"
+
+INFO_PLIST="$APP_OUT/Contents/Info.plist"
+APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
+APP_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST")
+if [ -n "$VERSION" ] && [ "$APP_VERSION" != "$VERSION" ]; then
+  echo "release-build.sh: asked for version $VERSION, and the bundle says $APP_VERSION" >&2
+  exit 1
+fi
+if [ "$APP_BUILD" != "$BUILD_NUMBER" ]; then
+  echo "release-build.sh: asked for build $BUILD_NUMBER, and the bundle says $APP_BUILD" >&2
+  exit 1
+fi
 
 if [ "$VERIFY" = 1 ]; then
   echo
@@ -206,6 +256,28 @@ if [ "$VERIFY" = 1 ]; then
       exit 1
       ;;
   esac
+
+  # A release without its feed installs fine and never updates again.
+  for key in SUFeedURL SUPublicEDKey; do
+    /usr/libexec/PlistBuddy -c "Print :$key" "$INFO_PLIST" >/dev/null 2>&1 || {
+      echo "release-build.sh: the bundle carries no $key, so it could never update" >&2
+      exit 1
+    }
+  done
+
+  if [ "$IDENTITY" != "-" ]; then
+    for helper in $SPARKLE_HELPERS; do
+      helper_signature=$(codesign -dv --verbose=2 \
+        "$APP_OUT/Contents/Frameworks/Sparkle.framework/Versions/B/$helper" 2>&1)
+      case "$helper_signature" in
+        *"Authority=$IDENTITY"*) ;;
+        *)
+          echo "release-build.sh: Sparkle's $helper is not signed by $IDENTITY" >&2
+          exit 1
+          ;;
+      esac
+    done
+  fi
 
   echo
   echo "=== spctl -a -vv ==="
@@ -316,6 +388,16 @@ EOF
   fi
 fi
 
+# ── the update archive ───────────────────────────────────────────────────────
+#
+# Made from the stapled app, so an installed copy that updates from it gets
+# the app's own ticket. Scripts/make-appcast.sh signs it into the feed.
+UPDATE_ZIP="$OUTPUT_DIR/Flock-$APP_VERSION.zip"
+rm -f "$UPDATE_ZIP"
+echo
+echo "=== ditto (update archive) ==="
+ditto -c -k --sequesterRsrc --keepParent "$APP_OUT" "$UPDATE_ZIP"
+
 # ── the installer disk image ─────────────────────────────────────────────────
 #
 # Built after the app is stapled, never before: a user who drags the app out
@@ -332,7 +414,7 @@ if [ "$BUILD_DMG" = 1 ]; then
   if ! command -v create-dmg >/dev/null 2>&1; then
     echo "release-build.sh: create-dmg not found (brew install create-dmg), skipping the disk image" >&2
   else
-    DMG_PATH="$OUTPUT_DIR/Flock.dmg"
+    DMG_PATH="$OUTPUT_DIR/Flock-$APP_VERSION.dmg"
     DMG_STAGE="$OUTPUT_DIR/dmg-stage"
     DMG_ART="$OUTPUT_DIR/dmg-art"
     rm -rf "$DMG_STAGE" "$DMG_ART" "$DMG_PATH"
@@ -390,6 +472,7 @@ if [ "$BUILD_DMG" = 1 ]; then
 fi
 
 echo
-echo "release-build.sh: $APP_OUT"
+echo "release-build.sh: $APP_OUT (version $APP_VERSION, build $APP_BUILD)"
+echo "release-build.sh: $UPDATE_ZIP"
 [ -f "${DMG_PATH:-}" ] && echo "release-build.sh: $DMG_PATH"
 echo "release-build.sh: identity $IDENTITY"
