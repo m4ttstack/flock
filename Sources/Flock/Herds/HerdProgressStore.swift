@@ -66,7 +66,7 @@ final class HerdProgressStore {
         // A list that fails is rt having a bad moment, not every herd ending,
         // so the last answer stands until a list succeeds.
         guard let stdout = await sources.listHerds(), let listed = ListedHerd.fromHerdList(stdout: stdout) else {
-            Self.log.log("herd list failed; keeping \(self.progress.count, privacy: .public) herds")
+            Self.log.debug("herd list failed; keeping \(self.progress.count, privacy: .public) herds")
             return
         }
         let wanted = listed.filter { labels.contains($0.workspaceLabel) }

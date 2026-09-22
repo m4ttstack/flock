@@ -15,6 +15,7 @@ struct WorkspaceRail: View {
     @Environment(BoardStore.self) private var board
     @Environment(HerdProgressStore.self) private var herdProgress
     @State private var scrollPosition = ScrollPosition()
+    @State private var railHeight: CGFloat?
 
     private var sections: RailSections? {
         viewModel.model.map { RailSections(model: $0, board: board.names, herdProgress: herdProgress.progress) }
@@ -155,7 +156,7 @@ struct WorkspaceRail: View {
             // this frame, so a card can never be dropped on or read as free
             // rail space below the last row.
             .reportsDragFrame { drag.railFrame = $0 }
-            MessageDock(theme: theme, viewModel: viewModel, placement: .rail)
+            MessageDock(theme: theme, viewModel: viewModel, placement: .rail, railHeight: railHeight)
                 .frame(width: railWidth.width)
                 .padding(.trailing, ChromeMetrics.ruleWidth)
         }
@@ -172,6 +173,7 @@ struct WorkspaceRail: View {
         // pane chrome the canvas draws at its own edge.
         .overlay(alignment: .trailing) { resizeHandle }
         .boundedBackground(theme.chrome)
+        .onGeometryChange(for: CGFloat.self, of: \.size.height) { railHeight = $0 }
         .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
         // Keyed on the herds shown, so a herd arriving is asked about at

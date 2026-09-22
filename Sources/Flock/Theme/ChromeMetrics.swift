@@ -526,6 +526,10 @@ enum ChromeMetrics {
         /// four there. Past this it truncates, which keeps the dock's tallest
         /// state bounded.
         static let noticeLineLimit = 4
+        /// What the dock fits against until it has drawn a "more" pill and
+        /// measured the real one, near enough that the first overflow does
+        /// not draw a card and then take it back.
+        static let pillHeightEstimate: CGFloat = 20
         /// Only over the grid, where the dock floats on content with no rail
         /// to sit in.
         static let floatingShadowRadius: CGFloat = 12

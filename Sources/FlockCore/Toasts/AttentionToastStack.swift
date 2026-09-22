@@ -11,12 +11,12 @@ import Foundation
 /// own `[ui.toast] delivery` is already doing for the same event, so the
 /// attention surface stays inside flock's window.
 public struct AttentionToastStack: Equatable, Sendable {
-    /// Past this, older toasts are counted rather than drawn.
-    public static let maximumVisible = 3
+    /// Drawn however short the rail is; a taller rail draws more
+    /// (`DockCapacity`), and past what it draws, older toasts are counted.
+    public static let minimumVisible = 3
     /// A pane that changes again inside this window is flapping, not
     /// announcing something new.
     public static let coalescingWindow: TimeInterval = 2
-    public static let finishedLifetime: TimeInterval = 6
 
     /// Newest first.
     public private(set) var toasts: [AttentionToast] = []
@@ -24,8 +24,8 @@ public struct AttentionToastStack: Equatable, Sendable {
     public init() {}
 
     public var isEmpty: Bool { toasts.isEmpty }
-    public var visible: [AttentionToast] { Array(toasts.prefix(Self.maximumVisible)) }
-    public var collapsedCount: Int { max(0, toasts.count - Self.maximumVisible) }
+    public func visible(limit: Int) -> [AttentionToast] { Array(toasts.prefix(max(0, limit))) }
+    public func collapsedCount(limit: Int) -> Int { max(0, toasts.count - max(0, limit)) }
 
     public func toast(pane: PaneID) -> AttentionToast? {
         toasts.first { $0.paneID == pane }
@@ -59,7 +59,7 @@ public struct AttentionToastStack: Equatable, Sendable {
         let live = toasts[index]
         // Deliberately keeps `raisedAt`: a flap must not re-sort the stack
         // under a pointer that is already on it, and must not hand a finished
-        // toast another six seconds every time the agent twitches.
+        // toast a fresh lifetime every time the agent twitches.
         guard toast.raisedAt.timeIntervalSince(live.raisedAt) >= Self.coalescingWindow else {
             var coalesced = toast
             coalesced.raisedAt = live.raisedAt
@@ -79,9 +79,9 @@ public struct AttentionToastStack: Equatable, Sendable {
         toasts.removeAll()
     }
 
-    /// Drops every finished toast whose six seconds are up. A `needsInput`
+    /// Drops every finished toast older than `lifetime`. A `needsInput`
     /// toast has no lifetime: it is a question nobody has answered yet.
-    public mutating func expire(at now: Date) {
-        toasts.removeAll { $0.kind == .finished && now.timeIntervalSince($0.raisedAt) >= Self.finishedLifetime }
+    public mutating func expire(at now: Date, after lifetime: TimeInterval) {
+        toasts.removeAll { $0.kind == .finished && now.timeIntervalSince($0.raisedAt) >= lifetime }
     }
 }

@@ -137,7 +137,7 @@ final class AttentionToastTests: XCTestCase {
             model: attentionModel(statuses: ["w2:p1": .blocked], secondWorkspaceLabel: herd), connection: .live)
 
         XCTAssertTrue(viewModel.attentionToasts.isEmpty)
-        XCTAssertEqual(viewModel.attentionToasts.collapsedCount, 0)
+        XCTAssertEqual(viewModel.attentionToasts.collapsedCount(limit: AttentionToastStack.minimumVisible), 0)
     }
 
     @MainActor
@@ -247,9 +247,9 @@ final class AttentionToastTests: XCTestCase {
         }
 
         XCTAssertEqual(viewModel.attentionToasts.toasts.count, 4)
-        XCTAssertEqual(viewModel.attentionToasts.visible.count, 3)
-        XCTAssertEqual(viewModel.attentionToasts.collapsedCount, 1)
-        XCTAssertEqual(viewModel.attentionToasts.visible.first?.paneID, PaneID(rawValue: "w2:p4"), "newest first")
+        XCTAssertEqual(viewModel.attentionToasts.visible(limit: AttentionToastStack.minimumVisible).count, 3)
+        XCTAssertEqual(viewModel.attentionToasts.collapsedCount(limit: AttentionToastStack.minimumVisible), 1)
+        XCTAssertEqual(viewModel.attentionToasts.visible(limit: AttentionToastStack.minimumVisible).first?.paneID, PaneID(rawValue: "w2:p4"), "newest first")
     }
 
     // MARK: - lifetime
@@ -262,7 +262,7 @@ final class AttentionToastTests: XCTestCase {
         viewModel.update(model: attentionModel(statuses: ["w2:p1": .done, "w2:p2": .blocked]), connection: .live)
         XCTAssertEqual(viewModel.attentionToasts.toasts.count, 2)
 
-        clock.advance(5.9)
+        clock.advance(4.9)
         viewModel.sweepAttentionToasts()
         XCTAssertEqual(viewModel.attentionToasts.toasts.count, 2)
 
@@ -270,6 +270,57 @@ final class AttentionToastTests: XCTestCase {
         viewModel.sweepAttentionToasts()
 
         XCTAssertEqual(viewModel.attentionToasts.toasts.map(\.paneID), [PaneID(rawValue: "w2:p2")])
+    }
+
+    @MainActor
+    func testStayUntilDismissedKeepsAFinishedToast() {
+        let clock = TestClock()
+        let viewModel = SessionViewModel(
+            client: FocusRecordingClient(), now: { clock.now }, notificationLifetime: { .stayUntilDismissed }
+        )
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .done]), connection: .live)
+
+        clock.advance(3600)
+        viewModel.sweepAttentionToasts()
+
+        XCTAssertEqual(viewModel.attentionToasts.toasts.map(\.paneID), [PaneID(rawValue: "w2:p1")])
+    }
+
+    /// Off raises nothing, and turning it off clears what is already up at
+    /// the dock's next sweep.
+    @MainActor
+    func testOffRaisesNothingAndClearsWhatIsUp() {
+        let clock = TestClock()
+        var lifetime = NotificationLifetime.fiveSeconds
+        let viewModel = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, notificationLifetime: { lifetime })
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .done, "w2:p2": .blocked]), connection: .live)
+        XCTAssertEqual(viewModel.attentionToasts.toasts.count, 2)
+
+        lifetime = .off
+        viewModel.sweepAttentionToasts()
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+
+        clock.advance(10)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .working, "w2:p2": .working]), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .done, "w2:p2": .blocked]), connection: .live)
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
+    @MainActor
+    func testNotificationLifetimeDefaultsToFiveSecondsAndPersists() throws {
+        let suite = "dev.mattstack.flock.notification-lifetime-tests"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let store = NotificationLifetimeStore(userDefaults: defaults)
+        XCTAssertEqual(store.active, .fiveSeconds)
+        store.select(.stayUntilDismissed)
+        XCTAssertEqual(NotificationLifetimeStore(userDefaults: defaults).active, .stayUntilDismissed)
+        XCTAssertEqual(NotificationLifetime.fiveSeconds.finishedLifetime, 5)
+        XCTAssertNil(NotificationLifetime.stayUntilDismissed.finishedLifetime)
     }
 
     // MARK: - withdrawal

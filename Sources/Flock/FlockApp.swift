@@ -97,6 +97,7 @@ struct FlockApp: App {
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
     @State private var optionAsAltStore = OptionAsAltStore()
+    @State private var notificationLifetimeStore: NotificationLifetimeStore
     @State private var scrollSpeedStore = ScrollSpeedStore()
     @State private var railWidthStore = RailWidthStore()
     @State private var sectionCollapseStore = SectionCollapseStore()
@@ -165,6 +166,8 @@ struct FlockApp: App {
         _optionAsAltStore = State(initialValue: optionAsAltStore)
         let scrollSpeedStore = ScrollSpeedStore()
         _scrollSpeedStore = State(initialValue: scrollSpeedStore)
+        let notificationLifetimeStore = NotificationLifetimeStore()
+        _notificationLifetimeStore = State(initialValue: notificationLifetimeStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
@@ -224,7 +227,8 @@ struct FlockApp: App {
             // Not an undo/redo notice -- an invalid move or a plan/herdr
             // failure from `perform`/`closePane` -- so this gets the
             // neutral info glyph, never the undo journal's arrow.
-            noticeSink: { message in toastCenter.show(message, kind: .info) }
+            noticeSink: { message in toastCenter.show(message, kind: .info) },
+            notificationLifetime: { notificationLifetimeStore.active }
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
@@ -422,7 +426,7 @@ struct FlockApp: App {
         }
 
         Settings {
-            FlockSettingsView(herdrMousePatchStore: herdrMousePatchStore)
+            FlockSettingsView(herdrMousePatchStore: herdrMousePatchStore, notificationLifetimeStore: notificationLifetimeStore)
         }
     }
 

@@ -1,3 +1,4 @@
+import FlockCore
 import SwiftUI
 
 /// flock's Settings window (Cmd-,), in the system's own settings chrome
@@ -7,13 +8,14 @@ import SwiftUI
 /// card floating in an oversized window read as a dialog that had escaped
 /// from somewhere else.
 ///
-/// The herdr section and its one row are the whole contents today; a later
-/// setting gets its own `Section` beside it rather than folding into this one.
+/// Each setting is its own `Section`, never folded into another's.
 struct FlockSettingsView: View {
     let herdrMousePatchStore: HerdrMousePatchStore
+    let notificationLifetimeStore: NotificationLifetimeStore
 
     var body: some View {
         Form {
+            NotificationSettingsSection(store: notificationLifetimeStore)
             HerdrMousePatchRow(store: herdrMousePatchStore)
         }
         .formStyle(.grouped)

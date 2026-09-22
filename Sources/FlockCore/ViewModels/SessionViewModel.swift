@@ -120,6 +120,9 @@ public final class SessionViewModel {
     /// Injected so a test can place a transition inside or outside the
     /// attention stack's coalescing window without sleeping.
     @ObservationIgnored private let now: @MainActor () -> Date
+    /// Read at every raise and sweep, so a change in Settings lands at the
+    /// dock's next sweep without anything pushing it here.
+    @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
 
     public init(
         client: any HerdrCommandClient,
@@ -130,7 +133,8 @@ public final class SessionViewModel {
         paneScrollSubscriber: (any PaneScrollSubscribing)? = nil,
         paneAgentStatusSubscriber: (any PaneAgentStatusSubscribing)? = nil,
         noticeSink: @escaping @MainActor (String) -> Void = { _ in },
-        now: @escaping @MainActor () -> Date = { Date() }
+        now: @escaping @MainActor () -> Date = { Date() },
+        notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .fiveSeconds }
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -141,6 +145,7 @@ public final class SessionViewModel {
         self.paneAgentStatusSubscriber = paneAgentStatusSubscriber
         self.noticeSink = noticeSink
         self.now = now
+        self.notificationLifetime = notificationLifetime
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -237,7 +242,7 @@ public final class SessionViewModel {
     /// a toast that is never made cannot reach the collapsed count, the
     /// "more" pill, or a Clear that would then look like it did nothing.
     private func reconcileAttentionToasts(previous: SessionModel?) {
-        guard let model else {
+        guard let model, notificationLifetime() != .off else {
             attentionToasts.clear()
             return
         }
@@ -286,7 +291,7 @@ public final class SessionViewModel {
         }
     }
 
-    /// Drops every finished toast whose six seconds are up, then re-runs the
+    /// Drops every finished toast past the Settings lifetime, then re-runs the
     /// withdrawal pass. The stack's own ticker calls this; a hovered stack
     /// stops calling it, which is what hover-pauses-auto-dismiss means.
     ///
@@ -299,7 +304,14 @@ public final class SessionViewModel {
     /// five-minute resnapshot moves the model.
     public func sweepAttentionToasts() {
         let at = now()
-        attentionToasts.expire(at: at)
+        let lifetime = notificationLifetime()
+        if lifetime == .off {
+            attentionToasts.clear()
+            return
+        }
+        if let seconds = lifetime.finishedLifetime {
+            attentionToasts.expire(at: at, after: seconds)
+        }
         if let model {
             withdrawSettledAttentionToasts(model: model, at: at)
         }

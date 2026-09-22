@@ -3,13 +3,17 @@ import FlockCore
 import SwiftUI
 
 /// The dock's attention cards: one per pane that wants the user, newest
-/// first, over a "+N more" pill once there are more than three. Every rule
-/// about what is in it lives in `AttentionToastStack`; this draws what the
-/// rules decided and owns only the pointer.
+/// first, over a "+N more" pill once there are more than `cardLimit`. Every
+/// rule about what is in it lives in `AttentionToastStack`; this draws what
+/// the rules decided, reports its sizes for the dock to fit, and owns only
+/// the pointer.
 struct AttentionToastStackView: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let isFloating: Bool
+    let cardLimit: Int
+    let onCardHeight: (CGFloat) -> Void
+    let onPillHeight: (CGFloat) -> Void
 
     @State private var isHovering = false
 
@@ -18,15 +22,17 @@ struct AttentionToastStackView: View {
     var body: some View {
         if !stack.isEmpty {
             VStack(alignment: .leading, spacing: ChromeMetrics.Dock.itemSpacing) {
-                ForEach(stack.visible) { toast in
+                ForEach(stack.visible(limit: cardLimit)) { toast in
                     AttentionToastCard(theme: theme, toast: toast, viewModel: viewModel, isFloating: isFloating)
                         .transition(.opacity)
+                        .onGeometryChange(for: CGFloat.self, of: \.size.height) { onCardHeight($0) }
                 }
-                if stack.collapsedCount > 0 {
-                    MorePill(theme: theme, count: stack.collapsedCount)
+                if stack.collapsedCount(limit: cardLimit) > 0 {
+                    MorePill(theme: theme, count: stack.collapsedCount(limit: cardLimit))
+                        .onGeometryChange(for: CGFloat.self, of: \.size.height) { onPillHeight($0) }
                 }
             }
-            .animation(.easeOut(duration: 0.15), value: stack.visible.map(\.id))
+            .animation(.easeOut(duration: 0.15), value: stack.visible(limit: cardLimit).map(\.id))
             // The whole stack, not one card: cards vanishing out from under a
             // pointer that is reading them is what the pause exists to stop.
             .onHover { isHovering = $0 }

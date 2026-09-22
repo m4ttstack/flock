@@ -18,6 +18,7 @@ final class ChromeRenderTests: XCTestCase {
     /// gives. The chrome renders keep `windowSize`, which is what makes them
     /// comparable across rounds.
     private static let gridWindowSize = CGSize(width: 1200, height: 560)
+    private static let tallWindowSize = CGSize(width: 900, height: 1000)
     private static let themeIDs = [
         "tokyo-night", "dracula",
         "catppuccin-latte", "tokyo-night-day", "gruvbox-light", "one-light",
@@ -1909,9 +1910,7 @@ final class ChromeRenderTests: XCTestCase {
                             .write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name)-rail.png"))
                     }
 
-                    let stack = harness.viewModel.attentionToasts
-                    XCTAssertEqual(stack.visible.count, overflowing ? 3 : 2, name)
-                    XCTAssertEqual(stack.collapsedCount, overflowing ? 2 : 0, name)
+                    XCTAssertEqual(harness.viewModel.attentionToasts.toasts.count, overflowing ? 5 : 2, name)
                     XCTAssertNotNil(harness.toasts.current, "\(name): the notice expired before the snapshot")
 
                     // The lists end where the dock begins, and the rail keeps
@@ -1939,6 +1938,74 @@ final class ChromeRenderTests: XCTestCase {
                     window.close()
                 }
             }
+        }
+    }
+
+    /// A tall window gives a busy dock more room than the three cards a short
+    /// one keeps to, and never more than `DockCapacity.maximumShareOfRail`
+    /// of the rail: the lists keep the rest. PNGs go to
+    /// `FLOCK_DOCK_RENDER_DIR` as `dock-tall-*`.
+    func testABusyDockGrowsIntoATallRailButLeavesTheListsTheirShare() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_DOCK_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            var dockHeights: [CGFloat] = []
+            for size in [Self.windowSize, Self.tallWindowSize] {
+                let harness = try await dockHarness(theme: theme, overflowing: true)
+                let window = harness.makeWindow(size: size)
+                await settle(window)
+                await settle(window)
+                let image = try snapshot(window)
+                let name = "dock-tall-\(Int(size.height))-\(scheme)-\(id)"
+                if let directory, size == Self.tallWindowSize {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+                }
+                let lists = try XCTUnwrap(harness.drag.railFrame)
+                let dock = size.height - lists.maxY
+                dockHeights.append(dock)
+                // A short rail keeps its three cards even past the share;
+                // only a rail with room to spare is held to it.
+                if size == Self.tallWindowSize {
+                    XCTAssertLessThanOrEqual(
+                        dock, (lists.height + dock) * DockCapacity.maximumShareOfRail + 1,
+                        "\(name): the dock took \(dock)pt of a \(lists.height + dock)pt rail"
+                    )
+                }
+                window.close()
+            }
+            XCTAssertGreaterThan(dockHeights[1], dockHeights[0] + 40, "\(scheme): the dock did not grow into the tall rail")
+        }
+    }
+
+    /// The Settings window in both system appearances, with the
+    /// Notifications section above herdr's. PNGs go to
+    /// `FLOCK_SETTINGS_RENDER_DIR`; the assertion is only that it draws.
+    func testTheSettingsWindowDrawsInBothAppearances() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
+        defaults.removeObject(forKey: NotificationLifetimeStore.defaultsKey)
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+            let view = FlockSettingsView(
+                herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil }),
+                notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults)
+            )
+            let window = NSWindow(
+                contentRect: CGRect(x: 0, y: 0, width: 500, height: 320),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: appearance)
+            window.contentView = NSHostingView(rootView: view)
+            window.orderFront(nil)
+            await settle(window)
+            let image = try snapshot(window)
+            XCTAssertGreaterThan(image.pixelsWide, 0)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-\(name).png"))
+            }
+            window.close()
         }
     }
 
@@ -2590,8 +2657,8 @@ final class ChromeRenderTests: XCTestCase {
         }
 
         XCTAssertEqual(harness.viewModel.attentionToasts.toasts.count, 4)
-        XCTAssertEqual(harness.viewModel.attentionToasts.visible.count, 3)
-        XCTAssertEqual(harness.viewModel.attentionToasts.collapsedCount, 1)
+        XCTAssertEqual(harness.viewModel.attentionToasts.visible(limit: AttentionToastStack.minimumVisible).count, 3)
+        XCTAssertEqual(harness.viewModel.attentionToasts.collapsedCount(limit: AttentionToastStack.minimumVisible), 1)
         XCTAssertNil(
             firstPoint(in: railFoot, matching: red, of: restingImage),
             "the resting rail foot already carries the status hue, so the check below proves nothing"

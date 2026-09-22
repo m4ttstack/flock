@@ -14,9 +14,10 @@ import SwiftUI
 /// top: anything arriving or leaving there moves only the dock's top edge,
 /// never a card the pointer may already be on.
 ///
-/// Its tallest state is bounded without a measurement: one notice of at most
-/// `Dock.noticeLineLimit` lines, `AttentionToastStack.maximumVisible` cards
-/// and the "more" pill.
+/// In the rail it grows while it is busy, into at most
+/// `DockCapacity.maximumShareOfRail` of the rail's height: it measures a card,
+/// the notice and the pill as they draw and shows as many cards as that room
+/// holds. Over the grid it keeps to `AttentionToastStack.minimumVisible`.
 ///
 /// A pane-scoped toast (the copied whisper) is not drawn here; its own pane
 /// cell draws it (see `PaneCellView`).
@@ -29,8 +30,13 @@ struct MessageDock: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let placement: Placement
+    /// The whole rail's height, dock included; nil over the grid.
+    var railHeight: CGFloat?
 
     @Environment(ToastCenter.self) private var toastCenter
+    @State private var noticeHeight: CGFloat = 0
+    @State private var cardHeight: CGFloat = 0
+    @State private var pillHeight = ChromeMetrics.Dock.pillHeightEstimate
 
     private var notice: ToastCenter.Toast? {
         guard let toast = toastCenter.current, toast.paneID == nil else { return nil }
@@ -38,6 +44,16 @@ struct MessageDock: View {
     }
 
     private var isFloating: Bool { placement == .overGrid }
+
+    private var cardLimit: Int {
+        guard let railHeight else { return AttentionToastStack.minimumVisible }
+        let fixed = ChromeMetrics.ruleWidth + ChromeMetrics.Dock.ruleToFirstItem + ChromeMetrics.Dock.bottomInset
+            + (notice == nil ? 0 : noticeHeight + ChromeMetrics.Dock.itemSpacing)
+        return DockCapacity.cardLimit(
+            cards: viewModel.attentionToasts.toasts.count, railHeight: railHeight, fixedHeight: fixed,
+            cardHeight: cardHeight, pillHeight: pillHeight, spacing: ChromeMetrics.Dock.itemSpacing
+        )
+    }
 
     var body: some View {
         if notice != nil || !viewModel.attentionToasts.isEmpty {
@@ -52,13 +68,18 @@ struct MessageDock: View {
                         NoticeCard(theme: theme, toast: notice, isFloating: isFloating)
                             .id(notice.id)
                             .transition(.opacity)
+                            .onGeometryChange(for: CGFloat.self, of: \.size.height) { noticeHeight = $0 }
                     }
-                    AttentionToastStackView(theme: theme, viewModel: viewModel, isFloating: isFloating)
+                    AttentionToastStackView(
+                        theme: theme, viewModel: viewModel, isFloating: isFloating, cardLimit: cardLimit,
+                        onCardHeight: { cardHeight = $0 }, onPillHeight: { pillHeight = $0 }
+                    )
                 }
                 .padding(.top, isFloating ? 0 : ChromeMetrics.Dock.ruleToFirstItem)
                 .padding(.bottom, ChromeMetrics.Dock.bottomInset)
                 .padding(.horizontal, ChromeMetrics.Dock.horizontalInset)
             }
+            .background(placement == .rail ? theme.tabRest : .clear)
             .animation(.easeOut(duration: 0.15), value: notice)
         }
     }
