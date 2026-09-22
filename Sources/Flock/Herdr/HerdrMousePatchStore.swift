@@ -24,16 +24,41 @@ final class HerdrMousePatchStore {
     @ObservationIgnored private let resolveBinaryPath: () -> String?
     @ObservationIgnored private let resolveArtifactPath: () -> String?
     @ObservationIgnored private let fileManager: FileManager
+    @ObservationIgnored private let defaults: UserDefaults
+
+    /// The herdr version the banner was last waved away for. Stored rather
+    /// than held in memory because the whole point is that it outlives the
+    /// launch it was answered on.
+    private static let dismissedVersionKey = "flock.herdrMousePatch.offerDismissedForVersion"
 
     init(
         resolveBinaryPath: @escaping () -> String? = { ToolPath.resolve("herdr") },
         resolveArtifactPath: @escaping () -> String? = { HerdrMousePatchArtifactLocator.path() },
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        defaults: UserDefaults = .standard
     ) {
         self.resolveBinaryPath = resolveBinaryPath
         self.resolveArtifactPath = resolveArtifactPath
         self.fileManager = fileManager
+        self.defaults = defaults
         refresh()
+    }
+
+    /// Whether the banner belongs on screen right now. Read through the pure
+    /// rule in FlockCore rather than decided here, so what gets offered stays
+    /// testable without a herdr on disk.
+    var shouldOfferBanner: Bool {
+        HerdrMousePatchOffer.shouldOffer(
+            state: state,
+            dismissedForVersion: defaults.string(forKey: Self.dismissedVersionKey)
+        )
+    }
+
+    /// Wave the banner away for this herdr version. The settings row is
+    /// unaffected and still offers Install: this silences the unprompted
+    /// offer, it does not withdraw the feature.
+    func dismissBannerOffer() {
+        defaults.set(HerdrMousePatchVersion.supported, forKey: Self.dismissedVersionKey)
     }
 
     /// Re-probes the binary on disk. Called on init, and meant to be called

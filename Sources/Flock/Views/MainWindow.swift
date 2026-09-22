@@ -10,6 +10,7 @@ struct MainWindow: View {
     @Environment(RailWidthStore.self) private var railWidth
     let viewModel: SessionViewModel
     let sessionLabel: String
+    let herdrMousePatchStore: HerdrMousePatchStore
 
     private var theme: Theme { themeStore.active }
 
@@ -18,6 +19,11 @@ struct MainWindow: View {
             TitleBar(theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState)
             if let banner = viewModel.unsupportedBanner {
                 UnsupportedBanner(theme: theme, mismatch: banner)
+            }
+            // Below the protocol banner deliberately: a herdr too old to talk
+            // to at all outranks an optional capability of one that works.
+            if herdrMousePatchStore.shouldOfferBanner {
+                HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
             }
             if dragCoordinator.isGridShown {
                 AllWorkspacesGrid(theme: theme, viewModel: viewModel)
@@ -125,6 +131,25 @@ struct MainWindow: View {
         } message: { pending in
             Text(pending.message)
         }
+        // The same confirmation the settings row raises, hosted here too so
+        // the banner's Install is the identical action rather than a shortcut
+        // around it. Naming the exact path being replaced is the point of it,
+        // and it is shown every time by design.
+        .confirmationDialog(
+            herdrMousePatchStore.pendingConfirmation?.confirmation.title ?? "",
+            isPresented: Binding(
+                get: { herdrMousePatchStore.pendingConfirmation != nil },
+                set: { shown in if !shown { herdrMousePatchStore.cancelPendingConfirmation() } }
+            ),
+            titleVisibility: .visible,
+            presenting: herdrMousePatchStore.pendingConfirmation
+        ) { pending in
+            Button(pending.confirmation.confirmButtonTitle) { herdrMousePatchStore.confirmPendingAction() }
+                .accessibilityIdentifier("flock.herdrMousePatch.banner.confirm")
+            Button("Cancel", role: .cancel) { herdrMousePatchStore.cancelPendingConfirmation() }
+        } message: { pending in
+            Text(pending.confirmation.message)
+        }
     }
 }
 
@@ -166,6 +191,47 @@ private struct TitleBar: View {
         case .connecting, .reconnecting: theme.yellow
         case .unsupported: theme.red
         }
+    }
+}
+
+/// The unprompted offer to patch herdr for mouse events. An offer, not a
+/// fault, so it carries the accent rather than the red the protocol banner
+/// uses: nothing is broken here, there is simply something flock can do.
+///
+/// Install routes through the store's ordinary request, so the
+/// replace-this-path confirmation still appears. This shortens the walk to
+/// the settings row; it does not skip the step that names the binary about
+/// to be replaced.
+private struct HerdrMousePatchBanner: View {
+    let theme: Theme
+    let store: HerdrMousePatchStore
+
+    var body: some View {
+        HStack(spacing: ChromeMetrics.Banner.spacing) {
+            Image(systemName: "cursorarrow.click")
+                .font(ChromeType.bannerSymbol)
+                .foregroundStyle(theme.accent)
+            Text(HerdrMousePatchOffer.bannerHeadline)
+                .font(ChromeType.banner)
+                .foregroundStyle(theme.textStrong)
+            Text(HerdrMousePatchOffer.bannerDetail)
+                .font(ChromeType.banner)
+                .foregroundStyle(theme.textLabel)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: ChromeMetrics.Banner.spacing)
+            Button(HerdrMousePatchOffer.bannerDismissTitle) { store.dismissBannerOffer() }
+                .buttonStyle(.plain)
+                .font(ChromeType.banner)
+                .foregroundStyle(theme.textLabel)
+                .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
+            Button(HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall() }
+                .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
+        }
+        .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
+        .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
+        .boundedBackground(theme.accent.opacity(0.12))
+        .accessibilityIdentifier("flock.herdrMousePatch.banner")
     }
 }
 

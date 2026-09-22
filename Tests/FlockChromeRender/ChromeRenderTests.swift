@@ -2406,7 +2406,13 @@ private struct Harness {
     }
 
     func makeWindow(size: CGSize) -> NSWindow {
-        let root = MainWindow(viewModel: viewModel, sessionLabel: "render")
+        // Resolves to no herdr, so the patch banner stays off and every
+        // render assertion here measures the same chrome on any machine.
+        let root = MainWindow(
+            viewModel: viewModel,
+            sessionLabel: "render",
+            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil })
+        )
             .environment(themeStore)
             .environment(textSize)
             .environment(railWidth)

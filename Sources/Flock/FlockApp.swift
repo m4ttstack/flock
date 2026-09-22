@@ -255,7 +255,11 @@ struct FlockApp: App {
                 if HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound) {
                     NoHerdrScreen(theme: themeStore.active)
                 } else {
-                    MainWindow(viewModel: viewModel, sessionLabel: sessionLabel)
+                    MainWindow(
+                        viewModel: viewModel,
+                        sessionLabel: sessionLabel,
+                        herdrMousePatchStore: herdrMousePatchStore
+                    )
                 }
             }
                 .environment(themeStore)
