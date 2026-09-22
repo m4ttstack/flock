@@ -134,7 +134,7 @@ public final class SessionViewModel {
         paneAgentStatusSubscriber: (any PaneAgentStatusSubscribing)? = nil,
         noticeSink: @escaping @MainActor (String) -> Void = { _ in },
         now: @escaping @MainActor () -> Date = { Date() },
-        notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .fiveSeconds }
+        notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen }
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -242,7 +242,7 @@ public final class SessionViewModel {
     /// a toast that is never made cannot reach the collapsed count, the
     /// "more" pill, or a Clear that would then look like it did nothing.
     private func reconcileAttentionToasts(previous: SessionModel?) {
-        guard let model, notificationLifetime() != .off else {
+        guard let model, notificationLifetime() != .never else {
             attentionToasts.clear()
             return
         }
@@ -262,15 +262,15 @@ public final class SessionViewModel {
     }
 
     /// A toast is a claim about a pane, so it goes the moment the claim stops
-    /// holding: the pane has been read (it is the focused one), herdr no
-    /// longer reports it, the pane turns out to be herd-run, or -- for a
-    /// "needs input" toast -- it is no longer blocked. Herdglass withdraws
-    /// its notification on the first of those; the others are flock's,
-    /// because a toast here is clickable and a click on a stale one would
-    /// jump somewhere pointless.
+    /// holding: herdr's status for the pane has moved off the one the toast
+    /// announced, herdr no longer reports the pane, or the pane turns out to
+    /// be herd-run. A finished toast also goes once its pane is focused,
+    /// which covers an agent that went straight from working to idle and so
+    /// has no `done` for herdr to clear. A "needs input" toast does not: a
+    /// look is not an answer.
     ///
-    /// Leaving `blocked` counts only once the toast is older than the
-    /// coalescing window. Inside it, an agent that bounces off blocked and
+    /// A status change counts only once the toast is older than the
+    /// coalescing window. Inside it, an agent that bounces off a status and
     /// back is flapping, and withdrawing there would defeat the coalescing it
     /// exists for: the pane would get a brand new toast on the way back.
     /// Joining a herd carries no such grace: it is not a state the pane can
@@ -281,11 +281,10 @@ public final class SessionViewModel {
                 attentionToasts.dismiss(pane: toast.paneID)
                 continue
             }
-            let answered = toast.kind == .needsInput
-                && pane.agentStatus != .blocked
+            let cleared = pane.agentStatus != toast.announcedStatus
                 && now.timeIntervalSince(toast.raisedAt) >= AttentionToastStack.coalescingWindow
-            if toast.paneID == resolvedFocusedPaneID || answered
-                || HerdWorkspace.isHerdPane(pane, in: model) {
+            let seen = toast.kind == .finished && toast.paneID == resolvedFocusedPaneID
+            if cleared || seen || HerdWorkspace.isHerdPane(pane, in: model) {
                 attentionToasts.dismiss(pane: toast.paneID)
             }
         }
@@ -305,7 +304,7 @@ public final class SessionViewModel {
     public func sweepAttentionToasts() {
         let at = now()
         let lifetime = notificationLifetime()
-        if lifetime == .off {
+        if lifetime == .never {
             attentionToasts.clear()
             return
         }

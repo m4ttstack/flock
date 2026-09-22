@@ -35,6 +35,11 @@ public struct AttentionToast: Identifiable, Equatable, Sendable {
     /// "flock › migration" -- where to look for it.
     public var breadcrumb: String
     public var raisedAt: Date
+    /// herdr's status for the pane when this was raised. The toast lasts
+    /// exactly as long as that status does: herdr moves a finished agent from
+    /// `done` to `idle` once someone looks at the pane, and off `blocked` once
+    /// the question is answered.
+    public var announcedStatus: AgentStatus
 
     /// "migration needs input" -- the pane, and what it wants.
     public var headline: String {
@@ -48,7 +53,7 @@ public struct AttentionToast: Identifiable, Equatable, Sendable {
 
     public init(
         paneID: PaneID, tabID: TabID, workspaceID: WorkspaceID, kind: Kind,
-        subject: String, breadcrumb: String, raisedAt: Date
+        subject: String, breadcrumb: String, raisedAt: Date, announcedStatus: AgentStatus? = nil
     ) {
         self.paneID = paneID
         self.tabID = tabID
@@ -57,6 +62,7 @@ public struct AttentionToast: Identifiable, Equatable, Sendable {
         self.subject = subject
         self.breadcrumb = breadcrumb
         self.raisedAt = raisedAt
+        self.announcedStatus = announcedStatus ?? (kind == .needsInput ? .blocked : .done)
     }
 
     /// The status a toast of this kind is reporting, which is what colors its
@@ -80,7 +86,8 @@ public struct AttentionToast: Identifiable, Equatable, Sendable {
             kind: kind,
             subject: pane.displayTitle,
             breadcrumb: "\(workspaceLabel) › \(tabLabel)",
-            raisedAt: raisedAt
+            raisedAt: raisedAt,
+            announcedStatus: pane.agentStatus
         )
     }
 }

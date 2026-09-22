@@ -3,27 +3,29 @@ import Observation
 
 /// How long the dock's attention cards stay, from Settings.
 ///
-/// Only a "finished" card ever leaves on its own. A "needs input" card is a
-/// question nobody has answered yet, so it stays until the pane stops
-/// waiting under every setting but `off`, which raises no cards at all.
+/// Every card leaves once herdr clears the status it announced (see
+/// `SessionViewModel.withdrawSettledAttentionToasts`); this only decides
+/// whether a "finished" card may also leave on a timer, and whether cards
+/// are raised at all. A "needs input" card never times out: it is a question
+/// nobody has answered yet.
 public enum NotificationLifetime: String, CaseIterable, Sendable {
-    case stayUntilDismissed
+    case untilSeen
     case fiveSeconds
-    case off
+    case never
 
     public var displayName: String {
         switch self {
-        case .stayUntilDismissed: "Stay until dismissed"
-        case .fiveSeconds: "Hide after 5 seconds"
-        case .off: "Off"
+        case .untilSeen: "Until seen"
+        case .fiveSeconds: "For 5 seconds"
+        case .never: "Never"
         }
     }
 
-    /// nil for a card that waits to be dismissed or read.
+    /// nil for a card that waits for its pane to be seen.
     public var finishedLifetime: TimeInterval? {
         switch self {
         case .fiveSeconds: 5
-        case .stayUntilDismissed, .off: nil
+        case .untilSeen, .never: nil
         }
     }
 }
@@ -41,7 +43,7 @@ public final class NotificationLifetimeStore {
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        active = userDefaults.string(forKey: Self.defaultsKey).flatMap(NotificationLifetime.init(rawValue:)) ?? .fiveSeconds
+        active = userDefaults.string(forKey: Self.defaultsKey).flatMap(NotificationLifetime.init(rawValue:)) ?? .untilSeen
     }
 
     public func select(_ value: NotificationLifetime) {

@@ -44,8 +44,10 @@ private func attentionModel(
 }
 
 @MainActor
-private func makeViewModel(_ client: any HerdrCommandClient, clock: TestClock) -> SessionViewModel {
-    SessionViewModel(client: client, now: { clock.now })
+private func makeViewModel(
+    _ client: any HerdrCommandClient, clock: TestClock, lifetime: NotificationLifetime = .untilSeen
+) -> SessionViewModel {
+    SessionViewModel(client: client, now: { clock.now }, notificationLifetime: { lifetime })
 }
 
 final class AttentionToastTests: XCTestCase {
@@ -257,7 +259,7 @@ final class AttentionToastTests: XCTestCase {
     @MainActor
     func testAFinishedToastExpiresAndANeedsInputToastDoesNot() {
         let clock = TestClock()
-        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock, lifetime: .fiveSeconds)
         viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
         viewModel.update(model: attentionModel(statuses: ["w2:p1": .done, "w2:p2": .blocked]), connection: .live)
         XCTAssertEqual(viewModel.attentionToasts.toasts.count, 2)
@@ -273,10 +275,10 @@ final class AttentionToastTests: XCTestCase {
     }
 
     @MainActor
-    func testStayUntilDismissedKeepsAFinishedToast() {
+    func testUntilSeenKeepsAFinishedToastUntilItsPaneIsSeen() {
         let clock = TestClock()
         let viewModel = SessionViewModel(
-            client: FocusRecordingClient(), now: { clock.now }, notificationLifetime: { .stayUntilDismissed }
+            client: FocusRecordingClient(), now: { clock.now }, notificationLifetime: { .untilSeen }
         )
         viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
         viewModel.update(model: attentionModel(statuses: ["w2:p1": .done]), connection: .live)
@@ -287,10 +289,10 @@ final class AttentionToastTests: XCTestCase {
         XCTAssertEqual(viewModel.attentionToasts.toasts.map(\.paneID), [PaneID(rawValue: "w2:p1")])
     }
 
-    /// Off raises nothing, and turning it off clears what is already up at
+    /// Never raises nothing, and choosing it clears what is already up at
     /// the dock's next sweep.
     @MainActor
-    func testOffRaisesNothingAndClearsWhatIsUp() {
+    func testNeverRaisesNothingAndClearsWhatIsUp() {
         let clock = TestClock()
         var lifetime = NotificationLifetime.fiveSeconds
         let viewModel = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, notificationLifetime: { lifetime })
@@ -298,7 +300,7 @@ final class AttentionToastTests: XCTestCase {
         viewModel.update(model: attentionModel(statuses: ["w2:p1": .done, "w2:p2": .blocked]), connection: .live)
         XCTAssertEqual(viewModel.attentionToasts.toasts.count, 2)
 
-        lifetime = .off
+        lifetime = .never
         viewModel.sweepAttentionToasts()
         XCTAssertTrue(viewModel.attentionToasts.isEmpty)
 
@@ -309,18 +311,18 @@ final class AttentionToastTests: XCTestCase {
     }
 
     @MainActor
-    func testNotificationLifetimeDefaultsToFiveSecondsAndPersists() throws {
+    func testNotificationLifetimeDefaultsToUntilSeenAndPersists() throws {
         let suite = "dev.mattstack.flock.notification-lifetime-tests"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         defer { defaults.removePersistentDomain(forName: suite) }
 
         let store = NotificationLifetimeStore(userDefaults: defaults)
-        XCTAssertEqual(store.active, .fiveSeconds)
-        store.select(.stayUntilDismissed)
-        XCTAssertEqual(NotificationLifetimeStore(userDefaults: defaults).active, .stayUntilDismissed)
+        XCTAssertEqual(store.active, .untilSeen)
+        store.select(.fiveSeconds)
+        XCTAssertEqual(NotificationLifetimeStore(userDefaults: defaults).active, .fiveSeconds)
         XCTAssertEqual(NotificationLifetime.fiveSeconds.finishedLifetime, 5)
-        XCTAssertNil(NotificationLifetime.stayUntilDismissed.finishedLifetime)
+        XCTAssertNil(NotificationLifetime.untilSeen.finishedLifetime)
     }
 
     // MARK: - withdrawal
@@ -363,16 +365,81 @@ final class AttentionToastTests: XCTestCase {
     }
 
     @MainActor
-    func testAToastIsWithdrawnOnceItsPaneIsTheFocusedOne() {
+    func testAFinishedToastIsWithdrawnOnceItsPaneIsSeen() {
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .done]), connection: .live)
+        XCTAssertFalse(viewModel.attentionToasts.isEmpty)
+
+        viewModel.update(model: attentionModel(focusedPane: "w2:p1", statuses: ["w2:p1": .done]), connection: .live)
+
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
+    /// A look is not an answer: the question stays until herdr stops
+    /// reporting the pane as blocked.
+    @MainActor
+    func testANeedsInputToastOutlivesAVisitAndGoesWhenAnswered() {
         let clock = TestClock()
         let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
         viewModel.update(model: attentionModel(), connection: .live)
         viewModel.update(model: attentionModel(statuses: ["w2:p1": .blocked]), connection: .live)
-        XCTAssertFalse(viewModel.attentionToasts.isEmpty)
 
+        clock.advance(10)
         viewModel.update(model: attentionModel(focusedPane: "w2:p1", statuses: ["w2:p1": .blocked]), connection: .live)
+        XCTAssertEqual(viewModel.attentionToasts.toasts.map(\.paneID), [PaneID(rawValue: "w2:p1")])
+
+        viewModel.update(model: attentionModel(focusedPane: "w1:p1", statuses: ["w2:p1": .working]), connection: .live)
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
+    /// herdr moves a finished agent from `done` to `idle` once someone looks
+    /// at the pane, in flock or in herdr's own TUI; that clears the card too.
+    @MainActor
+    func testAFinishedToastGoesWhenHerdrClearsDone() {
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .done]), connection: .live)
+
+        clock.advance(10)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .idle]), connection: .live)
 
         XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
+    /// An agent that went straight from working to idle has no `done` for
+    /// herdr to clear, so its card waits for the pane to be seen instead of
+    /// going at once.
+    @MainActor
+    func testAFinishedToastRaisedAtIdleWaitsToBeSeen() {
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .idle]), connection: .live)
+
+        clock.advance(3600)
+        viewModel.sweepAttentionToasts()
+        XCTAssertEqual(viewModel.attentionToasts.toasts.map(\.paneID), [PaneID(rawValue: "w2:p1")])
+
+        viewModel.update(model: attentionModel(focusedPane: "w2:p1", statuses: ["w2:p1": .idle]), connection: .live)
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
+    /// A status that bounces off and back inside the coalescing window is a
+    /// flap, not the claim clearing.
+    @MainActor
+    func testAFlapInsideTheWindowKeepsTheCard() {
+        let clock = TestClock()
+        let viewModel = makeViewModel(FocusRecordingClient(), clock: clock)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .working]), connection: .live)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .done]), connection: .live)
+
+        clock.advance(1)
+        viewModel.update(model: attentionModel(statuses: ["w2:p1": .idle]), connection: .live)
+
+        XCTAssertEqual(viewModel.attentionToasts.toasts.map(\.paneID), [PaneID(rawValue: "w2:p1")])
     }
 
     /// Clicking a toast for a pane herdr has since closed would focus
