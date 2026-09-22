@@ -11,23 +11,23 @@ import Foundation
 public enum HerdrMousePatchVersion {
     public static let supported = "0.9.1"
 
+    /// A herdr binary runs past 20 MB and Settings probes it on the main
+    /// thread, so the search is `Data.range(of:)` (`memmem`), never a walk
+    /// over every byte offset, which takes seconds in a Debug build.
     public static func matches(_ version: String, in data: Data) -> Bool {
-        let needle = Array(version.utf8)
+        let needle = Data(version.utf8)
         guard !needle.isEmpty else { return false }
-        let bytes = Array(data)
-        guard bytes.count >= needle.count else { return false }
 
         func isVersionByte(_ byte: UInt8) -> Bool {
             (byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9")) || byte == UInt8(ascii: ".")
         }
 
-        for start in 0...(bytes.count - needle.count) {
-            guard bytes[start..<(start + needle.count)].elementsEqual(needle) else { continue }
-            let before = start - 1
-            if before >= 0, isVersionByte(bytes[before]) { continue }
-            let after = start + needle.count
-            if after < bytes.count, isVersionByte(bytes[after]) { continue }
-            return true
+        var searchStart = data.startIndex
+        while let hit = data.range(of: needle, in: searchStart..<data.endIndex) {
+            let clearBefore = hit.lowerBound == data.startIndex || !isVersionByte(data[hit.lowerBound - 1])
+            let clearAfter = hit.upperBound == data.endIndex || !isVersionByte(data[hit.upperBound])
+            if clearBefore, clearAfter { return true }
+            searchStart = hit.lowerBound + 1
         }
         return false
     }
