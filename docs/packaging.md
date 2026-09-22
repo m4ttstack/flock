@@ -30,6 +30,21 @@ you sure you want to open it?" prompt. That is normal for every notarized app
 distributed outside the App Store and there is no way to remove it short of
 shipping through the store. Do not read a report of it as a defect.
 
+**A Documents (or Desktop, or Downloads) permission prompt is expected**, the
+first time a pane's working directory lands in one of those folders. flock
+hosts the terminal, so macOS attributes the access to flock; every terminal
+emulator raises the same prompt. It is not a defect and there is nothing to
+suppress.
+
+It appears **once** for the distributed app and on **every launch** of a
+local Debug build. TCC keys a grant to the code-signing identity, and a
+Debug build is ad-hoc signed with no team, so each rebuild looks like a
+different app and the previous grant does not apply. The release build
+carries a stable Developer ID, so the grant survives launches and updates
+alike. A report of "it asks every time" from a developer is this, not a bug.
+Untested on a clean machine: the clean-room golden has no herdr, so flock
+never reaches a pane and never asks.
+
 **flock launched App-Translocated**, from a read-only copy under
 `/private/var/.../AppTranslocation/` rather than from `/Applications`. macOS
 does this to a quarantined app that the user has not explicitly moved itself,
