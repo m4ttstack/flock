@@ -14,6 +14,15 @@ public struct AttentionToast: Identifiable, Equatable, Sendable {
         case needsInput
         /// The agent finished what it was working on. Auto-dismisses.
         case finished
+
+        /// What the pane wants, as a card leads with it: the part a narrow
+        /// card keeps whole while the pane's own title gives way.
+        public var label: String {
+            switch self {
+            case .needsInput: "Needs input"
+            case .finished: "Finished"
+            }
+        }
     }
 
     public var id: PaneID { paneID }
@@ -21,23 +30,31 @@ public struct AttentionToast: Identifiable, Equatable, Sendable {
     public let tabID: TabID
     public let workspaceID: WorkspaceID
     public var kind: Kind
-    /// "migration needs input" -- the pane, and what it wants.
-    public var headline: String
+    /// "migration" -- the pane's own title.
+    public var subject: String
     /// "flock › migration" -- where to look for it.
     public var breadcrumb: String
     public var raisedAt: Date
+
+    /// "migration needs input" -- the pane, and what it wants.
+    public var headline: String {
+        switch kind {
+        case .needsInput: "\(subject) needs input"
+        case .finished: "\(subject) finished"
+        }
+    }
 
     public var accessibilityIdentifier: String { "flock.attention.toast.\(paneID.rawValue)" }
 
     public init(
         paneID: PaneID, tabID: TabID, workspaceID: WorkspaceID, kind: Kind,
-        headline: String, breadcrumb: String, raisedAt: Date
+        subject: String, breadcrumb: String, raisedAt: Date
     ) {
         self.paneID = paneID
         self.tabID = tabID
         self.workspaceID = workspaceID
         self.kind = kind
-        self.headline = headline
+        self.subject = subject
         self.breadcrumb = breadcrumb
         self.raisedAt = raisedAt
     }
@@ -56,16 +73,12 @@ public struct AttentionToast: Identifiable, Equatable, Sendable {
             ?? pane.workspaceID.rawValue
         let tabLabel = model.tabs[pane.workspaceID]?.first { $0.tabID == pane.tabID }?.label
             ?? pane.tabID.rawValue
-        let want = switch kind {
-        case .needsInput: "needs input"
-        case .finished: "finished"
-        }
         return AttentionToast(
             paneID: pane.paneID,
             tabID: pane.tabID,
             workspaceID: pane.workspaceID,
             kind: kind,
-            headline: "\(pane.displayTitle) \(want)",
+            subject: pane.displayTitle,
             breadcrumb: "\(workspaceLabel) › \(tabLabel)",
             raisedAt: raisedAt
         )

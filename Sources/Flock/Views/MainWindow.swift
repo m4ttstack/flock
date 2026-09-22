@@ -32,6 +32,13 @@ struct MainWindow: View {
             }
             if dragCoordinator.isGridShown {
                 AllWorkspacesGrid(theme: theme, viewModel: viewModel)
+                    // The grid covers the rail and its dock, so the dock
+                    // floats where the rail would be: the one layout with no
+                    // rail to hold it.
+                    .overlay(alignment: .bottomLeading) {
+                        MessageDock(theme: theme, viewModel: viewModel, placement: .overGrid)
+                            .frame(width: railWidth.width)
+                    }
             } else {
                 HStack(spacing: 0) {
                     WorkspaceRail(
@@ -76,7 +83,6 @@ struct MainWindow: View {
         // AppKit event location be converted into it.
         .background(DragSpaceAnchor(coordinator: dragCoordinator))
         .overlay { DragLayer() }
-        .overlay { ToastHost(viewModel: viewModel) }
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.chrome))

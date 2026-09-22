@@ -12,8 +12,7 @@ final class ToastCenter {
         case copied
         /// Undo/redo journal notices (stale entry dropped, partial undo,
         /// plan/herdr failure) -- always window-scope (`paneID == nil`),
-        /// rendered by `ToastHost` in the window's top-right corner, with
-        /// the undo-arrow glyph.
+        /// rendered by `MessageDock`, with the undo-arrow glyph.
         case notice
         /// A command-surface outcome that is NOT about undo/redo (an
         /// invalid move, a plan/herdr failure from `perform`/`closePane`)
@@ -27,7 +26,7 @@ final class ToastCenter {
         let kind: Kind
         let message: String
         /// The pane this toast anchors to, drawn by that pane's own cell;
-        /// `nil` is a window-scope toast, drawn by `ToastHost` instead --
+        /// `nil` is a window-scope toast, drawn by `MessageDock` instead --
         /// every `.notice` toast is window-scope, `.copied` is pane-scope.
         let paneID: PaneID?
 
@@ -49,7 +48,7 @@ final class ToastCenter {
     }
 
     /// Window-scope notice (the undo journal's own sink): always `paneID:
-    /// nil`, so `ToastHost` -- never a pane cell -- renders it.
+    /// nil`, so `MessageDock` -- never a pane cell -- renders it.
     func show(_ message: String) {
         show(message, kind: .notice, in: nil)
     }

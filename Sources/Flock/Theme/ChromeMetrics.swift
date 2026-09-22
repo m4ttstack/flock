@@ -497,45 +497,65 @@ enum ChromeMetrics {
         static let hoverFade: Double = 0.12
     }
 
+    /// The pane-scoped "Copied" whisper, drawn inside its own pane cell.
     enum Toast {
-        /// Clears the window's bottom edge. The stack used to hang below the
-        /// title bar and tab strip, which is what `topGap` measured against;
-        /// nothing is stacked under a pane, so this is a plain inset.
-        static let bottomGap: CGFloat = 13
-        static let trailingInset: CGFloat = 18
         static let spacing: CGFloat = 8
         static let horizontalPadding: CGFloat = 13
-        static let verticalPadding: CGFloat = 8
         static let copiedVerticalPadding: CGFloat = 6
         static let shadowRadius: CGFloat = 12
-        static let shadowY: CGFloat = 5
         static let copiedShadowY: CGFloat = 8
     }
 
-    /// The top-right attention stack. Its own box rather than `Toast`'s: a
-    /// notice is one line that leaves on its own, an attention toast is a
-    /// two-line card that can be clicked, dismissed and stacked.
+    /// The foot of the workspace rail, where every window-scope message
+    /// appears: the notice and the attention cards. Part of the rail's own
+    /// layout, so the lists above give it room rather than sit under it.
+    enum Dock {
+        /// The rail's own row inset, so a card spans exactly what a row's
+        /// selection fill does and the rail's resize grab stays off it.
+        static let horizontalInset: CGFloat = Rail.horizontalPadding
+        static let ruleToFirstItem: CGFloat = 10
+        static let bottomInset: CGFloat = Rail.verticalPadding
+        static let itemSpacing: CGFloat = 6
+        /// A notice is a sentence, and at the rail's narrowest it needs more
+        /// than one line to be read at all: an undo notice runs to three or
+        /// four there. Past this it truncates, which keeps the dock's tallest
+        /// state bounded.
+        static let noticeLineLimit = 4
+        /// Only over the grid, where the dock floats on content with no rail
+        /// to sit in.
+        static let floatingShadowRadius: CGFloat = 12
+        static let floatingShadowY: CGFloat = 5
+        static let floatingShadowOpacity: Double = 0.6
+    }
+
+    /// One card in the dock: an attention card or the notice, which share a
+    /// box so the dock reads as one list. The dot and the text start where a
+    /// rail row's do, so a card lines up with the workspaces above it.
     enum AttentionToast {
-        /// The hover card's width. Both are a detail card about one pane, and
-        /// two widths for the same thing would read as two vocabularies.
-        static let width: CGFloat = 274
-        static let horizontalPadding: CGFloat = 13
-        static let verticalPadding: CGFloat = 10
-        static let dotSpacing: CGFloat = 9
-        static let lineSpacing: CGFloat = 2
-        static let stackSpacing: CGFloat = 8
-        static let statusDot: CGFloat = 8
+        static let horizontalPadding: CGFloat = WorkspaceRow.horizontalPadding
+        static let verticalPadding: CGFloat = 8
+        static let dotSpacing: CGFloat = WorkspaceRow.spacing
+        static let statusDot: CGFloat = WorkspaceRow.statusDot
+        static let lineSpacing: CGFloat = 3
+        /// Between what the pane wants and the pane's own title.
+        static let subjectGap: CGFloat = 6
+        /// Less room than this and the title is left out rather than drawn
+        /// as a lone ellipsis beside the headline.
+        static let minimumSubjectWidth: CGFloat = 32
         /// herdr's dots glow when a pane is actually asking for something;
         /// the parity checklist carries it on `blocked` alone.
         static let blockedGlowRadius: CGFloat = 6
-        static let trailingGlyphWidth: CGFloat = 20
+        /// The arrow's own width: every point it does not need goes to the
+        /// breadcrumb, which at the rail's narrowest has about fifty.
+        static let jumpGlyphWidth: CGFloat = 12
+        /// The close button's own box, so the x never overhangs its slot.
+        static let dismissGlyphWidth: CGFloat = CloseButton.size
         /// Between the jump arrow and the dismiss x. They do different things
         /// to the same toast, so they need daylight rather than adjacency.
         static let glyphSpacing: CGFloat = 4
+        static let breadcrumbToGlyphs: CGFloat = 4
         static let pillHorizontalPadding: CGFloat = 9
         static let pillVerticalPadding: CGFloat = 4
-        static let shadowRadius: CGFloat = 12
-        static let shadowY: CGFloat = 5
         /// How often the finished toasts are checked against their six
         /// seconds. Fine enough that a toast never visibly outstays it,
         /// coarse enough to be free; it runs only while one is up.

@@ -2,16 +2,14 @@ import AppKit
 import FlockCore
 import SwiftUI
 
-/// The bottom-right attention stack: one card per pane that wants the user,
-/// over a "+N more" pill once there are more than three. Every rule about
-/// what is in it lives in `AttentionToastStack`; this draws what the rules
-/// decided and owns only the pointer.
-///
-/// It grows upward, away from the corner, so a card arriving never shifts the
-/// ones already on screen out from under the user's eye.
+/// The dock's attention cards: one per pane that wants the user, newest
+/// first, over a "+N more" pill once there are more than three. Every rule
+/// about what is in it lives in `AttentionToastStack`; this draws what the
+/// rules decided and owns only the pointer.
 struct AttentionToastStackView: View {
     let theme: Theme
     let viewModel: SessionViewModel
+    let isFloating: Bool
 
     @State private var isHovering = false
 
@@ -19,20 +17,15 @@ struct AttentionToastStackView: View {
 
     var body: some View {
         if !stack.isEmpty {
-            VStack(alignment: .trailing, spacing: ChromeMetrics.AttentionToast.stackSpacing) {
+            VStack(alignment: .leading, spacing: ChromeMetrics.Dock.itemSpacing) {
+                ForEach(stack.visible) { toast in
+                    AttentionToastCard(theme: theme, toast: toast, viewModel: viewModel, isFloating: isFloating)
+                        .transition(.opacity)
+                }
                 if stack.collapsedCount > 0 {
                     MorePill(theme: theme, count: stack.collapsedCount)
                 }
-                // Reversed because `visible` is newest first and this column
-                // is read from the bottom up: the newest card belongs nearest
-                // the corner, where the eye already is, with older ones
-                // pushed away above it.
-                ForEach(Array(stack.visible.reversed())) { toast in
-                    AttentionToastCard(theme: theme, toast: toast, viewModel: viewModel)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
             }
-            .padding(.bottom, ChromeMetrics.AttentionToast.stackSpacing)
             .animation(.easeOut(duration: 0.15), value: stack.visible.map(\.id))
             // The whole stack, not one card: cards vanishing out from under a
             // pointer that is reading them is what the pause exists to stop.
@@ -54,47 +47,57 @@ struct AttentionToastStackView: View {
     }
 }
 
+/// Two lines sized for a rail as narrow as 150pt. What the pane wants leads
+/// and is never cut; the pane's own title takes what the line has left. The
+/// breadcrumb keeps its end, which is what tells two panes apart, and shares
+/// its line with the two controls so the headline has the card's full width.
 private struct AttentionToastCard: View {
     let theme: Theme
     let toast: AttentionToast
     let viewModel: SessionViewModel
+    let isFloating: Bool
 
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: ChromeMetrics.AttentionToast.dotSpacing) {
-            StatusDot(status: toast.status, theme: theme, size: ChromeMetrics.AttentionToast.statusDot)
-                .shadow(
-                    color: toast.kind == .needsInput ? theme.red.opacity(0.7) : .clear,
-                    radius: ChromeMetrics.AttentionToast.blockedGlowRadius
-                )
-            VStack(alignment: .leading, spacing: ChromeMetrics.AttentionToast.lineSpacing) {
-                Text(toast.headline)
-                    .font(ChromeType.attentionToastHeadline)
-                    .foregroundStyle(theme.textStrong)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: ChromeMetrics.AttentionToast.lineSpacing) {
+            HStack(spacing: ChromeMetrics.AttentionToast.dotSpacing) {
+                StatusDot(status: toast.status, theme: theme, size: ChromeMetrics.AttentionToast.statusDot)
+                    .shadow(
+                        color: toast.kind == .needsInput ? theme.red.opacity(0.7) : .clear,
+                        radius: ChromeMetrics.AttentionToast.blockedGlowRadius
+                    )
+                // Judged on the subject's minimum rather than its whole
+                // width, so a long title still shows as much as fits.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: ChromeMetrics.AttentionToast.subjectGap) {
+                        headline
+                        Text(toast.subject)
+                            .font(ChromeType.attentionToastSubject)
+                            .foregroundStyle(theme.textDim)
+                            .lineLimit(1)
+                            .frame(
+                                minWidth: ChromeMetrics.AttentionToast.minimumSubjectWidth,
+                                idealWidth: ChromeMetrics.AttentionToast.minimumSubjectWidth,
+                                alignment: .leading
+                            )
+                    }
+                    headline
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: ChromeMetrics.AttentionToast.breadcrumbToGlyphs) {
                 Text(toast.breadcrumb)
                     .font(ChromeType.attentionToastBreadcrumb)
                     .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
                     .truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                trailingGlyphs
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            trailingGlyph
+            .padding(.leading, ChromeMetrics.AttentionToast.statusDot + ChromeMetrics.AttentionToast.dotSpacing)
         }
-        .padding(.horizontal, ChromeMetrics.AttentionToast.horizontalPadding)
-        .padding(.vertical, ChromeMetrics.AttentionToast.verticalPadding)
-        .frame(width: ChromeMetrics.AttentionToast.width)
-        .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
-                .strokeBorder(borderColor, lineWidth: ChromeMetrics.ruleWidth)
-        )
-        .shadow(
-            color: theme.chrome.opacity(0.6),
-            radius: ChromeMetrics.AttentionToast.shadowRadius,
-            y: ChromeMetrics.AttentionToast.shadowY
-        )
+        .modifier(DockCardChrome(theme: theme, border: borderColor, isFloating: isFloating))
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         // Guarded like every other chrome tap: SwiftUI's tap gesture on macOS
@@ -109,6 +112,14 @@ private struct AttentionToastCard: View {
         .accessibilityIdentifier(toast.accessibilityIdentifier)
     }
 
+    private var headline: some View {
+        Text(toast.kind.label)
+            .font(ChromeType.attentionToastHeadline)
+            .foregroundStyle(theme.textStrong)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
     /// Two slots, never one. The arrow says "this jumps" and the x says "this
     /// dismisses", so they cannot share pixels: stacked, the arrow was what a
     /// resting card showed and the x was what the pointer armed, and aiming
@@ -116,23 +127,27 @@ private struct AttentionToastCard: View {
     ///
     /// Both slots exist at every moment so a card never reflows as the
     /// pointer crosses it; only the x's opacity and hit testing follow hover.
-    private var trailingGlyph: some View {
+    /// Fixed as a pair, so a narrow card takes its room from the breadcrumb
+    /// and never from the daylight between them.
+    private var trailingGlyphs: some View {
         HStack(spacing: ChromeMetrics.AttentionToast.glyphSpacing) {
             Image(systemName: "arrow.right")
                 .font(ChromeType.attentionToastGlyph)
                 .foregroundStyle(theme.textLabel)
-                .frame(width: ChromeMetrics.AttentionToast.trailingGlyphWidth)
+                .frame(width: ChromeMetrics.AttentionToast.jumpGlyphWidth)
+                .accessibilityIdentifier("flock.attention.jump.\(toast.paneID.rawValue)")
             HoverCloseButton(
                 theme: theme, isRevealed: isHovering, help: "Dismiss",
                 accessibilityIdentifier: "flock.attention.dismiss.\(toast.paneID.rawValue)",
                 action: { viewModel.dismissAttentionToast(pane: toast.paneID) }
             )
-            .frame(width: ChromeMetrics.AttentionToast.trailingGlyphWidth)
+            .frame(width: ChromeMetrics.AttentionToast.dismissGlyphWidth)
         }
+        .fixedSize()
     }
 
     /// A pane waiting on the user carries its status in the border too: the
-    /// stack is read from the corner of the eye, and one dot is not enough
+    /// dock is read from the corner of the eye, and one dot is not enough
     /// separation between "answer me" and "I finished".
     private var borderColor: Color {
         switch toast.kind {

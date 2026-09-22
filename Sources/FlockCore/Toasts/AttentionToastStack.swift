@@ -1,6 +1,6 @@
 import Foundation
 
-/// The top-right attention stack's whole rule set: which transitions speak,
+/// The attention stack's whole rule set: which transitions speak,
 /// how a flapping pane is kept to one line, how deep the stack goes, and when
 /// a finished toast stops being interesting.
 ///

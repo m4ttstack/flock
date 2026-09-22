@@ -1794,6 +1794,153 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The rail with workspaces, the Herds section and the dock under them,
+    /// holding a notice, a card that needs input and a finished one; and the
+    /// tallest dock there is, three cards over a "more" pill under a notice
+    /// long enough to reach its line limit. At the default rail and the
+    /// narrowest, in a dark and a light theme. PNGs are written only when
+    /// `FLOCK_DOCK_RENDER_DIR` is set; the geometry below is asserted always.
+    func testTheDockSitsUnderTheRailsListsAtEveryRailWidth() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_DOCK_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            for width in [RailWidth.default, RailWidth.minimum] {
+                for overflowing in [false, true] {
+                    let harness = try await dockHarness(theme: theme, overflowing: overflowing)
+                    harness.railWidth.released(at: width)
+                    let window = harness.makeWindow(size: Self.windowSize)
+                    await settle(window)
+                    let image = try snapshot(window)
+                    let name = "dock-\(overflowing ? "overflow" : "rest")-\(Int(width))pt-\(scheme)-\(id)"
+                    if let directory {
+                        try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                            .write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+                        let crop = try XCTUnwrap(image.cgImage?.cropping(to: CGRect(
+                            x: 0, y: 0, width: Int((width + ChromeMetrics.ruleWidth) * 2), height: image.pixelsHigh
+                        )))
+                        try XCTUnwrap(NSBitmapImageRep(cgImage: crop).representation(using: .png, properties: [:]))
+                            .write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name)-rail.png"))
+                    }
+
+                    let stack = harness.viewModel.attentionToasts
+                    XCTAssertEqual(stack.visible.count, overflowing ? 3 : 2, name)
+                    XCTAssertEqual(stack.collapsedCount, overflowing ? 2 : 0, name)
+                    XCTAssertNotNil(harness.toasts.current, "\(name): the notice expired before the snapshot")
+
+                    // The lists end where the dock begins, and the rail keeps
+                    // a real list above even its tallest dock.
+                    let railFrame = try XCTUnwrap(harness.drag.railFrame)
+                    let viewport = try XCTUnwrap(harness.drag.railViewport)
+                    XCTAssertEqual(railFrame.width, width + ChromeMetrics.ruleWidth, accuracy: 0.5, name)
+                    XCTAssertEqual(viewport.maxY, railFrame.maxY, accuracy: 0.5, name)
+                    XCTAssertGreaterThan(
+                        viewport.height, Self.dockFloorForTheLists, "\(name): the dock squeezed the lists to \(viewport.height)pt"
+                    )
+                    // The dock's top rule runs the rail's width just under the
+                    // lists, one step off the chrome it separates.
+                    XCTAssertEqual(
+                        hex(image, CGPoint(x: width / 2, y: railFrame.maxY + 0.25)), theme.palette.chromeRoles.rule.hex,
+                        "\(name): no rule between the lists and the dock"
+                    )
+                    // Nothing of the dock reaches past the rail's edge into
+                    // the canvas: its bottom-left corner beside the rail is
+                    // the canvas colour, not a card.
+                    XCTAssertEqual(
+                        hex(image, CGPoint(x: width + 4, y: Self.windowSize.height - 20)),
+                        theme.palette.chromeRoles.canvas.hex, "\(name): something is drawn over the canvas beside the dock"
+                    )
+                    window.close()
+                }
+            }
+        }
+    }
+
+    /// The grid covers the rail, so the dock floats in the corner the rail
+    /// would hold, at the rail's width. The check is the needs-input card's
+    /// red appearing there against the same grid with nothing to say.
+    func testOverTheGridTheDockFloatsWhereTheRailWouldBe() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_DOCK_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = Theme.tokyoNight
+        let red = theme.palette.red.hex
+        let corner = CGRect(
+            x: 0, y: Self.gridWindowSize.height - 220, width: RailWidth.default, height: 220
+        )
+        var counts: [Int] = []
+        for withMessages in [false, true] {
+            let harness = withMessages
+                ? try await dockHarness(theme: theme, overflowing: false)
+                : try await Harness(theme: theme, model: try Fixture.herdModel())
+            let window = harness.makeWindow(size: Self.gridWindowSize)
+            await settle(window)
+            harness.drag.toggleGrid()
+            await settle(window)
+            let image = try snapshot(window)
+            counts.append(count(red, in: corner, of: image))
+            if withMessages, let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("dock-over-grid-dark-tokyo-night.png"))
+            }
+            window.close()
+        }
+        XCTAssertGreaterThan(counts[1], counts[0], "no needs-input red in the grid's bottom-left corner: the dock is not there")
+    }
+
+    /// The least the lists may be left with under the tallest dock, at the
+    /// window's own minimum height: about seven rows.
+    private static let dockFloorForTheLists: CGFloat = 180
+
+    /// `herdModel()` with the attention cards the dock mock shows, raised in
+    /// order so the one that needs input is newest and sits on top, plus a
+    /// notice. `overflowing` adds three more cards and a notice that runs to
+    /// the line limit.
+    private func dockHarness(theme: Theme, overflowing: Bool) async throws -> Harness {
+        var base = try Fixture.herdModel()
+        let named: [(pane: String, tab: String, title: String, status: AgentStatus)] = [
+            ("w2:p1", "pdf-audit", "claude", .idle),
+            ("w4:p1", "herd-rail", "codex", .working),
+            ("w3:p1", "tray-icons", "claude", .idle),
+            ("w5:p1", "release-notes", "claude", .working),
+            ("w4:p2", "herd-rail", "bun test", .working),
+        ]
+        for entry in named {
+            let paneID = PaneID(rawValue: entry.pane)
+            let pane = try XCTUnwrap(base.panes[paneID])
+            base.panes[paneID] = PaneRecord(
+                paneID: paneID, workspaceID: pane.workspaceID, tabID: pane.tabID, focused: false,
+                agentStatus: entry.status, revision: 1, terminalTitleStripped: entry.title, label: nil,
+                cwd: "/private/tmp", scroll: nil
+            )
+            base.tabs[pane.workspaceID] = base.tabs[pane.workspaceID]?.map { tab in
+                guard tab.tabID == pane.tabID else { return tab }
+                return TabRecord(
+                    tabID: tab.tabID, workspaceID: tab.workspaceID, label: entry.tab, number: tab.number,
+                    paneCount: tab.paneCount, agentStatus: tab.agentStatus
+                )
+            }
+        }
+        // Frozen, so no finished card is swept before the snapshot.
+        let frozen = Date(timeIntervalSince1970: 1_000_000)
+        let harness = try await Harness(theme: theme, model: base, now: { frozen })
+        var model = base
+        func raise(_ pane: String, _ status: AgentStatus) {
+            model.panes[PaneID(rawValue: pane)]?.agentStatus = status
+            harness.viewModel.update(model: model, connection: .live)
+        }
+        if overflowing {
+            raise("w5:p1", .done)
+            raise("w4:p2", .done)
+            raise("w3:p1", .blocked)
+        }
+        raise("w4:p1", .done)
+        raise("w2:p1", .blocked)
+        harness.toasts.show(
+            overflowing
+                ? "Undo Move pane partially: the split ratio of the source tab and the focus of the target not undone"
+                : "Can't undo: Rename workspace, panes changed"
+        )
+        return harness
+    }
+
     /// Pixels exactly `hex` inside `box`, in window points.
     private func count(_ hex: String, in box: CGRect, of image: NSBitmapImageRep, scale: CGFloat = 2) -> Int {
         guard let data = image.bitmapData else { return 0 }
@@ -2311,13 +2458,16 @@ final class ChromeRenderTests: XCTestCase {
     /// the stack fills and overflows in one step. Built before the window
     /// exists rather than driven into a live one: the cards animate in, and a
     /// render caught mid-transition would differ between two runs of the same
-    /// code. The check is the status hue appearing in the corner the stack
-    /// occupies, against the same corner at rest -- a single pixel is not
-    /// nameable on a mark this small with a glow behind it.
-    func testTheAttentionStackFillsTheBottomRightCornerAndOverflowsToAPill() async throws {
+    /// code. The check is the status hue appearing at the foot of the rail,
+    /// where the dock sits, against the same stretch at rest -- a single pixel
+    /// is not nameable on a mark this small with a glow behind it -- and never
+    /// appearing in the bottom-right corner over the panes, where the stack
+    /// used to float.
+    func testTheAttentionStackDocksAtTheFootOfTheRailAndOverflowsToAPill() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        // The bottom right of a 900x560 window. The stack grows upward
-        // from that corner, so the band reaches well above it.
+        // The foot of the default rail in a 900x560 window, clear of the five
+        // rows at its top, and the canvas's bottom-right corner.
+        let railFoot = CGRect(x: 0, y: 320, width: RailWidth.default, height: 240)
         let corner = CGRect(x: 600, y: 320, width: 300, height: 240)
         let red = Theme.tokyoNight.palette.red.hex
 
@@ -2325,6 +2475,7 @@ final class ChromeRenderTests: XCTestCase {
         let restingWindow = resting.makeWindow(size: Self.windowSize)
         await settle(restingWindow)
         let restingImage = try snapshot(restingWindow)
+        let restingRailFrame = try XCTUnwrap(resting.drag.railFrame)
 
         // Two agents stop for input and two finish a run, all in workspaces
         // the window is not showing, so the stack carries both kinds at once.
@@ -2355,13 +2506,26 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(harness.viewModel.attentionToasts.visible.count, 3)
         XCTAssertEqual(harness.viewModel.attentionToasts.collapsedCount, 1)
         XCTAssertNil(
-            firstPoint(in: corner, matching: red, of: restingImage),
-            "the resting corner already carries the status hue, so the check below proves nothing"
+            firstPoint(in: railFoot, matching: red, of: restingImage),
+            "the resting rail foot already carries the status hue, so the check below proves nothing"
         )
-        XCTAssertNotNil(
+        let docked = try XCTUnwrap(
+            firstPoint(in: railFoot, matching: red, of: image),
+            "no \(red) anywhere at the foot of the rail: the dock did not paint"
+        )
+        XCTAssertNil(
             firstPoint(in: corner, matching: red, of: image),
-            "no \(red) anywhere in the bottom-right corner: the attention stack did not paint"
+            "the status hue is still in the bottom-right corner: something floats over the panes"
         )
+
+        // The lists shortened to make room rather than running on under the
+        // dock, and the frame every rail drop is measured against stops
+        // where they do.
+        let railFrame = try XCTUnwrap(harness.drag.railFrame)
+        let viewport = try XCTUnwrap(harness.drag.railViewport)
+        XCTAssertLessThan(railFrame.maxY, restingRailFrame.maxY, "the lists kept their full height under the dock")
+        XCTAssertLessThanOrEqual(railFrame.maxY, docked.y, "the rail's drop frame reaches into the dock")
+        XCTAssertLessThanOrEqual(viewport.maxY, docked.y, "the rows' viewport runs on under the dock")
         window.close()
         restingWindow.close()
     }

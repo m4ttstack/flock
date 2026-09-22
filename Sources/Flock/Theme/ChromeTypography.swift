@@ -109,9 +109,10 @@ enum ChromeType {
     static let launcherMonogram = inter(14, .bold)
     static let launcherHint = inter(11.5)
 
-    static let toastSymbol = Font.system(size: 13, weight: .medium)
-    static let toastMessage = inter(14)
+    static let toastSymbol = Font.system(size: 11, weight: .medium)
+    static let toastMessage = inter(12)
     static let attentionToastHeadline = inter(13, .medium)
+    static let attentionToastSubject = inter(13)
     static let attentionToastBreadcrumb = inter(11.5)
     static let attentionToastPill = inter(11.5, .medium)
     static let attentionToastGlyph = Font.system(size: 10, weight: .semibold)

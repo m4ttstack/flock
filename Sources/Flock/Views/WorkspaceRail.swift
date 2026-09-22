@@ -3,8 +3,8 @@ import FlockCore
 import SwiftUI
 
 /// The workspace sidebar: a heading over one row per workspace, with a rule on
-/// its trailing edge. Read-only mirror, selection/jump, and the workspace end
-/// of the drag layer.
+/// its trailing edge and the message dock at its foot. Read-only mirror,
+/// selection/jump, and the workspace end of the drag layer.
 struct WorkspaceRail: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -20,7 +20,7 @@ struct WorkspaceRail: View {
     private var workspaces: [WorkspaceRecord] { rail?.workspaces ?? [] }
 
     var body: some View {
-        HStack(spacing: 0) {
+        VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("WORKSPACES")
                     .font(ChromeType.railHeading)
@@ -133,6 +133,19 @@ struct WorkspaceRail: View {
                 .onAppear { drag.railScroller = { y in scrollPosition.scrollTo(y: y) } }
             }
             .frame(width: railWidth.width)
+            .padding(.trailing, ChromeMetrics.ruleWidth)
+            // The lists alone, rule included and dock excluded: every rail
+            // drop target and the new-workspace zone are measured against
+            // this frame, so a card can never be dropped on or read as free
+            // rail space below the last row.
+            .reportsDragFrame { drag.railFrame = $0 }
+            MessageDock(theme: theme, viewModel: viewModel, placement: .rail)
+                .frame(width: railWidth.width)
+                .padding(.trailing, ChromeMetrics.ruleWidth)
+        }
+        // One rule down the whole edge, the dock's stretch included, so the
+        // edge never breaks where the lists end.
+        .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(theme.rule)
                 .frame(width: ChromeMetrics.ruleWidth)
@@ -143,7 +156,6 @@ struct WorkspaceRail: View {
         // pane chrome the canvas draws at its own edge.
         .overlay(alignment: .trailing) { resizeHandle }
         .boundedBackground(theme.chrome)
-        .reportsDragFrame { drag.railFrame = $0 }
         .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
     }

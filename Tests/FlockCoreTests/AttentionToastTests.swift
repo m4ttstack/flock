@@ -77,6 +77,8 @@ final class AttentionToastTests: XCTestCase {
         let toast = try? XCTUnwrap(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:p1")))
         XCTAssertEqual(toast?.kind, .needsInput)
         XCTAssertEqual(toast?.headline, "migration needs input")
+        XCTAssertEqual(toast?.subject, "migration")
+        XCTAssertEqual(toast?.kind.label, "Needs input")
         XCTAssertEqual(toast?.breadcrumb, "repo-tools › agents")
     }
 
@@ -116,6 +118,7 @@ final class AttentionToastTests: XCTestCase {
 
         XCTAssertEqual(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:p1"))?.kind, .finished)
         XCTAssertEqual(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:p1"))?.headline, "migration finished")
+        XCTAssertEqual(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:p1"))?.kind.label, "Finished")
     }
 
     // MARK: - herds
@@ -387,7 +390,7 @@ final class AttentionToastTests: XCTestCase {
 private func toast(pane: String, kind: AttentionToast.Kind, at date: Date) -> AttentionToast {
     AttentionToast(
         paneID: PaneID(rawValue: pane), tabID: TabID(rawValue: "w2:t1"), workspaceID: WorkspaceID(rawValue: "w2"),
-        kind: kind, headline: pane, breadcrumb: "repo-tools › agents", raisedAt: date
+        kind: kind, subject: pane, breadcrumb: "repo-tools › agents", raisedAt: date
     )
 }
 
