@@ -2,8 +2,11 @@ import Foundation
 
 /// Turns one drag gesture into an ordered `OpPlan` against `model`, per the
 /// design spec's verb table. Pure: no I/O, no herdr calls -- the executor is
-/// the only thing that runs `ops` for real.
-public func plan(dragging subject: DragSubject, onto target: DropTarget, model: SessionModel) -> Result<OpPlan, PlanError> {
+/// the only thing that runs `ops` for real. `board` is only read to place a
+/// rail slot, whose rows leave Board's workspaces out.
+public func plan(
+    dragging subject: DragSubject, onto target: DropTarget, model: SessionModel, board: BoardWorkspaceNames? = nil
+) -> Result<OpPlan, PlanError> {
     switch (subject, target) {
     case let (.pane(pane), .paneEdge(t, edge)):
         return planPaneEdge(pane: pane, target: t, edge: edge, model: model)
@@ -29,13 +32,14 @@ public func plan(dragging subject: DragSubject, onto target: DropTarget, model: 
     case let (.tab(tab), .workspaceThumbnail(workspace)):
         return planTabMigration(tab: tab, workspace: workspace, model: model)
 
-    // The rail's slot counts only the rows it drags, which leave herds out.
+    // The rail's slot counts only the rows it drags, which leave Board's
+    // workspaces and herds out.
     case let (.workspace(workspace), .workspaceRail(insertIndex)):
-        let modelIndex = HerdRail.modelInsertIndex(forRailIndex: insertIndex, in: model)
+        let modelIndex = RailSections.modelInsertIndex(forRailIndex: insertIndex, in: model, board: board)
         return planWorkspaceReorder(workspace: workspace, insertIndex: modelIndex, model: model)
 
     case let (.workspaces(block), .workspaceRail(insertIndex)):
-        let modelIndex = HerdRail.modelInsertIndex(forRailIndex: insertIndex, in: model)
+        let modelIndex = RailSections.modelInsertIndex(forRailIndex: insertIndex, in: model, board: board)
         return planWorkspaceBlockReorder(block: block, insertIndex: modelIndex, model: model)
 
     case (_, .moreTabs):

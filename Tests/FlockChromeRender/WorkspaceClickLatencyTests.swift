@@ -142,7 +142,7 @@ private struct Harness {
     let themeStore: ThemeStore
     let textSize: TerminalTextSizeStore
     let railWidth: RailWidthStore
-    let herdsSection: HerdsSectionStore
+    let collapse: SectionCollapseStore
     let toasts: ToastCenter
     let rearrange: RearrangeMode
     let drag: DragCoordinator
@@ -158,7 +158,7 @@ private struct Harness {
         themeStore.select(.tokyoNight)
         textSize = TerminalTextSizeStore(userDefaults: defaults)
         railWidth = RailWidthStore(userDefaults: defaults)
-        herdsSection = HerdsSectionStore(userDefaults: defaults)
+        collapse = SectionCollapseStore(userDefaults: defaults)
         toasts = ToastCenter()
         rearrange = RearrangeMode()
         drag = DragCoordinator(
@@ -191,7 +191,7 @@ private struct Harness {
             .environment(themeStore)
             .environment(textSize)
             .environment(railWidth)
-            .environment(herdsSection)
+            .environment(collapse)
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)

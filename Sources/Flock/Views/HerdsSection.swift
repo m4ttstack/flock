@@ -14,12 +14,12 @@ struct HerdsSection: View {
     let showsFill: (WorkspaceID) -> Bool
     let onClick: (WorkspaceID) -> Void
 
-    @Environment(HerdsSectionStore.self) private var store
+    @Environment(SectionCollapseStore.self) private var collapse
 
     var body: some View {
         VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
             header
-            if !store.isCollapsed {
+            if !collapse.isCollapsed(.herds) {
                 ForEach(herds, id: \.workspaceID) { herd in
                     HerdRow(
                         theme: theme, herd: herd,
@@ -36,7 +36,7 @@ struct HerdsSection: View {
     }
 
     private var header: some View {
-        Button(action: store.toggle) {
+        Button { collapse.toggle(.herds) } label: {
             HStack(spacing: ChromeMetrics.Herds.headerChevronGap) {
                 // The section's one mark. Rows carry none: one moving glyph
                 // says "something in here is still going" without a row of
@@ -46,7 +46,7 @@ struct HerdsSection: View {
                     .font(ChromeType.railHeading)
                     .tracking(ChromeType.railHeadingTracking)
                     .fixedSize()
-                Image(systemName: store.isCollapsed ? "chevron.right" : "chevron.down")
+                Image(systemName: collapse.isCollapsed(.herds) ? "chevron.right" : "chevron.down")
                     .font(ChromeType.herdsChevron)
                     .frame(width: ChromeMetrics.Herds.headerChevron)
                 Spacer(minLength: ChromeMetrics.WorkspaceRow.countMinimumGap)
@@ -63,7 +63,7 @@ struct HerdsSection: View {
         .buttonStyle(.plain)
         .padding(.bottom, ChromeMetrics.Rail.headingGap)
         .accessibilityIdentifier("flock.rail.herds.toggle")
-        .accessibilityValue(store.isCollapsed ? "collapsed" : "expanded")
+        .accessibilityValue(collapse.isCollapsed(.herds) ? "collapsed" : "expanded")
     }
 }
 

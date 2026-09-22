@@ -207,37 +207,6 @@ final class HerdRailTests: XCTestCase {
         XCTAssertEqual(summary?.isAnyRunning, false)
     }
 
-    // MARK: - Reorder index
-
-    /// The rail drags regular workspaces among themselves, and herdr moves a
-    /// workspace by its index in the full list: a slot between two regular
-    /// rows has to land between those same two workspaces there, whatever
-    /// herds sit between them in herdr's own order.
-    func testARailSlotMapsToTheSameNeighboursInHerdrsFullOrder() {
-        let full = model([
-            WorkspaceSpec(id: "w1", label: "flock"),
-            WorkspaceSpec(id: "w2", label: "herd: review-shapes"),
-            WorkspaceSpec(id: "w3", label: "deck"),
-            WorkspaceSpec(id: "w4", label: "herd: ci-sweep"),
-            WorkspaceSpec(id: "w5", label: "notes"),
-            WorkspaceSpec(id: "w6", label: "herd: acme-sweep"),
-        ])
-        XCTAssertEqual(HerdRail.modelInsertIndex(forRailIndex: 0, in: full), 0)
-        XCTAssertEqual(HerdRail.modelInsertIndex(forRailIndex: 1, in: full), 2)
-        XCTAssertEqual(HerdRail.modelInsertIndex(forRailIndex: 2, in: full), 4)
-        XCTAssertEqual(HerdRail.modelInsertIndex(forRailIndex: 3, in: full), 5)
-    }
-
-    func testWithNoHerdsARailSlotIsHerdrsOwnIndex() {
-        let full = model([
-            WorkspaceSpec(id: "w1", label: "flock"),
-            WorkspaceSpec(id: "w2", label: "deck"),
-        ])
-        for index in 0...2 {
-            XCTAssertEqual(HerdRail.modelInsertIndex(forRailIndex: index, in: full), index)
-        }
-    }
-
     // MARK: - Lookup by id
 
     func testAWorkspaceIsAHerdByItsLabel() {
@@ -248,36 +217,5 @@ final class HerdRailTests: XCTestCase {
         XCTAssertFalse(HerdWorkspace.isHerd(WorkspaceID(rawValue: "w1"), in: full))
         XCTAssertTrue(HerdWorkspace.isHerd(WorkspaceID(rawValue: "w2"), in: full))
         XCTAssertFalse(HerdWorkspace.isHerd(WorkspaceID(rawValue: "w9"), in: full))
-    }
-}
-
-@MainActor
-final class HerdsSectionStoreTests: XCTestCase {
-    private let suiteName = "dev.mattstack.flock.herds-section-tests"
-
-    private func defaults() throws -> UserDefaults {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        return defaults
-    }
-
-    override func tearDown() {
-        UserDefaults().removePersistentDomain(forName: suiteName)
-        super.tearDown()
-    }
-
-    func testTheSectionStartsExpanded() throws {
-        XCTAssertFalse(HerdsSectionStore(userDefaults: try defaults()).isCollapsed)
-    }
-
-    func testCollapsingIsRememberedAcrossLaunches() throws {
-        let userDefaults = try defaults()
-        let store = HerdsSectionStore(userDefaults: userDefaults)
-        store.toggle()
-        XCTAssertTrue(store.isCollapsed)
-        XCTAssertTrue(HerdsSectionStore(userDefaults: userDefaults).isCollapsed)
-
-        store.toggle()
-        XCTAssertFalse(HerdsSectionStore(userDefaults: userDefaults).isCollapsed)
     }
 }

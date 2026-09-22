@@ -1761,13 +1761,13 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertGreaterThan(baselineRed, 0, "\(id): the blocked workspace's own dot is red")
 
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            XCTAssertFalse(harness.herdsSection.isCollapsed)
+            XCTAssertFalse(harness.collapse.isCollapsed(.herds))
             let window = harness.makeWindow(size: Self.windowSize)
             await settle(window)
             let expanded = try snapshot(window)
             XCTAssertEqual(count(red, in: railBox, of: expanded), baselineRed, "\(id): herds add no red to the rail")
 
-            harness.herdsSection.toggle()
+            harness.collapse.toggle(.herds)
             await settle(window)
             let collapsed = try snapshot(window)
             XCTAssertEqual(count(red, in: railBox, of: collapsed), baselineRed, "\(id): folded, still no red")
@@ -1777,7 +1777,7 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(collapsed.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herds-rail-collapsed-\(scheme)-\(id).png"))
             }
-            harness.herdsSection.toggle()
+            harness.collapse.toggle(.herds)
             window.close()
 
             let inHerd = try await Harness(theme: theme, model: try Fixture.herdModel(focusing: "h1"), attaching: [])
@@ -2579,7 +2579,7 @@ private struct Harness {
     let themeStore: ThemeStore
     let textSize: TerminalTextSizeStore
     let railWidth: RailWidthStore
-    let herdsSection: HerdsSectionStore
+    let collapse: SectionCollapseStore
     let toasts: ToastCenter
     let rearrange: RearrangeMode
     let drag: DragCoordinator
@@ -2611,7 +2611,7 @@ private struct Harness {
         themeStore.select(theme)
         textSize = TerminalTextSizeStore(userDefaults: defaults)
         railWidth = RailWidthStore(userDefaults: defaults)
-        herdsSection = HerdsSectionStore(userDefaults: defaults)
+        collapse = SectionCollapseStore(userDefaults: defaults)
         toasts = ToastCenter()
         rearrange = RearrangeMode()
         drag = DragCoordinator(
@@ -2654,7 +2654,7 @@ private struct Harness {
             .environment(themeStore)
             .environment(textSize)
             .environment(railWidth)
-            .environment(herdsSection)
+            .environment(collapse)
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)

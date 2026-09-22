@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 
 /// The workspace rail split into the workspaces a person watches and the
 /// herds a shepherd watches for them.
@@ -110,40 +109,5 @@ public struct HerdRail: Equatable, Sendable {
     /// motion.
     public static func isWorkingWorker(_ status: AgentStatus) -> Bool {
         status == .working || status == .blocked
-    }
-
-    /// The rail reorders regular workspaces among themselves, and herdr's
-    /// `workspace.move` takes an index into its full list, herds included.
-    /// A slot before the rail's `railIndex`th row lands before that same
-    /// workspace; a slot past the last row lands just after the last one.
-    public static func modelInsertIndex(forRailIndex railIndex: Int, in model: SessionModel) -> Int {
-        let regularIndices = model.workspaces.indices.filter { !HerdWorkspace.isHerd(label: model.workspaces[$0].label) }
-        if railIndex < regularIndices.count {
-            return regularIndices[max(railIndex, 0)]
-        }
-        return (regularIndices.last.map { $0 + 1 }) ?? railIndex
-    }
-}
-
-/// Whether the rail's Herds section is folded, across launches. Mirrors
-/// `RailWidthStore`'s UserDefaults pattern, and is injected the same way.
-/// Nothing but `toggle` writes it: a herd appearing while folded leaves it
-/// folded, and the header's count is the notice.
-@MainActor
-@Observable
-public final class HerdsSectionStore {
-    public static let defaultsKey = "flock.herdsCollapsed"
-
-    public private(set) var isCollapsed: Bool
-    @ObservationIgnored private let userDefaults: UserDefaults
-
-    public init(userDefaults: UserDefaults = .standard) {
-        self.userDefaults = userDefaults
-        isCollapsed = userDefaults.bool(forKey: Self.defaultsKey)
-    }
-
-    public func toggle() {
-        isCollapsed.toggle()
-        userDefaults.set(isCollapsed, forKey: Self.defaultsKey)
     }
 }

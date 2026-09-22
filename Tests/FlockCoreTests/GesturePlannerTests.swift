@@ -497,6 +497,43 @@ final class GesturePlannerTests: XCTestCase {
         XCTAssertEqual(opPlan.ops, [.moveWorkspace(WorkspaceID(rawValue: "w4"), insertIndex: 2)])
     }
 
+    /// Board's workspaces sit in their own section too, so the rail's slot
+    /// skips them the same way, and only by the names the setting gives.
+    func testARailSlotSkipsBoardsWorkspacesAndHerdsBetweenRegularWorkspaces() {
+        var herd = workspaceRecord("w2", activeTab: "w2:t1")
+        herd.label = "herd: review-shapes"
+        var reviews = workspaceRecord("w3", activeTab: "w3:t1")
+        reviews.label = "Reviews"
+        let model = model(
+            workspaces: [
+                workspaceRecord("w1", activeTab: "w1:t1"), herd, reviews,
+                workspaceRecord("w4", activeTab: "w4:t1"), workspaceRecord("w5", activeTab: "w5:t1"),
+            ],
+            tabs: [], panes: [], layouts: []
+        )
+        let board = BoardWorkspaceNames(reviews: "Reviews", responds: "Responses", doctors: "Doctors")
+        let result = plan(dragging: .workspace(WorkspaceID(rawValue: "w5")), onto: .workspaceRail(insertIndex: 1), model: model, board: board)
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [.moveWorkspace(WorkspaceID(rawValue: "w5"), insertIndex: 3)])
+
+        let blockResult = plan(
+            dragging: .workspaces([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w5")]),
+            onto: .workspaceRail(insertIndex: 1), model: model, board: board
+        )
+        guard let blockPlan = expectPlan(blockResult) else { return }
+        XCTAssertEqual(
+            blockPlan.ops,
+            [.moveWorkspaceBlock([WorkspaceID(rawValue: "w1"), WorkspaceID(rawValue: "w5")], before: WorkspaceID(rawValue: "w4"))]
+        )
+
+        let unconfigured = plan(dragging: .workspace(WorkspaceID(rawValue: "w5")), onto: .workspaceRail(insertIndex: 1), model: model)
+        guard let unconfiguredPlan = expectPlan(unconfigured) else { return }
+        XCTAssertEqual(
+            unconfiguredPlan.ops, [.moveWorkspace(WorkspaceID(rawValue: "w5"), insertIndex: 2)],
+            "with no Board config, a workspace called Reviews is an ordinary row"
+        )
+    }
+
     // MARK: - Workspace block -> rail
 
     private func threeWorkspaceModel() -> SessionModel {
