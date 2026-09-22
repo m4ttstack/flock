@@ -362,7 +362,7 @@ final class ChromeRenderTests: XCTestCase {
         let signedInStatus = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: ["#rt", "#flock"])
 
         let popover = ChatPopover(
-            theme: theme, paneName: "claude", status: signedOutStatus, isPresented: .constant(true),
+            theme: theme, status: signedOutStatus, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
         XCTAssertEqual(fittingHeight(popover.header), ChromeMetrics.ChatPopover.Header.height, "header band")
@@ -372,7 +372,7 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(fittingHeight(popover.statusRoute), ChromeMetrics.ChatPopover.signedOutHeight, "signed-out total")
 
         let signedInPopover = ChatPopover(
-            theme: theme, paneName: "claude", status: signedInStatus, isPresented: .constant(true),
+            theme: theme, status: signedInStatus, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
         XCTAssertEqual(fittingHeight(signedInPopover.statusBlock), ChromeMetrics.ChatPopover.Status.heightSignedIn, "status band, signed in")
@@ -404,7 +404,7 @@ final class ChromeRenderTests: XCTestCase {
         let theme = Theme.tokyoNight
         let signedOutStatus = ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: [])
         let popover = ChatPopover(
-            theme: theme, paneName: "claude", status: signedOutStatus, isPresented: .constant(true),
+            theme: theme, status: signedOutStatus, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
         let window = popoverWindow(popover)
@@ -491,7 +491,7 @@ final class ChromeRenderTests: XCTestCase {
 
         let signedOutStatus = ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: [])
         let signedOutPopover = ChatPopover(
-            theme: theme, paneName: "claude", status: signedOutStatus, isPresented: .constant(true),
+            theme: theme, status: signedOutStatus, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}, previewHoveredFeature: .peek
         )
         let signedOutWindow = popoverWindow(signedOutPopover)
@@ -505,7 +505,10 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 0.5, y: 150)), theme.palette.surface1.hex, "signed-out outer stroke")
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "signed-out header rule")
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 85.5)), theme.palette.surface0.hex, "signed-out status band rule")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 343, y: 63)), theme.palette.surface0.hex, "signed-out pane chip fill")
+        // Where the pane chip used to sit. It named the pane this popover is
+        // anchored to, which the legend row above it already says, so the
+        // band's own ground is what belongs there now.
+        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 343, y: 63)), theme.palette.panelBg.hex, "signed-out status band, trailing end")
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 165)), theme.palette.selectionBg.hex, "signed-out selected feature row fill")
         var bestIconDistance = Int.max
         for y in stride(from: CGFloat(159), through: 171, by: 0.5) {
@@ -521,7 +524,7 @@ final class ChromeRenderTests: XCTestCase {
 
         let signedInStatus = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: ["#rt", "#flock"])
         let signedInPopover = ChatPopover(
-            theme: theme, paneName: "claude", status: signedInStatus, isPresented: .constant(true),
+            theme: theme, status: signedInStatus, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}, previewHoveredFeature: .peek
         )
         let signedInWindow = popoverWindow(signedInPopover)
@@ -535,7 +538,7 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 0.5, y: 150)), theme.palette.surface1.hex, "signed-in outer stroke")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "signed-in header rule")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 108.5)), theme.palette.surface0.hex, "signed-in status band rule")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 343, y: 63)), theme.palette.surface0.hex, "signed-in pane chip fill")
+        XCTAssertEqual(hex(signedInImage, CGPoint(x: 343, y: 63)), theme.palette.panelBg.hex, "signed-in status band, trailing end")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 17, y: 87)), theme.palette.activeRowBg.hex, "signed-in room chip fill")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 188)), theme.palette.selectionBg.hex, "signed-in selected feature row fill")
         var bestSignedInIconDistance = Int.max
@@ -560,7 +563,7 @@ final class ChromeRenderTests: XCTestCase {
         ChromeType.install()
         let theme = Theme.tokyoNight
         let popover = ChatPopover(
-            theme: theme, paneName: "claude", status: nil, isPresented: .constant(true),
+            theme: theme, status: nil, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
         let window = popoverWindow(popover)

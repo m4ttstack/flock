@@ -35,7 +35,7 @@ final class ChatPopoverAppearanceTests: XCTestCase {
 
     private func makePopover(theme: Theme) -> ChatPopover {
         ChatPopover(
-            theme: theme, paneName: "claude", status: nil, isPresented: .constant(true),
+            theme: theme, status: nil, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
     }

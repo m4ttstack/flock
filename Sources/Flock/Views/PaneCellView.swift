@@ -529,7 +529,7 @@ struct PaneCellView: View {
 
     private var chatPopover: some View {
         ChatPopover(
-            theme: theme, paneName: pane.terminalTitleStripped ?? pane.label ?? "shell",
+            theme: theme,
             status: chatStore.status(for: pane.paneID), statusError: chatStore.statusError(for: pane.paneID),
             isPresented: $isChatPopoverPresented,
             onSignIn: { Task { await chatStore.signIn(pane.paneID) } },

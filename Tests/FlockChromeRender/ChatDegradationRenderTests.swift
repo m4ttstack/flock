@@ -101,7 +101,7 @@ final class ChatDegradationRenderTests: XCTestCase {
     func testInitialFeatureSetsThePopoversStartingRoute() {
         func popover(initialFeature: ChatPopoverFeature?) -> ChatPopover {
             ChatPopover(
-                theme: .tokyoNight, paneName: "claude", status: nil, isPresented: .constant(true),
+                theme: .tokyoNight, status: nil, isPresented: .constant(true),
                 onSignIn: {}, onSignOut: {}, onOpenViewer: {}, initialFeature: initialFeature
             )
         }
@@ -225,11 +225,11 @@ final class ChatDegradationRenderTests: XCTestCase {
     func testTheFailureBannerAddsHeightOnlyWhenThereIsAnError() {
         let status = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: [])
         let clean = ChatPopover(
-            theme: .tokyoNight, paneName: "claude", status: status, isPresented: .constant(true),
+            theme: .tokyoNight, status: status, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
         let broken = ChatPopover(
-            theme: .tokyoNight, paneName: "claude", status: status, statusError: "chat daemon unreachable",
+            theme: .tokyoNight, status: status, statusError: "chat daemon unreachable",
             isPresented: .constant(true), onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
         XCTAssertGreaterThan(
@@ -244,7 +244,7 @@ final class ChatDegradationRenderTests: XCTestCase {
         let reason = "Open viewer needs deck, which isn't installed"
 
         let openViewerHovered = ChatPopover(
-            theme: theme, paneName: "claude", status: status, isPresented: .constant(true),
+            theme: theme, status: status, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}, viewerDisabledReason: reason,
             previewHoveredFeature: .openViewer
         )
@@ -261,7 +261,7 @@ final class ChatDegradationRenderTests: XCTestCase {
         openViewerWindow.close()
 
         let peekHovered = ChatPopover(
-            theme: theme, paneName: "claude", status: status, isPresented: .constant(true),
+            theme: theme, status: status, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}, viewerDisabledReason: reason,
             previewHoveredFeature: .peek
         )

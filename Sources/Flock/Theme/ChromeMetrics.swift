@@ -213,17 +213,6 @@ enum ChromeMetrics {
             static let leadingPadding: CGFloat = 14
             static let gap: CGFloat = 7
             static let dotSize: CGFloat = 7
-            /// Height is fixed, width is not. A pane's name is the one thing
-            /// this chip is for, and 63pt of it fitted four characters
-            /// before the ellipsis, which named nothing. The cap only stops
-            /// a long title crowding the handle beside it.
-            static let paneChipHeight: CGFloat = 18
-            static let paneChipMaxWidth: CGFloat = 190
-            static let paneChipCornerRadius: CGFloat = 4
-            static let paneChipVerticalPadding: CGFloat = 3
-            static let paneChipHorizontalPadding: CGFloat = 8
-            static let paneChipGap: CGFloat = 5
-            static let paneChipIconSize = CGSize(width: 10, height: 10)
             static let roomChipHeight: CGFloat = 16
             static let roomChipCornerRadius: CGFloat = 4
             static let roomChipVerticalPadding: CGFloat = 2

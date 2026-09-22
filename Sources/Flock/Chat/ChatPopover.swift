@@ -51,10 +51,6 @@ enum ChatPopoverFeature: CaseIterable, Identifiable {
 /// same as its header icon.
 struct ChatPopover: View {
     let theme: Theme
-    /// What the trailing chip in the status block names -- the pane this
-    /// popover acts on, not anything `status` carries: `ChatStatus.pane` is
-    /// `nil` while signed out, but the popover always knows its own pane.
-    let paneName: String
     let status: ChatStatus?
     /// Set only when this pane's last status call failed: chat is available
     /// (this view exists at all), the call itself is what is broken, never
@@ -99,13 +95,12 @@ struct ChatPopover: View {
     /// real pointer -- production call sites never pass it, and hovering
     /// updates the same `hoveredFeature` state afterward regardless.
     init(
-        theme: Theme, paneName: String, status: ChatStatus?, statusError: String? = nil, isPresented: Binding<Bool>,
+        theme: Theme, status: ChatStatus?, statusError: String? = nil, isPresented: Binding<Bool>,
         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onOpenViewer: @escaping () -> Void,
         viewerDisabledReason: String? = nil, onRetry: @escaping () -> Void = {}, initialFeature: ChatPopoverFeature? = nil,
         onJump: @escaping (PaneID) -> Void = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil
     ) {
         self.theme = theme
-        self.paneName = paneName
         self.status = status
         self.statusError = statusError
         self._isPresented = isPresented
@@ -228,7 +223,6 @@ struct ChatPopover: View {
                     .font(ChromeType.chatPopoverStateWord)
                     .foregroundStyle(theme.subtext0)
                 Spacer(minLength: 0)
-                paneChip
             }
             if hasRooms {
                 HStack(spacing: ChromeMetrics.ChatPopover.Status.roomChipGap) {
@@ -254,36 +248,6 @@ struct ChatPopover: View {
     /// off: a 1pt line in `surface0`, never the outer stroke's own colour.
     private var bandRule: some View {
         Rectangle().fill(Color(theme.palette.surface0)).frame(height: 1)
-    }
-
-    private var paneChip: some View {
-        HStack(spacing: ChromeMetrics.ChatPopover.Status.paneChipGap) {
-            Image(systemName: "terminal")
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(theme.overlay0)
-                .frame(
-                    width: ChromeMetrics.ChatPopover.Status.paneChipIconSize.width,
-                    height: ChromeMetrics.ChatPopover.Status.paneChipIconSize.height
-                )
-            // From the head, not the tail. These names share long leading
-            // words and differ at the end, so clipping the front is what
-            // keeps the part that tells two panes apart.
-            Text(paneName)
-                .font(ChromeType.chatPopoverChipLabel)
-                .foregroundStyle(theme.text)
-                .lineLimit(1)
-                .truncationMode(.head)
-        }
-        .padding(.vertical, ChromeMetrics.ChatPopover.Status.paneChipVerticalPadding)
-        .padding(.horizontal, ChromeMetrics.ChatPopover.Status.paneChipHorizontalPadding)
-        .frame(
-            maxWidth: ChromeMetrics.ChatPopover.Status.paneChipMaxWidth,
-            alignment: .leading
-        )
-        .frame(height: ChromeMetrics.ChatPopover.Status.paneChipHeight)
-        .fixedSize(horizontal: true, vertical: false)
-        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.paneChipCornerRadius).fill(Color(theme.palette.surface0)))
     }
 
     private func roomChip(_ room: String) -> some View {
