@@ -8,23 +8,39 @@ is built native-only and a universal Release fails to link.
 
 ## What a stranger sees on first launch
 
-Checked 2026-09-21 on a clean VM that had never seen this app or this
+Checked 2026-09-22 on a clean VM that had never seen this app or this
 Developer ID: `mattstack-golden-26`, Gatekeeper on, no brew, no CLT, nothing
-preinstalled. Driven by `rt-tray/vm/run/gatekeeper-check.sh` in repo-tools.
+preinstalled. Driven by `rt-tray/vm/run/gatekeeper-check.sh` in repo-tools,
+which ran unattended and passed all nine phases.
 
 **flock clears Gatekeeper.** No "cannot be opened because the developer
-cannot be verified", which is the outcome that would actually stop someone.
-Notarization and stapling are honoured on a machine with no prior trust.
+cannot be verified", no "Apple could not verify this app is free of
+malware". Notarization and stapling are honoured on a machine with no prior
+trust.
+
+That negative is worth something because the same run proves the check can
+detect a refusal: it builds a deliberately unsigned app, launches it in the
+same guest through the same probe, and requires a refusal to be seen and
+classified before it will report anything about flock. Earlier versions of
+this check could not have produced a refusal at all, and their clean results
+meant nothing.
 
 **One confirmation still appears**, the "downloaded from the Internet, are
 you sure you want to open it?" prompt. That is normal for every notarized app
 distributed outside the App Store and there is no way to remove it short of
 shipping through the store. Do not read a report of it as a defect.
 
-An admin password prompt also appeared, but that belongs to the harness
-rather than to flock: it copies into `/Applications` as a standard user.
-`--dest /Users/tester/Applications` avoids it, and Gatekeeper assesses the
-same either way.
+**flock launched App-Translocated**, from a read-only copy under
+`/private/var/.../AppTranslocation/` rather than from `/Applications`. macOS
+does this to a quarantined app that the user has not explicitly moved itself,
+and answering the open prompt comes too late to prevent it for that launch.
+It matters here because `Sources/Flock/Ghostty/GhosttyControlSurfaceFactory.swift`
+is the one place flock resolves its own bundle path, and under translocation
+that path is a temporary read-only copy. **Whether that breaks anything is
+untested**: the golden has no herdr, so flock never got past its no-herdr
+screen. A real user who drags the app to Applications themselves makes a
+gesture the harness cannot reproduce over Apple Events, so their first launch
+may well not translocate.
 
 **What this did NOT prove.** That flock works. The golden has no herdr, so
 the app opened onto its own no-herdr screen and nothing else was exercised.
