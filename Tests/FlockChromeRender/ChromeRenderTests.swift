@@ -10,7 +10,7 @@ import XCTest
 /// run.
 @MainActor
 final class ChromeRenderTests: XCTestCase {
-    static let defaultsSuite = "dev.mattstack.flock.chrome-render"
+    nonisolated static let defaultsSuite = "dev.mattstack.flock.chrome-render"
     private static let windowSize = CGSize(width: 900, height: 560)
     /// The grid's own window. A thumbnail is one fixed width now, so how many
     /// slots a card row holds is the window's answer: 900pt holds three and

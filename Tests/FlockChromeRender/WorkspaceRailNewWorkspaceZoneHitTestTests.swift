@@ -90,7 +90,7 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
         return (window, hosting)
     }
 
-    private static let defaultsSuite = "dev.mattstack.flock.rail-hit-test"
+    private nonisolated static let defaultsSuite = "dev.mattstack.flock.rail-hit-test"
 
     override func tearDown() {
         UserDefaults().removePersistentDomain(forName: Self.defaultsSuite)
