@@ -73,48 +73,21 @@ struct PaneLoaderView: View {
         }
     }
 
+    /// The drawing is `HerdrRamMark`'s, shared with every other surface that
+    /// shows the mark. Only the clock is this view's: the rest path never
+    /// moves and `.offset` is the only thing animated per frame, so a running
+    /// badge never forces a layout pass.
     @ViewBuilder
     private var mark: some View {
-        let square = CGSize(
-            width: ChromeMetrics.Loader.badgeMarkSize, height: ChromeMetrics.Loader.badgeMarkSize
-        )
         if reduceMotion {
-            trail(in: square) { _ in 0 }
+            HerdrRamMark(size: ChromeMetrics.Loader.badgeMarkSize)
         } else {
             TimelineView(.animation) { context in
                 let elapsed = context.date.timeIntervalSince(start)
-                trail(in: square) { delay in PaneLoaderChoreography.mergeProgress(elapsed: elapsed, startDelay: delay) }
+                HerdrRamMark(size: ChromeMetrics.Loader.badgeMarkSize) { delay in
+                    PaneLoaderChoreography.mergeProgress(elapsed: elapsed, startDelay: delay)
+                }
             }
         }
-    }
-
-    /// `progress` maps an echo's own start delay to how merged it is right
-    /// now (0 rest, 1 merged with the leader). The rest path never moves;
-    /// `.offset` is the only thing animated per frame, so a running badge
-    /// never forces a layout pass.
-    private func trail(in square: CGSize, progress: @escaping (Double) -> Double) -> some View {
-        ZStack {
-            ForEach(Array(HerdrRamTrail.echoes.enumerated()), id: \.offset) { index, echo in
-                let merge = progress(echo.startDelay)
-                let offset = HerdrRamTrail.offset(restBackSteps: echo.restBackSteps, in: square, progress: merge)
-                Path(HerdrRamTrail.path(in: square))
-                    .fill(echoColor(index))
-                    .opacity(echo.restOpacity - PaneLoaderChoreography.mergeOpacityDrop * merge)
-                    .offset(x: offset.width, y: offset.height)
-            }
-            Path(HerdrRamTrail.path(in: square))
-                .fill(Color(HerdrRamTrail.Colors.leader))
-        }
-        .frame(width: square.width, height: square.height)
-        // `HerdrRamTrail.path` is fit the way `make-icon.swift` fits it into
-        // a bottom-left-origin, y-up `CGContext`; SwiftUI's own `Path` space
-        // is top-left-origin, y-down, so this is the one place that
-        // reconciles the two rather than the shared geometry carrying a
-        // SwiftUI-specific flip.
-        .scaleEffect(x: 1, y: -1)
-    }
-
-    private func echoColor(_ index: Int) -> Color {
-        Color(HerdrRamTrail.Colors.echoes[index])
     }
 }

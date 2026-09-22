@@ -41,9 +41,7 @@ struct NoHerdrScreen: View {
     var content: some View {
         VStack(spacing: ChromeMetrics.NoHerdr.spacing) {
             VStack(spacing: ChromeMetrics.NoHerdr.symbolSpacing) {
-                Image(systemName: "bird.fill")
-                    .font(ChromeType.noHerdrSymbol)
-                    .foregroundStyle(theme.accent)
+                HerdrRamMark(size: ChromeMetrics.NoHerdr.markSize)
                 Text(Self.headline)
                     .font(ChromeType.noHerdrHeadline)
                     .foregroundStyle(theme.textStrong)

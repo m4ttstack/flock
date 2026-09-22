@@ -295,12 +295,17 @@ struct PaneCellView: View {
     /// remainder is plain ground).
     private func box(editorIsOpen: Bool) -> some View {
         content(editorIsOpen: editorIsOpen)
-            // `.topLeading`, not the default centre: while a divider drag has
-            // the surface frozen it is WIDER than this frame, and a centred
-            // overflow clips both edges, taking the start of every line with
-            // it. Anchoring left means the text the user is reading stays put
-            // and the clip only ever eats the far end of the lines.
-            .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)
+            // `.bottomLeading`, not the default centre, and it is the anchor
+            // for BOTH axes while a divider drag holds the surface frozen at a
+            // size bigger than this frame. A centred overflow clips all four
+            // edges at once; this picks which edge loses on each axis, and
+            // both choices follow what a terminal puts where.
+            //
+            // Leading, so a narrowing clip eats the far END of the lines and
+            // never the start the user is reading. Bottom, so a shortening
+            // clip eats the OLDEST lines off the top and leaves the newest
+            // ones, which are the ones being watched, against the edge.
+            .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .bottomLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(Self.contentInsets)
             .background(theme.pane)
