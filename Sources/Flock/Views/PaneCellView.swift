@@ -38,7 +38,7 @@ struct PaneHoverLift: ViewModifier {
 /// chrome, over its one ghostty surface once `SessionViewModel` hands one
 /// back. Every pane the canvas renders is a visible pane of the selected tab,
 /// so it attaches on first visibility per the standing attach policy, and the
-/// attach badge covers that whole wait. The status card (glyph/cwd/hint) is
+/// attach badge covers that whole wait. The status card (glyph/cwd) is
 /// only for an app with no ghostty host.
 struct PaneCellView: View {
     /// What the canvas subtracts from a box before deriving the whole-cell
@@ -805,8 +805,8 @@ struct PaneCellView: View {
         .accessibilityIdentifier(entry.accessibilityIdentifier)
     }
 
-    /// Vertical anatomy per the reference (glyph, cwd, chip when present,
-    /// hint), centered -- both explicitly, so a reader doesn't have to know
+    /// Vertical anatomy per the reference (glyph, cwd, chip when present),
+    /// centered -- both explicitly, so a reader doesn't have to know
     /// that `.frame(maxWidth: .infinity)`'s default alignment happens to
     /// agree with what's wanted here. Shown only when the app has no ghostty
     /// host (`PaneLoaderPolicy.showsStatusCard`).
@@ -833,16 +833,11 @@ struct PaneCellView: View {
                             .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
                     )
             }
-            Text(hintText)
-                .font(ChromeType.cardHint)
-                .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(ChromeMetrics.Card.padding)
     }
-
-    private var hintText: String { "click to focus in herdr" }
 
     private var cwdTail: String {
         guard let last = pane.cwd.split(separator: "/").last else { return pane.cwd }
