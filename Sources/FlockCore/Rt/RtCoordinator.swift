@@ -65,6 +65,10 @@ public final class RtCoordinator {
     @ObservationIgnored var handledStrays: Set<TabID> = []
     @ObservationIgnored var lastSeenFocus: PaneID?
     @ObservationIgnored var lastVisibleFocus: PaneID?
+    /// Terminals with a runner create in flight, so a second `open(.runner)`
+    /// arriving before the first item exists (`runner(linkedTo:)` sees
+    /// nothing yet) is turned away rather than starting a second workspace.
+    @ObservationIgnored var openingRunners: Set<TerminalID> = []
 
     public init(
         client: any HerdrCommandClient,
@@ -121,10 +125,14 @@ public final class RtCoordinator {
 
     public func open(_ kind: RtKind, from pane: PaneRecord) async {
         guard let terminal = pane.terminalID else { return }
-        if kind == .runner, let existing = runner(linkedTo: terminal) {
-            await show(existing.id)
-            return
+        if kind == .runner {
+            if let existing = runner(linkedTo: terminal) {
+                await show(existing.id)
+                return
+            }
+            guard openingRunners.insert(terminal).inserted else { return }
         }
+        defer { if kind == .runner { openingRunners.remove(terminal) } }
         opensInFlight += 1
         defer { opensInFlight -= 1 }
         let token = makeToken()
@@ -208,17 +216,39 @@ public final class RtCoordinator {
 
     // MARK: - the modal
 
-    /// Another item's modal is closed by `closeModal`'s rules first.
+    /// Claims the modal for `id` before any await: an overlapping `show`
+    /// reads `modal` next only after this one has already written it, never
+    /// during a gap left by the outgoing item's disposal. That disposal runs
+    /// in the background (`settle()` waits for it) so this item's watch
+    /// starts without waiting on it.
     public func show(_ id: String) async {
-        if let current = modal, current.itemID != id { await closeModal() }
         guard let item = items[id] else { return }
+        let outgoing = modal
         modal = RtModal(itemID: id, tabID: item.tabIDs[0], serviceTabID: nil)
+        if let outgoing, outgoing.itemID != id {
+            background { [weak self] in await self?.dispose(outgoing.itemID) }
+        }
     }
 
     /// nav and glitter exist only inside the modal, so closing one early
-    /// shuts it down; an rt run or a runner keeps going, hidden. Anything on a
-    /// strip is over, and goes. Either way herdr's focus goes to the pane the
-    /// item belongs to, which the rt button's click never moved to.
+    /// shuts it down; an rt run or a runner keeps going, hidden. Anything on
+    /// a strip is over, and goes.
+    func dispose(_ id: String) async {
+        guard let item = items[id] else { return }
+        if item.strip != nil {
+            await closeItem(id)
+        } else {
+            switch item.kind {
+            case .nav, .glitter: await shutDown(id)
+            case .run, .runner: break
+            }
+        }
+    }
+
+    /// A plain close, with nothing else claiming the modal next: herdr's
+    /// focus goes to the pane the item belongs to, which the rt button's
+    /// click never moved to, before the item is disposed of by `dispose`'s
+    /// rules.
     public func closeModal() async {
         guard let current = modal else { return }
         modal = nil
@@ -226,14 +256,7 @@ public final class RtCoordinator {
         // Before the shutdown, which waits out its confirm delay: focus moves
         // with the close, not a second after it.
         await focusLinked(item.linked)
-        if item.strip != nil {
-            await closeItem(item.id)
-        } else {
-            switch item.kind {
-            case .nav, .glitter: await shutDown(item.id)
-            case .run, .runner: break
-            }
-        }
+        await dispose(current.itemID)
     }
 
     func focusLinked(_ terminal: TerminalID) async {

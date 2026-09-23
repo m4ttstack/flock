@@ -211,10 +211,47 @@ final class RtCoordinatorTests: XCTestCase {
         rt.update(model: world.model())
 
         await rt.open(.glitter, from: world.fixture.linkedPane)
+        await rt.settle()
 
         XCTAssertNil(rt.items["tok1"], "nav only lives inside the modal")
         XCTAssertEqual(rt.modal?.itemID, "tok2")
         rt.watches["tok2"]?.cancel()
+    }
+
+    /// The chrome fires `open`/`show` from detached Tasks, so two can overlap
+    /// with no await between them; the modal must still settle on whichever
+    /// claimed it last, with nothing orphaned outside it.
+    func testOverlappingOpensLeaveExactlyOneItemClaimingTheModal() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt nav", .init(busyPolls: 1000, status: "0"))
+        world.script("command rt glitter", .init(busyPolls: 1000, status: "0"))
+        world.script("command rt nav", .init(busyPolls: 1000, status: "0"))
+        let rt = makeCoordinator(world)
+        await rt.open(.nav, from: world.fixture.linkedPane)
+        rt.update(model: world.model())
+
+        async let second: Void = rt.open(.glitter, from: world.fixture.linkedPane)
+        async let third: Void = rt.open(.nav, from: world.fixture.linkedPane)
+        _ = await (second, third)
+        await rt.settle()
+
+        let live = rt.items.values.filter { $0.kind == .nav || $0.kind == .glitter }
+        XCTAssertEqual(live.count, 1)
+        XCTAssertEqual(rt.modal?.itemID, live.first?.id)
+        for id in rt.items.keys { rt.watches[id]?.cancel() }
+    }
+
+    func testASecondRunnerOpenForTheSamePaneIsIgnoredWhileTheFirstIsInFlight() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt runner", .init(busyPolls: 1000, status: "0", foreground: ["bun", "rt-ui"]))
+        let rt = makeCoordinator(world)
+
+        async let first: Void = rt.open(.runner, from: world.fixture.linkedPane)
+        async let second: Void = rt.open(.runner, from: world.fixture.linkedPane)
+        _ = await (first, second)
+
+        XCTAssertEqual(world.calls("workspace.create").count, 1)
+        rt.watches["tok1"]?.cancel()
     }
 
     func testAPaneHerdrStopsAnsweringForIsForgotten() async throws {
