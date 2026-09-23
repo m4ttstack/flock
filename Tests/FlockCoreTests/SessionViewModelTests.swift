@@ -383,6 +383,27 @@ private func makeModel(
     return SessionModel(snapshot: snapshot)
 }
 
+/// `w1` (the one visible workspace, `w1:p1` in `w1:t1`) plus `wF`, a flock
+/// owned workspace whose tab `wF:t1` holds `wF:p1`.
+private func makeModelWithFlockWorkspace(
+    focusedWorkspaceID: String = "w1", focusedTabID: String = "w1:t1", focusedPaneID: String = "w1:p1",
+    includingFlockPane: Bool = true
+) -> SessionModel {
+    let flockPane = includingFlockPane
+        ? #",{"pane_id":"wF:p1","terminal_id":"term_f1","workspace_id":"wF","tab_id":"wF:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/src/acme"}"#
+        : ""
+    let json = #"""
+    {"version":"0.9.0","protocol":22,"focused_workspace_id":"\#(focusedWorkspaceID)","focused_tab_id":"\#(focusedTabID)","focused_pane_id":"\#(focusedPaneID)",
+     "workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},
+                   {"workspace_id":"wF","label":"flock:rt","number":2,"active_tab_id":"wF:t1","agent_status":"unknown"}],
+     "tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"orig","number":1,"pane_count":1,"agent_status":"unknown"},
+             {"tab_id":"wF:t1","workspace_id":"wF","label":"nav term_a1 tok1","number":1,"pane_count":1,"agent_status":"unknown"}],
+     "panes":[{"pane_id":"w1:p1","terminal_id":"term_a1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"}\#(flockPane)],
+     "layouts":[]}
+    """#
+    return SessionModel(snapshot: try! JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8)))
+}
+
 final class SessionViewModelTests: XCTestCase {
     @MainActor
     func testSelectionDefaultsToHerdrFocus() {
@@ -2640,5 +2661,46 @@ final class SessionViewModelTests: XCTestCase {
         let reply = Data(#"{"id":"1","result":{"text":"ready for input"}}"#.utf8)
 
         XCTAssertNil(SessionViewModel.extractLastLine(reply))
+    }
+
+    // MARK: - flock-owned workspaces
+
+    @MainActor
+    func testFlockOwnedWorkspacesStayInTheFullModelOnly() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
+
+        XCTAssertEqual(viewModel.model?.workspaces.map(\.workspaceID), [WorkspaceID(rawValue: "w1")])
+        XCTAssertEqual(viewModel.fullModel?.workspaces.count, 2)
+    }
+
+    @MainActor
+    func testHerdrFocusLandingInAFlockOwnedTabLeavesTheSelectionAlone() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w1:t1"))
+
+        viewModel.update(
+            model: makeModelWithFlockWorkspace(focusedWorkspaceID: "wF", focusedTabID: "wF:t1", focusedPaneID: "wF:p1"),
+            connection: .live
+        )
+
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w1:t1"))
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w1"))
+    }
+
+    /// A hidden pane's surface lives in the modal, not the canvas, and has to
+    /// be torn down when herdr closes it like any other.
+    @MainActor
+    func testAHiddenPaneThatClosesIsTornDown() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
+        _ = await viewModel.attachPane(PaneID(rawValue: "wF:p1"))
+
+        viewModel.update(model: makeModelWithFlockWorkspace(includingFlockPane: false), connection: .live)
+        await viewModel.waitForClosedPaneTeardown()
+
+        XCTAssertEqual(factory.surfaces[PaneID(rawValue: "wF:p1")]?.detachCallCount, 1)
     }
 }
