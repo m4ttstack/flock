@@ -74,6 +74,41 @@ private actor StubSplitCommandClient: HerdrCommandClient {
     }
 }
 
+/// Answers `pane.split` like `StubSplitCommandClient` and `pane.process_info`
+/// from a script, one answer per poll, the last one repeating. The busy and
+/// idle bodies are herdr 0.9's own `PaneProcessInfo` shape.
+private actor StubForegroundClient: HerdrCommandClient {
+    enum Answer { case busy, idle, failure }
+    struct Failure: Error {}
+
+    private(set) var calls: [(method: String, params: [String: JSONValue])] = []
+    private var script: [Answer]
+
+    init(_ script: [Answer]) {
+        self.script = script
+    }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        calls.append((method, params))
+        switch method {
+        case "pane.split":
+            return Data(#"{"result":{"pane":{"pane_id":"w1:p2"}}}"#.utf8)
+        case "pane.process_info":
+            let answer = script.count > 1 ? script.removeFirst() : script[0]
+            switch answer {
+            case .busy:
+                return Data(#"{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":500,"foreground_process_group_id":731,"foreground_processes":[{"name":"fzf","pid":731}]},"type":"pane_process_info"}}"#.utf8)
+            case .idle:
+                return Data(#"{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":500,"foreground_process_group_id":500,"foreground_processes":[{"name":"zsh","pid":500}]},"type":"pane_process_info"}}"#.utf8)
+            case .failure:
+                throw Failure()
+            }
+        default:
+            return Data("{}".utf8)
+        }
+    }
+}
+
 /// Answers `tab.create` and `workspace.create` with herdr's own response
 /// shapes (`ResponseResult::TabCreated` and `WorkspaceCreated`, both of which
 /// carry the created tab and its root pane), so what a create lands on is
@@ -186,6 +221,12 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
 
     func takeHerdrHold() {
         holdCalls.append(.take)
+    }
+
+    private(set) var resumeScreenActivityCallCount = 0
+
+    func resumeScreenActivityReporting() {
+        resumeScreenActivityCallCount += 1
     }
 }
 
@@ -884,6 +925,72 @@ final class SessionViewModelTests: XCTestCase {
             stringParam(sendCall.params, "text"), "claude",
             "the command reaches the pane over pane.send_input, focus-independent")
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane))
+    }
+
+    // MARK: - a navigator command (rt cd) launched from the launcher
+
+    @MainActor
+    func testLaunchNavigatorFocusesThePaneBeforeSubmittingTheCommand() async throws {
+        let client = StubForegroundClient([.busy])
+        let viewModel = SessionViewModel(client: client, navigationPollInterval: .milliseconds(1))
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let newPane = PaneID(rawValue: "w1:p2")
+        await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p1"))
+
+        await viewModel.launchNavigator("rt cd", in: newPane)
+
+        let calls = await client.calls
+        let focusIndex = try XCTUnwrap(calls.lastIndex { $0.method == "pane.focus" })
+        let sendIndex = try XCTUnwrap(calls.lastIndex { $0.method == "pane.send_input" })
+        XCTAssertEqual(stringParam(calls[focusIndex].params, "pane_id"), "w1:p2")
+        XCTAssertLessThan(focusIndex, sendIndex, "the picker takes keys the moment it opens")
+        XCTAssertEqual(stringParam(calls[sendIndex].params, "text"), "rt cd")
+        XCTAssertEqual(stringArrayParam(calls[sendIndex].params, "keys"), ["Enter"])
+        XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "the launcher steps aside for the picker")
+        viewModel.navigationWatches[newPane]?.cancel()
+    }
+
+    @MainActor
+    func testTheLauncherComesBackWhenTheNavigatorCloses() async throws {
+        let client = StubForegroundClient([.busy, .busy, .idle])
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(
+            client: client, ghosttyFactory: factory, navigationPollInterval: .milliseconds(1)
+        )
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let newPane = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(newPane)
+
+        await viewModel.launchNavigator("rt cd", in: newPane)
+        let watch = try XCTUnwrap(viewModel.navigationWatches[newPane])
+        await watch.value
+
+        XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
+        XCTAssertEqual(
+            factory.surfaces[newPane]?.resumeScreenActivityCallCount, 1,
+            "row counting was off while the picker ran, and the new prompt has to be measured"
+        )
+        let polls = await client.calls.filter { $0.method == "pane.process_info" }
+        XCTAssertEqual(polls.count, 3, "polling stops once the pane is back at its prompt")
+        XCTAssertEqual(stringParam(polls[0].params, "pane_id"), "w1:p2")
+        XCTAssertNil(viewModel.navigationWatches[newPane])
+    }
+
+    @MainActor
+    func testANavigatorHerdrStopsAnsweringForLeavesTheLauncherHidden() async throws {
+        let client = StubForegroundClient([.busy, .failure])
+        let viewModel = SessionViewModel(client: client, navigationPollInterval: .milliseconds(1))
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let newPane = PaneID(rawValue: "w1:p2")
+
+        await viewModel.launchNavigator("rt cd", in: newPane)
+        let watch = try XCTUnwrap(viewModel.navigationWatches[newPane])
+        await watch.value
+
+        XCTAssertFalse(viewModel.isPristineLauncherPane(newPane))
+        XCTAssertNil(viewModel.navigationWatches[newPane])
+        let polls = await client.calls.filter { $0.method == "pane.process_info" }
+        XCTAssertEqual(polls.count, 2)
     }
 
     // MARK: - ghostty pane attach (every visible pane, one surface for its whole life)

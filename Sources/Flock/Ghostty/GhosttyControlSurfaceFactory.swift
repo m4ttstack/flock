@@ -194,5 +194,9 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
         session.sendHold(.take)
     }
 
+    func resumeScreenActivityReporting() {
+        session.resumeScreenActivityReporting()
+    }
+
     var hasFirstFrame: Bool { session.hasFirstFrame }
 }

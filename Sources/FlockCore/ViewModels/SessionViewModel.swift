@@ -123,6 +123,10 @@ public final class SessionViewModel {
     /// Read at every raise and sweep, so a change in Settings lands at the
     /// dock's next sweep without anything pushing it here.
     @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
+    @ObservationIgnored private let navigationPollInterval: Duration
+    /// One per pane running a navigator command, until its shell is back at
+    /// the prompt.
+    @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
 
     public init(
         client: any HerdrCommandClient,
@@ -134,7 +138,8 @@ public final class SessionViewModel {
         paneAgentStatusSubscriber: (any PaneAgentStatusSubscribing)? = nil,
         noticeSink: @escaping @MainActor (String) -> Void = { _ in },
         now: @escaping @MainActor () -> Date = { Date() },
-        notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen }
+        notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
+        navigationPollInterval: Duration = .milliseconds(300)
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -146,6 +151,7 @@ public final class SessionViewModel {
         self.noticeSink = noticeSink
         self.now = now
         self.notificationLifetime = notificationLifetime
+        self.navigationPollInterval = navigationPollInterval
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -840,6 +846,47 @@ public final class SessionViewModel {
             ]
         )
         recordLauncherKeystroke(pane)
+    }
+
+    /// Runs a navigator command (a directory picker such as `rt cd`) in
+    /// `pane`, focused first because the picker takes keys the moment it
+    /// opens. The launcher steps aside while it runs and is offered again at
+    /// the prompt it leaves, found by polling `pane.process_info`: no herdr
+    /// event says a pane's shell is back at its prompt.
+    public func launchNavigator(_ command: String, in pane: PaneID) async {
+        await jumpToHerdr(pane: pane)
+        _ = try? await client.requestRaw(
+            "pane.send_input",
+            [
+                "pane_id": .string(pane.rawValue),
+                "text": .string(command),
+                "keys": .array([.string("Enter")]),
+            ]
+        )
+        paneLauncherRegistry.recordNavigationStarted(pane, at: now())
+        launcherRegistryVersion += 1
+        navigationWatches[pane]?.cancel()
+        navigationWatches[pane] = Task { [weak self] in await self?.watchNavigation(in: pane) }
+    }
+
+    private func watchNavigation(in pane: PaneID) async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: navigationPollInterval)
+            guard !Task.isCancelled else { return }
+            let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
+            guard !Task.isCancelled else { return }
+            guard let data, let busy = PaneForegroundJob.isBusy(processInfoResponse: data) else {
+                paneLauncherRegistry.forgetNavigation(pane)
+                navigationWatches[pane] = nil
+                return
+            }
+            paneLauncherRegistry.recordForegroundJob(pane, busy: busy, at: now())
+            guard !paneLauncherRegistry.isNavigating(pane) else { continue }
+            launcherRegistryVersion += 1
+            ghosttySurfaces[pane]?.resumeScreenActivityReporting()
+            navigationWatches[pane] = nil
+            return
+        }
     }
 
     /// Splits `pane` rightward via `pane.split` and focuses the new pane,

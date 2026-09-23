@@ -77,6 +77,10 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// Idempotent, like `unpark()`.
     func takeHerdrHold()
 
+    /// Turns the launcher's row counting back on after the surface switched
+    /// it off, for a launcher offered again at a prompt nobody has measured.
+    func resumeScreenActivityReporting()
+
     /// Whether the bridge has reported this surface's first full-frame paint,
     /// ever, over the status FIFO's `flock.first_frame` line. `PaneCellView`
     /// reads this to decide whether a cold attach still shows the status card;

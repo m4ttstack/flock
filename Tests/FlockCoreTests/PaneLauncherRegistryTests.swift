@@ -255,4 +255,126 @@ final class PaneLauncherRegistryTests: XCTestCase {
         registry.recordScreenActivity(pane, nonEmptyRowCount: 1, at: start)
         XCTAssertFalse(registry.isPristine(pane))
     }
+
+    // MARK: - a navigator command (rt cd) run from the launcher
+
+    /// The picker takes keys for as long as it is open. Those keys are the
+    /// navigator being used, not the pane, so none of them may end it.
+    @MainActor
+    func testKeystrokesIntoThePickerDoNotEndTheNavigation() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+        registry.registerFlockCreated(pane)
+
+        registry.recordNavigationStarted(pane, at: start)
+        XCTAssertFalse(registry.isPristine(pane), "the launcher steps aside while the picker is up")
+        registry.recordForegroundJob(pane, busy: true, at: start.addingTimeInterval(0.3))
+        registry.recordKeystroke(pane)
+        registry.recordKeystroke(pane)
+
+        XCTAssertTrue(registry.isNavigating(pane))
+    }
+
+    @MainActor
+    func testThePickerClosingOffersTheLauncherAgain() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+        registry.registerFlockCreated(pane)
+        registry.recordNavigationStarted(pane, at: start)
+        registry.recordForegroundJob(pane, busy: true, at: start.addingTimeInterval(0.3))
+        registry.recordKeystroke(pane)
+
+        registry.recordForegroundJob(pane, busy: false, at: start.addingTimeInterval(5))
+
+        XCTAssertFalse(registry.isNavigating(pane))
+        XCTAssertTrue(registry.isPristine(pane), "back at a prompt, in the folder the picker chose")
+    }
+
+    /// The first poll can land before the shell has even started the command,
+    /// when the pane is still sitting at the prompt the click typed into.
+    @MainActor
+    func testAnIdlePaneBeforeThePickerHasStartedIsNotItClosing() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+        registry.registerFlockCreated(pane)
+        registry.recordNavigationStarted(pane, at: start)
+
+        registry.recordForegroundJob(pane, busy: false, at: start.addingTimeInterval(0.3))
+
+        XCTAssertTrue(registry.isNavigating(pane))
+        XCTAssertFalse(registry.isPristine(pane))
+    }
+
+    /// A command that fails straight away may finish between two polls and
+    /// never be seen running. Past the ceiling, an idle pane is taken as done.
+    @MainActor
+    func testACommandNeverSeenRunningHandsTheLauncherBackAfterTheCeiling() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+        registry.registerFlockCreated(pane)
+        registry.recordNavigationStarted(pane, at: start)
+
+        registry.recordForegroundJob(
+            pane, busy: false, at: start.addingTimeInterval(PaneLauncherRegistry.navigationStartCeiling + 0.1)
+        )
+
+        XCTAssertFalse(registry.isNavigating(pane))
+        XCTAssertTrue(registry.isPristine(pane))
+    }
+
+    /// The picker paints the whole pane, so nothing it draws may count, and
+    /// the prompt it leaves behind sits lower than the one the pane settled
+    /// at: that new screen is what later output is measured against.
+    @MainActor
+    func testTheScreenAfterANavigationBecomesTheNewSettledScreen() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+        registry.registerFlockCreated(pane)
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 2, at: start)
+        let startedAt = settled.addingTimeInterval(10)
+        registry.recordNavigationStarted(pane, at: startedAt)
+        XCTAssertFalse(registry.wantsScreenActivity(pane, at: startedAt), "the picker's own frames are not worth counting")
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 30, at: startedAt.addingTimeInterval(0.5))
+        registry.recordForegroundJob(pane, busy: true, at: startedAt.addingTimeInterval(0.3))
+        let closedAt = startedAt.addingTimeInterval(8)
+        registry.recordForegroundJob(pane, busy: false, at: closedAt)
+        XCTAssertTrue(registry.wantsScreenActivity(pane, at: closedAt))
+
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 4, at: closedAt.addingTimeInterval(0.3))
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 4, at: closedAt.addingTimeInterval(PaneLauncherRegistry.settleWindow + 1))
+        XCTAssertTrue(registry.isPristine(pane), "the taller prompt the cd left behind is not output")
+
+        registry.recordScreenActivity(pane, nonEmptyRowCount: 7, at: closedAt.addingTimeInterval(PaneLauncherRegistry.settleWindow + 2))
+        XCTAssertFalse(registry.isPristine(pane))
+    }
+
+    /// A pane that closed, or a herdr that stopped answering for it, leaves
+    /// nothing to hand the launcher back to; later reports are stale.
+    @MainActor
+    func testAForgottenNavigationLeavesTheLauncherHidden() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+        registry.registerFlockCreated(pane)
+        registry.recordNavigationStarted(pane, at: start)
+        registry.recordForegroundJob(pane, busy: true, at: start.addingTimeInterval(0.3))
+
+        registry.forgetNavigation(pane)
+        registry.recordForegroundJob(pane, busy: false, at: start.addingTimeInterval(5))
+
+        XCTAssertFalse(registry.isNavigating(pane))
+        XCTAssertFalse(registry.isPristine(pane))
+    }
+
+    @MainActor
+    func testForegroundReportsOnAPaneThatIsNotNavigatingChangeNothing() {
+        let registry = PaneLauncherRegistry()
+        let pane = PaneID(rawValue: "w1:p2")
+        registry.registerFlockCreated(pane)
+        registry.recordKeystroke(pane)
+
+        registry.recordForegroundJob(pane, busy: true, at: start)
+        registry.recordForegroundJob(pane, busy: false, at: start.addingTimeInterval(10))
+
+        XCTAssertFalse(registry.isPristine(pane))
+    }
 }

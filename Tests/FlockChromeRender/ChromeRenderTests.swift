@@ -2934,6 +2934,7 @@ private final class GroundSurface: GhosttyPaneSurface {
     func unpark() {}
     func releaseHerdrHold() {}
     func takeHerdrHold() {}
+    func resumeScreenActivityReporting() {}
     var hasFirstFrame: Bool { true }
 }
 
