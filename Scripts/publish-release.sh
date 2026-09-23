@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Publishes v<version> to GitHub Releases: Flock-<version>.dmg (the first
 # install), Flock-<version>.zip (what installed copies update from) and
-# appcast.xml (the feed they poll, served from the latest release).
+# appcast.xml (the feed they poll, served from the latest release), with
+# docs/releases/<version>.md as the release's notes.
 #
 # Run after Scripts/release-build.sh --version <version> and
 # Scripts/make-appcast.sh on a clean checkout of the commit they were built
@@ -46,9 +47,11 @@ done
 DMG="$RELEASE_DIR/Flock-$VERSION.dmg"
 ZIP="$RELEASE_DIR/Flock-$VERSION.zip"
 APPCAST="$RELEASE_DIR/appcast.xml"
+NOTES="docs/releases/$VERSION.md"
 for asset in "$DMG" "$ZIP" "$APPCAST"; do
   [ -f "$asset" ] || fail "missing $asset"
 done
+[ -s "$NOTES" ] || fail "no release notes at $NOTES"
 
 [ -z "$(git status --porcelain)" ] || fail "the working tree is not clean"
 
@@ -91,12 +94,23 @@ case "$feed_entry" in
   *) fail "$APPCAST has no signed item for $TAG; run Scripts/make-appcast.sh $RELEASE_DIR $VERSION" ;;
 esac
 
+grep -q 'sparkle:format="markdown"' "$APPCAST" \
+  || fail "$APPCAST carries no release notes; run Scripts/make-appcast.sh $RELEASE_DIR $VERSION"
+
+# Read before this release's own tag exists, so it names the one before.
+PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+BODY="$UNPACKED/notes.md"
+cp "$NOTES" "$BODY"
+if [ -n "$PREVIOUS_TAG" ]; then
+  printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "$REPO" "$PREVIOUS_TAG" "$TAG" >> "$BODY"
+fi
+
 # --latest: installed copies find the feed through releases/latest.
 gh release create "$TAG" "$DMG" "$ZIP" "$APPCAST" \
   --repo "$REPO" \
   --target "$HEAD_SHA" \
   --title "Flock $VERSION" \
-  --generate-notes \
+  --notes-file "$BODY" \
   --latest
 
 echo "publish-release.sh: https://github.com/$REPO/releases/tag/$TAG"

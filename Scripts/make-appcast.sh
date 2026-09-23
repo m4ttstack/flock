@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Writes <release-dir>/appcast.xml: the latest release's feed with a new item
 # for <release-dir>/Flock-<version>.zip, signed with the EdDSA key in the
-# login keychain (Sparkle account "flock").
+# login keychain (Sparkle account "flock"), carrying docs/releases/<version>.md
+# as the notes the update prompt shows.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -14,7 +15,8 @@ usage() {
   cat <<'USAGE'
 usage: Scripts/make-appcast.sh [--previous <appcast.xml>] <release-dir> <version>
   Adds Flock-<version>.zip from <release-dir> to the feed published with the
-  latest GitHub release and writes the result to <release-dir>/appcast.xml.
+  latest GitHub release, with docs/releases/<version>.md as its release notes,
+  and writes the result to <release-dir>/appcast.xml.
   --previous <file>  start from this feed instead of the latest release's
 USAGE
 }
@@ -37,6 +39,7 @@ TAG="v$VERSION"
 PREFIX="https://github.com/$REPO/releases/download/$TAG/"
 ZIP_NAME="Flock-$VERSION.zip"
 ZIP="$RELEASE_DIR/$ZIP_NAME"
+NOTES="$ROOT/docs/releases/$VERSION.md"
 
 [ -x "$GENERATE_APPCAST" ] || {
   echo "make-appcast.sh: $GENERATE_APPCAST is missing; run Scripts/fetch-sparkle.sh" >&2; exit 1
@@ -46,6 +49,7 @@ ZIP="$RELEASE_DIR/$ZIP_NAME"
   exit 1
 }
 [ -f "$ZIP" ] || { echo "make-appcast.sh: no $ZIP" >&2; exit 1; }
+[ -s "$NOTES" ] || { echo "make-appcast.sh: no release notes at docs/releases/$VERSION.md" >&2; exit 1; }
 [ -z "$PREVIOUS" ] || [ -f "$PREVIOUS" ] || { echo "make-appcast.sh: no $PREVIOUS" >&2; exit 1; }
 
 # generate_appcast takes the version from the bundle and the URL from the tag,
@@ -64,6 +68,9 @@ fi
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/flock-appcast.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 cp "$ZIP" "$STAGE/$ZIP_NAME"
+# Picked up by name: notes sharing the archive's basename become its item's
+# description, which --embed-release-notes puts in the feed itself.
+cp "$NOTES" "$STAGE/Flock-$VERSION.md"
 
 is_http_status() {
   case "$1" in "" | *[!0-9]*) return 1 ;; *) return 0 ;; esac
@@ -103,6 +110,8 @@ generate_output=$("$GENERATE_APPCAST" \
   --maximum-deltas 0 \
   --maximum-versions 3 \
   --link "https://github.com/$REPO/releases" \
+  --embed-release-notes \
+  --full-release-notes-url "https://github.com/$REPO/releases" \
   "$STAGE" 2>&1) || {
   printf '%s\n' "$generate_output" >&2
   echo "make-appcast.sh: generate_appcast failed" >&2
