@@ -389,7 +389,8 @@ public final class HerdrStore {
             guard let old = model.panes[pane], let workspaceID = model.tabs.first(where: { $0.value.contains { $0.tabID == tab } })?.key else { return [] }
             let moved = PaneRecord(
                 paneID: pane, workspaceID: workspaceID, tabID: tab, focused: old.focused, agentStatus: old.agentStatus,
-                revision: old.revision, terminalTitleStripped: old.terminalTitleStripped, label: old.label, cwd: old.cwd, scroll: old.scroll
+                revision: old.revision, terminalTitleStripped: old.terminalTitleStripped, label: old.label, cwd: old.cwd, scroll: old.scroll,
+                terminalID: old.terminalID
             )
             return [.paneMoved(PaneMovedPayload(
                 previousPaneID: pane, previousWorkspaceID: old.workspaceID, previousTabID: old.tabID,
@@ -400,7 +401,8 @@ public final class HerdrStore {
             guard let old = model.panes[pane] else { return [] }
             let renamed = PaneRecord(
                 paneID: old.paneID, workspaceID: old.workspaceID, tabID: old.tabID, focused: old.focused, agentStatus: old.agentStatus,
-                revision: old.revision, terminalTitleStripped: old.terminalTitleStripped, label: label, cwd: old.cwd, scroll: old.scroll
+                revision: old.revision, terminalTitleStripped: old.terminalTitleStripped, label: label, cwd: old.cwd, scroll: old.scroll,
+                terminalID: old.terminalID
             )
             return [.paneUpdated(renamed)]
 
