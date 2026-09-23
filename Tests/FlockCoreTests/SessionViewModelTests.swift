@@ -2667,7 +2667,7 @@ final class SessionViewModelTests: XCTestCase {
 
     @MainActor
     func testFlockOwnedWorkspacesStayInTheFullModelOnly() {
-        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), rt: makeCoordinator(FakeRtWorld()))
         viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
 
         XCTAssertEqual(viewModel.model?.workspaces.map(\.workspaceID), [WorkspaceID(rawValue: "w1")])
@@ -2676,7 +2676,7 @@ final class SessionViewModelTests: XCTestCase {
 
     @MainActor
     func testHerdrFocusLandingInAFlockOwnedTabLeavesTheSelectionAlone() {
-        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), rt: makeCoordinator(FakeRtWorld()))
         viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
         XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w1:t1"))
 
@@ -2694,7 +2694,9 @@ final class SessionViewModelTests: XCTestCase {
     @MainActor
     func testAHiddenPaneThatClosesIsTornDown() async throws {
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let viewModel = SessionViewModel(
+            client: RecordingCommandClient(), ghosttyFactory: factory, rt: makeCoordinator(FakeRtWorld())
+        )
         viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
         _ = await viewModel.attachPane(PaneID(rawValue: "wF:p1"))
 
