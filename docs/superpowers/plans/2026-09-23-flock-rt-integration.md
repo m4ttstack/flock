@@ -24,7 +24,8 @@
 - Tab labels in flock-owned workspaces: `<kind> <terminal> <token>`, kind one of `nav`, `glitter`, `run`, `runner`.
 - Typed lines: `command rt <args> [>"$FLOCK_RT_OUT"]; echo $? >"$FLOCK_RT_STATUS"` (`$status` for fish).
 - Clean exit statuses: 0 and 130.
-- Poll 300 ms; never-seen-busy ceiling 3 s; confirm delay 1 s; shutdown wait 10 s.
+- Poll 300 ms; never-seen-busy ceiling 3 s (also the grace for a job that ended without writing its status); confirm delay 1 s; shutdown wait 10 s; shell wait 2 s; 10 unanswered polls before an item is taken as gone.
+- rt's files live under `ScratchDirectory.url/rt`, never directly in `$TMPDIR`.
 - Shutdown: `ctrl+c` with `pane.send_keys`, then `y` only if `rt-ui` still holds the foreground a second later.
 - UI tasks do not start until the design canvas (Task 11) is approved by Matt. A UI change is not done until rendered in a dark and a light theme and looked at.
 - Never quit, kill or launch Matt's Flock apps. Finished work goes to `Scripts/dev-build.sh`.
@@ -441,12 +442,13 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ### Task 3: SessionViewModel keeps the full model and shows the visible one
 
 **Files:**
-- Modify: `Sources/FlockCore/ViewModels/SessionViewModel.swift` (`update(model:connection:)` at ~179, `reconcileClosedPanes` at ~360, `refreshLayoutExports` at ~389)
-- Modify: `Tests/FlockCoreTests/SessionViewModelTests.swift`
+- Modify: `Sources/FlockCore/ViewModels/SessionViewModel.swift` (`update(model:connection:)` at ~179, `reconcileClosedPanes` at ~360, `refreshLayoutExports` at ~389, `perform(subject:target:board:)` at ~1105)
+- Modify: `Sources/FlockCore/Rail/RailSections.swift:27` (`isRailRow`)
+- Modify: `Tests/FlockCoreTests/SessionViewModelTests.swift`, `Tests/FlockCoreTests/RailSectionsTests.swift`
 
 **Interfaces:**
-- Consumes: `SessionModel.withoutFlockOwned` (Task 2).
-- Produces: `public private(set) var fullModel: SessionModel?` on `SessionViewModel`; `model` is now always `fullModel?.withoutFlockOwned`.
+- Consumes: `SessionModel.withoutFlockOwned`, `RtLabels.isFlockOwned` (Task 2).
+- Produces: `public private(set) var fullModel: SessionModel?` on `SessionViewModel`; `model` is now always `fullModel?.withoutFlockOwned`. Drags plan against `fullModel`, because herdr's `workspace.move` takes an index into its full list and herdr appends new workspaces, so a flock-owned one soon sits between visible ones.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -520,9 +522,21 @@ Add to `SessionViewModelTests`:
     }
 ```
 
+Add to `RailSectionsTests`, beside the reorder-index tests (it uses that file's `model(_:)` helper):
+
+```swift
+    /// flock's own workspaces sit in herdr's order too, and herdr appends new
+    /// ones, so one soon lands between visible rows. A slot has to map past it.
+    func testFlocksOwnWorkspacesAreNotRailRows() {
+        let full = model(["acme", "notes", "flock:rt", "deck", "flock:rt runner term_a1"])
+        XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: 2, in: full, board: nil), 3)
+        XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: 3, in: full, board: nil), 4)
+    }
+```
+
 - [ ] **Step 2: Run the tests to see them fail**
 
-Run `SessionViewModelTests`. Expected: compile failure on `fullModel`; with a stub property added, the focus test fails with the selection moved to `wF:t1`. The teardown test passes before the change: it pins that the filtering below must not stop hidden panes being torn down (it fails if `reconcileClosedPanes` reads the filtered model).
+Run `SessionViewModelTests` and `RailSectionsTests`. Expected: compile failure on `fullModel`; with a stub property added, the focus test fails with the selection moved to `wF:t1`, and `testFlocksOwnWorkspacesAreNotRailRows` fails with 2 for the first assertion. The teardown test passes before the change: it pins that the filtering below must not stop hidden panes being torn down (it fails if `reconcileClosedPanes` reads the filtered model).
 
 - [ ] **Step 3: Implement**
 
@@ -558,6 +572,27 @@ In `refreshLayoutExports`, read the full model so a hidden tab's split tree is f
 
 ```swift
         guard let layoutExportCoordinator, let model = fullModel else { return }
+```
+
+In `perform(subject:target:board:)`, both branches plan against the full model (the `guard let model` in the no-journal branch and the `let model = self.model` inside `runExclusively`):
+
+```swift
+            guard let model = fullModel, let planExecutor else { return .notAttempted }
+```
+
+```swift
+            guard let self, let model = self.fullModel, let planExecutor = self.planExecutor else { return }
+```
+
+and in the comment above the second one, "Reads `model` fresh" becomes "Reads `fullModel` fresh".
+
+In `RailSections.isRailRow`, a flock-owned workspace is never a rail row:
+
+```swift
+    public static func isRailRow(label: String, board: BoardWorkspaceNames?) -> Bool {
+        !HerdWorkspace.isHerd(label: label) && !(board?.contains(label: label) ?? false)
+            && !RtLabels.isFlockOwned(workspaceLabel: label)
+    }
 ```
 
 - [ ] **Step 4: Run the tests to see them pass**
@@ -1010,6 +1045,33 @@ final class RtLifecycleTests: XCTestCase {
         var life = RtLifecycle.resumed(kind: .run, stage: .script, at: start)
         XCTAssertEqual(life.observe(seen(busy: false, status: 0, at: 0.3)), .finished(0))
     }
+
+    /// ctrl+c on the script: the shell skips the status write.
+    func testAScriptStoppedWithoutAStatusFinishesAfterTheGrace() {
+        var life = RtLifecycle(kind: .run, startedAt: start)
+        _ = life.observe(seen(busy: true, at: 0.3))
+        _ = life.observe(seen(busy: false, status: 0, out: resultLine, at: 4))
+        life.phaseTwoTyped(at: start.addingTimeInterval(4.1))
+        _ = life.observe(seen(busy: true, at: 4.4))
+
+        XCTAssertEqual(life.observe(seen(busy: false, at: 60)), .watching, "the grace starts at the first idle poll")
+        XCTAssertEqual(life.observe(seen(busy: false, at: 60 + RtLifecycle.startCeiling + 0.1)), .finished(nil))
+    }
+
+    func testACommandKilledWithoutAStatusExitsAfterTheGrace() {
+        var life = RtLifecycle(kind: .glitter, startedAt: start)
+        _ = life.observe(seen(busy: true, at: 0.3))
+        XCTAssertEqual(life.observe(seen(busy: false, at: 5)), .watching)
+        XCTAssertEqual(life.observe(seen(busy: false, at: 5 + RtLifecycle.startCeiling + 0.1)), .exited(nil))
+    }
+
+    func testBusyAgainRestartsTheGrace() {
+        var life = RtLifecycle(kind: .glitter, startedAt: start)
+        _ = life.observe(seen(busy: true, at: 0.3))
+        _ = life.observe(seen(busy: false, at: 5))
+        _ = life.observe(seen(busy: true, at: 6))
+        XCTAssertEqual(life.observe(seen(busy: false, at: 5 + RtLifecycle.startCeiling + 0.1)), .watching)
+    }
 }
 ```
 
@@ -1072,6 +1134,7 @@ public struct RtLifecycle: Equatable, Sendable {
     public private(set) var stage: Stage
     private var startedAt: Date
     private var seenBusy = false
+    private var idleSince: Date?
 
     public init(kind: RtKind, startedAt: Date) {
         self.kind = kind
@@ -1089,21 +1152,31 @@ public struct RtLifecycle: Equatable, Sendable {
         stage = .script
         startedAt = time
         seenBusy = false
+        idleSince = nil
     }
 
     public mutating func observe(_ seen: Observation) -> Outcome {
-        if seen.anyPaneBusy { seenBusy = true }
+        if seen.anyPaneBusy {
+            seenBusy = true
+            idleSince = nil
+        }
         switch stage {
         case .done:
             return .watching
         case .running:
-            guard !seen.anyPaneBusy, ended(seen) else { return .watching }
+            guard !seen.anyPaneBusy else { return .watching }
+            if ended(seen) {
+                stage = .done
+                return singlePhaseOutcome(seen)
+            }
+            guard stoppedWithoutStatus(seen) else { return .watching }
             stage = .done
-            return singlePhaseOutcome(seen)
+            return .exited(nil)
         case .picking:
             return pickingOutcome(seen)
         case .script:
-            guard !seen.anyPaneBusy, ended(seen) else { return .watching }
+            guard !seen.anyPaneBusy else { return .watching }
+            guard ended(seen) || stoppedWithoutStatus(seen) else { return .watching }
             stage = .done
             return .finished(seen.statusExists ? seen.status : nil)
         case .selfLaunched:
@@ -1116,9 +1189,13 @@ public struct RtLifecycle: Equatable, Sendable {
     private mutating func pickingOutcome(_ seen: Observation) -> Outcome {
         guard !seen.firstPaneBusy else { return .watching }
         guard seen.statusExists else {
-            guard !seenBusy, pastCeiling(seen) else { return .watching }
+            if !seenBusy, pastCeiling(seen) {
+                stage = .done
+                return .exited(nil)
+            }
+            guard stoppedWithoutStatus(seen) else { return .watching }
             stage = .done
-            return .exited(nil)
+            return .closeTab
         }
         if let result = RtFileParse.runResult(seen.out) {
             return .typePhaseTwo(result)
@@ -1135,6 +1212,16 @@ public struct RtLifecycle: Equatable, Sendable {
 
     private func ended(_ seen: Observation) -> Bool {
         seen.statusExists || (!seenBusy && pastCeiling(seen))
+    }
+
+    /// A job killed by a signal (ctrl+c on a dev server) makes zsh and bash
+    /// skip the rest of its `;` list, so the status is never written. Idle
+    /// this long after running, with no status, means it ended that way.
+    private mutating func stoppedWithoutStatus(_ seen: Observation) -> Bool {
+        guard seenBusy else { return false }
+        let since = idleSince ?? seen.now
+        idleSince = since
+        return seen.now.timeIntervalSince(since) >= Self.startCeiling
     }
 
     private func pastCeiling(_ seen: Observation) -> Bool {
@@ -1160,7 +1247,7 @@ public struct RtLifecycle: Equatable, Sendable {
 
 - [ ] **Step 4: Run the tests to see them pass**
 
-Expected: `RtLifecycleTests` 14/14.
+Expected: `RtLifecycleTests` 17/17.
 
 - [ ] **Step 5: Commit**
 
@@ -1808,6 +1895,8 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
 
     var failing: Set<String> = []
     var silentPanes: Set<String> = []
+    /// Fail the next `process_info` for these panes, once each.
+    var silentOnce: Set<String> = []
     var busyPanes: Set<String> = []
     var shell = "zsh"
 
@@ -1909,7 +1998,7 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
             }
         case "pane.process_info":
             let pane = Self.string(params["pane_id"]) ?? ""
-            if silentPanes.contains(pane) { throw Failure() }
+            if silentPanes.contains(pane) || silentOnce.remove(pane) != nil { throw Failure() }
             var busy = busyPanes.contains(pane)
             var names = ["claude"]
             if var state = running[pane] {
@@ -2000,7 +2089,10 @@ func makeCoordinator(_ world: FakeRtWorld, tokens: [String] = ["tok1", "tok2", "
     let source = TokenSource(tokens)
     return RtCoordinator(
         client: world, files: world,
-        config: .init(pollInterval: .milliseconds(1), confirmDelay: .milliseconds(5), shutdownTimeout: .milliseconds(500), fileDirectory: rtTestDirectory),
+        config: .init(
+            pollInterval: .milliseconds(1), confirmDelay: .milliseconds(5), shutdownTimeout: .milliseconds(500),
+            shellWait: .milliseconds(20), missLimit: 3, fileDirectory: rtTestDirectory
+        ),
         makeToken: { source.next() },
         notice: { notices?.lines.append($0) }
     )
@@ -2252,6 +2344,33 @@ final class RtCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(rt.items.isEmpty)
         XCTAssertNil(rt.modal)
+        XCTAssertTrue(world.calls("tab.close").isEmpty, "nothing answers, so there is nothing to close")
+    }
+
+    /// A herdr reconnect drops an answer; a live item must outlast it.
+    func testOneUnansweredPollDoesNotForgetAnItem() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt glitter", .init(busyPolls: 3, status: "0"))
+        let rt = makeCoordinator(world)
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        world.silentOnce = ["wF1:p1"]
+
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertEqual(world.calls("tab.close").count, 1, "it ran to its own clean end")
+    }
+
+    func testClosingTheModalHandsHerdrsFocusToTheLinkedPane() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt run", .init(busyPolls: 100_000, status: "0"))
+        let rt = makeCoordinator(world)
+        rt.update(model: world.model())
+        await rt.open(.run, from: world.fixture.linkedPane)
+
+        await rt.closeModal()
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("pane.focus").last?["pane_id"]), "w1:p1")
+        rt.watches["tok1"]?.cancel()
     }
 }
 ```
@@ -2283,17 +2402,27 @@ public final class RtCoordinator {
         public var pollInterval: Duration
         public var confirmDelay: Duration
         public var shutdownTimeout: Duration
+        /// How long a new pane gets to show its shell at a prompt before a
+        /// line is typed into it.
+        public var shellWait: Duration
+        /// Consecutive unanswered polls before an item is taken as gone. One
+        /// dropped answer (a herdr reconnect) must not orphan a live runner.
+        public var missLimit: Int
         public var fileDirectory: URL
 
         public init(
             pollInterval: Duration = .milliseconds(300),
             confirmDelay: Duration = .seconds(1),
             shutdownTimeout: Duration = .seconds(10),
-            fileDirectory: URL = FileManager.default.temporaryDirectory.appendingPathComponent("flock-rt", isDirectory: true)
+            shellWait: Duration = .seconds(2),
+            missLimit: Int = 10,
+            fileDirectory: URL = ScratchDirectory.url.appendingPathComponent("rt", isDirectory: true)
         ) {
             self.pollInterval = pollInterval
             self.confirmDelay = confirmDelay
             self.shutdownTimeout = shutdownTimeout
+            self.shellWait = shellWait
+            self.missLimit = missLimit
             self.fileDirectory = fileDirectory
         }
     }
@@ -2310,8 +2439,9 @@ public final class RtCoordinator {
 
     @ObservationIgnored var lifecycles: [String: RtLifecycle] = [:]
     @ObservationIgnored var watches: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var misses: [String: Int] = [:]
     @ObservationIgnored var shutdowns: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored var pendingWork: [Task<Void, Never>] = []
+    @ObservationIgnored var pendingWork: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored var model: SessionModel?
     @ObservationIgnored var openedOrder: [String] = []
     @ObservationIgnored var opensInFlight = 0
@@ -2320,6 +2450,7 @@ public final class RtCoordinator {
     @ObservationIgnored var seenTabs: Set<TabID> = []
     @ObservationIgnored var handledStrays: Set<TabID> = []
     @ObservationIgnored var lastSeenFocus: PaneID?
+    @ObservationIgnored var lastVisibleFocus: PaneID?
 
     public init(
         client: any HerdrCommandClient,
@@ -2407,7 +2538,7 @@ public final class RtCoordinator {
                 ownsWorkspace = true
                 try await herdr.renameTab(host.tabID, to: label)
             }
-            let shell = ShellFlavor(processName: await herdr.paneState(host.rootPaneID)?.shellName)
+            let shell = await waitForShell(host.rootPaneID)
             try await herdr.type(RtCommandLine.command(for: kind, shell: shell), into: host.rootPaneID)
             items[token] = RtItem(
                 id: token, kind: kind, linked: terminal, workspaceID: host.workspaceID, tabIDs: [host.tabID],
@@ -2435,6 +2566,31 @@ public final class RtCoordinator {
         model?.workspaces.first { $0.label == RtLabels.sharedWorkspace }?.workspaceID
     }
 
+    /// A fresh shell names itself only once it sits at its prompt, and a line
+    /// typed before then can be swallowed by the shell's own startup. Waits
+    /// for that, bounded; past the bound, the user's login shell decides the
+    /// status variable.
+    func waitForShell(_ pane: PaneID) async -> ShellFlavor {
+        let deadline = ContinuousClock.now.advanced(by: config.shellWait)
+        while ContinuousClock.now < deadline {
+            if let state = await herdr.paneState(pane), !state.busy, let name = state.shellName {
+                return ShellFlavor(processName: name)
+            }
+            try? await Task.sleep(for: config.pollInterval)
+        }
+        let loginShell = ProcessInfo.processInfo.environment["SHELL"].map { URL(fileURLWithPath: $0).lastPathComponent }
+        return ShellFlavor(processName: loginShell)
+    }
+
+    /// Runs `work` in the background, kept in `pendingWork` only while it runs.
+    func background(_ work: @escaping @MainActor () async -> Void) {
+        let id = UUID()
+        pendingWork[id] = Task { [weak self] in
+            await work()
+            self?.pendingWork[id] = nil
+        }
+    }
+
     // MARK: - the modal
 
     /// Another item's modal is closed by `closeModal`'s rules first.
@@ -2446,19 +2602,27 @@ public final class RtCoordinator {
 
     /// nav and glitter exist only inside the modal, so closing one early
     /// shuts it down; an rt run or a runner keeps going, hidden. Anything on a
-    /// strip is over, and goes.
+    /// strip is over, and goes. Either way herdr's focus goes to the pane the
+    /// item belongs to, which the rt button's click never moved to.
     public func closeModal() async {
         guard let current = modal else { return }
         modal = nil
         guard let item = items[current.itemID] else { return }
+        let linked = item.linked
         if item.strip != nil {
             await closeItem(item.id)
-            return
+        } else {
+            switch item.kind {
+            case .nav, .glitter: await shutDown(item.id)
+            case .run, .runner: break
+            }
         }
-        switch item.kind {
-        case .nav, .glitter: await shutDown(item.id)
-        case .run, .runner: break
-        }
+        await focusLinked(linked)
+    }
+
+    func focusLinked(_ terminal: TerminalID) async {
+        guard let model, let pane = pane(for: terminal, in: model) else { return }
+        try? await herdr.focus(pane.paneID)
     }
 
     public func selectModalTab(_ tab: TabID) {
@@ -2493,14 +2657,20 @@ public final class RtCoordinator {
     }
 
     /// One poll and whatever its outcome asks for. Whether to keep watching.
+    /// A pane closed in herdr is dropped by `update(model:)`; unanswered polls
+    /// alone forget an item only once they run to `missLimit`.
     private func poll(_ id: String) async -> Bool {
         guard let item = items[id] else { return false }
         let observation = await observe(item)
         guard !Task.isCancelled else { return false }
         guard let observation else {
+            let missed = (misses[id] ?? 0) + 1
+            misses[id] = missed
+            guard missed >= config.missLimit else { return true }
             forget(id)
             return false
         }
+        misses[id] = nil
         guard var lifecycle = lifecycles[id] else { return false }
         let outcome = lifecycle.observe(observation)
         lifecycles[id] = lifecycle
@@ -2541,7 +2711,10 @@ public final class RtCoordinator {
             lifecycles[id]?.phaseTwoTyped(at: now())
             return true
         case .closeTab, .runnerEnded:
+            let linked = items[id]?.linked
+            let wasShown = modal?.itemID == id
             await closeItem(id)
+            if wasShown, let linked { await focusLinked(linked) }
             return false
         case .cdLinkedPane(let path):
             let linked = items[id]?.linked
@@ -2559,13 +2732,15 @@ public final class RtCoordinator {
         }
     }
 
-    /// A linked pane at its prompt takes the `cd`; a busy one (an agent
-    /// running, or one herdr cannot say) is split at the folder instead.
+    /// A linked pane at its prompt takes the `cd` and the focus; a busy one
+    /// (an agent running, or one herdr cannot say) is split at the folder
+    /// instead, and the split takes the focus.
     func cd(linkedTo terminal: TerminalID, into path: String) async {
         guard let model, let pane = pane(for: terminal, in: model) else { return }
         do {
             if await herdr.paneState(pane.paneID)?.busy == false {
                 try await herdr.type(RtCommandLine.cd(path), into: pane.paneID)
+                try await herdr.focus(pane.paneID)
             } else {
                 try await herdr.split(pane.paneID, cwd: path)
             }
@@ -2589,6 +2764,7 @@ public final class RtCoordinator {
         items[id] = nil
         lifecycles[id] = nil
         watches[id] = nil
+        misses[id] = nil
         openedOrder.removeAll { $0 == id }
         if modal?.itemID == id { modal = nil }
         let paths = RtFilePaths(token: id, directory: config.fileDirectory)
@@ -2700,14 +2876,12 @@ extension RtCoordinator {
         model = newModel
     }
 
-    /// Waits out every task this coordinator started in the background.
+    /// Waits out every task this coordinator started in the background,
+    /// including any those tasks start in turn.
     public func settle() async {
-        while !pendingWork.isEmpty {
-            let task = pendingWork.removeFirst()
+        while let task = pendingWork.values.first ?? shutdowns.values.first {
             await task.value
-        }
-        for task in Array(shutdowns.values) {
-            await task.value
+            await Task.yield()
         }
     }
 }
@@ -2717,7 +2891,7 @@ A `for` loop's `where` clause cannot `await`, which is why the busy and `rt-ui` 
 
 - [ ] **Step 4: Run the tests to see them pass**
 
-Run `xcodegen`, then `RtCoordinatorTests`. Expected: 15/15. Then the whole `FlockCoreTests`.
+Run `xcodegen`, then `RtCoordinatorTests`. Expected: 17/17. Then the whole `FlockCoreTests`.
 
 - [ ] **Step 5: Commit**
 
@@ -2737,7 +2911,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: Task 8's internals.
-- Produces: `update(model:)` that adopts at launch, claims stray tabs, reaps items whose linked terminal is gone, drops items whose tabs were closed elsewhere, and follows focus into attach tabs; `orphan(_:panes:)`; `linkedTerminals(in:) -> Set<TerminalID>?`.
+- Produces: `update(model:)` that adopts at launch, claims stray tabs, reaps items whose linked terminal is gone, drops items whose tabs were closed elsewhere, and follows focus into attach tabs; `orphan(_:panes:token:)`; `linkedTerminals(in:) -> Set<TerminalID>?`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2922,6 +3096,23 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").last?["tab_id"]), "wF1:t7")
         rt.watches["tok1"]?.cancel()
     }
+
+    /// A flock tab nothing owns (an orphan on its way out, a click in the
+    /// herdr TUI) still hands herdr's focus back, to the last visible pane.
+    func testFocusOnAnUnownedFlockTabGoesBackToTheLastVisiblePane() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_gone old9", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        let rt = makeCoordinator(world)
+        rt.update(model: world.model())
+
+        world.focus("wS:p1")
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("pane.focus").last?["pane_id"]), "w1:p1")
+    }
 }
 ```
 
@@ -2962,12 +3153,19 @@ Replace the placeholder `update(model:)` in `RtCoordinator+Lifetime.swift` with 
         return terminals
     }
 
-    func orphan(_ closing: Closing, panes: [PaneID]) {
+    /// Something flock owns but will not keep: stopped cleanly, closed, and
+    /// its files deleted when its label named a token.
+    func orphan(_ closing: Closing, panes: [PaneID], token: String? = nil) {
         if case .tabs(let tabs) = closing { handledStrays.formUnion(tabs) }
-        pendingWork.append(Task { [weak self] in
+        background { [weak self] in
             await self?.stop(panes)
             await self?.close(closing)
-        })
+            if let self, let token {
+                let paths = RtFilePaths(token: token, directory: self.config.fileDirectory)
+                self.files.delete(paths.out)
+                self.files.delete(paths.status)
+            }
+        }
     }
 
     // MARK: - launch
@@ -2992,7 +3190,7 @@ Replace the placeholder `update(model:)` in `RtCoordinator+Lifetime.swift` with 
               present.contains(link.terminal), let first = boardPanes.first,
               files.read(RtFilePaths(token: link.token, directory: config.fileDirectory).status) == nil
         else {
-            orphan(.workspace(workspace.workspaceID), panes: boardPanes)
+            orphan(.workspace(workspace.workspaceID), panes: boardPanes, token: board.flatMap { RtLabels.tabLink(fromLabel: $0.label)?.token })
             return
         }
         items[link.token] = RtItem(
@@ -3018,7 +3216,7 @@ Replace the placeholder `update(model:)` in `RtCoordinator+Lifetime.swift` with 
         guard let link = RtLabels.tabLink(fromLabel: tab.label), link.kind == .run,
               present.contains(link.terminal), let first = tabPanes.first
         else {
-            orphan(.tabs([tab.tabID]), panes: tabPanes)
+            orphan(.tabs([tab.tabID]), panes: tabPanes, token: RtLabels.tabLink(fromLabel: tab.label)?.token)
             return
         }
         let paths = RtFilePaths(token: link.token, directory: config.fileDirectory)
@@ -3036,7 +3234,7 @@ Replace the placeholder `update(model:)` in `RtCoordinator+Lifetime.swift` with 
             stage = .picking
         case (.none, .some):
             guard RtFileParse.status(statusText) == 0 else {
-                orphan(.tabs([tab.tabID]), panes: tabPanes)
+                orphan(.tabs([tab.tabID]), panes: tabPanes, token: link.token)
                 return
             }
             stage = .selfLaunched
@@ -3070,16 +3268,21 @@ Replace the placeholder `update(model:)` in `RtCoordinator+Lifetime.swift` with 
                 }
                 items[owner]?.tabIDs.append(tab.tabID)
                 let label = RtLabels.tabLabel(RtLabels.TabLink(kind: .run, terminal: item.linked, token: owner))
-                pendingWork.append(Task { [herdr] in try? await herdr.renameTab(tab.tabID, to: label) })
+                background { [herdr] in try? await herdr.renameTab(tab.tabID, to: label) }
             }
         }
     }
 
-    /// The run on screen if it is still picking, else the one opened last.
+    /// The run on screen if it can still be placing tabs, else the one opened
+    /// last. A run places them while its picker runs, and the event for the
+    /// last one can land after the pick has ended.
     private func strayOwner() -> String? {
-        let picking = openedOrder.filter { lifecycles[$0]?.stage == .picking }
-        if let shown = modal?.itemID, picking.contains(shown) { return shown }
-        return picking.last
+        let placing = openedOrder.filter {
+            let stage = lifecycles[$0]?.stage
+            return stage == .picking || stage == .selfLaunched
+        }
+        if let shown = modal?.itemID, placing.contains(shown) { return shown }
+        return placing.last
     }
 
     private func reapGoneLinks(_ model: SessionModel) {
@@ -3087,7 +3290,7 @@ Replace the placeholder `update(model:)` in `RtCoordinator+Lifetime.swift` with 
         for item in items.values where !present.contains(item.linked) && !reaping.contains(item.id) {
             reaping.insert(item.id)
             let id = item.id
-            pendingWork.append(Task { [weak self] in await self?.shutDown(id) })
+            background { [weak self] in await self?.shutDown(id) }
         }
     }
 
@@ -3114,28 +3317,33 @@ Replace the placeholder `update(model:)` in `RtCoordinator+Lifetime.swift` with 
 
     /// herdr's focus lands in a flock-owned workspace only from outside flock:
     /// a runner's focus key opening an attach tab, or the herdr TUI. An attach
-    /// tab becomes the service view; either way herdr's focus goes back to the
-    /// pane the item is linked to.
+    /// tab becomes the service view. Either way herdr's focus goes back: to
+    /// the pane the item is linked to, or with no owning item, to the last
+    /// visible pane herdr had, so the canvas is never left with none.
     private func followFocus(_ model: SessionModel) {
         let focused = model.focusedPaneID
         defer { lastSeenFocus = focused }
-        guard let focused, focused != lastSeenFocus, let pane = model.panes[focused],
-              isFlockOwned(pane.workspaceID, in: model),
-              let owner = items.values.first(where: {
-                  $0.workspaceID == pane.workspaceID && ($0.kind == .runner || $0.tabIDs.contains(pane.tabID))
-              })
-        else { return }
-        if owner.kind == .runner, pane.tabID != owner.tabIDs[0] {
+        guard let focused, focused != lastSeenFocus, let pane = model.panes[focused] else { return }
+        guard isFlockOwned(pane.workspaceID, in: model) else {
+            lastVisibleFocus = focused
+            return
+        }
+        let owner = items.values.first {
+            $0.workspaceID == pane.workspaceID && ($0.kind == .runner || $0.tabIDs.contains(pane.tabID))
+        }
+        if let owner, owner.kind == .runner, pane.tabID != owner.tabIDs[0] {
             modal = RtModal(itemID: owner.id, tabID: owner.tabIDs[0], serviceTabID: pane.tabID)
         }
-        guard let back = self.pane(for: owner.linked, in: model) else { return }
-        pendingWork.append(Task { [herdr] in try? await herdr.focus(back.paneID) })
+        let back = owner.flatMap { self.pane(for: $0.linked, in: model)?.paneID }
+            ?? lastVisibleFocus.flatMap { model.panes[$0] != nil ? $0 : nil }
+        guard let back else { return }
+        background { [herdr] in try? await herdr.focus(back) }
     }
 ```
 
 - [ ] **Step 4: Run the tests to see them pass**
 
-Run `RtCoordinatorLifetimeTests` and `RtCoordinatorTests`. Expected: 11/11 and 14/14. Then the whole `FlockCoreTests`.
+Run `RtCoordinatorLifetimeTests` and `RtCoordinatorTests`. Expected: 12/12 and 17/17. Then the whole `FlockCoreTests`.
 
 - [ ] **Step 5: Commit**
 
@@ -3633,6 +3841,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Modify: `Sources/Flock/Theme/ChromeMetrics.swift`, `Sources/Flock/Theme/ChromeTypography.swift`
 - Modify: `Sources/Flock/Views/MainWindow.swift` (~line 32, the grid/rail branch)
 - Modify: `Sources/Flock/Views/PaneCanvas.swift:69`
+- Modify: `Sources/Flock/FlockApp.swift:~350` (the `FocusedPaneCommand` buttons)
 - Create: `Tests/FlockChromeRender/RtModalChromeRenderTests.swift`
 
 **Interfaces:**
@@ -4102,6 +4311,17 @@ In `PaneCanvas`, the cell's focus reads the canvas's own answer:
 
 and update the comment above it to say the modal withholds canvas focus while it is up (keep the existing reasons for not reading `layout.focusedPaneID` or `model.focusedPaneID`).
 
+In `FlockApp`, the `FocusedPaneCommand` buttons (Split Right, Split Down, Close Pane) aim at the canvas's pane, so ⌘⇧X under the modal cannot close the linked pane and everything linked to it:
+
+```swift
+                    Button(command.title) {
+                        guard let pane = viewModel.canvasFocusedPaneID else { return }
+                        Task { await command.action.perform(paneID: pane, on: viewModel) }
+                    }
+                    .keyboardShortcut(command.shortcut)
+                    .disabled(viewModel.canvasFocusedPaneID == nil)
+```
+
 - [ ] **Step 4: Run it to see it pass, then look**
 
 Run `RtModalChromeRenderTests` with `TEST_RUNNER_FLOCK_CHROME_RENDER_DIR=<dir>`. Expected: 1/1. Compare each PNG with `docs/design/rt/modal-*.png` feature by feature; fix any unexplained difference. Then run the whole `FlockChromeRender` suite and the whole `FlockCoreTests`.
@@ -4139,6 +4359,7 @@ Tell Matt to click the "New build · Restart" pill in Flock Dev. Never quit or l
   4. glitter: opens, quits, modal closes. In a folder that is not a repo: exited strip with rt's message; any key closes.
   5. run: pick a test script; it runs in the modal; the finished strip shows the exit code. Pick a dev server; ⌘W; the rt button counts 1; the menu lists it as running; reopening shows it live.
   6. run, "Launch all" with two scripts: both show in the modal.
+  6b. run, a saved preset: its board shows in the modal; ⌘W keeps it running and counted; closing the linked pane stops it.
   7. runner: the board opens; ⌘W hides it; the runner button appears; `f` on a service opens its terminal with `← runner`; back returns to the board.
   8. Close the pane that owns a runner: the runner and its services stop (check with `rt runner` state or the process list), no prompt.
   9. Restart Flock Dev with a runner and a run item going: both come back on the same pane.
