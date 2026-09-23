@@ -54,11 +54,15 @@ machine that releases, under Sparkle account `flock`.
 which every build carries as `SUPublicEDKey` and which is the only key an
 installed copy will accept an update from.
 
-**Back it up.** If the key is lost, no installed copy can ever update again,
-and every user has to download a new build by hand. `generate_keys --account
-flock -x <file>` exports it and `generate_keys --account flock -f <file>`
-imports it on another machine. Keep the exported file in a password manager,
-never in this repository or anywhere else on disk.
+**It is backed up in Bitwarden** as the secure note "flock Sparkle update
+signing key (EdDSA)". On a Mac without it, `Scripts/restore-signing-key.sh`
+pulls it from the vault into the keychain and checks its public half against
+`SUPublicEDKey`; `release-build.sh --version` and `make-appcast.sh` both stop
+early and name that script when the key is missing.
+`Scripts/restore-signing-key.sh --verify` confirms the vault copy still matches
+the keychain without changing anything. If the key is ever lost outright, no
+installed copy can update again and every user has to download a new build by
+hand.
 
 ## What a stranger sees on first launch
 

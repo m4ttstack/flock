@@ -41,6 +41,10 @@ ZIP="$RELEASE_DIR/$ZIP_NAME"
 [ -x "$GENERATE_APPCAST" ] || {
   echo "make-appcast.sh: $GENERATE_APPCAST is missing; run Scripts/fetch-sparkle.sh" >&2; exit 1
 }
+"$ROOT/Vendor/Sparkle/bin/generate_keys" --account "$ACCOUNT" -p >/dev/null 2>&1 || {
+  echo "make-appcast.sh: this Mac's keychain has no flock signing key; run Scripts/restore-signing-key.sh" >&2
+  exit 1
+}
 [ -f "$ZIP" ] || { echo "make-appcast.sh: no $ZIP" >&2; exit 1; }
 [ -z "$PREVIOUS" ] || [ -f "$PREVIOUS" ] || { echo "make-appcast.sh: no $PREVIOUS" >&2; exit 1; }
 

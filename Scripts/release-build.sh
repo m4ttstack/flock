@@ -124,6 +124,12 @@ APP_OUT="$OUTPUT_DIR/Flock.app"
 
 Scripts/libghostty.sh --check
 Scripts/fetch-sparkle.sh
+# A versioned build is a release, and its feed can only be signed on a Mac
+# holding the key: say so now rather than after the build and notarization.
+if [ -n "$VERSION" ] && ! Vendor/Sparkle/bin/generate_keys --account flock -p >/dev/null 2>&1; then
+  echo "release-build.sh: this Mac's keychain has no flock signing key; run Scripts/restore-signing-key.sh" >&2
+  exit 1
+fi
 xcodegen
 
 # The vendored herdr patch is a Mach-O sitting in Resources, and Xcode treats
