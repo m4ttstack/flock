@@ -2,9 +2,10 @@ import FlockCore
 import SwiftUI
 
 /// The attach badge: the ram and its three-echo trail ambling right to left
-/// along the bottom of a pane that has not painted yet, bouncing along a
-/// gently winding path and dropping dots off its back, a goat trail that
-/// fades behind it.
+/// along the bottom of a pane that has not painted yet, bouncing as it goes
+/// and dropping a winding trail of dots off its back, a goat trail that fades
+/// behind it. The ram itself stays level: at the trail's tight wavelength,
+/// riding the curve seesaws it on top of its own bounce.
 /// `PaneCellView` decides whether and how long it shows (`PaneLoaderPolicy`);
 /// this view draws it and drives its clock, and `PaneLoaderStride` owns the
 /// path.
@@ -35,15 +36,11 @@ struct PaneLoaderView: View {
 
     private static let markSize = ChromeMetrics.Loader.badgeMarkSize
     private static let dotSize: CGFloat = 3
-    /// Under the leader's body rather than the whole mark's middle: the
-    /// echoes stretch the mark's box up and to the right of the ram itself.
-    /// The ram's ground follows the path at this point.
-    private static let footFraction: CGFloat = 0.35
     /// Just past the farthest echo, so the trail comes off the back of the
     /// flock rather than out from under it.
     private static let tailGap: CGFloat = 2
     /// The ram's hooves sit this far above the bottom of the mark's box, which
-    /// carries a margin; the trail lies on that line, not the box's edge.
+    /// carries a margin; the trail winds about that line, not the box's edge.
     private static let hoofLine: CGFloat = 2
 
     var body: some View {
@@ -79,7 +76,6 @@ struct PaneLoaderView: View {
             let width = proxy.size.width
             let start = width - inset - Self.markSize
             let x = PaneLoaderStride.leadingX(elapsed: elapsed, start: start, badgeWidth: Self.markSize, boxWidth: width)
-            let ground = PaneLoaderStride.winding(atX: x + Self.markSize * Self.footFraction)
             let hop = Self.markSize * PaneLoaderStride.hopHeightFraction * PaneLoaderStride.hopLift(elapsed: elapsed)
             ZStack(alignment: .bottomLeading) {
                 ForEach(
@@ -96,7 +92,7 @@ struct PaneLoaderView: View {
                         .offset(x: dot.x - Self.dotSize / 2, y: -(dot.lift + Self.hoofLine))
                 }
                 HerdrRamMark(size: Self.markSize)
-                    .offset(x: x, y: -(ground + hop))
+                    .offset(x: x, y: -hop)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(.bottom, inset)

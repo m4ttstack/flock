@@ -1,9 +1,8 @@
 import Foundation
 
 /// The attach badge's run along the bottom of a pane: the mark ambles right
-/// to left, the way the ram faces, bouncing as it goes along a gently winding
-/// path, and drops a trail of dots off its back that fades behind it, a
-/// little goat trail. Pure and clock-free, like `PaneLoaderChoreography`, so
+/// to left, the way the ram faces, bouncing as it goes, and drops a winding
+/// trail of dots off its back that fades behind it, a little goat trail. Pure and clock-free, like `PaneLoaderChoreography`, so
 /// the path is testable without an animation.
 public enum PaneLoaderStride {
     /// Points per second. Slow on purpose: the hops carry the liveliness.
@@ -20,9 +19,11 @@ public enum PaneLoaderStride {
     /// Dots still on the ground; the oldest is nearly faded out.
     public static let trailLength = 16
     /// How far the path rises and falls either side of the ground line.
-    public static let windAmplitude: Double = 5
-    /// One full rise and fall of the path, in points.
-    public static let windWavelength: Double = 90
+    public static let windAmplitude: Double = 7
+    /// One full rise and fall of the path, in points. Short enough that the
+    /// few dots a typical sub-second wait drops already span a crest and a
+    /// dip; a long gentle wave reads as a straight line at that length.
+    public static let windWavelength: Double = 36
     /// How far past each edge the badge runs before it wraps, so it leaves
     /// and re-enters beyond the pane's own padding rather than popping inside
     /// it.
@@ -55,9 +56,8 @@ public enum PaneLoaderStride {
         abs(sin(.pi * elapsed / hopDuration))
     }
 
-    /// The path's height at `x`, up positive. Keyed on where a point is
-    /// rather than when, so a dot keeps its height after it drops and the ram
-    /// walks the same curve its trail lies on.
+    /// The trail's height at `x`, up positive. Keyed on where a dot is rather
+    /// than when, so it keeps its height after it drops.
     public static func winding(atX x: Double) -> Double {
         windAmplitude * sin(2 * .pi * x / windWavelength)
     }
