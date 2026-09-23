@@ -17,15 +17,26 @@ import SwiftUI
 /// before asking, and asks again on every pass it is given -- because the
 /// moment a claim can succeed is not the moment the editor appears.
 struct FirstResponderClaim: NSViewRepresentable {
+    /// `nil` claims on every pass, for an editor that lives only while it is
+    /// being typed into. A field that stays on screen after the keyboard
+    /// leaves it passes a value instead, and is claimed once per new value,
+    /// so a later pass never pulls the keyboard back out of the terminal.
+    var request: Int?
+
     func makeNSView(context: Context) -> NSView { ClaimHostView() }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? ClaimHostView)?.claim()
+        guard let host = nsView as? ClaimHostView else { return }
+        host.request = request
+        host.claim()
     }
 
     /// Invisible and untouchable: it exists to reach the window and the field
     /// beside it, never to draw or to take a click of its own.
     final class ClaimHostView: NSView {
+        var request: Int?
+        private var satisfiedRequest: Int?
+
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewDidMoveToWindow() {
@@ -47,9 +58,14 @@ struct FirstResponderClaim: NSViewRepresentable {
         /// field itself, so a guard that knew only the first would re-claim
         /// (and re-select) over a caret the user had already moved.
         func claim() {
+            if let request, request == satisfiedRequest { return }
             guard let window, let field = Self.field(near: self) else { return }
-            guard window.firstResponder !== field, window.firstResponder !== field.currentEditor() else { return }
+            guard window.firstResponder !== field, window.firstResponder !== field.currentEditor() else {
+                satisfiedRequest = request
+                return
+            }
             guard window.makeFirstResponder(field) else { return }
+            satisfiedRequest = request
             field.currentEditor()?.selectAll(nil)
         }
 

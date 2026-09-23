@@ -46,6 +46,7 @@ final class GhosttySession {
     /// never re-derived from the surface pointer at callback time.
     let paneID: PaneID
     let state = State()
+    let search = TerminalSearch()
     private(set) var configuration: Launch
     /// Read from libghostty's own threads, which is why it is not actor isolated.
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
@@ -513,6 +514,22 @@ final class GhosttySession {
         NSWorkspace.shared.open(value)
     }
 
+    func searchFor(_ needle: String) {
+        perform(action: "search:\(needle)")
+    }
+
+    func navigateSearch(forward: Bool) {
+        perform(action: forward ? "navigate_search:next" : "navigate_search:previous")
+    }
+
+    /// Closes the bar here as well as in libghostty: its own `END_SEARCH`
+    /// answer is what closes it for Esc in the terminal, but a surface that is
+    /// already gone never sends one.
+    func endSearch() {
+        perform(action: "end_search")
+        search.close()
+    }
+
     /// Runs one of libghostty's own keybind actions by name, e.g. `select_all`.
     @discardableResult
     func perform(action: String) -> Bool {
@@ -622,6 +639,14 @@ final class GhosttySession {
             NSSound.beep()
         case GHOSTTY_ACTION_OPEN_CONFIG:
             host.openConfig()
+        case GHOSTTY_ACTION_START_SEARCH:
+            search.open(needle: text)
+        case GHOSTTY_ACTION_END_SEARCH:
+            search.close()
+        case GHOSTTY_ACTION_SEARCH_TOTAL:
+            search.report(total: Int(action.action.search_total.total))
+        case GHOSTTY_ACTION_SEARCH_SELECTED:
+            search.report(selected: Int(action.action.search_selected.selected))
         case GHOSTTY_ACTION_SECURE_INPUT:
             // A password prompt in the pane asks for this, and it is the only
             // way to stop other processes seeing the keystrokes.

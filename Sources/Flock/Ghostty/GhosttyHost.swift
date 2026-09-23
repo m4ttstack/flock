@@ -501,6 +501,8 @@ func actionText(from action: ghostty_action_s) -> String? {
             from: action.action.open_url.url,
             length: Int(action.action.open_url.len)
         )
+    case GHOSTTY_ACTION_START_SEARCH:
+        return string(from: action.action.start_search.needle)
     default:
         return nil
     }

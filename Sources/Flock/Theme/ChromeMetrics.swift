@@ -167,6 +167,23 @@ enum ChromeMetrics {
         static let symbol: CGFloat = 11
     }
 
+    /// A pane's find bar, pinned to the terminal's top trailing corner.
+    enum FindBar {
+        static let inset: CGFloat = 8
+        static let padding: CGFloat = 6
+        static let cornerRadius: CGFloat = 8
+        static let fieldWidth: CGFloat = 180
+        static let fieldCornerRadius: CGFloat = 5
+        static let fieldHorizontalPadding: CGFloat = 8
+        static let fieldVerticalPadding: CGFloat = 5
+        /// Room at the field's trailing edge for the "12/34" count.
+        static let countReserve: CGFloat = 46
+        static let buttonSpacing: CGFloat = 2
+        static let buttonSize: CGFloat = 24
+        static let buttonCornerRadius: CGFloat = 5
+        static let shadowRadius: CGFloat = 6
+    }
+
     enum Pane {
         static let scrollIndicatorWidth: CGFloat = 5
         static let scrollIndicatorInset: CGFloat = 4

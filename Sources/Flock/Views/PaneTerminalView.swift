@@ -51,6 +51,10 @@ struct GhosttyPaneTerminalView: View {
     /// belongs to `DragCoordinator` from then on.
     let onBodyDragBegan: (CGPoint) -> Void
 
+    @State private var findBarFrame: CGRect?
+
+    private static let space = "flock.pane.terminal"
+
     init(
         surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
         optionAsAlt: OptionAsAlt,
@@ -74,14 +78,35 @@ struct GhosttyPaneTerminalView: View {
         self.onBodyDragBegan = onBodyDragBegan
     }
 
+    private var session: GhosttySession? { (surface as? GhosttySessionSurfaceHandle)?.session }
+
     var body: some View {
-        GhosttySurfaceRepresentable(
-            surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
-            optionAsAlt: optionAsAlt,
-            rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress,
-            isPristineLauncherPane: isPristineLauncherPane, editorIsOpen: editorIsOpen,
-            onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
-        )
+        let search = session?.search
+        let findBarOpen = search?.isOpen == true
+        ZStack(alignment: .topTrailing) {
+            GhosttySurfaceRepresentable(
+                surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
+                optionAsAlt: optionAsAlt,
+                rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress,
+                isPristineLauncherPane: isPristineLauncherPane,
+                // The find field is an editor too: while it holds the
+                // keyboard, this pane's terminal must not take it back.
+                editorIsOpen: editorIsOpen || search?.fieldHasFocus == true,
+                findBarFrame: findBarOpen ? findBarFrame : nil,
+                onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
+            )
+            if let session, let search, findBarOpen {
+                TerminalFindBar(
+                    theme: theme, search: search,
+                    onSearch: { session.searchFor($0) },
+                    onNavigate: { session.navigateSearch(forward: $0) },
+                    onClose: { session.endSearch() }
+                )
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { findBarFrame = $0 }
+                .padding(ChromeMetrics.FindBar.inset)
+            }
+        }
+        .coordinateSpace(name: Self.space)
     }
 }
 
@@ -102,6 +127,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     var paneDragInProgress: Bool = false
     var isPristineLauncherPane: Bool = false
     var editorIsOpen: Bool = false
+    var findBarFrame: CGRect?
     var onPrimaryClick: () -> Void = {}
     var menuProvider: () -> NSMenu? = { nil }
     var onBodyDragBegan: (CGPoint) -> Void = { _ in }
@@ -165,6 +191,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             existingView.paneDragInProgress = paneDragInProgress
             existingView.isPristineLauncherPane = isPristineLauncherPane
             existingView.editorIsOpen = editorIsOpen
+            existingView.findBarFrame = findBarFrame
             existingView.onPrimaryClick = onPrimaryClick
             existingView.paneMenuProvider = menuProvider
             existingView.onBodyDragBegan = onBodyDragBegan
@@ -179,6 +206,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         view.paneDragInProgress = paneDragInProgress
         view.isPristineLauncherPane = isPristineLauncherPane
         view.editorIsOpen = editorIsOpen
+        view.findBarFrame = findBarFrame
         view.onPrimaryClick = onPrimaryClick
         view.paneMenuProvider = menuProvider
         view.onBodyDragBegan = onBodyDragBegan
@@ -205,6 +233,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         // Set before the claim below reads it, never after: the whole point
         // of the flag is to be current at the instant that claim is decided.
         ghosttyView.editorIsOpen = editorIsOpen
+        ghosttyView.findBarFrame = findBarFrame
         ghosttyView.onPrimaryClick = onPrimaryClick
         // Rebuilt every `updateNSView` (never applied only once at
         // `makeNSView`): the closure itself is stable in shape but must read

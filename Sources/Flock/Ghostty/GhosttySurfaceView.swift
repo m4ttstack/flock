@@ -92,6 +92,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// `SessionViewModel.renameTarget`. While true this view holds no first
     /// responder of its own and takes none -- see `syncFocusClaim()`.
     var editorIsOpen = false
+    /// The find bar's frame in this view's TOP-LEFT space, or `nil` while it
+    /// is closed. SwiftUI draws the bar above this view, so without the gap
+    /// in `hitTest(_:)` its buttons would never see a click (the same trap
+    /// `isPristineLauncherPane` answers for the launcher).
+    var findBarFrame: CGRect?
     /// Where the matching mouse-DOWN actually sent a button, read back by the
     /// UP so it always replays the SAME destination -- never re-derived from
     /// `wantsFocus`/capture at up-time, which can have changed in between (a
@@ -162,7 +167,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// containing hosting view fall through to its own SwiftUI content for
     /// this whole view's bounds, buttons and the space around them alike.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        isPristineLauncherPane ? nil : super.hitTest(point)
+        if isPristineLauncherPane { return nil }
+        if let findBarFrame {
+            let local = convert(point, from: superview)
+            if findBarFrame.contains(CGPoint(x: local.x, y: bounds.height - local.y)) { return nil }
+        }
+        return super.hitTest(point)
     }
 
     /// The surface is created here rather than at init: libghostty builds a
@@ -220,7 +230,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         session.resize(to: bounds.size)
     }
 
+    /// Clears the find field's claim here, synchronously, rather than waiting
+    /// for SwiftUI to notice the field lost focus: a focus pass in between
+    /// would still read the claim and stand this view down again.
     override func becomeFirstResponder() -> Bool {
+        session.search.fieldHasFocus = false
         session.setFocused(true)
         return true
     }
@@ -683,6 +697,28 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         session.perform(action: "select_all")
     }
 
+    /// Edit > Find's items, when the menu bar carries them, arrive here
+    /// instead of reaching libghostty's own Cmd+F/Cmd+G bindings.
+    override func performTextFinderAction(_ sender: Any?) {
+        guard let action = Self.textFinderAction(sender) else { return }
+        switch action {
+        case .showFindInterface: session.perform(action: "start_search")
+        case .nextMatch: session.navigateSearch(forward: true)
+        case .previousMatch: session.navigateSearch(forward: false)
+        case .hideFindInterface: session.endSearch()
+        default: break
+        }
+    }
+
+    @objc func performFindPanelAction(_ sender: Any?) {
+        performTextFinderAction(sender)
+    }
+
+    private static func textFinderAction(_ sender: Any?) -> NSTextFinder.Action? {
+        guard let tag = (sender as? NSValidatedUserInterfaceItem)?.tag else { return nil }
+        return NSTextFinder.Action(rawValue: tag)
+    }
+
     @objc func openHoveredLink(_ sender: Any?) {
         session.openHoveredLink()
     }
@@ -699,7 +735,16 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// falls back to AppKit's default "enabled because something answers the
     /// action".
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        isMenuActionEnabled(menuItem.action)
+        switch menuItem.action {
+        case #selector(performTextFinderAction(_:)), #selector(performFindPanelAction(_:)):
+            switch Self.textFinderAction(menuItem) {
+            case .showFindInterface: return true
+            case .nextMatch, .previousMatch, .hideFindInterface: return session.search.isOpen
+            default: return false
+            }
+        default:
+            return isMenuActionEnabled(menuItem.action)
+        }
     }
 
     // MARK: - NSTextInputClient
