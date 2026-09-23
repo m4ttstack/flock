@@ -83,7 +83,7 @@ extension RtCoordinator {
         guard let newModel else { return }
         model = newModel
         seenTabs.formUnion(newModel.tabs.values.flatMap { $0 }.map(\.tabID))
-        if !adopted, let present = linkedTerminals(in: newModel) {
+        if !adopted, opensInFlight == 0, let present = linkedTerminals(in: newModel) {
             adopted = true
             adopt(newModel, present: present)
         }

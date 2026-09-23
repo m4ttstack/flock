@@ -77,6 +77,28 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         XCTAssertTrue(world.calls("tab.close").isEmpty)
     }
 
+    /// A model landing mid-open sees the new tab unlabelled or freshly
+    /// labelled but not yet in `items`: adoption must wait it out rather than
+    /// orphan it or double-register it once the open finishes.
+    func testAdoptionWaitsOutAnOpenInFlight() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt run", .init(busyPolls: 100_000, status: "0"))
+        world.silentPanes = ["wF1:p1"]
+        let rt = makeCoordinator(world)
+
+        async let opening: Void = rt.open(.run, from: world.fixture.linkedPane)
+        try? await Task.sleep(for: .milliseconds(3))
+        rt.update(model: world.model())
+        world.silentPanes = []
+        await opening
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertTrue(world.calls("tab.close").isEmpty)
+        XCTAssertEqual(rt.runItems(linkedTo: RtFixture.linkedTerminal).count, 1)
+        rt.watches["tok1"]?.cancel()
+    }
+
     func testLaunchAdoptsALiveRunnerAndShutsDownAStaleNav() async throws {
         let world = FakeRtWorld()
         world.seed(workspace: "wR", label: "flock:rt runner term_a1")
@@ -194,9 +216,6 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         XCTAssertEqual(FakeRtWorld.string(world.calls("pane.focus").last?["pane_id"]), "w1:p1")
     }
 
-    /// The spec's Testing section pins only the positive half of the confirm
-    /// rule ("y only when rt-ui still holds the foreground"); this pins the
-    /// negative half against a real reaped shutdown.
     func testClosingTheLinkedPaneSendsNoYToAScriptThatIsNotRt() async throws {
         let world = FakeRtWorld()
         world.script("command rt run", .init(busyPolls: 100_000, status: "0"))
