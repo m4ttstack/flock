@@ -543,9 +543,10 @@ Run `SessionViewModelTests` and `RailSectionsTests`. Expected: compile failure o
 In `SessionViewModel`, beside `model`:
 
 ```swift
-    /// Everything herdr reports, flock's own workspaces included. Only the rt
-    /// coordinator, surface teardown and layout exports read it; every view
-    /// reads `model`, which never holds a flock-owned workspace.
+    /// Everything herdr reports, flock's own workspaces included. The rt
+    /// coordinator, surface teardown, layout exports and drag planning read
+    /// it (herdr's indexes are into its full lists); every view reads
+    /// `model`, which never holds a flock-owned workspace.
     public private(set) var fullModel: SessionModel?
 ```
 
@@ -1801,11 +1802,11 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: everything from Tasks 1-7.
 - Produces (`@MainActor @Observable public final class RtCoordinator`):
-  - `init(client:files:config:now:makeToken:notice:)`, `struct Config { pollInterval, confirmDelay, shutdownTimeout: Duration; fileDirectory: URL }`
+  - `init(client:files:config:now:makeToken:notice:)`, `struct Config { pollInterval, confirmDelay, shutdownTimeout, shellWait: Duration; missLimit: Int; fileDirectory: URL }` (default directory `ScratchDirectory.url/rt`)
   - `public internal(set) var items: [String: RtItem]`, `public internal(set) var modal: RtModal?`, `var modalItem: RtItem?`
   - `open(_ kind:from pane: PaneRecord) async`, `show(_ id:) async`, `closeModal() async`, `selectModalTab(_:)`, `backToBoard() async`, `perform(_ action: RtMenuRow.Action, from:) async`
   - `runner(linkedTo:) -> RtItem?`, `runItems(linkedTo:) -> [RtItem]`, `buttonAppearance(linkedTo: TerminalID?, rtInstalled:) -> RtButtonModel.Appearance`, `menuRows(linkedTo:) -> [RtMenuRow]`
-  - internal for Task 9 and tests: `watches`, `lifecycles`, `model`, `openedOrder`, `opensInFlight`, `pendingWork`, `startWatch(_:)`, `forget(_:)`, `closeItem(_:) async`, `panes(of:)`, `cd(linkedTo:into:) async`
+  - internal for Task 9 and tests: `watches`, `lifecycles`, `misses`, `model`, `openedOrder`, `opensInFlight`, `pendingWork: [UUID: Task]`, `lastVisibleFocus`, `startWatch(_:)`, `background(_:)`, `waitForShell(_:) async -> ShellFlavor`, `focusLinked(_:) async`, `forget(_:)`, `closeItem(_:) async`, `panes(of:)`, `cd(linkedTo:into:) async`
   - Task 9 adds `update(model:)`, `shutDown(_:) async`, `settle() async`; this task calls `shutDown` from `closeModal`, so Task 9's file must exist before this compiles. Create `RtCoordinator+Lifetime.swift` in this task with only `shutDown` and its helpers (Step 3b), and grow it in Task 9.
 
 - [ ] **Step 1: Write the test support**
@@ -2566,10 +2567,11 @@ public final class RtCoordinator {
         model?.workspaces.first { $0.label == RtLabels.sharedWorkspace }?.workspaceID
     }
 
-    /// A fresh shell names itself only once it sits at its prompt, and a line
-    /// typed before then can be swallowed by the shell's own startup. Waits
-    /// for that, bounded; past the bound, the user's login shell decides the
-    /// status variable.
+    /// Waits, bounded, for the new pane's shell to stand alone in its
+    /// foreground and name itself: before that its startup can hold the
+    /// foreground (fish running config subprocesses) and a typed line can be
+    /// lost. Past the bound, the user's login shell decides the status
+    /// variable.
     func waitForShell(_ pane: PaneID) async -> ShellFlavor {
         let deadline = ContinuousClock.now.advanced(by: config.shellWait)
         while ContinuousClock.now < deadline {
@@ -2608,7 +2610,9 @@ public final class RtCoordinator {
         guard let current = modal else { return }
         modal = nil
         guard let item = items[current.itemID] else { return }
-        let linked = item.linked
+        // Before the shutdown, which waits out its confirm delay: focus moves
+        // with the close, not a second after it.
+        await focusLinked(item.linked)
         if item.strip != nil {
             await closeItem(item.id)
         } else {
@@ -2617,7 +2621,6 @@ public final class RtCoordinator {
             case .run, .runner: break
             }
         }
-        await focusLinked(linked)
     }
 
     func focusLinked(_ terminal: TerminalID) async {
@@ -4322,6 +4325,8 @@ In `FlockApp`, the `FocusedPaneCommand` buttons (Split Right, Split Down, Close 
                     .disabled(viewModel.canvasFocusedPaneID == nil)
 ```
 
+The `PaneDirectionCommand` buttons (move and swap the focused pane) act on herdr's focused pane through `moveFocusedPane`/`swapFocusedPane`, which the modal does not hold, so they are disabled while it is up: append `|| viewModel.rt.modal != nil` to their `.disabled(...)` condition.
+
 - [ ] **Step 4: Run it to see it pass, then look**
 
 Run `RtModalChromeRenderTests` with `TEST_RUNNER_FLOCK_CHROME_RENDER_DIR=<dir>`. Expected: 1/1. Compare each PNG with `docs/design/rt/modal-*.png` feature by feature; fix any unexplained difference. Then run the whole `FlockChromeRender` suite and the whole `FlockCoreTests`.
@@ -4368,4 +4373,4 @@ Tell Matt to click the "New build · Restart" pill in Flock Dev. Never quit or l
 
 - [ ] **Step 4: Fold feedback in.** Each fix is its own red-green-commit cycle, then rerun the gates and `dev-build.sh`.
 
-- [ ] **Step 5: Finish the branch** with superpowers:finishing-a-development-branch (a PR to m4ttstack/flock; wait for CodeRabbit and CI per Matt's rules; merge only on his confirmation).
+- [ ] **Step 5: Finish the branch.** Rebase onto the current `main` first (it moves while this runs; `PaneCellView` is the likeliest conflict), rerun the gates, then superpowers:finishing-a-development-branch (a PR to m4ttstack/flock; wait for CodeRabbit and CI per Matt's rules; merge only on his confirmation).
