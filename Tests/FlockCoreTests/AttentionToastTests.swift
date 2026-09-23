@@ -325,6 +325,52 @@ final class AttentionToastTests: XCTestCase {
         XCTAssertNil(NotificationLifetime.untilSeen.finishedLifetime)
     }
 
+    // MARK: - relaunch
+
+    @MainActor
+    private func withArchive(_ body: (AttentionToastArchive) throws -> Void) throws {
+        let suite = "dev.mattstack.flock.attention-archive-tests"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try body(AttentionToastArchive(userDefaults: defaults))
+    }
+
+    @MainActor
+    func testAToastStillTrueAtRelaunchComesBack() throws {
+        try withArchive { archive in
+            let clock = TestClock()
+            let before = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, attentionToastArchive: archive)
+            before.update(model: attentionModel(), connection: .live)
+            before.update(model: attentionModel(statuses: ["w2:p1": .blocked]), connection: .live)
+            let raised = try XCTUnwrap(before.attentionToasts.toasts.first)
+
+            clock.advance(60)
+            let after = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, attentionToastArchive: archive)
+            after.update(model: nil, connection: .connecting)
+            after.update(model: attentionModel(statuses: ["w2:p1": .blocked]), connection: .live)
+
+            XCTAssertEqual(after.attentionToasts.toasts, [raised])
+        }
+    }
+
+    @MainActor
+    func testAToastAnsweredWhileFlockWasClosedDoesNotComeBack() throws {
+        try withArchive { archive in
+            let clock = TestClock()
+            let before = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, attentionToastArchive: archive)
+            before.update(model: attentionModel(), connection: .live)
+            before.update(model: attentionModel(statuses: ["w2:p1": .blocked, "w2:p2": .blocked]), connection: .live)
+
+            clock.advance(60)
+            let after = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, attentionToastArchive: archive)
+            after.update(model: attentionModel(statuses: ["w2:p2": .blocked]), connection: .live)
+
+            XCTAssertEqual(after.attentionToasts.toasts.map(\.paneID.rawValue), ["w2:p2"])
+            XCTAssertEqual(archive.load().toasts.map(\.paneID.rawValue), ["w2:p2"])
+        }
+    }
+
     // MARK: - withdrawal
 
     @MainActor

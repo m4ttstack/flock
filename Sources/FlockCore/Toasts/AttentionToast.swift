@@ -7,8 +7,8 @@ import Foundation
 /// on the OS notification centre ("one notification per pane... a pane that
 /// goes blocked and later done replaces its own banner"). Making the pane the
 /// identity puts that rule in the type rather than in the code that keeps it.
-public struct AttentionToast: Identifiable, Equatable, Sendable {
-    public enum Kind: String, Sendable {
+public struct AttentionToast: Identifiable, Equatable, Codable, Sendable {
+    public enum Kind: String, Codable, Sendable {
         /// The agent stopped and is waiting on the user. Stays until it is
         /// handled or dismissed.
         case needsInput

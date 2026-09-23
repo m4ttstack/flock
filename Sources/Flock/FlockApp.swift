@@ -233,7 +233,8 @@ struct FlockApp: App {
             // failure from `perform`/`closePane` -- so this gets the
             // neutral info glyph, never the undo journal's arrow.
             noticeSink: { message in toastCenter.show(message, kind: .info) },
-            notificationLifetime: { notificationLifetimeStore.active }
+            notificationLifetime: { notificationLifetimeStore.active },
+            attentionToastArchive: AttentionToastArchive()
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))

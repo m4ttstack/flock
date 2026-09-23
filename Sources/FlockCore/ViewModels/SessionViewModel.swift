@@ -30,7 +30,11 @@ public final class SessionViewModel {
     public private(set) var lastLines: [PaneID: String] = [:]
     /// The grid hover card's tails, one per pane it has opened on.
     public private(set) var paneTails: [PaneID: PaneTail] = [:]
-    public private(set) var attentionToasts = AttentionToastStack()
+    public private(set) var attentionToasts = AttentionToastStack() {
+        didSet {
+            if attentionToasts != oldValue { attentionToastArchive?.save(attentionToasts) }
+        }
+    }
 
     /// Written from inside view bodies, which must not invalidate the views
     /// reading it; `lastLines` is what they observe.
@@ -123,6 +127,7 @@ public final class SessionViewModel {
     /// Read at every raise and sweep, so a change in Settings lands at the
     /// dock's next sweep without anything pushing it here.
     @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
+    @ObservationIgnored private let attentionToastArchive: AttentionToastArchive?
     @ObservationIgnored private let navigationPollInterval: Duration
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
@@ -139,6 +144,7 @@ public final class SessionViewModel {
         noticeSink: @escaping @MainActor (String) -> Void = { _ in },
         now: @escaping @MainActor () -> Date = { Date() },
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
+        attentionToastArchive: AttentionToastArchive? = nil,
         navigationPollInterval: Duration = .milliseconds(300)
     ) {
         self.client = client
@@ -151,7 +157,11 @@ public final class SessionViewModel {
         self.noticeSink = noticeSink
         self.now = now
         self.notificationLifetime = notificationLifetime
+        self.attentionToastArchive = attentionToastArchive
         self.navigationPollInterval = navigationPollInterval
+        if let attentionToastArchive, notificationLifetime() != .never {
+            attentionToasts = attentionToastArchive.load()
+        }
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -247,11 +257,16 @@ public final class SessionViewModel {
     /// A herd's panes are skipped here rather than hidden in the stack view:
     /// a toast that is never made cannot reach the collapsed count, the
     /// "more" pill, or a Clear that would then look like it did nothing.
+    ///
+    /// A nil model is a gap in the connection, or the wait for the first
+    /// snapshot after launch, and leaves the stack alone: the cards restored
+    /// from the archive have to survive until a snapshot can judge them.
     private func reconcileAttentionToasts(previous: SessionModel?) {
-        guard let model, notificationLifetime() != .never else {
+        guard notificationLifetime() != .never else {
             attentionToasts.clear()
             return
         }
+        guard let model else { return }
         let raisedAt = now()
         if let previous {
             for paneID in model.panes.keys.sorted(by: { $0.rawValue < $1.rawValue }) {

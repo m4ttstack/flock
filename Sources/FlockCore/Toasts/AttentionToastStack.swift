@@ -10,7 +10,7 @@ import Foundation
 /// replacing it: a banner in Notification Center would double whatever herdr's
 /// own `[ui.toast] delivery` is already doing for the same event, so the
 /// attention surface stays inside flock's window.
-public struct AttentionToastStack: Equatable, Sendable {
+public struct AttentionToastStack: Equatable, Codable, Sendable {
     /// Drawn however short the rail is; a taller rail draws more
     /// (`DockCapacity`), and past what it draws, older toasts are counted.
     public static let minimumVisible = 3
