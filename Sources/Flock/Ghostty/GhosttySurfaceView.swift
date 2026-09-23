@@ -295,6 +295,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             return
         }
         sendButtonUp(.left, event: event, route: leftButtonRoute)
+        if leftButtonRoute == .app {
+            session.host.paneAppTookPrimaryRelease(session.paneID)
+        }
         leftButtonRoute = nil
     }
 

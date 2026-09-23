@@ -46,10 +46,36 @@ final class GhosttyHost {
     nonisolated(unsafe) private var baseConfig: ghostty_config_t?
 
     /// Fired with the text just written to the system clipboard and the pane
-    /// whose surface wrote it, by any surface (copy-on-select's mouse-up, an
-    /// explicit copy action), after the pasteboard write has happened, on
-    /// the main actor.
+    /// it was copied in, after the pasteboard write has happened, on the main
+    /// actor: by any surface (copy-on-select's mouse-up, an explicit copy
+    /// action), or by a mouse-capturing pane app caught by `appCopyWatch`.
     var onClipboardWrite: ((String, PaneID) -> Void)?
+
+    private var appCopyWatch = PaneAppCopyWatch()
+    private var appCopyPoll: Task<Void, Never>?
+
+    /// NSPasteboard posts no change notification, so an armed watch polls
+    /// the change count until it fires or lapses.
+    func paneAppTookPrimaryRelease(_ paneID: PaneID) {
+        appCopyWatch.arm(
+            pane: paneID, changeCount: NSPasteboard.general.changeCount,
+            now: ProcessInfo.processInfo.systemUptime
+        )
+        guard appCopyPoll == nil else { return }
+        appCopyPoll = Task { [weak self] in
+            while let self, self.appCopyWatch.isArmed {
+                try? await Task.sleep(for: .milliseconds(100))
+                let pasteboard = NSPasteboard.general
+                let pane = self.appCopyWatch.observe(
+                    changeCount: pasteboard.changeCount, now: ProcessInfo.processInfo.systemUptime
+                )
+                if let pane, let text = pasteboard.string(forType: .string), !text.isEmpty {
+                    self.onClipboardWrite?(text, pane)
+                }
+            }
+            self?.appCopyPoll = nil
+        }
+    }
 
     /// `ghostty_init` has to run before any other libghostty call, the config
     /// included, so it is separate from creating the app. Safe to call twice;
