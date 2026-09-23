@@ -40,29 +40,41 @@ final class PaneLoaderStrideTests: XCTestCase {
         XCTAssertEqual(PaneLoaderStride.hopLift(elapsed: PaneLoaderStride.hopDuration), 0, accuracy: 0.0001)
     }
 
-    func testTheFirstLandingIsMarkedWhereTheRunStarts() {
-        let prints = PaneLoaderStride.hoofprints(elapsed: 0, start: start, badgeWidth: badge, boxWidth: box)
+    private let tail = 34.0
 
-        XCTAssertEqual(prints, [.init(leadingX: start, opacity: 1)])
+    private func trail(at elapsed: Double) -> [PaneLoaderStride.TrailDot] {
+        PaneLoaderStride.trail(elapsed: elapsed, start: start, badgeWidth: badge, boxWidth: box, tailOffset: tail)
     }
 
-    /// Prints stay where they were made while the mark moves on, one per
-    /// landing, newest nearest the mark.
-    func testEachLandingLeavesAPrintBehindTheMark() {
-        let hop = PaneLoaderStride.hopDuration
-        let prints = PaneLoaderStride.hoofprints(elapsed: 2.5 * hop, start: start, badgeWidth: badge, boxWidth: box)
+    /// Dropped off the back of the mark, never under it.
+    func testTheFirstDotDropsBehindTheMark() throws {
+        let first = try XCTUnwrap(trail(at: 0).first)
 
-        XCTAssertEqual(prints.count, 3)
-        for (print, expected) in zip(prints, [2.0, 1.0, 0.0]) {
-            XCTAssertEqual(print.leadingX, start - PaneLoaderStride.speed * expected * hop, accuracy: 0.0001)
+        XCTAssertEqual(first.x, start + tail, accuracy: 0.0001)
+        XCTAssertGreaterThan(first.x, start + badge)
+    }
+
+    /// Dots stay where they dropped while the mark moves on, evenly spaced,
+    /// newest nearest the mark and oldest faintest.
+    func testDotsStayWhereTheyDropped() {
+        let dots = trail(at: 3)
+
+        XCTAssertEqual(dots.count, PaneLoaderStride.trailLength)
+        for (older, newer) in zip(dots.dropFirst(), dots) {
+            XCTAssertEqual(older.x - newer.x, PaneLoaderStride.dotSpacing, accuracy: 0.0001)
+            XCTAssertLessThan(older.opacity, newer.opacity)
         }
-        XCTAssertTrue(zip(prints, prints.dropFirst()).allSatisfy { $0.opacity > $1.opacity }, "older prints should be fainter")
     }
 
-    func testTheTrailKeepsOnlyItsLength() {
-        let prints = PaneLoaderStride.hoofprints(elapsed: 40, start: start, badgeWidth: badge, boxWidth: box)
+    /// The trail winds: across one wavelength it rises above and dips below
+    /// the ground line, and each dot sits on the path where it dropped.
+    func testTheTrailWindsUpAndDown() {
+        let dots = trail(at: 2)
 
-        XCTAssertEqual(prints.count, PaneLoaderStride.trailLength)
-        XCTAssertTrue(prints.allSatisfy { $0.opacity > 0 && $0.opacity <= 1 })
+        XCTAssertTrue(dots.contains { $0.lift > PaneLoaderStride.windAmplitude / 2 })
+        XCTAssertTrue(dots.contains { $0.lift < -PaneLoaderStride.windAmplitude / 2 })
+        for dot in dots {
+            XCTAssertEqual(dot.lift, PaneLoaderStride.winding(atX: dot.x), accuracy: 0.0001)
+        }
     }
 }

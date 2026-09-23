@@ -1,13 +1,12 @@
 import Foundation
 
 /// The attach badge's run along the bottom of a pane: the mark ambles right
-/// to left, the way the ram faces, bouncing as it goes and leaving a dot on
-/// the ground at every landing, a little goat trail that fades behind it.
-/// Pure and clock-free, like `PaneLoaderChoreography`, so the path is
-/// testable without an animation.
+/// to left, the way the ram faces, bouncing as it goes along a gently winding
+/// path, and drops a trail of dots off its back that fades behind it, a
+/// little goat trail. Pure and clock-free, like `PaneLoaderChoreography`, so
+/// the path is testable without an animation.
 public enum PaneLoaderStride {
-    /// Points per second. Slow on purpose: the hops carry the liveliness, and
-    /// the distance per hop is what spaces the trail.
+    /// Points per second. Slow on purpose: the hops carry the liveliness.
     public static let speed: Double = 50
     /// One hop, ground to ground. Quick against the slow travel, so the mark
     /// bounces more than it leaps.
@@ -16,19 +15,26 @@ public enum PaneLoaderStride {
     /// as one piece: its echoes already trail up and behind the leader, so
     /// lifting the leader alone runs it into them and the ram turns to a blob.
     public static let hopHeightFraction: Double = 0.45
-    /// Landings still marked on the ground; the oldest is nearly faded out.
-    public static let trailLength = 6
+    /// Points travelled between one dropped dot and the next.
+    public static let dotSpacing: Double = 7
+    /// Dots still on the ground; the oldest is nearly faded out.
+    public static let trailLength = 16
+    /// How far the path rises and falls either side of the ground line.
+    public static let windAmplitude: Double = 5
+    /// One full rise and fall of the path, in points.
+    public static let windWavelength: Double = 90
     /// How far past each edge the badge runs before it wraps, so it leaves
     /// and re-enters beyond the pane's own padding rather than popping inside
     /// it.
     public static let overscan: Double = 24
 
-    /// One landing's mark on the ground.
-    public struct Hoofprint: Equatable, Sendable {
-        /// The badge's leading edge when it landed there, in the same x as
-        /// `leadingX`.
-        public let leadingX: Double
-        /// 1 the instant it lands, falling toward 0 over `trailLength` hops.
+    /// One dot of the trail.
+    public struct TrailDot: Equatable, Sendable {
+        /// Where it was dropped, in the same x as `leadingX`.
+        public let x: Double
+        /// Its height on the path at `x`, up positive.
+        public let lift: Double
+        /// 1 the instant it drops, falling toward 0 over `trailLength` dots.
         public let opacity: Double
     }
 
@@ -49,19 +55,28 @@ public enum PaneLoaderStride {
         abs(sin(.pi * elapsed / hopDuration))
     }
 
-    /// Every landing that has not yet faded, newest first. The mark is on the
-    /// ground at every whole multiple of `hopDuration`, the first at `elapsed`
-    /// 0, and each print stays where it was made while the mark moves on.
-    public static func hoofprints(elapsed: Double, start: Double, badgeWidth: Double, boxWidth: Double) -> [Hoofprint] {
+    /// The path's height at `x`, up positive. Keyed on where a point is
+    /// rather than when, so a dot keeps its height after it drops and the ram
+    /// walks the same curve its trail lies on.
+    public static func winding(atX x: Double) -> Double {
+        windAmplitude * sin(2 * .pi * x / windWavelength)
+    }
+
+    /// Every dot not yet faded, newest first. One drops every `dotSpacing`
+    /// points of travel, the first at `elapsed` 0, each `tailOffset` behind
+    /// the badge's leading edge where it was at the time, and stays put while
+    /// the mark moves on.
+    public static func trail(
+        elapsed: Double, start: Double, badgeWidth: Double, boxWidth: Double, tailOffset: Double
+    ) -> [TrailDot] {
         guard elapsed >= 0 else { return [] }
-        let newest = Int((elapsed / hopDuration).rounded(.down))
-        let fadeSpan = Double(trailLength) * hopDuration
-        return (max(0, newest - trailLength + 1)...newest).reversed().map { landing in
-            let landedAt = Double(landing) * hopDuration
-            return Hoofprint(
-                leadingX: leadingX(elapsed: landedAt, start: start, badgeWidth: badgeWidth, boxWidth: boxWidth),
-                opacity: 1 - (elapsed - landedAt) / fadeSpan
-            )
+        let interval = dotSpacing / speed
+        let newest = Int((elapsed / interval).rounded(.down))
+        let fadeSpan = Double(trailLength) * interval
+        return (max(0, newest - trailLength + 1)...newest).reversed().map { drop in
+            let droppedAt = Double(drop) * interval
+            let x = leadingX(elapsed: droppedAt, start: start, badgeWidth: badgeWidth, boxWidth: boxWidth) + tailOffset
+            return TrailDot(x: x, lift: winding(atX: x), opacity: 1 - (elapsed - droppedAt) / fadeSpan)
         }
     }
 
