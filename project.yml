@@ -143,10 +143,17 @@ targets:
       base:
         PRODUCT_NAME: Flock-dev
         PRODUCT_BUNDLE_IDENTIFIER: dev.mattstack.Flock.dev
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Dev
+        # Scripts/dev-build.sh stamps every build; a running Flock Dev compares
+        # its own stamp with the bundle on disk to offer a restart.
+        FLOCK_BUILD_STAMP: ""
     info:
       path: Generated/Flock-dev-Info.plist
       properties:
         FlockDevBuild: true
+        CFBundleName: "Flock Dev"
+        CFBundleDisplayName: "Flock Dev"
+        FlockBuildStamp: "$(FLOCK_BUILD_STAMP)"
   FlockCoreTests:
     type: bundle.unit-test
     platform: macOS
