@@ -185,11 +185,11 @@ final class PaneLoaderViewTests: XCTestCase {
     }
 
     /// Frames on each theme's real pane ground, for looking at. The leader's
-    /// peak is half a hop in; 0.8s is partway across.
+    /// peak is half a hop in; by 2s the trail is at full length.
     func testTheRunOnRealGroundsForReview() async throws {
         let paneSize = CGSize(width: 520, height: 200)
         for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
-            for elapsed in [0, PaneLoaderStride.hopDuration / 2, 0.8] {
+            for elapsed in [0, PaneLoaderStride.hopDuration / 2, 2.0] {
                 _ = try await render(
                     theme: theme, paneSize: paneSize, name: "run-\(scheme)-\(Int(elapsed * 1000))ms",
                     frozenElapsed: elapsed, onThemeGround: true
