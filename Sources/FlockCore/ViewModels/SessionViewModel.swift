@@ -29,6 +29,8 @@ public final class SessionViewModel {
     /// `model`, which never holds a flock-owned workspace.
     public private(set) var fullModel: SessionModel?
     public private(set) var connectionState: ConnectionState = .connecting
+    /// Everything opened through a pane's rt button.
+    public let rt: RtCoordinator
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
@@ -144,7 +146,8 @@ public final class SessionViewModel {
         noticeSink: @escaping @MainActor (String) -> Void = { _ in },
         now: @escaping @MainActor () -> Date = { Date() },
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
-        navigationPollInterval: Duration = .milliseconds(300)
+        navigationPollInterval: Duration = .milliseconds(300),
+        rt: RtCoordinator? = nil
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -157,6 +160,7 @@ public final class SessionViewModel {
         self.now = now
         self.notificationLifetime = notificationLifetime
         self.navigationPollInterval = navigationPollInterval
+        self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -208,6 +212,7 @@ public final class SessionViewModel {
         reconcileClosedPanes()
         reconcileAgentStatusFeeds()
         reconcileAttentionToasts(previous: previousModel)
+        rt.update(model: fullModel)
     }
 
     /// Moves the selection off a tab or workspace this update has closed, to
@@ -424,6 +429,12 @@ public final class SessionViewModel {
     /// (`InputSinkDisposition`, `MouseForwarding`).
     public var resolvedFocusedPaneID: PaneID? {
         optimisticFocusedPaneID ?? model?.focusedPaneID
+    }
+
+    /// The pane the canvas draws as focused and lets take the keyboard: none
+    /// while the rt modal is up, since the modal's own surface has it.
+    public var canvasFocusedPaneID: PaneID? {
+        rt.modal == nil ? resolvedFocusedPaneID : nil
     }
 
     /// The selected workspace's tabs, or `[]` when nothing is selected yet

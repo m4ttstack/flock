@@ -2703,4 +2703,38 @@ final class SessionViewModelTests: XCTestCase {
 
         XCTAssertEqual(factory.surfaces[PaneID(rawValue: "wF:p1")]?.detachCallCount, 1)
     }
+
+    // MARK: - rt
+
+    @MainActor
+    func testTheRtCoordinatorHearsTheFullModel() async {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "nav term_a1 old", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        let rt = makeCoordinator(world)
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), rt: rt)
+
+        viewModel.update(model: world.model(), connection: .live)
+        await rt.settle()
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").first?["tab_id"]), "wS:t1")
+    }
+
+    /// The modal's surface takes the keyboard; no canvas pane may also claim it.
+    @MainActor
+    func testTheCanvasHasNoFocusedPaneWhileTheModalIsUp() async {
+        let world = FakeRtWorld()
+        world.script("command rt glitter", .init(busyPolls: 100_000, status: "0"))
+        let rt = makeCoordinator(world)
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), rt: rt)
+        viewModel.update(model: world.model(), connection: .live)
+        XCTAssertEqual(viewModel.canvasFocusedPaneID, RtFixture.linkedPaneID)
+
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        XCTAssertNil(viewModel.canvasFocusedPaneID)
+
+        await rt.closeModal()
+        XCTAssertEqual(viewModel.canvasFocusedPaneID, RtFixture.linkedPaneID)
+    }
 }
