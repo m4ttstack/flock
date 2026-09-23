@@ -102,6 +102,7 @@ struct FlockApp: App {
     @State private var railWidthStore = RailWidthStore()
     @State private var sectionCollapseStore = SectionCollapseStore()
     @State private var boardStore: BoardStore
+    @State private var devBuildWatcher: DevBuildWatcher? = BuildFlavor.isDev ? DevBuildWatcher() : nil
     @State private var herdProgressStore = HerdProgressStore()
     @State private var toastCenter: ToastCenter
     @State private var chatStore: ChatStore
@@ -120,6 +121,7 @@ struct FlockApp: App {
     #endif
 
     private let sessionLabel: String
+    private let socketPath: String
 
     init() {
         // The one setting that actually stops AppKit's legacy
@@ -259,6 +261,7 @@ struct FlockApp: App {
         )
         _dividerDragCoordinator = State(initialValue: DividerDragCoordinator(session: dividerDragSession))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
+        self.socketPath = socketPath
     }
 
     var body: some Scene {
@@ -280,6 +283,7 @@ struct FlockApp: App {
                 .environment(railWidthStore)
                 .environment(sectionCollapseStore)
                 .environment(boardStore)
+                .environment(devBuildWatcher)
                 .environment(herdProgressStore)
                 .environment(toastCenter)
                 .environment(chatStore)
@@ -288,10 +292,15 @@ struct FlockApp: App {
                 .environment(dragCoordinator)
                 .environment(dividerDragCoordinator)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
-                .task { await herdrStore.start() }
+                .task {
+                    await FlockClientGuard.settle(socketPath: socketPath, defaultSocketPath: Self.defaultSocketPath)
+                    await herdrStore.start()
+                }
                 .task { await boardStore.refresh() }
+                .task { devBuildWatcher?.start() }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     Task { await boardStore.refresh() }
+                    devBuildWatcher?.check()
                 }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
@@ -448,12 +457,14 @@ struct FlockApp: App {
         return HerdrStore(socketPath: socketPath, resnapshotInterval: .seconds(seconds))
     }
 
+    private static let defaultSocketPath = NSHomeDirectory() + "/.config/herdr/herdr.sock"
+
     private static func resolveSocketPath() -> String {
         let env = ProcessInfo.processInfo.environment
         if let override = env["HERDR_SOCKET_PATH"], !override.isEmpty {
             return override
         }
-        return NSHomeDirectory() + "/.config/herdr/herdr.sock"
+        return defaultSocketPath
     }
 
     /// `.../sessions/<name>/herdr.sock` -> `<name>`; the default socket's
