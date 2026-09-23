@@ -153,19 +153,25 @@ splits it with `cwd: <path>` instead and focuses the new pane.
    - **A result in `FLOCK_RT_OUT`:** go to phase 2.
    - **Status 0, no result:** the pick was "Launch all" or a preset, and rt
      launched it itself. The item carries on as the rest of the lifecycle
-     describes: running while any pane in it is busy.
+     describes: running while any pane in it is busy. The 3 s "never seen busy"
+     ceiling starts over here, since the first pane sits idle until the script
+     rt typed into it starts. Its finished strip shows no exit status: the file
+     holds rt's own 0, not the scripts'.
    - **Any other status, no result:** a cancel. The modal closes. rt exits 1
      for its own errors too ("No scripts found"), so in v1 those also close the
      modal without the message; see Out of scope.
 
    A tab that appears in `flock:rt` without a flock label is one rt placed for
-   "Launch all". It joins the rt run item on screen in the modal: flock labels
-   it with that item's terminal and token, the modal shows the item's tabs
-   behind a small tab strip, and it is shut down and re-adopted with the item.
+   "Launch all", which it does while its picker process is still running. It
+   joins the rt run item still in phase 1: if several are, the one on screen,
+   else the one opened most recently. flock labels it with that item's terminal
+   and token, the modal shows the item's tabs behind a small tab strip, and it
+   is shut down and re-adopted with the item. With no item in phase 1, it is
+   shut down straight away.
 2. flock types `cd <targetDir> && <commandTemplate>` (shell-quoted, with the
-   status suffix) into the same pane, after deleting phase 1's status file. The script's end is the next idle. The
-   modal shows a **finished** strip with the exit status ("finished · exit 0 ·
-   any key closes").
+   status suffix) into the same pane, after deleting phase 1's status file. The
+   script's end is the next idle. The modal shows a **finished** strip with the
+   exit status ("finished · exit 0 · any key closes").
 
 Without the phases, the moment between rt exiting and the script starting would
 read as finished.
@@ -323,8 +329,9 @@ which flock does not connect to.
   `pane.close`, `tab.close` and `workspace.close`. File reads go through an
   injected reader.
 - **Render tests**, dark and light: the rt button at rest and active, the runner
-  button, the modal with each strip, a multi-pane tab, the service view's title
-  row. Compared against the canvas PNGs.
+  button, the modal with each strip, a multi-pane tab, the modal's tab strip for
+  an item that spans tabs, the service view's title row. Compared against the
+  canvas PNGs.
 - **By hand**, since clicks and focus count as verified only then: every row of
   the per-command table, "Launch all" and a preset from the rt run modal,
   closing a pane with a live runner, dragging a pane with a runner to another
