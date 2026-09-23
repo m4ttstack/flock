@@ -635,6 +635,10 @@ public final class SessionViewModel {
         ghosttySurfaces[pane]
     }
 
+    /// Whether `attachPane` can ever hand back a surface. `false` only when
+    /// the app has no ghostty host, which leaves every pane on its status card.
+    public var attachesSurfaces: Bool { ghosttyFactory != nil }
+
     /// What flock currently wants of its bridges, so a surface registered
     /// after the decision was made can be told as it appears. A bridge spawns
     /// HOLDING, so a pane first attached while flock is in the background

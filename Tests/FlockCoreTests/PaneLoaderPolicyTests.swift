@@ -102,6 +102,20 @@ final class PaneLoaderPolicyTests: XCTestCase {
         )
     }
 
+    /// The card's hint read as a broken pane when it was really a pane still
+    /// being built, so an app that can attach never shows it.
+    func testAPaneStillWaitingOnItsSurfaceNeverShowsTheCard() {
+        XCTAssertFalse(PaneLoaderPolicy.showsStatusCard(hasSurface: false, attachesSurfaces: true))
+    }
+
+    func testAnAppThatCannotAttachShowsTheCard() {
+        XCTAssertTrue(PaneLoaderPolicy.showsStatusCard(hasSurface: false, attachesSurfaces: false))
+    }
+
+    func testAPaneWithASurfaceNeverShowsTheCard() {
+        XCTAssertFalse(PaneLoaderPolicy.showsStatusCard(hasSurface: true, attachesSurfaces: true))
+    }
+
     func testACustomMinimumIsHonoredJustLikeTheDefault() {
         let firstFrameAt = shownAt.advanced(by: .milliseconds(10))
 

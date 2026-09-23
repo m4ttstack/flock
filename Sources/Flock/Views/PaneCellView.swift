@@ -35,12 +35,11 @@ struct PaneHoverLift: ViewModifier {
 }
 
 /// A single pane cell: a bordered box with the pane's title in its top
-/// chrome, over a body that swaps between status-card mode (glyph/cwd/hint,
-/// for a pane not yet attached) and live mode (its one ghostty surface) once
-/// `SessionViewModel` hands one back. Every pane the canvas renders is a
-/// visible pane of the selected tab, so it attaches on first visibility per
-/// the standing attach policy; card mode is what shows while that attach is
-/// still in flight.
+/// chrome, over its one ghostty surface once `SessionViewModel` hands one
+/// back. Every pane the canvas renders is a visible pane of the selected tab,
+/// so it attaches on first visibility per the standing attach policy, and the
+/// attach badge covers that whole wait. The status card (glyph/cwd/hint) is
+/// only for an app with no ghostty host.
 struct PaneCellView: View {
     /// What the canvas subtracts from a box before deriving the whole-cell
     /// grid, so the chrome never eats a terminal cell. Must agree with
@@ -140,8 +139,8 @@ struct PaneCellView: View {
     }
 
     /// Seeds `ghosttySurface` from the pool synchronously, at construction --
-    /// a warm (parked) pane's surface is already there, so it never renders
-    /// the status card even for one frame while `.task(id:)` catches up. A
+    /// a warm (parked) pane's surface is already there, so it never starts
+    /// an attach wait even for one frame while `.task(id:)` catches up. A
     /// cold pane's pool lookup is `nil`, same as the implicit default the
     /// synthesized init would have given it, so this changes nothing for
     /// that case.
@@ -603,8 +602,15 @@ struct PaneCellView: View {
     /// attach finishes inside `appearDelay` never sets `loaderShownAt`, so
     /// this is never true for it and the pane simply appears.
     private var showsAttachLoader: Bool {
-        guard let ghosttySurface, loaderShownAt != nil else { return false }
-        return !ghosttySurface.hasFirstFrame || !loaderDismissed
+        guard loaderShownAt != nil else { return false }
+        return !hasFirstFrame || !loaderDismissed
+    }
+
+    /// `false` until the surface exists, so the wait the badge times starts
+    /// when the cell does. Watched from the cell rather than the surface's
+    /// branch because the surface mounting is not the start of the wait.
+    private var hasFirstFrame: Bool {
+        ghosttySurface?.hasFirstFrame ?? false
     }
 
     /// Reacts to both directions `hasFirstFrame` can move: forward into a real
@@ -625,6 +631,7 @@ struct PaneCellView: View {
             loaderDismissTask = nil
             loaderDismissed = false
             loaderShownAt = nil
+            guard viewModel.attachesSurfaces else { return }
             armLoader()
         }
     }
@@ -661,8 +668,25 @@ struct PaneCellView: View {
     /// actually visible, and it needs both halves of its rule; the pane's own
     /// `theme.pane` ground is all that shows while it is hidden, which is why
     /// the badge can be a small thing in a corner rather than an opaque cover.
-    @ViewBuilder
+    /// The badge is one overlay over both halves of the wait, rather than a
+    /// view inside each branch, so the surface mounting mid-wait swaps what is
+    /// under it and never fades one badge out while another fades in.
     private func content(editorIsOpen: Bool) -> some View {
+        paneBody(editorIsOpen: editorIsOpen)
+            .overlay {
+                if showsAttachLoader {
+                    PaneLoaderView(theme: theme)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)
+            .onChange(of: hasFirstFrame, initial: true) { _, hasFirstFrame in
+                handleFirstFrameChange(hasFirstFrame)
+            }
+    }
+
+    @ViewBuilder
+    private func paneBody(editorIsOpen: Bool) -> some View {
         if let ghosttySurface {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
@@ -691,10 +715,6 @@ struct PaneCellView: View {
                         hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
                     ) ? 1 : 0
                 )
-                if showsAttachLoader {
-                    PaneLoaderView(theme: theme)
-                        .transition(.opacity)
-                }
                 // Routed through `pane.send_input`, never straight into the
                 // PTY: a launcher click can land on a pane that is NOT the
                 // resolved-focused one (split right, click back into the
@@ -738,9 +758,6 @@ struct PaneCellView: View {
                 guard bodyFrame.width > 0, bodyFrame.height > 0 else { return }
                 frozenTerminalSize = bodyFrame.size
             }
-            .onChange(of: ghosttySurface.hasFirstFrame, initial: true) { _, hasFirstFrame in
-                handleFirstFrameChange(hasFirstFrame)
-            }
             .overlay(alignment: .bottomTrailing) {
                 if let ownToast {
                     PaneCopiedToastPill(theme: theme, toast: ownToast)
@@ -751,6 +768,10 @@ struct PaneCellView: View {
                 }
             }
             .animation(.easeOut(duration: 0.15), value: ownToast)
+        } else if !PaneLoaderPolicy.showsStatusCard(hasSurface: false, attachesSurfaces: viewModel.attachesSurfaces) {
+            Color.clear
+                .contentShape(Rectangle())
+                .modifier(swiftUIPaneMenu)
         } else {
             cardContent
                 // The card is spacers and text over no background, so
@@ -787,8 +808,8 @@ struct PaneCellView: View {
     /// Vertical anatomy per the reference (glyph, cwd, chip when present,
     /// hint), centered -- both explicitly, so a reader doesn't have to know
     /// that `.frame(maxWidth: .infinity)`'s default alignment happens to
-    /// agree with what's wanted here. Shown only until the live attach
-    /// resolves (see `content`).
+    /// agree with what's wanted here. Shown only when the app has no ghostty
+    /// host (`PaneLoaderPolicy.showsStatusCard`).
     private var cardContent: some View {
         VStack(alignment: .center, spacing: ChromeMetrics.Card.spacing) {
             Spacer(minLength: 0)

@@ -77,4 +77,13 @@ public enum PaneLoaderPolicy {
     public static func showsLauncherOverlay(isPristineLauncherPane: Bool, badgeVisible: Bool) -> Bool {
         isPristineLauncherPane && !badgeVisible
     }
+
+    /// Whether a pane shows the static status card instead of waiting on the
+    /// badge. A pane with no surface yet is still mid-attach whenever the app
+    /// can attach at all, and on a busy main actor that part of the wait can
+    /// outlast the whole first-frame part, so it belongs to the badge too. The
+    /// card is only for an app that has no terminal to give a pane.
+    public static func showsStatusCard(hasSurface: Bool, attachesSurfaces: Bool) -> Bool {
+        !hasSurface && !attachesSurfaces
+    }
 }
