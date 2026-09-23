@@ -4,6 +4,25 @@ import XCTest
 /// Driven against `/bin/echo` and `/bin/sleep`, never `herdr-chat`: a real
 /// verb would reach a live daemon and real agent panes.
 final class ChatRunnerTests: XCTestCase {
+    /// herdr-chat runs `rt` for every verb, and an app opened from the Dock,
+    /// Finder or a Sparkle relaunch has launchd's bare PATH, where rt is not.
+    /// The child runs with the environment the runner is handed, not the app's.
+    func testTheChildRunsWithTheEnvironmentItIsHanded() async throws {
+        let runner = ChatRunner(
+            binaryPath: "/usr/bin/printenv", deadline: .seconds(5),
+            environment: { ["PATH": "/flock/test/bin", "RT_BATCH": "1"] }
+        )
+        let result = try await runner.runRaw(["PATH"])
+        XCTAssertEqual(String(decoding: result.stdout, as: UTF8.self), "/flock/test/bin\n")
+    }
+
+    func testTheDefaultEnvironmentFindsToolsTheWayALoginShellDoes() async {
+        let environment = await Task.detached { ToolPath.childEnvironment() }.value
+        XCTAssertEqual(environment["PATH"], ToolPath.resolved)
+        XCTAssertEqual(environment["RT_BATCH"], "1")
+        XCTAssertEqual(environment["HOME"], ProcessInfo.processInfo.environment["HOME"])
+    }
+
     func testItReadsStdoutAndTheExitCode() async throws {
         let runner = ChatRunner(binaryPath: "/bin/echo", deadline: .seconds(5))
         let out = try await runner.runRaw(["hello"])

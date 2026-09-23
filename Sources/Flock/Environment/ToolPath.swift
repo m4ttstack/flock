@@ -41,6 +41,20 @@ enum ToolPath {
         return merged
     }()
 
+    /// This process's environment with the login shell's `PATH`, for a child
+    /// that has to find tools the way a terminal would. An app opened from
+    /// the Dock, Finder or a Sparkle relaunch inherits launchd's bare
+    /// `/usr/bin:/bin:/usr/sbin:/sbin`, where neither rt nor mise's shims
+    /// live. `RT_BATCH` is set because nothing flock runs has a person at a
+    /// prompt to answer rt's pickers. Reads `resolved`, so call it off the
+    /// main actor.
+    static func childEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = resolved
+        environment["RT_BATCH"] = "1"
+        return environment
+    }
+
     /// Where `name` resolves on that PATH, or nil. The directory scan is fresh
     /// per call, so a tool installed mid-session is found without a relaunch;
     /// only the PATH it is looked for on is the cached one.

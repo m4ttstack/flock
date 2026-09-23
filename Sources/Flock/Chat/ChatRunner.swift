@@ -15,10 +15,17 @@ public struct ChatRunner: ChatRunning {
 
     private let binaryPath: String
     private let deadline: Duration
+    /// herdr-chat runs `rt` for every verb, so it needs the PATH a terminal
+    /// has, not the bare one an app opened from the Dock inherits.
+    private let environment: @Sendable () -> [String: String]
 
-    public init(binaryPath: String, deadline: Duration = ChatRunner.deadline) {
+    init(
+        binaryPath: String, deadline: Duration = ChatRunner.deadline,
+        environment: @escaping @Sendable () -> [String: String] = { ToolPath.childEnvironment() }
+    ) {
         self.binaryPath = binaryPath
         self.deadline = deadline
+        self.environment = environment
     }
 
     public func run(_ verb: ChatVerb) async throws -> (stdout: Data, exitCode: Int32) {
@@ -27,7 +34,8 @@ public struct ChatRunner: ChatRunning {
 
     public func runRaw(_ arguments: [String]) async throws -> (stdout: Data, exitCode: Int32) {
         do {
-            return try await ToolRunner(binaryPath: binaryPath, deadline: deadline).run(arguments)
+            let environment = await Task.detached(priority: .userInitiated) { [environment] in environment() }.value
+            return try await ToolRunner(binaryPath: binaryPath, environment: environment, deadline: deadline).run(arguments)
         } catch let failure as ToolRunner.Failure {
             switch failure {
             case .didNotStart(let reason): throw ChatFailure(message: "chat failed to start: \(reason)")

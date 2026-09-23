@@ -9,17 +9,12 @@ enum RtCommand {
     /// to an exit.
     @Sendable
     static func run(_ arguments: [String]) async -> (stdout: Data, exitCode: Int32)? {
-        let resolved = await Task.detached(priority: .utility) { () -> (rt: String, path: String)? in
+        let resolved = await Task.detached(priority: .utility) { () -> (rt: String, environment: [String: String])? in
             guard let rt = ToolPath.resolve("rt") else { return nil }
-            return (rt, ToolPath.resolved)
+            return (rt, ToolPath.childEnvironment())
         }.value
         guard let resolved else { return nil }
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = resolved.path
-        // rt offers a picker wherever an argument is missing and stdin is a
-        // terminal, which it is when flock was started from one; batch mode
-        // rules that out.
-        environment["RT_BATCH"] = "1"
-        return try? await ToolRunner(binaryPath: resolved.rt, environment: environment, deadline: deadline).run(arguments)
+        return try? await ToolRunner(binaryPath: resolved.rt, environment: resolved.environment, deadline: deadline)
+            .run(arguments)
     }
 }
