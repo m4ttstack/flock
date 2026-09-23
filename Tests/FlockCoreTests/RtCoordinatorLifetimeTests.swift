@@ -149,7 +149,9 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         rt.watches["old3"]?.cancel()
     }
 
-    func testAStrayTabJoinsTheRunStillPicking() async throws {
+    /// A hidden tab holds one pane, so a tab rt did not open through flock is
+    /// never an item's: it is shut down even while a run is picking.
+    func testAStrayTabIsShutDownEvenWhileARunPicks() async throws {
         let world = FakeRtWorld()
         world.script("command rt run", .init(busyPolls: 100_000, status: "0"))
         let rt = makeCoordinator(world)
@@ -161,8 +163,9 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         rt.update(model: world.model())
         await rt.settle()
 
-        XCTAssertEqual(rt.items["tok1"]?.tabIDs, [TabID(rawValue: "wF1:t1"), TabID(rawValue: "wF1:t9")])
-        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.rename").last?["label"]), "run term_a1 tok1")
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").last?["tab_id"]), "wF1:t9")
+        XCTAssertEqual(rt.items["tok1"]?.tabID, TabID(rawValue: "wF1:t1"))
+        XCTAssertTrue(world.calls("tab.rename").allSatisfy { FakeRtWorld.string($0["tab_id"]) != "wF1:t9" })
         rt.watches["tok1"]?.cancel()
     }
 

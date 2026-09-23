@@ -96,7 +96,7 @@ public final class RtCoordinator {
         items.values.first { $0.kind == .runner && $0.linked == terminal }
     }
 
-    /// In the order they were opened, so the menu lists them the same way every time.
+    /// In the order they were opened, so the popover lists them the same way every time.
     public func runItems(linkedTo terminal: TerminalID) -> [RtItem] {
         openedOrder.compactMap { items[$0] }.filter { $0.kind == .run && $0.linked == terminal }
     }
@@ -110,15 +110,13 @@ public final class RtCoordinator {
         )
     }
 
-    public func menuRows(linkedTo terminal: TerminalID) -> [RtMenuRow] {
-        RtMenuModel.rows(hasRunner: runner(linkedTo: terminal) != nil, runItems: runItems(linkedTo: terminal))
+    public func commandRows(linkedTo terminal: TerminalID) -> [RtCommandRow] {
+        RtPopoverModel.commands(hasRunner: runner(linkedTo: terminal) != nil)
     }
 
-    public func perform(_ action: RtMenuRow.Action, from pane: PaneRecord) async {
-        switch action {
-        case .open(let kind): await open(kind, from: pane)
-        case .show(let id): await show(id)
-        }
+    /// In the order they were opened, so the popover lists them the same way every time.
+    public func runRows(linkedTo terminal: TerminalID) -> [RtRunRow] {
+        runItems(linkedTo: terminal).map(\.runRow)
     }
 
     // MARK: - opening
@@ -163,7 +161,7 @@ public final class RtCoordinator {
             let shell = await waitForShell(host.rootPaneID)
             try await herdr.type(RtCommandLine.command(for: kind, shell: shell), into: host.rootPaneID)
             items[token] = RtItem(
-                id: token, kind: kind, linked: terminal, workspaceID: host.workspaceID, tabIDs: [host.tabID],
+                id: token, kind: kind, linked: terminal, workspaceID: host.workspaceID, tabID: host.tabID,
                 firstPaneID: host.rootPaneID, title: kind.defaultTitle, folder: pane.cwd, isRunning: true, strip: nil
             )
             lifecycles[token] = RtLifecycle(kind: kind, startedAt: now())
@@ -224,7 +222,7 @@ public final class RtCoordinator {
     public func show(_ id: String) async {
         guard let item = items[id] else { return }
         let outgoing = modal
-        modal = RtModal(itemID: id, tabID: item.tabIDs[0], serviceTabID: nil)
+        modal = RtModal(itemID: id, tabID: item.tabID, serviceTabID: nil)
         if let outgoing, outgoing.itemID != id {
             background { [weak self] in await self?.dispose(outgoing.itemID) }
         }
@@ -264,16 +262,11 @@ public final class RtCoordinator {
         try? await herdr.focus(pane.paneID)
     }
 
-    public func selectModalTab(_ tab: TabID) {
-        guard let current = modal, items[current.itemID]?.tabIDs.contains(tab) == true else { return }
-        modal?.tabID = tab
-    }
-
     /// Closing an attach tab detaches from the service; the service runs on.
     public func backToBoard() async {
         guard let current = modal, current.serviceTabID != nil, let item = items[current.itemID], item.kind == .runner else { return }
         modal?.serviceTabID = nil
-        let attachTabs = (model?.tabs[item.workspaceID] ?? []).map(\.tabID).filter { $0 != item.tabIDs[0] }
+        let attachTabs = (model?.tabs[item.workspaceID] ?? []).map(\.tabID).filter { $0 != item.tabID }
         for tab in attachTabs {
             try? await herdr.closeTab(tab)
         }
@@ -388,11 +381,11 @@ public final class RtCoordinator {
         }
     }
 
-    /// Every pane in the item's tabs. A runner's attach tabs are not in
-    /// `tabIDs`: they are views onto services, not the runner's own panes.
+    /// Every pane in the item's tab. A runner's attach tabs are not the
+    /// item's own: they are views onto services, never the runner's panes.
     func panes(of item: RtItem) -> [PaneID] {
         guard let model else { return [item.firstPaneID] }
-        let found = item.tabIDs.flatMap { panes(inTab: $0, of: model) }
+        let found = panes(inTab: item.tabID, of: model)
         return found.isEmpty ? [item.firstPaneID] : found
     }
 
@@ -417,9 +410,7 @@ public final class RtCoordinator {
         if item.kind == .runner {
             try? await herdr.closeWorkspace(item.workspaceID)
         } else {
-            for tab in item.tabIDs {
-                try? await herdr.closeTab(tab)
-            }
+            try? await herdr.closeTab(item.tabID)
         }
     }
 }

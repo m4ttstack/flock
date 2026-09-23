@@ -152,8 +152,8 @@ final class RtCoordinatorTests: XCTestCase {
         await rt.closeModal()
 
         XCTAssertTrue(world.calls("tab.close").isEmpty)
-        XCTAssertEqual(rt.buttonAppearance(linkedTo: RtFixture.linkedTerminal, rtInstalled: true), .active(count: 1))
-        XCTAssertEqual(rt.menuRows(linkedTo: RtFixture.linkedTerminal).last?.title, "rt run · running")
+        XCTAssertEqual(rt.buttonAppearance(linkedTo: RtFixture.linkedTerminal, rtInstalled: true), .active(count: 1, runner: false))
+        XCTAssertEqual(rt.runRows(linkedTo: RtFixture.linkedTerminal).last, RtRunRow(id: "tok1", title: "rt run", state: "running", tone: .running))
         rt.watches["tok1"]?.cancel()
     }
 
@@ -170,6 +170,8 @@ final class RtCoordinatorTests: XCTestCase {
         await rt.closeModal()
         XCTAssertNil(rt.modal)
         XCTAssertNotNil(rt.runner(linkedTo: RtFixture.linkedTerminal))
+        XCTAssertEqual(rt.buttonAppearance(linkedTo: RtFixture.linkedTerminal, rtInstalled: true), .active(count: 0, runner: true))
+        XCTAssertEqual(rt.commandRows(linkedTo: RtFixture.linkedTerminal).last?.title, "Show runner")
 
         await rt.open(.runner, from: world.fixture.linkedPane)
         XCTAssertEqual(world.calls("workspace.create").count, 1)

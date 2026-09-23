@@ -5,32 +5,34 @@ final class RtItemTests: XCTestCase {
     private func item(kind: RtKind = .run, title: String = "pnpm run test", running: Bool = true, strip: RtStrip? = nil) -> RtItem {
         RtItem(
             id: "tok1", kind: kind, linked: TerminalID(rawValue: "term_a1"), workspaceID: WorkspaceID(rawValue: "wF"),
-            tabIDs: [TabID(rawValue: "wF:t1")], firstPaneID: PaneID(rawValue: "wF:p1"),
+            tabID: TabID(rawValue: "wF:t1"), firstPaneID: PaneID(rawValue: "wF:p1"),
             title: title, folder: "/Users/acme/src/app", isRunning: running, strip: strip
         )
     }
 
-    func testTheButtonRestsWithNothingRunningAndCountsWhatIs() {
+    func testTheButtonRestsWithNothingRunningAndCountsRunItemsOnly() {
         XCTAssertEqual(RtButtonModel.appearance(rtInstalled: false, runningItems: 3, hasRunner: true), .absent)
         XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 0, hasRunner: false), .rest)
-        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 2, hasRunner: false), .active(count: 2))
-        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 2, hasRunner: true), .active(count: 3))
+        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 2, hasRunner: false), .active(count: 2, runner: false))
+        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 2, hasRunner: true), .active(count: 2, runner: true))
+        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 0, hasRunner: true), .active(count: 0, runner: true))
     }
 
-    func testTheMenuOffersTheCommandsThenThePanesItems() {
-        let rows = RtMenuModel.rows(hasRunner: false, runItems: [item(), item(title: "pnpm run build", running: false, strip: .finished(0))])
-        XCTAssertEqual(rows.map(\.title), [
-            "nav · browse files here", "glitter · git status", "run · run a script…", "runner",
-            "pnpm run test · running", "pnpm run build · finished",
-        ])
-        XCTAssertEqual(rows.map(\.startsSection), [false, false, false, false, true, false])
-        XCTAssertEqual(rows[4].action, .show("tok1"))
+    func testThePopoverOffersFourCommandsWithRtsOwnCommandAsAHint() {
+        let rows = RtPopoverModel.commands(hasRunner: false)
+        XCTAssertEqual(rows.map(\.title), ["Browse files", "Git status", "Run a script…", "Start runner"])
+        XCTAssertEqual(rows.map(\.hint), ["rt nav", "rt glitter", "rt run", "rt runner"])
+        XCTAssertEqual(rows.map(\.kind), [.nav, .glitter, .run, .runner])
+        XCTAssertEqual(RtPopoverModel.commands(hasRunner: true).last?.title, "Show runner")
     }
 
-    func testTheRunnerRowShowsAnExistingRunner() {
-        let rows = RtMenuModel.rows(hasRunner: true, runItems: [])
-        XCTAssertEqual(rows.last?.title, "Show runner")
-        XCTAssertEqual(rows.last?.action, .open(.runner))
+    func testARunRowSaysWhereTheItemIs() {
+        XCTAssertEqual(item().runRow, RtRunRow(id: "tok1", title: "pnpm run test", state: "running", tone: .running))
+        XCTAssertEqual(item(running: false, strip: .finished(0)).runRow.state, "finished · exit 0")
+        XCTAssertEqual(item(running: false, strip: .finished(nil)).runRow.state, "finished")
+        XCTAssertEqual(item(running: false, strip: .exited(1)).runRow, RtRunRow(id: "tok1", title: "pnpm run test", state: "exited 1", tone: .exited))
+        XCTAssertEqual(item(running: false, strip: .exited(nil)).runRow.state, "exited")
+        XCTAssertEqual(item(running: false).runRow.tone, .finished)
     }
 
     func testStripsSayWhatHappened() {

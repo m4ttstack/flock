@@ -15,7 +15,7 @@ extension RtCoordinator {
         watches.removeValue(forKey: id)?.cancel()
         items[id]?.isRunning = false
         let targets = item.kind == .runner ? [item.firstPaneID] : panes(of: item)
-        let closing: Closing = item.kind == .runner ? .workspace(item.workspaceID) : .tabs(item.tabIDs)
+        let closing: Closing = item.kind == .runner ? .workspace(item.workspaceID) : .tabs([item.tabID])
         let task = Task { [weak self] in
             await self?.stop(targets)
             self?.forget(id)
@@ -147,7 +147,7 @@ extension RtCoordinator {
         }
         items[link.token] = RtItem(
             id: link.token, kind: .runner, linked: link.terminal, workspaceID: workspace.workspaceID,
-            tabIDs: [board.tabID], firstPaneID: first, title: RtKind.runner.defaultTitle,
+            tabID: board.tabID, firstPaneID: first, title: RtKind.runner.defaultTitle,
             folder: model.panes[first]?.cwd ?? "", isRunning: true, strip: nil
         )
         lifecycles[link.token] = RtLifecycle(kind: .runner, startedAt: now())
@@ -158,12 +158,8 @@ extension RtCoordinator {
     /// nav and glitter only exist inside a modal, and there is none after a
     /// restart, so only rt runs are adopted. The files say which phase one is in.
     private func adoptSharedTab(_ tab: TabRecord, model: SessionModel, present: Set<TerminalID>) {
-        // Already known: opened before the first model arrived, or a second tab
-        // of an item adopted a moment ago ("Launch all").
-        if let token = RtLabels.tabLink(fromLabel: tab.label)?.token, let existing = items[token] {
-            if !existing.tabIDs.contains(tab.tabID) { items[token]?.tabIDs.append(tab.tabID) }
-            return
-        }
+        // Already known: opened before the first model arrived.
+        if let token = RtLabels.tabLink(fromLabel: tab.label)?.token, items[token] != nil { return }
         let tabPanes = panes(inTab: tab.tabID, of: model)
         guard let link = RtLabels.tabLink(fromLabel: tab.label), link.kind == .run,
               present.contains(link.terminal), let first = tabPanes.first
@@ -192,7 +188,7 @@ extension RtCoordinator {
             stage = .selfLaunched
         }
         items[link.token] = RtItem(
-            id: link.token, kind: .run, linked: link.terminal, workspaceID: tab.workspaceID, tabIDs: [tab.tabID],
+            id: link.token, kind: .run, linked: link.terminal, workspaceID: tab.workspaceID, tabID: tab.tabID,
             firstPaneID: first, title: result?.commandTemplate ?? RtKind.run.defaultTitle,
             folder: model.panes[first]?.cwd ?? "", isRunning: stage != .done, strip: strip
         )
@@ -203,38 +199,19 @@ extension RtCoordinator {
 
     // MARK: - every update
 
-    /// A tab in `flock:rt` with no link is one rt placed for "Launch all",
-    /// while its picker was still running. Skipped while an open is in flight:
-    /// a workspace's first tab is unlabelled until its rename lands.
+    /// A tab in `flock:rt` with no link is none of flock's: every item is one
+    /// tab flock opened and labelled. Skipped while an open is in flight: a
+    /// workspace's first tab is unlabelled until its rename lands.
     private func claimStrayTabs(_ model: SessionModel) {
         guard opensInFlight == 0 else { return }
-        let owned = Set(items.values.flatMap(\.tabIDs))
+        let owned = Set(items.values.map(\.tabID))
         for workspace in model.workspaces where workspace.label == RtLabels.sharedWorkspace {
             for tab in model.tabs[workspace.workspaceID] ?? [] {
                 guard RtLabels.tabLink(fromLabel: tab.label) == nil, !owned.contains(tab.tabID),
                       !handledStrays.contains(tab.tabID) else { continue }
-                handledStrays.insert(tab.tabID)
-                guard let owner = strayOwner(), let item = items[owner] else {
-                    orphan(.tabs([tab.tabID]), panes: panes(inTab: tab.tabID, of: model))
-                    continue
-                }
-                items[owner]?.tabIDs.append(tab.tabID)
-                let label = RtLabels.tabLabel(RtLabels.TabLink(kind: .run, terminal: item.linked, token: owner))
-                background { [herdr] in try? await herdr.renameTab(tab.tabID, to: label) }
+                orphan(.tabs([tab.tabID]), panes: panes(inTab: tab.tabID, of: model))
             }
         }
-    }
-
-    /// The run on screen if it can still be placing tabs, else the one opened
-    /// last. A run places them while its picker runs, and the event for the
-    /// last one can land after the pick has ended.
-    private func strayOwner() -> String? {
-        let placing = openedOrder.filter {
-            let stage = lifecycles[$0]?.stage
-            return stage == .picking || stage == .selfLaunched
-        }
-        if let shown = modal?.itemID, placing.contains(shown) { return shown }
-        return placing.last
     }
 
     private func reapGoneLinks(_ model: SessionModel) {
@@ -251,16 +228,7 @@ extension RtCoordinator {
     private func dropClosedTabs(_ model: SessionModel) {
         let live = Set(model.tabs.values.flatMap { $0 }.map(\.tabID))
         for (id, item) in items where shutdowns[id] == nil && !reaping.contains(id) {
-            let gone = item.tabIDs.filter { seenTabs.contains($0) && !live.contains($0) }
-            guard !gone.isEmpty else { continue }
-            if gone.contains(item.tabIDs[0]) {
-                forget(id)
-            } else {
-                items[id]?.tabIDs.removeAll { gone.contains($0) }
-                if let current = modal, current.itemID == id, gone.contains(current.tabID) {
-                    modal?.tabID = item.tabIDs[0]
-                }
-            }
+            if seenTabs.contains(item.tabID), !live.contains(item.tabID) { forget(id) }
         }
         if let service = modal?.serviceTabID, seenTabs.contains(service), !live.contains(service) {
             modal?.serviceTabID = nil
@@ -281,10 +249,10 @@ extension RtCoordinator {
             return
         }
         let owner = items.values.first {
-            $0.workspaceID == pane.workspaceID && ($0.kind == .runner || $0.tabIDs.contains(pane.tabID))
+            $0.workspaceID == pane.workspaceID && ($0.kind == .runner || $0.tabID == pane.tabID)
         }
-        if let owner, owner.kind == .runner, pane.tabID != owner.tabIDs[0] {
-            modal = RtModal(itemID: owner.id, tabID: owner.tabIDs[0], serviceTabID: pane.tabID)
+        if let owner, owner.kind == .runner, pane.tabID != owner.tabID {
+            modal = RtModal(itemID: owner.id, tabID: owner.tabID, serviceTabID: pane.tabID)
         }
         let back = owner.flatMap { self.pane(for: $0.linked, in: model)?.paneID }
             ?? lastVisibleFocus.flatMap { model.panes[$0] != nil ? $0 : nil }

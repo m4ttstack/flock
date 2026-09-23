@@ -32,8 +32,9 @@ public struct RtItem: Identifiable, Equatable, Sendable {
     public let kind: RtKind
     public let linked: TerminalID
     public let workspaceID: WorkspaceID
-    /// The tab flock opened first; tabs rt placed for "Launch all" follow it.
-    public var tabIDs: [TabID]
+    /// The one tab the item lives in. A runner's attach tabs sit beside it in
+    /// its workspace and are views onto services, never the item's own.
+    public let tabID: TabID
     /// Where the typed lines go, and whose idleness ends a run's phase 1.
     public let firstPaneID: PaneID
     public var title: String
@@ -42,14 +43,14 @@ public struct RtItem: Identifiable, Equatable, Sendable {
     public var strip: RtStrip?
 
     public init(
-        id: String, kind: RtKind, linked: TerminalID, workspaceID: WorkspaceID, tabIDs: [TabID], firstPaneID: PaneID,
+        id: String, kind: RtKind, linked: TerminalID, workspaceID: WorkspaceID, tabID: TabID, firstPaneID: PaneID,
         title: String, folder: String, isRunning: Bool, strip: RtStrip?
     ) {
         self.id = id
         self.kind = kind
         self.linked = linked
         self.workspaceID = workspaceID
-        self.tabIDs = tabIDs
+        self.tabID = tabID
         self.firstPaneID = firstPaneID
         self.title = title
         self.folder = folder
@@ -57,11 +58,14 @@ public struct RtItem: Identifiable, Equatable, Sendable {
         self.strip = strip
     }
 
-    public var stateText: String {
+    public var runRow: RtRunRow {
         switch strip {
-        case .exited: "exited"
-        case .finished: "finished"
-        case nil: isRunning ? "running" : "finished"
+        case .exited(let status):
+            return RtRunRow(id: id, title: title, state: "exited\(status.map { " \($0)" } ?? "")", tone: .exited)
+        case .finished(let status):
+            return RtRunRow(id: id, title: title, state: "finished\(status.map { " · exit \($0)" } ?? "")", tone: .finished)
+        case nil:
+            return RtRunRow(id: id, title: title, state: isRunning ? "running" : "finished", tone: isRunning ? .running : .finished)
         }
     }
 
@@ -98,39 +102,51 @@ public enum RtButtonModel {
     public enum Appearance: Equatable, Sendable {
         case absent
         case rest
-        case active(count: Int)
+        /// `count` is running rt run items only; a live runner is the pill's
+        /// second half, never counted again.
+        case active(count: Int, runner: Bool)
     }
 
     public static func appearance(rtInstalled: Bool, runningItems: Int, hasRunner: Bool) -> Appearance {
         guard rtInstalled else { return .absent }
-        let count = runningItems + (hasRunner ? 1 : 0)
-        return count > 0 ? .active(count: count) : .rest
+        guard runningItems > 0 || hasRunner else { return .rest }
+        return .active(count: runningItems, runner: hasRunner)
     }
 }
 
-public struct RtMenuRow: Equatable, Sendable {
-    public enum Action: Equatable, Sendable {
-        case open(RtKind)
-        case show(String)
-    }
-
+public struct RtCommandRow: Equatable, Sendable, Identifiable {
+    public let kind: RtKind
     public let title: String
-    public let action: Action
-    public let startsSection: Bool
+    /// rt's own command, shown so the popover teaches it.
+    public let hint: String
+
+    public var id: RtKind { kind }
 }
 
-public enum RtMenuModel {
-    public static func rows(hasRunner: Bool, runItems: [RtItem]) -> [RtMenuRow] {
-        var rows = [
-            RtMenuRow(title: "nav · browse files here", action: .open(.nav), startsSection: false),
-            RtMenuRow(title: "glitter · git status", action: .open(.glitter), startsSection: false),
-            RtMenuRow(title: "run · run a script…", action: .open(.run), startsSection: false),
-            RtMenuRow(title: hasRunner ? "Show runner" : "runner", action: .open(.runner), startsSection: false),
+public struct RtRunRow: Equatable, Sendable, Identifiable {
+    public enum Tone: Equatable, Sendable { case running, finished, exited }
+
+    public let id: String
+    public let title: String
+    public let state: String
+    public let tone: Tone
+
+    public init(id: String, title: String, state: String, tone: Tone) {
+        self.id = id
+        self.title = title
+        self.state = state
+        self.tone = tone
+    }
+}
+
+public enum RtPopoverModel {
+    public static func commands(hasRunner: Bool) -> [RtCommandRow] {
+        [
+            RtCommandRow(kind: .nav, title: "Browse files", hint: "rt nav"),
+            RtCommandRow(kind: .glitter, title: "Git status", hint: "rt glitter"),
+            RtCommandRow(kind: .run, title: "Run a script…", hint: "rt run"),
+            RtCommandRow(kind: .runner, title: hasRunner ? "Show runner" : "Start runner", hint: "rt runner"),
         ]
-        for (index, item) in runItems.enumerated() {
-            rows.append(RtMenuRow(title: "\(item.title) · \(item.stateText)", action: .show(item.id), startsSection: index == 0))
-        }
-        return rows
     }
 }
 
