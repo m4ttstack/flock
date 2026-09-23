@@ -188,7 +188,7 @@ final class GhosttyHost {
             colors: colors, commandArgv: commandArgv, fontFamily: fontFamily, fontSizePoints: fontSizePoints,
             optionAsAlt: optionAsAlt
         )
-        let file = FileManager.default.temporaryDirectory
+        let file = ScratchDirectory.url
             .appendingPathComponent("flock-surface-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")
         guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil,
               let clone = ghostty_config_clone(baseConfig)
@@ -230,7 +230,7 @@ final class GhosttyHost {
             colors: colors, commandArgv: commandArgv, fontFamily: fontFamily, fontSizePoints: fontSizePoints,
             optionAsAlt: optionAsAlt
         )
-        let file = FileManager.default.temporaryDirectory
+        let file = ScratchDirectory.url
             .appendingPathComponent("flock-surface-update-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")
         guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil,
               let clone = ghostty_config_clone(baseConfig)

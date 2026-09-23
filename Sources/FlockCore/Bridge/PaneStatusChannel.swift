@@ -32,7 +32,7 @@ public final class PaneStatusChannel {
     /// pre-passthrough behavior). `GhosttyControlSurfaceFactory` logs this,
     /// like the control-channel failure, but it degrades gracefully rather
     /// than losing input entirely.
-    public init?(directory: URL = FileManager.default.temporaryDirectory) {
+    public init?(directory: URL = ScratchDirectory.url) {
         let name = "flock-\(UUID().uuidString.prefix(8)).status"
         let url = directory.appendingPathComponent(name)
         guard mkfifo(url.path, 0o600) == 0 else { return nil }

@@ -51,7 +51,7 @@ public final class PaneControlChannel {
     /// Returns nil when the FIFO cannot be made; the pane's bridge then never
     /// hears a mouse or scroll command. `GhosttyControlSurfaceFactory` logs
     /// this failure rather than degrading silently.
-    public init?(directory: URL = FileManager.default.temporaryDirectory) {
+    public init?(directory: URL = ScratchDirectory.url) {
         let name = "flock-\(UUID().uuidString.prefix(8)).ctl"
         let url = directory.appendingPathComponent(name)
         guard mkfifo(url.path, 0o600) == 0 else { return nil }
