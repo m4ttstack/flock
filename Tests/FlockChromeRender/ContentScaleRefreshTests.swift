@@ -170,6 +170,33 @@ final class ContentScaleRefreshTests: XCTestCase {
         )
     }
 
+    /// libghostty makes the view layer-HOSTING with its own IOSurfaceLayer and
+    /// stamps that layer's `contentsScale` once, at creation. AppKit never
+    /// updates it on a layer-hosting view, and the renderer sizes its frames
+    /// from it, so a stale one draws a 1x frame at 2x density: half-size text
+    /// in the top-left quarter of the pane until the app restarts.
+    func testAScaleChangeCarriesTheHostedLayersContentsScale() throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let session = host.makeSession(
+            paneID: PaneID(rawValue: "w1:p1"),
+            configuration: GhosttySession.Launch(commandArgv: ["/usr/bin/true"], themeColors: Self.colors)
+        )
+        let view = GhosttySurfaceView(session: session)
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let window = ScaleStubWindow(scale: 2.0)
+        window.contentView?.addSubview(view)
+        view.layout()
+        XCTAssertEqual(view.layer?.contentsScale, 2.0, "the hosted layer should be born at the window's scale")
+
+        window.scaleOverride = 1.0
+        session.updateContentScale()
+        XCTAssertEqual(view.layer?.contentsScale, 1.0, "unplugging to a 1x display must carry the layer's scale down")
+
+        window.scaleOverride = 2.0
+        session.updateContentScale()
+        XCTAssertEqual(view.layer?.contentsScale, 2.0, "plugging back in must carry the layer's scale up")
+    }
+
     /// `layout()` runs on every pass, so reasserting the same scale on every
     /// one of them would issue a redundant surface command each time. Proves
     /// the guard belongs in `updateContentScale()` itself.

@@ -227,7 +227,18 @@ final class GhosttySession {
     func updateContentScale() {
         guard let surface, let view, view.window != nil else { return }
         let newScale = scale
-        guard newScale.isFinite, newScale > 0, newScale != lastAppliedScale else { return }
+        guard newScale.isFinite, newScale > 0 else { return }
+        // libghostty's renderer makes the view layer-HOSTING and stamps its
+        // layer's `contentsScale` once, at creation. AppKit never updates a
+        // hosted layer, and the renderer sizes every frame from it, so a
+        // stale one draws the old scale's frame into a corner of the pane.
+        if let layer = view.layer, layer.contentsScale != newScale {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.contentsScale = newScale
+            CATransaction.commit()
+        }
+        guard newScale != lastAppliedScale else { return }
         lastAppliedScale = newScale
         contentScaleApplyCount += 1
         let value = Double(newScale)
