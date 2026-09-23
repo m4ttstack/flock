@@ -32,13 +32,19 @@ final class PaneLauncherOverlayTests: XCTestCase {
 
     private struct Probe: View {
         static let size = CGSize(width: 420, height: 300)
+        let theme: Theme
         let entries: [HarnessEntry]
+        let navigator: HarnessEntry?
         let capture: (TerminalStandIn) -> Void
 
         var body: some View {
             ZStack {
+                theme.terminalGround
                 Terminal(capture: capture)
-                PaneLauncherOverlay(theme: Theme.builtins[0], entries: entries, onLaunch: { _ in })
+                PaneLauncherOverlay(
+                    theme: theme, entries: entries, navigator: navigator,
+                    onLaunch: { _ in }, onNavigate: {}
+                )
             }
             .frame(width: Self.size.width, height: Self.size.height)
         }
@@ -80,6 +86,49 @@ final class PaneLauncherOverlayTests: XCTestCase {
         let claimed = probe.pointsClaimedByTheOverlay()
         let box = claimed.reduce(into: CGRect.null) { $0 = $0.union(CGRect(origin: $1, size: .zero)) }
         XCTAssertEqual(claimed.count, 0, "an empty launcher still eats clicks, over \(box)")
+    }
+
+    func testTheRtCdButtonIsAClickableRunOfItsOwn() async throws {
+        let probe = try await hostProbe(entries: Self.entries, navigator: NavigatorRoster.rtCd)
+        defer { probe.window.close() }
+
+        let claimed = probe.pointsClaimedByTheOverlay()
+        XCTAssertEqual(probe.runs(in: claimed).count, Self.entries.count + 1, "rt cd plus one run per harness")
+        for (name, point) in probe.passThroughProbePoints() {
+            XCTAssertTrue(probe.hitTest(point) === probe.terminal, "\(name) at \(point) never reached the terminal")
+        }
+    }
+
+    /// rt on PATH with no agent CLI: the one button still has to be offered.
+    func testTheRtCdButtonStandsAloneWithNoHarnesses() async throws {
+        let probe = try await hostProbe(entries: [], navigator: NavigatorRoster.rtCd)
+        defer { probe.window.close() }
+
+        XCTAssertEqual(probe.runs(in: probe.pointsClaimedByTheOverlay()).count, 1)
+    }
+
+    /// rt's own pink on its plum ground, in a dark and a light theme. Writes
+    /// both PNGs when `FLOCK_CHROME_RENDER_DIR` names a directory.
+    func testTheRtBadgeWearsRtsColorsInDarkAndLightThemes() async throws {
+        for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
+            let probe = try await hostProbe(entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme)
+            defer { probe.window.close() }
+
+            let image = try snapshot(probe.window)
+            if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("launcher-rt-cd-\(theme.id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+
+            var counts: [String: Int] = [:]
+            for y in 0..<image.pixelsHigh {
+                for x in 0..<image.pixelsWide {
+                    counts[hex(image, x: x, y: y), default: 0] += 1
+                }
+            }
+            XCTAssertGreaterThan(counts["#161224", default: 0], 400, "\(theme.id): the badge's plum ground is not on screen")
+            XCTAssertGreaterThan(counts["#FF6B9D", default: 0], 20, "\(theme.id): the badge's pink letters are not on screen")
+        }
     }
 
     /// The marks are compiled path data, not bundled images, so this render is
@@ -185,9 +234,14 @@ final class PaneLauncherOverlayTests: XCTestCase {
         }
     }
 
-    private func hostProbe(entries: [HarnessEntry]) async throws -> HostedProbe {
+    private func hostProbe(
+        entries: [HarnessEntry], navigator: HarnessEntry? = nil, theme: Theme = Theme.builtins[0]
+    ) async throws -> HostedProbe {
+        ChromeType.install()
         var captured: TerminalStandIn?
-        let hosting = NSHostingView(rootView: Probe(entries: entries, capture: { captured = $0 }))
+        let hosting = NSHostingView(rootView: Probe(
+            theme: theme, entries: entries, navigator: navigator, capture: { captured = $0 }
+        ))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Probe.size),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
@@ -200,6 +254,23 @@ final class PaneLauncherOverlayTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(50))
         }
         return HostedProbe(window: window, hosting: hosting, terminal: try XCTUnwrap(captured, "the stand-in terminal never reached the window"))
+    }
+}
+
+/// The rt cd button is offered on exactly the machines where rt resolves on
+/// the PATH flock resolved at startup.
+final class NavigatorRosterTests: XCTestCase {
+    func testOfferedOnlyWhenRtResolvesOnThePath() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        XCTAssertNil(NavigatorRoster.detected(pathEnvironment: directory.path))
+
+        let rt = directory.appendingPathComponent("rt")
+        try Data("#!/bin/sh\n".utf8).write(to: rt)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: rt.path)
+
+        XCTAssertEqual(NavigatorRoster.detected(pathEnvironment: directory.path), NavigatorRoster.rtCd)
     }
 }
 

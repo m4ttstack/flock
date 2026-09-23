@@ -12,6 +12,7 @@ struct HarnessEntry: Identifiable, Equatable {
     let monogram: String
     let monogramColor: Color
     var mark: HarnessMark?
+    var monogramInk: Color = .white
 }
 
 /// Every harness flock knows how to offer, resolved at launcher-render time
@@ -42,12 +43,31 @@ enum HarnessRoster {
     }
 }
 
+/// The directory picker the launcher offers ahead of the harnesses, since
+/// picking a folder is the step before launching an agent in it. Offered only
+/// where `rt` resolves on flock's startup PATH; the badge is rt's own pink on
+/// its plum ground.
+enum NavigatorRoster {
+    static let command = "rt cd"
+
+    static let rtCd = HarnessEntry(
+        id: "rt-cd", binary: "rt", displayName: "cd", monogram: "rt",
+        monogramColor: Color(red: 22 / 255, green: 18 / 255, blue: 36 / 255),
+        monogramInk: Color(red: 1, green: 107 / 255, blue: 157 / 255)
+    )
+
+    static func detected(pathEnvironment: String = ToolPath.resolved) -> HarnessEntry? {
+        UserPath.resolve(rtCd.binary, on: pathEnvironment) == nil ? nil : rtCd
+    }
+}
+
 /// Renders on a pristine flock-created pane: the bare shell prompt stays
 /// visible above (this view never covers it -- it only occupies the space
-/// below, via its own top spacer), one button per detected harness centered
-/// in that space, and a dim hint at the very bottom -- which is also where a
-/// PATH that resolved no harness at all says so (`LauncherHint`), rather than
-/// leaving an empty button row to be read as a pane with nothing to offer.
+/// below, via its own top spacer), the navigator when there is one and a
+/// button per detected harness centered in that space, and a dim hint at the
+/// very bottom -- which is also where a PATH that resolved no harness at all
+/// says so (`LauncherHint`), rather than leaving an empty button row to be
+/// read as a pane with nothing to offer.
 ///
 /// The buttons are the only thing here that answers the pointer: the spacers
 /// draw nothing and so claim nothing, and the hint opts itself out, which
@@ -57,12 +77,17 @@ enum HarnessRoster {
 struct PaneLauncherOverlay: View {
     let theme: Theme
     let entries: [HarnessEntry]
+    let navigator: HarnessEntry?
     let onLaunch: (HarnessEntry) -> Void
+    let onNavigate: () -> Void
 
     var body: some View {
         VStack(spacing: ChromeMetrics.Launcher.spacing) {
             Spacer(minLength: 0)
             HStack(spacing: ChromeMetrics.Launcher.buttonSpacing) {
+                if let navigator {
+                    LauncherButton(theme: theme, entry: navigator, onLaunch: onNavigate)
+                }
                 ForEach(entries) { entry in
                     LauncherButton(theme: theme, entry: entry) { onLaunch(entry) }
                 }
@@ -220,7 +245,7 @@ private struct MonogramBadge: View {
             .overlay(
                 Text(entry.monogram)
                     .font(ChromeType.launcherMonogram)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(entry.monogramInk)
             )
     }
 }

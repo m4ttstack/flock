@@ -37,6 +37,11 @@ public final class PaneLauncherRegistry {
     /// rather than leaving the scan running on a pane nobody cleared.
     static let clearWindow: TimeInterval = 2
 
+    /// How long after a navigator command is typed an idle pane still means
+    /// the command has yet to start. Past it, idle means it already finished:
+    /// one that fails straight away can exit between two polls unseen.
+    static let navigationStartCeiling: TimeInterval = 3
+
     /// Timed from the pane's FIRST frame, not from when flock created it: a
     /// pane created in a workspace that is not on screen has no surface, and
     /// so no startup output, until something attaches one.
@@ -52,6 +57,13 @@ public final class PaneLauncherRegistry {
     private var screens: [PaneID: Screen] = [:]
     private var clearRequests: [PaneID: Date] = [:]
 
+    private struct Navigation {
+        let startedAt: Date
+        var seenRunning = false
+    }
+
+    private var navigations: [PaneID: Navigation] = [:]
+
     public init() {}
 
     /// Called with the pane id a `pane.split`/`tab.create`/`workspace.create`
@@ -60,8 +72,50 @@ public final class PaneLauncherRegistry {
         offerable.insert(pane)
     }
 
+    /// Keys typed while a navigator runs are the picker being used, not the
+    /// pane.
     public func recordKeystroke(_ pane: PaneID) {
+        guard navigations[pane] == nil else { return }
         hide(pane)
+    }
+
+    /// A navigator command (a directory picker) was just typed into this
+    /// pane. The launcher steps aside while it runs and returns at the prompt
+    /// it leaves behind, since picking a folder is the step before launching
+    /// an agent in it.
+    public func recordNavigationStarted(_ pane: PaneID, at time: Date) {
+        hide(pane)
+        navigations[pane] = Navigation(startedAt: time)
+    }
+
+    /// `busy` is whether anything but the shell holds the pane's foreground.
+    /// Idle ends the navigation once the command was seen running, or once
+    /// it has had `navigationStartCeiling` to start.
+    public func recordForegroundJob(_ pane: PaneID, busy: Bool, at time: Date) {
+        guard var navigation = navigations[pane] else { return }
+        if busy {
+            navigation.seenRunning = true
+            navigations[pane] = navigation
+            return
+        }
+        guard navigation.seenRunning
+            || time.timeIntervalSince(navigation.startedAt) >= Self.navigationStartCeiling
+        else { return }
+        navigations.removeValue(forKey: pane)
+        hidden.remove(pane)
+        // The prompt the picker leaves is not the screen the pane settled at,
+        // so the next report measures it afresh, with its own settle window.
+        screens.removeValue(forKey: pane)
+    }
+
+    public func isNavigating(_ pane: PaneID) -> Bool {
+        navigations[pane] != nil
+    }
+
+    /// The pane can no longer be asked about (it closed, or herdr stopped
+    /// answering for it), so nothing will ever end this navigation.
+    public func forgetNavigation(_ pane: PaneID) {
+        navigations.removeValue(forKey: pane)
     }
 
     /// The user asked this pane to clear. Nothing is shown yet, and this makes
@@ -80,7 +134,8 @@ public final class PaneLauncherRegistry {
     /// an answer could still change: the pane is still offering the launcher,
     /// or a clear it was just asked for has yet to land.
     public func wantsScreenActivity(_ pane: PaneID, at time: Date) -> Bool {
-        isPristine(pane) || hasPendingClear(pane, at: time)
+        guard navigations[pane] == nil else { return false }
+        return isPristine(pane) || hasPendingClear(pane, at: time)
     }
 
     /// `nonEmptyRowCount` counts the surface's ACTIVE screen, not its
@@ -94,6 +149,7 @@ public final class PaneLauncherRegistry {
     /// repaint of the same screen (a blinking cursor, a prompt redrawing its
     /// clock) and means nothing.
     public func recordScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int, at time: Date) {
+        guard navigations[pane] == nil else { return }
         guard var screen = screens[pane] else {
             screens[pane] = Screen(firstReport: time, settledRowCount: nonEmptyRowCount)
             return
