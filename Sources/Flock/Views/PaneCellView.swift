@@ -723,7 +723,7 @@ struct PaneCellView: View {
                 // focus-independent.
                 if PaneLoaderPolicy.showsLauncherOverlay(
                     isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
-                    badgeVisible: showsAttachLoader
+                    hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
                 ) {
                     PaneLauncherOverlay(
                         theme: theme, entries: HarnessRoster.detected(), navigator: NavigatorRoster.detected(),

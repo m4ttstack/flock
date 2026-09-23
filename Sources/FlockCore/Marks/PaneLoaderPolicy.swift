@@ -74,8 +74,12 @@ public enum PaneLoaderPolicy {
     /// shell ready to receive anything either, and the launcher's buttons
     /// work by sending the harness name as input. Offering a button that
     /// would type into nothing is the reason this still waits.
-    public static func showsLauncherOverlay(isPristineLauncherPane: Bool, badgeVisible: Bool) -> Bool {
-        isPristineLauncherPane && !badgeVisible
+    ///
+    /// It waits on the terminal being shown, not merely on the badge being
+    /// down: inside the badge's appear delay the badge is down too, and
+    /// buttons offered there vanish when it arrives and return when it goes.
+    public static func showsLauncherOverlay(isPristineLauncherPane: Bool, hasFirstFrame: Bool, badgeVisible: Bool) -> Bool {
+        isPristineLauncherPane && showsTerminalSurface(hasFirstFrame: hasFirstFrame, badgeVisible: badgeVisible)
     }
 
     /// Whether a pane shows the static status card instead of waiting on the
