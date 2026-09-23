@@ -705,9 +705,11 @@ struct PaneCellView: View {
                     isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
                     badgeVisible: showsAttachLoader
                 ) {
-                    PaneLauncherOverlay(theme: theme, entries: HarnessRoster.detected()) { entry in
-                        Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) }
-                    }
+                    PaneLauncherOverlay(
+                        theme: theme, entries: HarnessRoster.detected(), navigator: NavigatorRoster.detected(),
+                        onLaunch: { entry in Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) } },
+                        onNavigate: { Task { await viewModel.launchNavigator(NavigatorRoster.command, in: pane.paneID) } }
+                    )
                     .transition(.opacity)
                 }
             }
