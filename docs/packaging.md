@@ -46,6 +46,23 @@ updater and no feed, because Sparkle replaces the app at its own path and a
 development build that updated would swap itself for the release.
 `Scripts/checks.sh` fails if the feed or the updater reaches either of them.
 
+### When a release run goes wrong
+
+- `create-dmg` failing with `Finder got an error: Can't get disk (-1728)` on
+  every run, a two-file test image included, means Finder has stopped seeing
+  newly mounted hidden disk images. A longer
+  `--applescript-sleep-duration` does not help; restarting Finder
+  (`killall Finder`) does. Then run `release-build.sh` again.
+- `release-build.sh` refusing with "the bundle carries no SUFeedURL" means the
+  Release app lost its feed keys. The script that writes them declares the
+  processed Info.plist as its input so the build orders it after that file is
+  written; if the declaration is ever dropped, an incremental build after
+  `xcodegen` runs the script first and the keys vanish.
+- Right after publishing, `releases/latest/download/appcast.xml` can still
+  redirect to the previous release for about a minute. `gh api
+  repos/m4ttstack/flock/releases/latest` flips first; wait for the redirect
+  before telling anyone to check for updates.
+
 ### The signing key
 
 The feed is signed with an EdDSA key kept in the login keychain of the
