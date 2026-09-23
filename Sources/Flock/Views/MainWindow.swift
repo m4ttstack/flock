@@ -258,6 +258,7 @@ private struct RestartForNewBuildButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .background(WindowDragExclusion())
         .help("Quit and reopen Flock Dev on the build that just landed")
         .accessibilityIdentifier("flock.titleBar.restartForNewBuild")
     }
