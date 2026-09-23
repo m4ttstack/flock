@@ -855,7 +855,7 @@ private struct PaneMenuModifier<Leaf: View>: ViewModifier {
 }
 
 /// The "Copied" whisper, shown only in the pane the copy happened in.
-private struct PaneCopiedToastPill: View {
+struct PaneCopiedToastPill: View {
     let theme: Theme
     let toast: ToastCenter.Toast
 

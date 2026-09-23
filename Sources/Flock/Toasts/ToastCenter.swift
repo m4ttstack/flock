@@ -42,7 +42,7 @@ final class ToastCenter {
     /// like the copied whisper -- it stays up long enough to actually read.
     private static func dismissAfter(for kind: Kind) -> Duration {
         switch kind {
-        case .copied: return .milliseconds(1200)
+        case .copied: return .milliseconds(2000)
         case .notice, .info: return .milliseconds(2500)
         }
     }

@@ -528,8 +528,8 @@ enum ChromeMetrics {
     /// The pane-scoped "Copied" whisper, drawn inside its own pane cell.
     enum Toast {
         static let spacing: CGFloat = 8
-        static let horizontalPadding: CGFloat = 13
-        static let copiedVerticalPadding: CGFloat = 6
+        static let horizontalPadding: CGFloat = 16
+        static let copiedVerticalPadding: CGFloat = 10
         static let shadowRadius: CGFloat = 12
         static let copiedShadowY: CGFloat = 8
     }
