@@ -330,6 +330,16 @@ public final class SessionViewModel {
         attentionToasts.clear()
     }
 
+    /// How many attention cards the dock is drawing right now, which only the
+    /// dock can measure. Reported back so a menu command can tell the cards on
+    /// screen from the ones under the "+N more" pill.
+    public var attentionCardLimit = AttentionToastStack.minimumVisible
+
+    public func jumpToOldestDisplayedAttentionToast() async {
+        guard let toast = attentionToasts.oldestVisible(limit: attentionCardLimit) else { return }
+        await jumpToAttentionToast(pane: toast.paneID)
+    }
+
     /// The three focus verbs the Interactions sheet names, each with this
     /// pane's own explicit id. A toast is the one thing in flock that jumps
     /// across a workspace boundary, so the workspace and the tab are focused

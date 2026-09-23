@@ -26,6 +26,9 @@ public struct AttentionToastStack: Equatable, Sendable {
     public var isEmpty: Bool { toasts.isEmpty }
     public func visible(limit: Int) -> [AttentionToast] { Array(toasts.prefix(max(0, limit))) }
     public func collapsedCount(limit: Int) -> Int { max(0, toasts.count - max(0, limit)) }
+    /// The bottom card of the ones drawn, never one counted under the pill:
+    /// a keystroke should open something the user can see.
+    public func oldestVisible(limit: Int) -> AttentionToast? { visible(limit: limit).last }
 
     public func toast(pane: PaneID) -> AttentionToast? {
         toasts.first { $0.paneID == pane }

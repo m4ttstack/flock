@@ -491,6 +491,45 @@ final class AttentionToastTests: XCTestCase {
         XCTAssertTrue(viewModel.attentionToasts.isEmpty, "the toast goes as the jump takes it")
     }
 
+    /// The keyboard route takes the bottom card on screen, and never one
+    /// counted under the pill: that toast is not displayed.
+    @MainActor
+    func testOpeningTheOldestTakesTheBottomCardDrawnNotOneUnderThePill() async {
+        let clock = TestClock()
+        let client = FocusRecordingClient()
+        let viewModel = makeViewModel(client, clock: clock)
+        viewModel.update(model: attentionModel(), connection: .live)
+        var statuses: [String: AgentStatus] = [:]
+        for pane in ["w2:p1", "w2:p2", "w2:p3", "w2:p4"] {
+            statuses[pane] = .blocked
+            clock.advance(10)
+            viewModel.update(model: attentionModel(statuses: statuses), connection: .live)
+        }
+        viewModel.attentionCardLimit = 3
+
+        await viewModel.jumpToOldestDisplayedAttentionToast()
+
+        let calls = await client.calls
+        XCTAssertEqual(calls.last?.params.values.compactMap(stringValue).first, "w2:p2")
+        XCTAssertEqual(
+            viewModel.attentionToasts.toasts.map(\.paneID.rawValue), ["w2:p4", "w2:p3", "w2:p1"],
+            "the opened toast goes, and the one under the pill moves up into view"
+        )
+    }
+
+    @MainActor
+    func testOpeningTheOldestWithNothingUpSendsNothing() async {
+        let clock = TestClock()
+        let client = FocusRecordingClient()
+        let viewModel = makeViewModel(client, clock: clock)
+        viewModel.update(model: attentionModel(), connection: .live)
+
+        await viewModel.jumpToOldestDisplayedAttentionToast()
+
+        let calls = await client.calls
+        XCTAssertTrue(calls.isEmpty)
+    }
+
     @MainActor
     func testJumpingToAToastThatIsNoLongerUpSendsNothing() async {
         let clock = TestClock()
