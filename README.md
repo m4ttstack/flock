@@ -1,93 +1,152 @@
+<div align="center">
+
+<img src="Sources/Flock/Resources/Assets.xcassets/AppIcon.appiconset/icon_256x256@2x.png" width="128" height="128" alt="Flock app icon: a ram's head with three more stacked behind it">
+
 # Flock
 
-A macOS terminal workspace app driven by herdr.
+A native macOS window onto your [herdr](https://github.com/herdrdev/herdr) session: every workspace, tab and pane live, in real terminals you can drag around.
 
-## Build
+[![Latest release](https://img.shields.io/github/v/release/m4ttstack/flock?label=download)](https://github.com/m4ttstack/flock/releases/latest)
+[![Build and test](https://github.com/m4ttstack/flock/actions/workflows/tests.yml/badge.svg)](https://github.com/m4ttstack/flock/actions/workflows/tests.yml)
 
-Generate the Xcode project (never hand-edit `Flock.xcodeproj`, it is
-generated from `project.yml`):
+</div>
+
+herdr is a terminal multiplexer built for running coding agents side by side.
+Flock sits beside it rather than replacing it: it mirrors the session you
+already have, renders each pane with [libghostty](https://github.com/ghostty-org/ghostty),
+and turns rearranging that session into drag and drop. Quit Flock and herdr
+carries on exactly as before.
+
+## Features
+
+- **The whole session, live.** Workspaces in the sidebar, tabs across the top,
+  panes laid out the way herdr has them, each one a real terminal you can type
+  into.
+- **Drag to rearrange.** Move panes between tabs, reorder tabs and workspaces,
+  drag dividers to resize. Moves can be undone.
+- **Agent status at a glance.** Workspaces, tabs and panes carry herdr's status
+  dot: working, waiting on you, finished.
+- **A dock for what needs you.** When an agent finishes or asks a question, a
+  card appears at the foot of the sidebar. Click it to jump to the pane; it
+  clears itself once the pane is seen or the question answered.
+- **All Workspaces.** A grid of every workspace at once, for finding the pane
+  that just went quiet.
+- **One click to an agent.** A new pane offers buttons for the coding agents on
+  your `PATH` (Claude Code, Codex).
+- **Themes.** Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, One Dark,
+  Solarized, and their light variants.
+- **Updates itself.** Release builds update in place with
+  [Sparkle](https://sparkle-project.org).
+
+## Requirements
+
+- macOS 15 or later on Apple silicon
+- [herdr](https://github.com/herdrdev/herdr) 0.9 or later, on your `PATH`
+
+## Installation
+
+1. Download `Flock-<version>.dmg` from the
+   [latest release](https://github.com/m4ttstack/flock/releases/latest).
+2. Open it and drag **Flock** onto **Applications**.
+3. Open Flock from Applications. It is signed and notarized by Apple, so macOS
+   asks only its usual "downloaded from the Internet" question the first time.
+
+From then on Flock checks for updates by itself and installs them quietly.
+**Flock > Check for Updates…** checks right away.
+
+## Quickstart
+
+Start herdr the way you normally do, then open Flock. It attaches to your
+default herdr session (`~/.config/herdr/herdr.sock`) and shows it straight
+away. To open a different session, launch Flock with `HERDR_SOCKET_PATH` set:
 
 ```bash
-xcodegen
+HERDR_SOCKET_PATH=~/.config/herdr/sessions/work/herdr.sock open -a Flock
 ```
 
-Before the first build, vendor libghostty:
+Things to try first:
+
+- Click a workspace in the sidebar, then a tab, then a pane, and type.
+- Drag a workspace up or down the sidebar, or a tab along the tab strip.
+- Press <kbd>⌘</kbd><kbd>R</kbd> for rearrange mode, where dragging a pane moves
+  it instead of selecting text. Drop it on another tab, then press
+  <kbd>Esc</kbd>.
+- Press <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> for All Workspaces.
+- Start an agent in a workspace you are not looking at, and watch the dock.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| <kbd>⌘</kbd><kbd>T</kbd> | New tab in the current workspace |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> | New workspace |
+| <kbd>⌘</kbd><kbd>R</kbd> | Rearrange mode (<kbd>Esc</kbd> leaves it) |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | All Workspaces |
+| <kbd>F2</kbd> | Rename the selected workspace or tab |
+| <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / redo a move |
+| <kbd>⌘</kbd><kbd>K</kbd> | Clear notifications |
+| <kbd>⌘</kbd><kbd>,</kbd> | Settings |
+
+## Settings
+
+- **Notifications > Show in sidebar:** *Until seen* (the default), *For 5
+  seconds*, or *Never*. A question from an agent stays until you answer it.
+- **herdr > Mouse support:** herdr 0.9.1 does not pass clicks and scrolling
+  through to its panes from a client like Flock. Flock carries a build of the
+  same herdr version that does, and can install it for you, keeping your
+  original to restore later.
+
+## Works with rt
+
+If you run agents with [rt](https://github.com/m4ttstack/rt), Flock picks up a
+few extras by itself: herds get their own sidebar section with progress read
+from rt, the board app's workspaces fold into a Board section, and rt chat is a
+click away. None of it is needed to use Flock with plain herdr.
+
+## Building from source
+
+You need Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+(`brew install xcodegen`), and a few minutes for the first libghostty build.
 
 ```bash
-git submodule update --init Vendor/ghostty
-./Scripts/libghostty.sh
-```
-
-That takes a while, it compiles ghostty with `-Doptimize=ReleaseFast`, and
-leaves `Vendor/GhosttyKit.xcframework` plus a `Vendor/libghostty.version` note
-of what it was built from. Neither is in git; the pin is the `Vendor/ghostty`
-gitlink, and those two are what your machine made of it.
-`Scripts/libghostty.sh --check` reports whether the built artifact still
-matches the pin.
-
-Then vendor Sparkle, which the Flock target links:
-
-```bash
-./Scripts/fetch-sparkle.sh
-```
-
-It downloads the pinned Sparkle release into `Vendor/Sparkle/` (not in git)
-and verifies it against the sha256 in the script; rerunning it is a no-op.
-
-Then build and run:
-
-```bash
-Scripts/build.sh
+git clone --recursive https://github.com/m4ttstack/flock.git
+cd flock
+Scripts/libghostty.sh     # builds Vendor/GhosttyKit.xcframework (fetches its own zig)
+Scripts/fetch-sparkle.sh  # vendors the pinned Sparkle release
+Scripts/build.sh          # xcodegen, then a Debug build
 Scripts/run.sh
 ```
 
-## Release build
+`Flock.xcodeproj` is generated from `project.yml`: edit that and rerun
+`xcodegen`, never the project itself. `Scripts/dev-build.sh` builds a separate
+`Flock-dev.app` with its own bundle id, so it runs side by side with an
+installed Flock.
+
+Run the tests and checks CI runs:
 
 ```bash
-Scripts/release-build.sh
+xcodebuild test -scheme Flock -destination 'platform=macOS' -only-testing:FlockCoreTests -skipPackagePluginValidation
+xcodebuild test -scheme FlockChromeRender -destination 'platform=macOS' -skipPackagePluginValidation
+Scripts/checks.sh
 ```
 
-Builds `build/release/Flock.app` in the Release configuration with the
-hardened runtime, then verifies it with `codesign` and `spctl`. It signs with
-the machine's sole `Developer ID Application` identity when there is exactly
-one; `--identity <name>` names a different one and `--adhoc` forces an ad-hoc
-signature, which is what a machine with no Developer ID gets.
+Signing, notarization, the disk image and releasing an update are covered in
+[docs/packaging.md](docs/packaging.md).
 
-This script is the only path that produces a Developer ID signature. Xcode's
-Product > Archive also builds Release now, but it uses the configuration's own
-`CODE_SIGN_IDENTITY`, which is ad-hoc: an archive made that way looks like a
-release artifact and is signed by nobody.
+## Contributing
 
-With a Developer ID signature, the script also submits the bundle for
-notarization (`xcrun notarytool submit --wait`, keychain profile
-`flock-notary` by default) and staples the ticket on success, so the
-distributed artifact passes `spctl -a -vv` (`accepted` /
-`source=Notarized Developer ID`) on a machine with no prior trust of this
-Developer ID. An ad-hoc build is never a notarization candidate (Apple
-requires Developer ID) and `spctl` rejecting it is expected, not a failure.
-A Developer ID build with no notarization credential configured skips
-notarization with setup instructions rather than failing, since the
-signed artifact it already produced is real. See `--help` for the
-credential and `--skip-notarize`/`--skip-verify` flags.
+Issues and pull requests are welcome. Before opening a pull request, run the
+two test schemes and `Scripts/checks.sh` above; CI runs the same on every push.
+Flock follows herdr rather than leading it, so a change that needs something
+herdr does not expose yet is best raised with herdr first.
 
-The bundle is single-architecture: `Vendor/GhosttyKit.xcframework` is built
-for the architecture of the machine that ran `Scripts/libghostty.sh`, so
-there is no second slice to link.
+## License
 
-See `THIRD-PARTY-NOTICES.md` for the licenses of vendored and derived
-third-party components.
-
-## Dev build
-
-```bash
-Scripts/dev-build.sh
-```
-
-Builds `build/dev/Flock-dev.app`: same sources, ad-hoc signed, distinct
-bundle id (`dev.mattstack.Flock.dev` vs the release build's
-`dev.mattstack.Flock`) and product name, so it installs and runs side by
-side with a release Flock.app without either shadowing the other. The
-point is to rebuild and re-test without a `/Applications` install in the
-way: rerun the script after an edit and reopen the same
-`build/dev/Flock-dev.app` path. Never notarized, never meant to leave this
-machine.
+Flock is under the [Business Source License 1.1](LICENSE): free to use,
+including at work, as long as you do not offer it or a derivative as a
+commercial terminal emulator, terminal multiplexer or remote-session client.
+On 2030-09-20 it becomes MIT. Parts of Flock derive from
+[Herdglass](https://github.com/buldezir/Herdglass), which carries the same
+terms, and it builds on Ghostty, Sparkle and Inter.
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) has the details and every
+license.
