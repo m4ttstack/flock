@@ -120,6 +120,11 @@ targets:
       - name: Sparkle Info.plist keys
         basedOnDependencyAnalysis: false
         showEnvVars: false
+        # Declared so the build orders this after the task that writes the
+        # processed Info.plist. Undeclared, it ran first whenever that plist
+        # had to be regenerated, and the regeneration dropped every key.
+        inputFiles:
+          - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"
         script: |
           [ -n "${FLOCK_SPARKLE_FEED_URL:-}" ] || exit 0
           if [ -z "${FLOCK_SPARKLE_PUBLIC_ED_KEY:-}" ]; then
