@@ -7,17 +7,39 @@ import Foundation
 /// process group alone: a job a shell starts without job control (a command
 /// substitution, say) stays in the shell's own group.
 public enum PaneForegroundJob {
-    /// `nil` when the answer cannot say: an error, or no `shell_pid` to
-    /// compare against.
-    public static func isBusy(processInfoResponse data: Data) -> Bool? {
+    public struct Snapshot: Equatable, Sendable {
+        public let busy: Bool
+        /// The shell's own process name while it is in the foreground list,
+        /// which is only while it sits at its prompt.
+        public let shellName: String?
+        /// Everything but the shell that holds the foreground.
+        public let foregroundNames: [String]
+    }
+
+    public static func snapshot(processInfoResponse data: Data) -> Snapshot? {
         guard let info = try? JSONDecoder().decode(Envelope.self, from: data).result.processInfo,
               let shellPID = info.shellPID
         else { return nil }
-        if let processes = info.foregroundProcesses, !processes.isEmpty {
-            return processes.contains { $0.pid != shellPID }
+        let processes = info.foregroundProcesses ?? []
+        let busy: Bool
+        if !processes.isEmpty {
+            busy = processes.contains { $0.pid != shellPID }
+        } else if let group = info.foregroundProcessGroupID {
+            busy = group != shellPID
+        } else {
+            return nil
         }
-        guard let group = info.foregroundProcessGroupID else { return nil }
-        return group != shellPID
+        return Snapshot(
+            busy: busy,
+            shellName: processes.first { $0.pid == shellPID }?.name,
+            foregroundNames: processes.filter { $0.pid != shellPID }.compactMap(\.name)
+        )
+    }
+
+    /// `nil` when the answer cannot say: an error, or no `shell_pid` to
+    /// compare against.
+    public static func isBusy(processInfoResponse data: Data) -> Bool? {
+        snapshot(processInfoResponse: data)?.busy
     }
 
     private struct Envelope: Decodable {
@@ -29,7 +51,7 @@ public enum PaneForegroundJob {
     }
 
     private struct Info: Decodable {
-        struct Process: Decodable { let pid: Int }
+        struct Process: Decodable { let pid: Int; let name: String? }
         let shellPID: Int?
         let foregroundProcessGroupID: Int?
         let foregroundProcesses: [Process]?
