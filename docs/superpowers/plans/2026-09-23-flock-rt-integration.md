@@ -66,13 +66,15 @@ App:
 | File | Responsibility |
 |---|---|
 | `Sources/Flock/Rt/RtBrand.swift` | rt's plum and pink; `RtAvailability` |
-| `Sources/Flock/Rt/RtLegendButtons.swift` | rt button, runner button, badge, `RtMenuBuilder` |
+| `Sources/Flock/Rt/RtButton.swift` | the rt button (split pill), `RtBadge` |
+| `Sources/Flock/Rt/RtPopover.swift` | the rt popover |
+| `Sources/Flock/Views/PopoverAppearancePin.swift` | the popover window's appearance, shared with chat |
 | `Sources/Flock/Rt/RtModalView.swift` | the overlay and its chrome (title row, tab strip, strip) |
-| `Sources/Flock/Rt/RtModalCanvas.swift` | a hidden tab's panes on ghostty surfaces |
+| `Sources/Flock/Rt/RtModalPane.swift` | a hidden tab's one pane on its ghostty surface |
 | `Sources/Flock/Rt/RtModalKeyMonitor.swift` | ⌘W and any-key while the modal is up |
 | `Sources/Flock/Theme/ChromeMetrics.swift`, `ChromeTypography.swift` (modify) | rt metrics and fonts |
 | `Sources/Flock/Views/PaneLauncherOverlay.swift` (modify) | `NavigatorRoster` reads `RtBrand` |
-| `Sources/Flock/Views/PaneCellView.swift`, `PaneCanvas.swift`, `MainWindow.swift` (modify) | wiring |
+| `Sources/Flock/Views/PaneCellView.swift`, `PaneCanvas.swift`, `MainWindow.swift` (modify) | wiring; the modal overlays the tab area only |
 | `docs/design/rt/` | `flock-rt.pen`, reference PNGs, `measurements.md` |
 
 Tests: `Tests/FlockCoreTests/` gains `TerminalIDTests`, `RtLabelsTests`, `VisibleSessionTests`, `RtCommandLineTests`, `RtFilesTests`, `RtLifecycleTests`, `RtHerdrTests`, `RtItemTests`, `RtTestSupport` (fixtures and `FakeRtWorld`), `RtCoordinatorTests`, `RtCoordinatorLifetimeTests`, plus additions to `SessionViewModelTests`, `PaneForegroundJobTests`, `HerdrStoreTests`. `Tests/FlockChromeRender/` gains `RtLegendRenderTests` and `RtModalChromeRenderTests`.
@@ -3462,6 +3464,264 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
+### Task 10b: One pane per hidden tab, the split pill, the popover's rows
+
+rt opens a runner board in its own pane for a queue or a preset, so a hidden rt tab never gains panes or tabs: an item is one tab. The approved canvas (`docs/design/rt/measurements.md`) also merges the runner into the rt button (a split pill whose count is rt run items only) and replaces the native menu with a popover. This task changes the FlockCore types and the coordinator to match; Tasks 12 and 13 build the views on them.
+
+**Files:**
+- Modify: `Sources/FlockCore/Rt/RtItem.swift`
+- Modify: `Sources/FlockCore/Rt/RtCoordinator.swift`
+- Modify: `Sources/FlockCore/Rt/RtCoordinator+Lifetime.swift`
+- Modify: `Tests/FlockCoreTests/RtItemTests.swift`, `Tests/FlockCoreTests/RtCoordinatorTests.swift`, `Tests/FlockCoreTests/RtCoordinatorLifetimeTests.swift`
+
+**Interfaces:**
+- Consumes: everything from Tasks 7-10.
+- Produces:
+  - `RtItem.tabID: TabID` (replaces `tabIDs`); init label `tabID:`.
+  - `RtButtonModel.Appearance`: `absent`, `rest`, `active(count: Int, runner: Bool)`.
+  - `public struct RtCommandRow: Equatable, Sendable, Identifiable { kind: RtKind; title: String; hint: String; id: RtKind }` and `public enum RtPopoverModel { static func commands(hasRunner: Bool) -> [RtCommandRow] }`.
+  - `public struct RtRunRow: Equatable, Sendable, Identifiable { enum Tone { running, finished, exited }; id: String; title: String; state: String; tone: Tone }` and `RtItem.runRow: RtRunRow`.
+  - On `RtCoordinator`: `commandRows(linkedTo:) -> [RtCommandRow]`, `runRows(linkedTo:) -> [RtRunRow]`. Removed: `menuRows(linkedTo:)`, `perform(_:from:)`, `selectModalTab(_:)`, `RtMenuRow`, `RtMenuModel`, `RtItem.stateText`, and the stray-tab joining (`strayOwner`).
+
+- [ ] **Step 1: Update the tests to the new shapes (they fail to compile, then fail)**
+
+In `RtItemTests.swift`, the fixture takes `tabID: TabID(rawValue: "wF:t1")` in place of `tabIDs: [...]`, and three tests change:
+
+```swift
+    func testTheButtonRestsWithNothingRunningAndCountsRunItemsOnly() {
+        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: false, runningItems: 3, hasRunner: true), .absent)
+        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 0, hasRunner: false), .rest)
+        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 2, hasRunner: false), .active(count: 2, runner: false))
+        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 2, hasRunner: true), .active(count: 2, runner: true))
+        XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 0, hasRunner: true), .active(count: 0, runner: true))
+    }
+
+    func testThePopoverOffersFourCommandsWithRtsOwnCommandAsAHint() {
+        let rows = RtPopoverModel.commands(hasRunner: false)
+        XCTAssertEqual(rows.map(\.title), ["Browse files", "Git status", "Run a script…", "Start runner"])
+        XCTAssertEqual(rows.map(\.hint), ["rt nav", "rt glitter", "rt run", "rt runner"])
+        XCTAssertEqual(rows.map(\.kind), [.nav, .glitter, .run, .runner])
+        XCTAssertEqual(RtPopoverModel.commands(hasRunner: true).last?.title, "Show runner")
+    }
+
+    func testARunRowSaysWhereTheItemIs() {
+        XCTAssertEqual(item().runRow, RtRunRow(id: "tok1", title: "pnpm run test", state: "running", tone: .running))
+        XCTAssertEqual(item(running: false, strip: .finished(0)).runRow.state, "finished · exit 0")
+        XCTAssertEqual(item(running: false, strip: .finished(nil)).runRow.state, "finished")
+        XCTAssertEqual(item(running: false, strip: .exited(1)).runRow, RtRunRow(id: "tok1", title: "pnpm run test", state: "exited 1", tone: .exited))
+        XCTAssertEqual(item(running: false, strip: .exited(nil)).runRow.state, "exited")
+        XCTAssertEqual(item(running: false).runRow.tone, .finished)
+    }
+```
+
+Delete `testTheMenuOffersTheCommandsThenThePanesItems` and `testTheRunnerRowShowsAnExistingRunner`; keep the strip, title and key tests as they are.
+
+In `RtCoordinatorTests.testClosingARunningRunKeepsItCountedOnTheButton`, the two assertions become:
+
+```swift
+        XCTAssertEqual(rt.buttonAppearance(linkedTo: RtFixture.linkedTerminal, rtInstalled: true), .active(count: 1, runner: false))
+        XCTAssertEqual(rt.runRows(linkedTo: RtFixture.linkedTerminal).last, RtRunRow(id: "tok1", title: "rt run", state: "running", tone: .running))
+```
+
+and in `testTheRunnerGetsItsOwnWorkspaceAndASecondOpenShowsIt`, after `XCTAssertNotNil(rt.runner(linkedTo: RtFixture.linkedTerminal))` add:
+
+```swift
+        XCTAssertEqual(rt.buttonAppearance(linkedTo: RtFixture.linkedTerminal, rtInstalled: true), .active(count: 0, runner: true))
+        XCTAssertEqual(rt.commandRows(linkedTo: RtFixture.linkedTerminal).last?.title, "Show runner")
+```
+
+In `RtCoordinatorLifetimeTests`, replace `testAStrayTabJoinsTheRunStillPicking` with:
+
+```swift
+    /// A hidden tab holds one pane, so a tab rt did not open through flock is
+    /// never an item's: it is shut down even while a run is picking.
+    func testAStrayTabIsShutDownEvenWhileARunPicks() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt run", .init(busyPolls: 100_000, status: "0"))
+        let rt = makeCoordinator(world)
+        await rt.open(.run, from: world.fixture.linkedPane)
+        rt.update(model: world.model())
+
+        world.seed(tab: "wF1:t9", in: "wF1", label: "zsh", number: 2)
+        world.seed(pane: "wF1:p9", tab: "wF1:t9", workspace: "wF1", terminal: "term_9")
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").last?["tab_id"]), "wF1:t9")
+        XCTAssertEqual(rt.items["tok1"]?.tabID, TabID(rawValue: "wF1:t1"))
+        XCTAssertTrue(world.calls("tab.rename").allSatisfy { FakeRtWorld.string($0["tab_id"]) != "wF1:t9" })
+        rt.watches["tok1"]?.cancel()
+    }
+```
+
+Update every other `tabIDs` reference in the three test files to `tabID` (for example `rt.items["tok1"]?.tabIDs` becomes `rt.items["tok1"]?.tabID`).
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run `RtItemTests`, `RtCoordinatorTests` and `RtCoordinatorLifetimeTests`. Expected: compile failures on `tabID`, `RtPopoverModel`, `RtRunRow`, `runRows`, `commandRows` and the two-value `active`.
+
+- [ ] **Step 3: Implement**
+
+In `RtItem.swift`:
+
+- `RtItem`: replace `public var tabIDs: [TabID]` and its comment with
+
+```swift
+    /// The one tab the item lives in. A runner's attach tabs sit beside it in
+    /// its workspace and are views onto services, never the item's own.
+    public let tabID: TabID
+```
+
+  change the init parameter to `tabID: TabID`, and replace `stateText` with
+
+```swift
+    public var runRow: RtRunRow {
+        switch strip {
+        case .exited(let status):
+            return RtRunRow(id: id, title: title, state: "exited\(status.map { " \($0)" } ?? "")", tone: .exited)
+        case .finished(let status):
+            return RtRunRow(id: id, title: title, state: "finished\(status.map { " · exit \($0)" } ?? "")", tone: .finished)
+        case nil:
+            return RtRunRow(id: id, title: title, state: isRunning ? "running" : "finished", tone: isRunning ? .running : .finished)
+        }
+    }
+```
+
+- `RtButtonModel`:
+
+```swift
+public enum RtButtonModel {
+    public enum Appearance: Equatable, Sendable {
+        case absent
+        case rest
+        /// `count` is running rt run items only; a live runner is the pill's
+        /// second half, never counted again.
+        case active(count: Int, runner: Bool)
+    }
+
+    public static func appearance(rtInstalled: Bool, runningItems: Int, hasRunner: Bool) -> Appearance {
+        guard rtInstalled else { return .absent }
+        guard runningItems > 0 || hasRunner else { return .rest }
+        return .active(count: runningItems, runner: hasRunner)
+    }
+}
+```
+
+- Replace `RtMenuRow` and `RtMenuModel` with:
+
+```swift
+public struct RtCommandRow: Equatable, Sendable, Identifiable {
+    public let kind: RtKind
+    public let title: String
+    /// rt's own command, shown so the popover teaches it.
+    public let hint: String
+
+    public var id: RtKind { kind }
+}
+
+public struct RtRunRow: Equatable, Sendable, Identifiable {
+    public enum Tone: Equatable, Sendable { case running, finished, exited }
+
+    public let id: String
+    public let title: String
+    public let state: String
+    public let tone: Tone
+
+    public init(id: String, title: String, state: String, tone: Tone) {
+        self.id = id
+        self.title = title
+        self.state = state
+        self.tone = tone
+    }
+}
+
+public enum RtPopoverModel {
+    public static func commands(hasRunner: Bool) -> [RtCommandRow] {
+        [
+            RtCommandRow(kind: .nav, title: "Browse files", hint: "rt nav"),
+            RtCommandRow(kind: .glitter, title: "Git status", hint: "rt glitter"),
+            RtCommandRow(kind: .run, title: "Run a script…", hint: "rt run"),
+            RtCommandRow(kind: .runner, title: hasRunner ? "Show runner" : "Start runner", hint: "rt runner"),
+        ]
+    }
+}
+```
+
+In `RtCoordinator.swift`:
+
+- Replace `menuRows(linkedTo:)` and `perform(_:from:)` with
+
+```swift
+    public func commandRows(linkedTo terminal: TerminalID) -> [RtCommandRow] {
+        RtPopoverModel.commands(hasRunner: runner(linkedTo: terminal) != nil)
+    }
+
+    /// In the order they were opened, so the popover lists them the same way every time.
+    public func runRows(linkedTo terminal: TerminalID) -> [RtRunRow] {
+        runItems(linkedTo: terminal).map(\.runRow)
+    }
+```
+
+- Delete `selectModalTab(_:)`.
+- Every `tabIDs: [host.tabID]` becomes `tabID: host.tabID`; `item.tabIDs[0]` becomes `item.tabID` (in `show`, `backToBoard`); `panes(of:)` reads `panes(inTab: item.tabID, of: model)`; `closeItem` closes `item.tabID`. Its doc comment keeps saying why attach tabs are not the item's.
+
+In `RtCoordinator+Lifetime.swift`:
+
+- `shutDown`: `.tabs([item.tabID])`.
+- `adoptRunner`: `tabID: board.tabID`.
+- `adoptSharedTab`: a tab whose token is already an item's returns at once (drop the append).
+- `claimStrayTabs` becomes
+
+```swift
+    /// A tab in `flock:rt` with no link is none of flock's: every item is one
+    /// tab flock opened and labelled. Skipped while an open is in flight: a
+    /// workspace's first tab is unlabelled until its rename lands.
+    private func claimStrayTabs(_ model: SessionModel) {
+        guard opensInFlight == 0 else { return }
+        let owned = Set(items.values.map(\.tabID))
+        for workspace in model.workspaces where workspace.label == RtLabels.sharedWorkspace {
+            for tab in model.tabs[workspace.workspaceID] ?? [] {
+                guard RtLabels.tabLink(fromLabel: tab.label) == nil, !owned.contains(tab.tabID),
+                      !handledStrays.contains(tab.tabID) else { continue }
+                orphan(.tabs([tab.tabID]), panes: panes(inTab: tab.tabID, of: model))
+            }
+        }
+    }
+```
+
+  and `strayOwner()` is deleted (`orphan` already records the tab in `handledStrays`).
+- `dropClosedTabs`: an item whose `tabID` has been seen and is no longer live is forgotten; the service-tab rule is unchanged.
+
+```swift
+    private func dropClosedTabs(_ model: SessionModel) {
+        let live = Set(model.tabs.values.flatMap { $0 }.map(\.tabID))
+        for (id, item) in items where shutdowns[id] == nil && !reaping.contains(id) {
+            if seenTabs.contains(item.tabID), !live.contains(item.tabID) { forget(id) }
+        }
+        if let service = modal?.serviceTabID, seenTabs.contains(service), !live.contains(service) {
+            modal?.serviceTabID = nil
+        }
+    }
+```
+
+- `followFocus`: the owner is `items.values.first { $0.workspaceID == pane.workspaceID && ($0.kind == .runner || $0.tabID == pane.tabID) }`; the service view opens when `pane.tabID != owner.tabID`, as `RtModal(itemID: owner.id, tabID: owner.tabID, serviceTabID: pane.tabID)`.
+
+Keep the doc comments true: anything that still mentions "Launch all" placing tabs, or tabs following the first, is rewritten or removed.
+
+- [ ] **Step 4: Run the tests to see them pass**
+
+Run `RtItemTests`, `RtCoordinatorTests`, `RtCoordinatorLifetimeTests`, then the whole `FlockCoreTests`. Expected: all pass (the lifetime class keeps 14 tests; `RtItemTests` has 5).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && Scripts/checks.sh && git commit -m "rt: one pane per hidden tab, a split rt button, and the popover's rows
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 11: Design canvas (CHECKPOINT, controller only)
 
 Visual work stays with the controller; do not dispatch it to an implementer. No UI code is written until Matt approves this canvas.
@@ -3494,116 +3754,38 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 12: The legend's rt and runner buttons
+### Task 12: The rt button and its popover
+
+The approved values are in `docs/design/rt/measurements.md` ("The legend", "The rt popover") and the reference PNGs beside it (`legend-rt-*.png`, `rt-menu-*.png`). Where this task and the measurements disagree, the measurements win.
 
 **Files:**
 - Create: `Sources/Flock/Rt/RtBrand.swift`
-- Create: `Sources/Flock/Rt/RtLegendButtons.swift`
+- Create: `Sources/Flock/Rt/RtButton.swift` (the legend control)
+- Create: `Sources/Flock/Rt/RtPopover.swift`
+- Create: `Sources/Flock/Views/PopoverAppearancePin.swift` (lifted from `ChatPopover.swift`)
+- Modify: `Sources/Flock/Chat/ChatPopover.swift` (use the lifted pin)
 - Modify: `Sources/Flock/Theme/ChromeMetrics.swift`, `Sources/Flock/Theme/ChromeTypography.swift`
-- Modify: `Sources/Flock/Views/PaneLauncherOverlay.swift` (`NavigatorRoster.rtCd` colors from `RtBrand`)
-- Modify: `Sources/Flock/Views/PaneCellView.swift` (`statusChip`, ~line 444)
-- Create: `Tests/FlockChromeRender/RtLegendRenderTests.swift`
+- Modify: `Sources/Flock/Views/PaneLauncherOverlay.swift` (`NavigatorRoster.rtCd` colours from `RtBrand`)
+- Modify: `Sources/Flock/Views/PaneCellView.swift` (`statusChip`)
+- Create: `Tests/FlockChromeRender/RtButtonRenderTests.swift`
 
 **Interfaces:**
-- Consumes: `RtButtonModel.Appearance`, `RtMenuRow`, `viewModel.rt` (Tasks 7, 10); approved values from Task 11.
-- Produces: `RtBrand.plum`, `RtBrand.pink`, `RtAvailability.installed`, `RtLegendButtons`, `RtBadge`, `RtMenuBuilder.menu(rows:perform:) -> NSMenu`.
+- Consumes: `RtButtonModel.Appearance` (`absent`, `rest`, `active(count:runner:)`), `RtCommandRow`, `RtRunRow`, `viewModel.rt` (`buttonAppearance(linkedTo:rtInstalled:)`, `commandRows(linkedTo:)`, `runRows(linkedTo:)`, `runner(linkedTo:)`, `open(_:from:)`, `show(_:)`) from Tasks 7-10b.
+- Produces: `RtBrand.plum`, `RtBrand.pink`, `RtAvailability.installed`, `RtBadge`, `RtButton`, `RtPopover`, `PopoverAppearancePin`.
 
 - [ ] **Step 1: Write the failing render test**
 
-`Tests/FlockChromeRender/RtLegendRenderTests.swift`:
+`Tests/FlockChromeRender/RtButtonRenderTests.swift` renders, in Tokyo Night and Tokyo Night Day, hosted in a real window with a few layout passes and `ChromeType.install()` first (the pattern of `PaneLauncherOverlayTests` and the chat render tests):
 
-```swift
-import AppKit
-import FlockCore
-import SwiftUI
-import XCTest
+1. `RtButton` in each appearance: `.rest`, `.active(count: 1, runner: false)`, `.active(count: 1, runner: true)`, `.active(count: 0, runner: true)`, `.absent`. Assert the plum `#161224` badge is drawn (more than 150 pixels at 2x) for every state but `.absent`, where it is 0; assert rt's pink `#FF6B9D` glyph pixels appear only in the states with `runner: true`.
+2. `RtPopover` with four command rows (`RtPopoverModel.commands(hasRunner: true)`), two run rows (`running`, and `finished · exit 0`), folder `~/src/acme`, and the first row previewed as hovered. Assert the popover's `panelBg` ground, the plum badge, and the hovered row's `selectionBg` fill are all present.
+3. `NSImage(systemSymbolName:accessibilityDescription:)` resolves for every symbol the two views name: `folder`, `arrow.triangle.branch`, `play`, `waveform.path.ecg`.
 
-/// The legend's rt controls in both themes. Writes PNGs when
-/// `FLOCK_CHROME_RENDER_DIR` names a directory.
-@MainActor
-final class RtLegendRenderTests: XCTestCase {
-    private struct Probe: View {
-        let theme: Theme
-        let appearance: RtButtonModel.Appearance
-        let hasRunner: Bool
-
-        var body: some View {
-            HStack {
-                RtLegendButtons(
-                    theme: theme, paneID: PaneID(rawValue: "w1:p1"), appearance: appearance, hasRunner: hasRunner,
-                    onOpenMenu: {}, onShowRunner: {}
-                )
-                Spacer(minLength: 0)
-            }
-            .padding(8)
-            .frame(width: 220, height: 40)
-            .background(theme.pane)
-        }
-    }
-
-    /// Hosted in a real window and given a few layout passes, as
-    /// `PaneLauncherOverlayTests` does: SwiftUI draws nothing into a hosting
-    /// view that has never been in a window.
-    private func render(_ probe: Probe, named name: String) async throws -> NSBitmapImageRep {
-        ChromeType.install()
-        let hosting = NSHostingView(rootView: probe)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 220, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = hosting
-        window.orderFront(nil)
-        defer { window.close() }
-        for _ in 0..<4 {
-            hosting.layoutSubtreeIfNeeded()
-            try? await Task.sleep(for: .milliseconds(30))
-        }
-        let scale: CGFloat = 2
-        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try XCTUnwrap(CGContext(
-            data: nil, width: Int(220 * scale), height: Int(40 * scale), bitsPerComponent: 8, bytesPerRow: 0,
-            space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ))
-        context.scaleBy(x: scale, y: scale)
-        hosting.displayIgnoringOpacity(hosting.bounds, in: NSGraphicsContext(cgContext: context, flipped: false))
-        let image = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
-        if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
-            try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("rt-legend-\(name).png"))
-        }
-        return image
-    }
-
-    private func count(_ hex: String, in image: NSBitmapImageRep) -> Int {
-        guard let data = image.bitmapData else { return 0 }
-        var matches = 0
-        for y in 0..<image.pixelsHigh {
-            for x in 0..<image.pixelsWide {
-                let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
-                if String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2]) == hex { matches += 1 }
-            }
-        }
-        return matches
-    }
-
-    func testTheBadgeDrawsInRtsColorsAtRestAndActiveInBothThemes() async throws {
-        for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
-            for (name, appearance) in [("rest", RtButtonModel.Appearance.rest), ("active", .active(count: 2))] {
-                let image = try await render(Probe(theme: theme, appearance: appearance, hasRunner: name == "active"), named: "\(name)-\(theme.id)")
-                XCTAssertGreaterThan(count("#161224", in: image), 150, "\(theme.id) \(name): no plum badge")
-            }
-        }
-    }
-
-    func testAbsentDrawsNothing() async throws {
-        let theme = Theme(.tokyoNight)
-        let image = try await render(Probe(theme: theme, appearance: .absent, hasRunner: false), named: "absent")
-        XCTAssertEqual(count("#161224", in: image), 0)
-    }
-}
-```
+With `FLOCK_CHROME_RENDER_DIR` set, each render writes `rt-button-<state>-<theme>.png` and `rt-popover-<theme>.png`.
 
 - [ ] **Step 2: Run it to see it fail**
 
-Run `xcodegen`, then `-scheme FlockChromeRender -only-testing:FlockChromeRender/RtLegendRenderTests`. Expected: compile failure, `cannot find 'RtLegendButtons'`.
+Run `xcodegen`, then `-scheme FlockChromeRender -only-testing:FlockChromeRender/RtButtonRenderTests`. Expected: compile failure on `RtButton`.
 
 - [ ] **Step 3: Implement**
 
@@ -3613,7 +3795,8 @@ Run `xcodegen`, then `-scheme FlockChromeRender -only-testing:FlockChromeRender/
 import FlockCore
 import SwiftUI
 
-/// rt's own colors: pink on plum, as its terminal UI draws itself.
+/// rt's own colours: pink on plum, as its terminal UI draws itself. The same
+/// in every theme.
 enum RtBrand {
     static let plum = Color(red: 22 / 255, green: 18 / 255, blue: 36 / 255)
     static let pink = Color(red: 1, green: 107 / 255, blue: 157 / 255)
@@ -3626,195 +3809,96 @@ enum RtAvailability {
 }
 ```
 
-In `PaneLauncherOverlay.swift`, `NavigatorRoster.rtCd` takes `monogramColor: RtBrand.plum, monogramInk: RtBrand.pink`.
+`NavigatorRoster.rtCd` takes `monogramColor: RtBrand.plum, monogramInk: RtBrand.pink`.
 
-Add to `ChromeMetrics` (starting values; replace with `docs/design/rt/measurements.md`):
+`ChromeMetrics` gains `RtButton` and `RtPopover`, every value from the measurements: the badge 16x12 r3; the rest square 27x17 r4; the active pill 18 tall, r4, pad 0/7, gap 5; the divider 1x10; the runner glyph 11; the popover 300 wide, r10, header 41 with pad 12/14 and gap 8, header badge 20x15 r3, folder chip 18 tall r4 pad 3/8 gap 5 with a 10pt glyph; the command band padded 6/8; rows 31 tall, r5, pad 8, gap 9, 14pt glyphs; the RUNS label padded 10/14/6/14 with tracking 0.5; the runs band padded 0/8/8/8; the run dot 7. `ChromeType` gains `rtBadge = inter(8.5, .bold)`, `rtButtonCount = inter(10, .semibold)`, `rtPopoverBadge = inter(10, .bold)`, `rtPopoverFolder = inter(10)`, `rtPopoverRow = inter(12)`, `rtPopoverHint = mono(10)`, `rtPopoverLabel = inter(10, .semibold)`, `rtPopoverState = inter(10)`.
 
-```swift
-    enum RtButton {
-        static let restSize = CGSize(width: 27, height: 17)
-        static let activeHeight: CGFloat = 18
-        static let cornerRadius: CGFloat = 4
-        static let horizontalPadding: CGFloat = 7
-        static let gap: CGFloat = 5
-        static let badgeSize = CGSize(width: 16, height: 12)
-        static let badgeCornerRadius: CGFloat = 3
-        static let runnerDot: CGFloat = 6
-    }
-```
+`RtBadge`: the 16x12 plum rounded rectangle with "rt" centred in `rtBadge` pink. The popover's header badge is the same view at its 20x15 size and `rtPopoverBadge` font (give `RtBadge` a size and a font, defaulted to the legend's).
 
-Add to `ChromeType`:
+`RtButton` (values in, closures out, so the render tests draw every state without a coordinator):
 
 ```swift
-    static let rtBadge = inter(8.5, .bold)
-    static let rtButtonText = inter(10, .semibold)
-```
-
-`Sources/Flock/Rt/RtLegendButtons.swift`:
-
-```swift
-import AppKit
-import FlockCore
-import SwiftUI
-
-/// The legend's rt controls, right of chat: the rt button, and while the pane
-/// has one, the runner button. Values in, closures out, so the render tests
-/// can draw every state without a coordinator.
-struct RtLegendButtons: View {
+struct RtButton: View {
     let theme: Theme
     let paneID: PaneID
     let appearance: RtButtonModel.Appearance
-    let hasRunner: Bool
-    let onOpenMenu: () -> Void
+    let onOpenPopover: () -> Void
     let onShowRunner: () -> Void
-
-    var body: some View {
-        if appearance != .absent {
-            HStack(spacing: ChromeMetrics.Pane.legendItemGap) {
-                Button(action: onOpenMenu) { rtLabel }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(accessibilityText)
-                    .accessibilityIdentifier("flock.pane.rtButton.\(paneID.rawValue)")
-                if hasRunner {
-                    Button(action: onShowRunner) { runnerLabel }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Runner")
-                        .accessibilityIdentifier("flock.pane.runnerButton.\(paneID.rawValue)")
-                }
-            }
-        }
-    }
-
-    private var accessibilityText: String {
-        if case .active(let count) = appearance { return "rt, \(count) running" }
-        return "rt"
-    }
-
-    @ViewBuilder
-    private var rtLabel: some View {
-        switch appearance {
-        case .absent:
-            EmptyView()
-        case .rest:
-            RtBadge()
-                .frame(width: ChromeMetrics.RtButton.restSize.width, height: ChromeMetrics.RtButton.restSize.height)
-                .background(RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius).fill(Color(theme.palette.surface0)))
-        case .active(let count):
-            HStack(spacing: ChromeMetrics.RtButton.gap) {
-                RtBadge()
-                Text("\(count)")
-                    .font(ChromeType.rtButtonText)
-                    .foregroundStyle(theme.text)
-                    .fixedSize()
-            }
-            .padding(.horizontal, ChromeMetrics.RtButton.horizontalPadding)
-            .frame(height: ChromeMetrics.RtButton.activeHeight)
-            .background(RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius).fill(Color(theme.palette.selectionBg)))
-        }
-    }
-
-    private var runnerLabel: some View {
-        HStack(spacing: ChromeMetrics.RtButton.gap) {
-            Circle()
-                .fill(theme.green)
-                .frame(width: ChromeMetrics.RtButton.runnerDot, height: ChromeMetrics.RtButton.runnerDot)
-            Text("runner")
-                .font(ChromeType.rtButtonText)
-                .foregroundStyle(theme.text)
-                .fixedSize()
-        }
-        .padding(.horizontal, ChromeMetrics.RtButton.horizontalPadding)
-        .frame(height: ChromeMetrics.RtButton.activeHeight)
-        .background(RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius).fill(Color(theme.palette.selectionBg)))
-    }
-}
-
-struct RtBadge: View {
-    var body: some View {
-        Text("rt")
-            .font(ChromeType.rtBadge)
-            .foregroundStyle(RtBrand.pink)
-            .frame(width: ChromeMetrics.RtButton.badgeSize.width, height: ChromeMetrics.RtButton.badgeSize.height)
-            .background(RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.badgeCornerRadius).fill(RtBrand.plum))
-    }
-}
-
-/// A native menu, built fresh on every click from the coordinator's rows.
-@MainActor
-enum RtMenuBuilder {
-    static func menu(rows: [RtMenuRow], perform: @escaping (RtMenuRow.Action) -> Void) -> NSMenu {
-        let target = RtMenuTarget(perform: perform)
-        let menu = RtMenu(target: target)
-        for row in rows {
-            if row.startsSection { menu.addItem(.separator()) }
-            let item = NSMenuItem(title: row.title, action: #selector(RtMenuTarget.choose(_:)), keyEquivalent: "")
-            item.target = target
-            item.representedObject = row.action
-            menu.addItem(item)
-        }
-        return menu
-    }
-}
-
-/// Holds the target for as long as the menu lives: `NSMenuItem.target` is weak.
-private final class RtMenu: NSMenu {
-    let target: RtMenuTarget
-
-    init(target: RtMenuTarget) {
-        self.target = target
-        super.init(title: "")
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-}
-
-@MainActor
-private final class RtMenuTarget: NSObject {
-    let perform: (RtMenuRow.Action) -> Void
-
-    init(perform: @escaping (RtMenuRow.Action) -> Void) {
-        self.perform = perform
-    }
-
-    @objc func choose(_ sender: NSMenuItem) {
-        guard let action = sender.representedObject as? RtMenuRow.Action else { return }
-        perform(action)
-    }
+    ...
 }
 ```
 
-In `PaneCellView.statusChip`, right after the chat button line:
+- `.absent` draws nothing.
+- `.rest`: one button, the 27x17 `palette.surface0` square with the badge centred; it opens the popover.
+- `.active(count, runner)`: one pill (18 tall, `palette.selectionBg`, r4, pad 0/7, gap 5) holding two buttons with no gap of their own beyond the pill's: the badge half (the badge, then the count in `rtButtonCount` `palette.text` when `count > 0`) opens the popover; when `runner` is true, the runner half (a 1x10 `palette.overlay0` divider, then an 11pt `waveform.path.ecg` in `RtBrand.pink`) shows the runner. Each half's hit area covers its own part of the pill edge to edge (a `contentShape`), so the two halves never leave a dead strip between them.
+- Accessibility: identifiers `flock.pane.rtButton.<pane>` and `flock.pane.rtRunner.<pane>`; labels "rt", "rt, N running", and "Show runner".
+
+`RtPopover`:
+
+```swift
+struct RtPopover: View {
+    let theme: Theme
+    let folder: String
+    let commands: [RtCommandRow]
+    let runs: [RtRunRow]
+    let onCommand: (RtKind) -> Void
+    let onRun: (String) -> Void
+    /// Render tests only: the row drawn as hovered without a pointer.
+    var previewHoveredCommand: RtKind? = nil
+    ...
+}
+```
+
+It draws exactly the measurements' "The rt popover": the header (badge, spacer, folder chip), the command band (glyph, title, spacer, hint; the hovered row fills `palette.selectionBg` and its glyph turns `theme.accent`), and, only when `runs` is not empty, the RUNS label and the run rows (dot coloured by `RtRunRow.Tone`: `green` running, `red` exited, `overlay0` finished; a running row fills `palette.activeRowBg`). Fill `palette.panelBg`, a 1pt `palette.surface1` border, r10, clipped, like `ChatPopover`. Glyphs per row kind: nav `folder`, glitter `arrow.triangle.branch`, run `play`, runner `waveform.path.ecg`. The folder chip's glyph is `folder`. The folder shows the home folder as `~` (share the logic `RtItem.modalTitle(home:)` uses; lift it to a small `RtPaths.tilde(_:home:)` in FlockCore if that is the cleanest way to share it, with one test).
+
+`PopoverAppearancePin`: move `ChatPopoverAppearancePin` out of `ChatPopover.swift` unchanged apart from its name, into `Sources/Flock/Views/PopoverAppearancePin.swift`, make it internal, and use it from both popovers (`isDark: !ChromeRoles.isLight(panelBg: theme.palette.panelBg)`).
+
+In `PaneCellView.statusChip`, right after the chat button:
 
 ```swift
             if chatButtonAppearance != .absent { chatButton }
-            rtButtons
+            rtButton
 ```
 
-and add to `PaneCellView`:
+and add:
 
 ```swift
-    private var rtButtons: some View {
-        RtLegendButtons(
+    @State private var isRtPopoverPresented = false
+
+    private var rtButton: some View {
+        RtButton(
             theme: theme, paneID: pane.paneID,
             appearance: viewModel.rt.buttonAppearance(linkedTo: pane.terminalID, rtInstalled: RtAvailability.installed),
-            hasRunner: pane.terminalID.flatMap { viewModel.rt.runner(linkedTo: $0) } != nil,
-            onOpenMenu: { openRtMenu() },
+            onOpenPopover: { isRtPopoverPresented = true },
             onShowRunner: { showRunner() }
         )
+        .popover(isPresented: $isRtPopoverPresented, arrowEdge: .bottom) { rtPopover }
+    }
+
+    @ViewBuilder
+    private var rtPopover: some View {
+        if let terminal = pane.terminalID {
+            RtPopover(
+                theme: theme, folder: <the pane's cwd with home as ~>,
+                commands: viewModel.rt.commandRows(linkedTo: terminal),
+                runs: viewModel.rt.runRows(linkedTo: terminal),
+                onCommand: { kind in openRt(kind) },
+                onRun: { id in showRtItem(id) }
+            )
+        }
     }
 
     /// The pane is read again at the click, so the command opens at the
     /// folder the pane is in now, not the one it was in when this cell drew.
-    private func openRtMenu() {
-        guard let terminal = pane.terminalID else { return }
-        let menu = RtMenuBuilder.menu(rows: viewModel.rt.menuRows(linkedTo: terminal)) { [viewModel, pane] action in
-            let current = viewModel.fullModel?.panes[pane.paneID] ?? pane
-            Task { await viewModel.rt.perform(action, from: current) }
-        }
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    private func openRt(_ kind: RtKind) {
+        isRtPopoverPresented = false
+        let current = viewModel.fullModel?.panes[pane.paneID] ?? pane
+        Task { await viewModel.rt.open(kind, from: current) }
+    }
+
+    private func showRtItem(_ id: String) {
+        isRtPopoverPresented = false
+        Task { await viewModel.rt.show(id) }
     }
 
     private func showRunner() {
@@ -3823,14 +3907,16 @@ and add to `PaneCellView`:
     }
 ```
 
+The popover modifier sits on `RtButton` as a whole, never inside one of its branches, for the reason the chat button's comment gives: a flip between `.rest` and `.active` must not tear down and re-present it.
+
 - [ ] **Step 4: Run it to see it pass, then look**
 
-Run `RtLegendRenderTests` with `TEST_RUNNER_FLOCK_CHROME_RENDER_DIR=<dir>`. Expected: 2/2. Open every PNG it wrote next to `docs/design/rt/legend-rt-*.png` and compare them feature by feature (badge, square, pill, count, runner dot, spacing to chat). Any unexplained difference is a defect: fix it before committing. Then run the whole `FlockChromeRender` suite.
+Run `RtButtonRenderTests` with `TEST_RUNNER_FLOCK_CHROME_RENDER_DIR=<dir>`. Expected: pass. Open every PNG it wrote next to `docs/design/rt/legend-rt-*.png` and `rt-menu-*.png` and compare feature by feature (badge, square, pill, count, divider, glyph, spacing to chat; popover header, rows, hint, RUNS, dots). Any unexplained difference is a defect: fix it before committing. Then run the whole `FlockChromeRender` suite (the chat popover's tests must still pass after the pin moves) and the whole `FlockCoreTests`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A && Scripts/checks.sh && git commit -m "legend: rt and runner buttons right of chat, with the rt menu
+git add -A && Scripts/checks.sh && git commit -m "legend: an rt button right of chat, with a runner half and a popover
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -3839,102 +3925,25 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ### Task 13: The modal
 
+The approved values are in `docs/design/rt/measurements.md` ("The modal") and `modal-nav-*.png`, `modal-strips-*.png`, `modal-service-*.png`. Where this task and the measurements disagree, the measurements win.
+
 **Files:**
-- Create: `Sources/Flock/Rt/RtModalView.swift`, `Sources/Flock/Rt/RtModalCanvas.swift`, `Sources/Flock/Rt/RtModalKeyMonitor.swift`
+- Create: `Sources/Flock/Rt/RtModalView.swift` (overlay, box, title row, strip)
+- Create: `Sources/Flock/Rt/RtModalPane.swift` (the one pane on its ghostty surface)
+- Create: `Sources/Flock/Rt/RtModalKeyMonitor.swift`
 - Modify: `Sources/Flock/Theme/ChromeMetrics.swift`, `Sources/Flock/Theme/ChromeTypography.swift`
-- Modify: `Sources/Flock/Views/MainWindow.swift` (~line 32, the grid/rail branch)
-- Modify: `Sources/Flock/Views/PaneCanvas.swift:69`
-- Modify: `Sources/Flock/FlockApp.swift:~350` (the `FocusedPaneCommand` buttons)
+- Modify: `Sources/Flock/Views/MainWindow.swift` (the tab area's `VStack`)
+- Modify: `Sources/Flock/Views/PaneCanvas.swift` (`isFocused`)
+- Modify: `Sources/Flock/FlockApp.swift` (the `FocusedPaneCommand` and `PaneDirectionCommand` buttons)
 - Create: `Tests/FlockChromeRender/RtModalChromeRenderTests.swift`
 
 **Interfaces:**
-- Consumes: `viewModel.rt` (`modal`, `modalItem`, `closeModal`, `backToBoard`, `selectModalTab`), `viewModel.fullModel`, `viewModel.canvasFocusedPaneID`, `RtModalKey`, `RtStrip.text`, `RtItem.modalTitle(home:)`, `GhosttyPaneTerminalView`, `attachPane`/`detachPane`/`ghosttySurface(for:)`.
-- Produces: `RtModalView`, `RtModalTitleRow`, `RtModalTabStrip`, `RtModalStripView`, `RtModalCanvas`, `RtModalPane`, `RtModalKeyMonitor`.
+- Consumes: `viewModel.rt` (`modal`, `modalItem`, `closeModal`, `backToBoard`), `viewModel.fullModel`, `viewModel.canvasFocusedPaneID`, `RtModalKey`, `RtStrip.text`, `RtItem.modalTitle(home:)`, `GhosttyPaneTerminalView`, `attachPane`/`detachPane`/`ghosttySurface(for:)`, `ChromeRoles.isLight(panelBg:)`.
+- Produces: `RtModalView`, `RtModalTitleRow`, `RtModalStripView`, `RtModalPane`, `RtModalKeyMonitor`.
 
 - [ ] **Step 1: Write the failing render test**
 
-`Tests/FlockChromeRender/RtModalChromeRenderTests.swift`:
-
-```swift
-import AppKit
-import FlockCore
-import SwiftUI
-import XCTest
-
-/// The modal's chrome in both themes. The terminal inside is a ghostty surface
-/// and is covered by hand; these are the parts flock draws itself.
-@MainActor
-final class RtModalChromeRenderTests: XCTestCase {
-    /// Hosted in a real window and given a few layout passes, as
-    /// `PaneLauncherOverlayTests` does.
-    private func render<V: View>(_ view: V, size: CGSize, named name: String) async throws -> NSBitmapImageRep {
-        ChromeType.install()
-        let hosting = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = hosting
-        window.orderFront(nil)
-        defer { window.close() }
-        for _ in 0..<4 {
-            hosting.layoutSubtreeIfNeeded()
-            try? await Task.sleep(for: .milliseconds(30))
-        }
-        let scale: CGFloat = 2
-        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try XCTUnwrap(CGContext(
-            data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
-            bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ))
-        context.scaleBy(x: scale, y: scale)
-        hosting.displayIgnoringOpacity(hosting.bounds, in: NSGraphicsContext(cgContext: context, flipped: false))
-        let image = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
-        if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
-            try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("rt-modal-\(name).png"))
-        }
-        return image
-    }
-
-    /// Pixels that differ from the corner's: something was drawn.
-    private func inkedPixels(_ image: NSBitmapImageRep) -> Int {
-        guard let data = image.bitmapData else { return 0 }
-        let ground = (data[0], data[1], data[2])
-        var inked = 0
-        for y in 0..<image.pixelsHigh {
-            for x in 0..<image.pixelsWide {
-                let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
-                if (data[offset], data[offset + 1], data[offset + 2]) != ground { inked += 1 }
-            }
-        }
-        return inked
-    }
-
-    func testTheChromeDrawsInBothThemes() async throws {
-        for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
-            let title = try await render(
-                RtModalTitleRow(theme: theme, title: "nav · ~/src/acme", showsBackToRunner: true, onBack: {}, onClose: {}),
-                size: CGSize(width: 480, height: ChromeMetrics.RtModal.titleRowHeight), named: "title-\(theme.id)"
-            )
-            XCTAssertGreaterThan(inkedPixels(title), 200, "\(theme.id): title row drew nothing")
-
-            for (name, strip) in [("exited", RtStrip.exited(1)), ("finished", .finished(0))] {
-                let image = try await render(RtModalStripView(theme: theme, strip: strip), size: CGSize(width: 480, height: ChromeMetrics.RtModal.stripHeight), named: "\(name)-\(theme.id)")
-                XCTAssertGreaterThan(inkedPixels(image), 200, "\(theme.id): \(name) strip drew nothing")
-            }
-
-            let tabs = try await render(
-                RtModalTabStrip(
-                    theme: theme,
-                    tabs: [.init(id: TabID(rawValue: "wF:t1"), title: "pnpm run dev"), .init(id: TabID(rawValue: "wF:t2"), title: "pnpm run api")],
-                    selected: TabID(rawValue: "wF:t1"), onSelect: { _ in }
-                ),
-                size: CGSize(width: 480, height: ChromeMetrics.RtModal.tabStripHeight), named: "tabs-\(theme.id)"
-            )
-            XCTAssertGreaterThan(inkedPixels(tabs), 200, "\(theme.id): tab strip drew nothing")
-        }
-    }
-}
-```
+`Tests/FlockChromeRender/RtModalChromeRenderTests.swift`, both themes, hosted as in Task 12: `RtModalTitleRow` without and with "← runner" (assert something drew, and with the back control that `theme.accent` pixels appear), and `RtModalStripView` for `.exited(1)` (assert `palette.red` pixels) and `.finished(0)`. With `FLOCK_CHROME_RENDER_DIR` set, write `rt-modal-<part>-<theme>.png`.
 
 - [ ] **Step 2: Run it to see it fail**
 
@@ -3942,303 +3951,21 @@ Expected: compile failure on `RtModalTitleRow`.
 
 - [ ] **Step 3: Implement**
 
-Add to `ChromeMetrics` (starting values; replace with `docs/design/rt/measurements.md`):
+`ChromeMetrics.RtModal`, from the measurements: size fraction 0.8; corner radius 8; backdrop 0.45 in a dark theme and 0.30 in a light one; shadow black at 0.35, radius 12, y 8; title row 28 tall, pad 0/12, gap 8; the back divider 1x12; the close glyph 12; strip 26 tall, pad 0/12; the pane inset 6. `ChromeType`: `rtModalTitle = inter(11.5, .semibold)`, `rtModalBack = inter(11, .medium)`, `rtModalStrip = inter(11, .medium)`.
+
+**Placement.** The overlay covers the tab area only: in `MainWindow`, attach it to the `VStack` holding `TabStrip` and `PaneCanvas` (never the `HStack` with the rail, never the title bar or banners), so the sidebar stays clear and undimmed:
 
 ```swift
-    enum RtModal {
-        static let sizeFraction: CGFloat = 0.8
-        static let cornerRadius: CGFloat = 8
-        static let backdropOpacity: Double = 0.45
-        static let titleRowHeight: CGFloat = 28
-        static let horizontalPadding: CGFloat = 12
-        static let stripHeight: CGFloat = 26
-        static let tabStripHeight: CGFloat = 24
-        static let tabSpacing: CGFloat = 4
-        static let tabHorizontalPadding: CGFloat = 10
-        static let canvasPadding: CGFloat = 6
-        static let shadowRadius: CGFloat = 24
-        static let shadowY: CGFloat = 8
-    }
-```
-
-Add to `ChromeType`:
-
-```swift
-    static let rtModalTitle = inter(11.5, .semibold)
-    static let rtModalText = inter(11)
-```
-
-`Sources/Flock/Rt/RtModalView.swift`:
-
-```swift
-import AppKit
-import FlockCore
-import SwiftUI
-
-/// The off-canvas terminal: one rt item's tab, over the whole window below the
-/// title bar with the rest dimmed. Drawn inside the window rather than as a
-/// panel of its own, so the main window keeps key.
-struct RtModalView: View {
-    let theme: Theme
-    let viewModel: SessionViewModel
-
-    var body: some View {
-        if let modal = viewModel.rt.modal, let item = viewModel.rt.modalItem {
-            GeometryReader { proxy in
-                ZStack {
-                    Color.black.opacity(ChromeMetrics.RtModal.backdropOpacity)
-                        .contentShape(Rectangle())
-                        .onTapGesture { Task { await viewModel.rt.closeModal() } }
-                    box(modal: modal, item: item)
-                        .frame(
-                            width: proxy.size.width * ChromeMetrics.RtModal.sizeFraction,
-                            height: proxy.size.height * ChromeMetrics.RtModal.sizeFraction
-                        )
-                }
-            }
-            .background(RtModalKeyMonitor(stripShown: item.strip != nil) { Task { await viewModel.rt.closeModal() } })
-            .accessibilityIdentifier("flock.rt.modal")
-        }
-    }
-
-    private func box(modal: RtModal, item: RtItem) -> some View {
-        VStack(spacing: 0) {
-            RtModalTitleRow(
-                theme: theme, title: item.modalTitle(home: NSHomeDirectory()),
-                showsBackToRunner: modal.serviceTabID != nil,
-                onBack: { Task { await viewModel.rt.backToBoard() } },
-                onClose: { Task { await viewModel.rt.closeModal() } }
-            )
-            if modal.serviceTabID == nil, item.tabIDs.count > 1 {
-                RtModalTabStrip(theme: theme, tabs: tabs(of: item), selected: modal.tabID) { viewModel.rt.selectModalTab($0) }
-            }
-            RtModalCanvas(
-                theme: theme, viewModel: viewModel, tabID: modal.shownTabID, fallbackPane: item.firstPaneID,
-                takesKeyboard: item.strip == nil
-            )
-            .padding(ChromeMetrics.RtModal.canvasPadding)
-            if let strip = item.strip {
-                RtModalStripView(theme: theme, strip: strip)
-            }
-        }
-        .background(theme.pane)
-        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.RtModal.cornerRadius))
-        .overlay(RoundedRectangle(cornerRadius: ChromeMetrics.RtModal.cornerRadius).strokeBorder(theme.paneBorder, lineWidth: 1))
-        .shadow(color: .black.opacity(0.35), radius: ChromeMetrics.RtModal.shadowRadius, y: ChromeMetrics.RtModal.shadowY)
-    }
-
-    private func tabs(of item: RtItem) -> [RtModalTabStrip.Tab] {
-        item.tabIDs.enumerated().map { index, tab in
-            let pane = viewModel.fullModel?.panes.values.first { $0.tabID == tab }
-            return RtModalTabStrip.Tab(id: tab, title: pane?.terminalTitleStripped ?? "tab \(index + 1)")
-        }
-    }
-}
-
-struct RtModalTitleRow: View {
-    let theme: Theme
-    let title: String
-    let showsBackToRunner: Bool
-    let onBack: () -> Void
-    let onClose: () -> Void
-
-    var body: some View {
-        HStack(spacing: ChromeMetrics.RtModal.tabSpacing) {
-            if showsBackToRunner {
-                Button(action: onBack) {
-                    Text("← runner")
-                        .font(ChromeType.rtModalText)
-                        .foregroundStyle(theme.accent)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("flock.rt.modal.backToRunner")
-            }
-            Text(title)
-                .font(ChromeType.rtModalTitle)
-                .foregroundStyle(theme.textStrong)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(ChromeType.rtModalText)
-                    .foregroundStyle(theme.textDim)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-            .accessibilityIdentifier("flock.rt.modal.close")
-        }
-        .padding(.horizontal, ChromeMetrics.RtModal.horizontalPadding)
-        .frame(height: ChromeMetrics.RtModal.titleRowHeight)
-        .background(theme.chrome)
-    }
-}
-
-struct RtModalTabStrip: View {
-    struct Tab: Identifiable, Equatable {
-        let id: TabID
-        let title: String
-    }
-
-    let theme: Theme
-    let tabs: [Tab]
-    let selected: TabID
-    let onSelect: (TabID) -> Void
-
-    var body: some View {
-        HStack(spacing: ChromeMetrics.RtModal.tabSpacing) {
-            ForEach(tabs) { tab in
-                Button { onSelect(tab.id) } label: {
-                    Text(tab.title)
-                        .font(ChromeType.rtModalText)
-                        .foregroundStyle(tab.id == selected ? theme.textStrong : theme.textDim)
-                        .lineLimit(1)
-                        .padding(.horizontal, ChromeMetrics.RtModal.tabHorizontalPadding)
-                        .frame(maxHeight: .infinity)
-                        .background(tab.id == selected ? theme.selection : Color.clear)
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, ChromeMetrics.RtModal.horizontalPadding)
-        .frame(height: ChromeMetrics.RtModal.tabStripHeight)
-        .background(theme.tabStripFill)
-    }
-}
-
-struct RtModalStripView: View {
-    let theme: Theme
-    let strip: RtStrip
-
-    var body: some View {
-        Text(strip.text)
-            .font(ChromeType.rtModalText)
-            .foregroundStyle(isExited ? theme.red : theme.textStrong)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, ChromeMetrics.RtModal.horizontalPadding)
-            .frame(height: ChromeMetrics.RtModal.stripHeight)
-            .background(theme.chrome)
-            .accessibilityIdentifier("flock.rt.modal.strip")
-    }
-
-    private var isExited: Bool {
-        if case .exited = strip { return true }
-        return false
-    }
-}
-```
-
-`Sources/Flock/Rt/RtModalCanvas.swift`:
-
-```swift
-import FlockCore
-import SwiftUI
-
-/// A hidden tab's panes, laid out as herdr has them, on their ghostty
-/// surfaces. The canvas's drag and divider machinery does not apply here: a
-/// hidden tab is shown, not rearranged.
-struct RtModalCanvas: View {
-    let theme: Theme
-    let viewModel: SessionViewModel
-    let tabID: TabID
-    /// Shown alone until herdr's layout for a just-created tab arrives.
-    let fallbackPane: PaneID
-    /// False while a strip is up: the strip takes the keys then.
-    let takesKeyboard: Bool
-
-    @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
-    @Environment(\.displayScale) private var displayScale
-    @State private var focusedPane: PaneID?
-
-    var body: some View {
-        GeometryReader { proxy in
-            let scale = displayScale > 0 ? displayScale : 2
-            let cell = TerminalCellMetrics.cell(fontSize: terminalTextSizeStore.points, scale: scale)
-            let grid = CanvasGrid(canvas: proxy.size, phase: proxy.frame(in: .global).origin, displayScale: scale)
-            let layout = viewModel.fullModel?.layouts[tabID]
-            let frames = paneFrames(layout: layout, grid: grid, size: proxy.size)
-            let keyboardPane = focusedPane.flatMap { frames[$0] != nil ? $0 : nil } ?? layout?.panes.first?.paneID ?? fallbackPane
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(frames.keys).sorted { $0.rawValue < $1.rawValue }, id: \.self) { paneID in
-                    if let frame = frames[paneID] {
-                        let box = PaneBox.frame(in: frame, dividerThickness: DividerBand.gutter)
-                        let fit = SurfaceGrid.fit(inner: box.size, cell: cell)
-                        RtModalPane(
-                            theme: theme, viewModel: viewModel, paneID: paneID,
-                            grid: PTYSize(cols: fit.cols, rows: fit.rows), surfaceSize: fit.size,
-                            fontSizePoints: terminalTextSizeStore.points,
-                            isFocused: takesKeyboard && paneID == keyboardPane,
-                            onFocus: { focusedPane = paneID }
-                        )
-                        .frame(width: box.width, height: box.height, alignment: .topLeading)
-                        .offset(x: box.minX, y: box.minY)
+                    VStack(spacing: 0) {
+                        TabStrip(...)
+                        PaneCanvas(...)
                     }
-                }
-            }
-        }
-    }
-
-    private func paneFrames(layout: LayoutSnapshot?, grid: CanvasGrid, size: CGSize) -> [PaneID: CGRect] {
-        guard let layout else { return [fallbackPane: CGRect(origin: .zero, size: size)] }
-        return CanvasGeometry.resolved(
-            layout: layout, exported: viewModel.exportedLayout(for: layout.tabID), grid: grid,
-            dividerThickness: DividerBand.gutter, liveRatioOverride: nil, composition: CanvasComposition.of(layout: layout)
-        ).paneFrames
-    }
-}
-
-/// One hidden pane on its ghostty surface. It attaches and parks like a
-/// canvas cell, through the view model's per-pane chain.
-struct RtModalPane: View {
-    let theme: Theme
-    let viewModel: SessionViewModel
-    let paneID: PaneID
-    let grid: PTYSize
-    let surfaceSize: CGSize
-    let fontSizePoints: Double
-    let isFocused: Bool
-    let onFocus: () -> Void
-
-    @Environment(OptionAsAltStore.self) private var optionAsAltStore
-    @State private var surface: (any GhosttyPaneSurface)?
-
-    init(
-        theme: Theme, viewModel: SessionViewModel, paneID: PaneID, grid: PTYSize, surfaceSize: CGSize,
-        fontSizePoints: Double, isFocused: Bool, onFocus: @escaping () -> Void
-    ) {
-        self.theme = theme
-        self.viewModel = viewModel
-        self.paneID = paneID
-        self.grid = grid
-        self.surfaceSize = surfaceSize
-        self.fontSizePoints = fontSizePoints
-        self.isFocused = isFocused
-        self.onFocus = onFocus
-        _surface = State(initialValue: viewModel.ghosttySurface(for: paneID))
-    }
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            theme.terminalGround
-            if let surface {
-                GhosttyPaneTerminalView(
-                    surface: surface, grid: grid, theme: theme, isFocused: isFocused,
-                    fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
-                    rearrangeActive: false, paneDragInProgress: false, isPristineLauncherPane: false,
-                    editorIsOpen: false, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
-                )
-                .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)
-                .opacity(surface.hasFirstFrame ? 1 : 0)
-            }
-        }
-        .task(id: paneID) { surface = await viewModel.attachPane(paneID) }
-        .onDisappear { Task { await viewModel.detachPane(paneID) } }
-    }
-}
+                    .overlay { RtModalView(theme: theme, viewModel: viewModel) }
 ```
 
-`Sources/Flock/Rt/RtModalKeyMonitor.swift`:
+The modal opens from a pane's rt button, which the All Workspaces grid does not show, so the grid branch gets no overlay.
+
+**`RtModalView`:** when `viewModel.rt.modal` and `modalItem` are set, a `GeometryReader` over the tab area: the backdrop (black at the theme's opacity, `ChromeRoles.isLight(panelBg:)` choosing which) that closes the modal on a tap, and centred on it the box at 0.8 of the area on each axis. The box is a `VStack(spacing: 0)`: `RtModalTitleRow`, then the pane (`RtModalPane`, inset 6), then `RtModalStripView` when the item has a strip. Box fill `theme.pane`, 1pt `theme.paneBorder`, r8, clipped, the shadow. `RtModalKeyMonitor` sits in its background (⌘W closes; any plain key closes while a strip is up; other ⌘ keys pass). `Sources/Flock/Rt/RtModalKeyMonitor.swift`:
 
 ```swift
 import AppKit
@@ -4293,28 +4020,73 @@ struct RtModalKeyMonitor: NSViewRepresentable {
 }
 ```
 
-In `MainWindow.body`, wrap the grid/rail branch so the modal overlays everything below the title bar and banners:
+**`RtModalTitleRow(theme:title:showsBackToRunner:onBack:onClose:)`:** 28 tall, fill `theme.chrome`, pad 0/12, gap 8. With `showsBackToRunner`, it leads with a "← runner" button (`rtModalBack`, `theme.accent`) and a 1x12 `theme.rule` divider; then the title (`rtModalTitle`, `theme.textStrong`, one line, middle truncation), a spacer, and the close button (`xmark` at 12 in `theme.textDim`). Identifiers: `flock.rt.modal.backToRunner`, `flock.rt.modal.close`.
+
+**`RtModalStripView(theme:strip:)`:** 26 tall, fill `theme.chrome`, a 1pt `theme.rule` line along its top edge, pad 0/12, `strip.text` in `rtModalStrip`, `palette.red` for `.exited`, `theme.textStrong` for `.finished`. Identifier `flock.rt.modal.strip`.
+
+**The pane.** Every hidden rt tab holds one pane, so the modal shows one surface, with no tab strip and no split layout. The pane is the shown tab's: `viewModel.fullModel?.panes.values.first { $0.tabID == modal.shownTabID }?.paneID`, falling back to `item.firstPaneID` until the model has the tab. `RtModalPane` hosts it on its ghostty surface, sized by `SurfaceGrid.fit` to the cell metrics of `TerminalTextSizeStore` for the space it has, with `isFocused` true unless a strip is up. `Sources/Flock/Rt/RtModalPane.swift` (its caller computes `grid` and `surfaceSize` from a `GeometryReader` the way `PaneCanvas` does for a cell, with `PaneBox.frame` and `SurfaceGrid.fit`):
 
 ```swift
-            ZStack {
-                if dragCoordinator.isGridShown {
-                    ...unchanged...
-                } else {
-                    ...unchanged...
-                }
+import FlockCore
+import SwiftUI
+
+/// One hidden pane on its ghostty surface. It attaches and parks like a
+/// canvas cell, through the view model's per-pane chain.
+struct RtModalPane: View {
+    let theme: Theme
+    let viewModel: SessionViewModel
+    let paneID: PaneID
+    let grid: PTYSize
+    let surfaceSize: CGSize
+    let fontSizePoints: Double
+    let isFocused: Bool
+    let onFocus: () -> Void
+
+    @Environment(OptionAsAltStore.self) private var optionAsAltStore
+    @State private var surface: (any GhosttyPaneSurface)?
+
+    init(
+        theme: Theme, viewModel: SessionViewModel, paneID: PaneID, grid: PTYSize, surfaceSize: CGSize,
+        fontSizePoints: Double, isFocused: Bool, onFocus: @escaping () -> Void
+    ) {
+        self.theme = theme
+        self.viewModel = viewModel
+        self.paneID = paneID
+        self.grid = grid
+        self.surfaceSize = surfaceSize
+        self.fontSizePoints = fontSizePoints
+        self.isFocused = isFocused
+        self.onFocus = onFocus
+        _surface = State(initialValue: viewModel.ghosttySurface(for: paneID))
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            theme.terminalGround
+            if let surface {
+                GhosttyPaneTerminalView(
+                    surface: surface, grid: grid, theme: theme, isFocused: isFocused,
+                    fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
+                    rearrangeActive: false, paneDragInProgress: false, isPristineLauncherPane: false,
+                    editorIsOpen: false, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
+                )
+                .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)
+                .opacity(surface.hasFirstFrame ? 1 : 0)
             }
-            .overlay { RtModalView(theme: theme, viewModel: viewModel) }
+        }
+        .task(id: paneID) { surface = await viewModel.attachPane(paneID) }
+        .onDisappear { Task { await viewModel.detachPane(paneID) } }
+    }
+}
 ```
 
-In `PaneCanvas`, the cell's focus reads the canvas's own answer:
+**Canvas focus and commands.** In `PaneCanvas`, the cell's focus reads the canvas's own answer:
 
 ```swift
                                 isFocused: pane.paneID == viewModel.canvasFocusedPaneID,
 ```
 
-and update the comment above it to say the modal withholds canvas focus while it is up (keep the existing reasons for not reading `layout.focusedPaneID` or `model.focusedPaneID`).
-
-In `FlockApp`, the `FocusedPaneCommand` buttons (Split Right, Split Down, Close Pane) aim at the canvas's pane, so ⌘⇧X under the modal cannot close the linked pane and everything linked to it:
+and the comment above it says the modal withholds canvas focus while it is up (keep the existing reasons for not reading `layout.focusedPaneID` or `model.focusedPaneID`). In `FlockApp`, the `FocusedPaneCommand` buttons (Split Right, Split Down, Close Pane) aim at the canvas's pane, so ⌘⇧X under the modal cannot close the linked pane and everything linked to it:
 
 ```swift
                     Button(command.title) {
@@ -4325,18 +4097,18 @@ In `FlockApp`, the `FocusedPaneCommand` buttons (Split Right, Split Down, Close 
                     .disabled(viewModel.canvasFocusedPaneID == nil)
 ```
 
-The `PaneDirectionCommand` buttons (move and swap the focused pane) act on herdr's focused pane through `moveFocusedPane`/`swapFocusedPane`, which the modal does not hold, so they are disabled while it is up: append `|| viewModel.rt.modal != nil` to their `.disabled(...)` condition.
+The `PaneDirectionCommand` buttons (move and swap the focused pane) act on herdr's focused pane, which the modal does not hold, so append `|| viewModel.rt.modal != nil` to their `.disabled(...)` condition.
 
 - [ ] **Step 4: Run it to see it pass, then look**
 
-Run `RtModalChromeRenderTests` with `TEST_RUNNER_FLOCK_CHROME_RENDER_DIR=<dir>`. Expected: 1/1. Compare each PNG with `docs/design/rt/modal-*.png` feature by feature; fix any unexplained difference. Then run the whole `FlockChromeRender` suite and the whole `FlockCoreTests`.
+Run `RtModalChromeRenderTests` with `TEST_RUNNER_FLOCK_CHROME_RENDER_DIR=<dir>`. Expected: pass. Compare each PNG with `docs/design/rt/modal-*.png` feature by feature; fix any unexplained difference. Then the whole `FlockChromeRender` and `FlockCoreTests`.
 
-The spec lists a multi-pane tab among the render tests. The panes inside the modal are live ghostty surfaces, which the chrome render suite does not host, so that case is verified by hand (Task 14, item 6) and the tab strip it adds is rendered here.
+The modal's placement over the tab area and its terminal are live views the render suite does not host; they are verified by hand (Task 14).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A && Scripts/checks.sh && git commit -m "rt: the modal hosts a hidden tab over the window, with its strips and keys
+git add -A && Scripts/checks.sh && git commit -m "rt: the modal hosts a hidden pane over the tab area, with its strips and keys
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -4358,18 +4130,19 @@ Scripts/dev-build.sh --output /Users/matt/Documents/GitHub/flock/build/dev
 Tell Matt to click the "New build · Restart" pill in Flock Dev. Never quit or launch his apps yourself.
 
 - [ ] **Step 3: Hand-test list for Matt** (clicks and focus count as verified only by his hand):
-  1. The rt button sits right of chat on every pane; rest looks quiet, active shows a count.
-  2. rt menu, nav: the modal opens at the pane's folder; opening a file works; Esc quits and the modal closes.
+  1. The rt button sits right of chat on every pane; rest looks quiet, active shows the running rt run items' count, and a live runner adds the pulse half.
+  2. rt popover, Browse files (nav): the modal opens at the pane's folder; opening a file works; Esc quits and the modal closes.
   3. nav, "cd here" on a shell pane: the pane cds. On a claude pane: a split opens at the folder.
   4. glitter: opens, quits, modal closes. In a folder that is not a repo: exited strip with rt's message; any key closes.
-  5. run: pick a test script; it runs in the modal; the finished strip shows the exit code. Pick a dev server; ⌘W; the rt button counts 1; the menu lists it as running; reopening shows it live.
-  6. run, "Launch all" with two scripts: both show in the modal.
+  5. run: pick a test script; it runs in the modal; the finished strip shows the exit code. Pick a dev server; ⌘W; the rt button counts 1; the popover lists it under RUNS as running; clicking it shows it live.
+  6. run, "Launch all" with two queued scripts: a runner board seeded with both opens in the modal (needs rt with queued launches opening a board).
   6b. run, a saved preset: its board shows in the modal; ⌘W keeps it running and counted; closing the linked pane stops it.
-  7. runner: the board opens; ⌘W hides it; the runner button appears; `f` on a service opens its terminal with `← runner`; back returns to the board.
+  7. runner: the board opens; ⌘W hides it; the rt button gains its pulse half; clicking the pulse shows the runner; `f` on a service opens its terminal with `← runner`; back returns to the board.
   8. Close the pane that owns a runner: the runner and its services stop (check with `rt runner` state or the process list), no prompt.
   9. Restart Flock Dev with a runner and a run item going: both come back on the same pane.
   10. Drag a pane with a runner to another workspace: the runner stays linked.
   11. Click outside the modal: it closes by the same rules as ⌘W.
+  12. The modal covers the tab strip and panes only: the sidebar stays clear and undimmed, and clicking a workspace in it still works.
 
 - [ ] **Step 4: Fold feedback in.** Each fix is its own red-green-commit cycle, then rerun the gates and `dev-build.sh`.
 

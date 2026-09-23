@@ -32,11 +32,11 @@ opens rather than things a pane becomes.
   its layout.
 - **rt inside herdr.**
   - `rt run --resolve-only` prints a `RunResolveResult` (`targetDir`,
-    `commandTemplate`, labels) on stdout, its picker on the terminal. Two rows
-    launch things themselves instead: "Launch all" (in herdr, it runs the first
-    queued script in its own pane and places the rest beside it, as splits, or
-    as new tabs in the same workspace once the pane is under 100 by 28) and a
-    saved preset (it opens a seeded, tmux-backed runner board in its own pane).
+    `commandTemplate`, labels) on stdout, its picker on the terminal. Two kinds
+    of pick launch things themselves instead: a queue ("Launch all", or "Run
+    now" after saving a preset) and a saved preset. Both open a seeded,
+    tmux-backed runner board in rt's own pane, so a pick never adds panes or
+    tabs around it.
     A pick rt launched itself exits 0 with nothing on stdout; a cancelled pick
     and rt's own errors both exit 1.
   - `rt nav` prints the chosen folder on stdout when "cd here" is picked, and
@@ -58,7 +58,7 @@ opens rather than things a pane becomes.
 
 Every surface in this design renders only when `rt` resolves on flock's startup
 PATH (`ToolPath.resolved`), the same test as the `rt cd` button. With no rt:
-no rt button, no runner button, no menu. flock-owned workspaces already in
+no rt button, no popover. flock-owned workspaces already in
 herdr are still reconciled (below), since what they run does not depend on
 flock seeing rt.
 
@@ -139,7 +139,7 @@ when the tab closes.
 | `rt nav` | nav quits | Tab closes. If `FLOCK_RT_OUT` holds a folder, "cd here" was picked: see below. | Exited strip. |
 | `rt glitter` | glitter quits | Tab closes. | Exited strip. |
 | `rt run` | picking ends, then the script ends | See below. | See below. |
-| `rt runner --herdr` | the board quits | Its workspace closes; the runner button goes. | Exited strip (no daemon, say), then the workspace closes. |
+| `rt runner --herdr` | the board quits | Its workspace closes; the rt button's runner half goes. | Exited strip (no daemon, say), then the workspace closes. |
 
 **nav's "cd here":** when the linked pane is idle at a prompt, flock types
 `cd <path>` into it, shell-quoted. When it is busy (an agent running), flock
@@ -151,23 +151,17 @@ splits it with `cwd: <path>` instead and focuses the new pane.
    suffix) into the tab's first pane. Phase 1 ends when **that pane** is idle
    and `FLOCK_RT_STATUS` exists; other panes in the tab do not count. Then:
    - **A result in `FLOCK_RT_OUT`:** go to phase 2.
-   - **Status 0, no result:** the pick was "Launch all" or a preset, and rt
-     launched it itself. The item carries on as the rest of the lifecycle
-     describes: running while any pane in it is busy. The 3 s "never seen busy"
-     ceiling starts over here, since the first pane sits idle until the script
-     rt typed into it starts. Its finished strip shows no exit status: the file
-     holds rt's own 0, not the scripts'.
+   - **Status 0, no result:** the pick was a queue or a preset, and rt
+     launched it itself, on a runner board in the same pane. The item carries
+     on as the rest of the lifecycle describes: running while its pane is busy.
+     The 3 s "never seen busy" ceiling starts over here. Its finished strip
+     shows no exit status: the file holds rt's own 0, not the scripts'.
    - **Any other status, no result:** a cancel. The modal closes. rt exits 1
      for its own errors too ("No scripts found"), so in v1 those also close the
      modal without the message; see Out of scope.
 
-   A tab that appears in `flock:rt` without a flock label is one rt placed for
-   "Launch all", which it does while its picker process is still running. It
-   joins the rt run item still in phase 1: if several are, the one on screen,
-   else the one opened most recently. flock labels it with that item's terminal
-   and token, the modal shows the item's tabs behind a small tab strip, and it
-   is shut down and re-adopted with the item. With no item in phase 1, it is
-   shut down straight away.
+   Every hidden rt tab holds exactly one pane. A tab that appears in `flock:rt`
+   without a flock label is none of flock's, and is shut down straight away.
 2. flock types `cd <targetDir> && <commandTemplate>` (shell-quoted, with the
    status suffix) into the same pane, after deleting phase 1's status file. The
    script's end is the next idle. The modal shows a **finished** strip with the
@@ -182,8 +176,9 @@ read as finished.
   outside, the close control, or opening another modal) shuts it down: `ctrl+c`
   with `pane.send_keys`, then the tab closes. Nothing to come back to.
 - **rt run:** closing while anything in its tab is busy (the picker, the script,
-  a "Launch all" split, a preset's board) keeps the tab as one of the pane's
-  **rt run items**, counted on the rt button and listed in its menu. Clicking one
+  a runner board rt opened for a queue or a preset) keeps the tab as one of
+  the pane's **rt run items**, counted on the rt button and listed in its
+  popover. Clicking one
   reopens the modal on its tab, live. Closing a finished item's modal closes its
   tab.
 - **runner:** closing hides it. Nothing stops.
@@ -194,8 +189,8 @@ read as finished.
   `command rt runner --herdr` (with the status suffix), and opens the board in
   the modal. One runner per pane; once one exists, the menu item reads **Show
   runner**.
-- **Hiding:** ⌘W or a click outside. **Showing:** the runner button, or **Show
-  runner**.
+- **Hiding:** ⌘W or a click outside. **Showing:** the rt button's runner half,
+  or **Show runner**.
 - **Focus a service** (`f` in the board): the daemon creates an attach tab in
   the runner's workspace with `--focus`. flock declines to follow it, and the
   modal switches to that tab: the service's live terminal. The title row gains
@@ -229,7 +224,8 @@ the backstop, not the plan.
 At launch flock rebuilds its links from the labels:
 
 - **Runners** whose linked terminal still exists and whose board is still
-  running (no status file yet) are re-adopted: the runner button returns. A
+  running (no status file yet) are re-adopted: the rt button's runner half
+  returns. A
   runner whose board exited while flock was down is closed.
 - **rt run tabs** are re-adopted as items: running if any pane is busy,
   finished otherwise, their text read back from `FLOCK_RT_OUT` and the panes.
@@ -255,34 +251,29 @@ In each pane's title row, **right of the chat button**, the same size.
 
 - **At rest:** rt's badge (pink `rt` on plum) on the quiet square, like
   signed-out chat.
-- **Active:** the selection pill with the badge and a count, like signed-in chat
-  with unread. Active while the pane has a live runner or running rt run items;
-  the count is running rt run items, plus one for a live runner.
+- **Active:** the selection pill with the badge, like signed-in chat. Active
+  while the pane has running rt run items or a live runner. The count beside
+  the badge is running rt run items only.
+- **A live runner** is the pill's second half: a divider and rt's pulse glyph.
+  Clicking that half shows the runner; clicking the badge half opens the
+  popover. v1 says "a runner is alive", not per-service health: the services
+  live on the daemon's background herdr server, which flock does not connect
+  to.
 
-Clicking it opens a native menu:
-
-- **nav**: browse files here
-- **glitter**: git status
-- **run**: run a script…
-- **runner** / **Show runner**
-- a divider, then the pane's rt run items (`pnpm test · running`,
-  `pnpm build · finished`)
-
-### The runner button
-
-Right of the rt button, only while the pane has a runner, always in the active
-style. Clicking it shows the runner. v1 says "a runner is alive", not
-per-service health: the services live on the daemon's background herdr server,
-which flock does not connect to.
+Clicking the badge half opens a popover in the chat popover's language: a
+header with the badge and the pane's folder; four command rows, each with rt's
+own command as a hint (**Browse files** `rt nav`, **Git status** `rt glitter`,
+**Run a script…** `rt run`, **Start runner** or **Show runner** `rt runner`);
+then, when there are any, a RUNS section listing the pane's rt run items with
+their state (`running`, `finished · exit 0`, `exited 1`).
 
 ### The modal
 
 - An overlay inside the window, never a separate panel: a panel would take key
   window from the main one, which is why Herdglass draws its overlays inside the
-  window too. Centered over the whole canvas, about 80% of the window, backdrop
-  dimmed.
-- It shows one tab, laid out as herdr has it: usually a single pane, several
-  when rt split it, and a small tab strip when an rt run item spans tabs.
+  window too. It covers the tab area only (the tab strip and the panes, right
+  of the sidebar), is centered in it at about 80% of it, and dims it.
+- It shows one tab, which holds one pane.
 - A title row: the command and folder (`nav · ~/src/acme`), a close control, and
   **← runner** when showing a service.
 - One modal at a time. Opening another closes the current one by the rules in
@@ -291,7 +282,7 @@ which flock does not connect to.
   the linked pane.
 - Esc belongs to the terminal (nav and glitter quit on it). The modal closes on
   ⌘W, a click outside, the close control, or its command finishing.
-- Its panes are sized to the modal, the way canvas panes are sized.
+- Its pane is sized to the modal, the way canvas panes are sized.
 
 ## Errors
 
@@ -310,11 +301,10 @@ which flock does not connect to.
     written;
   - links keyed by terminal id surviving a pane move;
   - the lifecycle as a state machine per command (open, busy, idle, clean,
-    unclean, missing status file, the 3 s ceiling), including a multi-pane tab;
+    unclean, missing status file, the 3 s ceiling);
   - the typed line per shell (`$?` versus `$status`) and its quoting;
-  - rt run's phase 1 outcomes: a result, a self-launch ("Launch all", preset),
-    a cancel, a one-item "Launch all" whose script has not started yet, and an
-    unlabelled tab joining the item on screen;
+  - rt run's phase 1 outcomes: a result, a self-launch (a queue or a preset),
+    and a cancel;
   - nav's "cd here" decision over idle and busy;
   - closing early per command; the rt button's appearance and count;
   - focus-follow declining flock-owned workspaces;
@@ -328,10 +318,9 @@ which flock does not connect to.
   `pane.split`, `pane.send_input`, `pane.send_keys`, `pane.focus`,
   `pane.close`, `tab.close` and `workspace.close`. File reads go through an
   injected reader.
-- **Render tests**, dark and light: the rt button at rest and active, the runner
-  button, the modal with each strip, a multi-pane tab, the modal's tab strip for
-  an item that spans tabs, the service view's title row. Compared against the
-  canvas PNGs.
+- **Render tests**, dark and light: the rt button at rest, active, and with a
+  runner half, the popover, the modal with each strip, the service view's title
+  row. Compared against the canvas PNGs.
 - **By hand**, since clicks and focus count as verified only then: every row of
   the per-command table, "Launch all" and a preset from the rt run modal,
   closing a pane with a live runner, dragging a pane with a runner to another
@@ -344,10 +333,10 @@ which flock does not connect to.
   other pickers do; flock's clean-exit rule already treats 130 as a cancel.
 - **Keyboard shortcuts** for the menu items. Added once it is clear which ones
   get used.
-- **Per-service health** on the runner button.
+- **Per-service health** on the rt button's runner half.
 - **rt changes.** Everything here uses rt as it ships.
 - **The tmux backend** for flock's runners. flock always passes `--herdr`. (A
   preset picked in the rt run modal still opens rt's own tmux-backed board in
   that tab; it is an rt run item like any other.)
 - **A docked runner panel.** The runner is a modal like everything else; its
-  status lives on its button.
+  status lives on the rt button.
