@@ -8,9 +8,9 @@ import XCTest
 /// The previous full-pane version was asserted the other way round: that no
 /// pixel of the content behind it survived. A badge is the opposite promise --
 /// it covers almost nothing, stays in its corner, and leaves the rest of the
-/// pane alone. The trail's own loop is verified by eye and by
-/// `PaneLoaderChoreographyTests`, never by asserting a frame of a running
-/// animation here.
+/// pane alone. The run itself is asserted at frozen instants
+/// (`frozenElapsed`), never by sampling a running animation;
+/// `PaneLoaderStrideTests` owns its path.
 @MainActor
 final class PaneLoaderViewTests: XCTestCase {
     /// Stands in for the pane ground the badge is drawn on. A colour nothing
@@ -22,18 +22,24 @@ final class PaneLoaderViewTests: XCTestCase {
     private struct Probe: View {
         let theme: Theme
         let paneSize: CGSize
+        var frozenElapsed: Double?
+        var onThemeGround = false
 
         var body: some View {
             ZStack {
-                PaneLoaderViewTests.groundColor
-                PaneLoaderView(theme: theme, reducedMotionOverride: true)
+                onThemeGround ? theme.pane : PaneLoaderViewTests.groundColor
+                PaneLoaderView(theme: theme, reducedMotionOverride: frozenElapsed == nil, frozenElapsed: frozenElapsed)
             }
             .frame(width: paneSize.width, height: paneSize.height)
         }
     }
 
-    private func hostProbe(theme: Theme, paneSize: CGSize) async -> NSWindow {
-        let hosting = NSHostingView(rootView: Probe(theme: theme, paneSize: paneSize))
+    private func hostProbe(
+        theme: Theme, paneSize: CGSize, frozenElapsed: Double? = nil, onThemeGround: Bool = false
+    ) async -> NSWindow {
+        let hosting = NSHostingView(rootView: Probe(
+            theme: theme, paneSize: paneSize, frozenElapsed: frozenElapsed, onThemeGround: onThemeGround
+        ))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: paneSize),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
@@ -71,8 +77,12 @@ final class PaneLoaderViewTests: XCTestCase {
         return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
     }
 
-    private func render(theme: Theme, paneSize: CGSize, name: String) async throws -> NSBitmapImageRep {
-        let window = await hostProbe(theme: theme, paneSize: paneSize)
+    private func render(
+        theme: Theme, paneSize: CGSize, name: String, frozenElapsed: Double? = nil, onThemeGround: Bool = false
+    ) async throws -> NSBitmapImageRep {
+        let window = await hostProbe(
+            theme: theme, paneSize: paneSize, frozenElapsed: frozenElapsed, onThemeGround: onThemeGround
+        )
         defer { window.close() }
         // The badge fades in from zero opacity; it has to actually be visible
         // before any pixel assertion means anything.
@@ -156,5 +166,35 @@ final class PaneLoaderViewTests: XCTestCase {
 
         let region = try XCTUnwrap(paintedRegion(image))
         XCTAssertLessThan(region.coverage, 0.02)
+    }
+
+    /// The run starts where the resting badge sits, stays on the bottom edge,
+    /// and heads left, the way the ram faces.
+    func testTheRunHugsTheBottomAndHeadsLeft() async throws {
+        let paneSize = CGSize(width: 520, height: 360)
+        let first = try await render(theme: .tokyoNight, paneSize: paneSize, name: "run-start", frozenElapsed: 0)
+        let later = try await render(theme: .tokyoNight, paneSize: paneSize, name: "run-later", frozenElapsed: 1.5)
+
+        let start = try XCTUnwrap(paintedRegion(first), "the run painted nothing at its start")
+        let moved = try XCTUnwrap(paintedRegion(later), "the run painted nothing 1.5s in")
+        XCTAssertGreaterThan(Double(start.box.minX), Double(first.pixelsWide) / 2, "the run did not start in the right half")
+        XCTAssertLessThan(moved.box.minX, start.box.minX, "the run did not head left")
+        for region in [start, moved] {
+            XCTAssertGreaterThan(Double(region.box.minY), Double(first.pixelsHigh) * 0.75, "the run left the bottom edge")
+        }
+    }
+
+    /// Frames on each theme's real pane ground, for looking at. The leader's
+    /// peak is half a hop in; 0.8s is partway across.
+    func testTheRunOnRealGroundsForReview() async throws {
+        let paneSize = CGSize(width: 520, height: 200)
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            for elapsed in [0, PaneLoaderStride.hopDuration / 2, 0.8] {
+                _ = try await render(
+                    theme: theme, paneSize: paneSize, name: "run-\(scheme)-\(Int(elapsed * 1000))ms",
+                    frozenElapsed: elapsed, onThemeGround: true
+                )
+            }
+        }
     }
 }
