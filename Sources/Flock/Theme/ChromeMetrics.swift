@@ -26,6 +26,12 @@ enum ChromeMetrics {
         /// The design sets the title 1.5pt below the bar's center; the inset
         /// is twice that because the frame centers the padded label.
         static let titleTopInset: CGFloat = 3
+        static let devTagSpacing: CGFloat = 6
+        static let devTagHorizontalPadding: CGFloat = 5
+        static let devTagVerticalPadding: CGFloat = 1.5
+        static let restartGlyphSpacing: CGFloat = 4
+        static let restartHorizontalPadding: CGFloat = 8
+        static let restartVerticalPadding: CGFloat = 2.5
     }
 
     enum Banner {

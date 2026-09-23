@@ -11,12 +11,16 @@ struct MainWindow: View {
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
+    var isDevBuild = BuildFlavor.isDev
 
     private var theme: Theme { themeStore.active }
 
     var body: some View {
         VStack(spacing: 0) {
-            TitleBar(theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState)
+            TitleBar(
+                theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
+                isDevBuild: isDevBuild
+            )
             if let banner = viewModel.unsupportedBanner {
                 UnsupportedBanner(theme: theme, mismatch: banner)
             }
@@ -163,17 +167,36 @@ private struct TitleBar: View {
     let theme: Theme
     let sessionLabel: String
     let connectionState: ConnectionState
+    let isDevBuild: Bool
+
+    /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
+    @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
 
     var body: some View {
-        Text("flock")
-            .font(ChromeType.windowTitle)
-            .foregroundStyle(theme.textStrong)
-            .padding(.top, ChromeMetrics.TitleBar.titleTopInset)
-            .frame(maxWidth: .infinity)
-            .frame(height: ChromeMetrics.TitleBar.height)
-            .overlay(alignment: .trailing) { connectionNotice }
-            .overlay { TitleBarMouseArea() }
-            .background(theme.chrome)
+        HStack(spacing: ChromeMetrics.TitleBar.devTagSpacing) {
+            Text("flock")
+                .font(ChromeType.windowTitle)
+                .foregroundStyle(theme.textStrong)
+            if isDevBuild {
+                DevTag(theme: theme)
+            }
+        }
+        .padding(.top, ChromeMetrics.TitleBar.titleTopInset)
+        .frame(maxWidth: .infinity)
+        .frame(height: ChromeMetrics.TitleBar.height)
+        .overlay { TitleBarMouseArea() }
+        // Over the mouse area, which would otherwise take the restart click
+        // for a title-bar drag.
+        .overlay(alignment: .trailing) {
+            HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
+                if let devBuild, devBuild.newerBuildReady {
+                    RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
+                }
+                connectionNotice
+            }
+            .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
+        }
+        .background(theme.chrome)
     }
 
     /// Only while the session is not live, so a connected window's bar carries
@@ -187,7 +210,6 @@ private struct TitleBar: View {
                     .font(ChromeType.connectionNotice)
                     .foregroundStyle(theme.textLabel)
             }
-            .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
         }
     }
 
@@ -197,6 +219,47 @@ private struct TitleBar: View {
         case .connecting, .reconnecting: theme.yellow
         case .unsupported: theme.red
         }
+    }
+}
+
+/// Flock Dev's mark beside the title, in the same amber as the band on its
+/// icon, so a glance at the window says which build it is.
+private struct DevTag: View {
+    let theme: Theme
+
+    var body: some View {
+        Text("DEV")
+            .font(ChromeType.devTag)
+            .tracking(ChromeType.devTagTracking)
+            .foregroundStyle(theme.chrome)
+            .padding(.horizontal, ChromeMetrics.TitleBar.devTagHorizontalPadding)
+            .padding(.vertical, ChromeMetrics.TitleBar.devTagVerticalPadding)
+            .background(theme.yellow, in: Capsule())
+            .accessibilityIdentifier("flock.titleBar.devTag")
+    }
+}
+
+private struct RestartForNewBuildButton: View {
+    let theme: Theme
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: ChromeMetrics.TitleBar.restartGlyphSpacing) {
+                Image(systemName: "arrow.clockwise")
+                    .font(ChromeType.restartGlyph)
+                Text("New build · Restart")
+                    .font(ChromeType.restartLabel)
+            }
+            .foregroundStyle(theme.chrome)
+            .padding(.horizontal, ChromeMetrics.TitleBar.restartHorizontalPadding)
+            .padding(.vertical, ChromeMetrics.TitleBar.restartVerticalPadding)
+            .background(theme.yellow, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Quit and reopen Flock Dev on the build that just landed")
+        .accessibilityIdentifier("flock.titleBar.restartForNewBuild")
     }
 }
 

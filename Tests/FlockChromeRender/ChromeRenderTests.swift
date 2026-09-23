@@ -2009,6 +2009,70 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// Flock Dev's title bar: the DEV tag beside the title, and the restart
+    /// offer once a build with another stamp is on disk where this one was
+    /// launched from. PNGs go to `FLOCK_DEV_RENDER_DIR`.
+    func testFlockDevMarksItsTitleAndOffersARestartForANewerBuild() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_DEV_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let builds = FileManager.default.temporaryDirectory.appendingPathComponent("flock-dev-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: builds) }
+        let bundle = builds.appendingPathComponent("Flock-dev.app")
+        try FileManager.default.createDirectory(
+            at: bundle.appendingPathComponent("Contents"), withIntermediateDirectories: true
+        )
+        let plist = try PropertyListSerialization.data(
+            fromPropertyList: ["FlockBuildStamp": "2026-09-22 23:10:04 abc1234"], format: .xml, options: 0
+        )
+        try plist.write(to: bundle.appendingPathComponent("Contents/Info.plist"))
+
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let watcher = DevBuildWatcher(bundleURL: bundle, runningStamp: "2026-09-22 22:40:00 fed9876")
+            watcher.check()
+            XCTAssertTrue(watcher.newerBuildReady, "\(scheme): a different stamp on disk is a newer build")
+
+            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
+            let window = harness.makeWindow(size: Self.windowSize, isDevBuild: true, devBuild: watcher)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("flock-dev-\(scheme)-\(id).png"))
+            }
+            // The tag and the offer both paint in the theme's amber.
+            let amber = theme.palette.yellow.hex
+            let titleBar = CGRect(x: 0, y: 0, width: Self.windowSize.width, height: ChromeMetrics.TitleBar.height)
+            let centre = CGRect(x: Self.windowSize.width / 2, y: 0, width: 60, height: ChromeMetrics.TitleBar.height)
+            let trailing = CGRect(x: Self.windowSize.width - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
+            XCTAssertGreaterThan(count(amber, in: centre, of: image), 0, "\(scheme): no DEV tag beside the title")
+            XCTAssertGreaterThan(count(amber, in: trailing, of: image), 0, "\(scheme): no restart offer at the right")
+            XCTAssertGreaterThan(count(amber, in: titleBar, of: image), 0)
+            window.close()
+        }
+    }
+
+    func testTheSameStampOnDiskOffersNoRestart() throws {
+        let builds = FileManager.default.temporaryDirectory.appendingPathComponent("flock-dev-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: builds) }
+        let bundle = builds.appendingPathComponent("Flock-dev.app")
+        try FileManager.default.createDirectory(
+            at: bundle.appendingPathComponent("Contents"), withIntermediateDirectories: true
+        )
+        let stamp = "2026-09-22 22:40:00 fed9876"
+        try PropertyListSerialization.data(fromPropertyList: ["FlockBuildStamp": stamp], format: .xml, options: 0)
+            .write(to: bundle.appendingPathComponent("Contents/Info.plist"))
+
+        let same = DevBuildWatcher(bundleURL: bundle, runningStamp: stamp)
+        same.check()
+        XCTAssertFalse(same.newerBuildReady)
+
+        // A build dev-build.sh did not stamp (Xcode's own Debug build) never
+        // offers anything, whatever lands beside it.
+        let unstamped = DevBuildWatcher(bundleURL: bundle, runningStamp: nil)
+        unstamped.check()
+        XCTAssertFalse(unstamped.newerBuildReady)
+    }
+
     /// The grid covers the rail, so the dock floats in the corner the rail
     /// would hold, at the rail's width. The check is the needs-input card's
     /// red appearing there against the same grid with nothing to say.
@@ -2803,14 +2867,16 @@ private struct Harness {
         }
     }
 
-    func makeWindow(size: CGSize) -> NSWindow {
+    func makeWindow(size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil) -> NSWindow {
         // Resolves to no herdr, so the patch banner stays off and every
         // render assertion here measures the same chrome on any machine.
         let root = MainWindow(
             viewModel: viewModel,
             sessionLabel: "render",
-            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil })
+            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil }),
+            isDevBuild: isDevBuild
         )
+            .environment(devBuild)
             .environment(themeStore)
             .environment(textSize)
             .environment(railWidth)

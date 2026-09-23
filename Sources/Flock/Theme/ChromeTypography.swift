@@ -26,6 +26,10 @@ enum ChromeType {
 
     static let windowTitle = inter(11.5, .medium)
     static let connectionNotice = inter(11.5)
+    static let devTag = inter(8.5, .bold)
+    static let devTagTracking: CGFloat = 0.8
+    static let restartLabel = inter(11, .medium)
+    static let restartGlyph = Font.system(size: 9.5, weight: .semibold)
     static let banner = inter(14)
     static let bannerSymbol = Font.system(size: 16.5)
 
