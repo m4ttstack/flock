@@ -854,6 +854,11 @@ public final class SessionViewModel {
     /// the prompt it leaves, found by polling `pane.process_info`: no herdr
     /// event says a pane's shell is back at its prompt.
     public func launchNavigator(_ command: String, in pane: PaneID) async {
+        guard !paneLauncherRegistry.isNavigating(pane) else { return }
+        // Before the round trips below: until this lands the button is still
+        // on screen, and a second click would type the command twice.
+        paneLauncherRegistry.recordNavigationStarted(pane, at: now())
+        launcherRegistryVersion += 1
         await jumpToHerdr(pane: pane)
         _ = try? await client.requestRaw(
             "pane.send_input",
@@ -863,8 +868,6 @@ public final class SessionViewModel {
                 "keys": .array([.string("Enter")]),
             ]
         )
-        paneLauncherRegistry.recordNavigationStarted(pane, at: now())
-        launcherRegistryVersion += 1
         navigationWatches[pane]?.cancel()
         navigationWatches[pane] = Task { [weak self] in await self?.watchNavigation(in: pane) }
     }

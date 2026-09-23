@@ -950,6 +950,24 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.navigationWatches[newPane]?.cancel()
     }
 
+    /// The button stays on screen until the view model says otherwise, so a
+    /// second click can land while the first is still focusing and sending.
+    @MainActor
+    func testASecondClickWhileTheFirstIsStillSendingTypesNothing() async throws {
+        let client = StubForegroundClient([.busy])
+        let viewModel = SessionViewModel(client: client, navigationPollInterval: .milliseconds(1))
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let newPane = PaneID(rawValue: "w1:p2")
+
+        async let first: Void = viewModel.launchNavigator("rt cd", in: newPane)
+        async let second: Void = viewModel.launchNavigator("rt cd", in: newPane)
+        _ = await (first, second)
+
+        let sends = await client.calls.filter { $0.method == "pane.send_input" }
+        XCTAssertEqual(sends.count, 1)
+        viewModel.navigationWatches[newPane]?.cancel()
+    }
+
     @MainActor
     func testTheLauncherComesBackWhenTheNavigatorCloses() async throws {
         let client = StubForegroundClient([.busy, .busy, .idle])
