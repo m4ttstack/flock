@@ -34,9 +34,11 @@ opens rather than things a pane becomes.
   - `rt run --resolve-only` prints a `RunResolveResult` (`targetDir`,
     `commandTemplate`, labels) on stdout, its picker on the terminal. Two rows
     launch things themselves instead: "Launch all" (in herdr, it runs the first
-    queued script in its own pane and splits for the rest) and a saved preset
-    (it opens a seeded, tmux-backed runner board in its own pane). rt exits 1
-    both for a cancelled pick and for its own errors.
+    queued script in its own pane and places the rest beside it, as splits, or
+    as new tabs in the same workspace once the pane is under 100 by 28) and a
+    saved preset (it opens a seeded, tmux-backed runner board in its own pane).
+    A pick rt launched itself exits 0 with nothing on stdout; a cancelled pick
+    and rt's own errors both exit 1.
   - `rt nav` prints the chosen folder on stdout when "cd here" is picked, and
     nothing when it quits; rt's `rt()` shell function is what turns that into a
     `cd`.
@@ -86,8 +88,8 @@ closes `flock:rt` with its last tab, flock creates it again on the next open.
 dragged to another workspace keeps its runner and items, whether or not flock
 was running when it moved. flock decodes `terminal_id` from herdr's pane
 records. Tab labels in `flock:rt` read `<kind> <terminal> <token>`
-(`run t_2 3f2a`); a runner's workspace label carries its terminal. `<token>`
-names the tab's files (below).
+(`run term_18c2f0a1 3f2a`); a runner's workspace label carries its terminal.
+`<token>` names the tab's files (below).
 
 **Flock-owned workspaces are invisible everywhere a workspace is shown:** the
 rail, the All Workspaces grid, drag and drop targets, attention toasts, herd
@@ -119,6 +121,9 @@ Every command runs the same way:
    `FLOCK_RT_OUT`. A status of 0 or 130 is a clean exit. What follows is per
    command, below.
 
+Both files are deleted before each command is typed, so a status or result
+read later always belongs to the command just typed.
+
 A command never seen busy counts as finished after 3 s, as in the launcher. A
 missing status file (the shell never got that far) counts as unclean.
 
@@ -143,16 +148,22 @@ splits it with `cwd: <path>` instead and focuses the new pane.
 **`rt run`** runs in two phases, so flock knows which one it is in:
 
 1. flock types `command rt run --resolve-only >"$FLOCK_RT_OUT"` (with the status
-   suffix). When the tab goes idle:
-   - **A result in the file:** go to phase 2.
-   - **No result, but the tab is still busy or has gained panes:** the pick was
-     "Launch all" or a preset, and rt launched it itself inside this tab. The
-     tab becomes an rt run item as it stands, labelled from the tab's panes.
-   - **No result and nothing running:** a cancel. The modal closes. rt exits 1
+   suffix) into the tab's first pane. Phase 1 ends when **that pane** is idle
+   and `FLOCK_RT_STATUS` exists; other panes in the tab do not count. Then:
+   - **A result in `FLOCK_RT_OUT`:** go to phase 2.
+   - **Status 0, no result:** the pick was "Launch all" or a preset, and rt
+     launched it itself. The item carries on as the rest of the lifecycle
+     describes: running while any pane in it is busy.
+   - **Any other status, no result:** a cancel. The modal closes. rt exits 1
      for its own errors too ("No scripts found"), so in v1 those also close the
      modal without the message; see Out of scope.
+
+   A tab that appears in `flock:rt` without a flock label is one rt placed for
+   "Launch all". It joins the rt run item on screen in the modal: flock labels
+   it with that item's terminal and token, the modal shows the item's tabs
+   behind a small tab strip, and it is shut down and re-adopted with the item.
 2. flock types `cd <targetDir> && <commandTemplate>` (shell-quoted, with the
-   status suffix) into the same pane. The script's end is the next idle. The
+   status suffix) into the same pane, after deleting phase 1's status file. The script's end is the next idle. The
    modal shows a **finished** strip with the exit status ("finished · exit 0 ·
    any key closes").
 
@@ -193,29 +204,38 @@ When a linked pane closes, however it closes (flock, the herdr TUI, `exit`),
 everything linked to its terminal is shut down: its runner, its rt run items,
 and an open modal. There is no extra prompt.
 
-Shutdown is clean, not a bare close:
+Shutdown is clean, not a bare close. For each busy pane (for a runner, the
+board pane in its first tab, never an attach tab):
 
-- **A runner:** flock sends `q` to the board pane (the first tab's pane, never
-  an attach tab); if the board is still busy a second later it is on its
-  confirm, and flock sends `y`. The board tears its services down and exits.
-- **rt run items, nav, glitter:** `ctrl+c` to each busy pane in the tab.
+1. `ctrl+c` with `pane.send_keys`. It stops a script, and it asks an rt board to
+   quit.
+2. If rt's own UI (`rt-ui`, per `process_info`) still holds the foreground a
+   second later, it is on a confirm (a runner's board, or a preset's board in an
+   rt run item, with services running), and flock sends `y`. flock never sends
+   `y` to anything else, where it could answer some other program's prompt.
 
-flock then waits up to 10 s for everything to go idle and closes the tab or
-workspace. SIGHUP from the close is the backstop, not the plan.
+The board then tears its services down and exits. flock waits up to 10 s for
+everything to go idle and closes the tab or workspace. SIGHUP from the close is
+the backstop, not the plan.
 
 ### After a flock restart
 
 At launch flock rebuilds its links from the labels:
 
-- **Runners** whose linked terminal still exists are re-adopted: the runner
-  button returns.
+- **Runners** whose linked terminal still exists and whose board is still
+  running (no status file yet) are re-adopted: the runner button returns. A
+  runner whose board exited while flock was down is closed.
 - **rt run tabs** are re-adopted as items: running if any pane is busy,
   finished otherwise, their text read back from `FLOCK_RT_OUT` and the panes.
-  A tab still in phase 1 is an item like any other.
+  The files say which phase an item is in (no status yet and no result: phase
+  1; a result: phase 2), and the watch carries on from there, so a phase 1 pick
+  finished after the restart still goes on to phase 2.
 - **nav and glitter tabs** are shut down: they only exist inside a modal, and
   there is none to return to.
 - **Anything whose linked terminal is gone** (its pane closed while flock was
   not running) gets the shutdown above.
+- **Unlabelled tabs in `flock:rt`** (placed by rt while flock was not there to
+  claim them) get the shutdown above too.
 
 ## Surfaces
 
@@ -256,7 +276,7 @@ which flock does not connect to.
   window too. Centered over the whole canvas, about 80% of the window, backdrop
   dimmed.
 - It shows one tab, laid out as herdr has it: usually a single pane, several
-  when rt split it.
+  when rt split it, and a small tab strip when an rt run item spans tabs.
 - A title row: the command and folder (`nav · ~/src/acme`), a close control, and
   **← runner** when showing a service.
 - One modal at a time. Opening another closes the current one by the rules in
@@ -287,14 +307,16 @@ which flock does not connect to.
     unclean, missing status file, the 3 s ceiling), including a multi-pane tab;
   - the typed line per shell (`$?` versus `$status`) and its quoting;
   - rt run's phase 1 outcomes: a result, a self-launch ("Launch all", preset),
-    a cancel;
+    a cancel, a one-item "Launch all" whose script has not started yet, and an
+    unlabelled tab joining the item on screen;
   - nav's "cd here" decision over idle and busy;
   - closing early per command; the rt button's appearance and count;
   - focus-follow declining flock-owned workspaces;
-  - shutdown ordering (runner `q`, `y` on a still-busy board, `ctrl+c`, wait,
-    close, timeout);
-  - launch reconciliation over a snapshot with re-adoptable runners, rt run
-    items in each phase, stale nav tabs, and orphans.
+  - shutdown ordering (`ctrl+c`, `y` only when `rt-ui` still holds the
+    foreground, wait, close, timeout);
+  - launch reconciliation over a snapshot with re-adoptable runners, a runner
+    whose board exited, rt run items in each phase, stale nav tabs, unlabelled
+    tabs, and orphans. Fixture terminal ids use herdr's real `term_...` shape.
 - **SessionViewModel over a stub client** that answers from scripts, as the
   launcher's tests do: `process_info`, `tab.create`, `workspace.create`,
   `pane.split`, `pane.send_input`, `pane.send_keys`, `pane.focus`,
