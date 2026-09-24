@@ -233,7 +233,8 @@ struct FlockApp: App {
             // failure from `perform`/`closePane` -- so this gets the
             // neutral info glyph, never the undo journal's arrow.
             noticeSink: { message in toastCenter.show(message, kind: .info) },
-            notificationLifetime: { notificationLifetimeStore.active }
+            notificationLifetime: { notificationLifetimeStore.active },
+            attentionToastArchive: AttentionToastArchive()
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
@@ -409,9 +410,14 @@ struct FlockApp: App {
                 }
                 .keyboardShortcut(ArrangeShortcut.allWorkspaces.shortcut)
                 .accessibilityIdentifier("flock.view.allWorkspaces")
-                // The attention stack's only keyboard route, and the only way
-                // to clear a "needs input" toast without answering the pane or
-                // dismissing each one by hand.
+                Button("Open Oldest Notification") {
+                    Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
+                }
+                .keyboardShortcut("j", modifiers: .command)
+                .disabled(viewModel.attentionToasts.isEmpty)
+                .accessibilityIdentifier("flock.view.openOldestNotification")
+                // The only way to clear a "needs input" toast without
+                // answering the pane or dismissing each one by hand.
                 Button("Clear Notifications") { viewModel.clearAttentionToasts() }
                     .keyboardShortcut("k", modifiers: .command)
                     .disabled(viewModel.attentionToasts.isEmpty)

@@ -10,7 +10,7 @@ import Foundation
 /// replacing it: a banner in Notification Center would double whatever herdr's
 /// own `[ui.toast] delivery` is already doing for the same event, so the
 /// attention surface stays inside flock's window.
-public struct AttentionToastStack: Equatable, Sendable {
+public struct AttentionToastStack: Equatable, Codable, Sendable {
     /// Drawn however short the rail is; a taller rail draws more
     /// (`DockCapacity`), and past what it draws, older toasts are counted.
     public static let minimumVisible = 3
@@ -26,6 +26,9 @@ public struct AttentionToastStack: Equatable, Sendable {
     public var isEmpty: Bool { toasts.isEmpty }
     public func visible(limit: Int) -> [AttentionToast] { Array(toasts.prefix(max(0, limit))) }
     public func collapsedCount(limit: Int) -> Int { max(0, toasts.count - max(0, limit)) }
+    /// The bottom card of the ones drawn, never one counted under the pill:
+    /// a keystroke should open something the user can see.
+    public func oldestVisible(limit: Int) -> AttentionToast? { visible(limit: limit).last }
 
     public func toast(pane: PaneID) -> AttentionToast? {
         toasts.first { $0.paneID == pane }

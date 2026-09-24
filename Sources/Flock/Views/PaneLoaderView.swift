@@ -1,93 +1,101 @@
 import FlockCore
 import SwiftUI
 
-/// The attach badge: the ram and its three-echo trail, catching up to itself
-/// on a loop, beside the word "flocking", in the corner of a pane that has
-/// not painted yet. `PaneCellView` decides whether and how long it shows
-/// (`PaneLoaderPolicy`); this view draws the mark and drives its clock.
+/// The attach badge: the ram and its three-echo trail ambling right to left
+/// along the bottom of a pane that has not painted yet, bouncing as it goes
+/// and dropping a winding trail of dots off its back, a goat trail that fades
+/// behind it. The ram itself stays level: at the trail's tight wavelength,
+/// riding the curve seesaws it on top of its own bounce.
+/// `PaneCellView` decides whether and how long it shows (`PaneLoaderPolicy`);
+/// this view draws it and drives its clock, and `PaneLoaderStride` owns the
+/// path.
 ///
-/// It paints no ground of its own and covers nothing. The full-pane opaque
-/// version it replaces had to, because the terminal surface stayed visible
-/// underneath it; the surface is now held at zero opacity until the badge is
-/// gone (`PaneLoaderPolicy.showsTerminalSurface`), so the pane's own
-/// `theme.pane` ground is what the badge sits on, and it can be small.
+/// It paints no ground of its own and covers nothing. The terminal surface is
+/// held at zero opacity until the badge is gone
+/// (`PaneLoaderPolicy.showsTerminalSurface`), so the pane's own `theme.pane`
+/// ground is what the badge runs over.
 ///
-/// The echoes' rest position and the mark's own brand colours are
-/// `HerdrRamTrail`'s, shared with the app icon so this can never trace a
-/// different animal or repaint it in the active theme. Only the caption's
-/// text colour follows `theme`; the mark does not. Only the echoes move --
-/// the leader is what they are catching up TO, so it never itself moves.
+/// The mark's brand colours are `HerdrRamTrail`'s, shared with the app icon
+/// so this can never repaint the ram in the active theme; the trail's dots
+/// follow `theme`. Under reduced motion the mark rests, still, in the
+/// bottom-right corner the run starts from.
 struct PaneLoaderView: View {
     let theme: Theme
     /// Lets a render test force the static path deterministically. Always
     /// `nil` in the app, where the real environment value decides.
     var reducedMotionOverride: Bool?
+    /// Lets a render test freeze the run at one instant. Always `nil` in the
+    /// app, where the clock runs from the badge's appearance.
+    var frozenElapsed: Double?
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var appeared = false
-    @State private var dotCount = 1
     @State private var start = Date()
 
     private var reduceMotion: Bool { reducedMotionOverride ?? systemReduceMotion }
 
-    private static let dotCycleInterval = 0.3
+    private static let markSize = ChromeMetrics.Loader.badgeMarkSize
+    private static let dotSize: CGFloat = 3
+    /// Just past the farthest echo, so the trail comes off the back of the
+    /// flock rather than out from under it.
+    private static let tailGap: CGFloat = 2
+    /// The ram's hooves sit this far above the bottom of the mark's box, which
+    /// carries a margin; the trail winds about that line, not the box's edge.
+    private static let hoofLine: CGFloat = 2
 
     var body: some View {
-        HStack(spacing: ChromeMetrics.Loader.spacing) {
-            mark
-            Text(caption)
-                .font(ChromeType.loaderCaption)
-                .foregroundStyle(theme.textLabel)
+        Group {
+            if reduceMotion {
+                HerdrRamMark(size: Self.markSize)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(ChromeMetrics.Loader.badgeInset)
+            } else if let frozenElapsed {
+                run(elapsed: frozenElapsed)
+            } else {
+                TimelineView(.animation) { context in
+                    run(elapsed: context.date.timeIntervalSince(start))
+                }
+            }
         }
-        // Pinned to one corner rather than centred: a pane that is still
-        // attaching is about to be read from the top left, and this is the
-        // one place nothing is about to appear.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-        .padding(ChromeMetrics.Loader.badgeInset)
         .opacity(appeared ? 1 : 0)
         .onAppear {
             withAnimation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade)) { appeared = true }
         }
-        .task {
-            guard !reduceMotion else { return }
-            await cycleDots()
-        }
         // Nothing here is aimable, and the pane underneath owns every click
-        // it would otherwise swallow in that corner.
+        // it would otherwise swallow.
         .allowsHitTesting(false)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("flocking")
     }
 
-    private var caption: String {
-        reduceMotion ? "flocking..." : "flocking" + String(repeating: ".", count: dotCount)
-    }
-
-    /// The badge's own cadence, cancelled for free when the view goes: nothing
-    /// external drives this, so it has to keep its own count.
-    private func cycleDots() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(Self.dotCycleInterval))
-            guard !Task.isCancelled else { return }
-            dotCount = dotCount == 3 ? 1 : dotCount + 1
-        }
-    }
-
-    /// The drawing is `HerdrRamMark`'s, shared with every other surface that
-    /// shows the mark. Only the clock is this view's: the rest path never
-    /// moves and `.offset` is the only thing animated per frame, so a running
-    /// badge never forces a layout pass.
-    @ViewBuilder
-    private var mark: some View {
-        if reduceMotion {
-            HerdrRamMark(size: ChromeMetrics.Loader.badgeMarkSize)
-        } else {
-            TimelineView(.animation) { context in
-                let elapsed = context.date.timeIntervalSince(start)
-                HerdrRamMark(size: ChromeMetrics.Loader.badgeMarkSize) { delay in
-                    PaneLoaderChoreography.mergeProgress(elapsed: elapsed, startDelay: delay)
+    /// Only offsets and opacities change per frame, so a running badge never
+    /// forces a layout pass.
+    private func run(elapsed: Double) -> some View {
+        GeometryReader { proxy in
+            let inset = ChromeMetrics.Loader.badgeInset
+            let width = proxy.size.width
+            let start = width - inset - Self.markSize
+            let x = PaneLoaderStride.leadingX(elapsed: elapsed, start: start, badgeWidth: Self.markSize, boxWidth: width)
+            let hop = Self.markSize * PaneLoaderStride.hopHeightFraction * PaneLoaderStride.hopLift(elapsed: elapsed)
+            ZStack(alignment: .bottomLeading) {
+                ForEach(
+                    PaneLoaderStride.trail(
+                        elapsed: elapsed, start: start, badgeWidth: Self.markSize, boxWidth: width,
+                        tailOffset: Self.markSize + Self.tailGap
+                    ),
+                    id: \.x
+                ) { dot in
+                    Circle()
+                        .fill(theme.textLabel)
+                        .frame(width: Self.dotSize, height: Self.dotSize)
+                        .opacity(dot.opacity)
+                        .offset(x: dot.x - Self.dotSize / 2, y: -(dot.lift + Self.hoofLine))
                 }
+                HerdrRamMark(size: Self.markSize)
+                    .offset(x: x, y: -hop)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .padding(.bottom, inset)
         }
     }
 }

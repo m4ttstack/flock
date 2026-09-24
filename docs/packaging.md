@@ -15,7 +15,9 @@ feed. Installed copies poll
 `https://github.com/m4ttstack/flock/releases/latest/download/appcast.xml`, so
 the feed that counts is whichever one the latest release carries.
 
-From a clean checkout of `main` that is already pushed:
+Write the release notes first, as `docs/releases/<version>.md`, and commit
+them with the rest of `main`. Then, from a clean checkout of `main` that is
+already pushed:
 
 ```bash
 Scripts/fetch-sparkle.sh
@@ -35,11 +37,15 @@ Scripts/publish-release.sh 1.2.0
   release already out.
 - `make-appcast.sh` starts from the latest release's `appcast.xml` (none on the
   first release, which GitHub answers with a 404; any other failure stops it),
-  adds the new zip, signs it and writes `build/release/appcast.xml`.
+  adds the new zip, signs it and writes `build/release/appcast.xml`. The new
+  item embeds `docs/releases/<version>.md` as markdown, which is what the
+  update prompt shows installed copies, plus a link to the releases page; it
+  stops if the notes file is missing.
 - `publish-release.sh` creates tag `v<version>` and the release with all three
-  assets. It refuses a dirty tree, an existing tag, a HEAD that is not on
-  GitHub, a zip built from another commit, an unstapled app or disk image, or
-  a feed with no signed item for this version.
+  assets, using the same notes file as the release body with a compare link to
+  the previous tag. It refuses a dirty tree, an existing tag, a HEAD that is
+  not on GitHub, a zip built from another commit, an unstapled app or disk
+  image, a missing notes file, or a feed with no signed item or no notes.
 
 Only the Release build of Flock updates. A Debug build and Flock-dev have no
 updater and no feed, because Sparkle replaces the app at its own path and a

@@ -74,6 +74,7 @@ struct MessageDock: View {
                         theme: theme, viewModel: viewModel, isFloating: isFloating, cardLimit: cardLimit,
                         onCardHeight: { cardHeight = $0 }, onPillHeight: { pillHeight = $0 }
                     )
+                    .onChange(of: cardLimit, initial: true) { _, limit in viewModel.attentionCardLimit = limit }
                 }
                 .padding(.top, isFloating ? 0 : ChromeMetrics.Dock.ruleToFirstItem)
                 .padding(.bottom, ChromeMetrics.Dock.bottomInset)

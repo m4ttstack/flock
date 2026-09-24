@@ -325,6 +325,52 @@ final class AttentionToastTests: XCTestCase {
         XCTAssertNil(NotificationLifetime.untilSeen.finishedLifetime)
     }
 
+    // MARK: - relaunch
+
+    @MainActor
+    private func withArchive(_ body: (AttentionToastArchive) throws -> Void) throws {
+        let suite = "dev.mattstack.flock.attention-archive-tests"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try body(AttentionToastArchive(userDefaults: defaults))
+    }
+
+    @MainActor
+    func testAToastStillTrueAtRelaunchComesBack() throws {
+        try withArchive { archive in
+            let clock = TestClock()
+            let before = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, attentionToastArchive: archive)
+            before.update(model: attentionModel(), connection: .live)
+            before.update(model: attentionModel(statuses: ["w2:p1": .blocked]), connection: .live)
+            let raised = try XCTUnwrap(before.attentionToasts.toasts.first)
+
+            clock.advance(60)
+            let after = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, attentionToastArchive: archive)
+            after.update(model: nil, connection: .connecting)
+            after.update(model: attentionModel(statuses: ["w2:p1": .blocked]), connection: .live)
+
+            XCTAssertEqual(after.attentionToasts.toasts, [raised])
+        }
+    }
+
+    @MainActor
+    func testAToastAnsweredWhileFlockWasClosedDoesNotComeBack() throws {
+        try withArchive { archive in
+            let clock = TestClock()
+            let before = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, attentionToastArchive: archive)
+            before.update(model: attentionModel(), connection: .live)
+            before.update(model: attentionModel(statuses: ["w2:p1": .blocked, "w2:p2": .blocked]), connection: .live)
+
+            clock.advance(60)
+            let after = SessionViewModel(client: FocusRecordingClient(), now: { clock.now }, attentionToastArchive: archive)
+            after.update(model: attentionModel(statuses: ["w2:p2": .blocked]), connection: .live)
+
+            XCTAssertEqual(after.attentionToasts.toasts.map(\.paneID.rawValue), ["w2:p2"])
+            XCTAssertEqual(archive.load().toasts.map(\.paneID.rawValue), ["w2:p2"])
+        }
+    }
+
     // MARK: - withdrawal
 
     @MainActor
@@ -475,8 +521,11 @@ final class AttentionToastTests: XCTestCase {
 
     // MARK: - the jump
 
+    /// `tab.focus` moves herdr's workspace too. A `workspace.focus` first
+    /// would land on that workspace's remembered tab, and herdr's echo of it
+    /// flashes the wrong tab on screen before the target arrives.
     @MainActor
-    func testClickingAToastFocusesItsWorkspaceTabAndPaneByExplicitID() async throws {
+    func testClickingAToastFocusesItsTabAndPaneWithoutPassingThroughTheWorkspace() async throws {
         let clock = TestClock()
         let client = FocusRecordingClient()
         let viewModel = makeViewModel(client, clock: clock)
@@ -486,9 +535,50 @@ final class AttentionToastTests: XCTestCase {
         await viewModel.jumpToAttentionToast(pane: PaneID(rawValue: "w2:p1"))
 
         let calls = await client.calls
-        XCTAssertEqual(calls.map(\.method), ["workspace.focus", "tab.focus", "pane.focus"])
-        XCTAssertEqual(calls.map { $0.params.values.compactMap(stringValue).first }, ["w2", "w2:t1", "w2:p1"])
+        XCTAssertEqual(calls.map(\.method), ["tab.focus", "pane.focus"])
+        XCTAssertEqual(calls.map { $0.params.values.compactMap(stringValue).first }, ["w2:t1", "w2:p1"])
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t1"))
         XCTAssertTrue(viewModel.attentionToasts.isEmpty, "the toast goes as the jump takes it")
+    }
+
+    /// The keyboard route takes the bottom card on screen, and never one
+    /// counted under the pill: that toast is not displayed.
+    @MainActor
+    func testOpeningTheOldestTakesTheBottomCardDrawnNotOneUnderThePill() async {
+        let clock = TestClock()
+        let client = FocusRecordingClient()
+        let viewModel = makeViewModel(client, clock: clock)
+        viewModel.update(model: attentionModel(), connection: .live)
+        var statuses: [String: AgentStatus] = [:]
+        for pane in ["w2:p1", "w2:p2", "w2:p3", "w2:p4"] {
+            statuses[pane] = .blocked
+            clock.advance(10)
+            viewModel.update(model: attentionModel(statuses: statuses), connection: .live)
+        }
+        viewModel.attentionCardLimit = 3
+
+        await viewModel.jumpToOldestDisplayedAttentionToast()
+
+        let calls = await client.calls
+        XCTAssertEqual(calls.last?.params.values.compactMap(stringValue).first, "w2:p2")
+        XCTAssertEqual(
+            viewModel.attentionToasts.toasts.map(\.paneID.rawValue), ["w2:p4", "w2:p3", "w2:p1"],
+            "the opened toast goes, and the one under the pill moves up into view"
+        )
+    }
+
+    @MainActor
+    func testOpeningTheOldestWithNothingUpSendsNothing() async {
+        let clock = TestClock()
+        let client = FocusRecordingClient()
+        let viewModel = makeViewModel(client, clock: clock)
+        viewModel.update(model: attentionModel(), connection: .live)
+
+        await viewModel.jumpToOldestDisplayedAttentionToast()
+
+        let calls = await client.calls
+        XCTAssertTrue(calls.isEmpty)
     }
 
     @MainActor

@@ -37,7 +37,11 @@ public final class SessionViewModel {
     public private(set) var lastLines: [PaneID: String] = [:]
     /// The grid hover card's tails, one per pane it has opened on.
     public private(set) var paneTails: [PaneID: PaneTail] = [:]
-    public private(set) var attentionToasts = AttentionToastStack()
+    public private(set) var attentionToasts = AttentionToastStack() {
+        didSet {
+            if attentionToasts != oldValue { attentionToastArchive?.save(attentionToasts) }
+        }
+    }
 
     /// Written from inside view bodies, which must not invalidate the views
     /// reading it; `lastLines` is what they observe.
@@ -130,6 +134,7 @@ public final class SessionViewModel {
     /// Read at every raise and sweep, so a change in Settings lands at the
     /// dock's next sweep without anything pushing it here.
     @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
+    @ObservationIgnored private let attentionToastArchive: AttentionToastArchive?
     @ObservationIgnored private let navigationPollInterval: Duration
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
@@ -146,6 +151,7 @@ public final class SessionViewModel {
         noticeSink: @escaping @MainActor (String) -> Void = { _ in },
         now: @escaping @MainActor () -> Date = { Date() },
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
+        attentionToastArchive: AttentionToastArchive? = nil,
         navigationPollInterval: Duration = .milliseconds(300),
         rt: RtCoordinator? = nil
     ) {
@@ -159,8 +165,12 @@ public final class SessionViewModel {
         self.noticeSink = noticeSink
         self.now = now
         self.notificationLifetime = notificationLifetime
+        self.attentionToastArchive = attentionToastArchive
         self.navigationPollInterval = navigationPollInterval
         self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
+        if let attentionToastArchive, notificationLifetime() != .never {
+            attentionToasts = attentionToastArchive.load()
+        }
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -259,11 +269,16 @@ public final class SessionViewModel {
     /// A herd's panes are skipped here rather than hidden in the stack view:
     /// a toast that is never made cannot reach the collapsed count, the
     /// "more" pill, or a Clear that would then look like it did nothing.
+    ///
+    /// A nil model is a gap in the connection, or the wait for the first
+    /// snapshot after launch, and leaves the stack alone: the cards restored
+    /// from the archive have to survive until a snapshot can judge them.
     private func reconcileAttentionToasts(previous: SessionModel?) {
-        guard let model, notificationLifetime() != .never else {
+        guard notificationLifetime() != .never else {
             attentionToasts.clear()
             return
         }
+        guard let model else { return }
         let raisedAt = now()
         if let previous {
             for paneID in model.panes.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
@@ -342,14 +357,23 @@ public final class SessionViewModel {
         attentionToasts.clear()
     }
 
-    /// The three focus verbs the Interactions sheet names, each with this
-    /// pane's own explicit id. A toast is the one thing in flock that jumps
-    /// across a workspace boundary, so the workspace and the tab are focused
-    /// in their own right rather than left for herdr to infer from the pane.
+    /// How many attention cards the dock is drawing right now, which only the
+    /// dock can measure. Reported back so a menu command can tell the cards on
+    /// screen from the ones under the "+N more" pill.
+    public var attentionCardLimit = AttentionToastStack.minimumVisible
+
+    public func jumpToOldestDisplayedAttentionToast() async {
+        guard let toast = attentionToasts.oldestVisible(limit: attentionCardLimit) else { return }
+        await jumpToAttentionToast(pane: toast.paneID)
+    }
+
+    /// Focuses the tab and pane by explicit id, never the workspace:
+    /// `tab.focus` moves herdr's workspace along with it, while a separate
+    /// `workspace.focus` lands on that workspace's remembered tab first, and
+    /// herdr's echo of it shows the wrong tab before the target arrives.
     public func jumpToAttentionToast(pane: PaneID) async {
         guard let toast = attentionToasts.toast(pane: pane) else { return }
         attentionToasts.dismiss(pane: pane)
-        await jumpToHerdr(workspace: toast.workspaceID)
         await jumpToHerdr(tab: toast.tabID)
         await jumpToHerdr(pane: toast.paneID)
     }
@@ -472,13 +496,12 @@ public final class SessionViewModel {
     }
 
     /// Peek's jump verb names only a pane; this looks up the workspace and
-    /// tab that pane's OWN record carries and focuses all three, the same
-    /// order `jumpToAttentionToast` uses. The verb itself moves nothing, so a
+    /// tab that pane's OWN record carries and focuses the tab and pane, the
+    /// way `jumpToAttentionToast` does. The verb itself moves nothing, so a
     /// pane the model no longer has (closed since the verb answered) sends no
-    /// request rather than jumping a workspace or tab to nowhere.
+    /// request rather than jumping a tab to nowhere.
     public func focusFromChat(pane id: PaneID) async {
         guard let record = model?.panes[id] else { return }
-        await jumpToHerdr(workspace: record.workspaceID)
         await jumpToHerdr(tab: record.tabID)
         await jumpToHerdr(pane: record.paneID)
     }
@@ -652,6 +675,10 @@ public final class SessionViewModel {
     public func ghosttySurface(for pane: PaneID) -> (any GhosttyPaneSurface)? {
         ghosttySurfaces[pane]
     }
+
+    /// Whether `attachPane` can ever hand back a surface. `false` only when
+    /// the app has no ghostty host, which leaves every pane on its status card.
+    public var attachesSurfaces: Bool { ghosttyFactory != nil }
 
     /// What flock currently wants of its bridges, so a surface registered
     /// after the decision was made can be told as it appears. A bridge spawns
