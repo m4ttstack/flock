@@ -165,6 +165,22 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         rt.watches["old3"]?.cancel()
     }
 
+    /// `echo $? >file` creates the file before it writes the digits.
+    func testLaunchAdoptsARunWhoseStatusFileIsStillBlankAsPicking() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_a1 old4", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        world.write("", to: rtPaths("old4").status)
+        let rt = makeCoordinator(world)
+
+        rt.update(model: world.model())
+
+        XCTAssertNotNil(rt.items["old4"])
+        XCTAssertEqual(rt.lifecycles["old4"]?.stage, .picking)
+        rt.watches["old4"]?.cancel()
+    }
+
     /// Adopted commands were running before the launch.
     func testLaunchAdoptsItsRunnerAndRunsStarted() async throws {
         let world = FakeRtWorld()

@@ -62,6 +62,13 @@ public struct DiskRtFileStore: RtFileStore {
 }
 
 public enum RtFileParse {
+    /// `echo $? >file` creates the file before it writes the digits, so a
+    /// blank status file is one still being written.
+    public static func writtenStatus(_ text: String?) -> String? {
+        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
+    }
+
     public static func status(_ text: String?) -> Int32? {
         text.flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }

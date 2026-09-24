@@ -345,7 +345,7 @@ public final class RtCoordinator {
             if await herdr.paneState(pane)?.busy == true { anyBusy = true }
         }
         let paths = RtFilePaths(token: item.id, directory: config.fileDirectory)
-        let statusText = files.read(paths.status)
+        let statusText = RtFileParse.writtenStatus(files.read(paths.status))
         return RtLifecycle.Observation(
             firstPaneBusy: first.busy, anyPaneBusy: anyBusy, statusExists: statusText != nil,
             status: RtFileParse.status(statusText), out: files.read(paths.out), now: now()

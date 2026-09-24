@@ -169,7 +169,7 @@ extension RtCoordinator {
             return
         }
         let paths = RtFilePaths(token: link.token, directory: config.fileDirectory)
-        let statusText = files.read(paths.status)
+        let statusText = RtFileParse.writtenStatus(files.read(paths.status))
         let result = RtFileParse.runResult(files.read(paths.out))
         let stage: RtLifecycle.Stage
         var strip: RtStrip?

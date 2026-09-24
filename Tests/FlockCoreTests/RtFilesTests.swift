@@ -20,6 +20,14 @@ final class RtFilesTests: XCTestCase {
         XCTAssertNil(RtFileParse.status(nil))
     }
 
+    /// `echo $? >file` creates the file before it writes the digits.
+    func testABlankStatusFileIsNotYetWritten() {
+        XCTAssertNil(RtFileParse.writtenStatus(""))
+        XCTAssertNil(RtFileParse.writtenStatus("\n"))
+        XCTAssertNil(RtFileParse.writtenStatus(nil))
+        XCTAssertEqual(RtFileParse.writtenStatus("0\n"), "0\n")
+    }
+
     /// `rt run --resolve-only` prints the result as one JSON line.
     func testARunResultReadsAsJSONAndAnythingElseAsNone() {
         let line = #"{"targetDir":"/src/acme/web","packageLabel":"web","worktree":"/src/acme","branch":"main","commandTemplate":"pnpm run test","script":"test"}"# + "\n"

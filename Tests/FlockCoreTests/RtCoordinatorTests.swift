@@ -141,6 +141,28 @@ final class RtCoordinatorTests: XCTestCase {
         XCTAssertTrue(rt.items.isEmpty)
     }
 
+    /// `echo $? >file` creates the file before it writes the digits, and a
+    /// poll can land in between with only the shell in the foreground.
+    func testAStatusFileNotYetWrittenIsNotAnExit() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt nav", .init(busyPolls: 1, status: ""))
+        let rt = makeCoordinator(world)
+
+        await rt.open(.nav, from: world.fixture.linkedPane)
+        try await waitUntil { world.read(rtPaths("tok1").status) != nil }
+        let polls = world.calls("pane.process_info").count
+        try await waitUntil { world.calls("pane.process_info").count >= polls + 3 }
+
+        XCTAssertNil(rt.items["tok1"]?.strip)
+        XCTAssertTrue(world.calls("tab.close").isEmpty)
+
+        world.write("0\n", to: rtPaths("tok1").status)
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertTrue(rt.items.isEmpty)
+        XCTAssertEqual(world.calls("tab.close").count, 1)
+    }
+
     func testClosingNavEarlyShutsItDown() async throws {
         let world = FakeRtWorld()
         world.script("command rt nav", .init(busyPolls: 1000, status: "0"))
