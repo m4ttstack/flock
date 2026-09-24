@@ -105,6 +105,8 @@ struct MainWindow: View {
             Button("Close Group", role: .destructive) {
                 Task { await viewModel.confirmGroupClose(pending.workspaceID) }
             }
+            // A destructive role alone is never the Return default on macOS.
+            .keyboardShortcut(.defaultAction)
             .accessibilityIdentifier("flock.workspace.closeGroup.confirm")
             Button("Cancel", role: .cancel) { viewModel.cancelPendingGroupClose() }
                 .accessibilityIdentifier("flock.workspace.closeGroup.cancel")
@@ -135,6 +137,8 @@ struct MainWindow: View {
             Button(pending.confirmButtonTitle, role: .destructive) {
                 Task { await viewModel.confirmClose(pending.subject) }
             }
+            // A destructive role alone is never the Return default on macOS.
+            .keyboardShortcut(.defaultAction)
             .accessibilityIdentifier("flock.close.confirm")
             Button("Cancel", role: .cancel) { viewModel.cancelPendingClose() }
                 .accessibilityIdentifier("flock.close.cancel")
