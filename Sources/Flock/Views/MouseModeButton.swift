@@ -24,6 +24,7 @@ struct MouseModeButton: View {
             )
             .frame(width: Metrics.chipSize.width, height: Metrics.chipSize.height)
             .background(RoundedRectangle(cornerRadius: Metrics.chipCornerRadius).fill(Color(theme.palette.surface0)))
+            .overlay { if isHovering && onToggle != nil { HoverWashFill(theme: theme, cornerRadius: Metrics.chipCornerRadius) } }
             .frame(height: PaneChrome.titleRowHeight)
             .contentShape(Rectangle())
         }

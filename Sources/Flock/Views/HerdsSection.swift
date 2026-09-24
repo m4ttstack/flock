@@ -107,11 +107,13 @@ struct HerdMark: View {
     }
 }
 
-/// A rail row's box: the fixed pitch, the padding and the selection fill,
-/// shared by every row in every section so the lists read as one rail.
+/// A rail row's box: the fixed pitch, the padding, the selection fill and the
+/// hover fill, shared by every row in every section so the lists read as one
+/// rail.
 struct RailRowChrome: ViewModifier {
     let theme: Theme
     let showsFill: Bool
+    @State private var isHovering = false
 
     func body(content: Content) -> some View {
         content
@@ -122,9 +124,10 @@ struct RailRowChrome: ViewModifier {
             .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
             .background(
                 RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius)
-                    .fill(theme.selection)
-                    .opacity(showsFill ? 1 : 0)
+                    .fill(showsFill ? theme.selection : Color(theme.palette.surface0))
+                    .opacity(showsFill || isHovering ? 1 : 0)
             )
             .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
     }
 }

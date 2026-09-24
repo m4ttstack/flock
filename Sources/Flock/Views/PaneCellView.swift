@@ -473,6 +473,7 @@ struct PaneCellView: View {
                     .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
                     .frame(width: ChromeMetrics.ChatButton.signedOutSize.width, height: ChromeMetrics.ChatButton.signedOutSize.height)
                     .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.surface0)))
+                    .hoverWash(theme, cornerRadius: ChromeMetrics.ChatButton.cornerRadius)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Chat")
@@ -507,6 +508,7 @@ struct PaneCellView: View {
                 .background(
                     RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.selectionBg))
                 )
+                .hoverWash(theme, cornerRadius: ChromeMetrics.ChatButton.cornerRadius)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(unread > 0 ? "Chat: \(handle), \(unread) unread" : "Chat: \(handle)")

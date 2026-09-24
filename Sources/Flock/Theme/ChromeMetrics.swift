@@ -493,6 +493,12 @@ enum ChromeMetrics {
 
     /// The pane legend's rt control, right of chat: a square at rest, a pill
     /// sized to its content while anything of rt's runs for the pane.
+    /// The legend controls' hover wash: the theme's text colour at this
+    /// opacity over the hovered target.
+    enum HoverWash {
+        static let opacity: Double = 0.1
+    }
+
     enum RtButton {
         static let badgeSize = CGSize(width: 19, height: 14)
         static let badgeCornerRadius: CGFloat = 3

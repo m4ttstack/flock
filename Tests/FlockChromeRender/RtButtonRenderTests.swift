@@ -168,6 +168,39 @@ final class RtButtonRenderTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// The hover wash reads on each legend fill, in a dark and a light theme:
+    /// the chip grounds (`surface0`) and the pill grounds (`selectionBg`).
+    func testTheHoverWashShowsOnEveryLegendFill() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let chip = CGSize(width: 31, height: 20)
+        for theme in [Theme(.tokyoNight), try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })] {
+            let fills = [Color(theme.palette.surface0), Color(theme.palette.selectionBg)]
+            let row = HStack(spacing: 6) {
+                ForEach(0..<4, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(fills[index / 2])
+                        .overlay { if index % 2 == 1 { HoverWashFill(theme: theme, cornerRadius: 4) } }
+                        .frame(width: chip.width, height: chip.height)
+                }
+            }
+            let window = host(row, theme: theme, size: CGSize(width: 170, height: 40))
+            await settle(window)
+            defer { window.close() }
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("hover-wash-\(theme.id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            for pair in 0..<2 {
+                let restX = CGFloat(pair * 2) * (chip.width + 6) + chip.width / 2
+                let rest = hex(image, at: point(restX, chip.height / 2))
+                let hovered = hex(image, at: point(restX + chip.width + 6, chip.height / 2))
+                XCTAssertGreaterThan(channelDistance(rest, hovered), 6, "\(theme.id): fill \(pair) \(rest) vs \(hovered)")
+            }
+        }
+    }
+
     private func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
         CGPoint(x: Self.inset + x, y: Self.inset + y)
     }

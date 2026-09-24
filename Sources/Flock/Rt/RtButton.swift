@@ -23,6 +23,7 @@ struct RtButton: View {
                 RtBadge()
                     .frame(width: Metrics.restSize.width, height: Metrics.restSize.height)
                     .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(Color(theme.palette.surface0)))
+                    .hoverWash(theme, cornerRadius: Metrics.cornerRadius)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -35,6 +36,8 @@ struct RtButton: View {
             }
             .frame(height: Metrics.activeHeight)
             .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(Color(theme.palette.selectionBg)))
+            // Each half washes square on hover; the pill's own corners clip it.
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius))
         }
     }
 
@@ -56,6 +59,7 @@ struct RtButton: View {
             .padding(.leading, Metrics.horizontalPadding)
             .padding(.trailing, runner ? Metrics.gap : Metrics.horizontalPadding)
             .frame(maxHeight: .infinity)
+            .hoverWash(theme, cornerRadius: 0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -77,6 +81,7 @@ struct RtButton: View {
             }
             .padding(.trailing, Metrics.horizontalPadding)
             .frame(maxHeight: .infinity)
+            .hoverWash(theme, cornerRadius: 0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
