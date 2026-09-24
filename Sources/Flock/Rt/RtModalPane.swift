@@ -32,14 +32,19 @@ struct RtModalPane: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        // Read here, unconditionally, as a canvas cell reads it: the surface
+        // re-asserts its claim on the keyboard on every update, so it has to
+        // hear an editor open, and a body that skips this read is one that an
+        // editor's opening never invalidates.
+        let editorIsOpen = viewModel.renameEditorIsOnScreen
+        return ZStack(alignment: .topLeading) {
             theme.terminalGround
             if let surface {
                 GhosttyPaneTerminalView(
                     surface: surface, grid: grid, theme: theme, isFocused: isFocused,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
                     rearrangeActive: false, paneDragInProgress: false, isPristineLauncherPane: false,
-                    editorIsOpen: false, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
+                    editorIsOpen: editorIsOpen, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
                 )
                 .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)
                 .opacity(surface.hasFirstFrame ? 1 : 0)

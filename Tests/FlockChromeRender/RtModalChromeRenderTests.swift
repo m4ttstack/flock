@@ -93,7 +93,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         ChromeType.install()
         for theme in Self.themes {
             for variant in Variant.allCases {
-                let (window, _, _) = try await hostModal(theme: theme, variant: variant)
+                let window = try await hostModal(theme: theme, variant: variant).window
                 defer { window.close() }
                 let image = try snapshot(window)
                 try write(image, "rt-modal-window-\(variant.rawValue)-\(theme.id).png")
@@ -155,7 +155,8 @@ final class RtModalChromeRenderTests: XCTestCase {
     /// on its pane, leaves it up.
     func testABackdropClickClosesTheModalAndAClickInTheBoxDoesNot() async throws {
         ChromeType.install()
-        let (window, viewModel, probe) = try await hostModal(theme: Theme(.tokyoNight), variant: .nav)
+        let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .nav)
+        let (window, viewModel, probe) = (hosted.window, hosted.viewModel, hosted.probe)
         defer { window.close() }
         let box = StandIn.box
 
@@ -177,7 +178,8 @@ final class RtModalChromeRenderTests: XCTestCase {
 
     func testTheCloseControlClosesAndTheBackControlReturnsToTheBoard() async throws {
         ChromeType.install()
-        let (window, viewModel, _) = try await hostModal(theme: Theme(.tokyoNight), variant: .service)
+        let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .service)
+        let (window, viewModel) = (hosted.window, hosted.viewModel)
         defer { window.close() }
         let box = StandIn.box
         let row = ChromeMetrics.RtModal.TitleRow.self
@@ -196,7 +198,8 @@ final class RtModalChromeRenderTests: XCTestCase {
     /// ⌘W closes; a plain key closes only under a strip; other ⌘ keys pass.
     func testTheModalsKeysCloseItOnCommandWAndUnderAStripOnAnyPlainKey() async throws {
         ChromeType.install()
-        let (window, viewModel, _) = try await hostModal(theme: Theme(.tokyoNight), variant: .nav)
+        let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .nav)
+        let (window, viewModel) = (hosted.window, hosted.viewModel)
         defer { window.close() }
         press(window, "j")
         press(window, "k", command: true)
@@ -206,7 +209,8 @@ final class RtModalChromeRenderTests: XCTestCase {
         await settle(window)
         XCTAssertNil(viewModel.rt.modal, "⌘W left the modal up")
 
-        let (stripWindow, stripViewModel, _) = try await hostModal(theme: Theme(.tokyoNight), variant: .exited)
+        let stripHosted = try await hostModal(theme: Theme(.tokyoNight), variant: .exited)
+        let (stripWindow, stripViewModel) = (stripHosted.window, stripHosted.viewModel)
         defer { stripWindow.close() }
         press(stripWindow, "k", command: true)
         await settle(stripWindow)
@@ -214,6 +218,60 @@ final class RtModalChromeRenderTests: XCTestCase {
         press(stripWindow, "j")
         await settle(stripWindow)
         XCTAssertNil(stripViewModel.rt.modal, "a plain key left the modal up under a strip")
+    }
+
+    /// The modal's terminal re-asserts its claim on the keyboard whenever its
+    /// view updates (a new text size here; in the app also a resize or a
+    /// first frame). While a rename editor is on screen it must yield,
+    /// through a herdr model change and through such an update, and take the
+    /// keyboard back once the editor closes.
+    func testTheModalsTerminalYieldsTheKeyboardToARenameEditor() async throws {
+        ChromeType.install()
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let hosted = try await hostModal(
+            theme: Theme(.tokyoNight), variant: .nav, factory: SessionSurfaceFactory(host: host), model: Self.model(revision: 1)
+        )
+        let (window, viewModel) = (hosted.window, hosted.viewModel)
+        defer { window.close() }
+        let terminal = try XCTUnwrap(ghosttyView(in: window), "no ghostty surface in the modal")
+        XCTAssertTrue(window.firstResponder === terminal, "the modal's terminal does not hold the keyboard")
+
+        viewModel.beginRename(.workspace(Self.workspace))
+        await settle(window)
+        hosted.editor.armed = true
+        XCTAssertTrue(window.makeFirstResponder(hosted.editor), "the stand-in editor would not take the keyboard")
+        viewModel.update(model: Self.model(revision: 2), connection: .live)
+        await settle(window)
+        XCTAssertTrue(window.firstResponder === hosted.editor, "a model change gave a rename editor's keyboard to the modal")
+        hosted.textSize.select(.large)
+        defer { hosted.textSize.select(.regular) }
+        await settle(window)
+        XCTAssertTrue(window.firstResponder === hosted.editor, "an update of the modal's terminal took a rename editor's keyboard")
+
+        viewModel.cancelRename()
+        await settle(window)
+        XCTAssertTrue(window.firstResponder === terminal, "the modal's terminal did not take the keyboard back")
+    }
+
+    /// Under a strip a plain key closes the modal, except while a rename
+    /// editor is on screen: that key is being typed into the editor.
+    func testAPlainKeyUnderAStripPassesWhileARenameEditorIsOpen() async throws {
+        ChromeType.install()
+        let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .exited, model: Self.model(revision: 1))
+        let (window, viewModel) = (hosted.window, hosted.viewModel)
+        defer { window.close() }
+
+        viewModel.beginRename(.workspace(Self.workspace))
+        await settle(window)
+        press(window, "j")
+        await settle(window)
+        XCTAssertNotNil(viewModel.rt.modal, "a key typed into a rename editor closed the modal")
+
+        viewModel.cancelRename()
+        await settle(window)
+        press(window, "j")
+        await settle(window)
+        XCTAssertNil(viewModel.rt.modal, "a plain key left the modal up under a strip once the editor closed")
     }
 
     // MARK: - The stand-in window
@@ -238,6 +296,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         let theme: Theme
         let viewModel: SessionViewModel
         let probe: ClickProbeView
+        let editor: EditorStandInView
 
         var body: some View {
             VStack(spacing: 0) {
@@ -246,6 +305,7 @@ final class RtModalChromeRenderTests: XCTestCase {
                     theme.chrome
                         .frame(width: Self.rail)
                         .overlay(alignment: .trailing) { theme.rule.frame(width: 1) }
+                        .overlay(alignment: .top) { EditorStandIn(view: editor).frame(height: 24).padding(10) }
                     VStack(spacing: 0) {
                         theme.tabStripFill.frame(height: ChromeMetrics.Strip.height)
                         HStack(spacing: 12) {
@@ -268,9 +328,26 @@ final class RtModalChromeRenderTests: XCTestCase {
         }
     }
 
-    private func hostModal(theme: Theme, variant: Variant) async throws -> (NSWindow, SessionViewModel, ClickProbeView) {
+    private struct Hosted {
+        let window: NSWindow
+        let viewModel: SessionViewModel
+        let probe: ClickProbeView
+        let editor: EditorStandInView
+        let textSize: TerminalTextSizeStore
+    }
+
+    /// `model`, when given, carries the pane the item is linked to, so the
+    /// coordinator does not take the item for one whose pane has gone.
+    private func hostModal(
+        theme: Theme, variant: Variant, factory: any GhosttyPaneFactory = GroundSurfaceFactory(), model: SessionModel? = nil
+    ) async throws -> Hosted {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
-        let viewModel = SessionViewModel(client: OfflineClient(), ghosttyFactory: GroundSurfaceFactory())
+        defaults.removeObject(forKey: TerminalTextSizeStore.defaultsKey)
+        let textSize = TerminalTextSizeStore(userDefaults: defaults)
+        let viewModel = SessionViewModel(client: OfflineClient(), ghosttyFactory: factory)
+        if let model {
+            viewModel.update(model: model, connection: .live)
+        }
         let home = NSHomeDirectory()
         let item: RtItem
         var serviceTabID: TabID?
@@ -287,8 +364,9 @@ final class RtModalChromeRenderTests: XCTestCase {
         viewModel.rt.modal = RtModal(itemID: item.id, tabID: item.tabID, serviceTabID: serviceTabID)
 
         let probe = ClickProbeView()
-        let root = StandIn(theme: theme, viewModel: viewModel, probe: probe)
-            .environment(TerminalTextSizeStore(userDefaults: defaults))
+        let editor = EditorStandInView()
+        let root = StandIn(theme: theme, viewModel: viewModel, probe: probe, editor: editor)
+            .environment(textSize)
             .environment(OptionAsAltStore(userDefaults: defaults))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: StandIn.size), styleMask: [.borderless],
@@ -299,7 +377,37 @@ final class RtModalChromeRenderTests: XCTestCase {
         window.contentView = NSHostingView(rootView: root)
         window.makeKeyAndOrderFront(nil)
         await settle(window)
-        return (window, viewModel, probe)
+        return Hosted(window: window, viewModel: viewModel, probe: probe, editor: editor, textSize: textSize)
+    }
+
+    private static let workspace = WorkspaceID(rawValue: "w1")
+
+    /// One workspace, one tab, and the pane the modal's item is linked to.
+    /// `revision` is there to make a second model that differs from the first.
+    private static func model(revision: Int) -> SessionModel {
+        let tab = TabID(rawValue: "w1:t1")
+        var pane = PaneRecord(
+            paneID: PaneID(rawValue: "w1:p1"), workspaceID: workspace, tabID: tab, focused: true, agentStatus: .idle,
+            revision: revision, terminalTitleStripped: "zsh", label: nil, cwd: "/private/tmp", scroll: nil
+        )
+        pane.terminalID = TerminalID(rawValue: "term-1")
+        return SessionModel(snapshot: SessionSnapshot(
+            version: "0.9.0", protocolVersion: 22,
+            focusedWorkspaceID: workspace, focusedTabID: tab, focusedPaneID: pane.paneID,
+            workspaces: [
+                WorkspaceRecord(workspaceID: workspace, label: "acme", number: 1, activeTabID: tab, agentStatus: .idle),
+            ],
+            tabs: [TabRecord(tabID: tab, workspaceID: workspace, label: "main", number: 1, paneCount: 1, agentStatus: .idle)],
+            panes: [pane], layouts: []
+        ))
+    }
+
+    private func ghosttyView(in window: NSWindow) -> GhosttySurfaceView? {
+        func find(_ view: NSView) -> GhosttySurfaceView? {
+            if let surface = view as? GhosttySurfaceView { return surface }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        return window.contentView.flatMap(find)
     }
 
     private static func item(kind: RtKind, title: String, folder: String, strip: RtStrip?) -> RtItem {
@@ -460,6 +568,22 @@ private struct ClickProbe: NSViewRepresentable {
     func updateNSView(_ nsView: ClickProbeView, context: Context) {}
 }
 
+/// Where a rename editor's field would sit: a view that takes the keyboard
+/// once a test arms it. An xctest window never becomes key, and in one that
+/// holds any view accepting first responder SwiftUI's tap gestures stop
+/// firing, which would take the backdrop's click away from every other test.
+private final class EditorStandInView: NSView {
+    var armed = false
+    override var acceptsFirstResponder: Bool { armed }
+}
+
+private struct EditorStandIn: NSViewRepresentable {
+    let view: EditorStandInView
+
+    func makeNSView(context: Context) -> EditorStandInView { view }
+    func updateNSView(_ nsView: EditorStandInView, context: Context) {}
+}
+
 private struct OfflineClient: HerdrCommandClient {
     struct Offline: Error {}
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data { throw Offline() }
@@ -484,5 +608,25 @@ private struct GroundSurfaceFactory: GhosttyPaneFactory {
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
         GroundSurface()
+    }
+}
+
+/// A real libghostty surface over `/usr/bin/true`, for the one test that
+/// needs the terminal's own claim on the keyboard.
+@MainActor
+private struct SessionSurfaceFactory: GhosttyPaneFactory {
+    let host: GhosttyHost
+
+    func makeSurface(
+        for pane: PaneID, onUserInput: @escaping () -> Void,
+        onClearRequested: @escaping () -> Void,
+        onScreenActivity: @escaping (Int) -> Bool
+    ) async -> any GhosttyPaneSurface {
+        GhosttySessionSurfaceHandle(session: host.makeSession(
+            paneID: pane,
+            configuration: GhosttySession.Launch(
+                commandArgv: ["/usr/bin/true"], themeColors: Theme.tokyoNight.ghosttyThemeColors()
+            )
+        ))
     }
 }

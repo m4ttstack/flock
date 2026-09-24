@@ -88,7 +88,9 @@ struct RtModalView: View {
                 .fill(theme.pane)
                 .shadow(color: .black.opacity(Metrics.shadowOpacity), radius: Metrics.shadowRadius, y: Metrics.shadowY)
         }
-        .background(RtModalKeyMonitor(stripShown: item.strip != nil, onClose: close))
+        // The sidebar stays live under the modal, so a rename editor can be
+        // open there, and the keys typed into it are not the strip's.
+        .background(RtModalKeyMonitor(stripShown: item.strip != nil && !viewModel.renameEditorIsOnScreen, onClose: close))
     }
 
     /// Every hidden rt tab holds one pane. Until the model has the tab the
