@@ -96,6 +96,7 @@ struct FlockApp: App {
     @NSApplicationDelegateAdaptor(FlockAppDelegate.self) private var appDelegate
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
+    @State private var rtModalSizeStore = RtModalSizeStore()
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
     @State private var scrollSpeedStore = ScrollSpeedStore()
@@ -280,6 +281,7 @@ struct FlockApp: App {
             }
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
+                .environment(rtModalSizeStore)
                 .environment(optionAsAltStore)
                 .environment(railWidthStore)
                 .environment(sectionCollapseStore)

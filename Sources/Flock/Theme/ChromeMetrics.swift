@@ -536,7 +536,14 @@ enum ChromeMetrics {
     /// above it and, once its command has ended, a strip below it.
     enum RtModal {
         /// Of the tab area, on each axis.
-        static let sizeFraction: CGFloat = 0.9
+        static func sizeFraction(_ size: RtModalSize) -> CGFloat {
+            switch size {
+            case .small: 0.7
+            case .medium: 0.8
+            case .large: 0.9
+            }
+        }
+
         static let cornerRadius: CGFloat = 8
         static let darkBackdropOpacity: Double = 0.45
         static let lightBackdropOpacity: Double = 0.30
@@ -554,6 +561,24 @@ enum ChromeMetrics {
             static let gap: CGFloat = 8
             static let backDividerSize = CGSize(width: 1, height: 12)
             static let closeGlyphSize: CGFloat = 12
+        }
+
+        /// The title row's three size buttons, Small to Large, before the
+        /// close glyph.
+        enum SizeControl {
+            static let buttonSide: CGFloat = 18
+            static let spacing: CGFloat = 2
+            static let gapBeforeClose: CGFloat = 10
+            static let glyphCornerRadius: CGFloat = 1.5
+            static let glyphLineWidth: CGFloat = 1.25
+
+            static func glyphSize(_ size: RtModalSize) -> CGSize {
+                switch size {
+                case .small: CGSize(width: 10, height: 7)
+                case .medium: CGSize(width: 12, height: 9)
+                case .large: CGSize(width: 14, height: 10.5)
+                }
+            }
         }
 
         enum Strip {

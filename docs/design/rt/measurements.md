@@ -105,8 +105,8 @@ were opened, and clicking one shows it in the modal.
 **Placement.** An overlay over the tab area only: the tab strip and the panes,
 right of the sidebar. The sidebar, the title bar and any banner stay clear and
 undimmed. The backdrop is black at 45%
-in a dark theme and 30% in a light one. The box is 90% of the tab area on each
-axis, centred in it.
+in a dark theme and 30% in a light one. The box is 70%, 80% or 90% of the tab
+area on each axis (the size control, below), centred in it.
 
 **Box:** fill `theme.pane`, 1pt `theme.paneBorder` stroke, r8, clipped. Shadow
 black at 35%, offset y 8, blur 24 on the canvas (a SwiftUI `shadow` radius of
@@ -116,6 +116,15 @@ black at 35%, offset y 8, blur 24 on the canvas (a SwiftUI `shadow` radius of
 11.5/600 in `theme.textStrong`, truncating in the middle, reads
 `<command> · <folder>` with the home folder as `~`. A 12x12 `xmark` in
 `theme.textDim` at the trailing edge.
+
+**Size control:** three buttons between the title's spacer and the `xmark`,
+left to right Small (0.7 of the tab area), Medium (0.8, the default) and Large
+(0.9). Each is drawn as a rounded rectangle, r1.5, that grows with its size:
+10x7, 12x9 and 14x10.5. The unselected ones are a 1.25pt outline in
+`theme.textDim`; the selected one is filled in `theme.accent` with no stroke.
+Each button's hit area is 18x18, 2 apart, centred on the row's height, and the
+group ends 10 before the `xmark`. The choice is a preference kept across modals
+and launches; there is no keyboard shortcut.
 
 **Service view:** the title row leads with "← runner" at 11/500 in
 `theme.accent`, then a 1x12 rule in `theme.rule`, then the title.
@@ -137,6 +146,7 @@ illustration.
 | `RtModal.tabStripHeight`, `tabSpacing`, `tabHorizontalPadding`, the tab strip | a strip for items spanning tabs | none: one pane per hidden tab |
 | `RtModal.backdropOpacity` | 0.45 | 0.45 dark, 0.30 light |
 | `RtModal.sizeFraction` | 0.8 | 0.8; the first hand test moved it to 0.9 |
+| box fraction | 0.9 | Small 0.7 / Medium 0.8 / Large 0.9, chosen in the title row, default Medium |
 | `RtModal.shadowRadius` | 24 | 12 (SwiftUI radius for the canvas's blur 24) |
 | strip rule | none | 1pt top `theme.rule` |
 | "← runner" | text alone | text, then a 1x12 `theme.rule` divider |

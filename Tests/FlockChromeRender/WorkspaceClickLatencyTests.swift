@@ -141,6 +141,7 @@ private let latencyDefaultsSuite = "dev.mattstack.flock.workspace-click-latency"
 private struct Harness {
     let themeStore: ThemeStore
     let textSize: TerminalTextSizeStore
+    let rtModalSize: RtModalSizeStore
     let railWidth: RailWidthStore
     let collapse: SectionCollapseStore
     let board: BoardStore
@@ -158,6 +159,7 @@ private struct Harness {
         themeStore = ThemeStore(userDefaults: defaults)
         themeStore.select(.tokyoNight)
         textSize = TerminalTextSizeStore(userDefaults: defaults)
+        rtModalSize = RtModalSizeStore(userDefaults: defaults)
         railWidth = RailWidthStore(userDefaults: defaults)
         collapse = SectionCollapseStore(userDefaults: defaults)
         board = BoardStore(sources: .unconfigured, userDefaults: defaults)
@@ -192,6 +194,7 @@ private struct Harness {
         )
             .environment(themeStore)
             .environment(textSize)
+            .environment(rtModalSize)
             .environment(railWidth)
             .environment(collapse)
             .environment(board)

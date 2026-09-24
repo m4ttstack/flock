@@ -10,6 +10,7 @@ struct RtModalView: View {
     let viewModel: SessionViewModel
 
     @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
+    @Environment(RtModalSizeStore.self) private var modalSizeStore
     @Environment(\.displayScale) private var displayScale
 
     private typealias Metrics = ChromeMetrics.RtModal
@@ -18,7 +19,10 @@ struct RtModalView: View {
         if let modal = viewModel.rt.modal, let item = viewModel.rt.modalItem {
             GeometryReader { proxy in
                 let scale = displayScale > 0 ? displayScale : 2
-                let frame = Self.boxFrame(in: proxy.size, origin: proxy.frame(in: .global).origin, scale: scale)
+                let frame = Self.boxFrame(
+                    in: proxy.size, origin: proxy.frame(in: .global).origin, scale: scale,
+                    fraction: Metrics.sizeFraction(modalSizeStore.active)
+                )
                 ZStack(alignment: .topLeading) {
                     backdrop
                     box(modal: modal, item: item, size: frame.size, scale: scale)
@@ -31,9 +35,9 @@ struct RtModalView: View {
     /// Both edges of each axis are snapped where they land in the window, as
     /// `CanvasGrid` snaps a pane box: the pane inside sits a whole number of
     /// points in from them, so ghostty composites it on whole device pixels.
-    static func boxFrame(in area: CGSize, origin: CGPoint, scale: CGFloat) -> CGRect {
+    static func boxFrame(in area: CGSize, origin: CGPoint, scale: CGFloat, fraction: CGFloat) -> CGRect {
         let grid = CanvasGrid(canvas: area, phase: origin, displayScale: scale)
-        let margin = (1 - Metrics.sizeFraction) / 2
+        let margin = (1 - fraction) / 2
         let left = grid.snappedX(area.width * margin)
         let right = grid.snappedX(area.width * (1 - margin))
         let top = grid.snappedY(area.height * margin)
@@ -62,7 +66,8 @@ struct RtModalView: View {
         return VStack(spacing: 0) {
             RtModalTitleRow(
                 theme: theme, title: item.modalTitle(home: NSHomeDirectory()),
-                showsBackToRunner: modal.serviceTabID != nil, onBack: back, onClose: close
+                showsBackToRunner: modal.serviceTabID != nil, size: modalSizeStore.active,
+                onBack: back, onSize: { modalSizeStore.select($0) }, onClose: close
             )
             // A service is never typed into: only the item's own pane waits
             // for its command.
@@ -111,13 +116,15 @@ struct RtModalView: View {
     }
 }
 
-/// The command and its folder, a close control, and in a runner's service
-/// view a way back to the board.
+/// The command and its folder, the size control, a close control, and in a
+/// runner's service view a way back to the board.
 struct RtModalTitleRow: View {
     let theme: Theme
     let title: String
     let showsBackToRunner: Bool
+    let size: RtModalSize
     let onBack: () -> Void
+    let onSize: (RtModalSize) -> Void
     let onClose: () -> Void
 
     private typealias Metrics = ChromeMetrics.RtModal.TitleRow
@@ -146,21 +153,64 @@ struct RtModalTitleRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(ChromeType.rtModalClose)
-                    .foregroundStyle(theme.textDim)
-                    .frame(width: Metrics.closeGlyphSize, height: Metrics.closeGlyphSize)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
+            HStack(spacing: ChromeMetrics.RtModal.SizeControl.gapBeforeClose) {
+                RtModalSizeControl(theme: theme, selected: size, onSelect: onSize)
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(ChromeType.rtModalClose)
+                        .foregroundStyle(theme.textDim)
+                        .frame(width: Metrics.closeGlyphSize, height: Metrics.closeGlyphSize)
+                        .frame(maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier("flock.rt.modal.close")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-            .accessibilityIdentifier("flock.rt.modal.close")
         }
         .padding(.horizontal, Metrics.horizontalPadding)
         .frame(height: Metrics.height)
         .background(theme.chrome)
+    }
+}
+
+/// One button per modal size, each a box that grows with the size it stands
+/// for; the selected one is filled.
+struct RtModalSizeControl: View {
+    let theme: Theme
+    let selected: RtModalSize
+    let onSelect: (RtModalSize) -> Void
+
+    private typealias Metrics = ChromeMetrics.RtModal.SizeControl
+
+    var body: some View {
+        HStack(spacing: Metrics.spacing) {
+            ForEach(RtModalSize.allCases, id: \.self) { size in
+                Button { onSelect(size) } label: {
+                    glyph(size)
+                        .frame(width: Metrics.buttonSide, height: Metrics.buttonSide)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(size.displayName)
+                .accessibilityLabel("Modal size: \(size.displayName)")
+                .accessibilityIdentifier("flock.rt.modal.size.\(size.rawValue)")
+                .accessibilityAddTraits(size == selected ? .isSelected : [])
+            }
+        }
+    }
+
+    private func glyph(_ size: RtModalSize) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Metrics.glyphCornerRadius)
+        let glyphSize = Metrics.glyphSize(size)
+        return ZStack {
+            if size == selected {
+                shape.fill(theme.accent)
+            } else {
+                shape.strokeBorder(theme.textDim, lineWidth: Metrics.glyphLineWidth)
+            }
+        }
+        .frame(width: glyphSize.width, height: glyphSize.height)
     }
 }
 
