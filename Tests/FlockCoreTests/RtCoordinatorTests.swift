@@ -1,6 +1,17 @@
 import XCTest
 @testable import FlockCore
 
+private struct WaitTimedOut: Error {}
+
+@MainActor
+private func waitUntil(timeout: TimeInterval = 2, _ condition: () -> Bool) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition() {
+        if Date() >= deadline { throw WaitTimedOut() }
+        try await Task.sleep(nanoseconds: 5_000_000)
+    }
+}
+
 @MainActor
 final class RtCoordinatorTests: XCTestCase {
     private func finishWatch(_ rt: RtCoordinator, _ token: String) async throws {
@@ -340,6 +351,59 @@ final class RtCoordinatorTests: XCTestCase {
         XCTAssertEqual(rt.runner(linkedTo: RtFixture.linkedTerminal)?.id, "tok2")
         XCTAssertNil(rt.modal)
         rt.watches["tok2"]?.cancel()
+    }
+
+    /// A typed line that starts nothing leaves the pane at its prompt.
+    func testANewItemIsNotStartedWhileItsPaneSitsAtItsPrompt() async throws {
+        let world = FakeRtWorld()
+        let rt = makeCoordinator(world)
+
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        let polled = world.calls("pane.process_info").count
+        try await waitUntil { world.calls("pane.process_info").count >= polled + 5 }
+
+        XCTAssertEqual(rt.items["tok1"]?.started, false)
+        rt.watches["tok1"]?.cancel()
+    }
+
+    func testAnItemStartsOnceAPollSeesItsPaneBusy() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt glitter", .init(busyPolls: 1000, status: "0"))
+        let rt = makeCoordinator(world)
+
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        XCTAssertEqual(rt.items["tok1"]?.started, false)
+        try await waitUntil { rt.items["tok1"]?.started == true }
+
+        XCTAssertNil(rt.items["tok1"]?.strip, "started while its command still runs")
+        rt.watches["tok1"]?.cancel()
+    }
+
+    /// A command over before any poll saw it running is started by its strip,
+    /// exited or finished.
+    func testACommandThatEndsUnseenIsStartedOnItsStrip() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt glitter", .init(busyPolls: 0, status: "1"))
+        let rt = makeCoordinator(world)
+
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertEqual(rt.items["tok1"]?.strip, .exited(1))
+        XCTAssertEqual(rt.items["tok1"]?.started, true)
+    }
+
+    func testARunWhoseScriptEndsUnseenIsStartedOnItsStrip() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt run", .init(busyPolls: 0, status: "0", out: rtResultLine + "\n"))
+        world.script("cd '/src/acme/web' && pnpm run test", .init(busyPolls: 0, status: "0"))
+        let rt = makeCoordinator(world)
+
+        await rt.open(.run, from: world.fixture.linkedPane)
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertEqual(rt.items["tok1"]?.strip, .finished(0))
+        XCTAssertEqual(rt.items["tok1"]?.started, true)
     }
 
     func testClosingTheModalHandsHerdrsFocusToTheLinkedPane() async throws {

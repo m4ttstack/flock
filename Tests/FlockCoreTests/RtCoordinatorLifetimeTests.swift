@@ -165,6 +165,25 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         rt.watches["old3"]?.cancel()
     }
 
+    /// Adopted commands were running before the launch.
+    func testLaunchAdoptsItsRunnerAndRunsStarted() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wR", label: "flock:rt runner term_a1")
+        world.seed(tab: "wR:t1", in: "wR", label: "runner term_a1 old1", number: 1)
+        world.seed(pane: "wR:p1", tab: "wR:t1", workspace: "wR", terminal: "term_r1")
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_a1 old3", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        let rt = makeCoordinator(world)
+
+        rt.update(model: world.model())
+
+        XCTAssertEqual(rt.items["old1"]?.started, true)
+        XCTAssertEqual(rt.items["old3"]?.started, true)
+        rt.watches["old1"]?.cancel()
+        rt.watches["old3"]?.cancel()
+    }
+
     /// A hidden tab holds one pane, so a tab rt did not open through flock is
     /// never an item's: it is shut down even while a run is picking.
     func testAStrayTabIsShutDownEvenWhileARunPicks() async throws {

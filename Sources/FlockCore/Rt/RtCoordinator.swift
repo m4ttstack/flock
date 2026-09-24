@@ -166,7 +166,8 @@ public final class RtCoordinator {
             try await herdr.type(RtCommandLine.command(for: kind, shell: shell, seeded: seed != nil), into: host.rootPaneID)
             items[token] = RtItem(
                 id: token, kind: kind, linked: terminal, workspaceID: host.workspaceID, tabID: host.tabID,
-                firstPaneID: host.rootPaneID, title: kind.defaultTitle, folder: pane.cwd, isRunning: true, strip: nil
+                firstPaneID: host.rootPaneID, title: kind.defaultTitle, folder: pane.cwd,
+                isRunning: true, started: false, strip: nil
             )
             lifecycles[token] = RtLifecycle(kind: kind, startedAt: now())
             openedOrder.append(token)
@@ -321,6 +322,7 @@ public final class RtCoordinator {
             return false
         }
         misses[id] = nil
+        if observation.firstPaneBusy, items[id]?.started == false { items[id]?.started = true }
         guard var lifecycle = lifecycles[id] else { return false }
         let outcome = lifecycle.observe(observation)
         lifecycles[id] = lifecycle
@@ -373,10 +375,12 @@ public final class RtCoordinator {
             return false
         case .exited(let status):
             items[id]?.isRunning = false
+            items[id]?.started = true
             items[id]?.strip = .exited(status)
             return false
         case .finished(let status):
             items[id]?.isRunning = false
+            items[id]?.started = true
             items[id]?.strip = .finished(status)
             return false
         case .becomeRunner(let seed):

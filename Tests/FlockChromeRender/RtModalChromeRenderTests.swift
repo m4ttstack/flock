@@ -274,6 +274,95 @@ final class RtModalChromeRenderTests: XCTestCase {
         XCTAssertNil(viewModel.rt.modal, "a plain key left the modal up under a strip once the editor closed")
     }
 
+    // MARK: - The loader
+
+    /// Until its command holds the pane, all the pane has to show is the
+    /// shell's prompt and the typed line: the loader runs over it and the
+    /// surface stays hidden. Once started, the loader goes and the surface
+    /// shows.
+    func testAnUnstartedItemShowsTheLoaderOverAHiddenSurfaceUntilItStarts() async throws {
+        ChromeType.install()
+        for theme in Self.themes {
+            let hosted = try await hostModal(theme: theme, variant: .nav, started: false)
+            let (window, viewModel) = (hosted.window, hosted.viewModel)
+            defer { window.close() }
+            let label = theme.id
+            let area = paneArea(in: window)
+
+            let starting = try snapshot(window)
+            try write(starting, "rt-modal-loader-starting-\(theme.id).png")
+            XCTAssertGreaterThan(markPixels(in: starting, area), 40, "\(label): no loader over an unstarted item")
+            XCTAssertEqual(surfaceOpacity(in: window), 0, "\(label): the surface shows before its command started")
+
+            let id = try XCTUnwrap(viewModel.rt.modal?.itemID)
+            viewModel.rt.items[id]?.started = true
+            await settle(window)
+            let started = try snapshot(window)
+            try write(started, "rt-modal-loader-started-\(theme.id).png")
+            XCTAssertEqual(markPixels(in: started, area), 0, "\(label): the loader outlived the start")
+            XCTAssertEqual(surfaceOpacity(in: window), 1, "\(label): the surface stayed hidden once started")
+        }
+    }
+
+    /// A service is not the item's own pane and nothing was typed into it.
+    func testTheServiceViewShowsNoLoader() async throws {
+        ChromeType.install()
+        let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .service, started: false)
+        let window = hosted.window
+        defer { window.close() }
+
+        XCTAssertEqual(markPixels(in: try snapshot(window), paneArea(in: window)), 0, "a loader over a service")
+        XCTAssertEqual(surfaceOpacity(in: window), 1, "the service's surface is hidden")
+    }
+
+    /// The pane's area in the box: under the title row, the inset in from the
+    /// box's edges.
+    private func paneArea(in window: NSWindow) -> CGRect {
+        let box = StandIn.box(in: window)
+        let inset = ChromeMetrics.RtModal.paneInset
+        let titleRow = ChromeMetrics.RtModal.TitleRow.height
+        return CGRect(
+            x: box.minX + inset, y: box.minY + titleRow + inset,
+            width: box.width - 2 * inset, height: box.height - titleRow - 2 * inset
+        )
+    }
+
+    /// Pixels of the ram's own colour in `area`: the loader's mark, which no
+    /// theme repaints.
+    private func markPixels(in image: NSBitmapImageRep, _ area: CGRect, scale: CGFloat = 2) -> Int {
+        guard let data = image.bitmapData else { return 0 }
+        let leader = HerdrRamTrail.Colors.leader
+        let target = [leader.red, leader.green, leader.blue]
+        let step = image.bitsPerPixel / 8
+        var count = 0
+        for y in Int(area.minY * scale)..<min(Int(area.maxY * scale), image.pixelsHigh) {
+            for x in Int(area.minX * scale)..<min(Int(area.maxX * scale), image.pixelsWide) {
+                let offset = y * image.bytesPerRow + x * step
+                if (0..<3).allSatisfy({ abs(Int(data[offset + $0]) - target[$0]) <= 12 }) { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// The pane's surface as composited: its layer's opacity times every
+    /// layer above it.
+    private func surfaceOpacity(in window: NSWindow) -> Float? {
+        guard let root = window.contentView else { return nil }
+        func find(_ view: NSView) -> NSView? {
+            if String(describing: type(of: view)) == "PlaceholderGhosttyHostView" { return view }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        guard let surface = find(root) else { return nil }
+        var opacity: Float = 1
+        var layer = surface.layer
+        while let current = layer {
+            if current.isHidden { return 0 }
+            opacity *= current.opacity
+            layer = current.superlayer
+        }
+        return opacity
+    }
+
     // MARK: - The stand-in window
 
     /// Laid out as `MainWindow` lays out its own: a title bar, the rail, and
@@ -346,7 +435,8 @@ final class RtModalChromeRenderTests: XCTestCase {
     /// `model`, when given, carries the pane the item is linked to, so the
     /// coordinator does not take the item for one whose pane has gone.
     private func hostModal(
-        theme: Theme, variant: Variant, factory: any GhosttyPaneFactory = GroundSurfaceFactory(), model: SessionModel? = nil
+        theme: Theme, variant: Variant, started: Bool = true, factory: any GhosttyPaneFactory = GroundSurfaceFactory(),
+        model: SessionModel? = nil
     ) async throws -> Hosted {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
         defaults.removeObject(forKey: TerminalTextSizeStore.defaultsKey)
@@ -356,7 +446,7 @@ final class RtModalChromeRenderTests: XCTestCase {
             viewModel.update(model: model, connection: .live)
         }
         let home = NSHomeDirectory()
-        let item: RtItem
+        var item: RtItem
         var serviceTabID: TabID?
         switch variant {
         case .nav:
@@ -367,6 +457,7 @@ final class RtModalChromeRenderTests: XCTestCase {
             item = Self.item(kind: .runner, title: "runner", folder: home + "/src/acme", strip: nil)
             serviceTabID = TabID(rawValue: "rt:t2")
         }
+        item.started = started
         viewModel.rt.items[item.id] = item
         viewModel.rt.modal = RtModal(itemID: item.id, tabID: item.tabID, serviceTabID: serviceTabID)
 
@@ -422,7 +513,7 @@ final class RtModalChromeRenderTests: XCTestCase {
             id: "\(kind.rawValue)-1", kind: kind, linked: TerminalID(rawValue: "term-1"),
             workspaceID: WorkspaceID(rawValue: "rt"), tabID: TabID(rawValue: "rt:t1"),
             firstPaneID: PaneID(rawValue: "rt:p1"), title: title, folder: folder,
-            isRunning: strip == nil, strip: strip
+            isRunning: strip == nil, started: true, strip: strip
         )
     }
 

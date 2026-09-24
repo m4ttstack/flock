@@ -6,7 +6,7 @@ final class RtItemTests: XCTestCase {
         RtItem(
             id: "tok1", kind: kind, linked: TerminalID(rawValue: "term_a1"), workspaceID: WorkspaceID(rawValue: "wF"),
             tabID: TabID(rawValue: "wF:t1"), firstPaneID: PaneID(rawValue: "wF:p1"),
-            title: title, folder: "/Users/acme/src/app", isRunning: running, strip: strip
+            title: title, folder: "/Users/acme/src/app", isRunning: running, started: true, strip: strip
         )
     }
 

@@ -40,11 +40,14 @@ public struct RtItem: Identifiable, Equatable, Sendable {
     public var title: String
     public let folder: String
     public var isRunning: Bool
+    /// Whether the command has held its pane's foreground, or has ended.
+    /// Until then the pane shows only the shell's prompt and the typed line.
+    public var started: Bool
     public var strip: RtStrip?
 
     public init(
         id: String, kind: RtKind, linked: TerminalID, workspaceID: WorkspaceID, tabID: TabID, firstPaneID: PaneID,
-        title: String, folder: String, isRunning: Bool, strip: RtStrip?
+        title: String, folder: String, isRunning: Bool, started: Bool, strip: RtStrip?
     ) {
         self.id = id
         self.kind = kind
@@ -55,6 +58,7 @@ public struct RtItem: Identifiable, Equatable, Sendable {
         self.title = title
         self.folder = folder
         self.isRunning = isRunning
+        self.started = started
         self.strip = strip
     }
 

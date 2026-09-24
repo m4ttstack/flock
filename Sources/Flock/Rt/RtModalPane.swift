@@ -3,6 +3,11 @@ import SwiftUI
 
 /// One hidden pane on its ghostty surface. It attaches and parks like a
 /// canvas cell, through the view model's per-pane chain.
+///
+/// While `waitsForCommand`, all the pane has to show is the shell's prompt
+/// and the line flock typed, so the pane loader runs over it instead. The
+/// surface stays mounted underneath at zero opacity: libghostty needs a real
+/// window to render into.
 struct RtModalPane: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -11,6 +16,7 @@ struct RtModalPane: View {
     let surfaceSize: CGSize
     let fontSizePoints: Double
     let isFocused: Bool
+    let waitsForCommand: Bool
     let onFocus: () -> Void
 
     @Environment(OptionAsAltStore.self) private var optionAsAltStore
@@ -18,7 +24,7 @@ struct RtModalPane: View {
 
     init(
         theme: Theme, viewModel: SessionViewModel, paneID: PaneID, grid: PTYSize, surfaceSize: CGSize,
-        fontSizePoints: Double, isFocused: Bool, onFocus: @escaping () -> Void
+        fontSizePoints: Double, isFocused: Bool, waitsForCommand: Bool, onFocus: @escaping () -> Void
     ) {
         self.theme = theme
         self.viewModel = viewModel
@@ -27,6 +33,7 @@ struct RtModalPane: View {
         self.surfaceSize = surfaceSize
         self.fontSizePoints = fontSizePoints
         self.isFocused = isFocused
+        self.waitsForCommand = waitsForCommand
         self.onFocus = onFocus
         _surface = State(initialValue: viewModel.ghosttySurface(for: paneID))
     }
@@ -47,9 +54,16 @@ struct RtModalPane: View {
                     editorIsOpen: editorIsOpen, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
                 )
                 .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)
-                .opacity(surface.hasFirstFrame ? 1 : 0)
+                .opacity(surface.hasFirstFrame && !waitsForCommand ? 1 : 0)
             }
         }
+        .overlay {
+            if waitsForCommand {
+                PaneLoaderView(theme: theme)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: waitsForCommand)
         .task(id: paneID) { surface = await viewModel.attachPane(paneID) }
         .onDisappear { Task { await viewModel.detachPane(paneID) } }
     }

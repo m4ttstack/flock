@@ -64,9 +64,12 @@ struct RtModalView: View {
                 theme: theme, title: item.modalTitle(home: NSHomeDirectory()),
                 showsBackToRunner: modal.serviceTabID != nil, onBack: back, onClose: close
             )
+            // A service is never typed into: only the item's own pane waits
+            // for its command.
             RtModalPane(
                 theme: theme, viewModel: viewModel, paneID: paneID, grid: PTYSize(cols: fit.cols, rows: fit.rows),
-                surfaceSize: fit.size, fontSizePoints: fontSize, isFocused: item.strip == nil, onFocus: {}
+                surfaceSize: fit.size, fontSizePoints: fontSize, isFocused: item.strip == nil,
+                waitsForCommand: modal.serviceTabID == nil && !item.started, onFocus: {}
             )
             // A service shown in place of its board is another pane: it gets
             // a view of its own, so the board's surface parks as it leaves.

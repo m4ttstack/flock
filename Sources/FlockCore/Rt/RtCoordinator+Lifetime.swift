@@ -149,7 +149,7 @@ extension RtCoordinator {
         items[link.token] = RtItem(
             id: link.token, kind: .runner, linked: link.terminal, workspaceID: workspace.workspaceID,
             tabID: board.tabID, firstPaneID: first, title: RtKind.runner.defaultTitle,
-            folder: model.panes[first]?.cwd ?? "", isRunning: true, strip: nil
+            folder: model.panes[first]?.cwd ?? "", isRunning: true, started: true, strip: nil
         )
         lifecycles[link.token] = RtLifecycle(kind: .runner, startedAt: now())
         openedOrder.append(link.token)
@@ -191,7 +191,7 @@ extension RtCoordinator {
         items[link.token] = RtItem(
             id: link.token, kind: .run, linked: link.terminal, workspaceID: tab.workspaceID, tabID: tab.tabID,
             firstPaneID: first, title: result?.commandTemplate ?? RtKind.run.defaultTitle,
-            folder: model.panes[first]?.cwd ?? "", isRunning: stage != .done, strip: strip
+            folder: model.panes[first]?.cwd ?? "", isRunning: stage != .done, started: true, strip: strip
         )
         lifecycles[link.token] = RtLifecycle.resumed(kind: .run, stage: stage, at: now())
         openedOrder.append(link.token)
