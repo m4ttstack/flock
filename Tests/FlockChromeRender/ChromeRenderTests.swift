@@ -2047,6 +2047,17 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertGreaterThan(count(amber, in: centre, of: image), 0, "\(scheme): no DEV tag beside the title")
             XCTAssertGreaterThan(count(amber, in: trailing, of: image), 0, "\(scheme): no restart offer at the right")
             XCTAssertGreaterThan(count(amber, in: titleBar, of: image), 0)
+            // The tab strip's scroll view reaches up through the system title
+            // bar's safe area; every point of the pill must still reach the
+            // pill rather than that scroll view.
+            let pillColumns = stride(from: trailing.minX, to: trailing.maxX, by: 1).filter {
+                count(amber, in: CGRect(x: $0, y: 0, width: 1, height: ChromeMetrics.TitleBar.height), of: image) > 0
+            }
+            let pillStart = try XCTUnwrap(pillColumns.first), pillEnd = try XCTUnwrap(pillColumns.last)
+            for x in stride(from: pillStart + 2, to: pillEnd - 1, by: 4) {
+                let point = CGPoint(x: x, y: ChromeMetrics.TitleBar.height / 2)
+                XCTAssertFalse(isInsideScrollView(hitView(at: point, in: window)), "\(scheme): \(point) lands in a scroll view")
+            }
             window.close()
         }
     }
@@ -2774,6 +2785,18 @@ final class ChromeRenderTests: XCTestCase {
     /// Every visible view of ours under a top-left window point, the content
     /// view included: the views whose `mouseDownCanMoveWindow` decides whether
     /// a press there moves the window.
+    /// The view AppKit would deliver a press at `point` to, from the window's
+    /// frame view down, so the title bar's own views compete too.
+    private func hitView(at point: CGPoint, in window: NSWindow) -> NSView? {
+        guard let frameView = window.contentView?.superview else { return nil }
+        let windowPoint = NSPoint(x: point.x, y: window.frame.height - point.y)
+        return frameView.hitTest(frameView.superview?.convert(windowPoint, from: nil) ?? windowPoint)
+    }
+
+    private func isInsideScrollView(_ view: NSView?) -> Bool {
+        sequence(first: view, next: { $0?.superview }).contains { $0 is NSScrollView }
+    }
+
     private func contentViews(at point: CGPoint, in window: NSWindow) -> [NSView] {
         guard let root = window.contentView else { return [] }
         let windowPoint = NSPoint(x: point.x, y: window.frame.height - point.y)
