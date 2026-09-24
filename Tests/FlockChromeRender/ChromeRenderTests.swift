@@ -250,6 +250,76 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The badge's right button is lit, in the accent, only while right-clicks
+    /// go to the program, and a real click on the badge flips the mode.
+    func testTheMouseBadgeLightsItsRightButtonInProgramModeAndAClickFlipsIt() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let holder = PaneID(rawValue: "w1:p2")
+        let terminal = TerminalID(rawValue: "term_p2")
+        for id in ["tokyo-night", "catppuccin-latte"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            var model = try Fixture.model()
+            model.panes[holder]?.terminalID = terminal
+            let harness = try await Harness(theme: theme, model: model, mouseHolders: [holder])
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[holder]), dividerThickness: DividerBand.gutter)
+            let legend = CGRect(
+                x: box.midX, y: box.minY + PaneChrome.verticalPadding,
+                width: box.maxX - PaneChrome.horizontalPadding - box.midX, height: PaneChrome.titleRowHeight
+            )
+
+            let onMenu = try snapshot(window)
+            XCTAssertNil(firstPixel(onMenu, in: legend, matching: theme.palette.accent.hex), "\(id): lit on the menu")
+
+            harness.viewModel.rightClicks.toggle(terminal)
+            await settle(window)
+            let onProgram = try snapshot(window)
+            let lit = try XCTUnwrap(
+                firstPixel(onProgram, in: legend, matching: theme.palette.accent.hex), "\(id): not lit for the program"
+            )
+            for (name, image) in [("menu", onMenu), ("program", onProgram)] {
+                if let directory {
+                    let url = URL(fileURLWithPath: directory).appendingPathComponent("mouse-mode-\(name)-\(id).png")
+                    try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+                }
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            click(window, at: lit)
+            await settle(window)
+            XCTAssertEqual(harness.viewModel.rightClicks.mode(for: terminal), .menu, "\(id): the click did not flip it")
+            XCTAssertNil(firstPixel(try snapshot(window), in: legend, matching: theme.palette.accent.hex), "\(id): still lit")
+            window.close()
+        }
+    }
+
+    private func firstPixel(_ image: NSBitmapImageRep, in rect: CGRect, matching target: String) -> CGPoint? {
+        var y = rect.minY
+        while y <= rect.maxY {
+            var x = rect.minX
+            while x <= rect.maxX {
+                if hex(image, CGPoint(x: x, y: y)) == target { return CGPoint(x: x, y: y) }
+                x += 0.5
+            }
+            y += 0.5
+        }
+        return nil
+    }
+
+    /// A press and a release at `point`, top-left in the window's content.
+    private func click(_ window: NSWindow, at point: CGPoint) {
+        let height = window.contentView?.bounds.height ?? 0
+        let location = NSPoint(x: point.x, y: height - point.y)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(
+                with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            ) else { continue }
+            window.sendEvent(event)
+        }
+    }
+
     /// A machine with no chat binary draws no button: the legend's corner
     /// stays the pane's own ground, not `surface0` or `selectionBg`.
     func testChatButtonIsAbsentWhenChatIsUnavailable() async throws {

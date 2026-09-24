@@ -31,6 +31,8 @@ public final class SessionViewModel {
     public private(set) var connectionState: ConnectionState = .connecting
     /// Everything opened through a pane's rt button.
     public let rt: RtCoordinator
+    /// Each canvas pane's right-click mode (see `RightClickDisposition`).
+    public let rightClicks: RightClickModeStore
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
@@ -153,7 +155,8 @@ public final class SessionViewModel {
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
         attentionToastArchive: AttentionToastArchive? = nil,
         navigationPollInterval: Duration = .milliseconds(300),
-        rt: RtCoordinator? = nil
+        rt: RtCoordinator? = nil,
+        rightClickDefaults: UserDefaults? = nil
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -168,6 +171,7 @@ public final class SessionViewModel {
         self.attentionToastArchive = attentionToastArchive
         self.navigationPollInterval = navigationPollInterval
         self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
+        self.rightClicks = RightClickModeStore(userDefaults: rightClickDefaults)
         if let attentionToastArchive, notificationLifetime() != .never {
             attentionToasts = attentionToastArchive.load()
         }
@@ -223,6 +227,9 @@ public final class SessionViewModel {
         reconcileAgentStatusFeeds()
         reconcileAttentionToasts(previous: previousModel)
         rt.update(model: fullModel)
+        if connection == .live, let fullModel {
+            rightClicks.keepOnly(Set(fullModel.panes.values.compactMap(\.terminalID)))
+        }
     }
 
     /// Moves the selection off a tab or workspace this update has closed, to

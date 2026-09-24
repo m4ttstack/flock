@@ -8,22 +8,35 @@ import XCTest
 /// draws; the recorded disposition is what the click would have done.
 @MainActor
 final class RightClickRoutingTests: XCTestCase {
-    func testAFocusedPaneWhoseProgramClaimedTheMouseTakesAPlainRightClick() throws {
+    func testAPaneOnTheMenuOpensItAndSendsOptionToTheProgram() throws {
         let view = try surfaceView(focused: true, capture: true)
-        view.rightMouseDown(with: try rightClick(option: false))
-        XCTAssertEqual(view.rightButtonDownDisposition, .forwardToPane)
+        XCTAssertEqual(try disposition(of: view, option: false), .menu, "a pane starts on the menu")
+        XCTAssertEqual(try disposition(of: view, option: true), .forwardToPane)
     }
 
-    func testOptionSendsTheSameClickToTheMenu() throws {
+    func testAPaneSwitchedToItsProgramSendsItThePlainClickAndOptionToTheMenu() throws {
         let view = try surfaceView(focused: true, capture: true)
-        view.rightMouseDown(with: try rightClick(option: true))
-        XCTAssertEqual(view.rightButtonDownDisposition, .menu)
+        view.rightClickMode = .program
+        XCTAssertEqual(try disposition(of: view, option: false), .forwardToPane)
+        XCTAssertEqual(try disposition(of: view, option: true), .menu)
+    }
+
+    func testTheModalSendsEveryRightClickToItsProgram() throws {
+        let view = try surfaceView(focused: true, capture: true)
+        view.rightClickMode = .programOnly
+        XCTAssertEqual(try disposition(of: view, option: false), .forwardToPane)
+        XCTAssertEqual(try disposition(of: view, option: true), .forwardToPane)
     }
 
     func testAPlainShellSendsAPlainRightClickToTheMenu() throws {
         let view = try surfaceView(focused: true, capture: false)
-        view.rightMouseDown(with: try rightClick(option: false))
-        XCTAssertEqual(view.rightButtonDownDisposition, .menu)
+        view.rightClickMode = .program
+        XCTAssertEqual(try disposition(of: view, option: false), .menu)
+    }
+
+    private func disposition(of view: GhosttySurfaceView, option: Bool) throws -> RightClickDisposition {
+        view.rightMouseDown(with: try rightClick(option: option))
+        return view.rightButtonDownDisposition
     }
 
     private func surfaceView(focused: Bool, capture: Bool) throws -> GhosttySurfaceView {

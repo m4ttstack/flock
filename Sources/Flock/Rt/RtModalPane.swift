@@ -61,7 +61,8 @@ struct RtModalPane: View {
                 GhosttyPaneTerminalView(
                     surface: surface, grid: grid, theme: theme, isFocused: isFocused,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
-                    rearrangeActive: false, paneDragInProgress: false, isPristineLauncherPane: false,
+                    rearrangeActive: false, rightClickMode: .programOnly,
+                    paneDragInProgress: false, isPristineLauncherPane: false,
                     editorIsOpen: editorIsOpen, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
                 )
                 .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)

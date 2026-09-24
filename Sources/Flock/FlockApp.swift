@@ -236,7 +236,8 @@ struct FlockApp: App {
             // neutral info glyph, never the undo journal's arrow.
             noticeSink: { message in toastCenter.show(message, kind: .info) },
             notificationLifetime: { notificationLifetimeStore.active },
-            attentionToastArchive: AttentionToastArchive()
+            attentionToastArchive: AttentionToastArchive(),
+            rightClickDefaults: .standard
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))

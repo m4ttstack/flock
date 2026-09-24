@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// What a right click on a pane's ghostty surface should do, decided PURELY
 /// from the click's own Option state, whether the pane app has asked for
@@ -26,25 +27,72 @@ public enum RightClickDisposition: Equatable, Sendable {
     ///   every attached pane, focused or not, and `MouseForwarding` drops
     ///   every event for an unfocused pane, so forwarding here would leave the
     ///   click with nowhere to go at all.
-    /// - Focused, Option held: `.menu`.
-    /// - Focused, capture ON: `.forwardToPane`. The program claimed the
-    ///   mouse, so a plain right-click is its click.
-    /// - Focused, capture OFF: `.menu`. Nothing is listening in the pane, so
-    ///   the click falls through to the menu rather than disappearing into a
-    ///   plain shell.
-    ///
-    /// Option means one thing and only one thing on a pane: force the menu.
-    /// It is what keeps the menu reachable in a pane whose program is
-    /// listening, which most agent panes are, and nothing else on this
-    /// surface reads the modifier (see `RearrangeMode`).
+    /// - Capture OFF: `.menu`. Nothing is listening in the pane, so the click
+    ///   falls through to the menu rather than disappearing into a plain shell.
+    /// - Otherwise the pane's `mode` picks the plain click's route and Option
+    ///   takes the other one, except in the rt modal, which has no menu.
     public static func decide(
         optionHeld: Bool,
         captureEnabled: Bool,
         paneIsFocused: Bool,
-        rearrangeActive: Bool = false
+        rearrangeActive: Bool = false,
+        mode: RightClickMode = .menu
     ) -> RightClickDisposition {
         guard !rearrangeActive else { return .suppressed }
-        guard paneIsFocused, !optionHeld, captureEnabled else { return .menu }
-        return .forwardToPane
+        guard paneIsFocused, captureEnabled else { return .menu }
+        switch mode {
+        case .menu: return optionHeld ? .forwardToPane : .menu
+        case .program: return optionHeld ? .menu : .forwardToPane
+        case .programOnly: return .forwardToPane
+        }
+    }
+}
+
+/// Where a plain right-click goes in a pane whose program has the mouse.
+public enum RightClickMode: CaseIterable, Equatable, Sendable {
+    /// flock's menu; Option sends the click to the program.
+    case menu
+    /// The program; Option opens flock's menu.
+    case program
+    /// The program, Option or not: the rt modal has no menu to open.
+    case programOnly
+}
+
+/// Each canvas pane's right-click mode, keyed by its terminal so a pane keeps
+/// its mode across moves. Only `.program` is stored; everything else is on the
+/// menu. `userDefaults` nil keeps it in memory.
+@MainActor
+@Observable
+public final class RightClickModeStore {
+    public static let defaultsKey = "flock.rightClicksToProgram"
+
+    private var toProgram: Set<TerminalID>
+    @ObservationIgnored private let userDefaults: UserDefaults?
+
+    public init(userDefaults: UserDefaults? = nil) {
+        self.userDefaults = userDefaults
+        let stored = userDefaults?.stringArray(forKey: Self.defaultsKey) ?? []
+        toProgram = Set(stored.map(TerminalID.init(rawValue:)))
+    }
+
+    public func mode(for terminal: TerminalID?) -> RightClickMode {
+        guard let terminal, toProgram.contains(terminal) else { return .menu }
+        return .program
+    }
+
+    public func toggle(_ terminal: TerminalID) {
+        if toProgram.remove(terminal) == nil { toProgram.insert(terminal) }
+        save()
+    }
+
+    public func keepOnly(_ present: Set<TerminalID>) {
+        let kept = toProgram.intersection(present)
+        guard kept != toProgram else { return }
+        toProgram = kept
+        save()
+    }
+
+    private func save() {
+        userDefaults?.set(toProgram.map(\.rawValue).sorted(), forKey: Self.defaultsKey)
     }
 }

@@ -71,6 +71,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// cursor updates, so a mode flip with the pointer resting on the pane
     /// would otherwise leave the old cursor showing until it left and came
     /// back.
+    /// Read at right-mouse-down (`RightClickDisposition.decide`).
+    var rightClickMode: RightClickMode = .menu
     var rearrangeActive = false {
         didSet {
             guard rearrangeActive != oldValue else { return }
@@ -301,20 +303,21 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         leftButtonRoute = nil
     }
 
-    /// Right-clicks land in the focused pane by default and Option summons the
-    /// herdr action menu -- see `RightClickDisposition.decide` for the full
-    /// rule: the focused pane whose app has claimed the mouse forwards a plain
-    /// right-click to the pane; Option, a plain shell (capture off), or any
-    /// pane that is not flock's focused one gets the menu instead. The menu
-    /// itself comes from `menu(for:)` below (built by `paneMenuProvider`),
-    /// reached by handing the event back to the responder chain (`super`);
+    /// Where a right-click goes is `RightClickDisposition.decide`'s: the
+    /// focused pane whose app has claimed the mouse routes it by
+    /// `rightClickMode`, with Option taking the other route; a plain shell
+    /// (capture off) or any pane that is not flock's focused one gets the
+    /// menu. The menu itself comes from `menu(for:)` below (built by
+    /// `paneMenuProvider`), reached by handing the event back to the
+    /// responder chain (`super`);
     /// libghostty's own context menu is never shown here.
     override func rightMouseDown(with event: NSEvent) {
         let disposition = RightClickDisposition.decide(
             optionHeld: event.modifierFlags.contains(.option),
             captureEnabled: session.mouseCaptureEnabled,
             paneIsFocused: wantsFocus,
-            rearrangeActive: rearrangeActive
+            rearrangeActive: rearrangeActive,
+            mode: rightClickMode
         )
         rightButtonDownDisposition = disposition
         switch disposition {

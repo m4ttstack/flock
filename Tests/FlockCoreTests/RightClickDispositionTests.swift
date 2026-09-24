@@ -1,31 +1,47 @@
 import XCTest
 @testable import FlockCore
 
-/// A plain right-click goes to the focused pane's program once it has claimed
-/// the mouse; Option, a plain shell, or an unfocused pane gets the herdr menu.
+/// A focused pane whose program has the mouse sends a plain right-click where
+/// its mode says and an Option right-click the other way. The rt modal has no
+/// menu, so its program gets every right-click. A plain shell, an unfocused
+/// pane, or rearrange mode ignores the mode.
 final class RightClickDispositionTests: XCTestCase {
-    // MARK: - The focused pane
-
-    func testFocusedCapturingPanesPlainClickGoesToItsProgram() {
-        XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: false, captureEnabled: true, paneIsFocused: true),
-            .forwardToPane,
-            "the program claimed the mouse, so a plain right-click is its click")
+    private func decide(option: Bool, mode: RightClickMode) -> RightClickDisposition {
+        RightClickDisposition.decide(optionHeld: option, captureEnabled: true, paneIsFocused: true, mode: mode)
     }
 
-    func testOptionOpensTheMenuEvenWhenTheProgramIsListening() {
-        XCTAssertEqual(
-            RightClickDisposition.decide(optionHeld: true, captureEnabled: true, paneIsFocused: true),
-            .menu,
-            "Option is the escape hatch to the menu out of a listening program")
+    // MARK: - A focused pane whose program has the mouse
+
+    func testInMenuModeAPlainRightClickOpensTheMenuAndOptionReachesTheProgram() {
+        XCTAssertEqual(decide(option: false, mode: .menu), .menu)
+        XCTAssertEqual(decide(option: true, mode: .menu), .forwardToPane)
     }
 
-    func testAPlainShellGetsTheMenu() {
+    func testInProgramModeAPlainRightClickReachesTheProgramAndOptionOpensTheMenu() {
+        XCTAssertEqual(decide(option: false, mode: .program), .forwardToPane)
+        XCTAssertEqual(decide(option: true, mode: .program), .menu)
+    }
+
+    func testInTheModalEveryRightClickReachesTheProgram() {
         for option in [false, true] {
-            XCTAssertEqual(
-                RightClickDisposition.decide(optionHeld: option, captureEnabled: false, paneIsFocused: true),
-                .menu,
-                "nothing in the pane reads the click, so it falls through to the menu (option=\(option))")
+            XCTAssertEqual(decide(option: option, mode: .programOnly), .forwardToPane, "option=\(option)")
+        }
+    }
+
+    func testAPaneStartsInMenuMode() {
+        XCTAssertEqual(RightClickDisposition.decide(optionHeld: false, captureEnabled: true, paneIsFocused: true), .menu)
+    }
+
+    // MARK: - Nothing listening
+
+    func testAPlainShellGetsTheMenuInEveryMode() {
+        for mode in RightClickMode.allCases {
+            for option in [false, true] {
+                XCTAssertEqual(
+                    RightClickDisposition.decide(optionHeld: option, captureEnabled: false, paneIsFocused: true, mode: mode),
+                    .menu,
+                    "nothing in the pane reads the click (mode=\(mode) option=\(option))")
+            }
         }
     }
 
@@ -36,12 +52,16 @@ final class RightClickDispositionTests: XCTestCase {
     /// hand it to `MouseForwarding`, which drops every event for an unfocused
     /// pane: the click would reach neither the menu nor the program.
     func testAnUnfocusedPaneAlwaysGetsTheMenu() {
-        for option in [false, true] {
-            for capture in [false, true] {
-                XCTAssertEqual(
-                    RightClickDisposition.decide(optionHeld: option, captureEnabled: capture, paneIsFocused: false),
-                    .menu,
-                    "an unfocused pane forwards nothing (option=\(option) capture=\(capture))")
+        for mode in RightClickMode.allCases {
+            for option in [false, true] {
+                for capture in [false, true] {
+                    XCTAssertEqual(
+                        RightClickDisposition.decide(
+                            optionHeld: option, captureEnabled: capture, paneIsFocused: false, mode: mode
+                        ),
+                        .menu,
+                        "an unfocused pane forwards nothing (mode=\(mode) option=\(option) capture=\(capture))")
+                }
             }
         }
     }
@@ -49,19 +69,21 @@ final class RightClickDispositionTests: XCTestCase {
     // MARK: - Rearrange mode: neither the menu nor the pane
 
     /// Rearrange mode wins over every other input: the whole pane is a drag
-    /// surface while it is on, so no right-click reaches the rule below it,
-    /// Option held or not.
+    /// surface while it is on, so no right-click reaches the rule below it.
     func testRearrangeActiveIsAlwaysSuppressed() {
-        for option in [false, true] {
-            for capture in [false, true] {
-                for focused in [false, true] {
-                    XCTAssertEqual(
-                        RightClickDisposition.decide(
-                            optionHeld: option, captureEnabled: capture, paneIsFocused: focused, rearrangeActive: true
-                        ),
-                        .suppressed,
-                        "rearrange mode must suppress the right-click (option=\(option) capture=\(capture) focused=\(focused))"
-                    )
+        for mode in RightClickMode.allCases {
+            for option in [false, true] {
+                for capture in [false, true] {
+                    for focused in [false, true] {
+                        XCTAssertEqual(
+                            RightClickDisposition.decide(
+                                optionHeld: option, captureEnabled: capture, paneIsFocused: focused,
+                                rearrangeActive: true, mode: mode
+                            ),
+                            .suppressed,
+                            "mode=\(mode) option=\(option) capture=\(capture) focused=\(focused)"
+                        )
+                    }
                 }
             }
         }

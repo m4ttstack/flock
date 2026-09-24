@@ -434,11 +434,11 @@ struct PaneCellView: View {
     }
 
     /// The legend's trailing end: the mouse badge, the zoom badge, the chat
-    /// button, the rt button, then the status chip. The two buttons are the
-    /// live controls here, and the mouse badge takes hover for its tip, so hit
-    /// testing is turned off on the zoom badge and the status pill themselves
-    /// -- never on a container around them all -- since a disabled ancestor
-    /// cannot be re-enabled from below it.
+    /// button, the rt button, then the status chip. The mouse badge and the
+    /// two buttons are the live controls here, so hit testing is turned off on
+    /// the zoom badge and the status pill themselves -- never on a container
+    /// around them all -- since a disabled ancestor cannot be re-enabled from
+    /// below it.
     private var statusChip: some View {
         HStack(spacing: ChromeMetrics.Pane.legendItemGap) {
             if ghosttySurface?.programHasMouse == true { mouseBadge }
@@ -640,18 +640,13 @@ struct PaneCellView: View {
             .accessibilityIdentifier("flock.pane.zoomBadge.\(pane.paneID.rawValue)")
     }
 
-    /// The pane's program has the mouse, so a plain right-click in the focused
-    /// pane goes to it (`RightClickDisposition`); the tip says how to reach
-    /// flock's menu instead.
+    /// Shown only while the program has the mouse: a plain shell's right-click
+    /// is always flock's menu, so there is nothing to switch.
     private var mouseBadge: some View {
-        Image(systemName: "computermouse")
-            .font(ChromeType.mouseBadge)
-            .foregroundStyle(theme.textDim)
-            .frame(width: ChromeMetrics.Pane.mouseBadgeWidth, height: PaneChrome.titleRowHeight)
-            .contentShape(Rectangle())
-            .help("This pane's program has the mouse, so right-clicks go to it. Hold ⌥ while right-clicking for flock's menu.")
-            .accessibilityLabel("Program has the mouse")
-            .accessibilityIdentifier("flock.pane.mouseBadge.\(pane.paneID.rawValue)")
+        MouseModeButton(
+            theme: theme, paneID: pane.paneID, mode: viewModel.rightClicks.mode(for: pane.terminalID),
+            onToggle: pane.terminalID.map { terminal in { viewModel.rightClicks.toggle(terminal) } }
+        )
     }
 
     /// Status chips only accompany the active states (working/blocked/done);
@@ -756,6 +751,7 @@ struct PaneCellView: View {
                     surface: ghosttySurface, grid: grid, theme: theme, isFocused: isFocused,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
                     rearrangeActive: rearrangeMode.active,
+                    rightClickMode: viewModel.rightClicks.mode(for: pane.terminalID),
                     paneDragInProgress: drag.isPaneDragInFlight,
                     isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
                     // Any open editor, not just this pane's own: the one

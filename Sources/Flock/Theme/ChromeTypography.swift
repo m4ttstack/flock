@@ -139,7 +139,6 @@ enum ChromeType {
     /// are one control, and two numbers for it drift apart.
     static let closeSymbol = Font.system(size: ChromeMetrics.CloseButton.symbol, weight: .bold)
     static let zoomBadge = Font.system(size: 9.5, weight: .semibold)
-    static let mouseBadge = Font.system(size: 10.5, weight: .regular)
     static let findField = inter(12.5)
     static let findCount = inter(11).monospacedDigit()
     static let findSymbol = Font.system(size: 11, weight: .semibold)

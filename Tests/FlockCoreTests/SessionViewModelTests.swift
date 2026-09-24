@@ -2579,6 +2579,25 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(executor.executedPlans.isEmpty)
     }
 
+    /// A live model lists every pane herdr has, hidden rt panes included, so a
+    /// mode whose terminal is missing from it belongs to a pane that closed.
+    @MainActor
+    func testALiveModelForgetsTheRightClickModesOfPanesThatClosed() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        let visible = TerminalID(rawValue: "term_a1")
+        let hidden = TerminalID(rawValue: "term_f1")
+        let closed = TerminalID(rawValue: "term_gone")
+        for terminal in [visible, hidden, closed] { viewModel.rightClicks.toggle(terminal) }
+
+        viewModel.update(model: makeModelWithFlockWorkspace(), connection: .reconnecting(attempt: 1))
+        XCTAssertEqual(viewModel.rightClicks.mode(for: closed), .program, "only a live model speaks for every pane")
+
+        viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
+        XCTAssertEqual(viewModel.rightClicks.mode(for: visible), .program)
+        XCTAssertEqual(viewModel.rightClicks.mode(for: hidden), .program)
+        XCTAssertEqual(viewModel.rightClicks.mode(for: closed), .menu)
+    }
+
     @MainActor
     func testAKeyboardFocusWithNothingThatWaySendsNothing() async {
         let client = RecordingCommandClient()

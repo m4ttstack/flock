@@ -195,8 +195,20 @@ enum ChromeMetrics {
         /// chat button and the status chip, none of which is the chip's own
         /// inset.
         static let legendItemGap: CGFloat = 5
-        static let mouseBadgeWidth: CGFloat = 14
         static let toastInset: CGFloat = 13
+
+        /// The right-click mode's mouse: its body, the buttons across the top
+        /// of it, and the cord rising from the top.
+        enum MouseGlyph {
+            static let frameWidth: CGFloat = 16
+            static let bodyWidth: CGFloat = 11
+            static let bodyHeight: CGFloat = 12.5
+            static let cornerRadius: CGFloat = 5
+            static let buttonDepth: CGFloat = 5.5
+            static let stroke: CGFloat = 1.2
+            static let cordRise: CGFloat = 3.5
+            static let cordReach: CGFloat = 3.5
+        }
     }
 
     /// The pane legend's chat trigger, also the state it shows: signed in

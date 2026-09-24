@@ -85,7 +85,8 @@ Things to try first:
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Focus the pane on that side |
 | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Move the focused pane that way |
 | <kbd>⇧</kbd><kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Swap the focused pane with its neighbor that way |
-| <kbd>⌥</kbd> + right-click | The pane menu, in a pane whose program has the mouse (a mouse icon in its title row) |
+| Click a pane's mouse icon | Shown while the pane's program has the mouse: send its plain right-clicks to the program, or back to the pane menu |
+| <kbd>⌥</kbd> + right-click | Whichever of the two a plain right-click does not get |
 | <kbd>F2</kbd> | Rename the selected workspace or tab |
 | <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / redo a move |
 | <kbd>⌘</kbd><kbd>K</kbd> | Clear notifications |

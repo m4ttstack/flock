@@ -23,6 +23,8 @@ struct GhosttyPaneTerminalView: View {
     /// `RearrangeMode.active`: while true, `GhosttySurfaceView` forwards no
     /// mouse event to the terminal.
     let rearrangeActive: Bool
+    /// Where a plain right-click goes while the pane's program has the mouse.
+    let rightClickMode: RightClickMode
     /// `DragCoordinator.isPaneDragInFlight`: while true the cursor is
     /// closed-hand everywhere, not just over this pane.
     let paneDragInProgress: Bool
@@ -58,7 +60,8 @@ struct GhosttyPaneTerminalView: View {
     init(
         surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
         optionAsAlt: OptionAsAlt,
-        rearrangeActive: Bool = false, paneDragInProgress: Bool = false, isPristineLauncherPane: Bool = false,
+        rearrangeActive: Bool = false, rightClickMode: RightClickMode = .menu,
+        paneDragInProgress: Bool = false, isPristineLauncherPane: Bool = false,
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
@@ -70,6 +73,7 @@ struct GhosttyPaneTerminalView: View {
         self.fontSizePoints = fontSizePoints
         self.optionAsAlt = optionAsAlt
         self.rearrangeActive = rearrangeActive
+        self.rightClickMode = rightClickMode
         self.paneDragInProgress = paneDragInProgress
         self.isPristineLauncherPane = isPristineLauncherPane
         self.editorIsOpen = editorIsOpen
@@ -87,8 +91,8 @@ struct GhosttyPaneTerminalView: View {
             GhosttySurfaceRepresentable(
                 surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
                 optionAsAlt: optionAsAlt,
-                rearrangeActive: rearrangeActive, paneDragInProgress: paneDragInProgress,
-                isPristineLauncherPane: isPristineLauncherPane,
+                rearrangeActive: rearrangeActive, rightClickMode: rightClickMode,
+                paneDragInProgress: paneDragInProgress, isPristineLauncherPane: isPristineLauncherPane,
                 // The find field is an editor too: while it holds the
                 // keyboard, this pane's terminal must not take it back.
                 editorIsOpen: editorIsOpen || search?.fieldHasFocus == true,
@@ -124,6 +128,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let fontSizePoints: Double
     let optionAsAlt: OptionAsAlt
     var rearrangeActive: Bool = false
+    var rightClickMode: RightClickMode = .menu
     var paneDragInProgress: Bool = false
     var isPristineLauncherPane: Bool = false
     var editorIsOpen: Bool = false
@@ -188,6 +193,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             context.coordinator.lastAppliedOptionAsAlt = optionAsAlt
             existingView.wantsFocus = isFocused
             existingView.rearrangeActive = rearrangeActive
+            existingView.rightClickMode = rightClickMode
             existingView.paneDragInProgress = paneDragInProgress
             existingView.isPristineLauncherPane = isPristineLauncherPane
             existingView.editorIsOpen = editorIsOpen
@@ -203,6 +209,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.rearrangeActive = rearrangeActive
+        view.rightClickMode = rightClickMode
         view.paneDragInProgress = paneDragInProgress
         view.isPristineLauncherPane = isPristineLauncherPane
         view.editorIsOpen = editorIsOpen
@@ -228,6 +235,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         }
         ghosttyView.wantsFocus = isFocused
         ghosttyView.rearrangeActive = rearrangeActive
+        ghosttyView.rightClickMode = rightClickMode
         ghosttyView.paneDragInProgress = paneDragInProgress
         ghosttyView.isPristineLauncherPane = isPristineLauncherPane
         // Set before the claim below reads it, never after: the whole point
