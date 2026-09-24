@@ -47,11 +47,11 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// One directional pane command: its title, the arrow that runs it, the
-/// modifiers it runs under, and whether it moves the pane past its neighbor
-/// or trades places with it. Both families aim at the same neighbor, so both
-/// are enabled by the same predicate.
+/// modifiers it runs under, and whether it focuses the neighbor, moves the
+/// pane past it, or trades places with it. All three aim at the same
+/// neighbor, so all three are enabled by the same predicate.
 struct PaneDirectionCommand {
-    enum Kind { case move, swap }
+    enum Kind { case focus, move, swap }
 
     let title: String
     let key: KeyEquivalent
@@ -60,28 +60,28 @@ struct PaneDirectionCommand {
     let kind: Kind
     let accessibilityIdentifier: String
 
-    /// Command+Option+arrow moves, Command+Option+Shift+arrow swaps. Neither
-    /// combination is claimed by the system, and Shift reading as "and take
-    /// the other pane with you" is the same relationship the two gestures
-    /// have on the canvas.
+    /// Command+Option+arrow focuses, as it moves between splits in Ghostty.
+    /// Command+Control+arrow moves and Command+Control+Shift+arrow swaps, Shift
+    /// reading as "and take the other pane with you", the same relationship
+    /// the two gestures have on the canvas. None is claimed by the system.
     static let all: [PaneDirectionCommand] = {
         let directions: [(String, KeyEquivalent, PaneDirection)] = [
             ("Left", .leftArrow, .left), ("Right", .rightArrow, .right),
             ("Up", .upArrow, .up), ("Down", .downArrow, .down),
         ]
-        let moves = directions.map { name, key, direction in
-            PaneDirectionCommand(
-                title: "Move Pane \(name)", key: key, modifiers: [.command, .option], direction: direction,
-                kind: .move, accessibilityIdentifier: "flock.view.movePane.\(name.lowercased())"
-            )
+        let families: [(Kind, String, EventModifiers, String)] = [
+            (.focus, "Focus Pane", [.command, .option], "focusPane"),
+            (.move, "Move Pane", [.command, .control], "movePane"),
+            (.swap, "Swap Pane", [.command, .control, .shift], "swapPane"),
+        ]
+        return families.flatMap { kind, title, modifiers, identifier in
+            directions.map { name, key, direction in
+                PaneDirectionCommand(
+                    title: "\(title) \(name)", key: key, modifiers: modifiers, direction: direction,
+                    kind: kind, accessibilityIdentifier: "flock.view.\(identifier).\(name.lowercased())"
+                )
+            }
         }
-        let swaps = directions.map { name, key, direction in
-            PaneDirectionCommand(
-                title: "Swap Pane \(name)", key: key, modifiers: [.command, .option, .shift], direction: direction,
-                kind: .swap, accessibilityIdentifier: "flock.view.swapPane.\(name.lowercased())"
-            )
-        }
-        return moves + swaps
     }()
 }
 
@@ -367,13 +367,13 @@ struct FlockApp: App {
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
                 Divider()
-                // The spec's keyboard-parity half of the drag inventory: each
-                // one compiles the same plan the equivalent drag would,
-                // through the same planner.
+                // Move and swap compile the plan the equivalent drag would,
+                // through the same planner; focus is a click on the neighbor.
                 ForEach(PaneDirectionCommand.all, id: \.title) { command in
                     Button(command.title) {
                         Task {
                             switch command.kind {
+                            case .focus: await viewModel.focusNeighbor(toward: command.direction)
                             case .move: await viewModel.moveFocusedPane(toward: command.direction)
                             case .swap: await viewModel.swapFocusedPane(toward: command.direction)
                             }

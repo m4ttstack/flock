@@ -1396,7 +1396,7 @@ public final class SessionViewModel {
         }
     }
 
-    // MARK: - keyboard move and swap (the drag's own targets, compiled by the planner)
+    // MARK: - keyboard focus, move and swap (the drag's own targets)
 
     /// Moves `pane` against its neighbor on `direction`'s side, through the
     /// same planner and executor a drag onto that neighbor's edge uses.
@@ -1423,10 +1423,19 @@ public final class SessionViewModel {
         await swapPane(pane, toward: direction)
     }
 
+    /// Focuses the neighbor a move or swap would aim at. Silent when nothing
+    /// lies that way.
+    public func focusNeighbor(toward direction: PaneDirection) async {
+        guard let pane = resolvedFocusedPaneID, let layout = layout(holding: pane),
+              let neighbor = PaneNeighbors.pane(pane, toward: direction, in: layout)
+        else { return }
+        await jumpToHerdr(pane: neighbor)
+    }
+
     /// Whether the focused pane has a neighbor on `direction`'s side at all,
-    /// so both keyboard commands can disable themselves rather than fail
-    /// silently. One predicate for both: a move and a swap aim at the same
-    /// neighbor and differ only in what they do once there.
+    /// so the keyboard commands can disable themselves rather than fail
+    /// silently. One predicate for all three: focus, move and swap aim at the
+    /// same neighbor and differ only in what they do once there.
     public func focusedPaneHasNeighbor(toward direction: PaneDirection) -> Bool {
         guard let pane = resolvedFocusedPaneID, let layout = layout(holding: pane) else { return false }
         return PaneNeighbors.pane(pane, toward: direction, in: layout) != nil

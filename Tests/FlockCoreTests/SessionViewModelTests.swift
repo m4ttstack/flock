@@ -2557,6 +2557,41 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(harness.executor.executedPlans.isEmpty, "neither binding fires where there is no neighbor")
     }
 
+    /// The focus binding aims at the neighbor a move would, and only focuses
+    /// it: one `pane.focus`, no plan.
+    @MainActor
+    func testAKeyboardFocusFocusesTheNeighborAndPlansNothing() async {
+        let client = RecordingCommandClient()
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: client, planExecutor: executor)
+        viewModel.update(model: Self.sideBySideModel(), connection: .live)
+
+        await viewModel.focusNeighbor(toward: .left)
+
+        let focuses = await client.calls.filter { $0.method == "pane.focus" }
+        let focused = focuses.compactMap { call -> String? in
+            guard case .string(let id)? = call.params["pane_id"] else { return nil }
+            return id
+        }
+        XCTAssertEqual(focused, ["w1:p1"])
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
+        XCTAssertTrue(executor.executedPlans.isEmpty)
+    }
+
+    @MainActor
+    func testAKeyboardFocusWithNothingThatWaySendsNothing() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: Self.sideBySideModel(), connection: .live)
+
+        await viewModel.focusNeighbor(toward: .right)
+        await viewModel.focusNeighbor(toward: .up)
+
+        let focuses = await client.calls.filter { $0.method == "pane.focus" }
+        XCTAssertTrue(focuses.isEmpty)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"))
+    }
+
     // MARK: - The rename key (F2)
 
     @MainActor
