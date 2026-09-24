@@ -521,8 +521,11 @@ final class AttentionToastTests: XCTestCase {
 
     // MARK: - the jump
 
+    /// `tab.focus` moves herdr's workspace too. A `workspace.focus` first
+    /// would land on that workspace's remembered tab, and herdr's echo of it
+    /// flashes the wrong tab on screen before the target arrives.
     @MainActor
-    func testClickingAToastFocusesItsWorkspaceTabAndPaneByExplicitID() async throws {
+    func testClickingAToastFocusesItsTabAndPaneWithoutPassingThroughTheWorkspace() async throws {
         let clock = TestClock()
         let client = FocusRecordingClient()
         let viewModel = makeViewModel(client, clock: clock)
@@ -532,8 +535,10 @@ final class AttentionToastTests: XCTestCase {
         await viewModel.jumpToAttentionToast(pane: PaneID(rawValue: "w2:p1"))
 
         let calls = await client.calls
-        XCTAssertEqual(calls.map(\.method), ["workspace.focus", "tab.focus", "pane.focus"])
-        XCTAssertEqual(calls.map { $0.params.values.compactMap(stringValue).first }, ["w2", "w2:t1", "w2:p1"])
+        XCTAssertEqual(calls.map(\.method), ["tab.focus", "pane.focus"])
+        XCTAssertEqual(calls.map { $0.params.values.compactMap(stringValue).first }, ["w2:t1", "w2:p1"])
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t1"))
         XCTAssertTrue(viewModel.attentionToasts.isEmpty, "the toast goes as the jump takes it")
     }
 

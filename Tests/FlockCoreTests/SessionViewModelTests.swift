@@ -586,9 +586,11 @@ final class SessionViewModelTests: XCTestCase {
 
     /// Peek's jump verb answers with a bare pane id; the workspace and tab it
     /// focuses come from this pane's own record in the model, not from
-    /// anything the verb carries.
+    /// anything the verb carries. No `workspace.focus`: `tab.focus` moves
+    /// herdr's workspace itself, and a separate one flashes the workspace's
+    /// remembered tab first.
     @MainActor
-    func testFocusFromChatFocusesTheOwningWorkspaceTabAndPaneFromTheModelAlone() async {
+    func testFocusFromChatFocusesTheOwningTabAndPaneFromTheModelAlone() async {
         let client = RecordingCommandClient()
         let viewModel = SessionViewModel(client: client)
         viewModel.update(model: Self.twoWorkspaceModelWithASecondPane(), connection: .live)
@@ -596,10 +598,11 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.focusFromChat(pane: PaneID(rawValue: "w2:p5"))
 
         let calls = await client.calls
-        XCTAssertEqual(calls.map(\.method), ["workspace.focus", "tab.focus", "pane.focus"])
-        XCTAssertEqual(stringParam(calls[0].params, "workspace_id"), "w2")
-        XCTAssertEqual(stringParam(calls[1].params, "tab_id"), "w2:t1")
-        XCTAssertEqual(stringParam(calls[2].params, "pane_id"), "w2:p5")
+        XCTAssertEqual(calls.map(\.method), ["tab.focus", "pane.focus"])
+        XCTAssertEqual(stringParam(calls[0].params, "tab_id"), "w2:t1")
+        XCTAssertEqual(stringParam(calls[1].params, "pane_id"), "w2:p5")
+        XCTAssertEqual(viewModel.selectedWorkspaceID, WorkspaceID(rawValue: "w2"))
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w2:t1"))
     }
 
     /// A pane the model no longer carries (closed since the verb answered)

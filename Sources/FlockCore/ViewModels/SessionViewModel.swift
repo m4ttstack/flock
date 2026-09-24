@@ -355,14 +355,13 @@ public final class SessionViewModel {
         await jumpToAttentionToast(pane: toast.paneID)
     }
 
-    /// The three focus verbs the Interactions sheet names, each with this
-    /// pane's own explicit id. A toast is the one thing in flock that jumps
-    /// across a workspace boundary, so the workspace and the tab are focused
-    /// in their own right rather than left for herdr to infer from the pane.
+    /// Focuses the tab and pane by explicit id, never the workspace:
+    /// `tab.focus` moves herdr's workspace along with it, while a separate
+    /// `workspace.focus` lands on that workspace's remembered tab first, and
+    /// herdr's echo of it shows the wrong tab before the target arrives.
     public func jumpToAttentionToast(pane: PaneID) async {
         guard let toast = attentionToasts.toast(pane: pane) else { return }
         attentionToasts.dismiss(pane: pane)
-        await jumpToHerdr(workspace: toast.workspaceID)
         await jumpToHerdr(tab: toast.tabID)
         await jumpToHerdr(pane: toast.paneID)
     }
@@ -479,13 +478,12 @@ public final class SessionViewModel {
     }
 
     /// Peek's jump verb names only a pane; this looks up the workspace and
-    /// tab that pane's OWN record carries and focuses all three, the same
-    /// order `jumpToAttentionToast` uses. The verb itself moves nothing, so a
+    /// tab that pane's OWN record carries and focuses the tab and pane, the
+    /// way `jumpToAttentionToast` does. The verb itself moves nothing, so a
     /// pane the model no longer has (closed since the verb answered) sends no
-    /// request rather than jumping a workspace or tab to nowhere.
+    /// request rather than jumping a tab to nowhere.
     public func focusFromChat(pane id: PaneID) async {
         guard let record = model?.panes[id] else { return }
-        await jumpToHerdr(workspace: record.workspaceID)
         await jumpToHerdr(tab: record.tabID)
         await jumpToHerdr(pane: record.paneID)
     }
