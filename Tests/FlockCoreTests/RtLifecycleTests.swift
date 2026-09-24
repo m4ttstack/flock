@@ -74,7 +74,8 @@ final class RtLifecycleTests: XCTestCase {
         XCTAssertEqual(life.observe(seen(busy: false, status: 2, at: 9)), .finished(2))
     }
 
-    /// Phase 1 ends on the first pane only; a split "Launch all" made is still busy.
+    /// Phase 1 ends by the first pane's state alone; other panes in its tab
+    /// can still be busy without holding phase one open.
     func testPhaseOneEndsOnTheFirstPaneAlone() {
         var life = RtLifecycle(kind: .run, startedAt: start)
         _ = life.observe(seen(busy: true, at: 0.3))
