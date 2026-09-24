@@ -199,6 +199,7 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     /// `flock.first_frame` line landing.
     var hasFirstFrame = false
     var hasClaimedMouse = false
+    var programHasMouse = false
 
     init(pane: PaneID) {
         self.pane = pane

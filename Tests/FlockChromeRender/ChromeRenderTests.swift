@@ -213,6 +213,43 @@ final class ChromeRenderTests: XCTestCase {
         )
     }
 
+    /// Measured against the same window with no program holding the mouse, so
+    /// whatever else the legend draws on this machine (the rt button follows
+    /// the startup PATH) cancels out: only the holder's legend changes.
+    func testTheMouseBadgeShowsOnlyOnAPaneWhoseProgramHasTheMouse() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let holder = PaneID(rawValue: "w1:p2")
+        let other = PaneID(rawValue: "w1:p1")
+        for id in Self.themeIDs {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let quiet = try await Harness(theme: theme)
+            let quietWindow = quiet.makeWindow(size: Self.windowSize)
+            await settle(quietWindow)
+            let before = try snapshot(quietWindow)
+            let held = try await Harness(theme: theme, mouseHolders: [holder])
+            let heldWindow = held.makeWindow(size: Self.windowSize)
+            await settle(heldWindow)
+            let after = try snapshot(heldWindow)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("mouse-badge-\(id).png")
+                try XCTUnwrap(after.representation(using: .png, properties: [:])).write(to: url)
+            }
+            for (pane, changes) in [(holder, true), (other, false)] {
+                let box = PaneBox.frame(in: try XCTUnwrap(held.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+                let y = box.minY + PaneChrome.verticalPadding + PaneChrome.titleRowHeight / 2
+                var changed = false
+                var x = box.midX
+                while x <= box.maxX - PaneChrome.horizontalPadding, !changed {
+                    changed = hex(before, CGPoint(x: x, y: y)) != hex(after, CGPoint(x: x, y: y))
+                    x += 0.5
+                }
+                XCTAssertEqual(changed, changes, "\(id): \(pane.rawValue)'s legend")
+            }
+            quietWindow.close()
+            heldWindow.close()
+        }
+    }
+
     /// A machine with no chat binary draws no button: the legend's corner
     /// stays the pane's own ground, not `surface0` or `selectionBg`.
     func testChatButtonIsAbsentWhenChatIsUnavailable() async throws {
@@ -2849,7 +2886,8 @@ private struct Harness {
         now: @escaping @MainActor () -> Date = { Date() },
         // No Board config by default, same as a machine without the board
         // app, so every render that predates the section is unchanged.
-        boardSources: BoardSources = .unconfigured
+        boardSources: BoardSources = .unconfigured,
+        mouseHolders: Set<PaneID> = []
     ) async throws {
         ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -2887,7 +2925,7 @@ private struct Harness {
                 chatStore.setUnreadCount(count, for: pane)
             }
         }
-        viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory(), now: now)
+        viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now)
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
         for pane in panes {
             _ = await viewModel.attachPane(pane)
@@ -2957,6 +2995,8 @@ private actor FixtureChatRunning: ChatRunning {
 
 @MainActor
 private final class GroundSurface: GhosttyPaneSurface {
+    let programHasMouse: Bool
+    init(programHasMouse: Bool = false) { self.programHasMouse = programHasMouse }
     func detach() async {}
     func park() {}
     func unpark() {}
@@ -2964,17 +3004,19 @@ private final class GroundSurface: GhosttyPaneSurface {
     func takeHerdrHold() {}
     func resumeScreenActivityReporting() {}
     var hasFirstFrame: Bool { true }
-    var hasClaimedMouse: Bool { false }
+    var hasClaimedMouse: Bool { programHasMouse }
 }
 
 @MainActor
 private struct GroundSurfaceFactory: GhosttyPaneFactory {
+    var mouseHolders: Set<PaneID> = []
+
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
-        GroundSurface()
+        GroundSurface(programHasMouse: mouseHolders.contains(pane))
     }
 }
 

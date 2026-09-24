@@ -195,6 +195,7 @@ enum ChromeMetrics {
         /// chat button and the status chip, none of which is the chip's own
         /// inset.
         static let legendItemGap: CGFloat = 5
+        static let mouseBadgeWidth: CGFloat = 14
         static let toastInset: CGFloat = 13
     }
 

@@ -113,7 +113,8 @@ final class GhosttySession {
     /// whether a click belongs to the app (`.toApp` via the control FIFO) or
     /// to libghostty's own selection. `sgr_pixels` is not kept: a control
     /// client never negotiates pixel mouse, so herdr always reports it false.
-    private(set) var mouseCaptureEnabled = false
+    var mouseCaptureEnabled: Bool { mouseCapture.enabled }
+    let mouseCapture = MouseCaptureState()
     /// Latched by the first `setMouseCapture(enabled: true)`: see `MouseClaimLatch`.
     let mouseClaimLatch = MouseClaimLatch()
     var hasClaimedMouse: Bool { mouseClaimLatch.claimed }
@@ -464,7 +465,7 @@ final class GhosttySession {
     /// non-reporting pane to its SHARED scrollback viewport.
     func setMouseCapture(enabled: Bool) {
         let wasEnabled = mouseCaptureEnabled
-        mouseCaptureEnabled = enabled
+        mouseCapture.set(enabled)
         if enabled {
             mouseClaimLatch.markClaimed()
         }

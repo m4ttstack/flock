@@ -898,6 +898,7 @@ private final class GroundSurface: GhosttyPaneSurface {
     func resumeScreenActivityReporting() {}
     var hasFirstFrame: Bool { true }
     var hasClaimedMouse: Bool { mouseClaim.claimed }
+    var programHasMouse: Bool { false }
 }
 
 @MainActor

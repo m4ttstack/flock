@@ -433,13 +433,15 @@ struct PaneCellView: View {
         }
     }
 
-    /// The legend's trailing end: the zoom badge, the chat button, the rt
-    /// button, then the status chip. The two buttons are the live controls
-    /// here, so hit testing is turned off on the zoom badge and the status
-    /// pill themselves -- never on a container around them all -- since a
-    /// disabled ancestor cannot be re-enabled from below it.
+    /// The legend's trailing end: the mouse badge, the zoom badge, the chat
+    /// button, the rt button, then the status chip. The two buttons are the
+    /// live controls here, and the mouse badge takes hover for its tip, so hit
+    /// testing is turned off on the zoom badge and the status pill themselves
+    /// -- never on a container around them all -- since a disabled ancestor
+    /// cannot be re-enabled from below it.
     private var statusChip: some View {
         HStack(spacing: ChromeMetrics.Pane.legendItemGap) {
+            if ghosttySurface?.programHasMouse == true { mouseBadge }
             if isZoomed { zoomBadge.allowsHitTesting(false) }
             if chatButtonAppearance != .absent { chatButton }
             rtButton
@@ -636,6 +638,20 @@ struct PaneCellView: View {
             .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.mauve.opacity(0.14)))
             .accessibilityLabel("Zoomed")
             .accessibilityIdentifier("flock.pane.zoomBadge.\(pane.paneID.rawValue)")
+    }
+
+    /// The pane's program has the mouse, so a plain right-click in the focused
+    /// pane goes to it (`RightClickDisposition`); the tip says how to reach
+    /// flock's menu instead.
+    private var mouseBadge: some View {
+        Image(systemName: "computermouse")
+            .font(ChromeType.mouseBadge)
+            .foregroundStyle(theme.textDim)
+            .frame(width: ChromeMetrics.Pane.mouseBadgeWidth, height: PaneChrome.titleRowHeight)
+            .contentShape(Rectangle())
+            .help("This pane's program has the mouse, so right-clicks go to it. Hold ⌥ while right-clicking for flock's menu.")
+            .accessibilityLabel("Program has the mouse")
+            .accessibilityIdentifier("flock.pane.mouseBadge.\(pane.paneID.rawValue)")
     }
 
     /// Status chips only accompany the active states (working/blocked/done);

@@ -21,4 +21,22 @@ final class PaneMouseClaimTests: XCTestCase {
         session.setMouseCapture(enabled: false)
         XCTAssertTrue(handle.hasClaimedMouse, "the claim is a latch, so a program handing off does not undo it")
     }
+
+    /// The pane legend's mouse badge follows the program both ways, unlike
+    /// the claim.
+    func testTheSurfaceHandleReportsWhetherTheProgramHasTheMouseNow() throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let session = host.makeSession(
+            paneID: PaneID(rawValue: "w1:p1"),
+            configuration: GhosttySession.Launch(commandArgv: ["/usr/bin/true"], themeColors: Theme.tokyoNight.ghosttyThemeColors())
+        )
+        let handle = GhosttySessionSurfaceHandle(session: session)
+        XCTAssertFalse(handle.programHasMouse)
+
+        session.setMouseCapture(enabled: true)
+        XCTAssertTrue(handle.programHasMouse)
+
+        session.setMouseCapture(enabled: false)
+        XCTAssertFalse(handle.programHasMouse)
+    }
 }
