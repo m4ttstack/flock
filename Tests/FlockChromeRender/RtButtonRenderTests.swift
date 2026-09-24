@@ -201,6 +201,26 @@ final class RtButtonRenderTests: XCTestCase {
         }
     }
 
+    func testTheDelayedTipDrawsOnItsOwnGroundInBothThemes() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for theme in [Theme(.tokyoNight), try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })] {
+            let tip = DelayedTipLabel(theme: theme, lines: [
+                "Right-clicks open flock's menu", "⌥-right-click goes to the program", "Click or ⌥⌘M to send them to the program",
+            ])
+            let window = host(tip, theme: theme, size: CGSize(width: 300, height: 90))
+            await settle(window)
+            defer { window.close() }
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("delayed-tip-\(theme.id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let ground = hex(image, at: point(3, 30))
+            XCTAssertLessThanOrEqual(channelDistance(ground, theme.palette.surface1.hex), 3, "\(theme.id): the tip's ground is \(ground)")
+        }
+    }
+
     private func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
         CGPoint(x: Self.inset + x, y: Self.inset + y)
     }

@@ -493,6 +493,17 @@ enum ChromeMetrics {
 
     /// The pane legend's rt control, right of chat: a square at rest, a pill
     /// sized to its content while anything of rt's runs for the pane.
+    /// A tip drawn in the view tree, for controls over a pane.
+    enum DelayedTip {
+        static let delay: Duration = .milliseconds(1000)
+        static let gap: CGFloat = 4
+        static let horizontalPadding: CGFloat = 8
+        static let verticalPadding: CGFloat = 6
+        static let lineSpacing: CGFloat = 2
+        static let cornerRadius: CGFloat = 5
+        static let shadowRadius: CGFloat = 4
+    }
+
     /// The legend controls' hover wash: the theme's text colour at this
     /// opacity over the hovered target.
     enum HoverWash {
