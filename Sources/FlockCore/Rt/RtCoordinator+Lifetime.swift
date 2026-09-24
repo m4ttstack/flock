@@ -11,6 +11,7 @@ extension RtCoordinator {
             await running.value
             return
         }
+        defer { reaping.remove(id) }
         guard let item = items[id] else { return }
         watches.removeValue(forKey: id)?.cancel()
         items[id]?.isRunning = false
@@ -24,7 +25,6 @@ extension RtCoordinator {
         shutdowns[id] = task
         await task.value
         shutdowns[id] = nil
-        reaping.remove(id)
     }
 
     /// `ctrl+c`, then `y` only where rt's own UI is still up a second later:
@@ -116,6 +116,7 @@ extension RtCoordinator {
                 let paths = RtFilePaths(token: token, directory: self.config.fileDirectory)
                 self.files.delete(paths.out)
                 self.files.delete(paths.status)
+                self.files.delete(paths.seed)
             }
         }
     }

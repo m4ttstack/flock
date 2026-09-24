@@ -229,7 +229,13 @@ public final class RtCoordinator {
         let outgoing = modal
         modal = RtModal(itemID: id, tabID: item.tabID, serviceTabID: nil)
         if let outgoing, outgoing.itemID != id {
-            background { [weak self] in await self?.dispose(outgoing.itemID) }
+            background { [weak self] in
+                guard let self else { return }
+                if outgoing.serviceTabID != nil, let outgoingItem = self.items[outgoing.itemID] {
+                    await self.closeAttachTabs(of: outgoingItem)
+                }
+                await self.dispose(outgoing.itemID)
+            }
         }
     }
 
@@ -259,6 +265,7 @@ public final class RtCoordinator {
         // Before the shutdown, which waits out its confirm delay: focus moves
         // with the close, not a second after it.
         await focusLinked(item.linked)
+        if current.serviceTabID != nil { await closeAttachTabs(of: item) }
         await dispose(current.itemID)
     }
 
@@ -271,6 +278,12 @@ public final class RtCoordinator {
     public func backToBoard() async {
         guard let current = modal, current.serviceTabID != nil, let item = items[current.itemID], item.kind == .runner else { return }
         modal?.serviceTabID = nil
+        await closeAttachTabs(of: item)
+    }
+
+    /// Every tab in a runner's workspace but its board: the attach tabs herdr
+    /// opened for services the runner is showing.
+    func closeAttachTabs(of item: RtItem) async {
         let attachTabs = (model?.tabs[item.workspaceID] ?? []).map(\.tabID).filter { $0 != item.tabID }
         for tab in attachTabs {
             try? await herdr.closeTab(tab)

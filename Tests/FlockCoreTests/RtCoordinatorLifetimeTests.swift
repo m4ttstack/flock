@@ -132,6 +132,22 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         XCTAssertEqual(FakeRtWorld.string(world.calls("workspace.close").first?["workspace_id"]), "wR")
     }
 
+    func testLaunchClosesARunnerWhoseBoardExitedAndDeletesItsSeedFile() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wR", label: "flock:rt runner term_a1")
+        world.seed(tab: "wR:t1", in: "wR", label: "runner term_a1 old1", number: 1)
+        world.seed(pane: "wR:p1", tab: "wR:t1", workspace: "wR", terminal: "term_r1")
+        world.write("0\n", to: rtPaths("old1").status)
+        world.write(rtSeedLine, to: rtPaths("old1").seed)
+        let rt = makeCoordinator(world)
+
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertNil(rt.runner(linkedTo: RtFixture.linkedTerminal))
+        XCTAssertNil(world.read(rtPaths("old1").seed))
+    }
+
     func testLaunchAdoptsARunInItsPhase() async throws {
         let world = FakeRtWorld()
         world.seed(workspace: "wS", label: "flock:rt")
@@ -202,6 +218,52 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         rt.watches["tok1"]?.cancel()
     }
 
+    func testClosingTheModalWithTheServiceViewUpClosesTheAttachTabAndKeepsTheRunner() async throws {
+        let world = FakeRtWorld()
+        let rt = makeCoordinator(world)
+        await openRunner(world, rt)
+
+        world.seed(tab: "wF1:t7", in: "wF1", label: "bg:p3", number: 2)
+        world.seed(pane: "wF1:p7", tab: "wF1:t7", workspace: "wF1", terminal: "term_7")
+        world.focus("wF1:p7")
+        rt.update(model: world.model())
+        await rt.settle()
+        XCTAssertEqual(rt.modal?.serviceTabID, TabID(rawValue: "wF1:t7"))
+
+        await rt.closeModal()
+        await rt.settle()
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").last?["tab_id"]), "wF1:t7")
+        XCTAssertTrue(world.calls("tab.close").allSatisfy { FakeRtWorld.string($0["tab_id"]) != "wF1:t1" })
+        XCTAssertNil(rt.modal)
+        XCTAssertNotNil(rt.runner(linkedTo: RtFixture.linkedTerminal))
+        rt.watches["tok1"]?.cancel()
+    }
+
+    func testSwappingAwayFromTheServiceViewClosesTheAttachTabAndKeepsTheRunner() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt glitter", .init(busyPolls: 100_000, status: "0"))
+        let rt = makeCoordinator(world)
+        await openRunner(world, rt)
+
+        world.seed(tab: "wF1:t7", in: "wF1", label: "bg:p3", number: 2)
+        world.seed(pane: "wF1:p7", tab: "wF1:t7", workspace: "wF1", terminal: "term_7")
+        world.focus("wF1:p7")
+        rt.update(model: world.model())
+        await rt.settle()
+        XCTAssertEqual(rt.modal?.serviceTabID, TabID(rawValue: "wF1:t7"))
+
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        await rt.settle()
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").last?["tab_id"]), "wF1:t7")
+        XCTAssertTrue(world.calls("tab.close").allSatisfy { FakeRtWorld.string($0["tab_id"]) != "wF1:t1" })
+        XCTAssertEqual(rt.modal?.itemID, "tok2")
+        XCTAssertNotNil(rt.runner(linkedTo: RtFixture.linkedTerminal))
+        rt.watches["tok1"]?.cancel()
+        rt.watches["tok2"]?.cancel()
+    }
+
     /// A flock tab nothing owns (an orphan on its way out, a click in the
     /// herdr TUI) still hands herdr's focus back, to the last visible pane.
     func testFocusOnAnUnownedFlockTabGoesBackToTheLastVisiblePane() async throws {
@@ -233,5 +295,15 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         let keys = world.calls("pane.send_keys").map { FakeRtWorld.strings($0["keys"]) }
         XCTAssertEqual(keys, [["ctrl+c"]])
         XCTAssertNil(rt.items["tok1"])
+    }
+
+    func testShutDownOfAnAlreadyGoneItemReleasesItFromReaping() async throws {
+        let world = FakeRtWorld()
+        let rt = makeCoordinator(world)
+        rt.reaping.insert("ghost")
+
+        await rt.shutDown("ghost")
+
+        XCTAssertFalse(rt.reaping.contains("ghost"))
     }
 }
