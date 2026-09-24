@@ -105,7 +105,7 @@ were opened, and clicking one shows it in the modal.
 **Placement.** An overlay over the tab area only: the tab strip and the panes,
 right of the sidebar. The sidebar, the title bar and any banner stay clear and
 undimmed. The backdrop is black at 45%
-in a dark theme and 30% in a light one. The box is 80% of the tab area on each
+in a dark theme and 30% in a light one. The box is 90% of the tab area on each
 axis, centred in it.
 
 **Box:** fill `theme.pane`, 1pt `theme.paneBorder` stroke, r8, clipped. Shadow
@@ -136,6 +136,7 @@ illustration.
 | --- | --- | --- |
 | `RtModal.tabStripHeight`, `tabSpacing`, `tabHorizontalPadding`, the tab strip | a strip for items spanning tabs | none: one pane per hidden tab |
 | `RtModal.backdropOpacity` | 0.45 | 0.45 dark, 0.30 light |
+| `RtModal.sizeFraction` | 0.8 | 0.8; the first hand test moved it to 0.9 |
 | `RtModal.shadowRadius` | 24 | 12 (SwiftUI radius for the canvas's blur 24) |
 | strip rule | none | 1pt top `theme.rule` |
 | "← runner" | text alone | text, then a 1x12 `theme.rule` divider |

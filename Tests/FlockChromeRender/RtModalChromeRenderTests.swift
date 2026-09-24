@@ -85,11 +85,11 @@ final class RtModalChromeRenderTests: XCTestCase {
         case nav, exited, service
     }
 
-    /// The box is 0.8 of the tab area and centred in it; the backdrop dims
+    /// The box is 0.9 of the tab area and centred in it; the backdrop dims
     /// the tab area by the theme's opacity; the pane sits the inset in from
     /// the box's edges under the title row, sized to whole cells; a strip,
     /// when there is one, closes the box under its rule.
-    func testTheModalDimsTheTabAreaAndCentresItsBoxAtFourFifths() async throws {
+    func testTheModalDimsTheTabAreaAndCentresItsBoxAtNineTenths() async throws {
         ChromeType.install()
         for theme in Self.themes {
             for variant in Variant.allCases {
@@ -101,7 +101,7 @@ final class RtModalChromeRenderTests: XCTestCase {
                 let label = "\(theme.id) \(variant.rawValue)"
                 let palette = theme.palette
                 let roles = palette.chromeRoles
-                let box = StandIn.box
+                let box = StandIn.box(in: window)
                 let opacity = ChromeRoles.isLight(panelBg: palette.panelBg)
                     ? ChromeMetrics.RtModal.lightBackdropOpacity : ChromeMetrics.RtModal.darkBackdropOpacity
 
@@ -116,7 +116,7 @@ final class RtModalChromeRenderTests: XCTestCase {
                 XCTAssertEqual(hex(image, at: CGPoint(x: box.maxX - 0.75, y: box.midY)), roles.paneBorder.hex, "\(label): right edge")
                 XCTAssertEqual(hex(image, at: CGPoint(x: box.midX, y: box.minY + 0.25)), roles.paneBorder.hex, "\(label): top edge")
                 XCTAssertEqual(hex(image, at: CGPoint(x: box.midX, y: box.maxY - 0.75)), roles.paneBorder.hex, "\(label): bottom edge")
-                XCTAssertNotEqual(hex(image, at: CGPoint(x: box.minX - 0.75, y: box.midY)), roles.paneBorder.hex, "\(label): wider than 0.8")
+                XCTAssertNotEqual(hex(image, at: CGPoint(x: box.minX - 0.75, y: box.midY)), roles.paneBorder.hex, "\(label): wider than 0.9")
 
                 let titleRow = ChromeMetrics.RtModal.TitleRow.height
                 XCTAssertEqual(hex(image, at: CGPoint(x: box.midX + 100, y: box.minY + 3)), roles.chrome.hex, "\(label): title row")
@@ -158,7 +158,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .nav)
         let (window, viewModel, probe) = (hosted.window, hosted.viewModel, hosted.probe)
         defer { window.close() }
-        let box = StandIn.box
+        let box = StandIn.box(in: window)
 
         click(window, at: CGPoint(x: box.midX, y: box.minY + 14))
         click(window, at: CGPoint(x: box.midX, y: box.midY))
@@ -181,7 +181,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .service)
         let (window, viewModel) = (hosted.window, hosted.viewModel)
         defer { window.close() }
-        let box = StandIn.box
+        let box = StandIn.box(in: window)
         let row = ChromeMetrics.RtModal.TitleRow.self
         let y = box.minY + row.height / 2
 
@@ -284,13 +284,20 @@ final class RtModalChromeRenderTests: XCTestCase {
         static let titleBar: CGFloat = 30
         static let rail: CGFloat = 150
         static let tabArea = CGRect(x: rail, y: titleBar, width: size.width - rail, height: size.height - titleBar)
-        static var box: CGRect {
-            let fraction = ChromeMetrics.RtModal.sizeFraction
-            return CGRect(
-                x: tabArea.minX + tabArea.width * (1 - fraction) / 2,
-                y: tabArea.minY + tabArea.height * (1 - fraction) / 2,
-                width: tabArea.width * fraction, height: tabArea.height * fraction
-            )
+        static let boxFraction: CGFloat = 0.9
+
+        /// `boxFraction` of the tab area, centred, each edge on the window's
+        /// device pixels: at 0.9 an edge can fall on a half point.
+        static func box(in window: NSWindow) -> CGRect {
+            let scale = window.backingScaleFactor
+            func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+            let marginX = tabArea.width * (1 - boxFraction) / 2
+            let marginY = tabArea.height * (1 - boxFraction) / 2
+            let left = snap(tabArea.minX + marginX)
+            let right = snap(tabArea.maxX - marginX)
+            let top = snap(tabArea.minY + marginY)
+            let bottom = snap(tabArea.maxY - marginY)
+            return CGRect(x: left, y: top, width: right - left, height: bottom - top)
         }
 
         let theme: Theme

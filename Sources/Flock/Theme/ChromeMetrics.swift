@@ -536,7 +536,7 @@ enum ChromeMetrics {
     /// above it and, once its command has ended, a strip below it.
     enum RtModal {
         /// Of the tab area, on each axis.
-        static let sizeFraction: CGFloat = 0.8
+        static let sizeFraction: CGFloat = 0.9
         static let cornerRadius: CGFloat = 8
         static let darkBackdropOpacity: Double = 0.45
         static let lightBackdropOpacity: Double = 0.30
