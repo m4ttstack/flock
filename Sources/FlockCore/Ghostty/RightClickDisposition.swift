@@ -22,34 +22,29 @@ public enum RightClickDisposition: Equatable, Sendable {
 
     /// The rule:
     /// - Rearrange mode active: always `.suppressed`, before anything else.
-    /// - Passthrough off for this pane: `.menu`, whatever else is true. This
-    ///   is herdr's own default (`right_click_passthrough` is false on a
-    ///   fresh pane), and it is what makes the menu reachable in a pane
-    ///   running a mouse-reporting program, which most agent panes are.
-    /// - Passthrough on, but not flock's focused pane: `.menu`. herdr
-    ///   reports mouse capture to every attached pane, focused or not, and
-    ///   `MouseForwarding` drops every event for an unfocused pane, so
-    ///   forwarding here would leave the click with nowhere to go at all.
-    /// - Passthrough on, focused, capture ON: `.forwardToPane`.
-    /// - Passthrough on, focused, capture OFF: `.menu`. Nothing is listening
-    ///   in the pane, so the click falls through to the menu rather than
-    ///   disappearing into a plain shell.
+    /// - Not flock's focused pane: `.menu`. herdr reports mouse capture to
+    ///   every attached pane, focused or not, and `MouseForwarding` drops
+    ///   every event for an unfocused pane, so forwarding here would leave the
+    ///   click with nowhere to go at all.
+    /// - Focused, Option held: `.menu`.
+    /// - Focused, capture ON: `.forwardToPane`. The program claimed the
+    ///   mouse, so a plain right-click is its click.
+    /// - Focused, capture OFF: `.menu`. Nothing is listening in the pane, so
+    ///   the click falls through to the menu rather than disappearing into a
+    ///   plain shell.
     ///
     /// Option means one thing and only one thing on a pane: force the menu.
-    /// It is the escape hatch out of a pane that has passthrough on and a
-    /// program listening, and it is no longer a mode key of any kind -- the
-    /// held and double-tapped Option routes into rearrange mode were removed
-    /// on 2026-09-17 (see `RearrangeMode`), so nothing else on this surface
-    /// reads the modifier now.
+    /// It is what keeps the menu reachable in a pane whose program is
+    /// listening, which most agent panes are, and nothing else on this
+    /// surface reads the modifier (see `RearrangeMode`).
     public static func decide(
         optionHeld: Bool,
         captureEnabled: Bool,
         paneIsFocused: Bool,
-        rearrangeActive: Bool = false,
-        passthroughEnabled: Bool = false
+        rearrangeActive: Bool = false
     ) -> RightClickDisposition {
         guard !rearrangeActive else { return .suppressed }
-        guard passthroughEnabled, paneIsFocused, !optionHeld, captureEnabled else { return .menu }
+        guard paneIsFocused, !optionHeld, captureEnabled else { return .menu }
         return .forwardToPane
     }
 }

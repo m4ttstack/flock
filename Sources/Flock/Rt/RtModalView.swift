@@ -74,7 +74,10 @@ struct RtModalView: View {
             RtModalPane(
                 theme: theme, viewModel: viewModel, paneID: paneID, grid: PTYSize(cols: fit.cols, rows: fit.rows),
                 surfaceSize: fit.size, fontSizePoints: fontSize, isFocused: item.strip == nil,
-                waitsForCommand: modal.serviceTabID == nil && !item.started, onFocus: {}
+                command: modal.serviceTabID != nil ? nil : RtModalPane.Command(
+                    started: item.started, startedAt: item.startedAt, ended: item.strip != nil || !item.isRunning
+                ),
+                onFocus: {}
             )
             // A service shown in place of its board is another pane: it gets
             // a view of its own, so the board's surface parks as it leaves.

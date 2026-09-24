@@ -121,7 +121,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     }
     private var pendingGrab: PendingGrab?
     private var rightButtonRoute: ButtonRoute?
-    private var rightButtonDownDisposition: RightClickDisposition = .menu
+    private(set) var rightButtonDownDisposition: RightClickDisposition = .menu
     private var otherButtonRoutes: [Int: ButtonRoute] = [:]
     /// Whole-cell wheel steps, accumulated the same way whether the tick ends
     /// up going to the app (under capture) or to herdr's real viewport
