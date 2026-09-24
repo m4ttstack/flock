@@ -28,6 +28,9 @@ struct RtModalPane: View {
 
     @Environment(OptionAsAltStore.self) private var optionAsAltStore
     @State private var surface: (any GhosttyPaneSurface)?
+    /// The time the loader rule reads: set when the view appears and again
+    /// when the ceiling passes, the one input that changes with time alone.
+    @State private var clock = Date()
 
     init(
         theme: Theme, viewModel: SessionViewModel, paneID: PaneID, grid: PTYSize, surfaceSize: CGSize,
@@ -51,38 +54,38 @@ struct RtModalPane: View {
         // hear an editor open, and a body that skips this read is one that an
         // editor's opening never invalidates.
         let editorIsOpen = viewModel.renameEditorIsOnScreen
-        // The schedule only wakes the view at the ceiling, the one input that
-        // changes with time alone; everything else it reads is observed.
-        return TimelineView(.explicit(ceilingDates)) { _ in
-            let covered = coversPane(at: Date())
-            ZStack(alignment: .topLeading) {
-                theme.terminalGround
-                if let surface {
-                    GhosttyPaneTerminalView(
-                        surface: surface, grid: grid, theme: theme, isFocused: isFocused,
-                        fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
-                        rearrangeActive: false, paneDragInProgress: false, isPristineLauncherPane: false,
-                        editorIsOpen: editorIsOpen, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
-                    )
-                    .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)
-                    .opacity(surface.hasFirstFrame && !covered ? 1 : 0)
-                }
+        let covered = coversPane(at: clock)
+        return ZStack(alignment: .topLeading) {
+            theme.terminalGround
+            if let surface {
+                GhosttyPaneTerminalView(
+                    surface: surface, grid: grid, theme: theme, isFocused: isFocused,
+                    fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
+                    rearrangeActive: false, paneDragInProgress: false, isPristineLauncherPane: false,
+                    editorIsOpen: editorIsOpen, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
+                )
+                .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)
+                .opacity(surface.hasFirstFrame && !covered ? 1 : 0)
             }
-            .overlay {
-                if covered {
-                    PaneLoaderView(theme: theme)
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: covered)
         }
+        .overlay {
+            if covered {
+                PaneLoaderView(theme: theme)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: covered)
         .task(id: paneID) { surface = await viewModel.attachPane(paneID) }
+        // Keyed on the start, which usually lands after the view appeared:
+        // the deadline does not exist until then.
+        .task(id: command?.startedAt) {
+            guard let startedAt = command?.startedAt else { return }
+            let wait = startedAt.addingTimeInterval(RtModalLoaderPolicy.ceiling).timeIntervalSinceNow
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            guard !Task.isCancelled else { return }
+            clock = Date()
+        }
         .onDisappear { Task { await viewModel.detachPane(paneID) } }
-    }
-
-    private var ceilingDates: [Date] {
-        guard let startedAt = command?.startedAt else { return [] }
-        return [startedAt.addingTimeInterval(RtModalLoaderPolicy.ceiling)]
     }
 
     private func coversPane(at now: Date) -> Bool {

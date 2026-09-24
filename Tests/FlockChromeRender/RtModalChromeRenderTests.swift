@@ -376,6 +376,27 @@ final class RtModalChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The ceiling has to fire while the modal is up: the item starts after
+    /// the modal opened, so the deadline did not exist when the view did.
+    func testTheCeilingUncoversAProgramThatNeverClaimsTheMouseWhileTheModalIsUp() async throws {
+        ChromeType.install()
+        let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .nav, started: false)
+        let (window, viewModel) = (hosted.window, hosted.viewModel)
+        defer { window.close() }
+        let area = paneArea(in: window)
+
+        let id = try XCTUnwrap(viewModel.rt.modal?.itemID)
+        viewModel.rt.items[id]?.started = true
+        viewModel.rt.items[id]?.startedAt = Date().addingTimeInterval(-(RtModalLoaderPolicy.ceiling - 0.5))
+        await settle(window)
+        XCTAssertGreaterThan(markPixels(in: try snapshot(window), area), 40, "the loader left before the ceiling")
+
+        try await Task.sleep(for: .seconds(1))
+        await settle(window)
+        XCTAssertEqual(markPixels(in: try snapshot(window), area), 0, "the ceiling passed and the loader stayed")
+        XCTAssertEqual(surfaceOpacity(in: window), 1, "the ceiling passed and the surface stayed hidden")
+    }
+
     /// A program that never claims the mouse is uncovered by the ceiling,
     /// timed from its start rather than from when the modal showed it.
     func testAProgramStartedPastTheCeilingIsUncoveredAtOnce() async throws {

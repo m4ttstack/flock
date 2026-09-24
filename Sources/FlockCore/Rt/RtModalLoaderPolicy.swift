@@ -8,8 +8,8 @@ import Foundation
 /// signal; the ceiling covers one that never claims it.
 public enum RtModalLoaderPolicy {
     /// Seconds from the start to uncover a program that never claims the
-    /// mouse. A backstop, not the signal: long enough for rt-ui's own startup.
-    public static let ceiling: TimeInterval = 3
+    /// mouse. A backstop, not the signal: rt-ui usually draws well inside it.
+    public static let ceiling: TimeInterval = 1.5
 
     /// `sinceStart` is nil for an item that has not started, and for one
     /// restored from an earlier run, which has been up longer than any ceiling.
