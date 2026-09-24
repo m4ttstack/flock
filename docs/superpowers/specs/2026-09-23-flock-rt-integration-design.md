@@ -36,7 +36,9 @@ opens rather than things a pane becomes.
     of pick launch things themselves instead: a queue ("Launch all", or "Run
     now" after saving a preset) and a saved preset. Both open a seeded,
     tmux-backed runner board in rt's own pane, so a pick never adds panes or
-    tabs around it.
+    tabs around it. With `--resolve-only` rt launches neither and prints the
+    seed rows instead (`{"seed":[...]}`); `rt runner --seed-file <path>`
+    opens a board from such a file.
     A pick rt launched itself exits 0 with nothing on stdout; a cancelled pick
     and rt's own errors both exit 1.
   - `rt nav` prints the chosen folder on stdout when "cd here" is picked, and
@@ -151,11 +153,18 @@ splits it with `cwd: <path>` instead and focuses the new pane.
    suffix) into the tab's first pane. Phase 1 ends when **that pane** is idle
    and `FLOCK_RT_STATUS` exists; other panes in the tab do not count. Then:
    - **A result in `FLOCK_RT_OUT`:** go to phase 2.
-   - **Status 0, no result:** the pick was a queue or a preset, and rt
-     launched it itself, on a runner board in the same pane. The item carries
-     on as the rest of the lifecycle describes: running while its pane is busy.
-     The 3 s "never seen busy" ceiling starts over here. Its finished strip
-     shows no exit status: the file holds rt's own 0, not the scripts'.
+   - **Seed rows in `FLOCK_RT_OUT`:** the pick was a queue ("Launch all", or
+     "Run now" after saving a preset) or a saved preset. With `--resolve-only`
+     rt launches nothing and prints them as `{"seed":[...]}`. The rt run item
+     closes and the pick becomes the pane's runner: flock opens it with
+     `rt runner --herdr --seed-file "$FLOCK_RT_SEED"`, shown in the modal when
+     the run item was on screen. If the pane already has a runner, flock shows
+     it and says so; the queue is not added to it.
+   - **Status 0, no result:** an rt that still launches a pick itself did so in
+     the same pane. The item carries on as the rest of the lifecycle describes:
+     running while its pane is busy. The 3 s "never seen busy" ceiling starts
+     over here. Its finished strip shows no exit status: the file holds rt's
+     own 0, not the scripts'.
    - **Any other status, no result:** a cancel. The modal closes. rt exits 1
      for its own errors too ("No scripts found"), so in v1 those also close the
      modal without the message; see Out of scope.

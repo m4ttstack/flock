@@ -3722,6 +3722,180 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
+### Task 10c: A queue or preset picked in rt run becomes the pane's runner
+
+With `--resolve-only`, rt launches nothing for a queue ("Launch all", "Run now" after saving a preset) or a saved preset: it prints the seed rows as one JSON line, `{"seed":[{"name":…,"command":…,"cwd":…,"pkg":…,"repo":…}]}`, and exits 0. `rt runner --seed-file <path>` opens a board seeded from such a file, and composes with `--herdr`. flock turns that pick into the pane's runner: the rt run item closes, and the pane's runner opens from the seed in its own workspace, like any runner.
+
+**Files:**
+- Modify: `Sources/FlockCore/Rt/RtFiles.swift`, `Sources/FlockCore/Rt/RtCommandLine.swift`, `Sources/FlockCore/Rt/RtLifecycle.swift`, `Sources/FlockCore/Rt/RtCoordinator.swift`
+- Modify: `Tests/FlockCoreTests/RtFilesTests.swift`, `RtCommandLineTests.swift`, `RtLifecycleTests.swift`, `RtCoordinatorTests.swift`, `RtTestSupport.swift` (only if `FakeRtWorld` needs it)
+
+**Interfaces:**
+- Produces: `RtFilePaths.seed` (`<token>.seed`); `RtFileStore.write(_:to:)`; `RtFileParse.seed(_:) -> String?`; `RtCommandLine.command(for:shell:seeded:)`; `RtLifecycle.Outcome.becomeRunner(String)`; `RtCoordinator.open(_:from:seed:reveal:)` (both new parameters defaulted: `seed: nil`, `reveal: true`).
+
+- [ ] **Step 1: Write the failing tests**
+
+`RtFilesTests`:
+
+```swift
+    func testASeedFileSitsBesideTheOthers() {
+        let paths = RtFilePaths(token: "3f2a", directory: URL(fileURLWithPath: "/tmp/flock-rt", isDirectory: true))
+        XCTAssertEqual(paths.seed.path, "/tmp/flock-rt/3f2a.seed")
+    }
+
+    /// A queue or preset picked under `--resolve-only` comes back as seed rows.
+    func testASeedReadsOnlyAsANonEmptySeedEnvelope() {
+        let seed = #"{"seed":[{"name":"dev","command":"pnpm run dev","cwd":"/src/acme/web","pkg":"web","repo":"acme"}]}"#
+        XCTAssertEqual(RtFileParse.seed(seed + "\n"), seed)
+        XCTAssertNil(RtFileParse.seed(#"{"seed":[]}"#))
+        XCTAssertNil(RtFileParse.seed(#"{"targetDir":"/src/acme/web","packageLabel":"web","worktree":"/src/acme","branch":"main","commandTemplate":"pnpm run test","script":"test"}"#))
+        XCTAssertNil(RtFileParse.seed("/src/acme\n"))
+        XCTAssertNil(RtFileParse.seed(nil))
+    }
+```
+
+and in `testTheDiskStoreReadsDeletesAndMakesItsDirectory`, write through the store too: `store.write("0\n", to: url)` in place of `String.write`, then the existing read and delete assertions.
+
+`RtCommandLineTests`:
+
+```swift
+    func testASeededRunnerReadsItsSeedFile() {
+        XCTAssertEqual(
+            RtCommandLine.command(for: .runner, shell: .posix, seeded: true),
+            #"command rt runner --herdr --seed-file "$FLOCK_RT_SEED"; echo $? >"$FLOCK_RT_STATUS""#
+        )
+    }
+```
+
+`RtLifecycleTests`:
+
+```swift
+    func testAPickThatReturnsASeedBecomesARunner() {
+        let seed = #"{"seed":[{"name":"dev","command":"pnpm run dev","cwd":"/src/acme/web"}]}"#
+        var life = RtLifecycle(kind: .run, startedAt: start)
+        _ = life.observe(seen(busy: true, at: 0.3))
+        XCTAssertEqual(life.observe(seen(busy: false, status: 0, out: seed + "\n", at: 4)), .becomeRunner(seed))
+        XCTAssertEqual(life.stage, .done)
+    }
+```
+
+`RtCoordinatorTests` (with `let rtSeedLine = #"{"seed":[{"name":"dev","command":"pnpm run dev","cwd":"/src/acme/web","pkg":"web","repo":"acme"}]}"#` beside `rtResultLine` in `RtTestSupport.swift`):
+
+```swift
+    func testARunWhosePickReturnsASeedBecomesThePanesRunner() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt run", .init(busyPolls: 1, status: "0", out: rtSeedLine + "\n"))
+        world.script("command rt runner", .init(busyPolls: 100_000, status: "0", foreground: ["bun", "rt-ui"]))
+        let rt = makeCoordinator(world)
+        rt.update(model: world.model())
+
+        await rt.open(.run, from: world.fixture.linkedPane)
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").first?["tab_id"]), "wF1:t1")
+        let create = try XCTUnwrap(world.calls("workspace.create").last)
+        XCTAssertEqual(FakeRtWorld.string(create["label"]), "flock:rt runner term_a1")
+        guard case .object(let env) = create["env"] else { return XCTFail("no env") }
+        XCTAssertEqual(FakeRtWorld.string(env["FLOCK_RT_SEED"]), rtPaths("tok2").seed.path)
+        XCTAssertEqual(world.read(rtPaths("tok2").seed), rtSeedLine)
+        XCTAssertEqual(world.typed(into: "wF2:p1"), [#"command rt runner --herdr --seed-file "$FLOCK_RT_SEED"; echo $? >"$FLOCK_RT_STATUS""#])
+        XCTAssertEqual(rt.runner(linkedTo: RtFixture.linkedTerminal)?.id, "tok2")
+        XCTAssertNil(rt.items["tok1"])
+        XCTAssertEqual(rt.modal?.itemID, "tok2")
+        rt.watches["tok2"]?.cancel()
+    }
+
+    /// One runner per pane: the queue is not added to it, and the user is told.
+    func testASeedWithARunnerAlreadyRunningShowsItAndSaysSo() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt runner", .init(busyPolls: 100_000, status: "0", foreground: ["bun", "rt-ui"]))
+        world.script("command rt run", .init(busyPolls: 1, status: "0", out: rtSeedLine + "\n"))
+        let notices = NoticeLog()
+        let rt = makeCoordinator(world, notices: notices)
+        rt.update(model: world.model())
+        await rt.open(.runner, from: world.fixture.linkedPane)
+
+        await rt.open(.run, from: world.fixture.linkedPane)
+        try await finishWatch(rt, "tok2")
+        await rt.settle()
+
+        XCTAssertEqual(world.calls("workspace.create").count, 2, "the runner's workspace and flock:rt, no second runner")
+        XCTAssertEqual(rt.modal?.itemID, "tok1")
+        XCTAssertEqual(notices.lines.count, 1)
+        rt.watches["tok1"]?.cancel()
+    }
+
+    /// A run picked while hidden stays hidden as a runner: no modal pops up.
+    func testASeedFromAHiddenRunOpensTheRunnerWithoutTheModal() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt run", .init(busyPolls: 5, status: "0", out: rtSeedLine + "\n"))
+        world.script("command rt runner", .init(busyPolls: 100_000, status: "0", foreground: ["bun", "rt-ui"]))
+        let rt = makeCoordinator(world)
+        rt.update(model: world.model())
+        await rt.open(.run, from: world.fixture.linkedPane)
+        await rt.closeModal()
+
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertEqual(rt.runner(linkedTo: RtFixture.linkedTerminal)?.id, "tok2")
+        XCTAssertNil(rt.modal)
+        rt.watches["tok2"]?.cancel()
+    }
+```
+
+Check each test's pane and workspace ids against `FakeRtWorld`'s numbering (workspaces `wF1`, `wF2` in creation order; a workspace's first pane is `<workspace>:p1`) and adjust ids only if the fake numbers differently; say so in the report.
+
+- [ ] **Step 2: Run them to see them fail**
+
+Expected: compile failures on `seed`, `write`, `seeded:`, `.becomeRunner`, and `open(_:from:seed:reveal:)`.
+
+- [ ] **Step 3: Implement**
+
+`RtFiles.swift`:
+
+- `RtFilePaths` gains `public let seed: URL` = `directory.appendingPathComponent("\(token).seed")`.
+- `RtFileStore` gains `func write(_ text: String, to url: URL)`; `DiskRtFileStore` writes atomically as UTF-8 (`try?`, like its siblings).
+- `RtFileParse.seed(_ text: String?) -> String?`: the trimmed text when it decodes as `{"seed":[...]}` with at least one row whose `name`, `command` and `cwd` are strings; nil otherwise. flock only checks the shape; rt reads the rows.
+
+`RtCommandLine.command(for:shell:seeded:)` (`seeded` defaulted to `false`): for `.runner` with `seeded`, the body is `command rt runner --herdr --seed-file "$FLOCK_RT_SEED"`; every other line is unchanged. The path reaches the shell through the tab's env, as `FLOCK_RT_OUT` and `FLOCK_RT_STATUS` do, so it is never quoted into the line.
+
+`RtLifecycle`: `Outcome.becomeRunner(String)`; in `pickingOutcome`, after the `runResult` check and before the status-0 self-launch check, `if let seed = RtFileParse.seed(seen.out) { stage = .done; return .becomeRunner(seed) }`. The self-launch path stays for an rt that still launches a queue itself.
+
+`RtCoordinator`:
+
+- `open(_ kind: RtKind, from pane: PaneRecord, seed: String? = nil, reveal: Bool = true)`. For a seeded runner, before creating the workspace, `files.write(seed, to: paths.seed)` and add `"FLOCK_RT_SEED": paths.seed.path` to the env; the typed line is `RtCommandLine.command(for: kind, shell: shell, seeded: seed != nil)`. `show(token)` runs only when `reveal` is true. The error path deletes `paths.seed` along with the others.
+- `forget` deletes `paths.seed` too.
+- `apply`:
+
+```swift
+        case .becomeRunner(let seed):
+            guard let item = items[id] else { return false }
+            let wasShown = modal?.itemID == id
+            await closeItem(id)
+            if let existing = runner(linkedTo: item.linked) {
+                notice("A runner is already running for this pane: add scripts from its board.")
+                if wasShown { await show(existing.id) }
+                return false
+            }
+            guard let model, let pane = pane(for: item.linked, in: model) else { return false }
+            await open(.runner, from: pane, seed: seed, reveal: wasShown)
+            return false
+```
+
+- [ ] **Step 4: Run the tests to see them pass**
+
+Run the five changed classes, then the whole `FlockCoreTests`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && Scripts/checks.sh && git commit -m "rt: a queue or preset picked in rt run becomes the pane's runner
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 11: Design canvas (CHECKPOINT, controller only)
 
 Visual work stays with the controller; do not dispatch it to an implementer. No UI code is written until Matt approves this canvas.
