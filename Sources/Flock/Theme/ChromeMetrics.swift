@@ -197,17 +197,19 @@ enum ChromeMetrics {
         static let legendItemGap: CGFloat = 5
         static let toastInset: CGFloat = 13
 
-        /// The right-click mode's mouse: its body, the buttons across the top
-        /// of it, and the cord rising from the top.
+        /// The right-click mode's mouse, in a chip the size and corner of the
+        /// signed-out chat button beside it: the body, the buttons across the
+        /// top of it, and the cord rising from the top.
         enum MouseGlyph {
-            static let frameWidth: CGFloat = 16
-            static let bodyWidth: CGFloat = 11
-            static let bodyHeight: CGFloat = 12.5
-            static let cornerRadius: CGFloat = 5
-            static let buttonDepth: CGFloat = 5.5
-            static let stroke: CGFloat = 1.2
-            static let cordRise: CGFloat = 3.5
-            static let cordReach: CGFloat = 3.5
+            static let chipSize = CGSize(width: 27, height: 17)
+            static let chipCornerRadius: CGFloat = 4
+            static let bodyWidth: CGFloat = 9
+            static let bodyHeight: CGFloat = 10
+            static let cornerRadius: CGFloat = 4
+            static let buttonDepth: CGFloat = 4.5
+            static let stroke: CGFloat = 1.1
+            static let cordRise: CGFloat = 2.5
+            static let cordReach: CGFloat = 3
         }
     }
 

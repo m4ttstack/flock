@@ -19,10 +19,12 @@ struct MouseModeButton: View {
             onToggle?()
         } label: {
             MouseGlyph(
-                outline: isHovering && onToggle != nil ? theme.textStrong : theme.textDim,
+                outline: isHovering && onToggle != nil ? theme.textDim : theme.overlay0,
                 rightButton: mode == .menu ? nil : theme.accent
             )
-            .frame(width: Metrics.frameWidth, height: PaneChrome.titleRowHeight)
+            .frame(width: Metrics.chipSize.width, height: Metrics.chipSize.height)
+            .background(RoundedRectangle(cornerRadius: Metrics.chipCornerRadius).fill(Color(theme.palette.surface0)))
+            .frame(height: PaneChrome.titleRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
