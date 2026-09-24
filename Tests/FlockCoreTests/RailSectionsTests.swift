@@ -140,4 +140,12 @@ final class RailSectionsTests: XCTestCase {
             XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: index, in: full, board: board), index)
         }
     }
+
+    /// flock's own workspaces sit in herdr's order too, and herdr appends new
+    /// ones, so one soon lands between visible rows. A slot has to map past it.
+    func testFlocksOwnWorkspacesAreNotRailRows() {
+        let full = model(["acme", "notes", "flock:rt", "deck", "flock:rt runner term_a1"])
+        XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: 2, in: full, board: nil), 3)
+        XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: 3, in: full, board: nil), 4)
+    }
 }

@@ -6,7 +6,7 @@ import XCTest
 /// SwiftUI's `.popover` draws its own arrow and bezel from the AppKit
 /// window's own appearance, which otherwise stays whatever the system is
 /// set to -- so a dark-themed popover got the system's light chrome no
-/// matter how dark its content painted. `ChatPopoverAppearancePin` reaches
+/// matter how dark its content painted. `PopoverAppearancePin` reaches
 /// the popover's window through the same `view.window` seam
 /// `ChatPopoverEscMonitor` already uses, and this proves it lands: the
 /// window's own `appearance` follows the theme's `panelBg` luminance in
