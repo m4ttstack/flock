@@ -199,4 +199,6 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     }
 
     var hasFirstFrame: Bool { session.hasFirstFrame }
+
+    var hasClaimedMouse: Bool { session.hasClaimedMouse }
 }

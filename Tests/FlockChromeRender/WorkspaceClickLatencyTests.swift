@@ -284,6 +284,7 @@ private final class GroundSurface: GhosttyPaneSurface {
     func takeHerdrHold() {}
     func resumeScreenActivityReporting() {}
     var hasFirstFrame: Bool { true }
+    var hasClaimedMouse: Bool { false }
 }
 
 @MainActor

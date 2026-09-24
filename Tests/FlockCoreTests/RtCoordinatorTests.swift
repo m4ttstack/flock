@@ -401,6 +401,24 @@ final class RtCoordinatorTests: XCTestCase {
         rt.watches["tok1"]?.cancel()
     }
 
+    /// The modal's loader times its ceiling from here, not from when a view
+    /// first showed the item.
+    func testAnItemRecordsWhenItStarted() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt glitter", .init(busyPolls: 1000, status: "0"))
+        let rt = makeCoordinator(world)
+
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        XCTAssertNil(rt.items["tok1"]?.startedAt)
+        let before = Date()
+        try await waitUntil { rt.items["tok1"]?.started == true }
+
+        let startedAt = try XCTUnwrap(rt.items["tok1"]?.startedAt)
+        XCTAssertGreaterThanOrEqual(startedAt.timeIntervalSince(before), -1)
+        XCTAssertLessThanOrEqual(startedAt.timeIntervalSinceNow, 0)
+        rt.watches["tok1"]?.cancel()
+    }
+
     /// A command over before any poll saw it running is started by its strip,
     /// exited or finished.
     func testACommandThatEndsUnseenIsStartedOnItsStrip() async throws {

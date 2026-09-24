@@ -43,6 +43,9 @@ public struct RtItem: Identifiable, Equatable, Sendable {
     /// Whether the command has held its pane's foreground, or has ended.
     /// Until then the pane shows only the shell's prompt and the typed line.
     public var started: Bool
+    /// When a poll first saw the command hold its pane. nil for an item that
+    /// has not started, and for one restored from an earlier run.
+    public var startedAt: Date?
     public var strip: RtStrip?
 
     public init(

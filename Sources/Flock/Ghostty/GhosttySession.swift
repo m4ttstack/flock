@@ -114,6 +114,9 @@ final class GhosttySession {
     /// to libghostty's own selection. `sgr_pixels` is not kept: a control
     /// client never negotiates pixel mouse, so herdr always reports it false.
     private(set) var mouseCaptureEnabled = false
+    /// Latched by the first `setMouseCapture(enabled: true)`: see `MouseClaimLatch`.
+    let mouseClaimLatch = MouseClaimLatch()
+    var hasClaimedMouse: Bool { mouseClaimLatch.claimed }
 
     /// The grid flock's pane box holds, which the view lays the surface out
     /// at. Kept only so `verifyExpectedGrid` can log whether libghostty's live
@@ -462,6 +465,9 @@ final class GhosttySession {
     func setMouseCapture(enabled: Bool) {
         let wasEnabled = mouseCaptureEnabled
         mouseCaptureEnabled = enabled
+        if enabled {
+            mouseClaimLatch.markClaimed()
+        }
         if wasEnabled, !enabled {
             view?.mouseCaptureDidEnd()
         }

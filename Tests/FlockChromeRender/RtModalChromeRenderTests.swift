@@ -338,13 +338,17 @@ final class RtModalChromeRenderTests: XCTestCase {
     // MARK: - The loader
 
     /// Until its command holds the pane, all the pane has to show is the
-    /// shell's prompt and the typed line: the loader runs over it and the
-    /// surface stays hidden. Once started, the loader goes and the surface
-    /// shows.
-    func testAnUnstartedItemShowsTheLoaderOverAHiddenSurfaceUntilItStarts() async throws {
+    /// shell's prompt and the typed line; once started, the program still
+    /// has to draw. The loader runs over both and the surface stays hidden
+    /// until the program claims the mouse, which every rt-ui program does as
+    /// it takes the screen.
+    func testTheLoaderCoversThePaneUntilItsProgramClaimsTheMouse() async throws {
         ChromeType.install()
         for theme in Self.themes {
-            let hosted = try await hostModal(theme: theme, variant: .nav, started: false)
+            let mouseClaim = MouseClaimLatch()
+            let hosted = try await hostModal(
+                theme: theme, variant: .nav, started: false, factory: GroundSurfaceFactory(mouseClaim: mouseClaim)
+            )
             let (window, viewModel) = (hosted.window, hosted.viewModel)
             defer { window.close() }
             let label = theme.id
@@ -357,12 +361,36 @@ final class RtModalChromeRenderTests: XCTestCase {
 
             let id = try XCTUnwrap(viewModel.rt.modal?.itemID)
             viewModel.rt.items[id]?.started = true
+            viewModel.rt.items[id]?.startedAt = Date()
             await settle(window)
             let started = try snapshot(window)
-            try write(started, "rt-modal-loader-started-\(theme.id).png")
-            XCTAssertEqual(markPixels(in: started, area), 0, "\(label): the loader outlived the start")
-            XCTAssertEqual(surfaceOpacity(in: window), 1, "\(label): the surface stayed hidden once started")
+            XCTAssertGreaterThan(markPixels(in: started, area), 40, "\(label): the loader left before the program drew")
+            XCTAssertEqual(surfaceOpacity(in: window), 0, "\(label): the surface showed before the program drew")
+
+            mouseClaim.markClaimed()
+            await settle(window)
+            let up = try snapshot(window)
+            try write(up, "rt-modal-loader-up-\(theme.id).png")
+            XCTAssertEqual(markPixels(in: up, area), 0, "\(label): the loader outlived the program's claim")
+            XCTAssertEqual(surfaceOpacity(in: window), 1, "\(label): the surface stayed hidden once the program was up")
         }
+    }
+
+    /// A program that never claims the mouse is uncovered by the ceiling,
+    /// timed from its start rather than from when the modal showed it.
+    func testAProgramStartedPastTheCeilingIsUncoveredAtOnce() async throws {
+        ChromeType.install()
+        let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .nav, started: false)
+        let (window, viewModel) = (hosted.window, hosted.viewModel)
+        defer { window.close() }
+
+        let id = try XCTUnwrap(viewModel.rt.modal?.itemID)
+        viewModel.rt.items[id]?.started = true
+        viewModel.rt.items[id]?.startedAt = Date().addingTimeInterval(-(RtModalLoaderPolicy.ceiling + 1))
+        await settle(window)
+
+        XCTAssertEqual(markPixels(in: try snapshot(window), paneArea(in: window)), 0, "a loader past the ceiling")
+        XCTAssertEqual(surfaceOpacity(in: window), 1, "the surface stayed hidden past the ceiling")
     }
 
     /// A service is not the item's own pane and nothing was typed into it.
@@ -822,6 +850,8 @@ private struct OfflineClient: HerdrCommandClient {
 
 @MainActor
 private final class GroundSurface: GhosttyPaneSurface {
+    let mouseClaim: MouseClaimLatch
+    init(mouseClaim: MouseClaimLatch) { self.mouseClaim = mouseClaim }
     func detach() async {}
     func park() {}
     func unpark() {}
@@ -829,16 +859,19 @@ private final class GroundSurface: GhosttyPaneSurface {
     func takeHerdrHold() {}
     func resumeScreenActivityReporting() {}
     var hasFirstFrame: Bool { true }
+    var hasClaimedMouse: Bool { mouseClaim.claimed }
 }
 
 @MainActor
 private struct GroundSurfaceFactory: GhosttyPaneFactory {
+    var mouseClaim = MouseClaimLatch()
+
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (Int) -> Bool
     ) async -> any GhosttyPaneSurface {
-        GroundSurface()
+        GroundSurface(mouseClaim: mouseClaim)
     }
 }
 

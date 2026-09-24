@@ -33,6 +33,23 @@ public final class FirstFrameLatch {
     }
 }
 
+/// Whether a pane's program has ever claimed the mouse, SwiftUI-observed like
+/// `FirstFrameLatch`. Flips once: a program that hands its pane on (an
+/// `rt run` picker to the script it picked) turns the mouse off again, and
+/// what was claimed stays claimed.
+@MainActor
+@Observable
+public final class MouseClaimLatch {
+    public private(set) var claimed = false
+
+    public init() {}
+
+    public func markClaimed() {
+        guard !claimed else { return }
+        claimed = true
+    }
+}
+
 /// One pane's live control-plane surface: a real libghostty surface whose PTY
 /// child is a herdr-aware bridge process (`ControlBridge`), attached to the
 /// pane over its own herdr connection. `FlockCore` never constructs one
@@ -97,6 +114,11 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// swapping, so the surface has already had time to draw by the time the
     /// card has fully faded.
     var hasFirstFrame: Bool { get }
+
+    /// Whether the pane's program has ever asked for mouse reporting, as the
+    /// bridge reports it. Every rt-ui program does as it takes the screen,
+    /// which is how the rt modal knows its program has drawn.
+    var hasClaimedMouse: Bool { get }
 }
 
 /// Creates a `GhosttyPaneSurface` for one pane. Implemented in the app

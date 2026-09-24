@@ -331,7 +331,10 @@ public final class RtCoordinator {
             return false
         }
         misses[id] = nil
-        if observation.firstPaneBusy, items[id]?.started == false { items[id]?.started = true }
+        if observation.firstPaneBusy, items[id]?.started == false {
+            items[id]?.started = true
+            items[id]?.startedAt = now()
+        }
         guard var lifecycle = lifecycles[id] else { return false }
         let outcome = lifecycle.observe(observation)
         lifecycles[id] = lifecycle

@@ -198,6 +198,7 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     /// `false`, and a test flips it directly to simulate the bridge's
     /// `flock.first_frame` line landing.
     var hasFirstFrame = false
+    var hasClaimedMouse = false
 
     init(pane: PaneID) {
         self.pane = pane
