@@ -29,9 +29,13 @@ final class RtModalLoaderPolicyTests: XCTestCase {
     }
 
     func testAnEndedCommandIsUncovered() {
-        for started in [false, true] {
-            XCTAssertFalse(RtModalLoaderPolicy.coversPane(started: started, ended: true, programClaimedMouse: false, sinceStart: nil))
-        }
+        XCTAssertFalse(RtModalLoaderPolicy.coversPane(started: true, ended: true, programClaimedMouse: false, sinceStart: 0.1))
+    }
+
+    /// A shutdown stops an item before the modal goes; one that never
+    /// started has only the shell to show.
+    func testAnUnstartedItemThatStopsStaysCovered() {
+        XCTAssertTrue(RtModalLoaderPolicy.coversPane(started: false, ended: true, programClaimedMouse: false, sinceStart: nil))
     }
 
     /// An item restored from an earlier run has no start time: it has been

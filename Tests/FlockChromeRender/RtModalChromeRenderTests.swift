@@ -376,6 +376,23 @@ final class RtModalChromeRenderTests: XCTestCase {
         }
     }
 
+    /// A shutdown stops an item before it forgets it, and the modal stays up
+    /// meanwhile: an item that never started has nothing to show but the
+    /// shell, so its loader stays until the modal goes.
+    func testAnUnstartedItemShuttingDownKeepsItsLoader() async throws {
+        ChromeType.install()
+        let hosted = try await hostModal(theme: Theme(.tokyoNight), variant: .nav, started: false)
+        let (window, viewModel) = (hosted.window, hosted.viewModel)
+        defer { window.close() }
+
+        let id = try XCTUnwrap(viewModel.rt.modal?.itemID)
+        viewModel.rt.items[id]?.isRunning = false
+        await settle(window)
+
+        XCTAssertGreaterThan(markPixels(in: try snapshot(window), paneArea(in: window)), 40, "a shutdown uncovered the shell")
+        XCTAssertEqual(surfaceOpacity(in: window), 0, "a shutdown showed the unstarted pane")
+    }
+
     /// The ceiling has to fire while the modal is up: the item starts after
     /// the modal opened, so the deadline did not exist when the view did.
     func testTheCeilingUncoversAProgramThatNeverClaimsTheMouseWhileTheModalIsUp() async throws {
@@ -387,11 +404,11 @@ final class RtModalChromeRenderTests: XCTestCase {
 
         let id = try XCTUnwrap(viewModel.rt.modal?.itemID)
         viewModel.rt.items[id]?.started = true
-        viewModel.rt.items[id]?.startedAt = Date().addingTimeInterval(-(RtModalLoaderPolicy.ceiling - 0.5))
+        viewModel.rt.items[id]?.startedAt = Date()
         await settle(window)
         XCTAssertGreaterThan(markPixels(in: try snapshot(window), area), 40, "the loader left before the ceiling")
 
-        try await Task.sleep(for: .seconds(1))
+        try await Task.sleep(for: .seconds(RtModalLoaderPolicy.ceiling + 1))
         await settle(window)
         XCTAssertEqual(markPixels(in: try snapshot(window), area), 0, "the ceiling passed and the loader stayed")
         XCTAssertEqual(surfaceOpacity(in: window), 1, "the ceiling passed and the surface stayed hidden")

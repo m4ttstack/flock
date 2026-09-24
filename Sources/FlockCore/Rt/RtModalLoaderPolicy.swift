@@ -13,9 +13,12 @@ public enum RtModalLoaderPolicy {
 
     /// `sinceStart` is nil for an item that has not started, and for one
     /// restored from an earlier run, which has been up longer than any ceiling.
+    /// `ended` uncovers only a command that started: a shutdown stops an
+    /// unstarted item before the modal goes, and all it has is the shell.
     public static func coversPane(started: Bool, ended: Bool, programClaimedMouse: Bool, sinceStart: TimeInterval?) -> Bool {
-        if ended || programClaimedMouse { return false }
+        if programClaimedMouse { return false }
         guard started else { return true }
+        if ended { return false }
         guard let sinceStart else { return false }
         return sinceStart < ceiling
     }
