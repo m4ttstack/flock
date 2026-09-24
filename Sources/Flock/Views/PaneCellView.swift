@@ -590,7 +590,9 @@ struct PaneCellView: View {
     private var rtPopover: some View {
         if let terminal = pane.terminalID {
             RtPopover(
-                theme: theme, folder: RtPaths.tilde(pane.cwd, home: NSHomeDirectory()),
+                // `open` asks herdr for the foreground's folder at the click;
+                // a popover cannot wait on that, so it shows herdr's last record.
+                theme: theme, folder: RtPaths.tilde(pane.foregroundCwd ?? pane.cwd, home: NSHomeDirectory()),
                 commands: viewModel.rt.commandRows(linkedTo: terminal),
                 runs: viewModel.rt.runRows(linkedTo: terminal),
                 onCommand: { kind in openRt(kind) },

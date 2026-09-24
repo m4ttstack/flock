@@ -390,7 +390,7 @@ public final class HerdrStore {
             let moved = PaneRecord(
                 paneID: pane, workspaceID: workspaceID, tabID: tab, focused: old.focused, agentStatus: old.agentStatus,
                 revision: old.revision, terminalTitleStripped: old.terminalTitleStripped, label: old.label, cwd: old.cwd, scroll: old.scroll,
-                terminalID: old.terminalID
+                terminalID: old.terminalID, foregroundCwd: old.foregroundCwd
             )
             return [.paneMoved(PaneMovedPayload(
                 previousPaneID: pane, previousWorkspaceID: old.workspaceID, previousTabID: old.tabID,
@@ -402,7 +402,7 @@ public final class HerdrStore {
             let renamed = PaneRecord(
                 paneID: old.paneID, workspaceID: old.workspaceID, tabID: old.tabID, focused: old.focused, agentStatus: old.agentStatus,
                 revision: old.revision, terminalTitleStripped: old.terminalTitleStripped, label: label, cwd: old.cwd, scroll: old.scroll,
-                terminalID: old.terminalID
+                terminalID: old.terminalID, foregroundCwd: old.foregroundCwd
             )
             return [.paneUpdated(renamed)]
 

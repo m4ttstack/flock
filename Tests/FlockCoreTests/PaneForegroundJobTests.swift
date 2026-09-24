@@ -66,4 +66,14 @@ final class PaneForegroundJobTests: XCTestCase {
         XCTAssertNil(busySnapshot.shellName)
         XCTAssertEqual(busySnapshot.foregroundNames, ["bun", "rt-ui"])
     }
+
+    /// An agent a shell launched reports its own folder; the shell's folder is
+    /// never the foreground's.
+    func testTheSnapshotCarriesTheFoldersOfWhatHoldsTheForeground() throws {
+        let idle = Data(#"{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":500,"foreground_process_group_id":500,"foreground_processes":[{"name":"zsh","pid":500,"cwd":"/Users/acme/src/tools"}]}}}"#.utf8)
+        let busy = Data(#"{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":500,"foreground_process_group_id":731,"foreground_processes":[{"name":"node","pid":740},{"name":"claude","pid":731,"cwd":"/Users/acme/src/flock"}]}}}"#.utf8)
+
+        XCTAssertEqual(try XCTUnwrap(PaneForegroundJob.snapshot(processInfoResponse: idle)).foregroundCwds, [])
+        XCTAssertEqual(try XCTUnwrap(PaneForegroundJob.snapshot(processInfoResponse: busy)).foregroundCwds, ["/Users/acme/src/flock"])
+    }
 }

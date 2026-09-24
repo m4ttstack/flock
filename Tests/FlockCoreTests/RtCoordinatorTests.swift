@@ -406,6 +406,53 @@ final class RtCoordinatorTests: XCTestCase {
         XCTAssertEqual(rt.items["tok1"]?.started, true)
     }
 
+    /// An agent a shell launched works in its own folder, and rt opens there
+    /// rather than in the shell's.
+    func testACommandOpensAtTheFolderOfWhatHoldsTheLinkedPanesForeground() async throws {
+        let world = FakeRtWorld()
+        world.busyPanes = ["w1:p1"]
+        world.processCwds = ["w1:p1": "/src/acme/web"]
+        world.setForegroundCwd("/src/acme/api", of: "w1:p1")
+        world.script("command rt runner", .init(busyPolls: 1000, status: "0", foreground: ["bun", "rt-ui"]))
+        let rt = makeCoordinator(world)
+
+        await rt.open(.runner, from: world.fixture.linkedPane)
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("workspace.create").first?["cwd"]), "/src/acme/web")
+        XCTAssertEqual(rt.items["tok1"]?.folder, "/src/acme/web")
+        rt.watches["tok1"]?.cancel()
+    }
+
+    /// The shell's own folder is never the foreground's, even while the shell
+    /// holds it alone: herdr's record of the foreground's folder decides.
+    func testWithOnlyTheShellInTheForegroundTheRecordsForegroundFolderDecides() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt glitter", .init(busyPolls: 1000, status: "0"))
+        let rt = makeCoordinator(world)
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        rt.update(model: world.model())
+        world.setForegroundCwd("/src/acme/api", of: "w1:p1")
+
+        await rt.open(.nav, from: world.fixture.linkedPane)
+        await rt.settle()
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.create").first?["cwd"]), "/src/acme/api")
+        XCTAssertEqual(rt.items["tok2"]?.folder, "/src/acme/api")
+        rt.watches["tok2"]?.cancel()
+    }
+
+    func testWithNoForegroundFolderAtAllTheRecordsFolderDecides() async throws {
+        let world = FakeRtWorld()
+        world.busyPanes = ["w1:p1"]
+        let rt = makeCoordinator(world)
+
+        await rt.open(.nav, from: world.fixture.linkedPane)
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("workspace.create").first?["cwd"]), "/src/acme")
+        XCTAssertEqual(rt.items["tok1"]?.folder, "/src/acme")
+        rt.watches["tok1"]?.cancel()
+    }
+
     func testClosingTheModalHandsHerdrsFocusToTheLinkedPane() async throws {
         let world = FakeRtWorld()
         world.script("command rt run", .init(busyPolls: 100_000, status: "0"))

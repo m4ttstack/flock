@@ -109,6 +109,9 @@ public struct PaneRecord: Codable, Equatable, Sendable {
     /// herdr's handle on the pane's PTY. Unlike `paneID` it survives a move to
     /// another workspace, which is why rt's links key on it.
     public var terminalID: TerminalID? = nil
+    /// The folder of what holds the pane's foreground. `cwd` is the shell's,
+    /// and an agent the shell launched can be working somewhere else.
+    public var foregroundCwd: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case paneID = "pane_id"
@@ -122,6 +125,7 @@ public struct PaneRecord: Codable, Equatable, Sendable {
         case cwd
         case scroll
         case terminalID = "terminal_id"
+        case foregroundCwd = "foreground_cwd"
     }
 }
 

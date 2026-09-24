@@ -133,6 +133,7 @@ public final class RtCoordinator {
         defer { if kind == .runner { openingRunners.remove(terminal) } }
         opensInFlight += 1
         defer { opensInFlight -= 1 }
+        let folder = await folder(of: pane)
         let token = makeToken()
         let paths = RtFilePaths(token: token, directory: config.fileDirectory)
         files.prepareDirectory(config.fileDirectory)
@@ -149,15 +150,15 @@ public final class RtCoordinator {
         do {
             let host: RtHerdr.Created
             if kind == .runner {
-                host = try await herdr.createWorkspace(label: RtLabels.runnerWorkspaceLabel(linkedTo: terminal), cwd: pane.cwd, env: env)
+                host = try await herdr.createWorkspace(label: RtLabels.runnerWorkspaceLabel(linkedTo: terminal), cwd: folder, env: env)
                 created = host
                 ownsWorkspace = true
                 try await herdr.renameTab(host.tabID, to: label)
             } else if let shared = sharedWorkspaceID {
-                host = try await herdr.createTab(in: shared, label: label, cwd: pane.cwd, env: env)
+                host = try await herdr.createTab(in: shared, label: label, cwd: folder, env: env)
                 created = host
             } else {
-                host = try await herdr.createWorkspace(label: RtLabels.sharedWorkspace, cwd: pane.cwd, env: env)
+                host = try await herdr.createWorkspace(label: RtLabels.sharedWorkspace, cwd: folder, env: env)
                 created = host
                 ownsWorkspace = true
                 try await herdr.renameTab(host.tabID, to: label)
@@ -166,7 +167,7 @@ public final class RtCoordinator {
             try await herdr.type(RtCommandLine.command(for: kind, shell: shell, seeded: seed != nil), into: host.rootPaneID)
             items[token] = RtItem(
                 id: token, kind: kind, linked: terminal, workspaceID: host.workspaceID, tabID: host.tabID,
-                firstPaneID: host.rootPaneID, title: kind.defaultTitle, folder: pane.cwd,
+                firstPaneID: host.rootPaneID, title: kind.defaultTitle, folder: folder,
                 isRunning: true, started: false, strip: nil
             )
             lifecycles[token] = RtLifecycle(kind: kind, startedAt: now())
@@ -186,6 +187,13 @@ public final class RtCoordinator {
             files.delete(paths.status)
             files.delete(paths.seed)
         }
+    }
+
+    /// Where the pane is working: an agent its shell launched can be in
+    /// another folder than the shell (`pane.cwd`). The folder of what holds
+    /// the foreground, else herdr's record of it, else the shell's.
+    func folder(of pane: PaneRecord) async -> String {
+        await herdr.paneState(pane.paneID)?.foregroundCwds.first ?? pane.foregroundCwd ?? pane.cwd
     }
 
     var sharedWorkspaceID: WorkspaceID? {

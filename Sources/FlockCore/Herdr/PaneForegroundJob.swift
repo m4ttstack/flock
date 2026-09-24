@@ -14,6 +14,9 @@ public enum PaneForegroundJob {
         public let shellName: String?
         /// Everything but the shell that holds the foreground.
         public let foregroundNames: [String]
+        /// The folders of everything but the shell that holds the
+        /// foreground, in herdr's order, where herdr names one.
+        public let foregroundCwds: [String]
     }
 
     public static func snapshot(processInfoResponse data: Data) -> Snapshot? {
@@ -32,7 +35,8 @@ public enum PaneForegroundJob {
         return Snapshot(
             busy: busy,
             shellName: processes.first { $0.pid == shellPID }?.name,
-            foregroundNames: processes.filter { $0.pid != shellPID }.compactMap(\.name)
+            foregroundNames: processes.filter { $0.pid != shellPID }.compactMap(\.name),
+            foregroundCwds: processes.filter { $0.pid != shellPID }.compactMap(\.cwd)
         )
     }
 
@@ -51,7 +55,7 @@ public enum PaneForegroundJob {
     }
 
     private struct Info: Decodable {
-        struct Process: Decodable { let pid: Int; let name: String? }
+        struct Process: Decodable { let pid: Int; let name: String?; let cwd: String? }
         let shellPID: Int?
         let foregroundProcessGroupID: Int?
         let foregroundProcesses: [Process]?
