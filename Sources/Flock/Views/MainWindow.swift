@@ -17,10 +17,7 @@ struct MainWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TitleBar(
-                theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild
-            )
+            Color.clear.frame(height: ChromeMetrics.TitleBar.height)
             if let banner = viewModel.unsupportedBanner {
                 UnsupportedBanner(theme: theme, mismatch: banner)
             }
@@ -61,6 +58,16 @@ struct MainWindow: View {
             }
         }
         .background(theme.chrome)
+        // Over the content rather than above it in the stack: the system title
+        // bar's safe area is taller than this bar, and the tab strip's
+        // `NSScrollView` stretches up to the window's top edge through it.
+        // Stacked, that scroll view sits over the bar and takes its clicks.
+        .overlay(alignment: .top) {
+            TitleBar(
+                theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
+                isDevBuild: isDevBuild
+            )
+        }
         // What the rail's width is clamped against: a window too narrow for
         // the remembered rail shrinks it on screen, and widening the window
         // gives it back (`RailWidthStore`). A background reader rather than a
