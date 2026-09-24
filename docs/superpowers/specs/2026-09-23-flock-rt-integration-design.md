@@ -281,7 +281,8 @@ their state (`running`, `finished · exit 0`, `exited 1`).
 - An overlay inside the window, never a separate panel: a panel would take key
   window from the main one, which is why Herdglass draws its overlays inside the
   window too. It covers the tab area only (the tab strip and the panes, right
-  of the sidebar), is centered in it at about 90% of it, and dims it.
+  of the sidebar), is centered in it at one of three sizes (70%, 80% or 90%
+  of it, chosen in the title row, Medium by default), and dims it.
 - It shows one tab, which holds one pane.
 - A title row: the command and folder (`nav · ~/src/acme`), a close control, and
   **← runner** when showing a service.
