@@ -407,11 +407,16 @@ final class RtCoordinatorTests: XCTestCase {
     }
 
     /// An agent a shell launched works in its own folder, and rt opens there
-    /// rather than in the shell's.
-    func testACommandOpensAtTheFolderOfWhatHoldsTheLinkedPanesForeground() async throws {
+    /// rather than in the shell's. herdr lists the agent's children in the
+    /// same group, in no useful order and often working elsewhere: only the
+    /// group's leader says where the agent is.
+    func testACommandOpensAtTheFolderOfTheLinkedPanesForegroundLeader() async throws {
         let world = FakeRtWorld()
-        world.busyPanes = ["w1:p1"]
-        world.processCwds = ["w1:p1": "/src/acme/web"]
+        world.foregroundGroups["w1:p1"] = .init(leader: 731, processes: [
+            .init(name: "caffeinate", pid: 740, cwd: "/src/tools"),
+            .init(name: "node", pid: 741, cwd: "/src/tools"),
+            .init(name: "claude", pid: 731, cwd: "/src/acme/web"),
+        ])
         world.setForegroundCwd("/src/acme/api", of: "w1:p1")
         world.script("command rt runner", .init(busyPolls: 1000, status: "0", foreground: ["bun", "rt-ui"]))
         let rt = makeCoordinator(world)
@@ -423,14 +428,15 @@ final class RtCoordinatorTests: XCTestCase {
         rt.watches["tok1"]?.cancel()
     }
 
-    /// The shell's own folder is never the foreground's, even while the shell
-    /// holds it alone: herdr's record of the foreground's folder decides.
-    func testWithOnlyTheShellInTheForegroundTheRecordsForegroundFolderDecides() async throws {
+    /// A child's folder is never taken for the agent's, even when it is all
+    /// herdr lists: herdr's record of the foreground's folder decides.
+    func testWhenTheListLacksItsLeaderTheRecordsForegroundFolderDecides() async throws {
         let world = FakeRtWorld()
         world.script("command rt glitter", .init(busyPolls: 1000, status: "0"))
         let rt = makeCoordinator(world)
         await rt.open(.glitter, from: world.fixture.linkedPane)
         rt.update(model: world.model())
+        world.foregroundGroups["w1:p1"] = .init(leader: 731, processes: [.init(name: "node", pid: 741, cwd: "/src/tools")])
         world.setForegroundCwd("/src/acme/api", of: "w1:p1")
 
         await rt.open(.nav, from: world.fixture.linkedPane)
@@ -439,6 +445,20 @@ final class RtCoordinatorTests: XCTestCase {
         XCTAssertEqual(FakeRtWorld.string(world.calls("tab.create").first?["cwd"]), "/src/acme/api")
         XCTAssertEqual(rt.items["tok2"]?.folder, "/src/acme/api")
         rt.watches["tok2"]?.cancel()
+    }
+
+    func testAnOpenFromAPaneHerdrCannotAnswerForOpensAtTheRecordsFolder() async throws {
+        let world = FakeRtWorld()
+        world.silentOnce = ["w1:p1"]
+        world.setForegroundCwd("/src/acme/api", of: "w1:p1")
+        let rt = makeCoordinator(world)
+
+        await rt.open(.nav, from: world.fixture.linkedPane)
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("workspace.create").first?["cwd"]), "/src/acme/api")
+        XCTAssertEqual(rt.items["tok1"]?.folder, "/src/acme/api")
+        XCTAssertEqual(rt.modal?.itemID, "tok1")
+        rt.watches["tok1"]?.cancel()
     }
 
     func testWithNoForegroundFolderAtAllTheRecordsFolderDecides() async throws {

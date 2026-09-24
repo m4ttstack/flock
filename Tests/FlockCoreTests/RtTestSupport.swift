@@ -67,6 +67,9 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
 
     struct Failure: Error {}
 
+    struct ForegroundProcess { var name: String; var pid: Int; var cwd: String? = nil }
+    struct ForegroundGroup { var leader: Int; var processes: [ForegroundProcess] }
+
     private let lock = NSLock()
     private var recorded: [(method: String, params: [String: JSONValue])] = []
     private var stored: [URL: String] = [:]
@@ -87,9 +90,11 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
     /// Fail the next `process_info` for these panes, once each.
     var silentOnce: Set<String> = []
     var busyPanes: Set<String> = []
-    /// The folder a busy pane's foreground processes report. An idle pane's
-    /// shell reports the pane's own `cwd`.
-    var processCwds: [String: String] = [:]
+    /// A pane's foreground group as herdr lists it, in place of the answer
+    /// `busyPanes` or an idle shell gives: its leader's pid and its processes
+    /// in herdr's order, which need not put the leader first or list it at
+    /// all. An idle pane's shell leads its group from the pane's own `cwd`.
+    var foregroundGroups: [String: ForegroundGroup] = [:]
     var shell = "zsh"
 
     var calls: [(method: String, params: [String: JSONValue])] { locked { recorded } }
@@ -197,6 +202,9 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
         case "pane.process_info":
             let pane = Self.string(params["pane_id"]) ?? ""
             if silentPanes.contains(pane) || silentOnce.remove(pane) != nil { throw Failure() }
+            if running[pane] == nil, trailing[pane] == nil, let group = foregroundGroups[pane] {
+                return Self.processInfo(pane: pane, group: group.leader, processes: group.processes)
+            }
             var busy = busyPanes.contains(pane)
             var names = ["claude"]
             if var state = running[pane] {
@@ -219,8 +227,10 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
                     trailing[pane] = nil
                 }
             }
-            let cwd = busy ? processCwds[pane] : fixture.panes.first(where: { $0.id == pane })?.cwd
-            return Self.processInfo(pane: pane, busy: busy, names: names, shell: shell, cwd: cwd)
+            let processes = busy
+                ? names.enumerated().map { ForegroundProcess(name: $0.element, pid: 731 + $0.offset) }
+                : [ForegroundProcess(name: shell, pid: 500, cwd: fixture.panes.first(where: { $0.id == pane })?.cwd)]
+            return Self.processInfo(pane: pane, group: busy ? 731 : 500, processes: processes)
         default:
             break
         }
@@ -251,13 +261,12 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
         if run.afterPolls > 0 { trailing[pane] = (idle: 1, busy: run.afterPolls) }
     }
 
-    private static func processInfo(pane: String, busy: Bool, names: [String], shell: String, cwd: String?) -> Data {
-        let cwdField = cwd.map { #","cwd":"\#($0)""# } ?? ""
-        let processes = busy
-            ? names.enumerated().map { #"{"name":"\#($0.element)","pid":\#(731 + $0.offset)\#(cwdField)}"# }.joined(separator: ",")
-            : #"{"name":"\#(shell)","pid":500\#(cwdField)}"#
-        let group = busy ? 731 : 500
-        return Data(#"{"result":{"process_info":{"pane_id":"\#(pane)","shell_pid":500,"foreground_process_group_id":\#(group),"foreground_processes":[\#(processes)]}}}"#.utf8)
+    private static func processInfo(pane: String, group: Int, processes: [ForegroundProcess]) -> Data {
+        let list = processes.map { process in
+            let cwd = process.cwd.map { #","cwd":"\#($0)""# } ?? ""
+            return #"{"name":"\#(process.name)","pid":\#(process.pid)\#(cwd)}"#
+        }.joined(separator: ",")
+        return Data(#"{"result":{"process_info":{"pane_id":"\#(pane)","shell_pid":500,"foreground_process_group_id":\#(group),"foreground_processes":[\#(list)]}}}"#.utf8)
     }
 
     static func string(_ value: JSONValue?) -> String? {

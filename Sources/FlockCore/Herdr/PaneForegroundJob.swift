@@ -14,9 +14,11 @@ public enum PaneForegroundJob {
         public let shellName: String?
         /// Everything but the shell that holds the foreground.
         public let foregroundNames: [String]
-        /// The folders of everything but the shell that holds the
-        /// foreground, in herdr's order, where herdr names one.
-        public let foregroundCwds: [String]
+        /// The folder of the foreground group's leader, when herdr lists it
+        /// with one: the shell at its prompt, else the job it started. The
+        /// group also holds that job's children, listed in no useful order
+        /// and often working elsewhere.
+        public let leaderCwd: String?
     }
 
     public static func snapshot(processInfoResponse data: Data) -> Snapshot? {
@@ -36,7 +38,7 @@ public enum PaneForegroundJob {
             busy: busy,
             shellName: processes.first { $0.pid == shellPID }?.name,
             foregroundNames: processes.filter { $0.pid != shellPID }.compactMap(\.name),
-            foregroundCwds: processes.filter { $0.pid != shellPID }.compactMap(\.cwd)
+            leaderCwd: processes.first { $0.pid == info.foregroundProcessGroupID }?.cwd
         )
     }
 

@@ -67,13 +67,16 @@ final class PaneForegroundJobTests: XCTestCase {
         XCTAssertEqual(busySnapshot.foregroundNames, ["bun", "rt-ui"])
     }
 
-    /// An agent a shell launched reports its own folder; the shell's folder is
-    /// never the foreground's.
-    func testTheSnapshotCarriesTheFoldersOfWhatHoldsTheForeground() throws {
+    /// The group holds the agent and its children, listed in no useful order,
+    /// the children often working elsewhere: only the leader's folder is the
+    /// agent's.
+    func testTheSnapshotCarriesTheForegroundGroupLeadersFolder() throws {
         let idle = Data(#"{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":500,"foreground_process_group_id":500,"foreground_processes":[{"name":"zsh","pid":500,"cwd":"/Users/acme/src/tools"}]}}}"#.utf8)
-        let busy = Data(#"{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":500,"foreground_process_group_id":731,"foreground_processes":[{"name":"node","pid":740},{"name":"claude","pid":731,"cwd":"/Users/acme/src/flock"}]}}}"#.utf8)
+        let agent = Data(#"{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":500,"foreground_process_group_id":731,"foreground_processes":[{"name":"caffeinate","pid":740,"cwd":"/Users/acme/src/tools"},{"name":"node","pid":741,"cwd":"/Users/acme/src/tools"},{"name":"claude","pid":731,"cwd":"/Users/acme/src/flock"}]}}}"#.utf8)
+        let noLeader = Data(#"{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":500,"foreground_process_group_id":731,"foreground_processes":[{"name":"node","pid":741,"cwd":"/Users/acme/src/tools"}]}}}"#.utf8)
 
-        XCTAssertEqual(try XCTUnwrap(PaneForegroundJob.snapshot(processInfoResponse: idle)).foregroundCwds, [])
-        XCTAssertEqual(try XCTUnwrap(PaneForegroundJob.snapshot(processInfoResponse: busy)).foregroundCwds, ["/Users/acme/src/flock"])
+        XCTAssertEqual(try XCTUnwrap(PaneForegroundJob.snapshot(processInfoResponse: idle)).leaderCwd, "/Users/acme/src/tools")
+        XCTAssertEqual(try XCTUnwrap(PaneForegroundJob.snapshot(processInfoResponse: agent)).leaderCwd, "/Users/acme/src/flock")
+        XCTAssertNil(try XCTUnwrap(PaneForegroundJob.snapshot(processInfoResponse: noLeader)).leaderCwd)
     }
 }

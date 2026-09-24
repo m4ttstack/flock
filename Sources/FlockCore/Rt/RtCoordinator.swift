@@ -190,10 +190,11 @@ public final class RtCoordinator {
     }
 
     /// Where the pane is working: an agent its shell launched can be in
-    /// another folder than the shell (`pane.cwd`). The folder of what holds
-    /// the foreground, else herdr's record of it, else the shell's.
+    /// another folder than the shell (`pane.cwd`). The folder of the
+    /// foreground group's leader, else herdr's record of the foreground's
+    /// folder, else the shell's.
     func folder(of pane: PaneRecord) async -> String {
-        await herdr.paneState(pane.paneID)?.foregroundCwds.first ?? pane.foregroundCwd ?? pane.cwd
+        await herdr.paneState(pane.paneID)?.leaderCwd ?? pane.foregroundCwd ?? pane.cwd
     }
 
     var sharedWorkspaceID: WorkspaceID? {
