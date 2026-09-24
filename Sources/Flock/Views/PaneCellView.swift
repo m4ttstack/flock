@@ -205,12 +205,10 @@ struct PaneCellView: View {
 
     private func cell(editorIsOpen: Bool) -> some View {
         box(editorIsOpen: editorIsOpen)
-            // Under the title and the chip, so both keep their own gestures,
-            // and strictly above the terminal surface, so this is the at-rest
-            // handle without taking a single terminal row.
-            .overlay(alignment: .top) { chromeGrabBand }
             .overlay(alignment: .topLeading) { title }
             .overlay(alignment: .topTrailing) { statusChip }
+            // Last, so a long title running under it never takes its press.
+            .overlay(alignment: .top) { grip }
             // While rearranging a drag starts from ANY point on the pane,
             // gutters and sub-cell remainder included, which no subview of the
             // cell covers. Arming this as well as the body's own AppKit path
@@ -258,23 +256,13 @@ struct PaneCellView: View {
         )
     }
 
-    /// The at-rest drag handle: the box's top chrome above the terminal
-    /// surface. It is chrome the box already spends, so the handle costs no
-    /// terminal rows and the first terminal line stays selectable text.
-    private var chromeGrabBand: some View {
-        Color.clear
-            .frame(height: PaneChrome.contentTop)
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
+    /// The only at-rest drag handle: a grip at the top middle of the title
+    /// row. Rearrange mode drags from anywhere on the pane instead.
+    private var grip: some View {
+        PaneGrip(theme: theme, dragInFlight: drag.isPaneDragInFlight)
+            .padding(.top, PaneChrome.verticalPadding)
             .gesture(paneDrag, including: isRenaming ? .subviews : .all)
-            .onHover { hovering in
-                // A pane drag already owns the cursor for its whole
-                // duration (`DragCoordinator`'s own push); this band's own
-                // exit -- the pointer leaving toward wherever the drag is
-                // going -- must not repaint the closed hand away.
-                guard !drag.isPaneDragInFlight else { return }
-                (hovering ? NSCursor.openHand : NSCursor.arrow).set()
-            }
+            .accessibilityIdentifier("flock.pane.grip.\(pane.paneID.rawValue)")
     }
 
     /// Starts a pane drag and nothing else: `DragCoordinator` drives it from
@@ -410,10 +398,6 @@ struct PaneCellView: View {
         // (`ChromeRowClick`). A right-click reads as `.ignore` and falls
         // through to the context menu below.
         .onTapGesture { handleTitleClick() }
-        // The title is a drag handle at rest as well as in rearrange mode;
-        // simultaneous with the tap above, which the 4pt minimum keeps
-        // distinct from it.
-        .simultaneousGesture(paneDrag)
         .modifier(swiftUIPaneMenu)
         .accessibilityIdentifier("flock.pane.title.\(pane.paneID.rawValue)")
     }

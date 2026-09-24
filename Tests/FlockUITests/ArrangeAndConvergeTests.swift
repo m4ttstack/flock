@@ -601,8 +601,8 @@ final class ArrangeAndConvergeTests: XCTestCase {
         )
         let app = try launchOnSeed()
 
-        // The cell's middle is the terminal body: its top band is the drag
-        // handle, and a click there would grab rather than focus.
+        // The cell's middle is the terminal body, clear of the grip at the
+        // top middle, where a press would grab rather than focus.
         clickElement(app, canvasPane(ids.p2), at: .middle)
 
         let focused = try session.snapshot(waitingFor: "herdr to focus \(ids.p2)") { $0.focusedPaneID == ids.p2 }

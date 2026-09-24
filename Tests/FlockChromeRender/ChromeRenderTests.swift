@@ -294,6 +294,31 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The grip's dots sit at the top middle of the title row. A render
+    /// harness cannot drive a SwiftUI drag, so where a drag starts is a hand
+    /// check.
+    func testTheGripDrawsAtTheTopMiddleOfThePane() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let pane = PaneID(rawValue: "w1:p2")
+        for id in ["tokyo-night", "catppuccin-latte"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("pane-grip-\(id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+            let rowY = box.minY + PaneChrome.verticalPadding + PaneChrome.titleRowHeight / 2
+            let pill = ChromeMetrics.Pane.Grip.pillSize
+            let dots = CGRect(x: box.midX - pill.width / 2, y: rowY - pill.height / 2, width: pill.width, height: pill.height)
+            XCTAssertNotNil(firstPixel(image, in: dots, matching: theme.palette.overlay0.hex), "\(id): no grip drawn")
+            window.close()
+        }
+    }
+
     private func firstPixel(_ image: NSBitmapImageRep, in rect: CGRect, matching target: String) -> CGPoint? {
         var y = rect.minY
         while y <= rect.maxY {

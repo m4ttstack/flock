@@ -197,6 +197,18 @@ enum ChromeMetrics {
         static let legendItemGap: CGFloat = 5
         static let toastInset: CGFloat = 13
 
+        /// The pane's drag grip: a 3x2 grid of dots in a pill that shows on
+        /// hover, inside a wider hit area.
+        enum Grip {
+            static let columns = 3
+            static let rows = 2
+            static let dot: CGFloat = 2.5
+            static let dotGap: CGFloat = 2.5
+            static let pillSize = CGSize(width: 24, height: 14)
+            static let pillCornerRadius: CGFloat = 4
+            static let hitWidth: CGFloat = 36
+        }
+
         /// The right-click mode's mouse, in a chip the size and corner of the
         /// signed-out chat button beside it: the body, the buttons across the
         /// top of it, and the cord rising from the top.

@@ -23,11 +23,10 @@ enum Aim {
     /// in `DropResolver`) and clear of the boundary with the next element.
     case edge(Edge)
 
-    /// A canvas pane cell's at-rest drag handle: the chrome band across the
-    /// top of the box. `PaneChrome.contentTop` makes it 34pt deep, and a press
-    /// below it belongs to the terminal surface and starts no drag at all
-    /// (`PaneGrabRegion`), so a pane cell is the one source that must never be
-    /// grabbed in the middle.
+    /// A canvas pane cell's at-rest drag handle: the grip at the top middle of
+    /// its title row. Anywhere else a press focuses or selects and starts no
+    /// drag (`PaneGrabRegion`), so a pane cell is the one source that must
+    /// never be grabbed in the middle.
     case paneChromeBand
 
     /// A point stated as a fraction of the element's own box, for a surface
@@ -321,7 +320,7 @@ private func offset(_ aim: Aim, in frame: CGRect) -> CGVector {
         case .bottom: return CGVector(dx: frame.width / 2, dy: frame.height - insetY)
         }
     case .paneChromeBand:
-        return CGVector(dx: frame.width / 2, dy: paneChromeBandDepth / 2)
+        return CGVector(dx: frame.width / 2, dy: paneGripCenterDepth)
     case .fraction(let x, let y):
         return CGVector(dx: frame.width * x, dy: frame.height * y)
     }
@@ -332,7 +331,7 @@ private func offset(_ aim: Aim, in frame: CGRect) -> CGVector {
 /// spare, and off the boundary the target shares with its neighbor.
 private let edgeAimInset: CGFloat = 0.05
 
-/// `PaneChrome.contentTop`: 10pt of padding, an 18pt title row, a 6pt gap. Not
-/// importable here (the UI test bundle links the app, not FlockCore), so it
-/// is restated -- a canvas pane grabbed below this band starts no drag.
-private let paneChromeBandDepth: CGFloat = 34
+/// The grip's centre below the box's top: `PaneChrome`'s 10pt of padding and
+/// half its 21pt title row. Not importable here (the UI test bundle links the
+/// app, not FlockCore), so it is restated.
+private let paneGripCenterDepth: CGFloat = 20.5
