@@ -250,8 +250,8 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// The badge's right button is lit, in the accent, only while right-clicks
-    /// go to the program, and a real click on the badge flips the mode.
+    /// The badge's right button is lit, in the accent, while right-clicks go
+    /// to the program, as a pane starts; a real click on the badge flips it.
     func testTheMouseBadgeLightsItsRightButtonInProgramModeAndAClickFlipsIt() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let holder = PaneID(rawValue: "w1:p2")
@@ -269,27 +269,23 @@ final class ChromeRenderTests: XCTestCase {
                 width: box.maxX - PaneChrome.horizontalPadding - box.midX, height: PaneChrome.titleRowHeight
             )
 
-            let onMenu = try snapshot(window)
-            XCTAssertNil(firstPixel(onMenu, in: legend, matching: theme.palette.accent.hex), "\(id): lit on the menu")
-
-            harness.viewModel.rightClicks.toggle(terminal)
-            await settle(window)
             let onProgram = try snapshot(window)
             let lit = try XCTUnwrap(
-                firstPixel(onProgram, in: legend, matching: theme.palette.accent.hex), "\(id): not lit for the program"
+                firstPixel(onProgram, in: legend, matching: theme.palette.accent.hex), "\(id): a pane starts unlit"
             )
+
+            window.makeKeyAndOrderFront(nil)
+            click(window, at: lit)
+            await settle(window)
+            XCTAssertEqual(harness.viewModel.rightClicks.mode(for: terminal), .menu, "\(id): the click did not flip it")
+            let onMenu = try snapshot(window)
+            XCTAssertNil(firstPixel(onMenu, in: legend, matching: theme.palette.accent.hex), "\(id): still lit on the menu")
             for (name, image) in [("menu", onMenu), ("program", onProgram)] {
                 if let directory {
                     let url = URL(fileURLWithPath: directory).appendingPathComponent("mouse-mode-\(name)-\(id).png")
                     try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
                 }
             }
-
-            window.makeKeyAndOrderFront(nil)
-            click(window, at: lit)
-            await settle(window)
-            XCTAssertEqual(harness.viewModel.rightClicks.mode(for: terminal), .menu, "\(id): the click did not flip it")
-            XCTAssertNil(firstPixel(try snapshot(window), in: legend, matching: theme.palette.accent.hex), "\(id): still lit")
             window.close()
         }
     }

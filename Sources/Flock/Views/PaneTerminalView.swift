@@ -60,7 +60,7 @@ struct GhosttyPaneTerminalView: View {
     init(
         surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
         optionAsAlt: OptionAsAlt,
-        rearrangeActive: Bool = false, rightClickMode: RightClickMode = .menu,
+        rearrangeActive: Bool = false, rightClickMode: RightClickMode = .program,
         paneDragInProgress: Bool = false, isPristineLauncherPane: Bool = false,
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
@@ -128,7 +128,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let fontSizePoints: Double
     let optionAsAlt: OptionAsAlt
     var rearrangeActive: Bool = false
-    var rightClickMode: RightClickMode = .menu
+    var rightClickMode: RightClickMode = .program
     var paneDragInProgress: Bool = false
     var isPristineLauncherPane: Bool = false
     var editorIsOpen: Bool = false

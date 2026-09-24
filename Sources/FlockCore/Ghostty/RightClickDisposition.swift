@@ -36,7 +36,7 @@ public enum RightClickDisposition: Equatable, Sendable {
         captureEnabled: Bool,
         paneIsFocused: Bool,
         rearrangeActive: Bool = false,
-        mode: RightClickMode = .menu
+        mode: RightClickMode = .program
     ) -> RightClickDisposition {
         guard !rearrangeActive else { return .suppressed }
         guard paneIsFocused, captureEnabled else { return .menu }
@@ -59,40 +59,40 @@ public enum RightClickMode: CaseIterable, Equatable, Sendable {
 }
 
 /// Each canvas pane's right-click mode, keyed by its terminal so a pane keeps
-/// its mode across moves. Only `.program` is stored; everything else is on the
-/// menu. `userDefaults` nil keeps it in memory.
+/// its mode across moves. Only `.menu` is stored; every other pane's
+/// right-clicks go to its program. `userDefaults` nil keeps it in memory.
 @MainActor
 @Observable
 public final class RightClickModeStore {
-    public static let defaultsKey = "flock.rightClicksToProgram"
+    public static let defaultsKey = "flock.rightClicksToMenu"
 
-    private var toProgram: Set<TerminalID>
+    private var toMenu: Set<TerminalID>
     @ObservationIgnored private let userDefaults: UserDefaults?
 
     public init(userDefaults: UserDefaults? = nil) {
         self.userDefaults = userDefaults
         let stored = userDefaults?.stringArray(forKey: Self.defaultsKey) ?? []
-        toProgram = Set(stored.map(TerminalID.init(rawValue:)))
+        toMenu = Set(stored.map(TerminalID.init(rawValue:)))
     }
 
     public func mode(for terminal: TerminalID?) -> RightClickMode {
-        guard let terminal, toProgram.contains(terminal) else { return .menu }
-        return .program
+        guard let terminal, toMenu.contains(terminal) else { return .program }
+        return .menu
     }
 
     public func toggle(_ terminal: TerminalID) {
-        if toProgram.remove(terminal) == nil { toProgram.insert(terminal) }
+        if toMenu.remove(terminal) == nil { toMenu.insert(terminal) }
         save()
     }
 
     public func keepOnly(_ present: Set<TerminalID>) {
-        let kept = toProgram.intersection(present)
-        guard kept != toProgram else { return }
-        toProgram = kept
+        let kept = toMenu.intersection(present)
+        guard kept != toMenu else { return }
+        toMenu = kept
         save()
     }
 
     private func save() {
-        userDefaults?.set(toProgram.map(\.rawValue).sorted(), forKey: Self.defaultsKey)
+        userDefaults?.set(toMenu.map(\.rawValue).sorted(), forKey: Self.defaultsKey)
     }
 }

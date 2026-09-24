@@ -28,8 +28,8 @@ final class RightClickDispositionTests: XCTestCase {
         }
     }
 
-    func testAPaneStartsInMenuMode() {
-        XCTAssertEqual(RightClickDisposition.decide(optionHeld: false, captureEnabled: true, paneIsFocused: true), .menu)
+    func testAPaneStartsInProgramMode() {
+        XCTAssertEqual(RightClickDisposition.decide(optionHeld: false, captureEnabled: true, paneIsFocused: true), .forwardToPane)
     }
 
     // MARK: - Nothing listening

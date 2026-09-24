@@ -2587,11 +2587,11 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.toggleFocusedPaneRightClicks(), "no model, no focused pane")
 
         viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
-        XCTAssertEqual(viewModel.focusedPaneRightClickMode, .menu)
+        XCTAssertEqual(viewModel.focusedPaneRightClickMode, .program)
 
         XCTAssertTrue(viewModel.toggleFocusedPaneRightClicks())
-        XCTAssertEqual(viewModel.rightClicks.mode(for: TerminalID(rawValue: "term_a1")), .program)
-        XCTAssertEqual(viewModel.focusedPaneRightClickMode, .program)
+        XCTAssertEqual(viewModel.rightClicks.mode(for: TerminalID(rawValue: "term_a1")), .menu)
+        XCTAssertEqual(viewModel.focusedPaneRightClickMode, .menu)
     }
 
     @MainActor
@@ -2603,12 +2603,12 @@ final class SessionViewModelTests: XCTestCase {
         for terminal in [visible, hidden, closed] { viewModel.rightClicks.toggle(terminal) }
 
         viewModel.update(model: makeModelWithFlockWorkspace(), connection: .reconnecting(attempt: 1))
-        XCTAssertEqual(viewModel.rightClicks.mode(for: closed), .program, "only a live model speaks for every pane")
+        XCTAssertEqual(viewModel.rightClicks.mode(for: closed), .menu, "only a live model speaks for every pane")
 
         viewModel.update(model: makeModelWithFlockWorkspace(), connection: .live)
-        XCTAssertEqual(viewModel.rightClicks.mode(for: visible), .program)
-        XCTAssertEqual(viewModel.rightClicks.mode(for: hidden), .program)
-        XCTAssertEqual(viewModel.rightClicks.mode(for: closed), .menu)
+        XCTAssertEqual(viewModel.rightClicks.mode(for: visible), .menu)
+        XCTAssertEqual(viewModel.rightClicks.mode(for: hidden), .menu)
+        XCTAssertEqual(viewModel.rightClicks.mode(for: closed), .program)
     }
 
     @MainActor

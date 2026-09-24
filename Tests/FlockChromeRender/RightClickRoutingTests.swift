@@ -8,17 +8,17 @@ import XCTest
 /// draws; the recorded disposition is what the click would have done.
 @MainActor
 final class RightClickRoutingTests: XCTestCase {
-    func testAPaneOnTheMenuOpensItAndSendsOptionToTheProgram() throws {
+    func testAPaneOnItsProgramSendsItThePlainClickAndOptionToTheMenu() throws {
         let view = try surfaceView(focused: true, capture: true)
-        XCTAssertEqual(try disposition(of: view, option: false), .menu, "a pane starts on the menu")
-        XCTAssertEqual(try disposition(of: view, option: true), .forwardToPane)
+        XCTAssertEqual(try disposition(of: view, option: false), .forwardToPane, "a pane starts on its program")
+        XCTAssertEqual(try disposition(of: view, option: true), .menu)
     }
 
-    func testAPaneSwitchedToItsProgramSendsItThePlainClickAndOptionToTheMenu() throws {
+    func testAPaneSwitchedToTheMenuOpensItAndSendsOptionToTheProgram() throws {
         let view = try surfaceView(focused: true, capture: true)
-        view.rightClickMode = .program
-        XCTAssertEqual(try disposition(of: view, option: false), .forwardToPane)
-        XCTAssertEqual(try disposition(of: view, option: true), .menu)
+        view.rightClickMode = .menu
+        XCTAssertEqual(try disposition(of: view, option: false), .menu)
+        XCTAssertEqual(try disposition(of: view, option: true), .forwardToPane)
     }
 
     func testTheModalSendsEveryRightClickToItsProgram() throws {
@@ -30,7 +30,6 @@ final class RightClickRoutingTests: XCTestCase {
 
     func testAPlainShellSendsAPlainRightClickToTheMenu() throws {
         let view = try surfaceView(focused: true, capture: false)
-        view.rightClickMode = .program
         XCTAssertEqual(try disposition(of: view, option: false), .menu)
     }
 

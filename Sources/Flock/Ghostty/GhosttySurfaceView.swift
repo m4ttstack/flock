@@ -72,7 +72,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// would otherwise leave the old cursor showing until it left and came
     /// back.
     /// Read at right-mouse-down (`RightClickDisposition.decide`).
-    var rightClickMode: RightClickMode = .menu
+    var rightClickMode: RightClickMode = .program
     var rearrangeActive = false {
         didSet {
             guard rearrangeActive != oldValue else { return }
