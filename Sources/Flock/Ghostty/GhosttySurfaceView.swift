@@ -644,6 +644,19 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         session.sendKeyDown(event, text: text?.isEmpty == true ? nil : text)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver,
+              ControlReturnKey.isTerminalInput(
+                  characters: event.charactersIgnoringModifiers,
+                  control: event.modifierFlags.contains(.control),
+                  command: event.modifierFlags.contains(.command)
+              )
+        else { return super.performKeyEquivalent(with: event) }
+        keyDown(with: event)
+        return true
+    }
+
     /// Ungated where `keyDown` is gated, and deliberately so: `wantsFocus` can
     /// flip between a press and its release, and a release withheld from a
     /// surface that took the press leaves that key held down inside
