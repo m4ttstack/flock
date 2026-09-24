@@ -23,7 +23,14 @@ public struct ProtocolMismatch: Equatable, Sendable {
 @Observable
 public final class SessionViewModel {
     public private(set) var model: SessionModel?
+    /// Everything herdr reports, flock's own workspaces included. The rt
+    /// coordinator, surface teardown, layout exports and drag planning read
+    /// it (herdr's indexes are into its full lists); every view reads
+    /// `model`, which never holds a flock-owned workspace.
+    public private(set) var fullModel: SessionModel?
     public private(set) var connectionState: ConnectionState = .connecting
+    /// Everything opened through a pane's rt button.
+    public let rt: RtCoordinator
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
@@ -145,7 +152,8 @@ public final class SessionViewModel {
         now: @escaping @MainActor () -> Date = { Date() },
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
         attentionToastArchive: AttentionToastArchive? = nil,
-        navigationPollInterval: Duration = .milliseconds(300)
+        navigationPollInterval: Duration = .milliseconds(300),
+        rt: RtCoordinator? = nil
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -159,6 +167,7 @@ public final class SessionViewModel {
         self.notificationLifetime = notificationLifetime
         self.attentionToastArchive = attentionToastArchive
         self.navigationPollInterval = navigationPollInterval
+        self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
         if let attentionToastArchive, notificationLifetime() != .never {
             attentionToasts = attentionToastArchive.load()
         }
@@ -186,7 +195,9 @@ public final class SessionViewModel {
     /// focus can land in another workspace, a pane followed after a drop
     /// into another workspace's tab, and a window showing that tab under the
     /// old workspace's rail and strip would show two workspaces at once.
-    public func update(model: SessionModel?, connection: ConnectionState) {
+    public func update(model newFullModel: SessionModel?, connection: ConnectionState) {
+        fullModel = newFullModel
+        let model = newFullModel?.withoutFlockOwned
         let previousFocusedTabID = self.model?.focusedTabID
         let previousModel = self.model
         self.model = model
@@ -211,6 +222,7 @@ public final class SessionViewModel {
         reconcileClosedPanes()
         reconcileAgentStatusFeeds()
         reconcileAttentionToasts(previous: previousModel)
+        rt.update(model: fullModel)
     }
 
     /// Moves the selection off a tab or workspace this update has closed, to
@@ -382,7 +394,7 @@ public final class SessionViewModel {
     /// `paneWork` like every other surface operation (`teardownSurface`),
     /// so this can never race an in-flight attach/park for the same pane.
     private func reconcileClosedPanes() {
-        let known = Set((model?.panes ?? [:]).keys)
+        let known = Set((fullModel?.panes ?? [:]).keys)
         everKnownPaneIDs.formUnion(known)
         let gone = ghosttySurfaces.keys.filter { everKnownPaneIDs.contains($0) && !known.contains($0) }
         guard !gone.isEmpty else {
@@ -411,7 +423,7 @@ public final class SessionViewModel {
     /// chained; each tab's `LayoutTopologySignature` is what keeps an
     /// unrelated tab's cached export from ever being refetched here.
     private func refreshLayoutExports() {
-        guard let layoutExportCoordinator, let model else { return }
+        guard let layoutExportCoordinator, let model = fullModel else { return }
         layoutExportCoordinator.refresh(
             tabIDsInOrder: model.layouts.keys.sorted { $0.rawValue < $1.rawValue },
             layouts: model.layouts,
@@ -441,6 +453,12 @@ public final class SessionViewModel {
     /// (`InputSinkDisposition`, `MouseForwarding`).
     public var resolvedFocusedPaneID: PaneID? {
         optimisticFocusedPaneID ?? model?.focusedPaneID
+    }
+
+    /// The pane the canvas draws as focused and lets take the keyboard: none
+    /// while the rt modal is up, since the modal's own surface has it.
+    public var canvasFocusedPaneID: PaneID? {
+        rt.modal == nil ? resolvedFocusedPaneID : nil
     }
 
     /// The selected workspace's tabs, or `[]` when nothing is selected yet
@@ -1132,20 +1150,20 @@ public final class SessionViewModel {
     public func perform(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames? = nil) async -> DragOutcome {
         guard planExecutor != nil else { return .notAttempted }
         guard let undoJournal else {
-            guard let model, let planExecutor else { return .notAttempted }
+            guard let model = fullModel, let planExecutor else { return .notAttempted }
             return await Self.perform(
                 subject: subject, target: target, model: model, board: board, executor: planExecutor, notify: noticeSink,
                 record: { _ in }, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
-        // Reads `model` fresh once this closure actually runs, not at the
+        // Reads `fullModel` fresh once this closure actually runs, not at the
         // moment `perform` was called: queued behind an in-flight
         // undo/redo, the model can move on while this waits its turn, and
         // planning against a snapshot captured before the wait would plan
         // against a tab/workspace arrangement that no longer holds.
         var outcome = DragOutcome.notAttempted
         await undoJournal.runExclusively { [weak self] in
-            guard let self, let model = self.model, let planExecutor = self.planExecutor else { return }
+            guard let self, let model = self.fullModel, let planExecutor = self.planExecutor else { return }
             outcome = await Self.perform(
                 subject: subject, target: target, model: model, board: board, executor: planExecutor, notify: self.noticeSink,
                 record: undoJournal.record, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }

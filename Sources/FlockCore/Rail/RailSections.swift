@@ -26,6 +26,7 @@ public struct RailSections: Equatable, Sendable {
 
     public static func isRailRow(label: String, board: BoardWorkspaceNames?) -> Bool {
         !HerdWorkspace.isHerd(label: label) && !(board?.contains(label: label) ?? false)
+            && !RtLabels.isFlockOwned(workspaceLabel: label)
     }
 
     /// The dot a folded Board header shows: the loudest of its workspaces by

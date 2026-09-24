@@ -16,6 +16,14 @@ final class HerdrModelTests: XCTestCase {
         }
     }
 
+    func testAPaneRecordCarriesItsForegroundFolderWhenHerdrSendsOne() throws {
+        let with = #"{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"idle","revision":0,"cwd":"/src/tools","foreground_cwd":"/src/acme"}"#
+        let without = #"{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"idle","revision":0,"cwd":"/src/tools"}"#
+
+        XCTAssertEqual(try JSONDecoder().decode(PaneRecord.self, from: Data(with.utf8)).foregroundCwd, "/src/acme")
+        XCTAssertNil(try JSONDecoder().decode(PaneRecord.self, from: Data(without.utf8)).foregroundCwd)
+    }
+
     func testUnknownEventTypeIsTolerated() throws {
         let ev = try HerdrDecoder.event(fromLine: Data(#"{"data":{"type":"pane.hologram","x":1}}"#.utf8))
         guard case .unknown(let t) = ev else { return XCTFail() }

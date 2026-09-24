@@ -36,6 +36,18 @@ public struct PaneID: Hashable, Codable, RawRepresentable, Sendable {
     }
 }
 
+public struct TerminalID: Hashable, Codable, RawRepresentable, Sendable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public init(from decoder: Decoder) throws {
+        rawValue = try decoder.singleValueContainer().decode(String.self)
+    }
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
 /// Unrecognized wire values decode to `.unknown` rather than throwing, since
 /// herdr may add statuses after this client is built.
 public enum AgentStatus: String, Codable, Sendable {
@@ -94,6 +106,12 @@ public struct PaneRecord: Codable, Equatable, Sendable {
     public let label: String?
     public let cwd: String
     public var scroll: ScrollInfo?
+    /// herdr's handle on the pane's PTY. Unlike `paneID` it survives a move to
+    /// another workspace, which is why rt's links key on it.
+    public var terminalID: TerminalID? = nil
+    /// The folder of what holds the pane's foreground. `cwd` is the shell's,
+    /// and an agent the shell launched can be working somewhere else.
+    public var foregroundCwd: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case paneID = "pane_id"
@@ -106,6 +124,8 @@ public struct PaneRecord: Codable, Equatable, Sendable {
         case label
         case cwd
         case scroll
+        case terminalID = "terminal_id"
+        case foregroundCwd = "foreground_cwd"
     }
 }
 

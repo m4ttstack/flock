@@ -464,6 +464,129 @@ enum ChromeMetrics {
         }
     }
 
+    /// The pane legend's rt control, right of chat: a square at rest, a pill
+    /// sized to its content while anything of rt's runs for the pane.
+    enum RtButton {
+        static let badgeSize = CGSize(width: 16, height: 12)
+        static let badgeCornerRadius: CGFloat = 3
+        static let restSize = CGSize(width: 27, height: 17)
+        static let cornerRadius: CGFloat = 4
+        static let activeHeight: CGFloat = 18
+        static let horizontalPadding: CGFloat = 7
+        static let gap: CGFloat = 5
+        static let countHeight: CGFloat = 12
+        static let dividerSize = CGSize(width: 1, height: 10)
+        static let runnerGlyphSize: CGFloat = 11
+    }
+
+    /// The rt button's popover: a header, the command band, and (only while
+    /// the pane has rt run items) the RUNS label and its band, stacked with
+    /// no gap between them.
+    enum RtPopover {
+        static let width: CGFloat = 300
+        static let cornerRadius: CGFloat = 10
+
+        /// The 18pt folder chip is a point taller than the 17 the canvas's
+        /// 12pt vertical padding leaves inside 41, so the height is fixed and
+        /// the badge and the chip center in it.
+        enum Header {
+            static let height: CGFloat = 41
+            static let horizontalPadding: CGFloat = 14
+            static let gap: CGFloat = 8
+            static let badgeSize = CGSize(width: 20, height: 15)
+            static let chipHeight: CGFloat = 18
+            static let chipCornerRadius: CGFloat = 4
+            static let chipHorizontalPadding: CGFloat = 8
+            static let chipGap: CGFloat = 5
+            static let chipGlyphSize: CGFloat = 10
+        }
+
+        enum Commands {
+            static let verticalPadding: CGFloat = 6
+            static let horizontalPadding: CGFloat = 8
+        }
+
+        /// A command row and a run row alike.
+        enum Row {
+            static let height: CGFloat = 31
+            static let cornerRadius: CGFloat = 5
+            static let horizontalPadding: CGFloat = 8
+            static let gap: CGFloat = 9
+            static let glyphSize: CGFloat = 14
+            static let dotSize: CGFloat = 7
+        }
+
+        /// A 12pt line between its paddings, the same line the chat
+        /// popover's section labels sit on.
+        enum RunsLabel {
+            static let height: CGFloat = 28
+            static let topPadding: CGFloat = 10
+            static let trailingPadding: CGFloat = 14
+            static let bottomPadding: CGFloat = 6
+            static let leadingPadding: CGFloat = 14
+        }
+
+        enum Runs {
+            static let horizontalPadding: CGFloat = 8
+            static let bottomPadding: CGFloat = 8
+        }
+    }
+
+    /// The rt modal over the tab area: a box of one hidden pane, a title row
+    /// above it and, once its command has ended, a strip below it.
+    enum RtModal {
+        /// Of the tab area, on each axis.
+        static func sizeFraction(_ size: RtModalSize) -> CGFloat {
+            switch size {
+            case .small: 0.7
+            case .medium: 0.8
+            case .large: 0.9
+            }
+        }
+
+        static let cornerRadius: CGFloat = 8
+        static let darkBackdropOpacity: Double = 0.45
+        static let lightBackdropOpacity: Double = 0.30
+        static let shadowOpacity: Double = 0.35
+        /// The canvas's blur of 24: a SwiftUI radius is half the spread.
+        static let shadowRadius: CGFloat = 12
+        static let shadowY: CGFloat = 8
+        /// From the box's edges, around the terminal area between the title
+        /// row and the strip.
+        static let paneInset: CGFloat = 6
+
+        enum TitleRow {
+            static let height: CGFloat = 28
+            static let horizontalPadding: CGFloat = 12
+            static let gap: CGFloat = 8
+            static let backDividerSize = CGSize(width: 1, height: 12)
+            static let closeGlyphSize: CGFloat = 12
+        }
+
+        /// The title row's three size buttons, Small to Large, before the
+        /// close glyph.
+        enum SizeControl {
+            static let buttonSide: CGFloat = 18
+            static let spacing: CGFloat = 2
+            static let gapBeforeClose: CGFloat = 10
+            static let glyphCornerRadius: CGFloat = 1.5
+            static let glyphLineWidth: CGFloat = 1.25
+
+            static func glyphSize(_ size: RtModalSize) -> CGSize {
+                switch size {
+                case .small: CGSize(width: 10, height: 7)
+                case .medium: CGSize(width: 12, height: 9)
+                case .large: CGSize(width: 14, height: 10.5)
+                }
+            }
+        }
+
+        enum Strip {
+            static let height: CGFloat = 26
+            static let horizontalPadding: CGFloat = 12
+        }
+    }
+
     enum Card {
         static let spacing: CGFloat = 10
         static let padding: CGFloat = 18
