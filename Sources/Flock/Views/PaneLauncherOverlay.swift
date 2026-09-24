@@ -52,8 +52,7 @@ enum NavigatorRoster {
 
     static let rtCd = HarnessEntry(
         id: "rt-cd", binary: "rt", displayName: "cd", monogram: "rt",
-        monogramColor: Color(red: 22 / 255, green: 18 / 255, blue: 36 / 255),
-        monogramInk: Color(red: 1, green: 107 / 255, blue: 157 / 255)
+        monogramColor: RtBrand.plum, monogramInk: RtBrand.pink
     )
 
     static func detected(pathEnvironment: String = ToolPath.resolved) -> HarnessEntry? {

@@ -71,15 +71,15 @@ public struct RtItem: Identifiable, Equatable, Sendable {
 
     public func modalTitle(home: String) -> String {
         let name = kind == .run ? title : kind.rawValue
-        let place: String
-        if folder == home {
-            place = "~"
-        } else if folder.hasPrefix(home + "/") {
-            place = "~" + folder.dropFirst(home.count)
-        } else {
-            place = folder
-        }
-        return "\(name) · \(place)"
+        return "\(name) · \(RtPaths.tilde(folder, home: home))"
+    }
+}
+
+public enum RtPaths {
+    public static func tilde(_ folder: String, home: String) -> String {
+        if folder == home { return "~" }
+        if folder.hasPrefix(home + "/") { return "~" + folder.dropFirst(home.count) }
+        return folder
     }
 }
 

@@ -79,6 +79,15 @@ enum ChromeType {
     static let chatComposeFooterHint = inter(10)
     static let chatComposeSendLabel = inter(12, .semibold)
     static let chatComposeSendShortcut = inter(10)
+    static let rtBadge = inter(8.5, .bold)
+    static let rtButtonCount = inter(10, .semibold)
+    static let rtPopoverBadge = inter(10, .bold)
+    static let rtPopoverFolder = inter(10)
+    static let rtPopoverRow = inter(12)
+    static let rtPopoverHint = mono(10)
+    static let rtPopoverLabel = inter(10, .semibold)
+    static let rtPopoverLabelTracking: CGFloat = 0.5
+    static let rtPopoverState = inter(10)
     static let emptyCanvas = inter(15.5)
     static let rearrangeSymbol = Font.system(size: 28, weight: .semibold)
 

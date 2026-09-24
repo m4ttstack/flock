@@ -87,6 +87,7 @@ struct PaneCellView: View {
     /// `onChange` below, and cleared alongside every open so a later plain
     /// click never inherits a stale route from an earlier shortcut.
     @State private var pendingPopoverFeature: ChatPopoverFeature?
+    @State private var isRtPopoverPresented = false
     /// The terminal body's frame in the drag space: what turns the body's own
     /// top-left point (AppKit) into a drag-space one.
     @State private var bodyFrame: CGRect = .zero
@@ -433,15 +434,16 @@ struct PaneCellView: View {
         }
     }
 
-    /// The legend's trailing end: the zoom badge, then the status chip. The
-    /// chat button is the one live control here, so hit testing is turned off
-    /// on the zoom badge and the status pill themselves -- never on a
-    /// container around all three -- since a disabled ancestor cannot be
-    /// re-enabled from below it.
+    /// The legend's trailing end: the zoom badge, the chat button, the rt
+    /// button, then the status chip. The two buttons are the live controls
+    /// here, so hit testing is turned off on the zoom badge and the status
+    /// pill themselves -- never on a container around them all -- since a
+    /// disabled ancestor cannot be re-enabled from below it.
     private var statusChip: some View {
         HStack(spacing: ChromeMetrics.Pane.legendItemGap) {
             if isZoomed { zoomBadge.allowsHitTesting(false) }
             if chatButtonAppearance != .absent { chatButton }
+            rtButton
             if let statusColor {
                 Text(pane.agentStatus.rawValue)
                     .font(ChromeType.statusChip)
@@ -571,6 +573,49 @@ struct PaneCellView: View {
             .resizable()
             .scaledToFit()
             .foregroundStyle(color)
+    }
+
+    /// The popover sits on `RtButton` as a whole, for the chat button's
+    /// reason: a flip between `.rest` and `.active` must not tear it down.
+    private var rtButton: some View {
+        RtButton(
+            theme: theme, paneID: pane.paneID,
+            appearance: viewModel.rt.buttonAppearance(linkedTo: pane.terminalID, rtInstalled: RtAvailability.installed),
+            onOpenPopover: { isRtPopoverPresented = true },
+            onShowRunner: { showRunner() }
+        )
+        .popover(isPresented: $isRtPopoverPresented, arrowEdge: .bottom) { rtPopover }
+    }
+
+    @ViewBuilder
+    private var rtPopover: some View {
+        if let terminal = pane.terminalID {
+            RtPopover(
+                theme: theme, folder: RtPaths.tilde(pane.cwd, home: NSHomeDirectory()),
+                commands: viewModel.rt.commandRows(linkedTo: terminal),
+                runs: viewModel.rt.runRows(linkedTo: terminal),
+                onCommand: { kind in openRt(kind) },
+                onRun: { id in showRtItem(id) }
+            )
+        }
+    }
+
+    /// The pane is read again at the click, so the command opens at the
+    /// folder the pane is in now, not the one it was in when this cell drew.
+    private func openRt(_ kind: RtKind) {
+        isRtPopoverPresented = false
+        let current = viewModel.fullModel?.panes[pane.paneID] ?? pane
+        Task { await viewModel.rt.open(kind, from: current) }
+    }
+
+    private func showRtItem(_ id: String) {
+        isRtPopoverPresented = false
+        Task { await viewModel.rt.show(id) }
+    }
+
+    private func showRunner() {
+        guard let terminal = pane.terminalID, let runner = viewModel.rt.runner(linkedTo: terminal) else { return }
+        Task { await viewModel.rt.show(runner.id) }
     }
 
     /// Mauve, never a status color (the parity checklist's own rule), so a

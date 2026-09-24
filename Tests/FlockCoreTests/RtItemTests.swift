@@ -47,6 +47,13 @@ final class RtItemTests: XCTestCase {
         XCTAssertEqual(item().modalTitle(home: "/Users/acme"), "pnpm run test · ~/src/app")
         XCTAssertEqual(item(kind: .glitter).modalTitle(home: "/Users/other"), "glitter · /Users/acme/src/app")
     }
+
+    func testAFolderUnderHomeReadsFromATilde() {
+        XCTAssertEqual(RtPaths.tilde("/Users/acme", home: "/Users/acme"), "~")
+        XCTAssertEqual(RtPaths.tilde("/Users/acme/src/app", home: "/Users/acme"), "~/src/app")
+        XCTAssertEqual(RtPaths.tilde("/Users/acme2/src", home: "/Users/acme"), "/Users/acme2/src")
+        XCTAssertEqual(RtPaths.tilde("/tmp", home: "/Users/acme"), "/tmp")
+    }
 }
 
 final class RtModalKeyTests: XCTestCase {
