@@ -347,15 +347,17 @@ struct FlockApp: App {
             CommandGroup(after: .sidebar) {
                 Divider()
                 // The pane's own right-click rows, reachable from the keyboard
-                // and aimed at the focused pane rather than at the pane under
-                // the pointer.
+                // and aimed at the canvas's focused pane rather than at the
+                // pane under the pointer. None while the rt modal is up: the
+                // pane behind it is the one its items are linked to, and
+                // closing it would take them all down.
                 ForEach(FocusedPaneCommand.all, id: \.title) { command in
                     Button(command.title) {
-                        guard let pane = viewModel.resolvedFocusedPaneID else { return }
+                        guard let pane = viewModel.canvasFocusedPaneID else { return }
                         Task { await command.action.perform(paneID: pane, on: viewModel) }
                     }
                     .keyboardShortcut(command.shortcut)
-                    .disabled(viewModel.resolvedFocusedPaneID == nil)
+                    .disabled(viewModel.canvasFocusedPaneID == nil)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
                 Divider()
@@ -372,7 +374,8 @@ struct FlockApp: App {
                         }
                     }
                     .keyboardShortcut(command.key, modifiers: command.modifiers)
-                    .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction))
+                    // herdr's focused pane, which the rt modal does not hold.
+                    .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction) || viewModel.rt.modal != nil)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
                 Divider()

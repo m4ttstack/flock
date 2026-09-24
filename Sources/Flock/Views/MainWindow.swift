@@ -57,6 +57,10 @@ struct MainWindow: View {
                         )
                         PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
                     }
+                    // On the tab area alone, so the rail stays clear and
+                    // undimmed. The grid needs none: the modal opens from a
+                    // pane's rt button, which the grid does not show.
+                    .overlay { RtModalView(theme: theme, viewModel: viewModel) }
                 }
             }
         }

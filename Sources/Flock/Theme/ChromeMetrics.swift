@@ -532,6 +532,36 @@ enum ChromeMetrics {
         }
     }
 
+    /// The rt modal over the tab area: a box of one hidden pane, a title row
+    /// above it and, once its command has ended, a strip below it.
+    enum RtModal {
+        /// Of the tab area, on each axis.
+        static let sizeFraction: CGFloat = 0.8
+        static let cornerRadius: CGFloat = 8
+        static let darkBackdropOpacity: Double = 0.45
+        static let lightBackdropOpacity: Double = 0.30
+        static let shadowOpacity: Double = 0.35
+        /// The canvas's blur of 24: a SwiftUI radius is half the spread.
+        static let shadowRadius: CGFloat = 12
+        static let shadowY: CGFloat = 8
+        /// From the box's edges, around the terminal area between the title
+        /// row and the strip.
+        static let paneInset: CGFloat = 6
+
+        enum TitleRow {
+            static let height: CGFloat = 28
+            static let horizontalPadding: CGFloat = 12
+            static let gap: CGFloat = 8
+            static let backDividerSize = CGSize(width: 1, height: 12)
+            static let closeGlyphSize: CGFloat = 12
+        }
+
+        enum Strip {
+            static let height: CGFloat = 26
+            static let horizontalPadding: CGFloat = 12
+        }
+    }
+
     enum Card {
         static let spacing: CGFloat = 10
         static let padding: CGFloat = 18

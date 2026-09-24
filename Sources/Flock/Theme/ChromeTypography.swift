@@ -88,6 +88,10 @@ enum ChromeType {
     static let rtPopoverLabel = inter(10, .semibold)
     static let rtPopoverLabelTracking: CGFloat = 0.5
     static let rtPopoverState = inter(10)
+    static let rtModalTitle = inter(11.5, .semibold)
+    static let rtModalBack = inter(11, .medium)
+    static let rtModalStrip = inter(11, .medium)
+    static let rtModalClose = Font.system(size: 9, weight: .medium)
     static let emptyCanvas = inter(15.5)
     static let rearrangeSymbol = Font.system(size: 28, weight: .semibold)
 

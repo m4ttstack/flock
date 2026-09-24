@@ -58,7 +58,10 @@ struct PaneCanvas: View {
                                 theme: theme,
                                 viewModel: viewModel,
                                 pane: pane,
-                                // The view-model's resolved focus, not
+                                // The canvas's own focus, which the rt modal
+                                // withholds while it is up so its surface
+                                // keeps the keyboard. Otherwise it is the
+                                // view-model's resolved focus, not
                                 // `layout.focusedPaneID` (a `pane.focus` jump
                                 // never touches the layout snapshot, only
                                 // `model.focusedPaneID`) and not
@@ -66,7 +69,7 @@ struct PaneCanvas: View {
                                 // updates once herdr's echo lands, tens of ms
                                 // after the click -- `resolvedFocusedPaneID`
                                 // paints the optimistic prediction instead).
-                                isFocused: pane.paneID == viewModel.resolvedFocusedPaneID,
+                                isFocused: pane.paneID == viewModel.canvasFocusedPaneID,
                                 // The same answer the geometry above was
                                 // built from, so the badge can only ever ride
                                 // the pane that is actually filling the
