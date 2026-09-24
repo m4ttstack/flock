@@ -36,21 +36,21 @@ Order at the title row's trailing end: zoom badge, chat button, **rt button**,
 status chip, all `ChromeMetrics.Pane.legendItemGap` (5) apart. There is no
 separate runner button: a live runner is the rt button's second half.
 
-**rt badge**, the mark inside every rt state: 16x12, fill `rt-plum`, r3, "rt"
-centred at 8.5/700 in `rt-pink`.
+**rt badge**, the mark inside every rt state: 19x14, fill `rt-plum`, r3, "rt"
+centred at 10/700 in `rt-pink`.
 
-**rt button at rest:** 27x17, fill `surface0`, r4, no stroke, the badge centred.
+**rt button at rest:** 31x20, fill `surface0`, r4, no stroke, the badge centred.
 It matches signed-out chat's square exactly.
 
-**rt button active:** height 18, width sized to content, fill `selectionBg`, r4,
-pad 0/7, gap 5. In order:
+**rt button active:** height 21, width sized to content, fill `selectionBg`, r4,
+pad 0/8, gap 6. In order:
 
 | Child | Size | Colour | Present |
 | --- | --- | --- | --- |
-| Badge | 16x12 | as above | always |
-| Count | h12, width from the text | `palette.text`, 10/600 | while any rt run item is running; the number of them |
-| Divider | 1x10 | `palette.overlay0` | while the pane has a runner |
-| Runner glyph | 11x11 | `rt-pink` | while the pane has a runner |
+| Badge | 19x14 | as above | always |
+| Count | h14, width from the text | `palette.text`, 11.5/600 | while any rt run item is running; the number of them |
+| Divider | 1x12 | `palette.overlay0` | while the pane has a runner |
+| Runner glyph | 13x13 | `rt-pink` | while the pane has a runner |
 
 Active while the pane has running rt run items or a runner. **The count is rt
 run items only**: the runner has its own half and is not counted again, so a
@@ -63,6 +63,8 @@ menu; clicking the divider-and-glyph half shows the runner. Without a runner
 the whole pill opens the menu.
 
 **rt not installed:** no button.
+
+The hand test scaled the whole legend about 1.17x (the title row 18 to 21) because the chips read too small; these are the scaled values.
 
 ## The rt popover
 

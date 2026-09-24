@@ -201,15 +201,15 @@ enum ChromeMetrics {
         /// signed-out chat button beside it: the body, the buttons across the
         /// top of it, and the cord rising from the top.
         enum MouseGlyph {
-            static let chipSize = CGSize(width: 27, height: 17)
+            static let chipSize = CGSize(width: 31, height: 20)
             static let chipCornerRadius: CGFloat = 4
-            static let bodyWidth: CGFloat = 9
-            static let bodyHeight: CGFloat = 10
-            static let cornerRadius: CGFloat = 4
-            static let buttonDepth: CGFloat = 4.5
-            static let stroke: CGFloat = 1.1
-            static let cordRise: CGFloat = 2.5
-            static let cordReach: CGFloat = 3
+            static let bodyWidth: CGFloat = 10.5
+            static let bodyHeight: CGFloat = 12
+            static let cornerRadius: CGFloat = 4.75
+            static let buttonDepth: CGFloat = 5.25
+            static let stroke: CGFloat = 1.25
+            static let cordRise: CGFloat = 3
+            static let cordReach: CGFloat = 3.5
         }
     }
 
@@ -222,22 +222,22 @@ enum ChromeMetrics {
         /// whatever the handle, the glyph and (when present) the count add
         /// up to: a count that only sometimes shows must not leave a gap
         /// behind when it is absent.
-        static let signedInHeight: CGFloat = 18
-        static let signedOutSize = CGSize(width: 27, height: 17)
+        static let signedInHeight: CGFloat = 21
+        static let signedOutSize = CGSize(width: 31, height: 20)
         static let cornerRadius: CGFloat = 4
         static let verticalPadding: CGFloat = 3
-        static let horizontalPadding: CGFloat = 8
-        static let gap: CGFloat = 6
+        static let horizontalPadding: CGFloat = 9
+        static let gap: CGFloat = 7
         /// Height only. The width the canvas drew was 18pt, the width of the
         /// one handle it happened to contain, and pinning to it clipped any
         /// name that measured wider -- "nell" fits where "olga" does not,
         /// because two narrow `l`s are not four average characters. A name is
         /// never abbreviated, so the text sizes to itself and the button
         /// grows.
-        static let handleHeight: CGFloat = 12
-        static let iconSize = CGSize(width: 11, height: 11)
+        static let handleHeight: CGFloat = 14
+        static let iconSize = CGSize(width: 13, height: 13)
         /// Height only, for the same reason: the canvas drew a single digit.
-        static let countHeight: CGFloat = 12
+        static let countHeight: CGFloat = 14
     }
 
     /// The chat button's popover: the plugin's launcher, six bands stacked
@@ -482,16 +482,16 @@ enum ChromeMetrics {
     /// The pane legend's rt control, right of chat: a square at rest, a pill
     /// sized to its content while anything of rt's runs for the pane.
     enum RtButton {
-        static let badgeSize = CGSize(width: 16, height: 12)
+        static let badgeSize = CGSize(width: 19, height: 14)
         static let badgeCornerRadius: CGFloat = 3
-        static let restSize = CGSize(width: 27, height: 17)
+        static let restSize = CGSize(width: 31, height: 20)
         static let cornerRadius: CGFloat = 4
-        static let activeHeight: CGFloat = 18
-        static let horizontalPadding: CGFloat = 7
-        static let gap: CGFloat = 5
-        static let countHeight: CGFloat = 12
-        static let dividerSize = CGSize(width: 1, height: 10)
-        static let runnerGlyphSize: CGFloat = 11
+        static let activeHeight: CGFloat = 21
+        static let horizontalPadding: CGFloat = 8
+        static let gap: CGFloat = 6
+        static let countHeight: CGFloat = 14
+        static let dividerSize = CGSize(width: 1, height: 12)
+        static let runnerGlyphSize: CGFloat = 13
     }
 
     /// The rt button's popover: a header, the command band, and (only while
