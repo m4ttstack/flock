@@ -1430,6 +1430,26 @@ public final class SessionViewModel {
         await swapPane(pane, toward: direction)
     }
 
+    /// The canvas's focused pane's right-click mode, nil with no pane focused
+    /// or one herdr gave no terminal.
+    public var focusedPaneRightClickMode: RightClickMode? {
+        guard let terminal = focusedPaneTerminal else { return nil }
+        return rightClicks.mode(for: terminal)
+    }
+
+    /// Flips the canvas's focused pane's right-click mode; false when there is
+    /// no such pane to flip.
+    @discardableResult
+    public func toggleFocusedPaneRightClicks() -> Bool {
+        guard let terminal = focusedPaneTerminal else { return false }
+        rightClicks.toggle(terminal)
+        return true
+    }
+
+    private var focusedPaneTerminal: TerminalID? {
+        canvasFocusedPaneID.flatMap { model?.panes[$0]?.terminalID }
+    }
+
     /// Focuses the neighbor a move or swap would aim at. Silent when nothing
     /// lies that way.
     public func focusNeighbor(toward direction: PaneDirection) async {

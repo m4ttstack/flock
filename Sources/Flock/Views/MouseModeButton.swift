@@ -39,9 +39,9 @@ struct MouseModeButton: View {
     private var tip: String {
         switch mode {
         case .menu:
-            "Right-clicks open flock's menu; ⌥-right-click goes to the program. Click to send right-clicks to the program."
+            "Right-clicks open flock's menu; ⌥-right-click goes to the program. Click, or press ⌥⌘M, to send right-clicks to the program."
         case .program, .programOnly:
-            "Right-clicks go to the program; ⌥-right-click opens flock's menu. Click to give right-clicks back to flock."
+            "Right-clicks go to the program; ⌥-right-click opens flock's menu. Click, or press ⌥⌘M, to give right-clicks back to flock."
         }
     }
 }

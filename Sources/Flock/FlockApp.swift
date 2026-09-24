@@ -367,6 +367,14 @@ struct FlockApp: App {
                     .disabled(viewModel.canvasFocusedPaneID == nil)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
+                // Takes Minimize All's key: this menu comes before Window.
+                Button(viewModel.focusedPaneRightClickMode == .program
+                    ? "Give Right-Clicks to Flock" : "Send Right-Clicks to Program") {
+                    viewModel.toggleFocusedPaneRightClicks()
+                }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+                .disabled(viewModel.focusedPaneRightClickMode == nil)
+                .accessibilityIdentifier("flock.view.toggleRightClicks")
                 Divider()
                 // Move and swap compile the plan the equivalent drag would,
                 // through the same planner; focus is a click on the neighbor.
