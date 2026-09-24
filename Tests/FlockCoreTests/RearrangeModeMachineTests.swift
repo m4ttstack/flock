@@ -115,4 +115,35 @@ final class RearrangeModeMachineTests: XCTestCase {
         XCTAssertFalse(machine.handleEscape(), "the drag needs this press")
         XCTAssertTrue(machine.active)
     }
+
+    func testALandedMoveLeavesTheModeWhenSetToLeave() {
+        var machine = RearrangeModeMachine()
+        machine.handle(.toggleOn)
+        machine.handle(.dragBegan)
+        machine.handle(.dragEnded)
+        machine.handle(.moveLanded(.leave))
+        XCTAssertFalse(machine.active)
+        XCTAssertFalse(machine.isToggled)
+    }
+
+    func testALandedMoveKeepsTheModeWhenSetToStay() {
+        var machine = RearrangeModeMachine()
+        machine.handle(.toggleOn)
+        machine.handle(.dragBegan)
+        machine.handle(.dragEnded)
+        machine.handle(.moveLanded(.stay))
+        XCTAssertTrue(machine.active)
+        XCTAssertTrue(machine.isToggled)
+    }
+
+    /// A late landing from an earlier drag must not pull the mode out from
+    /// under the one now in flight.
+    func testALandedMoveDuringAnotherDragLeavesTheToggleAlone() {
+        var machine = RearrangeModeMachine()
+        machine.handle(.toggleOn)
+        machine.handle(.dragBegan)
+        machine.handle(.moveLanded(.leave))
+        XCTAssertTrue(machine.isToggled)
+        XCTAssertTrue(machine.active)
+    }
 }

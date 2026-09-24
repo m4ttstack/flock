@@ -40,8 +40,11 @@ public final class RearrangeMode {
     /// receiving it.
     @ObservationIgnored nonisolated(unsafe) private var eventMonitor: Any?
     @ObservationIgnored private weak var monitoredWindow: NSWindow?
+    @ObservationIgnored private let afterMove: @MainActor () -> RearrangeAfterMove
 
-    public init() {}
+    public init(afterMove: @escaping @MainActor () -> RearrangeAfterMove = { .leave }) {
+        self.afterMove = afterMove
+    }
 
     deinit {
         if let eventMonitor {
@@ -82,6 +85,7 @@ public final class RearrangeMode {
 
     public func dragBegan() { apply(.dragBegan) }
     public func dragEnded() { apply(.dragEnded) }
+    public func moveLanded() { apply(.moveLanded(afterMove())) }
 
     private func apply(_ event: RearrangeModeMachine.Event) {
         machine.handle(event)

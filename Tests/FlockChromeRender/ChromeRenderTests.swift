@@ -1979,19 +1979,21 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// The Settings window in both system appearances, with the
-    /// Notifications section above herdr's. PNGs go to
+    /// Notifications and Rearrange Mode sections above herdr's. PNGs go to
     /// `FLOCK_SETTINGS_RENDER_DIR`; the assertion is only that it draws.
     func testTheSettingsWindowDrawsInBothAppearances() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
         defaults.removeObject(forKey: NotificationLifetimeStore.defaultsKey)
+        defaults.removeObject(forKey: RearrangeAfterMoveStore.defaultsKey)
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil }),
-                notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults)
+                notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
+                rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults)
             )
             let window = NSWindow(
-                contentRect: CGRect(x: 0, y: 0, width: 500, height: 320),
+                contentRect: CGRect(x: 0, y: 0, width: 500, height: 440),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false
             )
             window.isReleasedWhenClosed = false

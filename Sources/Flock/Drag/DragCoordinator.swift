@@ -646,6 +646,7 @@ final class DragCoordinator {
 
     private func end() {
         let landingTarget = target
+        let startedInRearrange = holdsRearrangeOpen
         teardown()
         finishWorkspaceSelection()
         guard case .dragging = controller.phase else {
@@ -663,7 +664,10 @@ final class DragCoordinator {
         Task { [weak self] in
             await self?.controller.ended()
             guard let self, self.generation == started else { return }
-            self.finish(settleRect: settleRect, flashRect: flashRect, generation: started)
+            self.finish(
+                settleRect: settleRect, flashRect: flashRect, generation: started,
+                startedInRearrange: startedInRearrange
+            )
         }
     }
 
@@ -741,7 +745,7 @@ final class DragCoordinator {
 
     /// Settles the phase back to rest and sends the ghost where the outcome
     /// says it belongs: into the landing zone it actually reached, or home.
-    private func finish(settleRect: CGRect?, flashRect: CGRect?, generation: Int) {
+    private func finish(settleRect: CGRect?, flashRect: CGRect?, generation: Int, startedInRearrange: Bool) {
         if case .rejected(let reason) = controller.phase {
             report(reason)
             // The only public way back to `.idle` from `.rejected`, and it
@@ -753,6 +757,9 @@ final class DragCoordinator {
         guard outcomes.last?.generation == generation, outcomes.last?.outcome == .committed else {
             settleHome()
             return
+        }
+        if startedInRearrange {
+            rearrangeMode.moveLanded()
         }
         if let flashRect {
             flash(flashRect)

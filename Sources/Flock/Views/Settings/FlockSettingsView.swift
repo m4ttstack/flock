@@ -12,10 +12,12 @@ import SwiftUI
 struct FlockSettingsView: View {
     let herdrMousePatchStore: HerdrMousePatchStore
     let notificationLifetimeStore: NotificationLifetimeStore
+    let rearrangeAfterMoveStore: RearrangeAfterMoveStore
 
     var body: some View {
         Form {
             NotificationSettingsSection(store: notificationLifetimeStore)
+            RearrangeSettingsSection(store: rearrangeAfterMoveStore)
             HerdrMousePatchRow(store: herdrMousePatchStore)
         }
         .formStyle(.grouped)

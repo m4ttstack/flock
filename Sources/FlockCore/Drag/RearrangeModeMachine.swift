@@ -23,6 +23,9 @@ public struct RearrangeModeMachine {
         case dragBegan
         case dragEnded
         case escPressed
+        /// A drag begun in the mode committed a change. Arrives after that
+        /// drag's `.dragEnded`, once the commit has resolved.
+        case moveLanded(RearrangeAfterMove)
     }
 
     public private(set) var active = false
@@ -56,6 +59,8 @@ public struct RearrangeModeMachine {
             dragInProgress = false
         case .escPressed:
             if !dragInProgress { isToggled = false }
+        case .moveLanded(let afterMove):
+            if afterMove == .leave, !dragInProgress { isToggled = false }
         }
         active = dragInProgress || isToggled
     }

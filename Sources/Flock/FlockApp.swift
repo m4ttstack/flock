@@ -98,6 +98,7 @@ struct FlockApp: App {
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
+    @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
     @State private var scrollSpeedStore = ScrollSpeedStore()
     @State private var railWidthStore = RailWidthStore()
     @State private var sectionCollapseStore = SectionCollapseStore()
@@ -238,7 +239,9 @@ struct FlockApp: App {
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
-        let rearrangeMode = RearrangeMode()
+        let rearrangeAfterMoveStore = RearrangeAfterMoveStore()
+        _rearrangeAfterMoveStore = State(initialValue: rearrangeAfterMoveStore)
+        let rearrangeMode = RearrangeMode(afterMove: { rearrangeAfterMoveStore.active })
         _rearrangeMode = State(initialValue: rearrangeMode)
         let boardStore = BoardStore()
         _boardStore = State(initialValue: boardStore)
@@ -447,7 +450,11 @@ struct FlockApp: App {
         }
 
         Settings {
-            FlockSettingsView(herdrMousePatchStore: herdrMousePatchStore, notificationLifetimeStore: notificationLifetimeStore)
+            FlockSettingsView(
+                herdrMousePatchStore: herdrMousePatchStore,
+                notificationLifetimeStore: notificationLifetimeStore,
+                rearrangeAfterMoveStore: rearrangeAfterMoveStore
+            )
         }
     }
 
