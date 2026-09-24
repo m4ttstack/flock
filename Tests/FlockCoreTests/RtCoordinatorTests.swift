@@ -282,6 +282,66 @@ final class RtCoordinatorTests: XCTestCase {
         XCTAssertEqual(world.calls("tab.close").count, 1, "it ran to its own clean end")
     }
 
+    func testARunWhosePickReturnsASeedBecomesThePanesRunner() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt run", .init(busyPolls: 1, status: "0", out: rtSeedLine + "\n"))
+        world.script("command rt runner", .init(busyPolls: 100_000, status: "0", foreground: ["bun", "rt-ui"]))
+        let rt = makeCoordinator(world)
+        rt.update(model: world.model())
+
+        await rt.open(.run, from: world.fixture.linkedPane)
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").first?["tab_id"]), "wF1:t1")
+        let create = try XCTUnwrap(world.calls("workspace.create").last)
+        XCTAssertEqual(FakeRtWorld.string(create["label"]), "flock:rt runner term_a1")
+        guard case .object(let env) = create["env"] else { return XCTFail("no env") }
+        XCTAssertEqual(FakeRtWorld.string(env["FLOCK_RT_SEED"]), rtPaths("tok2").seed.path)
+        XCTAssertEqual(world.read(rtPaths("tok2").seed), rtSeedLine)
+        XCTAssertEqual(world.typed(into: "wF2:p1"), [#"command rt runner --herdr --seed-file "$FLOCK_RT_SEED"; echo $? >"$FLOCK_RT_STATUS""#])
+        XCTAssertEqual(rt.runner(linkedTo: RtFixture.linkedTerminal)?.id, "tok2")
+        XCTAssertNil(rt.items["tok1"])
+        XCTAssertEqual(rt.modal?.itemID, "tok2")
+        rt.watches["tok2"]?.cancel()
+    }
+
+    /// One runner per pane: the queue is not added to it, and the user is told.
+    func testASeedWithARunnerAlreadyRunningShowsItAndSaysSo() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt runner", .init(busyPolls: 100_000, status: "0", foreground: ["bun", "rt-ui"]))
+        world.script("command rt run", .init(busyPolls: 1, status: "0", out: rtSeedLine + "\n"))
+        let notices = NoticeLog()
+        let rt = makeCoordinator(world, notices: notices)
+        rt.update(model: world.model())
+        await rt.open(.runner, from: world.fixture.linkedPane)
+
+        await rt.open(.run, from: world.fixture.linkedPane)
+        try await finishWatch(rt, "tok2")
+        await rt.settle()
+
+        XCTAssertEqual(world.calls("workspace.create").count, 2, "the runner's workspace and flock:rt, no second runner")
+        XCTAssertEqual(rt.modal?.itemID, "tok1")
+        XCTAssertEqual(notices.lines.count, 1)
+        rt.watches["tok1"]?.cancel()
+    }
+
+    /// A run picked while hidden stays hidden as a runner: no modal pops up.
+    func testASeedFromAHiddenRunOpensTheRunnerWithoutTheModal() async throws {
+        let world = FakeRtWorld()
+        world.script("command rt run", .init(busyPolls: 5, status: "0", out: rtSeedLine + "\n"))
+        world.script("command rt runner", .init(busyPolls: 100_000, status: "0", foreground: ["bun", "rt-ui"]))
+        let rt = makeCoordinator(world)
+        rt.update(model: world.model())
+        await rt.open(.run, from: world.fixture.linkedPane)
+        await rt.closeModal()
+
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertEqual(rt.runner(linkedTo: RtFixture.linkedTerminal)?.id, "tok2")
+        XCTAssertNil(rt.modal)
+        rt.watches["tok2"]?.cancel()
+    }
+
     func testClosingTheModalHandsHerdrsFocusToTheLinkedPane() async throws {
         let world = FakeRtWorld()
         world.script("command rt run", .init(busyPolls: 100_000, status: "0"))

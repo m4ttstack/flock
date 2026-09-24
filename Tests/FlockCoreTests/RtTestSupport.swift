@@ -293,3 +293,4 @@ final class NoticeLog {
 }
 
 let rtResultLine = #"{"targetDir":"/src/acme/web","packageLabel":"web","worktree":"/src/acme","branch":"main","commandTemplate":"pnpm run test","script":"test"}"#
+let rtSeedLine = #"{"seed":[{"name":"dev","command":"pnpm run dev","cwd":"/src/acme/web","pkg":"web","repo":"acme"}]}"#

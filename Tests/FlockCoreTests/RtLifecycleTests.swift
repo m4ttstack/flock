@@ -99,6 +99,14 @@ final class RtLifecycleTests: XCTestCase {
         XCTAssertEqual(life.observe(seen(busy: false, status: 0, at: 4 + RtLifecycle.startCeiling + 0.1)), .finished(nil))
     }
 
+    func testAPickThatReturnsASeedBecomesARunner() {
+        let seed = #"{"seed":[{"name":"dev","command":"pnpm run dev","cwd":"/src/acme/web"}]}"#
+        var life = RtLifecycle(kind: .run, startedAt: start)
+        _ = life.observe(seen(busy: true, at: 0.3))
+        XCTAssertEqual(life.observe(seen(busy: false, status: 0, out: seed + "\n", at: 4)), .becomeRunner(seed))
+        XCTAssertEqual(life.stage, .done)
+    }
+
     func testRunPhaseOneWithNoResultAndAFailureIsACancel() {
         var life = RtLifecycle(kind: .run, startedAt: start)
         _ = life.observe(seen(busy: true, at: 0.3))

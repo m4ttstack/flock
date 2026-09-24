@@ -42,6 +42,7 @@ public struct RtLifecycle: Equatable, Sendable {
         case exited(Int32?)
         case finished(Int32?)
         case runnerEnded
+        case becomeRunner(String)
     }
 
     public let kind: RtKind
@@ -113,6 +114,10 @@ public struct RtLifecycle: Equatable, Sendable {
         }
         if let result = RtFileParse.runResult(seen.out) {
             return .typePhaseTwo(result)
+        }
+        if let seed = RtFileParse.seed(seen.out) {
+            stage = .done
+            return .becomeRunner(seed)
         }
         if seen.status == 0 {
             stage = .selfLaunched

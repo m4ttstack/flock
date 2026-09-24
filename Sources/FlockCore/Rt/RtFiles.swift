@@ -25,15 +25,18 @@ public struct RunResolveResult: Decodable, Equatable, Sendable {
 public struct RtFilePaths: Equatable, Sendable {
     public let out: URL
     public let status: URL
+    public let seed: URL
 
     public init(token: String, directory: URL) {
         out = directory.appendingPathComponent("\(token).out")
         status = directory.appendingPathComponent("\(token).status")
+        seed = directory.appendingPathComponent("\(token).seed")
     }
 }
 
 public protocol RtFileStore: Sendable {
     func read(_ url: URL) -> String?
+    func write(_ text: String, to url: URL)
     func delete(_ url: URL)
     func prepareDirectory(_ url: URL)
 }
@@ -43,6 +46,10 @@ public struct DiskRtFileStore: RtFileStore {
 
     public func read(_ url: URL) -> String? {
         try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    public func write(_ text: String, to url: URL) {
+        try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     public func delete(_ url: URL) {
@@ -64,5 +71,27 @@ public enum RtFileParse {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return try? JSONDecoder().decode(RunResolveResult.self, from: Data(trimmed.utf8))
+    }
+
+    /// A queue or preset picked under `--resolve-only`: flock checks only the
+    /// shape holds a row to seed a runner with; rt reads the rows themselves.
+    public static func seed(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let envelope = try? JSONDecoder().decode(SeedEnvelope.self, from: Data(trimmed.utf8)),
+              !envelope.seed.isEmpty
+        else { return nil }
+        return trimmed
+    }
+
+    private struct SeedEnvelope: Decodable {
+        struct Row: Decodable {
+            let name: String
+            let command: String
+            let cwd: String
+        }
+
+        let seed: [Row]
     }
 }

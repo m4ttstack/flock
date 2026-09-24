@@ -9,6 +9,13 @@ final class RtCommandLineTests: XCTestCase {
         XCTAssertEqual(RtCommandLine.command(for: .runner, shell: .posix), #"command rt runner --herdr; echo $? >"$FLOCK_RT_STATUS""#)
     }
 
+    func testASeededRunnerReadsItsSeedFile() {
+        XCTAssertEqual(
+            RtCommandLine.command(for: .runner, shell: .posix, seeded: true),
+            #"command rt runner --herdr --seed-file "$FLOCK_RT_SEED"; echo $? >"$FLOCK_RT_STATUS""#
+        )
+    }
+
     func testAFishShellGetsItsStatusVariable() {
         XCTAssertEqual(RtCommandLine.command(for: .glitter, shell: .fish), #"command rt glitter; echo $status >"$FLOCK_RT_STATUS""#)
         XCTAssertEqual(ShellFlavor(processName: "fish"), .fish)

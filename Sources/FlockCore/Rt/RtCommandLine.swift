@@ -28,13 +28,15 @@ public enum RtCommandLine {
         "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
-    public static func command(for kind: RtKind, shell: ShellFlavor) -> String {
+    /// `seeded` reads a queue or preset's rows from the path the tab's env
+    /// names as `FLOCK_RT_SEED`, never quoted into the line.
+    public static func command(for kind: RtKind, shell: ShellFlavor, seeded: Bool = false) -> String {
         let body: String
         switch kind {
         case .nav: body = #"command rt nav >"$FLOCK_RT_OUT""#
         case .glitter: body = "command rt glitter"
         case .run: body = #"command rt run --resolve-only >"$FLOCK_RT_OUT""#
-        case .runner: body = "command rt runner --herdr"
+        case .runner: body = seeded ? #"command rt runner --herdr --seed-file "$FLOCK_RT_SEED""# : "command rt runner --herdr"
         }
         return body + statusSuffix(shell)
     }

@@ -121,7 +121,7 @@ public final class RtCoordinator {
 
     // MARK: - opening
 
-    public func open(_ kind: RtKind, from pane: PaneRecord) async {
+    public func open(_ kind: RtKind, from pane: PaneRecord, seed: String? = nil, reveal: Bool = true) async {
         guard let terminal = pane.terminalID else { return }
         if kind == .runner {
             if let existing = runner(linkedTo: terminal) {
@@ -138,7 +138,11 @@ public final class RtCoordinator {
         files.prepareDirectory(config.fileDirectory)
         files.delete(paths.out)
         files.delete(paths.status)
-        let env = ["FLOCK_RT_OUT": paths.out.path, "FLOCK_RT_STATUS": paths.status.path]
+        var env = ["FLOCK_RT_OUT": paths.out.path, "FLOCK_RT_STATUS": paths.status.path]
+        if let seed {
+            files.write(seed, to: paths.seed)
+            env["FLOCK_RT_SEED"] = paths.seed.path
+        }
         let label = RtLabels.tabLabel(RtLabels.TabLink(kind: kind, terminal: terminal, token: token))
         var created: RtHerdr.Created?
         var ownsWorkspace = false
@@ -159,14 +163,14 @@ public final class RtCoordinator {
                 try await herdr.renameTab(host.tabID, to: label)
             }
             let shell = await waitForShell(host.rootPaneID)
-            try await herdr.type(RtCommandLine.command(for: kind, shell: shell), into: host.rootPaneID)
+            try await herdr.type(RtCommandLine.command(for: kind, shell: shell, seeded: seed != nil), into: host.rootPaneID)
             items[token] = RtItem(
                 id: token, kind: kind, linked: terminal, workspaceID: host.workspaceID, tabID: host.tabID,
                 firstPaneID: host.rootPaneID, title: kind.defaultTitle, folder: pane.cwd, isRunning: true, strip: nil
             )
             lifecycles[token] = RtLifecycle(kind: kind, startedAt: now())
             openedOrder.append(token)
-            await show(token)
+            if reveal { await show(token) }
             startWatch(token)
         } catch {
             notice("rt \(kind.rawValue) failed: \(RtHerdr.describe(error))")
@@ -179,6 +183,7 @@ public final class RtCoordinator {
             }
             files.delete(paths.out)
             files.delete(paths.status)
+            files.delete(paths.seed)
         }
     }
 
@@ -361,6 +366,18 @@ public final class RtCoordinator {
             items[id]?.isRunning = false
             items[id]?.strip = .finished(status)
             return false
+        case .becomeRunner(let seed):
+            guard let item = items[id] else { return false }
+            let wasShown = modal?.itemID == id
+            await closeItem(id)
+            if let existing = runner(linkedTo: item.linked) {
+                notice("A runner is already running for this pane: add scripts from its board.")
+                if wasShown { await show(existing.id) }
+                return false
+            }
+            guard let model, let pane = pane(for: item.linked, in: model) else { return false }
+            await open(.runner, from: pane, seed: seed, reveal: wasShown)
+            return false
         }
     }
 
@@ -402,6 +419,7 @@ public final class RtCoordinator {
         let paths = RtFilePaths(token: id, directory: config.fileDirectory)
         files.delete(paths.out)
         files.delete(paths.status)
+        files.delete(paths.seed)
     }
 
     func closeItem(_ id: String) async {
