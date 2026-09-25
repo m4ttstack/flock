@@ -14,25 +14,7 @@ private func reduce(_ event: HerdrEvent, into model: inout SessionModel) {
         model.panes[pane.paneID] = pane
 
     case .paneClosed(let paneID):
-        let closed = model.panes.removeValue(forKey: paneID)
-        for tabID in model.layouts.keys {
-            model.layouts[tabID]?.panes.removeAll { $0.paneID == paneID }
-        }
-        dropFocusOnMissingPanes(in: &model)
-        if let closed {
-            // herdr's `Workspace::close_pane` removes the tab whose last pane
-            // has left and emits nothing for it (`pane.close` sends
-            // `PaneClosed` alone), so the tab would otherwise keep its place
-            // in the strip over an empty layout. Its own escalation stops one
-            // rung short of a workspace: a workspace's last tab is taken by
-            // the `WorkspaceClosed` that follows instead, and reading ahead of
-            // it here would invent a workspace with no tabs at all.
-            let emptied = !model.panes.values.contains { $0.tabID == closed.tabID }
-            let workspaceHasOtherTabs = (model.tabs[closed.workspaceID]?.count ?? 0) > 1
-            if emptied, workspaceHasOtherTabs {
-                removeTab(closed.tabID, from: &model)
-            }
-        }
+        removePane(paneID, closingAnEmptiedWorkspace: false, from: &model)
 
     case .paneFocused(let paneID):
         model.focusedPaneID = paneID
@@ -82,8 +64,8 @@ private func reduce(_ event: HerdrEvent, into model: inout SessionModel) {
         pane.agentStatus = status
         model.panes[paneID] = pane
 
-    case .paneExited:
-        break
+    case .paneExited(let paneID):
+        removePane(paneID, closingAnEmptiedWorkspace: true, from: &model)
 
     case .tabCreated(let tab):
         upsertTab(tab, into: &model)
@@ -137,6 +119,29 @@ private func reduce(_ event: HerdrEvent, into model: inout SessionModel) {
     case .unknown:
         break
     }
+}
+
+/// herdr removes the tab a leaving pane emptied and emits nothing for it, on
+/// both ways a pane leaves, so the tab would otherwise keep its place in the
+/// strip over an empty layout. They part at a workspace's last tab.
+/// `pane.close` stops short of the workspace and follows its `PaneClosed`
+/// with a `WorkspaceClosed`; reading ahead of that here would invent a
+/// workspace with no tabs at all. A pane whose program exits
+/// (`handle_pane_died`) takes the workspace too and emits `PaneExited`
+/// alone, so nothing else will remove it.
+private func removePane(_ paneID: PaneID, closingAnEmptiedWorkspace: Bool, from model: inout SessionModel) {
+    let removed = model.panes.removeValue(forKey: paneID)
+    for tabID in model.layouts.keys {
+        model.layouts[tabID]?.panes.removeAll { $0.paneID == paneID }
+    }
+    if let removed, !model.panes.values.contains(where: { $0.tabID == removed.tabID }) {
+        if (model.tabs[removed.workspaceID]?.count ?? 0) > 1 {
+            removeTab(removed.tabID, from: &model)
+        } else if closingAnEmptiedWorkspace {
+            removeWorkspace(removed.workspaceID, from: &model)
+        }
+    }
+    dropFocusOnMissingPanes(in: &model)
 }
 
 /// Focus that outlived the pane it named, on every path that deletes panes.

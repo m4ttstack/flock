@@ -314,6 +314,42 @@ final class ReducerTests: XCTestCase {
         XCTAssertNotNil(model.layouts[TabID(rawValue: "w1:t1")])
     }
 
+    /// A pane whose program exits is gone from herdr, which says so with
+    /// `PaneExited` alone: `handle_pane_died` removes the pane, the tab it
+    /// emptied and the workspace that tab was the last of, and emits no
+    /// `PaneClosed`, `TabClosed` or `WorkspaceClosed` for any of them.
+    func testPaneExitedRemovesThePaneFromItsTab() throws {
+        var model = try seededModel()
+        let exited = PaneID(rawValue: "w1:p2")
+
+        apply(.paneExited(exited), to: &model)
+
+        XCTAssertNil(model.panes[exited])
+        XCTAssertFalse(model.layouts[TabID(rawValue: "w1:t1")]?.panes.contains { $0.paneID == exited } ?? true)
+        XCTAssertNotNil(model.layouts[TabID(rawValue: "w1:t1")], "the tab still holds w1:p1")
+    }
+
+    func testPaneExitedClosesTheTabItEmptied() throws {
+        var model = try seededModel()
+
+        apply(.paneExited(PaneID(rawValue: "w1:p3")), to: &model)
+
+        XCTAssertFalse(model.tabs.values.contains { tabs in tabs.contains { $0.tabID == TabID(rawValue: "w1:t2") } })
+        XCTAssertNil(model.layouts[TabID(rawValue: "w1:t2")])
+        XCTAssertTrue(model.workspaces.contains { $0.workspaceID == WorkspaceID(rawValue: "w1") })
+    }
+
+    func testPaneExitedClosesTheWorkspaceWhoseLastTabItEmptied() throws {
+        var model = try seededModel()
+        apply(.tabClosed(TabID(rawValue: "w1:t1")), to: &model)
+
+        apply(.paneExited(PaneID(rawValue: "w1:p3")), to: &model)
+
+        XCTAssertFalse(model.workspaces.contains { $0.workspaceID == WorkspaceID(rawValue: "w1") })
+        XCTAssertNil(model.tabs[WorkspaceID(rawValue: "w1")])
+        XCTAssertTrue(model.panes.isEmpty)
+    }
+
     /// The other two paths that delete panes. herdr emits no `PaneClosed` for
     /// the panes a closed tab or workspace took with it, so the session focus
     /// is left naming one of them here too.
