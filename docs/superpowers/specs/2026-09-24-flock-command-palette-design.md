@@ -34,7 +34,9 @@ The palette reads these; it does not replace them.
 **Opening.** ⌘K opens the palette; it is a View menu item, "Command
 Palette…", so the key shows in the menu bar. Clear Notifications moves from
 ⌘K to ⇧⌘K. Esc, a click on the scrim, or ⌘K again closes it. It opens while
-the rt modal is up too; a pane command run from it closes the modal first.
+the rt modal is up too, and then lists what the menus allow there: the
+commands that act on a canvas pane are hidden, as their menu items are
+disabled, since the pane behind the modal is the one its items are linked to.
 While the rename editor is open, ⌘K is the editor's.
 
 **Where it draws.** Over the tab area (tab strip and panes), under a scrim,
