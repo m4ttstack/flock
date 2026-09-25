@@ -45,12 +45,13 @@ then ALL COMMANDS lists the rest grouped by namespace in the order rt, pane,
 chat, mouse, view, tab, workspace, each group in its source list's order. A
 command in RECENT is not repeated in ALL COMMANDS. The first row is selected.
 
-**Typing.** One fuzzy search over "namespace name" (`rt glitter`,
-`pane Split Right`), in the manner of VS Code's command mode: there is no
+**Typing.** One fuzzy search over "namespace name hint" (`rt glitter Git
+status`, `pane Split Right`), in the manner of VS Code's command mode: there is no
 prefix syntax, the namespace is simply part of what is matched, so `rt`
 narrows to rt and `rt gl` finds glitter. Results are one list without
 sections, ranked by match quality with a small boost for commands run
-recently. The characters of the name that matched draw in the theme accent.
+recently. The characters of the name that matched draw in the theme accent;
+a match in the hint alone still finds the row (`git` finds glitter).
 
 **Running.** ↑ and ↓, or ⌃P and ⌃N, move the selection; it does not wrap.
 Return or a click runs the selected command and closes the palette. A
@@ -75,7 +76,7 @@ Every one runs on Return with no second choice.
 
 | Namespace | Commands |
 |---|---|
-| rt | nav, glitter, run, runner (titled Start Runner or Show Runner) |
+| rt | nav, glitter, run, runner, each named by its verb with the rt popover's title as a hint: Browse files, Git status, Run a script…, Start runner or Show runner |
 | pane | Split Right, Split Down, Close Pane, Zoom Pane, Rename Pane, Focus / Move / Swap Pane Left, Right, Up, Down |
 | chat | Chat Panel, Broadcast to Panes…, Chat Peek, Quick Send…, Open Viewer, Sign In This Pane, Sign Out This Pane |
 | mouse | one row, titled for what it will do: Send Right-Clicks to Program, or Give Right-Clicks to Flock |
@@ -103,8 +104,8 @@ Canvas: `docs/design/palette/palette-dark.png` and `palette-light.png`
   10/600, letter spacing 0.8, `theme.textLabel`, pad 8/8/4/8.
 - **Row:** 32 tall, pad 0/8, gap 10, r6. Selected: `theme.selection` fill,
   name at weight 500. In order: the badge, the name at 13 in
-  `theme.textStrong`, a spacer, the shortcut at 12 in `theme.textLabel` when
-  there is one.
+  `theme.textStrong`, a spacer, then at 12 in `theme.textLabel` the shortcut
+  when there is one, else the hint when there is one (the rt rows).
 - **Badge:** 44x18, r4, one neutral style for every namespace: fill
   `palette.surface0` in a dark theme and `palette.surface1` in a light one
   (surface0 is too close to a light chrome to read), text at 10.5/600 in
@@ -122,9 +123,10 @@ Canvas: `docs/design/palette/palette-dark.png` and `palette-light.png`
 - `PaletteNamespace`: rt, pane, chat, mouse, view, tab, workspace, in the
   order ALL COMMANDS groups them.
 - `PaletteCommand`: a stable `id` (the recents key, e.g. `pane.splitRight`),
-  a namespace, a name, and a shortcut label. No action.
+  a namespace, a name, an optional shortcut label and an optional hint (the
+  rt rows' plain-language titles). No action.
 - `PaletteMatcher`: fuzzy subsequence match of a query against
-  "namespace name", case-insensitive. Returns nil for no match, else a score
+  "namespace name hint", case-insensitive. Returns nil for no match, else a score
   (consecutive runs and word starts score higher) and the indices of the
   name's matched characters.
 - `PaletteRanking`: from the available commands, the query and the recents,
