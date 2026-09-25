@@ -981,6 +981,17 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isPristineLauncherPane(newPane))
     }
 
+    @MainActor
+    func testIsAtPromptOnlyWhenTheShellHoldsTheForeground() async {
+        let pane = PaneID(rawValue: "w1:p2")
+        let idle = await SessionViewModel(client: StubForegroundClient([.idle])).isAtPrompt(pane)
+        let busy = await SessionViewModel(client: StubForegroundClient([.busy])).isAtPrompt(pane)
+        let unknown = await SessionViewModel(client: StubForegroundClient([.failure])).isAtPrompt(pane)
+        XCTAssertTrue(idle)
+        XCTAssertFalse(busy, "a program holds the pane, so a typed command would be its input")
+        XCTAssertFalse(unknown, "herdr could not say")
+    }
+
     // MARK: - a navigator command (rt cd) launched from the launcher
 
     @MainActor

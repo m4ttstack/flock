@@ -20,6 +20,7 @@ extension PaletteContext {
                 viewerDisabledReason: chatStore.viewerDisabledReason
             ),
             focusedAgent: record?.agent,
+            launchers: LauncherSlots.current(),
             rightClickMode: viewModel.focusedPaneRightClickMode,
             programHasMouse: focused.flatMap { viewModel.ghosttySurface(for: $0) }?.programHasMouse ?? false,
             hasSelectedWorkspace: viewModel.selectedWorkspaceID != nil,
@@ -56,6 +57,12 @@ struct PaletteRunner {
             Task { await viewModel.rt.open(kind, from: record) }
         case .toggleRightClicks:
             viewModel.toggleFocusedPaneRightClicks()
+        case .launch(let entry):
+            guard let pane = viewModel.canvasFocusedPaneID else { return }
+            Task {
+                guard await viewModel.isAtPrompt(pane) else { return NSSound.beep() }
+                await LauncherSlots.launch(entry, in: pane, on: viewModel)
+            }
         case .view(let command):
             switch command {
             case .newTab:

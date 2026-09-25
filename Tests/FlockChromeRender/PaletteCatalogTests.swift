@@ -58,6 +58,18 @@ final class PaletteCatalogTests: XCTestCase {
         XCTAssertTrue(listed.contains("rt.glitter"))
     }
 
+    func testLaunchersAreListedForAShellPaneButNotUnderAnAgent() {
+        let launchers = LauncherSlots.ordered(navigator: NavigatorRoster.rtCd, entries: HarnessRoster.known)
+        let names = PaletteCatalog.entries(in: PaletteContext(canvasPane: pane, launchers: launchers))
+            .filter { if case .launch = $0.action { true } else { false } }
+            .map(\.command.name)
+        XCTAssertEqual(names, ["rt cd", "Launch claude", "Launch codex"])
+
+        let underClaude = ids(PaletteContext(canvasPane: pane, focusedAgent: ChatButtonModel.claudeAgent, launchers: launchers))
+        XCTAssertFalse(underClaude.contains("pane.launchcodex"), "claude's prompt would take the command as a message")
+        XCTAssertFalse(ids(PaletteContext(canvasPane: nil, launchers: launchers)).contains("pane.rtcd"))
+    }
+
     func testShortcutsReadAsTheMenusShowThem() {
         let entries = PaletteCatalog.entries(in: PaletteContext(canvasPane: pane, neighbors: [.left], hasNotifications: true))
         let shortcut = { (id: String) in entries.first { $0.command.id == id }?.command.shortcut }

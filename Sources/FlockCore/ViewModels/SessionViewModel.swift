@@ -910,6 +910,16 @@ public final class SessionViewModel {
         recordLauncherKeystroke(pane)
     }
 
+    /// Asked of herdr at the moment of launching, never cached: a command
+    /// typed into anything but a shell at its prompt reaches that program as
+    /// input. `false` when herdr cannot say.
+    public func isAtPrompt(_ pane: PaneID) async -> Bool {
+        guard let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)]) else {
+            return false
+        }
+        return PaneForegroundJob.isBusy(processInfoResponse: data) == false
+    }
+
     /// Runs a navigator command (a directory picker such as `rt cd`) in
     /// `pane`, focused first because the picker takes keys the moment it
     /// opens. The launcher steps aside while it runs and is offered again at

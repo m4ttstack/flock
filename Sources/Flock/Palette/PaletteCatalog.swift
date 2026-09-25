@@ -12,6 +12,7 @@ struct PaletteContext {
     var rtCommands: [RtCommandRow] = []
     var chatRows: [ChatMenuModel.Row]? = nil
     var focusedAgent: String? = nil
+    var launchers: [HarnessEntry] = []
     var rightClickMode: RightClickMode? = nil
     var programHasMouse = false
     var hasSelectedWorkspace = false
@@ -25,6 +26,7 @@ enum PaletteAction {
     case rt(RtKind)
     case toggleRightClicks
     case view(ViewCommand)
+    case launch(HarnessEntry)
 }
 
 struct PaletteEntry {
@@ -34,7 +36,7 @@ struct PaletteEntry {
 
 enum PaletteCatalog {
     static func entries(in context: PaletteContext) -> [PaletteEntry] {
-        rt(context) + pane(context) + chat(context) + mouse(context) + view(context)
+        rt(context) + launch(context) + pane(context) + chat(context) + mouse(context) + view(context)
     }
 
     /// Stable across launches while a title stands still, which is all recents need.
@@ -53,6 +55,13 @@ enum PaletteCatalog {
     private static func rt(_ context: PaletteContext) -> [PaletteEntry] {
         guard context.rtInstalled else { return [] }
         return context.rtCommands.map { entry(.rt, $0.kind.rawValue, hint: $0.title, .rt($0.kind)) }
+    }
+
+    /// Hidden under a detected agent, whose prompt is not a shell's; any
+    /// other program is caught by the runner asking herdr before it types.
+    private static func launch(_ context: PaletteContext) -> [PaletteEntry] {
+        guard context.canvasPane != nil, context.focusedAgent == nil else { return [] }
+        return context.launchers.map { entry(.pane, LauncherSlots.title(for: $0), .launch($0)) }
     }
 
     private static func pane(_ context: PaletteContext) -> [PaletteEntry] {
