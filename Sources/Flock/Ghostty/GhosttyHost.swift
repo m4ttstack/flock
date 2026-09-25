@@ -157,6 +157,14 @@ final class GhosttyHost {
         NSWorkspace.shared.open(URL(fileURLWithPath: value))
     }
 
+    /// A plain write, never an atomic one: each file is unique, private and
+    /// read once straight after, so the temp-file rename an atomic write adds
+    /// buys nothing, and a busy volume can hold that rename, and the main
+    /// thread with it, for tens of seconds.
+    private static func writeScratch(_ text: String, to file: URL) -> Bool {
+        (try? text.write(to: file, atomically: false, encoding: .utf8)) != nil
+    }
+
     /// Clones the base config, writes a scratch `.ghostty` file combining
     /// this theme's colors with the one command this surface should run, and
     /// pushes the clone onto the app -- MUST run right before this surface's
@@ -190,7 +198,7 @@ final class GhosttyHost {
         )
         let file = ScratchDirectory.url
             .appendingPathComponent("flock-surface-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")
-        guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil,
+        guard Self.writeScratch(text, to: file),
               let clone = ghostty_config_clone(baseConfig)
         else { return false }
         defer {
@@ -246,7 +254,7 @@ final class GhosttyHost {
         )
         let file = ScratchDirectory.url
             .appendingPathComponent("flock-surface-update-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8)).ghostty")
-        guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil,
+        guard Self.writeScratch(text, to: file),
               let clone = ghostty_config_clone(baseConfig)
         else { return false }
         defer {
