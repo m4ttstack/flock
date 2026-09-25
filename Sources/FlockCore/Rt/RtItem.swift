@@ -150,7 +150,7 @@ public enum RtPopoverModel {
     public static func commands(hasRunner: Bool) -> [RtCommandRow] {
         [
             RtCommandRow(kind: .nav, title: "Browse files", hint: "rt nav"),
-            RtCommandRow(kind: .glitter, title: "Git status", hint: "rt glitter"),
+            RtCommandRow(kind: .glitter, title: "Review and commit", hint: "rt glitter"),
             RtCommandRow(kind: .run, title: "Run a script…", hint: "rt run"),
             RtCommandRow(kind: .runner, title: hasRunner ? "Show runner" : "Start runner", hint: "rt runner"),
         ]
