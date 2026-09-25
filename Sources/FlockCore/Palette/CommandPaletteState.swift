@@ -51,7 +51,7 @@ public final class CommandPaletteState {
 }
 
 /// The keys the palette takes before its search field or the window sees
-/// them. Control combinations always pass, so the menu bar keeps them.
+/// them. Command (⌘) combinations always pass, so the menu bar keeps them.
 public enum PaletteKey {
     public enum Decision: Equatable, Sendable { case up, down, run, close, pass }
 
