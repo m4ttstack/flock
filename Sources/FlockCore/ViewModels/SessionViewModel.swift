@@ -475,6 +475,15 @@ public final class SessionViewModel {
         return model?.tabs[workspaceID] ?? []
     }
 
+    /// The tab `step` places along the selected workspace's strip from the
+    /// selected one, or `nil` past either end: the strip does not wrap.
+    public func neighborTab(step: Int) -> TabID? {
+        let tabs = tabsForSelectedWorkspace
+        guard let index = tabs.firstIndex(where: { $0.tabID == selectedTabID }) else { return nil }
+        let target = index + step
+        return tabs.indices.contains(target) ? tabs[target].tabID : nil
+    }
+
     /// The layout snapshot for the selected tab, or `nil` when no tab is
     /// selected or the model has no layout for it yet.
     public var selectedLayout: LayoutSnapshot? {

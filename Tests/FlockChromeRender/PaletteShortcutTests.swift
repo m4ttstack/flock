@@ -23,6 +23,7 @@ final class PaletteShortcutTests: XCTestCase {
         var labels = ViewCommand.allCases.map { ShortcutLabel.text(key: $0.key, modifiers: $0.modifiers) }
         labels += FocusedPaneCommand.all.map { ShortcutLabel.text(key: KeyEquivalent($0.key), modifiers: $0.modifiers) }
         labels += PaneDirectionCommand.all.map { ShortcutLabel.text(key: $0.key, modifiers: $0.modifiers) }
+        labels += TabStepCommand.allCases.map { ShortcutLabel.text(key: $0.key, modifiers: $0.modifiers) }
         labels += ChatMenuItem.allCases.map { ShortcutLabel.text(key: KeyEquivalent($0.key), modifiers: [.command, .shift]) }
         labels += ["⌥⌘M", "F2", "⌘Z", "⇧⌘Z"]
         XCTAssertEqual(labels.count, Set(labels).count, "duplicates: \(labels.filter { label in labels.filter { $0 == label }.count > 1 })")

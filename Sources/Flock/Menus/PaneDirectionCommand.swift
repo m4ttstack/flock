@@ -16,9 +16,9 @@ struct PaneDirectionCommand {
     let accessibilityIdentifier: String
 
     /// Command+Option+arrow focuses, as it moves between splits in Ghostty.
-    /// Command+Control+arrow moves and Command+Control+Shift+arrow swaps, Shift
-    /// reading as "and take the other pane with you", the same relationship
-    /// the two gestures have on the canvas. None is claimed by the system.
+    /// Command+Control+Option+arrow moves and Command+Control+Shift+arrow
+    /// swaps; Command+Control+arrow alone is the tab strip's. None is claimed
+    /// by the system.
     static let all: [PaneDirectionCommand] = {
         let directions: [(String, KeyEquivalent, PaneDirection)] = [
             ("Left", .leftArrow, .left), ("Right", .rightArrow, .right),
@@ -26,7 +26,7 @@ struct PaneDirectionCommand {
         ]
         let families: [(Kind, String, EventModifiers, String)] = [
             (.focus, "Focus Pane", [.command, .option], "focusPane"),
-            (.move, "Move Pane", [.command, .control], "movePane"),
+            (.move, "Move Pane", [.command, .control, .option], "movePane"),
             (.swap, "Swap Pane", [.command, .control, .shift], "swapPane"),
         ]
         return families.flatMap { kind, title, modifiers, identifier in

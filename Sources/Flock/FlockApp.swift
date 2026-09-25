@@ -392,6 +392,16 @@ struct FlockApp: App {
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
                 Divider()
+                ForEach(TabStepCommand.allCases, id: \.self) { command in
+                    Button(command.title) {
+                        guard let tab = viewModel.neighborTab(step: command.step) else { return }
+                        Task { await viewModel.jumpToHerdr(tab: tab) }
+                    }
+                    .keyboardShortcut(command.key, modifiers: command.modifiers)
+                    .disabled(viewModel.neighborTab(step: command.step) == nil || viewModel.rt.modal != nil)
+                    .accessibilityIdentifier(command.accessibilityIdentifier)
+                }
+                Divider()
             }
             CommandGroup(after: .sidebar) {
                 Button(ViewCommand.commandPalette.title) { commandPalette.toggle() }

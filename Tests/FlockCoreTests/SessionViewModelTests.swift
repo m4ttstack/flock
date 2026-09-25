@@ -519,6 +519,22 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.tabsForSelectedWorkspace.map(\.tabID), [TabID(rawValue: "w2:t1"), TabID(rawValue: "w2:t2")])
     }
 
+    /// ⌃⌘← and ⌃⌘→ step along the strip and stop at its ends, as the pane
+    /// arrows stop at the canvas's edge.
+    @MainActor
+    func testTheNeighborTabStepsAlongTheStripWithoutWrapping() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
+        viewModel.select(tab: TabID(rawValue: "w2:t1"))
+
+        XCTAssertEqual(viewModel.neighborTab(step: 1), TabID(rawValue: "w2:t2"))
+        XCTAssertNil(viewModel.neighborTab(step: -1))
+
+        viewModel.select(tab: TabID(rawValue: "w2:t2"))
+        XCTAssertEqual(viewModel.neighborTab(step: -1), TabID(rawValue: "w2:t1"))
+        XCTAssertNil(viewModel.neighborTab(step: 1))
+    }
+
     /// herdr's `tab.close` sends no `tab.focused` after itself, so nothing
     /// else moves flock off a tab that has just gone: the strip and the canvas
     /// would sit on a dead id, showing empty space, until the resnapshot.
