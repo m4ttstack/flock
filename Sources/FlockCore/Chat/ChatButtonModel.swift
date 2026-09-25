@@ -11,12 +11,15 @@ public enum ChatButtonModel {
         case signedIn(handle: String, unread: Int)
     }
 
-    /// Chat unavailable on this machine draws no button at all. Available but
-    /// with no status yet (the probe has not answered for this pane) reads as
-    /// signed out, never as absent -- the two are states a caller must never
-    /// collapse into one another.
-    public static func appearance(availability: Bool, status: ChatStatus?, unread: Int) -> Appearance {
-        guard availability else { return .absent }
+    /// herdr's name for Claude Code in a pane's `agent`.
+    public static let claudeAgent = "claude"
+
+    /// Chat unavailable on this machine, or a pane not running Claude Code,
+    /// draws no button at all. Available but with no status yet (the probe has
+    /// not answered for this pane) reads as signed out, never as absent -- the
+    /// two are states a caller must never collapse into one another.
+    public static func appearance(agent: String?, availability: Bool, status: ChatStatus?, unread: Int) -> Appearance {
+        guard availability, agent == claudeAgent else { return .absent }
         guard let status, status.signedIn, let handle = status.handle else { return .signedOut }
         return .signedIn(handle: displayHandle(handle), unread: unread)
     }

@@ -341,6 +341,37 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// Chat is for Claude Code: with chat available, a pane herdr names no
+    /// agent for draws no button beside the one that runs Claude. Measured
+    /// against the same window with chat unavailable, so whatever else the
+    /// legend draws on this machine cancels out.
+    func testChatButtonIsAbsentOnAPaneNotRunningClaudeCode() async throws {
+        let theme = Theme.tokyoNight
+        var images: [NSBitmapImageRep] = []
+        var frames: [PaneID: CGRect] = [:]
+        for available in [false, true] {
+            let harness = try await Harness(
+                theme: theme, model: try Fixture.model(focusedPaneAgentStatus: "working"), chatAvailable: available
+            )
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            images.append(try snapshot(window))
+            frames = harness.drag.canvas.paneFrames
+            window.close()
+        }
+        for (pane, drawn) in [(PaneID(rawValue: "w1:p2"), true), (PaneID(rawValue: "w1:p1"), false)] {
+            let box = PaneBox.frame(in: try XCTUnwrap(frames[pane]), dividerThickness: DividerBand.gutter)
+            let y = box.minY + PaneChrome.verticalPadding + PaneChrome.titleRowHeight / 2
+            var changed = false
+            var x = box.midX
+            while x <= box.maxX - PaneChrome.horizontalPadding, !changed {
+                changed = hex(images[0], CGPoint(x: x, y: y)) != hex(images[1], CGPoint(x: x, y: y))
+                x += 0.5
+            }
+            XCTAssertEqual(changed, drawn, "\(pane.rawValue): a chat button")
+        }
+    }
+
     /// A machine with no chat binary draws no button: the legend's corner
     /// stays the pane's own ground, not `surface0` or `selectionBg`.
     func testChatButtonIsAbsentWhenChatIsUnavailable() async throws {
@@ -3230,7 +3261,7 @@ private enum GridFixture {
                     let paneID = "\(workspaceID):p\(paneNumber)"
                     paneRows.append([
                         "pane_id": paneID, "workspace_id": workspaceID, "tab_id": tabID, "focused": paneID == "w1:p1",
-                        "agent_status": pane.1, "revision": 1, "terminal_title_stripped": pane.0,
+                        "agent_status": pane.1, "revision": 1, "terminal_title_stripped": pane.0, "agent": "claude",
                         "cwd": NSHomeDirectory() + "/Documents/GitHub/\(workspace.label)",
                     ])
                     rects.append([
@@ -3365,7 +3396,7 @@ private enum Fixture {
                     "focused": isFlock && paneIndex == 1,
                     "agent_status": paneID == "w1:p2" ? focusedPaneAgentStatus : "idle", "revision": 1,
                     "terminal_title_stripped": "shell", "cwd": "/private/tmp",
-                ])
+                ].merging(paneID == "w1:p2" ? ["agent": "claude"] : [:]) { $1 })
             }
         }
         let area: [String: Int] = ["x": 0, "y": 0, "width": 120, "height": 40]

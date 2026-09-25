@@ -112,6 +112,9 @@ public struct PaneRecord: Codable, Equatable, Sendable {
     /// The folder of what holds the pane's foreground. `cwd` is the shell's,
     /// and an agent the shell launched can be working somewhere else.
     public var foregroundCwd: String? = nil
+    /// The agent herdr detected running in the pane (`claude`, `codex`), nil
+    /// for a shell. herdr sends a whole `pane.updated` when it changes.
+    public var agent: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case paneID = "pane_id"
@@ -126,6 +129,7 @@ public struct PaneRecord: Codable, Equatable, Sendable {
         case scroll
         case terminalID = "terminal_id"
         case foregroundCwd = "foreground_cwd"
+        case agent
     }
 }
 

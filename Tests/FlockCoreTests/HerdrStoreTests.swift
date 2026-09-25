@@ -38,7 +38,7 @@ private func twoTabSnapshotResultJSON() -> String {
 
 private func twoTabSnapshotWithTerminalResultJSON() -> String {
     #"""
-    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":1,"agent_status":"unknown"},{"tab_id":"w1:t2","workspace_id":"w1","label":"t2","number":2,"pane_count":0,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","terminal_id":"term_a1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp","foreground_cwd":"/tmp/acme"}],"layouts":[]}}
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":1,"agent_status":"unknown"},{"tab_id":"w1:t2","workspace_id":"w1","label":"t2","number":2,"pane_count":0,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","terminal_id":"term_a1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp","foreground_cwd":"/tmp/acme","agent":"claude"}],"layouts":[]}}
     """#
 }
 
@@ -298,8 +298,8 @@ final class HerdrStoreTests: XCTestCase {
     }
 
     /// A move re-keys the pane but keeps its PTY, so the predicted record
-    /// must keep the terminal too, which rt's links key on, and the folder rt
-    /// opens at.
+    /// must keep the terminal too, which rt's links key on, the folder rt
+    /// opens at, and the agent the chat button needs.
     @MainActor
     func testAPredictedMoveKeepsTheTerminalAndItsForegroundFolder() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
@@ -319,6 +319,7 @@ final class HerdrStoreTests: XCTestCase {
 
         XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.terminalID, TerminalID(rawValue: "term_a1"))
         XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.foregroundCwd, "/tmp/acme")
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.agent, "claude")
         hold()
         _ = await task.value
     }

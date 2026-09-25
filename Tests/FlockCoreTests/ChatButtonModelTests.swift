@@ -12,27 +12,38 @@ final class ChatButtonModelTests: XCTestCase {
 
     func testNoBinaryIsAbsentRegardlessOfStatus() {
         XCTAssertEqual(
-            ChatButtonModel.appearance(availability: false, status: status(signedIn: true), unread: 3), .absent
+            ChatButtonModel.appearance(agent: "claude", availability: false, status: status(signedIn: true), unread: 3), .absent
         )
-        XCTAssertEqual(ChatButtonModel.appearance(availability: false, status: nil, unread: 0), .absent)
+        XCTAssertEqual(ChatButtonModel.appearance(agent: "claude", availability: false, status: nil, unread: 0), .absent)
+    }
+
+    /// Chat is for Claude Code: a shell, another agent, or a pane herdr has
+    /// named no agent for draws no button, whatever chat's own state.
+    func testOnlyAClaudeCodePaneDrawsTheButton() {
+        for agent in [nil, "codex", ""] as [String?] {
+            XCTAssertEqual(
+                ChatButtonModel.appearance(agent: agent, availability: true, status: status(signedIn: true), unread: 2),
+                .absent, "agent=\(agent ?? "none")"
+            )
+        }
     }
 
     /// The boundary a caller must never collapse: chat exists on this machine
     /// but the status probe has not answered for this pane yet. That reads as
     /// signed out, not as absent.
     func testAvailableWithNoStatusYetReadsAsSignedOut() {
-        XCTAssertEqual(ChatButtonModel.appearance(availability: true, status: nil, unread: 0), .signedOut)
+        XCTAssertEqual(ChatButtonModel.appearance(agent: "claude", availability: true, status: nil, unread: 0), .signedOut)
     }
 
     func testSignedOutStatusReadsAsSignedOut() {
         XCTAssertEqual(
-            ChatButtonModel.appearance(availability: true, status: status(signedIn: false), unread: 0), .signedOut
+            ChatButtonModel.appearance(agent: "claude", availability: true, status: status(signedIn: false), unread: 0), .signedOut
         )
     }
 
     func testSignedInStatusCarriesTheHandleAndUnreadCount() {
         XCTAssertEqual(
-            ChatButtonModel.appearance(availability: true, status: status(signedIn: true, handle: "@kay"), unread: 3),
+            ChatButtonModel.appearance(agent: "claude", availability: true, status: status(signedIn: true, handle: "@kay"), unread: 3),
             .signedIn(handle: "kay", unread: 3)
         )
     }
@@ -42,7 +53,7 @@ final class ChatButtonModelTests: XCTestCase {
     /// through unchanged rather than losing a character.
     func testSignedInHandleDropsTheLeadingAtSignRtPrints() {
         XCTAssertEqual(
-            ChatButtonModel.appearance(availability: true, status: status(signedIn: true, handle: "kay"), unread: 0),
+            ChatButtonModel.appearance(agent: "claude", availability: true, status: status(signedIn: true, handle: "kay"), unread: 0),
             .signedIn(handle: "kay", unread: 0)
         )
     }

@@ -24,6 +24,14 @@ final class HerdrModelTests: XCTestCase {
         XCTAssertNil(try JSONDecoder().decode(PaneRecord.self, from: Data(without.utf8)).foregroundCwd)
     }
 
+    func testAPaneRecordCarriesTheAgentHerdrDetectedInIt() throws {
+        let claude = #"{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"idle","revision":1,"cwd":"/src/acme","agent":"claude"}"#
+        let shell = #"{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/src/acme"}"#
+
+        XCTAssertEqual(try JSONDecoder().decode(PaneRecord.self, from: Data(claude.utf8)).agent, "claude")
+        XCTAssertNil(try JSONDecoder().decode(PaneRecord.self, from: Data(shell.utf8)).agent)
+    }
+
     func testUnknownEventTypeIsTolerated() throws {
         let ev = try HerdrDecoder.event(fromLine: Data(#"{"data":{"type":"pane.hologram","x":1}}"#.utf8))
         guard case .unknown(let t) = ev else { return XCTFail() }

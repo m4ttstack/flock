@@ -445,7 +445,7 @@ struct PaneCellView: View {
 
     private var chatButtonAppearance: ChatButtonModel.Appearance {
         ChatButtonModel.appearance(
-            availability: chatStore.isAvailable, status: chatStore.status(for: pane.paneID),
+            agent: pane.agent, availability: chatStore.isAvailable, status: chatStore.status(for: pane.paneID),
             unread: chatStore.unreadCount(for: pane.paneID)
         )
     }
