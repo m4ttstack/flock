@@ -46,52 +46,6 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// One directional pane command: its title, the arrow that runs it, the
-/// modifiers it runs under, and whether it focuses the neighbor, moves the
-/// pane past it, or trades places with it. All three aim at the same
-/// neighbor, so all three are enabled by the same predicate.
-struct PaneDirectionCommand {
-    enum Kind { case focus, move, swap }
-
-    let title: String
-    let key: KeyEquivalent
-    let modifiers: EventModifiers
-    let direction: PaneDirection
-    let kind: Kind
-    let accessibilityIdentifier: String
-
-    /// Command+Option+arrow focuses, as it moves between splits in Ghostty.
-    /// Command+Control+arrow moves and Command+Control+Shift+arrow swaps, Shift
-    /// reading as "and take the other pane with you", the same relationship
-    /// the two gestures have on the canvas. None is claimed by the system.
-    static let all: [PaneDirectionCommand] = {
-        let directions: [(String, KeyEquivalent, PaneDirection)] = [
-            ("Left", .leftArrow, .left), ("Right", .rightArrow, .right),
-            ("Up", .upArrow, .up), ("Down", .downArrow, .down),
-        ]
-        let families: [(Kind, String, EventModifiers, String)] = [
-            (.focus, "Focus Pane", [.command, .option], "focusPane"),
-            (.move, "Move Pane", [.command, .control], "movePane"),
-            (.swap, "Swap Pane", [.command, .control, .shift], "swapPane"),
-        ]
-        return families.flatMap { kind, title, modifiers, identifier in
-            directions.map { name, key, direction in
-                PaneDirectionCommand(
-                    title: "\(title) \(name)", key: key, modifiers: modifiers, direction: direction,
-                    kind: kind, accessibilityIdentifier: "flock.view.\(identifier).\(name.lowercased())"
-                )
-            }
-        }
-    }()
-}
-
-/// F2. There is no `KeyEquivalent` case for a function key, so it is the
-/// scalar AppKit itself uses (`NSF2FunctionKey`); the menu equivalent takes
-/// no modifier.
-extension KeyEquivalent {
-    static let f2 = KeyEquivalent("\u{F705}")
-}
-
 struct FlockApp: App {
     @NSApplicationDelegateAdaptor(FlockAppDelegate.self) private var appDelegate
     @State private var themeStore = ThemeStore()
@@ -119,6 +73,8 @@ struct FlockApp: App {
     @State private var rearrangeMode: RearrangeMode
     @State private var dragCoordinator: DragCoordinator
     @State private var dividerDragCoordinator: DividerDragCoordinator
+    @State private var commandPalette = CommandPaletteState()
+    @State private var paletteRecents = PaletteRecentsStore()
     /// Held for the app's life so its notification observers outlive `init`.
     @State private var herdrHoldCoordinator: HerdrHoldCoordinator
     #if FLOCK_SPARKLE
@@ -336,6 +292,8 @@ struct FlockApp: App {
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)
                 .environment(dividerDragCoordinator)
+                .environment(commandPalette)
+                .environment(paletteRecents)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
                 .task {
                     await FlockClientGuard.settle(socketPath: socketPath, defaultSocketPath: Self.defaultSocketPath)
@@ -379,18 +337,18 @@ struct FlockApp: App {
             // space, and the tab menu carries New Tab, but neither the strip
             // nor the rail draws a control the chrome design never had.
             CommandGroup(replacing: .newItem) {
-                Button("New Tab") {
+                Button(ViewCommand.newTab.title) {
                     guard let workspace = viewModel.selectedWorkspaceID else { return }
                     Task { await viewModel.createTab(in: workspace) }
                 }
-                .keyboardShortcut("t", modifiers: .command)
+                .keyboardShortcut(ViewCommand.newTab.shortcut)
                 .disabled(viewModel.selectedWorkspaceID == nil)
-                .accessibilityIdentifier("flock.file.newTab")
-                Button("New Workspace") {
+                .accessibilityIdentifier(ViewCommand.newTab.accessibilityIdentifier)
+                Button(ViewCommand.newWorkspace.title) {
                     Task { await viewModel.createWorkspace() }
                 }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .accessibilityIdentifier("flock.file.newWorkspace")
+                .keyboardShortcut(ViewCommand.newWorkspace.shortcut)
+                .accessibilityIdentifier(ViewCommand.newWorkspace.accessibilityIdentifier)
             }
             CommandGroup(after: .sidebar) {
                 Divider()
@@ -409,8 +367,7 @@ struct FlockApp: App {
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
                 // Takes Minimize All's key: this menu comes before Window.
-                Button(viewModel.focusedPaneRightClickMode == .program
-                    ? "Give Right-Clicks to Flock" : "Send Right-Clicks to Program") {
+                Button(RightClickToggle.title(for: viewModel.focusedPaneRightClickMode)) {
                     viewModel.toggleFocusedPaneRightClicks()
                 }
                 .keyboardShortcut("m", modifiers: [.command, .option])
@@ -437,6 +394,12 @@ struct FlockApp: App {
                 Divider()
             }
             CommandGroup(after: .sidebar) {
+                Button(ViewCommand.commandPalette.title) { commandPalette.toggle() }
+                    .keyboardShortcut(ViewCommand.commandPalette.shortcut)
+                    // The rename field keeps ⌘K while it is open.
+                    .disabled(viewModel.renameEditorIsOnScreen)
+                    .accessibilityIdentifier(ViewCommand.commandPalette.accessibilityIdentifier)
+                Divider()
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(
                     panes: terminalTextSizeStore, modal: rtModalTextSizeStore, shownModalKind: { viewModel.rt.modalItem?.kind }
@@ -449,36 +412,36 @@ struct FlockApp: App {
                     rearrangeMode.toggle()
                 } label: {
                     if rearrangeMode.isToggled {
-                        Label("Rearrange Mode", systemImage: "checkmark")
+                        Label(ViewCommand.rearrangeMode.title, systemImage: "checkmark")
                     } else {
-                        Text("Rearrange Mode")
+                        Text(ViewCommand.rearrangeMode.title)
                     }
                 }
-                .keyboardShortcut(ArrangeShortcut.rearrangeMode.shortcut)
-                .accessibilityIdentifier("flock.view.rearrangeMode")
+                .keyboardShortcut(ViewCommand.rearrangeMode.shortcut)
+                .accessibilityIdentifier(ViewCommand.rearrangeMode.accessibilityIdentifier)
                 Button {
                     dragCoordinator.toggleGrid()
                 } label: {
                     if dragCoordinator.isGridShown {
-                        Label("All Workspaces", systemImage: "checkmark")
+                        Label(ViewCommand.allWorkspaces.title, systemImage: "checkmark")
                     } else {
-                        Text("All Workspaces")
+                        Text(ViewCommand.allWorkspaces.title)
                     }
                 }
-                .keyboardShortcut(ArrangeShortcut.allWorkspaces.shortcut)
-                .accessibilityIdentifier("flock.view.allWorkspaces")
-                Button("Open Oldest Notification") {
+                .keyboardShortcut(ViewCommand.allWorkspaces.shortcut)
+                .accessibilityIdentifier(ViewCommand.allWorkspaces.accessibilityIdentifier)
+                Button(ViewCommand.openOldestNotification.title) {
                     Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
                 }
-                .keyboardShortcut("j", modifiers: .command)
+                .keyboardShortcut(ViewCommand.openOldestNotification.shortcut)
                 .disabled(viewModel.attentionToasts.isEmpty)
-                .accessibilityIdentifier("flock.view.openOldestNotification")
+                .accessibilityIdentifier(ViewCommand.openOldestNotification.accessibilityIdentifier)
                 // The only way to clear a "needs input" toast without
                 // answering the pane or dismissing each one by hand.
-                Button("Clear Notifications") { viewModel.clearAttentionToasts() }
-                    .keyboardShortcut("k", modifiers: .command)
+                Button(ViewCommand.clearNotifications.title) { viewModel.clearAttentionToasts() }
+                    .keyboardShortcut(ViewCommand.clearNotifications.shortcut)
                     .disabled(viewModel.attentionToasts.isEmpty)
-                    .accessibilityIdentifier("flock.view.clearNotifications")
+                    .accessibilityIdentifier(ViewCommand.clearNotifications.accessibilityIdentifier)
             }
             // Rename's macOS home, and the only route to the editor that is
             // not a double-click on the thing itself. It renames the

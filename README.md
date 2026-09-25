@@ -80,6 +80,7 @@ Things to try first:
 |---|---|
 | <kbd>⌘</kbd><kbd>T</kbd> | New tab in the current workspace |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> | New workspace |
+| <kbd>⌘</kbd><kbd>K</kbd> | Command palette |
 | <kbd>⌘</kbd><kbd>R</kbd> | Rearrange mode (<kbd>Esc</kbd> leaves it) |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | All Workspaces |
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Focus the pane on that side |
@@ -89,7 +90,7 @@ Things to try first:
 | <kbd>⌥</kbd> + right-click | Whichever of the two a plain right-click does not get |
 | <kbd>F2</kbd> | Rename the selected workspace or tab |
 | <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / redo a move |
-| <kbd>⌘</kbd><kbd>K</kbd> | Clear notifications |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>K</kbd> | Clear notifications |
 | <kbd>⌘</kbd><kbd>,</kbd> | Settings |
 
 ## Settings

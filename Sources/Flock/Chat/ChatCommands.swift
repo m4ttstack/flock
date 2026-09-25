@@ -101,7 +101,7 @@ struct ChatCommands: Commands {
             CommandMenu("Chat") {
                 ForEach(rows, id: \.item) { row in
                     if row.item.hasSeparatorBefore { Divider() }
-                    Button(row.item.title) { perform(row.item) }
+                    Button(row.item.title) { row.item.perform(chatStore: chatStore, viewModel: viewModel) }
                         .keyboardShortcut(KeyEquivalent(row.item.key), modifiers: [.command, .shift])
                         .disabled(!row.isEnabled)
                         .accessibilityIdentifier("flock.chat.menu.\(row.item.rawValue)")
@@ -109,14 +109,17 @@ struct ChatCommands: Commands {
             }
         }
     }
+}
 
+extension ChatMenuItem {
     /// Chat Panel opens the popover's status root, since that IS the panel;
     /// Broadcast, Peek and Quick Send each land directly on their own
     /// sub-view -- a shortcut names an action, so it must deliver that
     /// action, not a launcher the user still has to navigate.
-    private func perform(_ item: ChatMenuItem) {
+    @MainActor
+    func perform(chatStore: ChatStore, viewModel: SessionViewModel) {
         guard let pane = viewModel.resolvedFocusedPaneID else { return }
-        switch item {
+        switch self {
         case .chatPanel:
             chatStore.requestPopover(for: pane)
         case .broadcast:
