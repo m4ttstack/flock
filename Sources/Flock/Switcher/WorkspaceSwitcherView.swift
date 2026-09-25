@@ -43,7 +43,7 @@ struct WorkspaceSwitcherView: View {
 
     private func begin(reverse: Bool) {
         let started = switcher.begin(
-            workspaces: viewModel.model?.workspaces.map(\.workspaceID) ?? [],
+            workspaces: WorkspaceSwitcher.candidates(viewModel.model?.workspaces ?? [], current: viewModel.selectedWorkspaceID),
             current: viewModel.selectedWorkspaceID, reverse: reverse
         )
         guard started else { return }
