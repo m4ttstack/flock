@@ -8,6 +8,7 @@ struct MainWindow: View {
     @Environment(ThemeStore.self) private var themeStore
     @Environment(DragCoordinator.self) private var dragCoordinator
     @Environment(RailWidthStore.self) private var railWidth
+    @Environment(CommandPaletteState.self) private var commandPalette
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
@@ -93,6 +94,15 @@ struct MainWindow: View {
         // AppKit event location be converted into it.
         .background(DragSpaceAnchor(coordinator: dragCoordinator))
         .overlay { DragLayer() }
+        // Here, where both always render: the grid replaces the tab area the
+        // palette draws over, and a rename editor on the live rail needs the
+        // Return and Esc the palette would take.
+        .onChange(of: dragCoordinator.isGridShown) { _, shown in
+            if shown { commandPalette.close() }
+        }
+        .onChange(of: viewModel.renameEditorIsOnScreen) { _, renaming in
+            if renaming { commandPalette.close() }
+        }
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.chrome))

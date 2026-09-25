@@ -5,15 +5,19 @@ import SwiftUI
 /// Takes ↑ ↓ ⌃P ⌃N Return and Esc while the palette is up, before the search
 /// field or a pane sees them.
 struct PaletteKeyMonitor: NSViewRepresentable {
+    /// A rename editor's keys are its own.
+    let editorIsOpen: Bool
     let onDecision: (PaletteKey.Decision) -> Void
 
     func makeNSView(context: Context) -> MonitorView { MonitorView() }
 
     func updateNSView(_ view: MonitorView, context: Context) {
+        view.editorIsOpen = editorIsOpen
         view.onDecision = onDecision
     }
 
     final class MonitorView: NSView {
+        var editorIsOpen = false
         var onDecision: (PaletteKey.Decision) -> Void = { _ in }
         nonisolated(unsafe) private var monitor: Any?
 
@@ -29,7 +33,7 @@ struct PaletteKeyMonitor: NSViewRepresentable {
             monitor = nil
             guard let window else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.window === window else { return event }
+                guard let self, event.window === window, !self.editorIsOpen else { return event }
                 let flags = event.modifierFlags
                 let decision = PaletteKey.decide(
                     keyCode: event.keyCode, characters: event.charactersIgnoringModifiers,

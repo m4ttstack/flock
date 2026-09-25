@@ -30,7 +30,9 @@ struct CommandPaletteView: View {
                 box(rows: rows, entries: entries)
                     .padding(.top, Metrics.top)
             }
-            .background(PaletteKeyMonitor { decision in handle(decision, rows: rows, entries: entries) })
+            .background(PaletteKeyMonitor(editorIsOpen: viewModel.renameEditorIsOnScreen) { decision in
+                handle(decision, rows: rows, entries: entries)
+            })
             .onChange(of: rows.count, initial: true) { _, count in state.clampSelection(rowCount: count) }
             .onAppear { searchFocused = true }
         }

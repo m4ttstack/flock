@@ -396,8 +396,9 @@ struct FlockApp: App {
             CommandGroup(after: .sidebar) {
                 Button(ViewCommand.commandPalette.title) { commandPalette.toggle() }
                     .keyboardShortcut(ViewCommand.commandPalette.shortcut)
-                    // The rename field keeps ⌘K while it is open.
-                    .disabled(viewModel.renameEditorIsOnScreen)
+                    // The rename field keeps ⌘K while it is open, and the
+                    // grid covers the tab area the palette draws over.
+                    .disabled(viewModel.renameEditorIsOnScreen || dragCoordinator.isGridShown)
                     .accessibilityIdentifier(ViewCommand.commandPalette.accessibilityIdentifier)
                 Divider()
                 ThemeMenu(themeStore: themeStore)

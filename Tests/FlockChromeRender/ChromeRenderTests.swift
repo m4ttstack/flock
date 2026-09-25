@@ -316,11 +316,15 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     private func firstPixel(_ image: NSBitmapImageRep, in rect: CGRect, matching target: String) -> CGPoint? {
+        firstPixel(image, in: rect) { $0 == target }
+    }
+
+    private func firstPixel(_ image: NSBitmapImageRep, in rect: CGRect, where accepts: (String) -> Bool) -> CGPoint? {
         var y = rect.minY
         while y <= rect.maxY {
             var x = rect.minX
             while x <= rect.maxX {
-                if hex(image, CGPoint(x: x, y: y)) == target { return CGPoint(x: x, y: y) }
+                if accepts(hex(image, CGPoint(x: x, y: y))) { return CGPoint(x: x, y: y) }
                 x += 0.5
             }
             y += 0.5
@@ -3023,6 +3027,34 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// The grid replaces the tab area the palette draws over, so showing it
+    /// closes the palette rather than leaving it open and unseen.
+    func testShowingTheGridClosesThePalette() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        harness.palette.open()
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+        XCTAssertTrue(harness.drag.isGridShown)
+        XCTAssertFalse(harness.palette.isOpen)
+        window.close()
+    }
+
+    /// A rename editor opened from the live rail takes Return and Esc, so the
+    /// palette gives way to it.
+    func testARenameEditorClosesThePalette() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        harness.palette.open()
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        harness.viewModel.beginRename(.workspace(WorkspaceID(rawValue: "w1")))
+        await settle(window)
+        XCTAssertTrue(harness.viewModel.renameEditorIsOnScreen)
+        XCTAssertFalse(harness.palette.isOpen)
+        window.close()
+    }
+
     /// How far a glyph's inner pixels may sit from its fill colour: 13pt text
     /// antialiases, so few of its pixels land on the exact hex.
     private static let glyphEdgeTolerance = 12
@@ -3049,17 +3081,7 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     private func firstPixel(_ image: NSBitmapImageRep, in rect: CGRect, near target: String, within tolerance: Int) -> CGPoint? {
-        var y = rect.minY
-        while y <= rect.maxY {
-            var x = rect.minX
-            while x <= rect.maxX {
-                let sample = hex(image, CGPoint(x: x, y: y))
-                if sample != "?", channelDistance(sample, target) <= tolerance { return CGPoint(x: x, y: y) }
-                x += 0.5
-            }
-            y += 0.5
-        }
-        return nil
+        firstPixel(image, in: rect) { $0 != "?" && channelDistance($0, target) <= tolerance }
     }
 }
 
