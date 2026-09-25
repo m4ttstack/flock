@@ -33,6 +33,17 @@ final class RightClickRoutingTests: XCTestCase {
         XCTAssertEqual(try disposition(of: view, option: false), .menu)
     }
 
+    /// The launcher's buttons are SwiftUI above the surface, so a pristine
+    /// pane's surface steps out of hit testing for the left button; a
+    /// right-click still lands on it, where the pane menu lives.
+    func testAPaneShowingTheLauncherStillTakesARightClick() {
+        XCTAssertTrue(GhosttySurfaceView.pristinePaneTakes(.rightMouseDown))
+        XCTAssertTrue(GhosttySurfaceView.pristinePaneTakes(.rightMouseUp))
+        XCTAssertFalse(GhosttySurfaceView.pristinePaneTakes(.leftMouseDown))
+        XCTAssertFalse(GhosttySurfaceView.pristinePaneTakes(.mouseMoved))
+        XCTAssertFalse(GhosttySurfaceView.pristinePaneTakes(nil))
+    }
+
     private func disposition(of view: GhosttySurfaceView, option: Bool) throws -> RightClickDisposition {
         view.rightMouseDown(with: try rightClick(option: option))
         return view.rightButtonDownDisposition

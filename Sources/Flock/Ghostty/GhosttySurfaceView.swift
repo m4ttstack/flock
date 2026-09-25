@@ -88,7 +88,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     var paneDragInProgress = false
     /// Set by `GhosttySurfaceRepresentable` from
     /// `SessionViewModel.isPristineLauncherPane`. While true this view
-    /// claims no point at all -- see `hitTest(_:)`.
+    /// claims no point but a right-click's -- see `hitTest(_:)`.
     var isPristineLauncherPane = false
     /// Set by `GhosttySurfaceRepresentable` from
     /// `SessionViewModel.renameTarget`. While true this view holds no first
@@ -169,12 +169,19 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// containing hosting view fall through to its own SwiftUI content for
     /// this whole view's bounds, buttons and the space around them alike.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if isPristineLauncherPane { return nil }
+        if isPristineLauncherPane, !Self.pristinePaneTakes(NSApp.currentEvent?.type) { return nil }
         if let findBarFrame {
             let local = convert(point, from: superview)
             if findBarFrame.contains(CGPoint(x: local.x, y: bounds.height - local.y)) { return nil }
         }
         return super.hitTest(point)
+    }
+
+    /// The launcher's buttons are SwiftUI drawn above a pristine pane, so the
+    /// surface leaves them the pointer, except for a right-click: nothing up
+    /// there has a menu, and the pane's lives here.
+    static func pristinePaneTakes(_ type: NSEvent.EventType?) -> Bool {
+        type == .rightMouseDown || type == .rightMouseUp
     }
 
     /// The surface is created here rather than at init: libghostty builds a
