@@ -88,8 +88,12 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         upsertTab(tab, into: &model)
 
     case .tabClosed(let tabID):
+        let workspaceID = model.tabs.first { $0.value.contains { $0.tabID == tabID } }?.key
         removeTab(tabID, from: &model)
         dropFocusOnMissingPanes(in: &model)
+        if let workspaceID {
+            reaggregateAgentStatus(tab: tabID, workspace: workspaceID, in: &model)
+        }
 
     case .tabRenamed(let tabID, let label):
         for workspaceID in model.tabs.keys {

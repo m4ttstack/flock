@@ -112,6 +112,21 @@ final class ReducerTests: XCTestCase {
         XCTAssertNotNil(model.panes[PaneID(rawValue: "w1:p2")])
     }
 
+    /// A workspace's dot is the loudest of its panes. Closing the tab that
+    /// held the loudest one has to bring the dot down to what is left, or a
+    /// closed "done" tab keeps the workspace blue over tabs that are working.
+    func testClosingATabRecountsItsWorkspacesStatus() throws {
+        var model = try seededModel()
+        apply(.paneAgentStatusChanged(PaneID(rawValue: "w1:p1"), .working), to: &model)
+        apply(.paneAgentStatusChanged(PaneID(rawValue: "w1:p2"), .working), to: &model)
+        apply(.paneAgentStatusChanged(PaneID(rawValue: "w1:p3"), .done), to: &model)
+        XCTAssertEqual(model.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w1") }?.agentStatus, .done)
+
+        apply(.tabClosed(TabID(rawValue: "w1:t2")), to: &model)
+
+        XCTAssertEqual(model.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w1") }?.agentStatus, .working)
+    }
+
     func testPaneScrollChangedReplacesThatPanesScrollOnly() throws {
         var model = try seededModel()
         let scrolled = ScrollInfo(offsetFromBottom: 12, maxOffsetFromBottom: 200, viewportRows: 23)
