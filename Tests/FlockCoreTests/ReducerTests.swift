@@ -127,6 +127,41 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(model.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w1") }?.agentStatus, .working)
     }
 
+    /// A reorder hands back whole workspace records, status and all. The dot
+    /// still follows the panes, so a stale "done" in that payload cannot
+    /// paint a workspace blue over working tabs.
+    func testAWorkspaceReorderCannotSetAStatusItsPanesDisagreeWith() throws {
+        var model = try seededModel()
+        for pane in ["w1:p1", "w1:p2", "w1:p3"] {
+            apply(.paneAgentStatusChanged(PaneID(rawValue: pane), .working), to: &model)
+        }
+        let stale = model.workspaces.map { record -> WorkspaceRecord in
+            var record = record
+            record.agentStatus = .done
+            return record
+        }
+
+        apply(.workspaceReordered(stale), to: &model)
+
+        XCTAssertEqual(model.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w1") }?.agentStatus, .working)
+    }
+
+    /// `pane_updated` carries the pane's status too; the tab and workspace
+    /// dots follow it the same as a status-changed frame.
+    func testAPaneUpdateCarriesItsStatusUpToTheTabAndWorkspace() throws {
+        var model = try seededModel()
+        for pane in ["w1:p1", "w1:p2", "w1:p3"] {
+            apply(.paneAgentStatusChanged(PaneID(rawValue: pane), .idle), to: &model)
+        }
+        var updated = try XCTUnwrap(model.panes[PaneID(rawValue: "w1:p3")])
+        updated.agentStatus = .blocked
+
+        apply(.paneUpdated(updated), to: &model)
+
+        XCTAssertEqual(model.tabs[WorkspaceID(rawValue: "w1")]?.first { $0.tabID == updated.tabID }?.agentStatus, .blocked)
+        XCTAssertEqual(model.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w1") }?.agentStatus, .blocked)
+    }
+
     func testPaneScrollChangedReplacesThatPanesScrollOnly() throws {
         var model = try seededModel()
         let scrolled = ScrollInfo(offsetFromBottom: 12, maxOffsetFromBottom: 200, viewportRows: 23)

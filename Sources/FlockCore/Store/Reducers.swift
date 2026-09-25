@@ -1,6 +1,11 @@
 import Foundation
 
 public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
+    reduce(event, into: &model)
+    recountAgentStatus(in: &model)
+}
+
+private func reduce(_ event: HerdrEvent, into model: inout SessionModel) {
     switch event {
     case .layoutUpdated(let layout):
         model.layouts[layout.tabID] = layout
@@ -27,7 +32,6 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
             if emptied, workspaceHasOtherTabs {
                 removeTab(closed.tabID, from: &model)
             }
-            reaggregateAgentStatus(tab: closed.tabID, workspace: closed.workspaceID, in: &model)
         }
 
     case .paneFocused(let paneID):
@@ -69,8 +73,6 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         // whatever the moved pane was contributing, the destination gains it,
         // and a source that the move emptied has already been removed, which
         // the helper simply skips.
-        reaggregateAgentStatus(tab: payload.previousTabID, workspace: payload.previousWorkspaceID, in: &model)
-        reaggregateAgentStatus(tab: payload.pane.tabID, workspace: payload.pane.workspaceID, in: &model)
 
     case .paneScrollChanged(let paneID, let scroll):
         model.panes[paneID]?.scroll = scroll
@@ -79,7 +81,6 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         guard var pane = model.panes[paneID], pane.agentStatus != status else { break }
         pane.agentStatus = status
         model.panes[paneID] = pane
-        reaggregateAgentStatus(tab: pane.tabID, workspace: pane.workspaceID, in: &model)
 
     case .paneExited:
         break
@@ -88,12 +89,8 @@ public func apply(_ event: HerdrEvent, to model: inout SessionModel) {
         upsertTab(tab, into: &model)
 
     case .tabClosed(let tabID):
-        let workspaceID = model.tabs.first { $0.value.contains { $0.tabID == tabID } }?.key
         removeTab(tabID, from: &model)
         dropFocusOnMissingPanes(in: &model)
-        if let workspaceID {
-            reaggregateAgentStatus(tab: tabID, workspace: workspaceID, in: &model)
-        }
 
     case .tabRenamed(let tabID, let label):
         for workspaceID in model.tabs.keys {
@@ -163,19 +160,29 @@ private func dropFocusOnMissingPanes(in model: inout SessionModel) {
     }
 }
 
-/// A snapshot is the only place herdr states a tab's or a workspace's own
-/// agent status; a live frame names one pane. Without re-deriving them here
-/// the strip and the rail would keep the status the session started with
-/// while the pane they aggregate has moved on.
-private func reaggregateAgentStatus(tab tabID: TabID, workspace workspaceID: WorkspaceID, in model: inout SessionModel) {
-    let panes = model.panes.values
-    if let index = model.tabs[workspaceID]?.firstIndex(where: { $0.tabID == tabID }) {
-        model.tabs[workspaceID]?[index].agentStatus =
-            AgentAttention.aggregate(panes.lazy.filter { $0.tabID == tabID }.map(\.agentStatus))
+/// A tab's and a workspace's dot is the loudest of its panes, recounted
+/// after every event. herdr states the aggregates only in a snapshot and in
+/// the whole records some frames carry (a workspace reorder, a created tab),
+/// and those can be stale against the panes; recounting on every event means
+/// no frame can leave a workspace showing a state none of its tabs are in.
+/// A tab or workspace with no panes in the model keeps what herdr said: its
+/// panes have not arrived yet, or it is about to be closed.
+private func recountAgentStatus(in model: inout SessionModel) {
+    var byTab: [TabID: [AgentStatus]] = [:]
+    var byWorkspace: [WorkspaceID: [AgentStatus]] = [:]
+    for pane in model.panes.values {
+        byTab[pane.tabID, default: []].append(pane.agentStatus)
+        byWorkspace[pane.workspaceID, default: []].append(pane.agentStatus)
     }
-    if let index = model.workspaces.firstIndex(where: { $0.workspaceID == workspaceID }) {
-        model.workspaces[index].agentStatus =
-            AgentAttention.aggregate(panes.lazy.filter { $0.workspaceID == workspaceID }.map(\.agentStatus))
+    for workspaceID in model.tabs.keys {
+        for index in model.tabs[workspaceID]?.indices ?? 0..<0 {
+            guard let tabID = model.tabs[workspaceID]?[index].tabID, let statuses = byTab[tabID] else { continue }
+            model.tabs[workspaceID]?[index].agentStatus = AgentAttention.aggregate(statuses)
+        }
+    }
+    for index in model.workspaces.indices {
+        guard let statuses = byWorkspace[model.workspaces[index].workspaceID] else { continue }
+        model.workspaces[index].agentStatus = AgentAttention.aggregate(statuses)
     }
 }
 
