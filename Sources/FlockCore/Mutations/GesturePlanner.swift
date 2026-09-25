@@ -161,7 +161,7 @@ private func planPaneToNewTab(pane: PaneID, workspace: WorkspaceID, model: Sessi
         return .failure(.invalidCombination)
     }
     return .success(OpPlan(
-        ops: [.movePaneToNewTab(pane, workspace: workspace, label: nil)],
+        ops: [.movePaneToNewTab(pane, workspace: workspace, label: nameLeavingWith(pane, record: subjectRecord, model: model))],
         label: "Move pane to new tab",
         needsUnzoom: unzoomList(model: model, source: subjectRecord.tabID, destination: nil)
     ))
@@ -172,10 +172,19 @@ private func planPaneToNewWorkspace(pane: PaneID, model: SessionModel) -> Result
         return .failure(.invalidCombination)
     }
     return .success(OpPlan(
-        ops: [.movePaneToNewWorkspace(pane, label: nil, tabLabel: nil)],
+        ops: [.movePaneToNewWorkspace(pane, label: nil, tabLabel: nameLeavingWith(pane, record: subjectRecord, model: model))],
         label: "Move pane to new workspace",
         needsUnzoom: unzoomList(model: model, source: subjectRecord.tabID, destination: nil)
     ))
+}
+
+/// A pane that is its tab's only pane takes the tab with it: herdr closes
+/// the emptied tab, so the new one it lands in is that tab moved, and gets
+/// its name the way a migrated tab does. The grid drags a one-pane tab by its
+/// mini pane, which lands here rather than in `planTabMigration`.
+private func nameLeavingWith(_ pane: PaneID, record: PaneRecord, model: SessionModel) -> String? {
+    let sharesItsTab = model.panes.values.contains { $0.tabID == record.tabID && $0.paneID != pane }
+    return sharesItsTab ? nil : carriedName(ofTab: record.tabID, model: model)
 }
 
 // MARK: - tab subject

@@ -360,6 +360,61 @@ final class GesturePlannerTests: XCTestCase {
         ])
     }
 
+    private func namedSinglePaneModel() -> SessionModel {
+        model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", label: "Deploy logs")],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true)],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 80, 24), focused: true)]
+            )]
+        )
+    }
+
+    /// The grid drags a one-pane tab by its mini pane, which is a pane drag.
+    /// Its tab goes with it, so the new tab takes the old one's name, exactly
+    /// as the same tab dragged by its handle does.
+    func testTheOnlyPaneOfANamedTabCarriesTheTabsNameToANewTab() {
+        let result = plan(
+            dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w2")),
+            model: namedSinglePaneModel()
+        )
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w2"), label: "Deploy logs"),
+        ])
+    }
+
+    func testTheOnlyPaneOfANamedTabCarriesTheTabsNameToANewWorkspace() {
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .newWorkspace, model: namedSinglePaneModel())
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [
+            .movePaneToNewWorkspace(PaneID(rawValue: "w1:p1"), label: nil, tabLabel: "Deploy logs"),
+        ])
+    }
+
+    /// One pane of several leaves its tab, and the tab's name, behind.
+    func testAPaneLeavingASharedTabLeavesTheNameBehind() {
+        let shared = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1"), workspaceRecord("w2", activeTab: "w2:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", label: "Deploy logs")],
+            panes: [
+                paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true),
+                paneRecord("w1:p2", workspace: "w1", tab: "w1:t1", focused: false),
+            ],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24), focused: true), paneRect("w1:p2", rect(40, 0, 40, 24), focused: false)]
+            )]
+        )
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), model: shared)
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [
+            .movePaneToNewTab(PaneID(rawValue: "w1:p1"), workspace: WorkspaceID(rawValue: "w2"), label: nil),
+        ])
+    }
+
     /// Dropping a tab on the card or rail row of the workspace it is already
     /// in. Migrating would tear the tab down and rebuild it in a new tab of
     /// the same workspace, losing its id for no move at all.
