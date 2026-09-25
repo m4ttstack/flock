@@ -142,6 +142,7 @@ private struct Harness {
     let themeStore: ThemeStore
     let textSize: TerminalTextSizeStore
     let rtModalSize: RtModalSizeStore
+    let rtModalTextSize: RtModalTextSizeStore
     let railWidth: RailWidthStore
     let collapse: SectionCollapseStore
     let board: BoardStore
@@ -160,6 +161,7 @@ private struct Harness {
         themeStore.select(.tokyoNight)
         textSize = TerminalTextSizeStore(userDefaults: defaults)
         rtModalSize = RtModalSizeStore(userDefaults: defaults)
+        rtModalTextSize = RtModalTextSizeStore(userDefaults: defaults)
         railWidth = RailWidthStore(userDefaults: defaults)
         collapse = SectionCollapseStore(userDefaults: defaults)
         board = BoardStore(sources: .unconfigured, userDefaults: defaults)
@@ -195,6 +197,7 @@ private struct Harness {
             .environment(themeStore)
             .environment(textSize)
             .environment(rtModalSize)
+            .environment(rtModalTextSize)
             .environment(railWidth)
             .environment(collapse)
             .environment(board)

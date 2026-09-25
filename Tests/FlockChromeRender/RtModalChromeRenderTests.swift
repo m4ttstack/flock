@@ -173,7 +173,7 @@ final class RtModalChromeRenderTests: XCTestCase {
             height: box.height - titleRow - 2 * paneInset - (variant == .exited ? stripHeight : 0)
         )
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
-        let cell = TerminalCellMetrics.cell(fontSize: TerminalTextSizeStore(userDefaults: defaults).points, scale: 2)
+        let cell = TerminalCellMetrics.cell(fontSize: RtModalTextSizeStore(userDefaults: defaults).points, scale: 2)
         XCTAssertEqual(surface.origin, area.origin, "\(label): the surface's origin")
         XCTAssertLessThanOrEqual(surface.width, area.width, "\(label): surface width")
         XCTAssertGreaterThan(surface.width, area.width - cell.width, "\(label): surface width")
@@ -558,7 +558,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         let viewModel: SessionViewModel
         let probe: ClickProbeView
         let editor: EditorStandInView
-        let textSize: TerminalTextSizeStore
+        let textSize: RtModalTextSizeStore
         let modalSize: RtModalSizeStore
     }
 
@@ -571,9 +571,9 @@ final class RtModalChromeRenderTests: XCTestCase {
         model: SessionModel? = nil, size: RtModalSize? = nil
     ) async throws -> Hosted {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
-        defaults.removeObject(forKey: TerminalTextSizeStore.defaultsKey)
+        defaults.removeObject(forKey: RtModalTextSizeStore.defaultsKey)
         defaults.removeObject(forKey: RtModalSizeStore.defaultsKey)
-        let textSize = TerminalTextSizeStore(userDefaults: defaults)
+        let textSize = RtModalTextSizeStore(userDefaults: defaults)
         let modalSize = RtModalSizeStore(userDefaults: defaults)
         if let size {
             modalSize.select(size)

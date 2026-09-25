@@ -107,3 +107,29 @@ public final class TerminalTextSizeStore {
         userDefaults.set(size.rawValue, forKey: Self.defaultsKey)
     }
 }
+
+/// The rt modal's terminal text size, kept apart from the panes' so the
+/// modal can read larger or smaller than the canvas behind it. A type of its
+/// own so the environment can carry both stores.
+@MainActor
+@Observable
+public final class RtModalTextSizeStore {
+    public static let defaultsKey = "flock.rtModalTextSize"
+
+    public private(set) var active: TerminalTextSize
+
+    public var points: Double { Double(active.points) }
+
+    private let userDefaults: UserDefaults
+
+    public init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+        let storedID = userDefaults.string(forKey: Self.defaultsKey)
+        active = storedID.flatMap(TerminalTextSize.init(rawValue:)) ?? .regular
+    }
+
+    public func select(_ size: TerminalTextSize) {
+        active = size
+        userDefaults.set(size.rawValue, forKey: Self.defaultsKey)
+    }
+}

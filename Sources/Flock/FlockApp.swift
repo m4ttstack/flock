@@ -97,6 +97,7 @@ struct FlockApp: App {
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
     @State private var rtModalSizeStore = RtModalSizeStore()
+    @State private var rtModalTextSizeStore = RtModalTextSizeStore()
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
@@ -322,6 +323,7 @@ struct FlockApp: App {
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
+                .environment(rtModalTextSizeStore)
                 .environment(optionAsAltStore)
                 .environment(railWidthStore)
                 .environment(sectionCollapseStore)
@@ -436,7 +438,9 @@ struct FlockApp: App {
             }
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
-                TerminalTextSizeMenu(store: terminalTextSizeStore)
+                TerminalTextSizeMenu(
+                    panes: terminalTextSizeStore, modal: rtModalTextSizeStore, modalIsUp: viewModel.rt.modal != nil
+                )
                 OptionAsAltMenu(store: optionAsAltStore)
                 ScrollSpeedMenu(store: scrollSpeedStore)
                 // The only key into rearrange mode, and the same switch this

@@ -9,7 +9,7 @@ struct RtModalView: View {
     let theme: Theme
     let viewModel: SessionViewModel
 
-    @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
+    @Environment(RtModalTextSizeStore.self) private var textSizeStore
     @Environment(RtModalSizeStore.self) private var modalSizeStore
     @Environment(\.displayScale) private var displayScale
 
@@ -59,7 +59,7 @@ struct RtModalView: View {
             width: max(0, size.width - 2 * Metrics.paneInset),
             height: max(0, size.height - Metrics.TitleRow.height - stripHeight - 2 * Metrics.paneInset)
         )
-        let fontSize = terminalTextSizeStore.points
+        let fontSize = textSizeStore.points
         let fit = SurfaceGrid.fit(inner: area, cell: TerminalCellMetrics.cell(fontSize: fontSize, scale: scale))
         let paneID = shownPaneID(modal: modal, item: item)
         let shape = RoundedRectangle(cornerRadius: Metrics.cornerRadius)

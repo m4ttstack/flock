@@ -2979,6 +2979,7 @@ private struct Harness {
     let themeStore: ThemeStore
     let textSize: TerminalTextSizeStore
     let rtModalSize: RtModalSizeStore
+    let rtModalTextSize: RtModalTextSizeStore
     let railWidth: RailWidthStore
     let collapse: SectionCollapseStore
     let board: BoardStore
@@ -3017,6 +3018,7 @@ private struct Harness {
         themeStore.select(theme)
         textSize = TerminalTextSizeStore(userDefaults: defaults)
         rtModalSize = RtModalSizeStore(userDefaults: defaults)
+        rtModalTextSize = RtModalTextSizeStore(userDefaults: defaults)
         railWidth = RailWidthStore(userDefaults: defaults)
         collapse = SectionCollapseStore(userDefaults: defaults)
         defaults.removeObject(forKey: BoardStore.logoDefaultsKey)
@@ -3067,6 +3069,7 @@ private struct Harness {
             .environment(themeStore)
             .environment(textSize)
             .environment(rtModalSize)
+            .environment(rtModalTextSize)
             .environment(railWidth)
             .environment(collapse)
             .environment(board)
