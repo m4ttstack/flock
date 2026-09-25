@@ -159,9 +159,11 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     /// last-applied appearance (`session.configuration`, kept current by
     /// every `updateAppearance` call) is stale from before the park -- a
     /// theme or font-size change made on another tab while this pane was
-    /// parked would then never repaint it. So the re-host branch compares
+    /// parked would then never repaint it. So each branch compares
     /// against the session's OWN record and applies immediately when it
-    /// differs, before ever touching the coordinator.
+    /// differs, before ever touching the coordinator. A fresh session does
+    /// the same: the factory made it at the panes' size, and the rt modal's
+    /// pane renders at its own.
     func makeNSView(context: Context) -> NSView {
         guard let handle = surface as? GhosttySessionSurfaceHandle else {
             // Only reachable if `SessionViewModel`'s injected factory is
@@ -182,15 +184,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             // chained unpark ever runs). Idempotent, so calling it again
             // once the chained one does run is a harmless no-op.
             handle.unpark()
-            let incomingColors = theme.ghosttyThemeColors()
-            if session.configuration.themeColors != incomingColors
-                || session.configuration.fontSizePoints != fontSizePoints
-                || session.configuration.optionAsAlt != optionAsAlt {
-                session.updateAppearance(incomingColors, fontSizePoints: fontSizePoints, optionAsAlt: optionAsAlt)
-            }
-            context.coordinator.lastAppliedThemeID = theme.id
-            context.coordinator.lastAppliedFontSize = fontSizePoints
-            context.coordinator.lastAppliedOptionAsAlt = optionAsAlt
+            applyAppearanceIfStale(to: session, context: context)
             existingView.wantsFocus = isFocused
             existingView.rearrangeActive = rearrangeActive
             existingView.rightClickMode = rightClickMode
@@ -203,9 +197,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             existingView.onBodyDragBegan = onBodyDragBegan
             return existingView
         }
-        context.coordinator.lastAppliedThemeID = theme.id
-        context.coordinator.lastAppliedFontSize = fontSizePoints
-        context.coordinator.lastAppliedOptionAsAlt = optionAsAlt
+        applyAppearanceIfStale(to: session, context: context)
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
         view.rearrangeActive = rearrangeActive
@@ -218,6 +210,18 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         view.paneMenuProvider = menuProvider
         view.onBodyDragBegan = onBodyDragBegan
         return view
+    }
+
+    private func applyAppearanceIfStale(to session: GhosttySession, context: Context) {
+        let incomingColors = theme.ghosttyThemeColors()
+        if session.configuration.themeColors != incomingColors
+            || session.configuration.fontSizePoints != fontSizePoints
+            || session.configuration.optionAsAlt != optionAsAlt {
+            session.updateAppearance(incomingColors, fontSizePoints: fontSizePoints, optionAsAlt: optionAsAlt)
+        }
+        context.coordinator.lastAppliedThemeID = theme.id
+        context.coordinator.lastAppliedFontSize = fontSizePoints
+        context.coordinator.lastAppliedOptionAsAlt = optionAsAlt
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {

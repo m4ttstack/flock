@@ -207,7 +207,21 @@ final class GhosttyHost {
         }
         guard ghostty_config_diagnostics_count(clone) == before else { return false }
         ghostty_app_update_config(app, clone)
+        restoreOwnAppearance(afterPushing: colors, fontSizePoints: fontSizePoints, optionAsAlt: optionAsAlt)
         return true
+    }
+
+    /// `ghostty_app_update_config` reaches every live surface, and each one
+    /// takes the pushed `font-size` as its own (`Surface.zig`'s
+    /// `updateConfig`). A surface kept at another size, as the rt modal's is,
+    /// gets its own appearance pushed back.
+    private func restoreOwnAppearance(afterPushing colors: GhosttyThemeColors, fontSizePoints: Double, optionAsAlt: OptionAsAlt) {
+        for session in liveSessions() where session.surface != nil {
+            let own = session.configuration
+            guard own.fontSizePoints != fontSizePoints || own.themeColors != colors || own.optionAsAlt != optionAsAlt
+            else { continue }
+            session.updateAppearance(own.themeColors, fontSizePoints: own.fontSizePoints, optionAsAlt: own.optionAsAlt)
+        }
     }
 
     /// Restyles a surface that already exists, in place: same scratch-config
