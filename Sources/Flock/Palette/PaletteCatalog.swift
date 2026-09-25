@@ -61,7 +61,9 @@ enum PaletteCatalog {
     /// other program is caught by the runner asking herdr before it types.
     private static func launch(_ context: PaletteContext) -> [PaletteEntry] {
         guard context.canvasPane != nil, context.focusedAgent == nil else { return [] }
-        return context.launchers.map { entry(.pane, LauncherSlots.title(for: $0), .launch($0)) }
+        return context.launchers.map {
+            entry(.pane, $0.paletteName ?? LauncherSlots.title(for: $0), hint: $0.paletteHint, .launch($0))
+        }
     }
 
     private static func pane(_ context: PaletteContext) -> [PaletteEntry] {

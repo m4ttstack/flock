@@ -60,13 +60,14 @@ final class PaletteCatalogTests: XCTestCase {
 
     func testLaunchersAreListedForAShellPaneButNotUnderAnAgent() {
         let launchers = LauncherSlots.ordered(navigator: NavigatorRoster.rtCd, entries: HarnessRoster.known)
-        let names = PaletteCatalog.entries(in: PaletteContext(canvasPane: pane, launchers: launchers))
+        let commands = PaletteCatalog.entries(in: PaletteContext(canvasPane: pane, launchers: launchers))
             .filter { if case .launch = $0.action { true } else { false } }
-            .map(\.command.name)
-        XCTAssertEqual(names, ["rt cd", "Launch claude", "Launch codex"])
+            .map(\.command)
+        XCTAssertEqual(commands.map(\.name), ["rt cd", "Claude", "Codex"])
+        XCTAssertEqual(commands.map(\.hint), [nil, "Launch Claude Code CLI", "Launch Codex CLI"])
 
         let underClaude = ids(PaletteContext(canvasPane: pane, focusedAgent: ChatButtonModel.claudeAgent, launchers: launchers))
-        XCTAssertFalse(underClaude.contains("pane.launchcodex"), "claude's prompt would take the command as a message")
+        XCTAssertFalse(underClaude.contains("pane.codex"), "claude's prompt would take the command as a message")
         XCTAssertFalse(ids(PaletteContext(canvasPane: nil, launchers: launchers)).contains("pane.rtcd"))
     }
 

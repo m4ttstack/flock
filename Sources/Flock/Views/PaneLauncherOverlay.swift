@@ -13,6 +13,8 @@ struct HarnessEntry: Identifiable, Equatable {
     let monogramColor: Color
     var mark: HarnessMark?
     var monogramInk: Color = .white
+    var paletteName: String? = nil
+    var paletteHint: String? = nil
 }
 
 /// Every harness flock knows how to offer, resolved at launcher-render time
@@ -24,11 +26,13 @@ enum HarnessRoster {
     static let known: [HarnessEntry] = [
         HarnessEntry(
             id: "claude", binary: "claude", displayName: "claude", monogram: "C",
-            monogramColor: .init(red: 0.82, green: 0.51, blue: 0.31), mark: .claude
+            monogramColor: .init(red: 0.82, green: 0.51, blue: 0.31), mark: .claude,
+            paletteName: "Claude", paletteHint: "Launch Claude Code CLI"
         ),
         HarnessEntry(
             id: "codex", binary: "codex", displayName: "codex", monogram: "X",
-            monogramColor: .init(red: 0.29, green: 0.56, blue: 0.86), mark: .codex
+            monogramColor: .init(red: 0.29, green: 0.56, blue: 0.86), mark: .codex,
+            paletteName: "Codex", paletteHint: "Launch Codex CLI"
         ),
     ]
 
