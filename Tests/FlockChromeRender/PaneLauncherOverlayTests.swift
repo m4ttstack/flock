@@ -32,6 +32,7 @@ final class PaneLauncherOverlayTests: XCTestCase {
 
     private struct Probe: View {
         static let size = CGSize(width: 420, height: 300)
+        var size = Self.size
         let theme: Theme
         let entries: [HarnessEntry]
         let navigator: HarnessEntry?
@@ -43,10 +44,10 @@ final class PaneLauncherOverlayTests: XCTestCase {
                 Terminal(capture: capture)
                 PaneLauncherOverlay(
                     theme: theme, entries: entries, navigator: navigator,
-                    onLaunch: { _ in }, onNavigate: {}
+                    onLaunch: { _ in }
                 )
             }
-            .frame(width: Self.size.width, height: Self.size.height)
+            .frame(width: size.width, height: size.height)
         }
     }
 
@@ -131,6 +132,30 @@ final class PaneLauncherOverlayTests: XCTestCase {
         }
     }
 
+    /// A pane wide enough for the row carries each button's ⌘ digit; the
+    /// 420pt probe the other tests use is the narrow case that drops them.
+    /// Writes both PNGs when `FLOCK_CHROME_RENDER_DIR` names a directory.
+    func testAWidePaneShowsEachButtonsShortcutInDarkAndLightThemes() async throws {
+        for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
+            let wide = try await hostProbe(
+                entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, size: CGSize(width: 720, height: 300)
+            )
+            defer { wide.window.close() }
+            let narrow = try await hostProbe(entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme)
+            defer { narrow.window.close() }
+
+            let image = try snapshot(wide.window)
+            if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("launcher-shortcuts-\(theme.id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            XCTAssertGreaterThan(
+                buttonRowWidth(image), buttonRowWidth(try snapshot(narrow.window)) + 60,
+                "\(theme.id): the wide row should be wider by the three hints"
+            )
+        }
+    }
+
     /// The marks are compiled path data, not bundled images, so this render is
     /// the whole proof that they draw: the same code and colors the app runs.
     /// Writes the PNG when `FLOCK_CHROME_RENDER_DIR` names a directory.
@@ -174,6 +199,18 @@ final class PaneLauncherOverlayTests: XCTestCase {
         context.scaleBy(x: scale, y: scale)
         view.displayIgnoringOpacity(bounds, in: NSGraphicsContext(cgContext: context, flipped: false))
         return NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+    }
+
+    /// Pixels across the band the buttons sit in that are not the terminal
+    /// ground, from the first to the last.
+    private func buttonRowWidth(_ image: NSBitmapImageRep) -> Int {
+        let ground = hex(image, x: 2, y: 2)
+        var xs: [Int] = []
+        for y in stride(from: image.pixelsHigh / 2 - 20, through: image.pixelsHigh / 2 + 40, by: 10) {
+            xs += (0..<image.pixelsWide).filter { hex(image, x: $0, y: y) != ground }
+        }
+        guard let first = xs.min(), let last = xs.max() else { return 0 }
+        return last - first
     }
 
     private func hex(_ image: NSBitmapImageRep, x: Int, y: Int) -> String {
@@ -235,15 +272,15 @@ final class PaneLauncherOverlayTests: XCTestCase {
     }
 
     private func hostProbe(
-        entries: [HarnessEntry], navigator: HarnessEntry? = nil, theme: Theme = Theme.builtins[0]
+        entries: [HarnessEntry], navigator: HarnessEntry? = nil, theme: Theme = Theme.builtins[0], size: CGSize = Probe.size
     ) async throws -> HostedProbe {
         ChromeType.install()
         var captured: TerminalStandIn?
         let hosting = NSHostingView(rootView: Probe(
-            theme: theme, entries: entries, navigator: navigator, capture: { captured = $0 }
+            size: size, theme: theme, entries: entries, navigator: navigator, capture: { captured = $0 }
         ))
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: Probe.size),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false

@@ -774,8 +774,7 @@ struct PaneCellView: View {
                 ) {
                     PaneLauncherOverlay(
                         theme: theme, entries: HarnessRoster.detected(), navigator: NavigatorRoster.detected(),
-                        onLaunch: { entry in Task { await viewModel.launchHarness(entry.binary, in: pane.paneID) } },
-                        onNavigate: { Task { await viewModel.launchNavigator(NavigatorRoster.command, in: pane.paneID) } }
+                        onLaunch: { entry in Task { await LauncherSlots.launch(entry, in: pane.paneID, on: viewModel) } }
                     )
                     .transition(.opacity)
                 }

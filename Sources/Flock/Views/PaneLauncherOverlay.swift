@@ -60,6 +60,40 @@ enum NavigatorRoster {
     }
 }
 
+/// The launcher's buttons in the order they draw, which is the order ⌘1, ⌘2
+/// and on reach them: the navigator first, then each detected harness. A
+/// number names a position, not a harness, so it moves when the row does.
+enum LauncherSlots {
+    static func ordered(navigator: HarnessEntry?, entries: [HarnessEntry]) -> [HarnessEntry] {
+        Array(([navigator].compactMap { $0 } + entries).prefix(9))
+    }
+
+    static func current() -> [HarnessEntry] {
+        ordered(navigator: NavigatorRoster.detected(), entries: HarnessRoster.detected())
+    }
+
+    static func key(at index: Int) -> KeyEquivalent {
+        KeyEquivalent(Character(String(index + 1)))
+    }
+
+    static func shortcutLabel(at index: Int) -> String {
+        ShortcutLabel.text(key: key(at: index), modifiers: .command)
+    }
+
+    static func title(for entry: HarnessEntry) -> String {
+        entry.id == NavigatorRoster.rtCd.id ? NavigatorRoster.command : "Launch \(entry.displayName)"
+    }
+
+    @MainActor
+    static func launch(_ entry: HarnessEntry, in pane: PaneID, on viewModel: SessionViewModel) async {
+        if entry.id == NavigatorRoster.rtCd.id {
+            await viewModel.launchNavigator(NavigatorRoster.command, in: pane)
+        } else {
+            await viewModel.launchHarness(entry.binary, in: pane)
+        }
+    }
+}
+
 /// Renders on a pristine flock-created pane: the bare shell prompt stays
 /// visible above (this view never covers it -- it only occupies the space
 /// below, via its own top spacer), the navigator when there is one and a
@@ -78,18 +112,15 @@ struct PaneLauncherOverlay: View {
     let entries: [HarnessEntry]
     let navigator: HarnessEntry?
     let onLaunch: (HarnessEntry) -> Void
-    let onNavigate: () -> Void
 
     var body: some View {
         VStack(spacing: ChromeMetrics.Launcher.spacing) {
             Spacer(minLength: 0)
-            HStack(spacing: ChromeMetrics.Launcher.buttonSpacing) {
-                if let navigator {
-                    LauncherButton(theme: theme, entry: navigator, onLaunch: onNavigate)
-                }
-                ForEach(entries) { entry in
-                    LauncherButton(theme: theme, entry: entry) { onLaunch(entry) }
-                }
+            // A narrow pane drops the shortcut hints before it would wrap a
+            // harness name or push the row past its edges.
+            ViewThatFits(in: .horizontal) {
+                buttonRow(showsShortcuts: true)
+                buttonRow(showsShortcuts: false)
             }
             Spacer(minLength: 0)
             if let hint = LauncherHint.text(detected: entries.map(\.binary), searched: HarnessRoster.known.map(\.binary)) {
@@ -108,6 +139,19 @@ struct PaneLauncherOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, ChromeMetrics.Launcher.promptClearance)
     }
+
+    private func buttonRow(showsShortcuts: Bool) -> some View {
+        HStack(spacing: ChromeMetrics.Launcher.buttonSpacing) {
+            let slots = LauncherSlots.ordered(navigator: navigator, entries: entries)
+            ForEach(Array(slots.enumerated()), id: \.element.id) { index, entry in
+                LauncherButton(
+                    theme: theme, entry: entry, shortcut: showsShortcuts ? LauncherSlots.shortcutLabel(at: index) : nil
+                ) {
+                    onLaunch(entry)
+                }
+            }
+        }
+    }
 }
 
 /// One harness's button. `isHovering` is held here rather than lifted to the
@@ -116,6 +160,7 @@ struct PaneLauncherOverlay: View {
 private struct LauncherButton: View {
     let theme: Theme
     let entry: HarnessEntry
+    let shortcut: String?
     let onLaunch: () -> Void
 
     @State private var isHovering = false
@@ -127,6 +172,15 @@ private struct LauncherButton: View {
                 Text(entry.displayName)
                     .font(ChromeType.launcherName)
                     .foregroundStyle(theme.textStrong)
+                    .lineLimit(1)
+                    .fixedSize()
+                if let shortcut {
+                    Text(shortcut)
+                        .font(ChromeType.launcherShortcut)
+                        .foregroundStyle(theme.textLabel)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
         }
         .buttonStyle(LauncherButtonStyle(theme: theme, isHovering: isHovering))
