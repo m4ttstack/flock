@@ -876,6 +876,23 @@ enum ChromeMetrics {
     }
 
     /// The command palette over the tab area.
+    enum Switcher {
+        static let width: CGFloat = 360
+        /// How long ⌃Tab is held before the panel shows: a quicker tap goes
+        /// back to the last workspace without it.
+        static let showDelay: Duration = .milliseconds(150)
+
+        /// The box centred in the pane area below the tab strip, never less
+        /// than the palette's gap below the strip.
+        static func top(inTabAreaHeight height: CGFloat, rowCount: Int) -> CGFloat {
+            typealias Palette = ChromeMetrics.Palette
+            let rows = CGFloat(rowCount) * Palette.rowHeight + CGFloat(max(rowCount - 1, 0)) + 2 * Palette.listPadding
+            let box = min(rows, Palette.maxListHeight) + Palette.footerHeight + ChromeMetrics.ruleWidth
+            let paneArea = height - ChromeMetrics.Strip.height
+            return ChromeMetrics.Strip.height + max(Palette.minTop, (paneArea - box) / 2)
+        }
+    }
+
     enum Palette {
         static let width: CGFloat = 520
         static let minTop: CGFloat = 12

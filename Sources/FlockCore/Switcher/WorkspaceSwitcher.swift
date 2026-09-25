@@ -1,12 +1,18 @@
+import Foundation
 import Observation
 
-/// ⌃Tab's workspace switcher: the workspaces most recently selected, and,
-/// while ⌃ is held, the rows on offer and which one letting go will open.
+/// ⌃Tab's workspace switcher: the workspaces most recently selected, kept
+/// across launches, and, while ⌃ is held, the rows on offer and which one
+/// letting go will open.
 @MainActor
 @Observable
 public final class WorkspaceSwitcher {
-    /// Most recent first, without repeats.
-    public private(set) var recents: [WorkspaceID] = []
+    public static let defaultsKey = "flock.workspaceRecents"
+    public static let storedLimit = 50
+
+    /// Most recent first, without repeats. A workspace that has since closed
+    /// stays until it ages out; `begin` skips it.
+    public private(set) var recents: [WorkspaceID]
     /// The rows while ⌃ is held, the current workspace first. Empty otherwise.
     public private(set) var order: [WorkspaceID] = []
     public private(set) var selection = 0
@@ -19,11 +25,19 @@ public final class WorkspaceSwitcher {
     public var isActive: Bool { !order.isEmpty }
     public var selected: WorkspaceID? { order.indices.contains(selection) ? order[selection] : nil }
 
-    public init() {}
+    @ObservationIgnored private let userDefaults: UserDefaults
+
+    public init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+        recents = (userDefaults.stringArray(forKey: Self.defaultsKey) ?? []).map(WorkspaceID.init(rawValue:))
+    }
 
     public func note(_ id: WorkspaceID) {
+        guard recents.first != id else { return }
         recents.removeAll { $0 == id }
         recents.insert(id, at: 0)
+        if recents.count > Self.storedLimit { recents.removeLast(recents.count - Self.storedLimit) }
+        userDefaults.set(recents.map(\.rawValue), forKey: Self.defaultsKey)
     }
 
     /// Selects the workspace before this one, or with `reverse` the last row.

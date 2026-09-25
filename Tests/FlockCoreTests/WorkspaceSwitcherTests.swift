@@ -3,30 +3,49 @@ import XCTest
 
 @MainActor
 final class WorkspaceSwitcherTests: XCTestCase {
+    private nonisolated static let suite = "WorkspaceSwitcherTests"
+
+    override func tearDown() {
+        UserDefaults().removePersistentDomain(forName: Self.suite)
+        super.tearDown()
+    }
+
+    private func makeSwitcher() -> WorkspaceSwitcher {
+        WorkspaceSwitcher(userDefaults: UserDefaults(suiteName: Self.suite)!)
+    }
+
     private func ids(_ names: String...) -> [WorkspaceID] { names.map { WorkspaceID(rawValue: $0) } }
 
+    func testRecentsSurviveARelaunchAndStayCapped() {
+        let switcher = makeSwitcher()
+        for index in 0..<(WorkspaceSwitcher.storedLimit + 5) { switcher.note(WorkspaceID(rawValue: "w\(index)")) }
+        let reread = makeSwitcher()
+        XCTAssertEqual(reread.recents.count, WorkspaceSwitcher.storedLimit)
+        XCTAssertEqual(reread.recents.first, WorkspaceID(rawValue: "w\(WorkspaceSwitcher.storedLimit + 4)"))
+    }
+
     func testRecentsPutTheLatestFirstWithoutRepeats() {
-        let switcher = WorkspaceSwitcher()
+        let switcher = makeSwitcher()
         for name in ["a", "b", "a", "c"] { switcher.note(WorkspaceID(rawValue: name)) }
         XCTAssertEqual(switcher.recents, ids("c", "a", "b"))
     }
 
     func testTheOrderLeadsWithTheCurrentWorkspaceThenRecentsThenTheRest() {
-        let switcher = WorkspaceSwitcher()
+        let switcher = makeSwitcher()
         for name in ["d", "b", "c"] { switcher.note(WorkspaceID(rawValue: name)) }
         XCTAssertTrue(switcher.begin(workspaces: ids("a", "b", "c", "d", "e"), current: WorkspaceID(rawValue: "c")))
         XCTAssertEqual(switcher.order, ids("c", "b", "d", "a", "e"))
     }
 
     func testARecentThatNoLongerExistsIsLeftOut() {
-        let switcher = WorkspaceSwitcher()
+        let switcher = makeSwitcher()
         for name in ["gone", "a"] { switcher.note(WorkspaceID(rawValue: name)) }
         switcher.begin(workspaces: ids("a", "b"), current: WorkspaceID(rawValue: "a"))
         XCTAssertEqual(switcher.order, ids("a", "b"))
     }
 
     func testItStartsOnThePreviousWorkspaceAndATapGoesBack() {
-        let switcher = WorkspaceSwitcher()
+        let switcher = makeSwitcher()
         for name in ["a", "b"] { switcher.note(WorkspaceID(rawValue: name)) }
         switcher.begin(workspaces: ids("a", "b", "c"), current: WorkspaceID(rawValue: "b"))
         XCTAssertEqual(switcher.selected, WorkspaceID(rawValue: "a"))
@@ -35,7 +54,7 @@ final class WorkspaceSwitcherTests: XCTestCase {
     }
 
     func testShiftStartsAtTheEndAndStepsWrap() {
-        let switcher = WorkspaceSwitcher()
+        let switcher = makeSwitcher()
         switcher.begin(workspaces: ids("a", "b", "c"), current: WorkspaceID(rawValue: "a"), reverse: true)
         XCTAssertEqual(switcher.selected, WorkspaceID(rawValue: "c"))
         switcher.step(1)
@@ -45,20 +64,20 @@ final class WorkspaceSwitcherTests: XCTestCase {
     }
 
     func testLandingBackOnTheCurrentWorkspaceGoesNowhere() {
-        let switcher = WorkspaceSwitcher()
+        let switcher = makeSwitcher()
         switcher.begin(workspaces: ids("a", "b"), current: WorkspaceID(rawValue: "a"))
         switcher.step(1)
         XCTAssertNil(switcher.finish())
     }
 
     func testOneWorkspaceHasNothingToSwitchTo() {
-        let switcher = WorkspaceSwitcher()
+        let switcher = makeSwitcher()
         XCTAssertFalse(switcher.begin(workspaces: ids("a"), current: WorkspaceID(rawValue: "a")))
         XCTAssertFalse(switcher.isActive)
     }
 
     func testThePanelShowsOnlyForTheSessionThatAskedAndCancelHidesIt() {
-        let switcher = WorkspaceSwitcher()
+        let switcher = makeSwitcher()
         switcher.begin(workspaces: ids("a", "b"), current: WorkspaceID(rawValue: "a"))
         let first = switcher.session
         switcher.cancel()

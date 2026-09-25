@@ -3029,6 +3029,46 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// ⌃Tab's panel, in both themes: the current workspace on top, the last
+    /// one used selected under it, centred in the pane area.
+    func testTheWorkspaceSwitcherSelectsTheLastWorkspaceUnderTheCurrentOne() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let workspaces = try XCTUnwrap(harness.viewModel.model?.workspaces.map(\.workspaceID))
+            let current = try XCTUnwrap(harness.viewModel.selectedWorkspaceID)
+            let last = try XCTUnwrap(workspaces.last { $0 != current })
+            harness.switcher.note(last)
+            harness.switcher.note(current)
+            XCTAssertTrue(harness.switcher.begin(workspaces: workspaces, current: current))
+            harness.switcher.show(session: harness.switcher.session)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("switcher-\(id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            XCTAssertEqual(harness.switcher.selected, last)
+            typealias Metrics = ChromeMetrics.Palette
+            let height = try XCTUnwrap(window.contentView?.bounds.height)
+            let top = ChromeMetrics.TitleBar.height + ChromeMetrics.Switcher.top(
+                inTabAreaHeight: height - ChromeMetrics.TitleBar.height, rowCount: workspaces.count
+            )
+            let rail = harness.railWidth.width
+            let x = rail + (Self.windowSize.width - rail) / 2 + ChromeMetrics.Switcher.width / 4
+            let selected = try XCTUnwrap(
+                firstPixel(image, in: CGRect(x: x, y: top, width: 0, height: 200), matching: theme.palette.chromeRoles.selection.hex),
+                "\(id): no selected row"
+            )
+            let secondRow = top + Metrics.listPadding + Metrics.rowHeight + 1
+            XCTAssertEqual(selected.y, secondRow, accuracy: 1.5, "\(id): the selection is not on the second row")
+            window.close()
+        }
+    }
+
     /// A click on a row runs it and closes the palette first.
     func testClickingARowRunsItAndClosesThePalette() async throws {
         let harness = try await Harness(theme: .tokyoNight)
@@ -3312,6 +3352,7 @@ private struct Harness {
     let chatStore: ChatStore
     let optionAsAlt: OptionAsAltStore
     let palette = CommandPaletteState()
+    let switcher: WorkspaceSwitcher
     let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
 
@@ -3359,6 +3400,7 @@ private struct Harness {
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
         optionAsAlt = OptionAsAltStore(userDefaults: defaults)
         paletteRecents = PaletteRecentsStore(userDefaults: defaults)
+        switcher = WorkspaceSwitcher(userDefaults: defaults)
         chatStore = ChatStore(
             toasts: ToastCenter(),
             probe: { chatAvailable ? "/usr/bin/true" : nil },
@@ -3407,6 +3449,7 @@ private struct Harness {
             .environment(optionAsAlt)
             .environment(palette)
             .environment(paletteRecents)
+            .environment(switcher)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
