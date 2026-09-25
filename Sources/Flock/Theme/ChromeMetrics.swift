@@ -605,7 +605,11 @@ enum ChromeMetrics {
             static let horizontalPadding: CGFloat = 12
             static let gap: CGFloat = 8
             static let backDividerSize = CGSize(width: 1, height: 12)
-            static let closeGlyphSize: CGFloat = 12
+            /// The close control's box, which is also its hover wash.
+            static let closeGlyphSize: CGFloat = 20
+            static let buttonBoxSide: CGFloat = 20
+            static let buttonCornerRadius: CGFloat = 4
+            static let backHoverPadding: CGFloat = 5
         }
 
         /// The title row's three size buttons, Small to Large, before the
@@ -613,7 +617,7 @@ enum ChromeMetrics {
         enum SizeControl {
             static let buttonSide: CGFloat = 18
             static let spacing: CGFloat = 2
-            static let gapBeforeClose: CGFloat = 10
+            static let gapBeforeClose: CGFloat = 14
             static let glyphCornerRadius: CGFloat = 1.5
             static let glyphLineWidth: CGFloat = 1.25
 

@@ -140,6 +140,9 @@ struct RtModalTitleRow: View {
                         .font(ChromeType.rtModalBack)
                         .foregroundStyle(theme.accent)
                         .fixedSize()
+                        .padding(.horizontal, Metrics.backHoverPadding)
+                        .frame(height: Metrics.buttonBoxSide)
+                        .hoverWash(theme, cornerRadius: Metrics.buttonCornerRadius)
                         .frame(maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
@@ -163,6 +166,7 @@ struct RtModalTitleRow: View {
                         .font(ChromeType.rtModalClose)
                         .foregroundStyle(theme.textDim)
                         .frame(width: Metrics.closeGlyphSize, height: Metrics.closeGlyphSize)
+                        .hoverWash(theme, cornerRadius: Metrics.buttonCornerRadius)
                         .frame(maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
@@ -192,6 +196,7 @@ struct RtModalSizeControl: View {
                 Button { onSelect(size) } label: {
                     glyph(size)
                         .frame(width: Metrics.buttonSide, height: Metrics.buttonSide)
+                        .hoverWash(theme, cornerRadius: ChromeMetrics.RtModal.TitleRow.buttonCornerRadius)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

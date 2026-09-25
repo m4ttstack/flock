@@ -625,7 +625,7 @@ final class RtModalChromeRenderTests: XCTestCase {
     ]
     private static let sizeButtonSide: CGFloat = 18
     private static let sizeButtonSpacing: CGFloat = 2
-    private static let sizeControlGapBeforeClose: CGFloat = 10
+    private static let sizeControlGapBeforeClose: CGFloat = 14
 
     /// `size`'s button in a title row whose trailing edge and top are given:
     /// the buttons run Small to Large, ending the gap before the close glyph,

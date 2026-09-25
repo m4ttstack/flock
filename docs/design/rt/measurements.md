@@ -116,8 +116,11 @@ black at 35%, offset y 8, blur 24 on the canvas (a SwiftUI `shadow` radius of
 
 **Title row:** 28 tall, fill `theme.chrome`, pad 0/12, gap 8 between its items. The title at
 11.5/600 in `theme.textStrong`, truncating in the middle, reads
-`<command> · <folder>` with the home folder as `~`. A 12x12 `xmark` in
-`theme.textDim` at the trailing edge.
+`<command> · <folder>` with the home folder as `~`. An `xmark` at 11/500 in
+`theme.textDim` at the trailing edge, centred in a 20x20 box.
+
+**Hover:** every title row button (size, close, "← runner") takes a wash of
+`theme.text` at 10% over its box, r4, under the pointer.
 
 **Size control:** three buttons between the title's spacer and the `xmark`,
 left to right Small (0.7 of the tab area), Medium (0.8, the default) and Large
@@ -125,7 +128,7 @@ left to right Small (0.7 of the tab area), Medium (0.8, the default) and Large
 10x7, 12x9 and 14x10.5. The unselected ones are a 1.25pt outline in
 `theme.textDim`; the selected one is filled in `theme.accent` with no stroke.
 Each button's hit area is 18x18, 2 apart, centred on the row's height, and the
-group ends 10 before the `xmark`. The choice is a preference kept across modals
+group ends 14 before the close box. The choice is a preference kept across modals
 and launches; there is no keyboard shortcut.
 
 **Service view:** the title row leads with "← runner" at 11/500 in
