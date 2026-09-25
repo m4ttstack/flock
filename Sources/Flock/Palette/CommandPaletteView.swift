@@ -77,6 +77,7 @@ struct CommandPaletteView: View {
                 .font(ChromeType.paletteSearch)
                 .foregroundStyle(theme.textStrong)
                 .focused($searchFocused)
+                .background(FirstResponderClaim())
                 // Drawn here rather than as the field's prompt, which takes
                 // the window's appearance and not the theme: a light theme
                 // under a dark system appearance painted it near white.
