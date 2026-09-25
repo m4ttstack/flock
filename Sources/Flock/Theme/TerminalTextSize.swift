@@ -66,6 +66,18 @@ public enum TerminalTextSize: String, CaseIterable, Sendable {
         case .large: return "Large"
         }
     }
+
+    public var larger: TerminalTextSize? {
+        let all = Self.allCases
+        let next = all.index(after: all.firstIndex(of: self)!)
+        return next < all.endIndex ? all[next] : nil
+    }
+
+    public var smaller: TerminalTextSize? {
+        let all = Self.allCases
+        let index = all.firstIndex(of: self)!
+        return index > all.startIndex ? all[all.index(before: index)] : nil
+    }
 }
 
 /// Holds the active terminal text size, persisted across launches, mirroring
