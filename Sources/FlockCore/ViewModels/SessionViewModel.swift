@@ -476,12 +476,13 @@ public final class SessionViewModel {
     }
 
     /// The tab `step` places along the selected workspace's strip from the
-    /// selected one, or `nil` past either end: the strip does not wrap.
+    /// selected one, wrapping from either end to the other. `nil` with no
+    /// other tab to go to.
     public func neighborTab(step: Int) -> TabID? {
         let tabs = tabsForSelectedWorkspace
-        guard let index = tabs.firstIndex(where: { $0.tabID == selectedTabID }) else { return nil }
-        let target = index + step
-        return tabs.indices.contains(target) ? tabs[target].tabID : nil
+        guard tabs.count > 1, let index = tabs.firstIndex(where: { $0.tabID == selectedTabID }) else { return nil }
+        let target = ((index + step) % tabs.count + tabs.count) % tabs.count
+        return tabs[target].tabID
     }
 
     /// The layout snapshot for the selected tab, or `nil` when no tab is

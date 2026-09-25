@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The View menu's two tab-strip steps. Menu only: the palette does not
-/// list them.
+/// The View menu's two tab-strip steps, which wrap at the strip's ends.
+/// Menu only: the palette does not list them.
 enum TabStepCommand: CaseIterable {
     case previous, next
 

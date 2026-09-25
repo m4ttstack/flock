@@ -519,20 +519,32 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.tabsForSelectedWorkspace.map(\.tabID), [TabID(rawValue: "w2:t1"), TabID(rawValue: "w2:t2")])
     }
 
-    /// ⌃⌘← and ⌃⌘→ step along the strip and stop at its ends, as the pane
-    /// arrows stop at the canvas's edge.
+    /// ⌃⌘← and ⌃⌘→ step along the strip and wrap from either end to the
+    /// other.
     @MainActor
-    func testTheNeighborTabStepsAlongTheStripWithoutWrapping() {
+    func testTheNeighborTabStepsAlongTheStripAndWraps() {
         let viewModel = SessionViewModel(client: RecordingCommandClient())
         viewModel.update(model: Self.twoWorkspaceModel(), connection: .live)
         viewModel.select(tab: TabID(rawValue: "w2:t1"))
 
         XCTAssertEqual(viewModel.neighborTab(step: 1), TabID(rawValue: "w2:t2"))
-        XCTAssertNil(viewModel.neighborTab(step: -1))
+        XCTAssertEqual(viewModel.neighborTab(step: -1), TabID(rawValue: "w2:t2"))
 
         viewModel.select(tab: TabID(rawValue: "w2:t2"))
+        XCTAssertEqual(viewModel.neighborTab(step: 1), TabID(rawValue: "w2:t1"))
         XCTAssertEqual(viewModel.neighborTab(step: -1), TabID(rawValue: "w2:t1"))
+    }
+
+    /// A workspace with one tab has nowhere to step to.
+    @MainActor
+    func testALoneTabHasNoNeighbor() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        var model = Self.twoWorkspaceModel()
+        model.tabs[WorkspaceID(rawValue: "w2")]?.removeAll { $0.tabID == TabID(rawValue: "w2:t2") }
+        viewModel.update(model: model, connection: .live)
+        viewModel.select(tab: TabID(rawValue: "w2:t1"))
         XCTAssertNil(viewModel.neighborTab(step: 1))
+        XCTAssertNil(viewModel.neighborTab(step: -1))
     }
 
     /// herdr's `tab.close` sends no `tab.focused` after itself, so nothing
