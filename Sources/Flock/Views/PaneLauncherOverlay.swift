@@ -63,10 +63,10 @@ enum NavigatorRoster {
 /// Renders on a pristine flock-created pane: the bare shell prompt stays
 /// visible above (this view never covers it -- it only occupies the space
 /// below, via its own top spacer), the navigator when there is one and a
-/// button per detected harness centered in that space, and a dim hint at the
-/// very bottom -- which is also where a PATH that resolved no harness at all
-/// says so (`LauncherHint`), rather than leaving an empty button row to be
-/// read as a pane with nothing to offer.
+/// button per detected harness centered in that space, and, only when a PATH
+/// resolved no harness at all, a dim line at the very bottom saying so
+/// (`LauncherHint`), rather than leaving an empty button row to be read as a
+/// pane with nothing to offer.
 ///
 /// The buttons are the only thing here that answers the pointer: the spacers
 /// draw nothing and so claim nothing, and the hint opts itself out, which
@@ -92,9 +92,8 @@ struct PaneLauncherOverlay: View {
                 }
             }
             Spacer(minLength: 0)
-            Text(LauncherHint.text(
-                detected: entries.map(\.binary), searched: HarnessRoster.known.map(\.binary)
-            ))
+            if let hint = LauncherHint.text(detected: entries.map(\.binary), searched: HarnessRoster.known.map(\.binary)) {
+                Text(hint)
                 .font(ChromeType.launcherHint)
                 .foregroundStyle(theme.textLabel)
                 .multilineTextAlignment(.center)
@@ -104,6 +103,7 @@ struct PaneLauncherOverlay: View {
                 // around them: a disabled ancestor takes its whole subtree
                 // out of hit testing, and a descendant cannot opt back in.
                 .allowsHitTesting(false)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, ChromeMetrics.Launcher.promptClearance)

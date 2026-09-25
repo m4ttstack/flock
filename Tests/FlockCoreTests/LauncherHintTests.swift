@@ -2,27 +2,18 @@ import XCTest
 @testable import FlockCore
 
 final class LauncherHintTests: XCTestCase {
-    func testAHarnessThatWasFoundGetsTheUsageHint() {
-        XCTAssertEqual(
-            LauncherHint.text(detected: ["claude"], searched: ["claude", "codex"]),
-            "detected on PATH \u{00B7} click launches in this pane \u{00B7} typing hides these"
-        )
+    /// The buttons say what they do; a line under them only for a lookup
+    /// that found nothing.
+    func testAHarnessThatWasFoundGetsNoLine() {
+        XCTAssertNil(LauncherHint.text(detected: ["claude"], searched: ["claude", "codex"]))
     }
 
-    /// The silent half of the defect: a launch that resolves nothing rendered
-    /// the same "detected on PATH" hint over an empty button row, which reads
-    /// as a pane with nothing to offer rather than as a lookup that failed.
+    /// A launch that resolves nothing must not read as a pane with nothing to
+    /// offer: it says the lookup failed.
     func testNothingFoundSaysSoAndNamesWhatItLookedFor() {
         XCTAssertEqual(
             LauncherHint.text(detected: [], searched: ["claude", "codex"]),
             "no agent CLI found on PATH \u{00B7} looked for claude, codex"
-        )
-    }
-
-    func testTheTwoStatesNeverShareCopy() {
-        XCTAssertNotEqual(
-            LauncherHint.text(detected: ["claude"], searched: ["claude", "codex"]),
-            LauncherHint.text(detected: [], searched: ["claude", "codex"])
         )
     }
 
