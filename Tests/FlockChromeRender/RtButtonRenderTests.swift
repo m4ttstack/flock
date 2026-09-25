@@ -102,7 +102,7 @@ final class RtButtonRenderTests: XCTestCase {
         }
     }
 
-    /// The popover as the approved design draws it: four commands with the
+    /// The popover as the approved design draws it: five commands with the
     /// first hovered, a running and a finished item under RUNS, the folder
     /// with home as `~`. Its window's appearance follows the theme, so the
     /// popover's own arrow matches its panel.
@@ -116,9 +116,9 @@ final class RtButtonRenderTests: XCTestCase {
                     RtRunRow(id: "a", title: "pnpm run test", state: "running", tone: .running),
                     RtRunRow(id: "b", title: "pnpm run build", state: "finished · exit 0", tone: .finished),
                 ],
-                onCommand: { _ in }, onRun: { _ in }, previewHoveredCommand: .nav
+                onCommand: { _ in }, onRun: { _ in }, previewHoveredCommand: .cd
             )
-            let window = host(popover, theme: theme, size: CGSize(width: 320, height: 300))
+            let window = host(popover, theme: theme, size: CGSize(width: 320, height: 331))
             await settle(window)
             let image = try snapshot(window)
             try write(image, "rt-popover-\(theme.id).png")
@@ -134,10 +134,10 @@ final class RtButtonRenderTests: XCTestCase {
             XCTAssertEqual(hex(image, at: point(16, 15)), Self.plum, "\(label): the header badge")
             XCTAssertEqual(hex(image, at: point(180, 50)), palette.selectionBg.hex, "\(label): the hovered row's fill")
             XCTAssertEqual(hex(image, at: point(180, 81)), palette.panelBg.hex, "\(label): a row not hovered has no fill")
-            XCTAssertEqual(hex(image, at: point(180, 208)), palette.activeRowBg.hex, "\(label): the running item's fill")
-            XCTAssertEqual(hex(image, at: point(180, 239)), palette.panelBg.hex, "\(label): a finished item has no fill")
-            XCTAssertEqual(hex(image, at: point(150, 272)), palette.panelBg.hex, "\(label): the runs band's bottom padding")
-            XCTAssertNotEqual(hex(image, at: point(150, 276)), palette.panelBg.hex, "\(label): the popover runs past its runs")
+            XCTAssertEqual(hex(image, at: point(180, 239)), palette.activeRowBg.hex, "\(label): the running item's fill")
+            XCTAssertEqual(hex(image, at: point(180, 270)), palette.panelBg.hex, "\(label): a finished item has no fill")
+            XCTAssertEqual(hex(image, at: point(150, 303)), palette.panelBg.hex, "\(label): the runs band's bottom padding")
+            XCTAssertNotEqual(hex(image, at: point(150, 307)), palette.panelBg.hex, "\(label): the popover runs past its runs")
         }
     }
 
@@ -154,14 +154,14 @@ final class RtButtonRenderTests: XCTestCase {
         let commands = ChromeMetrics.RtPopover.Commands.self
         XCTAssertEqual(
             hosting.fittingSize.height,
-            ChromeMetrics.RtPopover.Header.height + 2 * commands.verticalPadding + 4 * ChromeMetrics.RtPopover.Row.height
+            ChromeMetrics.RtPopover.Header.height + 2 * commands.verticalPadding + 5 * ChromeMetrics.RtPopover.Row.height
         )
         XCTAssertEqual(hosting.fittingSize.width, ChromeMetrics.RtPopover.width)
     }
 
     /// A misspelt symbol name draws nothing, with no error.
     func testEverySymbolTheButtonAndThePopoverNameResolves() {
-        for name in ["folder", "arrow.triangle.branch", "play", "waveform.path.ecg"] {
+        for name in ["arrow.turn.down.right", "folder", "arrow.triangle.branch", "play", "waveform.path.ecg"] {
             XCTAssertNotNil(NSImage(systemSymbolName: name, accessibilityDescription: nil), name)
         }
     }

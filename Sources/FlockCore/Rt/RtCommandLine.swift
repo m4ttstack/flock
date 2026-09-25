@@ -33,6 +33,7 @@ public enum RtCommandLine {
     public static func command(for kind: RtKind, shell: ShellFlavor, seeded: Bool = false) -> String {
         let body: String
         switch kind {
+        case .cd: body = #"command rt cd >"$FLOCK_RT_OUT""#
         case .nav: body = #"command rt nav >"$FLOCK_RT_OUT""#
         case .glitter: body = "command rt glitter"
         case .run: body = #"command rt run --resolve-only >"$FLOCK_RT_OUT""#
@@ -47,6 +48,12 @@ public enum RtCommandLine {
 
     public static func cd(_ path: String) -> String {
         "cd \(quoted(path))"
+    }
+
+    /// Claude Code's `/cd` reads the rest of the line as the path and keeps
+    /// quotes as part of it, so the path goes in raw.
+    public static func claudeCd(_ path: String) -> String {
+        "/cd \(path)"
     }
 
     private static func statusSuffix(_ shell: ShellFlavor) -> String {

@@ -3,10 +3,16 @@ import XCTest
 
 final class RtCommandLineTests: XCTestCase {
     func testEachKindsLineCarriesItsRedirectAndTheStatusSuffix() {
+        XCTAssertEqual(RtCommandLine.command(for: .cd, shell: .posix), #"command rt cd >"$FLOCK_RT_OUT"; echo $? >"$FLOCK_RT_STATUS""#)
         XCTAssertEqual(RtCommandLine.command(for: .nav, shell: .posix), #"command rt nav >"$FLOCK_RT_OUT"; echo $? >"$FLOCK_RT_STATUS""#)
         XCTAssertEqual(RtCommandLine.command(for: .glitter, shell: .posix), #"command rt glitter; echo $? >"$FLOCK_RT_STATUS""#)
         XCTAssertEqual(RtCommandLine.command(for: .run, shell: .posix), #"command rt run --resolve-only >"$FLOCK_RT_OUT"; echo $? >"$FLOCK_RT_STATUS""#)
         XCTAssertEqual(RtCommandLine.command(for: .runner, shell: .posix), #"command rt runner --herdr; echo $? >"$FLOCK_RT_STATUS""#)
+    }
+
+    /// Claude's `/cd` takes the rest of the line as the path, quotes included.
+    func testClaudesSlashCdTakesThePathUnquoted() {
+        XCTAssertEqual(RtCommandLine.claudeCd("/src/acme/it's web"), "/cd /src/acme/it's web")
     }
 
     func testASeededRunnerReadsItsSeedFile() {

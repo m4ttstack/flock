@@ -1,7 +1,7 @@
 import Foundation
 
 public enum RtKind: String, Sendable, CaseIterable {
-    case nav, glitter, run, runner
+    case cd, nav, glitter, run, runner
 }
 
 /// How flock marks what it owns in herdr. The workspace label is the whole

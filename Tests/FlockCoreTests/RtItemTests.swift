@@ -18,11 +18,11 @@ final class RtItemTests: XCTestCase {
         XCTAssertEqual(RtButtonModel.appearance(rtInstalled: true, runningItems: 0, hasRunner: true), .active(count: 0, runner: true))
     }
 
-    func testThePopoverOffersFourCommandsWithRtsOwnCommandAsAHint() {
+    func testThePopoverOffersFiveCommandsWithRtsOwnCommandAsAHint() {
         let rows = RtPopoverModel.commands(hasRunner: false)
-        XCTAssertEqual(rows.map(\.title), ["Browse files", "Review and commit", "Run a script…", "Start runner"])
-        XCTAssertEqual(rows.map(\.hint), ["rt nav", "rt glitter", "rt run", "rt runner"])
-        XCTAssertEqual(rows.map(\.kind), [.nav, .glitter, .run, .runner])
+        XCTAssertEqual(rows.map(\.title), ["Change directory", "Browse files", "Review and commit", "Run a script…", "Start runner"])
+        XCTAssertEqual(rows.map(\.hint), ["rt cd", "rt nav", "rt glitter", "rt run", "rt runner"])
+        XCTAssertEqual(rows.map(\.kind), [.cd, .nav, .glitter, .run, .runner])
         XCTAssertEqual(RtPopoverModel.commands(hasRunner: true).last?.title, "Show runner")
     }
 

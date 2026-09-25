@@ -190,6 +190,7 @@ struct RtPopover: View {
 
     private static func symbolName(_ kind: RtKind) -> String {
         switch kind {
+        case .cd: "arrow.turn.down.right"
         case .nav: "folder"
         case .glitter: "arrow.triangle.branch"
         case .run: "play"

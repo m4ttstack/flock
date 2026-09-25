@@ -52,9 +52,13 @@ enum PaletteCatalog {
         )
     }
 
+    /// `cd` only under Claude Code, whose `/cd` takes the result: a shell
+    /// runs rt cd in the pane itself, from the launcher's row.
     private static func rt(_ context: PaletteContext) -> [PaletteEntry] {
         guard context.rtInstalled else { return [] }
-        return context.rtCommands.map { entry(.rt, $0.kind.rawValue, hint: $0.title, .rt($0.kind)) }
+        return context.rtCommands
+            .filter { $0.kind != .cd || context.focusedAgent == ChatButtonModel.claudeAgent }
+            .map { entry(.rt, $0.kind.rawValue, hint: $0.title, .rt($0.kind)) }
     }
 
     /// Hidden under a detected agent, whose prompt is not a shell's; any

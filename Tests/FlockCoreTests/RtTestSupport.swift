@@ -9,6 +9,7 @@ struct RtFixture {
     struct Pane {
         var id: String; var tab: String; var workspace: String; var terminal: String?; var cwd: String
         var foregroundCwd: String? = nil
+        var agent: String? = nil
     }
 
     static let linkedPaneID = PaneID(rawValue: "w1:p1")
@@ -35,6 +36,7 @@ struct RtFixture {
             ]
             if let terminal = pane.terminal { json["terminal_id"] = terminal }
             if let foregroundCwd = pane.foregroundCwd { json["foreground_cwd"] = foregroundCwd }
+            if let agent = pane.agent { json["agent"] = agent }
             return json
         }
         var snapshot: [String: Any] = [
@@ -118,6 +120,12 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
 
     func seed(pane: String, tab: String, workspace: String, terminal: String) {
         locked { fixture.panes.append(.init(id: pane, tab: tab, workspace: workspace, terminal: terminal, cwd: "/src/acme")) }
+    }
+
+    func runAgent(_ agent: String) {
+        locked {
+            if let index = fixture.panes.firstIndex(where: { $0.id == "w1:p1" }) { fixture.panes[index].agent = agent }
+        }
     }
 
     func removeLinkedPane() { locked { fixture.panes.removeAll { $0.id == "w1:p1" } } }

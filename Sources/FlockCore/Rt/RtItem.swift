@@ -17,6 +17,7 @@ public enum RtStrip: Equatable, Sendable {
 extension RtKind {
     public var defaultTitle: String {
         switch self {
+        case .cd: "cd"
         case .nav: "nav"
         case .glitter: "glitter"
         case .run: "rt run"
@@ -149,6 +150,7 @@ public struct RtRunRow: Equatable, Sendable, Identifiable {
 public enum RtPopoverModel {
     public static func commands(hasRunner: Bool) -> [RtCommandRow] {
         [
+            RtCommandRow(kind: .cd, title: "Change directory", hint: "rt cd"),
             RtCommandRow(kind: .nav, title: "Browse files", hint: "rt nav"),
             RtCommandRow(kind: .glitter, title: "Review and commit", hint: "rt glitter"),
             RtCommandRow(kind: .run, title: "Run a script…", hint: "rt run"),

@@ -249,7 +249,7 @@ public final class RtCoordinator {
         }
     }
 
-    /// nav and glitter exist only inside the modal, so closing one early
+    /// cd, nav and glitter exist only inside the modal, so closing one early
     /// shuts it down; an rt run or a runner keeps going, hidden. Anything on
     /// a strip is over, and goes.
     func dispose(_ id: String) async {
@@ -258,7 +258,7 @@ public final class RtCoordinator {
             await closeItem(id)
         } else {
             switch item.kind {
-            case .nav, .glitter: await shutDown(id)
+            case .cd, .nav, .glitter: await shutDown(id)
             case .run, .runner: break
             }
         }
@@ -410,14 +410,23 @@ public final class RtCoordinator {
         }
     }
 
-    /// A linked pane at its prompt takes the `cd` and the focus; a busy one
-    /// (an agent running, or one herdr cannot say) is split at the folder
-    /// instead, and the split takes the focus.
+    /// A linked pane at its prompt takes the `cd` and the focus, and a Claude
+    /// Code pane takes its own `/cd`; any other busy pane (another agent, or
+    /// one herdr cannot say) is split at the folder instead, and the split
+    /// takes the focus.
+    ///
+    /// Claude gets ctrl+s first: it stashes a half-typed draft, which would
+    /// otherwise prefix the `/cd` and be sent as a prompt, and restores it
+    /// once the `/cd` is submitted. On an empty input it does nothing.
     func cd(linkedTo terminal: TerminalID, into path: String) async {
         guard let model, let pane = pane(for: terminal, in: model) else { return }
         do {
             if await herdr.paneState(pane.paneID)?.busy == false {
                 try await herdr.type(RtCommandLine.cd(path), into: pane.paneID)
+                try await herdr.focus(pane.paneID)
+            } else if pane.agent == ChatButtonModel.claudeAgent {
+                try await herdr.sendKeys(["ctrl+s"], to: pane.paneID)
+                try await herdr.type(RtCommandLine.claudeCd(path), into: pane.paneID)
                 try await herdr.focus(pane.paneID)
             } else {
                 try await herdr.split(pane.paneID, cwd: path)

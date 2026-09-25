@@ -86,6 +86,38 @@ final class RtCoordinatorTests: XCTestCase {
         XCTAssertTrue(world.typed(into: "w1:p1").isEmpty)
     }
 
+    func testCdHereStashesTheDraftAndSendsSlashCdToABusyClaudePane() async throws {
+        let world = FakeRtWorld()
+        world.busyPanes = ["w1:p1"]
+        world.runAgent("claude")
+        world.script("command rt cd", .init(busyPolls: 1, status: "0", out: "/src/acme/it's web\n"))
+        let rt = makeCoordinator(world)
+        rt.update(model: world.model())
+
+        await rt.open(.cd, from: world.fixture.linkedPane)
+        try await finishWatch(rt, "tok1")
+
+        let keys = world.calls("pane.send_keys").filter { FakeRtWorld.string($0["pane_id"]) == "w1:p1" }
+        XCTAssertEqual(keys.map { FakeRtWorld.strings($0["keys"]) }, [["ctrl+s"]])
+        XCTAssertEqual(world.typed(into: "w1:p1"), ["/cd /src/acme/it's web"])
+        XCTAssertTrue(world.calls("pane.split").isEmpty)
+    }
+
+    func testCdHereStillSplitsABusyPaneRunningAnotherAgent() async throws {
+        let world = FakeRtWorld()
+        world.busyPanes = ["w1:p1"]
+        world.runAgent("codex")
+        world.script("command rt nav", .init(busyPolls: 1, status: "0", out: "/src/acme/web\n"))
+        let rt = makeCoordinator(world)
+        rt.update(model: world.model())
+
+        await rt.open(.nav, from: world.fixture.linkedPane)
+        try await finishWatch(rt, "tok1")
+
+        XCTAssertEqual(world.calls("pane.split").count, 1)
+        XCTAssertTrue(world.typed(into: "w1:p1").isEmpty)
+    }
+
     func testAnUncleanExitHoldsTheModalOnAnExitedStripUntilClosed() async throws {
         let world = FakeRtWorld()
         world.script("command rt glitter", .init(busyPolls: 1, status: "1"))

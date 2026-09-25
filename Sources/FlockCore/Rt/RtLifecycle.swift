@@ -152,7 +152,7 @@ public struct RtLifecycle: Equatable, Sendable {
             return .exited(seen.statusExists ? seen.status : nil)
         }
         switch kind {
-        case .nav:
+        case .cd, .nav:
             let path = seen.out?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return path.isEmpty ? .closeTab : .cdLinkedPane(path)
         case .glitter, .run:

@@ -71,6 +71,24 @@ final class PaletteCatalogTests: XCTestCase {
         XCTAssertFalse(ids(PaletteContext(canvasPane: nil, launchers: launchers)).contains("pane.rtcd"))
     }
 
+    /// A shell has the launcher's in-pane `rt cd`; Claude's prompt is not a
+    /// shell's, so its pane gets the modal instead.
+    func testTheRtCdModalIsListedOnlyUnderClaude() {
+        let launchers = LauncherSlots.ordered(navigator: NavigatorRoster.rtCd, entries: HarnessRoster.known)
+        let shell = ids(PaletteContext(canvasPane: pane, rtInstalled: true, rtCommands: rtRows, launchers: launchers))
+        XCTAssertFalse(shell.contains("rt.cd"))
+        XCTAssertTrue(shell.contains("pane.rtcd"))
+
+        let claude = ids(PaletteContext(
+            canvasPane: pane, rtInstalled: true, rtCommands: rtRows, focusedAgent: ChatButtonModel.claudeAgent, launchers: launchers
+        ))
+        XCTAssertTrue(claude.contains("rt.cd"))
+        XCTAssertFalse(claude.contains("pane.rtcd"))
+
+        let codex = ids(PaletteContext(canvasPane: pane, rtInstalled: true, rtCommands: rtRows, focusedAgent: "codex"))
+        XCTAssertFalse(codex.contains("rt.cd"), "codex has no /cd")
+    }
+
     func testShortcutsReadAsTheMenusShowThem() {
         let entries = PaletteCatalog.entries(in: PaletteContext(canvasPane: pane, neighbors: [.left], hasNotifications: true))
         let shortcut = { (id: String) in entries.first { $0.command.id == id }?.command.shortcut }
