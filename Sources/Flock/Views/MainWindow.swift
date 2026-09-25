@@ -233,7 +233,7 @@ private struct TitleBar: View {
     private var noticeColor: Color? {
         switch connectionState {
         case .live: nil
-        case .connecting, .reconnecting: theme.yellow
+        case .connecting, .reconnecting, .notRunning: theme.yellow
         case .unsupported: theme.red
         }
     }

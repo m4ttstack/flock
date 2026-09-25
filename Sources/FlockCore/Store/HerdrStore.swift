@@ -5,6 +5,8 @@ public enum ConnectionState: Equatable, Sendable {
     case connecting
     case live
     case reconnecting(attempt: Int)
+    /// Nothing is listening on the socket: herdr has not been started.
+    case notRunning(attempt: Int)
     case unsupported(HerdrClientError)
 }
 
@@ -609,18 +611,25 @@ public final class HerdrStore {
                     connection = .unsupported(error)
                     return
                 }
-                await waitBeforeRetry()
+                await waitBeforeRetry(noServer: false)
             } catch {
-                await waitBeforeRetry()
+                await waitBeforeRetry(noServer: Self.meansNoServer(error))
             }
         }
     }
 
-    private func waitBeforeRetry() async {
+    private func waitBeforeRetry(noServer: Bool) async {
         guard !Task.isCancelled else { return }
         reconnectAttempt += 1
-        connection = .reconnecting(attempt: reconnectAttempt)
+        connection = noServer ? .notRunning(attempt: reconnectAttempt) : .reconnecting(attempt: reconnectAttempt)
         try? await Task.sleep(for: backoffSchedule(reconnectAttempt))
+    }
+
+    /// No socket file, or one nothing listens on (a server that exited
+    /// without removing it).
+    public nonisolated static func meansNoServer(_ error: Error) -> Bool {
+        guard case LineSocketError.connectFailed(let code) = error else { return false }
+        return code == ENOENT || code == ECONNREFUSED
     }
 
     private func bootstrapAndRun() async throws {

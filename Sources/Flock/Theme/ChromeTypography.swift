@@ -104,6 +104,7 @@ enum ChromeType {
     static let noHerdrHeadline = inter(19, .semibold)
     static let noHerdrBody = inter(14)
     static let noHerdrHint = inter(12.5)
+    static let noHerdrAction = inter(13, .semibold)
 
     static let gridTitle = inter(14, .medium)
     static let gridCount = inter(11.5)

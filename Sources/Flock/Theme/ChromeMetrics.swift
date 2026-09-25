@@ -664,6 +664,9 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 60
         static let symbolSpacing: CGFloat = 6
         static let primaryActionTopPadding: CGFloat = 8
+        static let actionHeight: CGFloat = 30
+        static let actionHorizontalPadding: CGFloat = 16
+        static let actionCornerRadius: CGFloat = 7
         /// Bigger than the 40pt SF Symbol it replaced. The mark carries its
         /// trail alongside the ram, so the animal itself is roughly two
         /// thirds of this box rather than all of it.

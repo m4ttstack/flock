@@ -1054,6 +1054,34 @@ final class HerdrStoreTests: XCTestCase {
     /// nothing to drive a retry, so the app sat there with no session and no
     /// error. `holdNext` parks the fake before it writes its ack, which is
     /// exactly that server.
+    /// No socket at all is herdr not running, which the window offers to fix;
+    /// the store keeps trying and goes live the moment a server appears.
+    @MainActor
+    func testASocketWithNoServerReadsAsNotRunningUntilOneStarts() async throws {
+        let fake = FakeHerdrServer()
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: snapshotResultJSON())
+        let store = HerdrStore(socketPath: fake.socketPath, backoffSchedule: { _ in .milliseconds(20) })
+        await store.start()
+        defer { store.stop() }
+
+        try await waitUntil(timeout: 5) {
+            if case .notRunning = store.connection { return true }
+            return false
+        }
+
+        try fake.start(); defer { fake.stop() }
+        try await waitUntil(timeout: 5) { store.connection == .live }
+    }
+
+    func testOnlyAMissingOrRefusingSocketMeansNoServer() {
+        XCTAssertTrue(HerdrStore.meansNoServer(LineSocketError.connectFailed(ENOENT)))
+        XCTAssertTrue(HerdrStore.meansNoServer(LineSocketError.connectFailed(ECONNREFUSED)))
+        XCTAssertFalse(HerdrStore.meansNoServer(LineSocketError.connectFailed(EACCES)))
+        XCTAssertFalse(HerdrStore.meansNoServer(LineSocketError.closed))
+        XCTAssertFalse(HerdrStore.meansNoServer(HerdrClientError.timedOut(method: "events.subscribe")))
+    }
+
     @MainActor
     func testASubscribeThatIsNeverAckedRetriesInsteadOfSittingAtConnecting() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }

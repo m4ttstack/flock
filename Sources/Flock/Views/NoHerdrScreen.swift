@@ -1,25 +1,40 @@
 import FlockCore
 import SwiftUI
 
-/// Shown instead of `MainWindow` when `HerdrAvailability.shouldShowMissingScreen`
-/// says herdr is not on this Mac: every pane flock draws is a herdr bridge, so
-/// a machine without it has nothing else to show.
-///
-/// `primaryAction` is nil at every call site today. It exists so that once
-/// flock can patch a user's own herdr, that action has a slot to land in
-/// without reshaping this view -- the button itself is not built yet, since
-/// there is nothing for it to trigger.
+/// Shown instead of `MainWindow` when flock has no herdr to drive: none on
+/// this Mac (`HerdrAvailability.shouldShowMissingScreen`), or none running.
+/// Every pane flock draws is a herdr bridge, so either way there is nothing
+/// else to show.
 struct NoHerdrScreen: View {
     struct PrimaryAction {
         let title: String
+        var isDisabled = false
         let perform: () -> Void
     }
 
-    static let headline = "You can't have a flock without a herdr!"
-    static let body = "flock couldn't find herdr on this Mac, so there is nothing to drive a pane with."
-    static let hint = "Install herdr, then relaunch flock."
+    struct Copy {
+        let headline: String
+        let body: String
+        let hint: String
+    }
+
+    static let missing = Copy(
+        headline: "You can't have a flock without a herdr!",
+        body: "flock couldn't find herdr on this Mac, so there is nothing to drive a pane with.",
+        hint: "Install herdr, then relaunch flock."
+    )
+    static let notRunning = Copy(
+        headline: "Oops! Doesn't look like herdr has started.",
+        body: "flock shows your herdr session, and no herdr server is running yet.",
+        hint: "Start it here, or run herdr in a terminal."
+    )
+
+    static var headline: String { missing.headline }
+    static var body: String { missing.body }
+    static var hint: String { missing.hint }
 
     let theme: Theme
+    var copy: Copy = Self.missing
     var primaryAction: PrimaryAction?
 
     var body: some View {
@@ -42,26 +57,52 @@ struct NoHerdrScreen: View {
         VStack(spacing: ChromeMetrics.NoHerdr.spacing) {
             VStack(spacing: ChromeMetrics.NoHerdr.symbolSpacing) {
                 HerdrRamMark(size: ChromeMetrics.NoHerdr.markSize)
-                Text(Self.headline)
+                Text(copy.headline)
                     .font(ChromeType.noHerdrHeadline)
                     .foregroundStyle(theme.textStrong)
                     .multilineTextAlignment(.center)
             }
-            Text(Self.body)
+            Text(copy.body)
                 .font(ChromeType.noHerdrBody)
                 .foregroundStyle(theme.textDim)
                 .multilineTextAlignment(.center)
-            Text(Self.hint)
+            Text(copy.hint)
                 .font(ChromeType.noHerdrHint)
                 .foregroundStyle(theme.textLabel)
                 .multilineTextAlignment(.center)
             if let primaryAction {
                 Button(primaryAction.title, action: primaryAction.perform)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PrimaryActionStyle(theme: theme))
+                    .disabled(primaryAction.isDisabled)
                     .padding(.top, ChromeMetrics.NoHerdr.primaryActionTopPadding)
                     .accessibilityIdentifier("flock.noHerdr.primaryAction")
             }
         }
         .padding(.horizontal, ChromeMetrics.NoHerdr.horizontalPadding)
+    }
+}
+
+/// The theme's accent whatever the window's state: `.borderedProminent`
+/// greys out in a window that is not key, which a screen with one thing to
+/// do cannot afford.
+private struct PrimaryActionStyle: ButtonStyle {
+    let theme: Theme
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(ChromeType.noHerdrAction)
+            // The chrome ground on the accent: dark on a dark theme's pale
+            // accent, near white on a light theme's deep one.
+            .foregroundStyle(theme.chrome)
+            .padding(.horizontal, ChromeMetrics.NoHerdr.actionHorizontalPadding)
+            .frame(height: ChromeMetrics.NoHerdr.actionHeight)
+            .background(
+                RoundedRectangle(cornerRadius: ChromeMetrics.NoHerdr.actionCornerRadius)
+                    .fill(theme.accent)
+                    .brightness(configuration.isPressed ? -0.08 : 0)
+            )
+            .opacity(isEnabled ? 1 : 0.55)
+            .contentShape(Rectangle())
     }
 }

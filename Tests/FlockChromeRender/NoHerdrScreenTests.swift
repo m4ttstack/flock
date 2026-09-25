@@ -17,6 +17,40 @@ final class NoHerdrScreenTests: XCTestCase {
         XCTAssertEqual(NoHerdrScreen.hint, "Install herdr, then relaunch flock.")
     }
 
+    func testTheNotRunningCopy() {
+        XCTAssertEqual(NoHerdrScreen.notRunning.headline, "Oops! Doesn't look like herdr has started.")
+        XCTAssertEqual(NoHerdrScreen.notRunning.body, "flock shows your herdr session, and no herdr server is running yet.")
+        XCTAssertEqual(NoHerdrScreen.notRunning.hint, "Start it here, or run herdr in a terminal.")
+    }
+
+    func testTheNotRunningScreenOffersToStartHerdr() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for theme in [Theme.tokyoNight, Theme.builtins.first { $0.id == "one-light" }!] {
+            let screen = NoHerdrScreen(
+                theme: theme, copy: NoHerdrScreen.notRunning,
+                primaryAction: .init(title: "Start herdr", perform: {})
+            )
+            let window = hostWindow(screen)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("herdr-not-running-\(theme.id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            XCTAssertEqual(hex(image, CGPoint(x: 10, y: 10)), theme.palette.chromeRoles.chrome.hex)
+            window.close()
+        }
+    }
+
+    /// The server's environment is every pane shell's, so rt's batch flag
+    /// (set for flock's own children) must not reach it.
+    func testTheServerStartsWithoutRtsBatchFlag() {
+        let environment = HerdrServerLauncher.environment(from: ["RT_BATCH": "1", "PATH": "/usr/bin", "HERDR_SOCKET_PATH": "/tmp/h.sock"])
+        XCTAssertNil(environment["RT_BATCH"])
+        XCTAssertEqual(environment["PATH"], "/usr/bin")
+        XCTAssertEqual(environment["HERDR_SOCKET_PATH"], "/tmp/h.sock")
+    }
+
     func testRendersOverTheThemesChromeWithNoButtonByDefault() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for theme in [Theme.tokyoNight, Theme.builtins.first { $0.id == "one-light" }!] {

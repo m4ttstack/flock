@@ -110,6 +110,8 @@ struct FlockApp: App {
     @State private var chatStore: ChatStore
     @State private var herdrStore: HerdrStore
     @State private var herdrToolStore = HerdrToolStore()
+    @State private var isStartingHerdr = false
+    @State private var herdrStartFailure: String?
     @State private var herdrMousePatchStore = HerdrMousePatchStore()
     @State private var viewModel: SessionViewModel
     @State private var undoJournal: UndoJournal
@@ -270,11 +272,45 @@ struct FlockApp: App {
         self.socketPath = socketPath
     }
 
+    private var notRunningCopy: NoHerdrScreen.Copy {
+        let copy = NoHerdrScreen.notRunning
+        guard let herdrStartFailure else { return copy }
+        return NoHerdrScreen.Copy(headline: copy.headline, body: copy.body, hint: herdrStartFailure)
+    }
+
+    /// The store is already retrying the socket, so a server that comes up is
+    /// picked up by it; this only lets the button be pressed again if none did.
+    private func startHerdr() {
+        herdrStartFailure = nil
+        switch HerdrServerLauncher.start() {
+        case .success:
+            isStartingHerdr = true
+            Task {
+                try? await Task.sleep(for: .seconds(10))
+                guard isStartingHerdr, case .notRunning = viewModel.connectionState else { return }
+                isStartingHerdr = false
+                herdrStartFailure = "herdr didn't come up. Try running herdr in a terminal to see why."
+            }
+        case .failure(.notFound):
+            herdrStartFailure = "flock couldn't find herdr on its PATH."
+        case .failure(.spawn(let code)):
+            herdrStartFailure = "herdr wouldn't start (\(String(cString: strerror(code))))."
+        }
+    }
+
     var body: some Scene {
         WindowGroup("Flock") {
             Group {
                 if HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound) {
                     NoHerdrScreen(theme: themeStore.active)
+                } else if case .notRunning = viewModel.connectionState {
+                    NoHerdrScreen(
+                        theme: themeStore.active, copy: notRunningCopy,
+                        primaryAction: .init(
+                            title: isStartingHerdr ? "Starting herdr…" : "Start herdr",
+                            isDisabled: isStartingHerdr, perform: startHerdr
+                        )
+                    )
                 } else {
                     MainWindow(
                         viewModel: viewModel,
@@ -314,6 +350,9 @@ struct FlockApp: App {
                 }
                 .onChange(of: herdrStore.connection) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
+                    if case .notRunning = herdrStore.connection { return }
+                    isStartingHerdr = false
+                    herdrStartFailure = nil
                 }
         }
         .windowStyle(.hiddenTitleBar)
