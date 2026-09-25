@@ -1,10 +1,11 @@
 import CoreGraphics
 
 extension PaneRecord {
-    /// What flock calls a pane wherever it names one: the terminal's title,
-    /// then herdr's label.
+    /// What flock calls a pane wherever it names one: the name the user gave
+    /// it (herdr's label), then the title its program sets, which Claude Code
+    /// keeps rewriting and so must never hide a name.
     public var displayTitle: String {
-        [terminalTitleStripped, label].compactMap { $0 }.first { !$0.isEmpty } ?? "shell"
+        [label, terminalTitleStripped].compactMap { $0 }.first { !$0.isEmpty } ?? "shell"
     }
 }
 

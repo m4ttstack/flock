@@ -252,7 +252,7 @@ struct PaneCellView: View {
     /// frame is the fallback before the canvas has published one.
     private var paneGhost: DragCoordinator.Ghost {
         DragCoordinator.Ghost(
-            title: pane.terminalTitleStripped ?? pane.label ?? "shell",
+            title: pane.displayTitle,
             symbol: "macwindow",
             originSize: drag.canvas.paneFrames[pane.paneID]?.size ?? bodyFrame.size
         )
@@ -386,7 +386,7 @@ struct PaneCellView: View {
     }
 
     private var titleLabel: some View {
-        Text(pane.terminalTitleStripped ?? pane.label ?? "shell")
+        Text(pane.displayTitle)
             .font(ChromeType.paneTitle)
             .foregroundStyle(isFocused ? theme.textStrong : theme.textDim)
             .lineLimit(1)

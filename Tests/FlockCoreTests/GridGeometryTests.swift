@@ -322,7 +322,7 @@ final class GridGeometryTests: XCTestCase {
 
     func testTheCardSaysTitleStatusPositionAndAbbreviatedCwd() throws {
         let content = try XCTUnwrap(content(p2))
-        XCTAssertEqual(content.title, "claude")
+        XCTAssertEqual(content.title, "agent-1")
         XCTAssertEqual(content.status, .working)
         XCTAssertEqual(content.statusWord, "working")
         XCTAssertEqual(content.position, "agents · pane 2 of 3")

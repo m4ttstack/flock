@@ -211,7 +211,7 @@ Socket perms 0600. `ping` returns `{version, protocol}`.
   clicking the tile (or dwelling on it 500ms mid-drag, so hidden tabs can
   still take a drop) expands that card to every tab, four per row, and the
   grid scrolls. Every pane inside a thumbnail shows its title
-  (`terminalTitleStripped ?? label`) with its agent status dot, small, and
+  (`label ?? terminalTitleStripped`: a name the user gave it wins) with its agent status dot, small, and
   nothing else, never a blank box. Hovering a pane shows a hover card with
   the full status card: title, status, tab and pane position, cwd, and the
   last line of output (`pane.read {source:"visible", lines:1}`, fetched on

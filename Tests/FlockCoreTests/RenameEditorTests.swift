@@ -33,6 +33,17 @@ final class RenameEditorTests: XCTestCase {
         ))
     }
 
+    // MARK: - Display title
+
+    /// A name the user gave a pane outranks the title its program sets, as
+    /// Claude Code does with its session summary; without one, the program's
+    /// title shows, and "shell" when there is neither.
+    func testAPanesOwnNameOutranksItsTerminalTitle() throws {
+        let panes = model().panes
+        XCTAssertEqual(try XCTUnwrap(panes[Self.pane]).displayTitle, "build")
+        XCTAssertEqual(try XCTUnwrap(panes[Self.unlabelledPane]).displayTitle, "zsh")
+    }
+
     // MARK: - Initial text
 
     func testAPaneOpensOnItsManualLabelAndNeverOnItsTerminalTitle() {
