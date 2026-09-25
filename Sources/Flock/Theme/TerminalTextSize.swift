@@ -108,28 +108,32 @@ public final class TerminalTextSizeStore {
     }
 }
 
-/// The rt modal's terminal text size, kept apart from the panes' so the
-/// modal can read larger or smaller than the canvas behind it. A type of its
-/// own so the environment can carry both stores.
+/// The rt modal's terminal text size, one per rt command and kept apart from
+/// the panes', so glitter can read smaller than nav. A type of its own so the
+/// environment can carry both stores.
 @MainActor
 @Observable
 public final class RtModalTextSizeStore {
-    public static let defaultsKey = "flock.rtModalTextSize"
+    public static func defaultsKey(for kind: RtKind) -> String { "flock.rtModalTextSize.\(kind.rawValue)" }
 
-    public private(set) var active: TerminalTextSize
-
-    public var points: Double { Double(active.points) }
+    public private(set) var sizes: [RtKind: TerminalTextSize]
 
     private let userDefaults: UserDefaults
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        let storedID = userDefaults.string(forKey: Self.defaultsKey)
-        active = storedID.flatMap(TerminalTextSize.init(rawValue:)) ?? .regular
+        sizes = Dictionary(uniqueKeysWithValues: RtKind.allCases.map { kind in
+            let storedID = userDefaults.string(forKey: Self.defaultsKey(for: kind))
+            return (kind, storedID.flatMap(TerminalTextSize.init(rawValue:)) ?? .regular)
+        })
     }
 
-    public func select(_ size: TerminalTextSize) {
-        active = size
-        userDefaults.set(size.rawValue, forKey: Self.defaultsKey)
+    public func size(for kind: RtKind) -> TerminalTextSize { sizes[kind] ?? .regular }
+
+    public func points(for kind: RtKind) -> Double { Double(size(for: kind).points) }
+
+    public func select(_ size: TerminalTextSize, for kind: RtKind) {
+        sizes[kind] = size
+        userDefaults.set(size.rawValue, forKey: Self.defaultsKey(for: kind))
     }
 }

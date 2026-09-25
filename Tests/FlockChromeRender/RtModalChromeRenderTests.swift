@@ -108,7 +108,19 @@ final class RtModalChromeRenderTests: XCTestCase {
 
     private enum Variant: String, CaseIterable {
         case nav, exited, service
+
+        var kind: RtKind {
+            switch self {
+            case .nav: .nav
+            case .exited: .run
+            case .service: .runner
+            }
+        }
     }
+
+    /// A different size per variant's command, so each modal's grid shows it
+    /// renders at its own command's size.
+    private static let textSizes: [RtKind: TerminalTextSize] = [.nav: .regular, .run: .compact, .runner: .large]
 
     /// The box is the chosen size's fraction of the tab area and centred in
     /// it; the backdrop dims the tab area by the theme's opacity; the pane
@@ -126,7 +138,7 @@ final class RtModalChromeRenderTests: XCTestCase {
     }
 
     private func checkModal(theme: Theme, size: RtModalSize, variant: Variant) async throws {
-        let window = try await hostModal(theme: theme, variant: variant, size: size).window
+        let window = try await hostModal(theme: theme, variant: variant, size: size, textSizes: Self.textSizes).window
         defer { window.close() }
         let image = try snapshot(window)
         try write(image, "rt-modal-window-\(variant.rawValue)-\(size.rawValue)-\(theme.id).png")
@@ -173,12 +185,17 @@ final class RtModalChromeRenderTests: XCTestCase {
             height: box.height - titleRow - 2 * paneInset - (variant == .exited ? stripHeight : 0)
         )
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
-        let cell = TerminalCellMetrics.cell(fontSize: RtModalTextSizeStore(userDefaults: defaults).points, scale: 2)
+        let cell = TerminalCellMetrics.cell(fontSize: RtModalTextSizeStore(userDefaults: defaults).points(for: variant.kind), scale: 2)
         XCTAssertEqual(surface.origin, area.origin, "\(label): the surface's origin")
         XCTAssertLessThanOrEqual(surface.width, area.width, "\(label): surface width")
         XCTAssertGreaterThan(surface.width, area.width - cell.width, "\(label): surface width")
         XCTAssertLessThanOrEqual(surface.height, area.height, "\(label): surface height")
         XCTAssertGreaterThan(surface.height, area.height - cell.height, "\(label): surface height")
+        // Whole cells at this command's own size. The measured frame can sit
+        // a point off; a surface fitted at another command's size misses by
+        // two or more.
+        let columns = (surface.width / cell.width).rounded()
+        XCTAssertEqual(surface.width, columns * cell.width, accuracy: 1.5, "\(label): not whole cells at \(variant.kind)'s size")
     }
 
     /// Only the backdrop closes the modal on a click, and it takes that click
@@ -304,8 +321,8 @@ final class RtModalChromeRenderTests: XCTestCase {
         viewModel.update(model: Self.model(revision: 2), connection: .live)
         await settle(window)
         XCTAssertTrue(window.firstResponder === hosted.editor, "a model change gave a rename editor's keyboard to the modal")
-        hosted.textSize.select(.large)
-        defer { hosted.textSize.select(.regular) }
+        hosted.textSize.select(.large, for: .nav)
+        defer { hosted.textSize.select(.regular, for: .nav) }
         await settle(window)
         XCTAssertTrue(window.firstResponder === hosted.editor, "an update of the modal's terminal took a rename editor's keyboard")
 
@@ -568,12 +585,17 @@ final class RtModalChromeRenderTests: XCTestCase {
     /// the modal opens at whatever a fresh store reads.
     private func hostModal(
         theme: Theme, variant: Variant, started: Bool = true, factory: any GhosttyPaneFactory = GroundSurfaceFactory(),
-        model: SessionModel? = nil, size: RtModalSize? = nil
+        model: SessionModel? = nil, size: RtModalSize? = nil, textSizes: [RtKind: TerminalTextSize] = [:]
     ) async throws -> Hosted {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
-        defaults.removeObject(forKey: RtModalTextSizeStore.defaultsKey)
+        for kind in RtKind.allCases {
+            defaults.removeObject(forKey: RtModalTextSizeStore.defaultsKey(for: kind))
+        }
         defaults.removeObject(forKey: RtModalSizeStore.defaultsKey)
         let textSize = RtModalTextSizeStore(userDefaults: defaults)
+        for (kind, points) in textSizes {
+            textSize.select(points, for: kind)
+        }
         let modalSize = RtModalSizeStore(userDefaults: defaults)
         if let size {
             modalSize.select(size)

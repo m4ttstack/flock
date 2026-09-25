@@ -1,9 +1,10 @@
+import FlockCore
 import SwiftUI
 
-/// View menu pickers for the three fixed terminal point sizes, one for the
-/// panes and one for the rt modal, each with a checkmark on its active size.
-/// Cmd-plus and Cmd-minus step the modal's size while it is up and the
-/// panes' otherwise, stopping at either end.
+/// View menu pickers for the three fixed terminal point sizes: one for the
+/// panes and one per rt command's modal, each with a checkmark on its active
+/// size. Cmd-plus and Cmd-minus step the shown modal's size while one is up
+/// and the panes' otherwise, stopping at either end.
 ///
 /// The step items are never disabled: a disabled item lets its key through to
 /// the focused ghostty surface. Their actions read the stores when pressed,
@@ -11,7 +12,7 @@ import SwiftUI
 struct TerminalTextSizeMenu: View {
     let panes: TerminalTextSizeStore
     let modal: RtModalTextSizeStore
-    let modalIsUp: () -> Bool
+    let shownModalKind: () -> RtKind?
 
     var body: some View {
         Menu("Terminal Text") {
@@ -23,14 +24,18 @@ struct TerminalTextSizeMenu: View {
                 picker(active: panes.active, select: panes.select)
             }
             Section("rt Modal") {
-                picker(active: modal.active, select: modal.select)
+                ForEach(RtKind.allCases, id: \.self) { kind in
+                    Menu("rt \(kind.rawValue)") {
+                        picker(active: modal.size(for: kind)) { modal.select($0, for: kind) }
+                    }
+                }
             }
         }
     }
 
     private func step(_ direction: KeyPath<TerminalTextSize, TerminalTextSize?>) {
-        if modalIsUp() {
-            if let next = modal.active[keyPath: direction] { modal.select(next) }
+        if let kind = shownModalKind() {
+            if let next = modal.size(for: kind)[keyPath: direction] { modal.select(next, for: kind) }
         } else {
             if let next = panes.active[keyPath: direction] { panes.select(next) }
         }
