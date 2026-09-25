@@ -5,7 +5,8 @@ import SwiftUI
 /// Takes ↑ ↓ ⌃P ⌃N Return and Esc while the palette is up, before the search
 /// field or a pane sees them.
 struct PaletteKeyMonitor: NSViewRepresentable {
-    /// A rename editor's keys are its own.
+    /// A rename editor's keys are its own. Covers the frame between the
+    /// editor appearing and MainWindow closing the palette.
     let editorIsOpen: Bool
     let onDecision: (PaletteKey.Decision) -> Void
 

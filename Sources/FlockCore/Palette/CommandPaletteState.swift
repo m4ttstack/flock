@@ -1,4 +1,3 @@
-import Foundation
 import Observation
 
 /// Whether the palette is up, what is typed, and which row is selected. The
@@ -30,10 +29,6 @@ public final class CommandPaletteState {
 
     public func move(_ delta: Int, rowCount: Int) {
         selection = clamped(selection + delta, rowCount: rowCount)
-    }
-
-    public func select(_ index: Int, rowCount: Int) {
-        selection = clamped(index, rowCount: rowCount)
     }
 
     public func clampSelection(rowCount: Int) {
