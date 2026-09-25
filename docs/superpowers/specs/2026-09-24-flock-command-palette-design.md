@@ -45,13 +45,13 @@ then ALL COMMANDS lists the rest grouped by namespace in the order rt, pane,
 chat, mouse, view, tab, workspace, each group in its source list's order. A
 command in RECENT is not repeated in ALL COMMANDS. The first row is selected.
 
-**Typing.** One fuzzy search over "namespace name hint" (`rt glitter Git
-status`, `pane Split Right`), in the manner of VS Code's command mode: there is no
+**Typing.** One fuzzy search over "namespace name hint" (`rt glitter Review
+and commit`, `pane Split Right`), in the manner of VS Code's command mode: there is no
 prefix syntax, the namespace is simply part of what is matched, so `rt`
 narrows to rt and `rt gl` finds glitter. Results are one list without
 sections, ranked by match quality with a small boost for commands run
 recently. The characters of the name that matched draw in the theme accent;
-a match in the hint alone still finds the row (`git` finds glitter).
+a match in the hint alone still finds the row (`commit` finds glitter).
 
 **Running.** ↑ and ↓, or ⌃P and ⌃N, move the selection; it does not wrap.
 Return or a click runs the selected command and closes the palette. A
@@ -76,7 +76,7 @@ Every one runs on Return with no second choice.
 
 | Namespace | Commands |
 |---|---|
-| rt | nav, glitter, run, runner, each named by its verb with the rt popover's title as a hint: Browse files, Git status, Run a script…, Start runner or Show runner |
+| rt | nav, glitter, run, runner, each named by its verb with the rt popover's own row title as its hint, read from `RtPopoverModel.commands` so the two never disagree (today: Browse files, Review and commit, Run a script…, Start runner or Show runner) |
 | pane | Split Right, Split Down, Close Pane, Zoom Pane, Rename Pane, Focus / Move / Swap Pane Left, Right, Up, Down |
 | chat | Chat Panel, Broadcast to Panes…, Chat Peek, Quick Send…, Open Viewer, Sign In This Pane, Sign Out This Pane |
 | mouse | one row, titled for what it will do: Send Right-Clicks to Program, or Give Right-Clicks to Flock |
