@@ -21,7 +21,7 @@ struct RtModalView: View {
                 let scale = displayScale > 0 ? displayScale : 2
                 let frame = Self.boxFrame(
                     in: proxy.size, origin: proxy.frame(in: .global).origin, scale: scale,
-                    fraction: Metrics.sizeFraction(modalSizeStore.active)
+                    fraction: Metrics.sizeFraction(modalSizeStore.size(for: item.kind))
                 )
                 ZStack(alignment: .topLeading) {
                     backdrop
@@ -66,8 +66,8 @@ struct RtModalView: View {
         return VStack(spacing: 0) {
             RtModalTitleRow(
                 theme: theme, title: item.modalTitle(home: NSHomeDirectory()),
-                showsBackToRunner: modal.serviceTabID != nil, size: modalSizeStore.active,
-                onBack: back, onSize: { modalSizeStore.select($0) }, onClose: close
+                showsBackToRunner: modal.serviceTabID != nil, size: modalSizeStore.size(for: item.kind),
+                onBack: back, onSize: { modalSizeStore.select($0, for: item.kind) }, onClose: close
             )
             // A service is never typed into: only the item's own pane waits
             // for its command.

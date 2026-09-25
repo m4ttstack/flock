@@ -251,7 +251,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         let (window, viewModel, store) = (hosted.window, hosted.viewModel, hosted.modalSize)
         defer { window.close() }
         let border = Theme(.tokyoNight).palette.chromeRoles.paneBorder.hex
-        XCTAssertEqual(store.active, .medium, "the modal did not open at Medium")
+        XCTAssertEqual(store.size(for: .nav), .medium, "the modal did not open at Medium")
 
         var shown = RtModalSize.medium
         for size in [RtModalSize.small, .large, .medium] {
@@ -262,9 +262,10 @@ final class RtModalChromeRenderTests: XCTestCase {
             shown = size
 
             XCTAssertNotNil(viewModel.rt.modal, "the \(size.rawValue) button closed the modal")
-            XCTAssertEqual(store.active, size, "the \(size.rawValue) button did not change the size")
+            XCTAssertEqual(store.size(for: .nav), size, "the \(size.rawValue) button did not change the size")
+            XCTAssertEqual(store.size(for: .glitter), .medium, "the \(size.rawValue) button on nav resized glitter")
             let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
-            XCTAssertEqual(RtModalSizeStore(userDefaults: defaults).active, size, "\(size.rawValue) was not remembered")
+            XCTAssertEqual(RtModalSizeStore(userDefaults: defaults).size(for: .nav), size, "\(size.rawValue) was not remembered")
             let box = StandIn.box(in: window, size: size)
             let image = try snapshot(window)
             XCTAssertEqual(hex(image, at: CGPoint(x: box.minX + 0.25, y: box.midY)), border, "\(size.rawValue): left edge")
@@ -590,15 +591,16 @@ final class RtModalChromeRenderTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
         for kind in RtKind.allCases {
             defaults.removeObject(forKey: RtModalTextSizeStore.defaultsKey(for: kind))
+            defaults.removeObject(forKey: RtModalSizeStore.defaultsKey(for: kind))
         }
-        defaults.removeObject(forKey: RtModalSizeStore.defaultsKey)
+        defaults.removeObject(forKey: RtModalSizeStore.legacyDefaultsKey)
         let textSize = RtModalTextSizeStore(userDefaults: defaults)
         for (kind, points) in textSizes {
             textSize.select(points, for: kind)
         }
         let modalSize = RtModalSizeStore(userDefaults: defaults)
         if let size {
-            modalSize.select(size)
+            modalSize.select(size, for: variant.kind)
         }
         let viewModel = SessionViewModel(client: OfflineClient(), ghosttyFactory: factory)
         if let model {

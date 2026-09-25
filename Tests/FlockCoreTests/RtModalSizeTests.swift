@@ -1,8 +1,8 @@
 import XCTest
 @testable import FlockCore
 
-/// The rt modal's size is chosen on the modal and kept across modals and
-/// launches; a flock that was never told opens it at Medium.
+/// The rt modal's size is chosen on the modal, per rt command, and kept
+/// across modals and launches; a flock that was never told opens it at Medium.
 final class RtModalSizeTests: XCTestCase {
     private let suiteName = "dev.mattstack.flock.rt-modal-size-tests"
 
@@ -23,19 +23,39 @@ final class RtModalSizeTests: XCTestCase {
     }
 
     @MainActor
-    func testAFreshStoreOpensAtMedium() throws {
-        XCTAssertEqual(RtModalSizeStore(userDefaults: try makeDefaults()).active, .medium)
+    func testAFreshStoreOpensEveryCommandAtMedium() throws {
+        let store = RtModalSizeStore(userDefaults: try makeDefaults())
+        for kind in RtKind.allCases {
+            XCTAssertEqual(store.size(for: kind), .medium, "\(kind)")
+        }
     }
 
     @MainActor
-    func testAChosenSizeSurvivesTheNextLaunch() throws {
+    func testEachCommandKeepsItsOwnSizeAcrossLaunches() throws {
         let suite = try makeDefaults()
-        for size in [RtModalSize.small, .large] {
-            let store = RtModalSizeStore(userDefaults: suite)
-            store.select(size)
-            XCTAssertEqual(store.active, size)
-            XCTAssertEqual(RtModalSizeStore(userDefaults: suite).active, size, "\(size) was not kept")
-        }
+        let store = RtModalSizeStore(userDefaults: suite)
+        store.select(.small, for: .glitter)
+        store.select(.large, for: .runner)
+
+        let relaunched = RtModalSizeStore(userDefaults: suite)
+        XCTAssertEqual(relaunched.size(for: .glitter), .small)
+        XCTAssertEqual(relaunched.size(for: .runner), .large)
+        XCTAssertEqual(relaunched.size(for: .nav), .medium, "sizing glitter moved nav")
+        XCTAssertEqual(relaunched.size(for: .run), .medium, "sizing runner moved run")
+    }
+
+    /// The one size every modal shared before is where each command starts,
+    /// until it is sized on its own.
+    @MainActor
+    func testTheSharedSizeFromBeforeSeedsEachCommand() throws {
+        let suite = try makeDefaults()
+        suite.set(RtModalSize.large.rawValue, forKey: RtModalSizeStore.legacyDefaultsKey)
+        let store = RtModalSizeStore(userDefaults: suite)
+        store.select(.small, for: .glitter)
+
+        let relaunched = RtModalSizeStore(userDefaults: suite)
+        XCTAssertEqual(relaunched.size(for: .nav), .large)
+        XCTAssertEqual(relaunched.size(for: .glitter), .small)
     }
 
     /// A size written by some other build of flock is not a reason to open
@@ -43,7 +63,8 @@ final class RtModalSizeTests: XCTestCase {
     @MainActor
     func testASizeThisBuildDoesNotKnowOpensAtMedium() throws {
         let suite = try makeDefaults()
-        suite.set("huge", forKey: RtModalSizeStore.defaultsKey)
-        XCTAssertEqual(RtModalSizeStore(userDefaults: suite).active, .medium)
+        suite.set("huge", forKey: RtModalSizeStore.legacyDefaultsKey)
+        suite.set("huge", forKey: RtModalSizeStore.defaultsKey(for: .nav))
+        XCTAssertEqual(RtModalSizeStore(userDefaults: suite).size(for: .nav), .medium)
     }
 }
