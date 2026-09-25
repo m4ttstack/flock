@@ -628,6 +628,8 @@ final class RtModalChromeRenderTests: XCTestCase {
             .environment(textSize)
             .environment(modalSize)
             .environment(OptionAsAltStore(userDefaults: defaults))
+            .environment(CommandPaletteState())
+            .environment(PaletteRecentsStore(userDefaults: defaults))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: StandIn.size), styleMask: [.borderless],
             backing: .buffered, defer: false

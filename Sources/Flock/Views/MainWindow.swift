@@ -58,6 +58,7 @@ struct MainWindow: View {
                     // undimmed. The grid needs none: the modal opens from a
                     // pane's rt button, which the grid does not show.
                     .overlay { RtModalView(theme: theme, viewModel: viewModel) }
+                    .overlay { CommandPaletteView(theme: theme, viewModel: viewModel) }
                 }
             }
         }

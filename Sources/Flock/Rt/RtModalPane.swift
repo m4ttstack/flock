@@ -27,6 +27,7 @@ struct RtModalPane: View {
     let onFocus: () -> Void
 
     @Environment(OptionAsAltStore.self) private var optionAsAltStore
+    @Environment(CommandPaletteState.self) private var commandPalette
     @State private var surface: (any GhosttyPaneSurface)?
     /// The time the loader rule reads: set when the view appears and again
     /// when the ceiling passes, the one input that changes with time alone.
@@ -53,7 +54,8 @@ struct RtModalPane: View {
         // re-asserts its claim on the keyboard on every update, so it has to
         // hear an editor open, and a body that skips this read is one that an
         // editor's opening never invalidates.
-        let editorIsOpen = viewModel.renameEditorIsOnScreen
+        let paletteIsOpen = commandPalette.isOpen
+        let editorIsOpen = viewModel.renameEditorIsOnScreen || paletteIsOpen
         let covered = coversPane(at: clock)
         return ZStack(alignment: .topLeading) {
             theme.terminalGround

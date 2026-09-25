@@ -78,6 +78,7 @@ struct PaneCellView: View {
     @Environment(ChatStore.self) private var chatStore
     @Environment(OptionAsAltStore.self) private var optionAsAltStore
     @Environment(DividerDragCoordinator.self) private var dividerDrag
+    @Environment(CommandPaletteState.self) private var commandPalette
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
@@ -183,7 +184,8 @@ struct PaneCellView: View {
         // On SCREEN, not merely open: a target outlives its view whenever
         // herdr's focus moves to another workspace or tab, and yielding to a
         // view nobody draws would leave the keyboard with nobody at all.
-        let editorIsOpen = viewModel.renameEditorIsOnScreen
+        let paletteIsOpen = commandPalette.isOpen
+        let editorIsOpen = viewModel.renameEditorIsOnScreen || paletteIsOpen
         return cell(editorIsOpen: editorIsOpen)
             // The origin stays put and fades while its ghost is out, so the
             // drop target is read against the layout the drag started from.

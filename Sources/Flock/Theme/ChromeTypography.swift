@@ -92,6 +92,13 @@ enum ChromeType {
     static let rtModalBack = inter(11, .medium)
     static let rtModalStrip = inter(11, .medium)
     static let rtModalClose = Font.system(size: 11, weight: .medium)
+    static let paletteSearch = inter(14)
+    static let paletteName = inter(13)
+    static let paletteNameSelected = inter(13, .medium)
+    static let paletteShortcut = inter(12)
+    static let paletteBadge = inter(10.5, .semibold)
+    static let paletteSection = inter(10, .semibold)
+    static let paletteFooter = inter(11)
     static let emptyCanvas = inter(15.5)
     static let rearrangeSymbol = Font.system(size: 28, weight: .semibold)
 

@@ -11,6 +11,7 @@ struct RtModalView: View {
 
     @Environment(RtModalTextSizeStore.self) private var textSizeStore
     @Environment(RtModalSizeStore.self) private var modalSizeStore
+    @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(\.displayScale) private var displayScale
 
     private typealias Metrics = ChromeMetrics.RtModal
@@ -100,8 +101,11 @@ struct RtModalView: View {
                 .shadow(color: .black.opacity(Metrics.shadowOpacity), radius: Metrics.shadowRadius, y: Metrics.shadowY)
         }
         // The sidebar stays live under the modal, so a rename editor can be
-        // open there, and the keys typed into it are not the strip's.
-        .background(RtModalKeyMonitor(stripShown: item.strip != nil && !viewModel.renameEditorIsOnScreen, onClose: close))
+        // open there, and the keys typed into it are not the strip's; nor
+        // are the palette's, which can open over the modal.
+        .background(RtModalKeyMonitor(
+            stripShown: item.strip != nil && !viewModel.renameEditorIsOnScreen && !commandPalette.isOpen, onClose: close
+        ))
     }
 
     /// Every hidden rt tab holds one pane. Until the model has the tab the

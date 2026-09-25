@@ -152,6 +152,8 @@ private struct Harness {
     let dividerDrag: DividerDragCoordinator
     let chatStore: ChatStore
     let optionAsAlt: OptionAsAltStore
+    let palette = CommandPaletteState()
+    let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
 
     init() async throws {
@@ -174,6 +176,7 @@ private struct Harness {
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
         optionAsAlt = OptionAsAltStore(userDefaults: defaults)
+        paletteRecents = PaletteRecentsStore(userDefaults: defaults)
         // No chat binary, same as a machine without one: a latency run does
         // not exercise the chat button at all.
         chatStore = ChatStore(toasts: ToastCenter(), probe: { nil }, makeRunner: { _ in fatalError("no verb runs") })
@@ -208,6 +211,8 @@ private struct Harness {
             .environment(dividerDrag)
             .environment(chatStore)
             .environment(optionAsAlt)
+            .environment(palette)
+            .environment(paletteRecents)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

@@ -2972,6 +2972,95 @@ final class ChromeRenderTests: XCTestCase {
         walk(root)
         return found
     }
+
+    /// The palette over the window, empty and with a typed query, in both
+    /// themes: its ground, a selected first row, and the match highlight.
+    func testThePaletteDrawsOverTheTabAreaWithItsRowsAndHighlight() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            harness.palette.open()
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let empty = try snapshot(window)
+            harness.palette.query = "rearr"
+            await settle(window)
+            let typed = try snapshot(window)
+            if let directory {
+                for (name, image) in [("empty", empty), ("typed", typed)] {
+                    let url = URL(fileURLWithPath: directory).appendingPathComponent("palette-\(name)-\(id).png")
+                    try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+                }
+            }
+            let rows = try paletteRows(harness)
+            XCTAssertNotNil(firstPixel(empty, in: rows, matching: theme.palette.chromeRoles.selection.hex), "\(id): no selected row")
+            XCTAssertNotNil(
+                firstPixel(typed, in: firstRowName(harness), near: theme.palette.accent.hex, within: Self.glyphEdgeTolerance),
+                "\(id): no highlighted letters"
+            )
+            window.close()
+        }
+    }
+
+    /// A click on a row runs it and closes the palette first.
+    func testClickingARowRunsItAndClosesThePalette() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        harness.palette.open()
+        harness.palette.query = "rearrange"
+        let window = harness.makeWindow(size: Self.windowSize)
+        window.makeKeyAndOrderFront(nil)
+        await settle(window)
+        let image = try snapshot(window)
+        let row = try XCTUnwrap(
+            firstPixel(image, in: try paletteRows(harness), matching: Theme.tokyoNight.palette.chromeRoles.selection.hex)
+        )
+        click(window, at: row)
+        await settle(window)
+        XCTAssertFalse(harness.palette.isOpen)
+        XCTAssertTrue(harness.rearrange.isToggled)
+        XCTAssertEqual(harness.paletteRecents.ids.first, "view.rearrangemode")
+        window.close()
+    }
+
+    /// How far a glyph's inner pixels may sit from its fill colour: 13pt text
+    /// antialiases, so few of its pixels land on the exact hex.
+    private static let glyphEdgeTolerance = 12
+
+    /// Below the palette's search row and right of the rail, so neither the
+    /// rail's selected workspace nor a selected tab (both in the selection
+    /// colour) can be what a probe finds first.
+    private func paletteRows(_ harness: Harness) throws -> CGRect {
+        let left = try XCTUnwrap(harness.drag.canvas.paneFrames.values.map(\.minX).min())
+        let top = ChromeMetrics.TitleBar.height + ChromeMetrics.Palette.top + ChromeMetrics.Palette.searchHeight
+        return CGRect(x: left, y: top, width: Self.windowSize.width - left, height: 400 - top)
+    }
+
+    /// Where the first row's name starts: the box is centred on the tab
+    /// area, and the name follows the list and row padding, the badge and
+    /// the gap.
+    private func firstRowName(_ harness: Harness) -> CGRect {
+        typealias Metrics = ChromeMetrics.Palette
+        let rail = harness.railWidth.width
+        let boxLeft = rail + (Self.windowSize.width - rail - Metrics.width) / 2
+        let name = boxLeft + Metrics.listPadding + Metrics.rowPadding + Metrics.badgeSize.width + Metrics.rowGap
+        let top = ChromeMetrics.TitleBar.height + Metrics.top + Metrics.searchHeight + Metrics.listPadding
+        return CGRect(x: name - 4, y: top, width: 60, height: Metrics.rowHeight + 4)
+    }
+
+    private func firstPixel(_ image: NSBitmapImageRep, in rect: CGRect, near target: String, within tolerance: Int) -> CGPoint? {
+        var y = rect.minY
+        while y <= rect.maxY {
+            var x = rect.minX
+            while x <= rect.maxX {
+                let sample = hex(image, CGPoint(x: x, y: y))
+                if sample != "?", channelDistance(sample, target) <= tolerance { return CGPoint(x: x, y: y) }
+                x += 0.5
+            }
+            y += 0.5
+        }
+        return nil
+    }
 }
 
 @MainActor
@@ -2989,6 +3078,8 @@ private struct Harness {
     let dividerDrag: DividerDragCoordinator
     let chatStore: ChatStore
     let optionAsAlt: OptionAsAltStore
+    let palette = CommandPaletteState()
+    let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
 
     init(
@@ -3034,6 +3125,7 @@ private struct Harness {
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
         optionAsAlt = OptionAsAltStore(userDefaults: defaults)
+        paletteRecents = PaletteRecentsStore(userDefaults: defaults)
         chatStore = ChatStore(
             toasts: ToastCenter(),
             probe: { chatAvailable ? "/usr/bin/true" : nil },
@@ -3080,6 +3172,8 @@ private struct Harness {
             .environment(dividerDrag)
             .environment(chatStore)
             .environment(optionAsAlt)
+            .environment(palette)
+            .environment(paletteRecents)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

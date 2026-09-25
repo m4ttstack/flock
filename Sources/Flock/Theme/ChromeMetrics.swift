@@ -1,5 +1,6 @@
 import CoreGraphics
 import FlockCore
+import SwiftUI
 
 /// The window chrome's fixed dimensions, shared by the SwiftUI chrome and the
 /// AppKit title bar so the window buttons center on the same bar the views
@@ -872,5 +873,30 @@ enum ChromeMetrics {
         static let verticalPadding: CGFloat = 3
         static let clearanceAlongHandle: CGFloat = 18
         static let clearanceAboveHandle: CGFloat = 20
+    }
+
+    /// The command palette over the tab area.
+    enum Palette {
+        static let width: CGFloat = 520
+        static let top: CGFloat = 44
+        static let cornerRadius: CGFloat = 10
+        static let shadowRadius: CGFloat = 16
+        static let shadowY: CGFloat = 12
+        static let shadowOpacity: Double = 0.35
+        static let searchHeight: CGFloat = 44
+        static let searchPadding: CGFloat = 14
+        static let searchGap: CGFloat = 10
+        static let searchIcon: CGFloat = 15
+        static let listPadding: CGFloat = 6
+        static let rowHeight: CGFloat = 32
+        static let rowPadding: CGFloat = 8
+        static let rowGap: CGFloat = 10
+        static let rowCornerRadius: CGFloat = 6
+        static let badgeSize = CGSize(width: 44, height: 18)
+        static let badgeCornerRadius: CGFloat = 4
+        static let sectionPadding = EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8)
+        static let footerHeight: CGFloat = 30
+        static let footerGap: CGFloat = 14
+        static let maxListHeight: CGFloat = 360
     }
 }
