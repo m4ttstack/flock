@@ -27,10 +27,12 @@ struct CommandPaletteView: View {
                 in: .current(viewModel: viewModel, chatStore: chatStore, rtInstalled: rtInstalled)
             )
             let rows = PaletteRanking.rows(commands: entries.map(\.command), query: state.query, recents: recents.ids)
-            ZStack(alignment: .top) {
-                scrim
-                box(rows: rows, entries: entries)
-                    .padding(.top, Metrics.top)
+            GeometryReader { proxy in
+                ZStack(alignment: .top) {
+                    scrim
+                    box(rows: rows, entries: entries)
+                        .padding(.top, Metrics.top(inTabAreaHeight: proxy.size.height))
+                }
             }
             .background(PaletteKeyMonitor(editorIsOpen: viewModel.renameEditorIsOnScreen) { decision in
                 handle(decision, rows: rows, entries: entries)

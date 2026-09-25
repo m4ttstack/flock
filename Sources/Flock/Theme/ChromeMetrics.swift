@@ -878,7 +878,7 @@ enum ChromeMetrics {
     /// The command palette over the tab area.
     enum Palette {
         static let width: CGFloat = 520
-        static let top: CGFloat = 44
+        static let minTop: CGFloat = 12
         static let cornerRadius: CGFloat = 10
         static let shadowRadius: CGFloat = 16
         static let shadowY: CGFloat = 12
@@ -901,5 +901,16 @@ enum ChromeMetrics {
         /// Cuts the empty-search list's last visible row about half way, the
         /// cue that it scrolls.
         static let maxListHeight: CGFloat = 344
+
+        /// An empty search, the list at its maximum.
+        static var fullHeight: CGFloat { searchHeight + maxListHeight + footerHeight + 2 * ChromeMetrics.ruleWidth }
+
+        /// Where the box's top sits in the tab area: the full-height box
+        /// centred in the pane area below the tab strip. The top stays there
+        /// as a search shortens the list, so the box does not jump as you type.
+        static func top(inTabAreaHeight height: CGFloat) -> CGFloat {
+            let paneArea = height - ChromeMetrics.Strip.height
+            return ChromeMetrics.Strip.height + max(minTop, (paneArea - fullHeight) / 2)
+        }
     }
 }

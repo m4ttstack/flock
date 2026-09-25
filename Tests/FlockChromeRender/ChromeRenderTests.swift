@@ -2977,6 +2977,28 @@ final class ChromeRenderTests: XCTestCase {
         return found
     }
 
+    /// Where the palette box's top lands in the window: the root is taller
+    /// than `windowSize` by the system title bar, so the tab area is read
+    /// from the window rather than worked out from the size asked for.
+    private func paletteTop(_ window: NSWindow) -> CGFloat {
+        let height = window.contentView?.bounds.height ?? Self.windowSize.height
+        return ChromeMetrics.TitleBar.height + ChromeMetrics.Palette.top(inTabAreaHeight: height - ChromeMetrics.TitleBar.height)
+    }
+
+    /// The full-height palette (an empty search, the list at its maximum) is
+    /// centred in the pane area below the tab strip, and never rides up
+    /// under the strip in a short window.
+    func testTheFullHeightPaletteIsCentredInThePaneArea() {
+        let metrics = ChromeMetrics.Palette.self
+        let tabArea: CGFloat = 800
+        let top = metrics.top(inTabAreaHeight: tabArea)
+        let paneArea = tabArea - ChromeMetrics.Strip.height
+        let above = top - ChromeMetrics.Strip.height
+        let below = paneArea - above - metrics.fullHeight
+        XCTAssertEqual(above, below, accuracy: 0.5)
+        XCTAssertEqual(metrics.top(inTabAreaHeight: 300), ChromeMetrics.Strip.height + metrics.minTop)
+    }
+
     /// The palette over the window, empty and with a typed query, in both
     /// themes: its ground, a selected first row, and the match highlight.
     func testThePaletteDrawsOverTheTabAreaWithItsRowsAndHighlight() async throws {
@@ -2997,10 +3019,10 @@ final class ChromeRenderTests: XCTestCase {
                     try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
                 }
             }
-            let rows = try paletteRows(harness)
+            let rows = try paletteRows(harness, window)
             XCTAssertNotNil(firstPixel(empty, in: rows, matching: theme.palette.chromeRoles.selection.hex), "\(id): no selected row")
             XCTAssertNotNil(
-                firstPixel(typed, in: firstRowName(harness), near: theme.palette.accent.hex, within: Self.glyphEdgeTolerance),
+                firstPixel(typed, in: firstRowName(harness, window), near: theme.palette.accent.hex, within: Self.glyphEdgeTolerance),
                 "\(id): no highlighted letters"
             )
             window.close()
@@ -3017,7 +3039,7 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
         let image = try snapshot(window)
         let row = try XCTUnwrap(
-            firstPixel(image, in: try paletteRows(harness), matching: Theme.tokyoNight.palette.chromeRoles.selection.hex)
+            firstPixel(image, in: try paletteRows(harness, window), matching: Theme.tokyoNight.palette.chromeRoles.selection.hex)
         )
         click(window, at: row)
         await settle(window)
@@ -3075,7 +3097,7 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
             }
             let fill = ChromeRoles.isLight(panelBg: theme.palette.panelBg) ? theme.palette.surface1.hex : theme.palette.surface0.hex
-            let badge = firstRowBadge(harness)
+            let badge = firstRowBadge(harness, window)
             var inked: [CGFloat] = []
             var y = badge.minY + ChromeMetrics.Palette.badgeCornerRadius
             while y <= badge.maxY - ChromeMetrics.Palette.badgeCornerRadius {
@@ -3155,7 +3177,7 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
             }
             let x = paletteBoxLeft(harness) + Metrics.width * 0.7
-            let top = ChromeMetrics.TitleBar.height + Metrics.top + Metrics.searchHeight
+            let top = paletteTop(window) + Metrics.searchHeight
             let rowTop = try XCTUnwrap(
                 firstPixel(image, in: CGRect(x: x, y: top, width: 0, height: Metrics.maxListHeight), matching: theme.palette.chromeRoles.selection.hex),
                 "\(id): no selected first row"
@@ -3236,10 +3258,10 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// The first row's badge, with no section label above it (a typed query).
-    private func firstRowBadge(_ harness: Harness) -> CGRect {
+    private func firstRowBadge(_ harness: Harness, _ window: NSWindow) -> CGRect {
         typealias Metrics = ChromeMetrics.Palette
         let left = paletteBoxLeft(harness) + Metrics.listPadding + Metrics.rowPadding
-        let rowTop = ChromeMetrics.TitleBar.height + Metrics.top + Metrics.searchHeight + ChromeMetrics.ruleWidth + Metrics.listPadding
+        let rowTop = paletteTop(window) + Metrics.searchHeight + ChromeMetrics.ruleWidth + Metrics.listPadding
         let top = rowTop + (Metrics.rowHeight - Metrics.badgeSize.height) / 2
         return CGRect(x: left, y: top, width: Metrics.badgeSize.width, height: Metrics.badgeSize.height)
     }
@@ -3251,21 +3273,21 @@ final class ChromeRenderTests: XCTestCase {
     /// Below the palette's search row and right of the rail, so neither the
     /// rail's selected workspace nor a selected tab (both in the selection
     /// colour) can be what a probe finds first.
-    private func paletteRows(_ harness: Harness) throws -> CGRect {
+    private func paletteRows(_ harness: Harness, _ window: NSWindow) throws -> CGRect {
         let left = try XCTUnwrap(harness.drag.canvas.paneFrames.values.map(\.minX).min())
-        let top = ChromeMetrics.TitleBar.height + ChromeMetrics.Palette.top + ChromeMetrics.Palette.searchHeight
+        let top = paletteTop(window) + ChromeMetrics.Palette.searchHeight
         return CGRect(x: left, y: top, width: Self.windowSize.width - left, height: 400 - top)
     }
 
     /// Where the first row's name starts: the box is centred on the tab
     /// area, and the name follows the list and row padding, the badge and
     /// the gap.
-    private func firstRowName(_ harness: Harness) -> CGRect {
+    private func firstRowName(_ harness: Harness, _ window: NSWindow) -> CGRect {
         typealias Metrics = ChromeMetrics.Palette
         let rail = harness.railWidth.width
         let boxLeft = rail + (Self.windowSize.width - rail - Metrics.width) / 2
         let name = boxLeft + Metrics.listPadding + Metrics.rowPadding + Metrics.badgeSize.width + Metrics.rowGap
-        let top = ChromeMetrics.TitleBar.height + Metrics.top + Metrics.searchHeight + Metrics.listPadding
+        let top = paletteTop(window) + Metrics.searchHeight + Metrics.listPadding
         return CGRect(x: name - 4, y: top, width: 60, height: Metrics.rowHeight + 4)
     }
 

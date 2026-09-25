@@ -95,8 +95,10 @@ which needs a target; Undo and Redo.
 Canvas: `docs/design/palette/palette-dark.png` and `palette-light.png`
 (from the Pen canvas `flock rt.pen`).
 
-- **Box:** 520 wide, 44 below the top of the tab area, horizontally centred
-  in it. Fill `theme.chrome`, 1pt `theme.rule` stroke, r10, clipped. Shadow
+- **Box:** 520 wide, horizontally centred in the tab area. Its top sits where
+  the full-height box (an empty search, the list at its maximum) is centred in
+  the pane area below the tab strip, never less than 12 below the strip, and
+  stays there as a search shortens the list. Fill `theme.chrome`, 1pt `theme.rule` stroke, r10, clipped. Shadow
   black at 35%, offset y 12, blur 32.
 - **Scrim** over the tab area, the rt modal's.
 - **Search row:** 44 tall, pad 0/14, gap 10: a 15pt magnifier in
