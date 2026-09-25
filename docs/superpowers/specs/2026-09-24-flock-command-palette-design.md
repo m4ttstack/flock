@@ -108,7 +108,8 @@ Canvas: `docs/design/palette/palette-dark.png` and `palette-light.png`
   name at weight 500. In order: the badge, the name at 13 in
   `theme.textStrong`, a spacer, then at 12 in `theme.textLabel` the shortcut
   when there is one, else the hint when there is one (the rt rows).
-- **Badge:** 44x18, r4, one neutral style for every namespace: fill
+- **Badge:** 64x18 (the widest namespace word, "workspace", is 56pt at
+  10.5/600), r4, one neutral style for every namespace: fill
   `palette.surface0` in a dark theme and `palette.surface1` in a light one
   (surface0 is too close to a light chrome to read), text at 10.5/600 in
   `theme.textLabel`, centred. No per-namespace colour.

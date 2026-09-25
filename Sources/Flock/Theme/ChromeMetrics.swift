@@ -892,11 +892,14 @@ enum ChromeMetrics {
         static let rowPadding: CGFloat = 8
         static let rowGap: CGFloat = 10
         static let rowCornerRadius: CGFloat = 6
-        static let badgeSize = CGSize(width: 44, height: 18)
+        /// As wide as the widest namespace word, "workspace".
+        static let badgeSize = CGSize(width: 64, height: 18)
         static let badgeCornerRadius: CGFloat = 4
         static let sectionPadding = EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8)
         static let footerHeight: CGFloat = 30
         static let footerGap: CGFloat = 14
-        static let maxListHeight: CGFloat = 360
+        /// Cuts the empty-search list's last visible row about half way, the
+        /// cue that it scrolls.
+        static let maxListHeight: CGFloat = 344
     }
 }

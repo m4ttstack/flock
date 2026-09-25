@@ -18,6 +18,8 @@ struct CommandPaletteView: View {
     var rtInstalled = RtAvailability.installed
 
     private typealias Metrics = ChromeMetrics.Palette
+    /// Never a command id: no namespace is "flock".
+    private static let listTop = "flock.palette.list-top"
 
     var body: some View {
         if state.isOpen {
@@ -115,16 +117,16 @@ struct CommandPaletteView: View {
                         }
                     }
                     .padding(Metrics.listPadding)
+                    .id(Self.listTop)
                 }
-                // A legacy scroller's gutter would pull the shortcut column in
-                // from the box's edge whenever the list overflows.
-                .scrollIndicators(.never)
+                .scrollIndicators(.automatic)
                 .frame(maxHeight: Metrics.maxListHeight)
                 .fixedSize(horizontal: false, vertical: true)
                 .onChange(of: state.selection) { _, _ in
                     guard let index = state.selectedIndex(rowCount: rows.count) else { return }
                     proxy.scrollTo(rows[index].id)
                 }
+                .onChange(of: state.query) { _, _ in proxy.scrollTo(Self.listTop, anchor: .top) }
             }
         }
     }
@@ -141,6 +143,7 @@ struct CommandPaletteView: View {
         HStack(spacing: Metrics.rowGap) {
             Text(row.command.namespace.rawValue)
                 .font(ChromeType.paletteBadge)
+                .lineLimit(1)
                 .foregroundStyle(theme.textLabel)
                 .frame(width: Metrics.badgeSize.width, height: Metrics.badgeSize.height)
                 .background(RoundedRectangle(cornerRadius: Metrics.badgeCornerRadius).fill(badgeFill))

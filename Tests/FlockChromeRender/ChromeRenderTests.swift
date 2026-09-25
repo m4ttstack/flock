@@ -3055,6 +3055,195 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// The badge is as wide as the widest namespace word, so "workspace"
+    /// draws whole rather than tail-truncated.
+    func testThePaletteBadgeDrawsTheWholeNamespaceWord() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let font = try XCTUnwrap(NSFont(name: ChromeType.Weight.semibold.postScriptName, size: 10.5))
+        let word = NSAttributedString(string: PaletteNamespace.workspace.rawValue, attributes: [.font: font]).size().width
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            harness.palette.open()
+            harness.palette.query = "new work"
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            XCTAssertEqual(rankedRows(harness).first?.command.namespace, .workspace, "\(id): New Workspace is not the first row")
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("palette-badge-\(id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let fill = ChromeRoles.isLight(panelBg: theme.palette.panelBg) ? theme.palette.surface1.hex : theme.palette.surface0.hex
+            let badge = firstRowBadge(harness)
+            var inked: [CGFloat] = []
+            var y = badge.minY + ChromeMetrics.Palette.badgeCornerRadius
+            while y <= badge.maxY - ChromeMetrics.Palette.badgeCornerRadius {
+                var x = badge.minX + 1
+                while x <= badge.maxX - 1 {
+                    let sample = hex(image, CGPoint(x: x, y: y))
+                    if sample != "?", channelDistance(sample, fill) > 30 { inked.append(x) }
+                    x += 0.5
+                }
+                y += 0.5
+            }
+            let drawn = (inked.max() ?? 0) - (inked.min() ?? 0)
+            XCTAssertGreaterThan(drawn, word - 4, "\(id): the badge draws \(drawn)pt of a \(word)pt word")
+            window.close()
+        }
+    }
+
+    /// ↓ moves the selection and Return runs the selected row, through the
+    /// palette's key monitor rather than a click.
+    func testArrowDownThenReturnRunsTheSecondRow() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        harness.palette.open()
+        harness.palette.query = "re"
+        let window = harness.makeWindow(size: Self.windowSize)
+        window.makeKeyAndOrderFront(nil)
+        await settle(window)
+        let rows = rankedRows(harness)
+        XCTAssertGreaterThanOrEqual(rows.count, 2)
+        XCTAssertEqual(rows.dropFirst().first?.command.id, "view.rearrangemode")
+        press(window, keyCode: 125, characters: String(UnicodeScalar(NSDownArrowFunctionKey)!))
+        await settle(window)
+        XCTAssertEqual(harness.palette.selection, 1)
+        XCTAssertTrue(harness.palette.isOpen)
+        press(window, keyCode: 36, characters: "\r")
+        await settle(window)
+        XCTAssertFalse(harness.palette.isOpen)
+        XCTAssertTrue(harness.rearrange.isToggled)
+        XCTAssertEqual(harness.paletteRecents.ids, ["view.rearrangemode"])
+        window.close()
+    }
+
+    /// Return with no rows runs nothing and keeps the palette up; Esc closes it.
+    func testReturnWithNoMatchesRunsNothingAndEscCloses() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        harness.palette.open()
+        harness.palette.query = "zzqqxx"
+        let window = harness.makeWindow(size: Self.windowSize)
+        window.makeKeyAndOrderFront(nil)
+        await settle(window)
+        XCTAssertTrue(rankedRows(harness).isEmpty)
+        press(window, keyCode: 36, characters: "\r")
+        await settle(window)
+        XCTAssertTrue(harness.palette.isOpen)
+        XCTAssertTrue(harness.paletteRecents.ids.isEmpty)
+        XCTAssertFalse(harness.rearrange.isToggled)
+        press(window, keyCode: 53, characters: "\u{1B}")
+        await settle(window)
+        XCTAssertFalse(harness.palette.isOpen)
+        XCTAssertTrue(harness.paletteRecents.ids.isEmpty)
+        window.close()
+    }
+
+    /// The empty-search list stops part way through a row, so a list longer
+    /// than the box reads as one that scrolls.
+    func testTheEmptyListCutsItsLastVisibleRow() async throws {
+        typealias Metrics = ChromeMetrics.Palette
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            harness.palette.open()
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("palette-fold-\(id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let x = paletteBoxLeft(harness) + Metrics.width * 0.7
+            let top = ChromeMetrics.TitleBar.height + Metrics.top + Metrics.searchHeight
+            let rowTop = try XCTUnwrap(
+                firstPixel(image, in: CGRect(x: x, y: top, width: 0, height: Metrics.maxListHeight), matching: theme.palette.chromeRoles.selection.hex),
+                "\(id): no selected first row"
+            ).y
+            let listBottom = try XCTUnwrap(
+                firstPixel(
+                    image, in: CGRect(x: x, y: rowTop + Metrics.rowHeight, width: 0, height: Metrics.maxListHeight),
+                    matching: theme.palette.chromeRoles.rule.hex
+                ),
+                "\(id): no rule under the list"
+            ).y
+            let pitch = Metrics.rowHeight + 1
+            let visible = listBottom - rowTop
+            let cut = visible.truncatingRemainder(dividingBy: pitch)
+            XCTAssertGreaterThan(rankedRows(harness).count, Int(visible / pitch) + 1, "\(id): the list does not overflow")
+            XCTAssertGreaterThan(cut, pitch * 0.3, "\(id): the last visible row shows only \(cut)pt")
+            XCTAssertLessThan(cut, pitch * 0.7, "\(id): the last visible row shows \(cut)pt, nearly whole")
+            window.close()
+        }
+    }
+
+    /// A query change scrolls the list back to its first row, so typing after
+    /// a scroll never leaves row 0 above the fold.
+    func testTypingScrollsTheListBackToItsFirstRow() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        harness.palette.open()
+        let window = harness.makeWindow(size: Self.windowSize)
+        await settle(window)
+        let scroll = try XCTUnwrap(paletteScrollView(in: window))
+        let document = try XCTUnwrap(scroll.documentView)
+        XCTAssertTrue(document.isFlipped)
+        let start = scroll.contentView.bounds.origin.y
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: start + 40))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        await settle(window)
+        XCTAssertGreaterThan(scroll.contentView.bounds.origin.y - start, 20, "the list did not scroll")
+        harness.palette.query = "e"
+        await settle(window)
+        XCTAssertGreaterThan(CGFloat(rankedRows(harness).count) * (ChromeMetrics.Palette.rowHeight + 1), ChromeMetrics.Palette.maxListHeight + 40)
+        let after = try XCTUnwrap(paletteScrollView(in: window))
+        XCTAssertEqual(after.contentView.bounds.origin.y, start, accuracy: 1, "row 0 is left above the fold")
+        window.close()
+    }
+
+    /// The rows the palette shows for the harness's current query, built the
+    /// way `CommandPaletteView` builds them.
+    private func rankedRows(_ harness: Harness) -> [PaletteRanking.Row] {
+        let entries = PaletteCatalog.entries(
+            in: .current(viewModel: harness.viewModel, chatStore: harness.chatStore, rtInstalled: RtAvailability.installed)
+        )
+        return PaletteRanking.rows(commands: entries.map(\.command), query: harness.palette.query, recents: harness.paletteRecents.ids)
+    }
+
+    private func paletteScrollView(in window: NSWindow) -> NSScrollView? {
+        guard let root = window.contentView else { return nil }
+        func find(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView, abs(scroll.frame.width - ChromeMetrics.Palette.width) < 2 { return scroll }
+            for child in view.subviews {
+                if let found = find(child) { return found }
+            }
+            return nil
+        }
+        return find(root)
+    }
+
+    private func press(_ window: NSWindow, keyCode: UInt16, characters: String) {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode
+        ) else { return }
+        NSApplication.shared.sendEvent(event)
+    }
+
+    private func paletteBoxLeft(_ harness: Harness) -> CGFloat {
+        let rail = harness.railWidth.width
+        return rail + (Self.windowSize.width - rail - ChromeMetrics.Palette.width) / 2
+    }
+
+    /// The first row's badge, with no section label above it (a typed query).
+    private func firstRowBadge(_ harness: Harness) -> CGRect {
+        typealias Metrics = ChromeMetrics.Palette
+        let left = paletteBoxLeft(harness) + Metrics.listPadding + Metrics.rowPadding
+        let rowTop = ChromeMetrics.TitleBar.height + Metrics.top + Metrics.searchHeight + ChromeMetrics.ruleWidth + Metrics.listPadding
+        let top = rowTop + (Metrics.rowHeight - Metrics.badgeSize.height) / 2
+        return CGRect(x: left, y: top, width: Metrics.badgeSize.width, height: Metrics.badgeSize.height)
+    }
+
     /// How far a glyph's inner pixels may sit from its fill colour: 13pt text
     /// antialiases, so few of its pixels land on the exact hex.
     private static let glyphEdgeTolerance = 12
