@@ -31,19 +31,14 @@ struct MouseModeButton: View {
         .buttonStyle(.plain)
         .disabled(onToggle == nil)
         .onHover { isHovering = $0 }
-        .delayedTip(theme, lines: tip)
+        .delayedTip(tip, shortcut: "⌥⌘M")
         .accessibilityLabel("Right-clicks")
         .accessibilityValue(mode == .menu ? "flock's menu" : "the program")
         .accessibilityIdentifier("flock.pane.mouseBadge.\(paneID.rawValue)")
     }
 
-    private var tip: [String] {
-        switch mode {
-        case .menu:
-            ["Right-clicks open flock's menu", "⌥-right-click goes to the program", "Click or ⌥⌘M to send them to the program"]
-        case .program, .programOnly:
-            ["Right-clicks go to the program", "⌥-right-click opens flock's menu", "Click or ⌥⌘M to give them back to flock"]
-        }
+    private var tip: String {
+        mode == .menu ? "Right-clicks open flock's menu" : "Right-clicks go to the program"
     }
 }
 

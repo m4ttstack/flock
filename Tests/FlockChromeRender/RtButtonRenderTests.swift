@@ -205,10 +205,8 @@ final class RtButtonRenderTests: XCTestCase {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for theme in [Theme(.tokyoNight), try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })] {
-            let tip = DelayedTipLabel(theme: theme, lines: [
-                "Right-clicks open flock's menu", "⌥-right-click goes to the program", "Click or ⌥⌘M to send them to the program",
-            ])
-            let window = host(tip, theme: theme, size: CGSize(width: 300, height: 90))
+            let tip = DelayedTipLabel(text: "Right-clicks go to the program", shortcut: "⌥⌘M")
+            let window = host(tip, theme: theme, size: CGSize(width: 280, height: 50))
             await settle(window)
             defer { window.close() }
             let image = try snapshot(window)
@@ -216,9 +214,36 @@ final class RtButtonRenderTests: XCTestCase {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("delayed-tip-\(theme.id).png")
                 try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
             }
-            let ground = hex(image, at: point(3, 30))
-            XCTAssertLessThanOrEqual(channelDistance(ground, theme.palette.surface1.hex), 3, "\(theme.id): the tip's ground is \(ground)")
+            let ground = hex(image, at: point(3, 12))
+            XCTAssertLessThanOrEqual(channelDistance(ground, "#121212"), 3, "\(theme.id): the tip's ground is \(ground)")
         }
+    }
+
+    /// A shown tip hangs below its control and never covers it.
+    func testAShownTipHangsBelowItsControl() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = Theme(.tokyoNight)
+        let control = CGSize(width: 31, height: PaneChrome.titleRowHeight)
+        let view = HStack {
+            Spacer()
+            RoundedRectangle(cornerRadius: 4).fill(Color(theme.palette.surface0))
+                .frame(width: control.width, height: control.height)
+                .modifier(TipBelow(isShown: true, text: "Right-clicks go to the program", shortcut: "⌥⌘M"))
+        }
+        .frame(width: 260)
+        let window = host(view, theme: theme, size: CGSize(width: 280, height: 70))
+        await settle(window)
+        defer { window.close() }
+        let image = try snapshot(window)
+        if let directory {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("delayed-tip-placed.png")
+            try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+        }
+        let controlMid = point(260 - control.width / 2, control.height / 2)
+        XCTAssertEqual(hex(image, at: controlMid), theme.palette.surface0.hex, "the tip covers its control")
+        let below = point(260 - 4, control.height + ChromeMetrics.DelayedTip.gap + 4)
+        XCTAssertLessThanOrEqual(channelDistance(hex(image, at: below), "#121212"), 3, "no tip below the control")
     }
 
     private func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {

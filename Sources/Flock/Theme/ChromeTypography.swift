@@ -134,7 +134,7 @@ enum ChromeType {
     static let attentionToastGlyph = Font.system(size: 10, weight: .semibold)
     static let copiedSymbol = Font.system(size: 14, weight: .medium)
     static let copiedMessage = inter(13)
-    static let delayedTip = inter(11.5)
+    static let delayedTip = inter(12)
 
     /// Sized from the control's own metric: the glyph and the box it sits in
     /// are one control, and two numbers for it drift apart.

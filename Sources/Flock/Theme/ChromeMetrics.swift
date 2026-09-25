@@ -496,12 +496,13 @@ enum ChromeMetrics {
     /// A tip drawn in the view tree, for controls over a pane.
     enum DelayedTip {
         static let delay: Duration = .milliseconds(1000)
-        static let gap: CGFloat = 4
-        static let horizontalPadding: CGFloat = 8
-        static let verticalPadding: CGFloat = 6
-        static let lineSpacing: CGFloat = 2
-        static let cornerRadius: CGFloat = 5
-        static let shadowRadius: CGFloat = 4
+        static let gap: CGFloat = 5
+        static let horizontalPadding: CGFloat = 9
+        static let verticalPadding: CGFloat = 5
+        static let cornerRadius: CGFloat = 6
+        static let shortcutGap: CGFloat = 8
+        static let shortcutOpacity: Double = 0.55
+        static let groundWhite: Double = 0.07
     }
 
     /// The legend controls' hover wash: the theme's text colour at this

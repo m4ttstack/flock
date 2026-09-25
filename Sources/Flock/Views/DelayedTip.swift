@@ -1,49 +1,60 @@
+import FlockCore
 import SwiftUI
 
 /// A tooltip drawn in the view tree: `.help` cannot be delayed, and a system
-/// tip never shows over a pane, whose terminal surface owns the pointer.
+/// tip never shows over a pane, whose terminal surface owns the pointer. One
+/// line, and an optional shortcut after it in a dimmer weight.
 struct DelayedTipLabel: View {
-    let theme: Theme
-    let lines: [String]
+    let text: String
+    var shortcut: String?
 
     private typealias Metrics = ChromeMetrics.DelayedTip
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.lineSpacing) {
-            ForEach(lines, id: \.self) { line in
-                Text(line)
-                    .font(ChromeType.delayedTip)
-                    .foregroundStyle(theme.textStrong)
-                    .fixedSize()
+        HStack(spacing: Metrics.shortcutGap) {
+            Text(text).foregroundStyle(.white)
+            if let shortcut {
+                Text(shortcut).foregroundStyle(.white.opacity(Metrics.shortcutOpacity))
             }
         }
+        .font(ChromeType.delayedTip)
+        .fixedSize()
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
-        .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(Color(theme.palette.surface1)))
-        .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius).strokeBorder(Color(theme.palette.overlay0).opacity(0.5)))
-        .shadow(color: .black.opacity(0.25), radius: Metrics.shadowRadius, y: 1)
+        .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(Color(white: Metrics.groundWhite)))
         .allowsHitTesting(false)
     }
 }
 
+/// Where a shown tip hangs: below a control one title row tall, its trailing
+/// edge flush with the control's. The legend sits at a pane's right edge, and
+/// a tip centred under it would run past the window.
+struct TipBelow: ViewModifier {
+    let isShown: Bool
+    let text: String
+    let shortcut: String?
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .topTrailing) {
+            if isShown {
+                DelayedTipLabel(text: text, shortcut: shortcut)
+                    .offset(y: PaneChrome.titleRowHeight + ChromeMetrics.DelayedTip.gap)
+                    .transition(.opacity)
+            }
+        }
+    }
+}
+
 private struct DelayedTip: ViewModifier {
-    let theme: Theme
-    let lines: [String]
+    let text: String
+    let shortcut: String?
     @State private var isHovering = false
     @State private var isShown = false
 
     func body(content: Content) -> some View {
         content
             .onHover { isHovering = $0 }
-            // Hangs below the control's trailing edge, so it opens into the
-            // pane rather than past the window's right side.
-            .overlay(alignment: .bottomTrailing) {
-                if isShown {
-                    DelayedTipLabel(theme: theme, lines: lines)
-                        .alignmentGuide(.bottom) { $0[.top] - ChromeMetrics.DelayedTip.gap }
-                        .transition(.opacity)
-                }
-            }
+            .modifier(TipBelow(isShown: isShown, text: text, shortcut: shortcut))
             .task(id: isHovering) {
                 guard isHovering else {
                     isShown = false
@@ -57,7 +68,8 @@ private struct DelayedTip: ViewModifier {
 }
 
 extension View {
-    func delayedTip(_ theme: Theme, lines: [String]) -> some View {
-        modifier(DelayedTip(theme: theme, lines: lines))
+    /// For a control one title row tall; the tip hangs just below it.
+    func delayedTip(_ text: String, shortcut: String? = nil) -> some View {
+        modifier(DelayedTip(text: text, shortcut: shortcut))
     }
 }
