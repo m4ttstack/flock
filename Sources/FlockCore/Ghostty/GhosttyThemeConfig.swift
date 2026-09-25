@@ -118,6 +118,13 @@ public enum GhosttyThemeConfig {
             // read first (`Vendor/ghostty/src/Surface.zig`'s
             // `startClipboardRequest`).
             + "clipboard-read = deny\n"
+            // flock owns the font size: it sizes the cell grid it asks herdr
+            // for. ghostty's default zoom keys would resize a surface under
+            // that grid whenever the View menu lets one of them through.
+            + "keybind = super+==unbind\n"
+            + "keybind = super+plus=unbind\n"
+            + "keybind = super+-=unbind\n"
+            + "keybind = super+0=unbind\n"
             + "command = shell:\(command)\n"
     }
 

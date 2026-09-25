@@ -439,7 +439,7 @@ struct FlockApp: App {
             CommandGroup(after: .sidebar) {
                 ThemeMenu(themeStore: themeStore)
                 TerminalTextSizeMenu(
-                    panes: terminalTextSizeStore, modal: rtModalTextSizeStore, modalIsUp: viewModel.rt.modal != nil
+                    panes: terminalTextSizeStore, modal: rtModalTextSizeStore, modalIsUp: { viewModel.rt.modal != nil }
                 )
                 OptionAsAltMenu(store: optionAsAltStore)
                 ScrollSpeedMenu(store: scrollSpeedStore)
