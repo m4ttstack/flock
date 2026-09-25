@@ -3069,6 +3069,59 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// More workspaces than fit: the box keeps its margins, draws no scroll
+    /// bar, and scrolls the selection into view at the far end of the list.
+    func testALongSwitcherListKeepsItsMarginsAndItsSelectionInView() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        var model = try Fixture.model()
+        for index in 1...20 {
+            let workspace = WorkspaceID(rawValue: "x\(index)")
+            let tab = TabID(rawValue: "x\(index):t1")
+            model.workspaces.append(WorkspaceRecord(
+                workspaceID: workspace, label: "acme-\(index)", number: model.workspaces.count + 1,
+                activeTabID: tab, agentStatus: .idle
+            ))
+            model.tabs[workspace] = [TabRecord(
+                tabID: tab, workspaceID: workspace, label: "main", number: 1, paneCount: 1, agentStatus: .idle
+            )]
+        }
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme, model: model)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let workspaces = try XCTUnwrap(harness.viewModel.model?.workspaces.map(\.workspaceID))
+            XCTAssertTrue(harness.switcher.begin(workspaces: workspaces, current: harness.viewModel.selectedWorkspaceID, reverse: true))
+            harness.switcher.show(session: harness.switcher.session)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("switcher-long-\(id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let tabArea = try XCTUnwrap(window.contentView?.bounds.height) - ChromeMetrics.TitleBar.height
+            let top = ChromeMetrics.Switcher.top(inTabAreaHeight: tabArea, rowCount: workspaces.count)
+            XCTAssertGreaterThanOrEqual(top, ChromeMetrics.Strip.height + ChromeMetrics.Switcher.margin - 0.5, "\(id): the box rides into its top margin")
+            let listTop = ChromeMetrics.TitleBar.height + top
+            let listHeight = ChromeMetrics.Switcher.maxListHeight(inTabAreaHeight: tabArea)
+            let rail = harness.railWidth.width
+            let x = rail + (Self.windowSize.width - rail) / 2 + ChromeMetrics.Switcher.width / 4
+            let selected = try XCTUnwrap(
+                firstPixel(image, in: CGRect(x: x, y: listTop, width: 0, height: listHeight), matching: theme.palette.chromeRoles.selection.hex),
+                "\(id): the last row's selection is not in view"
+            )
+            XCTAssertGreaterThan(selected.y, listTop + listHeight / 2, "\(id): the list did not scroll to its last row")
+            let boxRight = rail + (Self.windowSize.width - rail + ChromeMetrics.Switcher.width) / 2
+            let rowEnd = CGPoint(x: boxRight - ChromeMetrics.Palette.listPadding - 3, y: selected.y + ChromeMetrics.Palette.rowHeight / 2)
+            XCTAssertLessThanOrEqual(
+                channelDistance(hex(image, rowEnd), theme.palette.chromeRoles.selection.hex), 6, "\(id): a scroll gutter cuts the row short"
+            )
+            let belowRow = CGPoint(x: x, y: selected.y + ChromeMetrics.Palette.rowHeight + 2)
+            XCTAssertNotEqual(hex(image, belowRow), theme.palette.chromeRoles.rule.hex, "\(id): the last row sits on the footer rule")
+            window.close()
+        }
+    }
+
     /// A click on a row runs it and closes the palette first.
     func testClickingARowRunsItAndClosesThePalette() async throws {
         let harness = try await Harness(theme: .tokyoNight)

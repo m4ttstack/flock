@@ -22,7 +22,7 @@ struct WorkspaceSwitcherView: View {
                 GeometryReader { proxy in
                     ZStack(alignment: .top) {
                         scrim
-                        box(rows: rows)
+                        box(rows: rows, maxListHeight: ChromeMetrics.Switcher.maxListHeight(inTabAreaHeight: proxy.size.height))
                             .padding(.top, ChromeMetrics.Switcher.top(inTabAreaHeight: proxy.size.height, rowCount: rows.count))
                     }
                 }
@@ -67,7 +67,7 @@ struct WorkspaceSwitcherView: View {
             .onTapGesture { switcher.cancel() }
     }
 
-    private func box(rows: [WorkspaceRecord]) -> some View {
+    private func box(rows: [WorkspaceRecord], maxListHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -82,11 +82,11 @@ struct WorkspaceSwitcherView: View {
                     }
                     .padding(Metrics.listPadding)
                 }
-                .scrollIndicators(.automatic)
-                .frame(maxHeight: Metrics.maxListHeight)
+                .scrollIndicators(.never)
+                .frame(maxHeight: maxListHeight)
                 .fixedSize(horizontal: false, vertical: true)
                 .onChange(of: switcher.selection, initial: true) { _, _ in
-                    if let id = switcher.selected { proxy.scrollTo(id) }
+                    if let id = switcher.selected { proxy.scrollTo(id, anchor: .center) }
                 }
             }
             Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
