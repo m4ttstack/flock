@@ -25,6 +25,10 @@ Uses [libghostty](https://github.com/ghostty-org/ghostty) under the hood.
 
 Please excuse my dust, this project is in continual development as I refine things!
 
+Known issues:
+
+- Flock owns the pane size when it's open, so if you access your herdr panes via Moshi or other stuff like that, it might be wonky. Close flock before you do that and it will work as expected.
+
 ## Requirements
 
 - macOS 15 or later on Apple silicon
