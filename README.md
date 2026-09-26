@@ -4,7 +4,7 @@
 
 # Flock
 
-A native macOS window onto your [herdr](https://github.com/herdrdev/herdr) session: every workspace, tab and pane live, in real terminals you can drag around.
+A native macOS window onto your [herdr](https://github.com/herdrdev/herdr) session.
 
 [![Latest release](https://img.shields.io/github/v/release/m4ttstack/flock?label=download)](https://github.com/m4ttstack/flock/releases/latest)
 [![Build and test](https://github.com/m4ttstack/flock/actions/workflows/tests.yml/badge.svg)](https://github.com/m4ttstack/flock/actions/workflows/tests.yml)
