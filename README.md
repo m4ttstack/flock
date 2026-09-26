@@ -19,29 +19,26 @@ carries on exactly as before.
 
 ## Features
 
-- **The whole session, live.** Workspaces in the sidebar, tabs across the top,
-  panes laid out the way herdr has them, each one a real terminal you can type
-  into.
-- **Drag to rearrange.** Move panes between tabs by the grip in their title
-  row, reorder tabs and workspaces, drag dividers to resize. Moves can be
-  undone.
-- **Agent status at a glance.** Workspaces, tabs and panes carry herdr's status
-  dot: working, waiting on you, finished.
-- **A dock for what needs you.** When an agent finishes or asks a question, a
-  card appears at the foot of the sidebar. Click it to jump to the pane; it
-  clears itself once the pane is seen or the question answered.
-- **All Workspaces.** A grid of every workspace at once, for finding the pane
-  that just went quiet.
-- **Command palette.** <kbd>⌘</kbd><kbd>K</kbd> searches everything Flock can
-  do, each command with its shortcut. <kbd>⌃</kbd><kbd>Tab</kbd> switches
-  workspaces, most recent first.
-- **One key to an agent.** A new pane offers buttons for the coding agents on
-  your `PATH` (Claude Code, Codex), and <kbd>⌘</kbd><kbd>1</kbd> to
-  <kbd>⌘</kbd><kbd>3</kbd> press them.
-- **Themes.** Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, One Dark,
-  Solarized, and their light variants.
-- **Updates itself.** Release builds update in place with
-  [Sparkle](https://sparkle-project.org).
+Flock is built for running a lot of agents at once without losing track of
+them.
+
+- See which agents need you. Every workspace, tab and pane shows herdr's
+  status dot (working, waiting on you, done). When an agent finishes or asks a
+  question, a card shows up in the sidebar; click it or press
+  <kbd>⌘</kbd><kbd>J</kbd> to jump straight to that pane.
+- Rearrange with the mouse. Drag panes between tabs and workspaces, reorder
+  tabs, resize splits, and undo any of it with <kbd>⌘</kbd><kbd>Z</kbd>.
+- Real terminals. Each pane runs on libghostty, the engine behind Ghostty, and
+  you type into it like any other terminal.
+- Get around from the keyboard. <kbd>⌘</kbd><kbd>K</kbd> opens a palette of
+  every command, <kbd>⌃</kbd><kbd>Tab</kbd> flips between workspaces, and
+  <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> shows every workspace in one grid.
+- Start agents quickly. A new pane has buttons for Claude Code and Codex
+  (plus rt cd if you use rt), each on a <kbd>⌘</kbd>-number key.
+
+It also ships the usual themes (Tokyo Night, Catppuccin, Dracula, Nord,
+Gruvbox, One Dark, Solarized, light and dark) and updates itself with
+[Sparkle](https://sparkle-project.org).
 
 ## Requirements
 
