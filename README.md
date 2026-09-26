@@ -144,7 +144,7 @@ herdr does not expose yet is best raised with herdr first.
 Flock is under the [Business Source License 1.1](LICENSE): free to use,
 including at work, as long as you do not offer it or a derivative as a
 commercial terminal emulator, terminal multiplexer or remote-session client.
-On 2030-09-20 it becomes MIT. Parts of Flock derive from
+On 2030-09-20 it becomes MIT. Parts of Flock were inspired by
 [Herdglass](https://github.com/buldezir/Herdglass), which carries the same
 terms, and it builds on Ghostty, Sparkle and Inter.
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) has the details and every
