@@ -28,6 +28,8 @@ Please excuse my dust, this project is in continual development as I refine thin
 Known issues:
 
 - Flock owns the pane size when it's open, so if you access your herdr panes via Moshi or other stuff like that, it might be wonky. Close flock before you do that and it will work as expected.
+- Deliberately chose not to re-create herdr's "agents" area in the sidebar as it's too noisy for my taste : )
+
 
 ## Requirements
 
