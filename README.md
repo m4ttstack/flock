@@ -23,6 +23,8 @@ Also includes:
 
 Uses [libghostty](https://github.com/ghostty-org/ghostty) under the hood.
 
+Please excuse my dust, this project is in continual development as I refine things!
+
 ## Requirements
 
 - macOS 15 or later on Apple silicon
