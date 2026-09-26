@@ -11,33 +11,17 @@ A native macOS window onto your [herdr](https://github.com/herdrdev/herdr) sessi
 
 </div>
 
-herdr is a terminal multiplexer built for running coding agents side by side.
-Flock sits beside it rather than replacing it: it mirrors the session you
-already have, renders each pane with [libghostty](https://github.com/ghostty-org/ghostty),
-and turns rearranging that session into drag and drop. Quit Flock and herdr
-carries on exactly as before.
+A Mac app for using herdr. Flock let's you drag and drop anything you see to move or rearrange. Also offers a workspaces view to re-arrange even across workspaces. Flock supports keyboard nav and improves how you interact with your herdr notifications, too.
 
-## Features
+Also includes:
 
-herdr already keeps sessions alive, splits panes and tracks which agents are
-working or blocked. Flock adds what a Mac app can do on top of that:
+- a workspace switcher inspired by MacOS CMD + Tab
+- Themes
+- Mouse mode toggles
+- Command palette
+- Quick start keys on a new pane
 
-- A queue of agents that need you. Each finished agent or open question
-  becomes a card in the sidebar that survives a relaunch. Click one, or press
-  <kbd>⌘</kbd><kbd>J</kbd> to take the oldest, and it clears once you've seen
-  the pane.
-- Every workspace on one screen. <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> shows
-  all of them live in a grid, for spotting the one that went quiet.
-- Drag panes between tabs and workspaces, and undo the move with
-  <kbd>⌘</kbd><kbd>Z</kbd>.
-- A command palette (<kbd>⌘</kbd><kbd>K</kbd>) with every command and its
-  shortcut, and a <kbd>⌃</kbd><kbd>Tab</kbd> switcher that orders workspaces
-  by when you last used them.
-- One key to start an agent. A new pane has buttons for Claude Code and Codex
-  (plus rt cd if you use rt), each on a <kbd>⌘</kbd>-number key.
-- A native terminal per pane, drawn by libghostty, with Mac copy and paste,
-  text sizing and themes (Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox,
-  One Dark, Solarized, light and dark).
+Uses [libghostty](https://github.com/ghostty-org/ghostty) under the hood.
 
 ## Requirements
 
@@ -65,16 +49,6 @@ a different session, launch Flock with `HERDR_SOCKET_PATH` set:
 ```bash
 HERDR_SOCKET_PATH=~/.config/herdr/sessions/work/herdr.sock open -a Flock
 ```
-
-Things to try first:
-
-- Click a workspace in the sidebar, then a tab, then a pane, and type.
-- Drag a workspace up or down the sidebar, or a tab along the tab strip.
-- Drag a pane by the dots at the top of its title row and drop it on another
-  tab. Or press <kbd>⌘</kbd><kbd>R</kbd> for rearrange mode, where dragging
-  anywhere in a pane moves it.
-- Press <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> for All Workspaces.
-- Start an agent in a workspace you are not looking at, and watch the dock.
 
 ### Keyboard shortcuts
 
