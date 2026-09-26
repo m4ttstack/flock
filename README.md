@@ -19,26 +19,25 @@ carries on exactly as before.
 
 ## Features
 
-Flock is built for running a lot of agents at once without losing track of
-them.
+herdr already keeps sessions alive, splits panes and tracks which agents are
+working or blocked. Flock adds what a Mac app can do on top of that:
 
-- See which agents need you. Every workspace, tab and pane shows herdr's
-  status dot (working, waiting on you, done). When an agent finishes or asks a
-  question, a card shows up in the sidebar; click it or press
-  <kbd>⌘</kbd><kbd>J</kbd> to jump straight to that pane.
-- Rearrange with the mouse. Drag panes between tabs and workspaces, reorder
-  tabs, resize splits, and undo any of it with <kbd>⌘</kbd><kbd>Z</kbd>.
-- Real terminals. Each pane runs on libghostty, the engine behind Ghostty, and
-  you type into it like any other terminal.
-- Get around from the keyboard. <kbd>⌘</kbd><kbd>K</kbd> opens a palette of
-  every command, <kbd>⌃</kbd><kbd>Tab</kbd> flips between workspaces, and
-  <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> shows every workspace in one grid.
-- Start agents quickly. A new pane has buttons for Claude Code and Codex
+- A queue of agents that need you. Each finished agent or open question
+  becomes a card in the sidebar that survives a relaunch. Click one, or press
+  <kbd>⌘</kbd><kbd>J</kbd> to take the oldest, and it clears once you've seen
+  the pane.
+- Every workspace on one screen. <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> shows
+  all of them live in a grid, for spotting the one that went quiet.
+- Drag panes between tabs and workspaces, and undo the move with
+  <kbd>⌘</kbd><kbd>Z</kbd>.
+- A command palette (<kbd>⌘</kbd><kbd>K</kbd>) with every command and its
+  shortcut, and a <kbd>⌃</kbd><kbd>Tab</kbd> switcher that orders workspaces
+  by when you last used them.
+- One key to start an agent. A new pane has buttons for Claude Code and Codex
   (plus rt cd if you use rt), each on a <kbd>⌘</kbd>-number key.
-
-It also ships the usual themes (Tokyo Night, Catppuccin, Dracula, Nord,
-Gruvbox, One Dark, Solarized, light and dark) and updates itself with
-[Sparkle](https://sparkle-project.org).
+- A native terminal per pane, drawn by libghostty, with Mac copy and paste,
+  text sizing and themes (Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox,
+  One Dark, Solarized, light and dark).
 
 ## Requirements
 
