@@ -22,8 +22,9 @@ carries on exactly as before.
 - **The whole session, live.** Workspaces in the sidebar, tabs across the top,
   panes laid out the way herdr has them, each one a real terminal you can type
   into.
-- **Drag to rearrange.** Move panes between tabs, reorder tabs and workspaces,
-  drag dividers to resize. Moves can be undone.
+- **Drag to rearrange.** Move panes between tabs by the grip in their title
+  row, reorder tabs and workspaces, drag dividers to resize. Moves can be
+  undone.
 - **Agent status at a glance.** Workspaces, tabs and panes carry herdr's status
   dot: working, waiting on you, finished.
 - **A dock for what needs you.** When an agent finishes or asks a question, a
@@ -31,8 +32,12 @@ carries on exactly as before.
   clears itself once the pane is seen or the question answered.
 - **All Workspaces.** A grid of every workspace at once, for finding the pane
   that just went quiet.
-- **One click to an agent.** A new pane offers buttons for the coding agents on
-  your `PATH` (Claude Code, Codex).
+- **Command palette.** <kbd>⌘</kbd><kbd>K</kbd> searches everything Flock can
+  do, each command with its shortcut. <kbd>⌃</kbd><kbd>Tab</kbd> switches
+  workspaces, most recent first.
+- **One key to an agent.** A new pane offers buttons for the coding agents on
+  your `PATH` (Claude Code, Codex), and <kbd>⌘</kbd><kbd>1</kbd> to
+  <kbd>⌘</kbd><kbd>3</kbd> press them.
 - **Themes.** Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, One Dark,
   Solarized, and their light variants.
 - **Updates itself.** Release builds update in place with
@@ -58,7 +63,8 @@ From then on Flock checks for updates by itself and installs them quietly.
 
 Start herdr the way you normally do, then open Flock. It attaches to your
 default herdr session (`~/.config/herdr/herdr.sock`) and shows it straight
-away. To open a different session, launch Flock with `HERDR_SOCKET_PATH` set:
+away. If herdr is not running, Flock offers a **Start herdr** button. To open
+a different session, launch Flock with `HERDR_SOCKET_PATH` set:
 
 ```bash
 HERDR_SOCKET_PATH=~/.config/herdr/sessions/work/herdr.sock open -a Flock
@@ -68,9 +74,9 @@ Things to try first:
 
 - Click a workspace in the sidebar, then a tab, then a pane, and type.
 - Drag a workspace up or down the sidebar, or a tab along the tab strip.
-- Press <kbd>⌘</kbd><kbd>R</kbd> for rearrange mode, where dragging a pane moves
-  it instead of selecting text. Drop it on another tab, then press
-  <kbd>Esc</kbd>.
+- Drag a pane by the dots at the top of its title row and drop it on another
+  tab. Or press <kbd>⌘</kbd><kbd>R</kbd> for rearrange mode, where dragging
+  anywhere in a pane moves it.
 - Press <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> for All Workspaces.
 - Start an agent in a workspace you are not looking at, and watch the dock.
 
@@ -81,22 +87,29 @@ Things to try first:
 | <kbd>⌘</kbd><kbd>T</kbd> | New tab in the current workspace |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> | New workspace |
 | <kbd>⌘</kbd><kbd>K</kbd> | Command palette |
+| <kbd>⌃</kbd><kbd>Tab</kbd> | Workspace switcher (hold <kbd>⌃</kbd>, press <kbd>Tab</kbd> to step, let go to switch) |
+| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd> | Previous / next tab |
+| <kbd>⌘</kbd><kbd>1</kbd> <kbd>⌘</kbd><kbd>2</kbd> <kbd>⌘</kbd><kbd>3</kbd> | Press the focused pane's launcher buttons (rt cd, Claude, Codex) |
 | <kbd>⌘</kbd><kbd>R</kbd> | Rearrange mode (<kbd>Esc</kbd> leaves it) |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | All Workspaces |
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Focus the pane on that side |
-| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Move the focused pane that way |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Move the focused pane that way |
 | <kbd>⇧</kbd><kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Swap the focused pane with its neighbor that way |
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd>, or click a pane's mouse icon | Switch where the focused pane's plain right-clicks go: its program (the default) or the pane menu. The icon shows while the program has the mouse |
 | <kbd>⌥</kbd> + right-click | Whichever of the two a plain right-click does not get |
 | <kbd>F2</kbd> | Rename the selected workspace or tab |
 | <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / redo a move |
+| <kbd>⌘</kbd><kbd>J</kbd> | Open the oldest notification |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>K</kbd> | Clear notifications |
+| <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> | Bigger / smaller text |
 | <kbd>⌘</kbd><kbd>,</kbd> | Settings |
 
 ## Settings
 
 - **Notifications > Show in sidebar:** *Until seen* (the default), *For 5
   seconds*, or *Never*. A question from an agent stays until you answer it.
+- **Rearrange Mode > After a move:** turn rearrange mode off after a drag
+  changes the layout (the default), or keep it on.
 - **herdr > Mouse support:** herdr 0.9.1 does not pass clicks and scrolling
   through to its panes from a client like Flock. Flock carries a build of the
   same herdr version that does, and can install it for you, keeping your
@@ -105,9 +118,17 @@ Things to try first:
 ## Works with rt
 
 If you run agents with [rt](https://github.com/m4ttstack/rt), Flock picks up a
-few extras by itself: herds get their own sidebar section with progress read
-from rt, the board app's workspaces fold into a Board section, and rt chat is a
-click away. None of it is needed to use Flock with plain herdr.
+few extras by itself:
+
+- Each pane gets an rt button that opens `rt nav`, `rt glitter`, `rt run` and
+  `rt runner` in a modal over the tabs, starting in the pane's folder.
+- A new pane offers rt cd next to the agents. In a pane running Claude Code,
+  rt cd and rt nav type `/cd <path>` into Claude instead.
+- Herds get their own sidebar section with progress read from rt, and the
+  board app's workspaces fold into a Board section.
+- rt chat is a click away, with its own Chat menu.
+
+None of it is needed to use Flock with plain herdr.
 
 ## Building from source
 
