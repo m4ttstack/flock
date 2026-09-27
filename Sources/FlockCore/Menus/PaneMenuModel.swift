@@ -50,9 +50,10 @@ public struct PaneMenuEntry: Equatable, Sendable {
 /// `docs/design/PARITY.md`): Rename Pane; Clear Pane Name only while the pane
 /// carries a manual label; Swap with Focused Pane only when herdr's focus is
 /// on another pane of the SAME tab (`MoveToMenu.swapTarget`); Split Right;
-/// Split Down; Zoom; Close Pane. Labels are title case, macOS menu
-/// convention, against herdr's sentence case; the strings are paired in
-/// PARITY.md so the item set still diffs row for row.
+/// Split Down; Zoom, which reads Unzoom while the tab is zoomed; Close Pane.
+/// Labels are title case, macOS menu convention, against herdr's sentence
+/// case; the strings are paired in PARITY.md so the item set still diffs row
+/// for row.
 ///
 /// Two rows differ from herdr deliberately. "Move to..." is flock's own,
 /// the spec's keyboard/accessibility parity path for every drag outcome, and
@@ -88,7 +89,7 @@ public enum PaneMenuModel {
             label: "Split Down", action: .splitDown, accessibilityIdentifier: "flock.pane.menu.splitDown"
         ))
         entries.append(PaneMenuEntry(
-            label: "Zoom", action: .zoom, accessibilityIdentifier: "flock.pane.menu.zoom"
+            label: isZoomed(pane, model: model) ? "Unzoom" : "Zoom", action: .zoom, accessibilityIdentifier: "flock.pane.menu.zoom"
         ))
 
         let moveToEntries = MoveToMenu.entries(for: pane, model: model).map { entry in
@@ -104,6 +105,13 @@ public enum PaneMenuModel {
         ))
 
         return entries
+    }
+
+    /// herdr zooms a tab, not a pane, so every pane of a zoomed tab reads as
+    /// zoomed and its toggle unzooms.
+    public static func isZoomed(_ pane: PaneID, model: SessionModel) -> Bool {
+        guard let tab = model.panes[pane]?.tabID else { return false }
+        return model.layouts[tab]?.zoomed == true
     }
 }
 

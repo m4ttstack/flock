@@ -21,8 +21,17 @@ final class PaneMenuModelTests: XCTestCase {
 
     /// w1 has two tabs (t1 holding p1, p2 and the manually-labelled p4, plus
     /// t2 holding p3); w2 is a second, empty workspace.
-    private func canonicalFixture() -> SessionModel {
-        SessionModel(snapshot: SessionSnapshot(
+    private func canonicalFixture(zoomedTab: String? = nil) -> SessionModel {
+        let area = CellRect(x: 0, y: 0, width: 20, height: 10)
+        let layouts = zoomedTab.map { tab in
+            [LayoutSnapshot(
+                workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: tab), zoomed: true, area: area,
+                focusedPaneID: PaneID(rawValue: "w1:p1"),
+                panes: [PaneRect(paneID: PaneID(rawValue: "w1:p1"), focused: true, rect: area)],
+                splits: []
+            )]
+        } ?? []
+        return SessionModel(snapshot: SessionSnapshot(
             version: "0.9.0", protocolVersion: 22,
             focusedWorkspaceID: nil, focusedTabID: nil, focusedPaneID: nil,
             workspaces: [
@@ -40,7 +49,7 @@ final class PaneMenuModelTests: XCTestCase {
                 paneRecord("w1:p3", workspace: "w1", tab: "w1:t2"),
                 paneRecord("w1:p4", workspace: "w1", tab: "w1:t1", label: "build"),
             ],
-            layouts: []
+            layouts: layouts
         ))
     }
 
@@ -99,6 +108,20 @@ final class PaneMenuModelTests: XCTestCase {
 
         XCTAssertEqual(try XCTUnwrap(labels.firstIndex(of: "Zoom")), try XCTUnwrap(labels.firstIndex(of: "Split Down")) + 1)
         XCTAssertEqual(entries.first { $0.label == "Zoom" }?.action, .zoom)
+    }
+
+    /// The row is a toggle, so it names what it will do: every pane of a
+    /// zoomed tab offers the way back out, and a pane of another tab still
+    /// offers to zoom.
+    func testZoomRowReadsUnzoomWhileItsTabIsZoomed() throws {
+        let model = canonicalFixture(zoomedTab: "w1:t1")
+        for pane in ["w1:p1", "w1:p2"] {
+            let row = try XCTUnwrap(PaneMenuModel.entries(for: PaneID(rawValue: pane), model: model, focusedPane: nil).first { $0.action == .zoom })
+            XCTAssertEqual(row.label, "Unzoom", pane)
+            XCTAssertEqual(row.accessibilityIdentifier, "flock.pane.menu.zoom", pane)
+        }
+        let other = try XCTUnwrap(PaneMenuModel.entries(for: PaneID(rawValue: "w1:p3"), model: model, focusedPane: nil).first { $0.action == .zoom })
+        XCTAssertEqual(other.label, "Zoom")
     }
 
     /// herdr's own right-click passthrough toggle has no flock equivalent:

@@ -70,7 +70,7 @@ row.
 | Pane: `Swap with focused pane` | `Swap with Focused Pane` | `PaneMenuModel` | herdr's focus is another pane of the SAME tab |
 | Pane: `Split right` | `Split Right` | `PaneMenuModel` | always |
 | Pane: `Split down` | `Split Down` | `PaneMenuModel` | always |
-| Pane: `Zoom` | `Zoom` | `PaneMenuModel` | always |
+| Pane: `Zoom` | `Zoom` / `Unzoom` | `PaneMenuModel` | always; `Unzoom` while the tab is zoomed |
 | (none) | `Move to...` | `MoveToMenu` | flock's own: the spec's keyboard/accessibility path for every drag outcome |
 | Pane: `Use Herdr right-click menu` / `Send right-clicks to pane` | (none) | - | flock decides the disposition per click (Task 18n), so there is no per-pane mode to flip |
 | Pane: `Close pane` | `Close Pane` | `PaneMenuModel` | always |
