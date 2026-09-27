@@ -89,7 +89,7 @@ struct ChatBroadcastView: View {
                     .fill(dotColor(for: buddy.status))
                     .frame(width: ChromeMetrics.ChatBroadcast.PaneRow.dotSize, height: ChromeMetrics.ChatBroadcast.PaneRow.dotSize)
                 VStack(alignment: .leading, spacing: ChromeMetrics.ChatBroadcast.PaneRow.stackGap) {
-                    Text(buddy.handle).font(ChromeType.chatPeekHandle).foregroundStyle(theme.text)
+                    Text(buddy.displayName).font(ChromeType.chatPeekHandle).foregroundStyle(theme.text)
                     Text(location(for: buddy)).font(ChromeType.chatPeekLocation).foregroundStyle(theme.overlay0)
                 }
                 Spacer(minLength: 0)

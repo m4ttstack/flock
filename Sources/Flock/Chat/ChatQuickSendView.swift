@@ -12,19 +12,25 @@ struct ChatQuickSendView: View {
 
     @Environment(ChatStore.self) private var chatStore
     @State private var targets: [String] = []
+    @State private var labels: [String: String]
     @State private var selectedTarget: String?
     @State private var message = ""
 
     /// `previewTargets` exists only so a geometry test can measure a
     /// populated chip row without a live `ChatStore` in the environment --
     /// production call sites never pass it, and `.task` below overwrites it
-    /// with the real fetch regardless.
-    init(theme: Theme, status: ChatStatus?, onBack: @escaping () -> Void, onClose: @escaping () -> Void, previewTargets: [String]? = nil) {
+    /// with the real fetch regardless. `previewLabels` is the same for the
+    /// DM label a chip draws in place of a target's own hash.
+    init(
+        theme: Theme, status: ChatStatus?, onBack: @escaping () -> Void, onClose: @escaping () -> Void,
+        previewTargets: [String]? = nil, previewLabels: [String: String] = [:]
+    ) {
         self.theme = theme
         self.status = status
         self.onBack = onBack
         self.onClose = onClose
         self._targets = State(initialValue: previewTargets ?? [])
+        self._labels = State(initialValue: previewLabels)
         self._selectedTarget = State(initialValue: previewTargets?.first)
     }
 
@@ -47,6 +53,7 @@ struct ChatQuickSendView: View {
             guard targets.isEmpty else { return }
             guard let fetched = await chatStore.targets() else { return }
             targets = fetched.rooms + fetched.people
+            labels = fetched.labels ?? [:]
             selectedTarget = targets.first
         }
     }
@@ -97,7 +104,7 @@ struct ChatQuickSendView: View {
     func chip(_ target: String) -> some View {
         let isSelected = selectedTarget == target
         return Button(action: { selectedTarget = target }) {
-            Text(target)
+            Text(labels[target] ?? target)
                 .font(isSelected ? ChromeType.chatQuickSendChipSelected : ChromeType.chatQuickSendChipUnselected)
                 .foregroundStyle(isSelected ? Color(theme.palette.panelBg) : theme.subtext0)
                 // Refuses to compress: without this, a row packed with a
@@ -155,8 +162,8 @@ struct ChatQuickSendView: View {
     /// `canSend` is what actually enforces it. Not `private`: a test reads
     /// this directly, the same way it reads `targetBand`/`fieldBand`.
     var footerHint: String {
-        guard let handle = status?.handle, status?.signedIn == true else { return "Sign in to send" }
-        return "sent as \(handle)"
+        guard let name = status?.displayName, status?.signedIn == true else { return "Sign in to send" }
+        return "sent as \(name)"
     }
 
     private func send() {

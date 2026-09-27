@@ -24,7 +24,7 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     {"buddies":[
         {"handle":"claude","paneId":"w1:p1","status":"working","repo":"acme","branch":"docs","title":null,"unread":2,"mentions":0},
         {"handle":"codex","paneId":"w1:p2","status":"idle","repo":"repo-tools","branch":"server","title":null,"unread":0,"mentions":0},
-        {"handle":"kay","paneId":"w1:p3","status":"done","repo":"flock","branch":"phase-0","title":null,"unread":0,"mentions":0},
+        {"handle":"kay.k3f9","name":"kay","paneId":"w1:p3","status":"done","repo":"flock","branch":"phase-0","title":null,"unread":0,"mentions":0},
         {"handle":"scout","paneId":"w1:p4","status":"blocked","repo":"glance","branch":"main","title":null,"unread":5,"mentions":0}
     ],"rooms":[
         {"room":"#rt","unread":3,"mentions":0},
@@ -39,7 +39,7 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     {"buddies":[
         {"handle":"claude","paneId":"w1:p1","status":"working","repo":"acme","branch":"docs","title":null,"unread":2,"mentions":0},
         {"handle":"codex","paneId":"w1:p2","status":"idle","repo":"repo-tools","branch":"server","title":null,"unread":0,"mentions":0},
-        {"handle":"kay","paneId":"w1:p3","status":"done","repo":"flock","branch":"phase-0","title":null,"unread":0,"mentions":0},
+        {"handle":"kay.k3f9","name":"kay","paneId":"w1:p3","status":"done","repo":"flock","branch":"phase-0","title":null,"unread":0,"mentions":0},
         {"handle":"scout","paneId":"w1:p4","status":"blocked","repo":"glance","branch":"main","title":null,"unread":5,"mentions":0},
         {"handle":"ghost","paneId":"w1:p5","status":"offline","repo":null,"branch":null,"title":"away","unread":0,"mentions":0}
     ],"rooms":[
@@ -331,6 +331,106 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         }
     }
 
+    // MARK: - Identity: the name is drawn, the id never is
+
+    private static func decodeBuddy(_ json: String) -> ChatBuddy {
+        try! JSONDecoder().decode(ChatBuddy.self, from: Data(json.utf8))
+    }
+
+    private static let legacyKay = decodeBuddy(
+        #"{"handle":"kay","paneId":"w1:p3","status":"done","repo":"flock","branch":"phase-0","title":null,"unread":0,"mentions":0}"#
+    )
+    private static let mintedKay = decodeBuddy(
+        #"{"handle":"kay.k3f9","name":"kay","paneId":"w1:p3","status":"done","repo":"flock","branch":"phase-0","title":null,"unread":0,"mentions":0}"#
+    )
+    private static let unnamedKay = decodeBuddy(
+        #"{"handle":"kay.k3f9","paneId":"w1:p3","status":"done","repo":"flock","branch":"phase-0","title":null,"unread":0,"mentions":0}"#
+    )
+
+    /// A minted identity must draw exactly what a legacy identity with the
+    /// same name draws, pixel for pixel. Each pair carries its own control:
+    /// the same id with no name has to draw differently, or the comparison is
+    /// not seeing the text at all.
+    func testPeekAndBroadcastRowsDrawTheNameNeverTheId() async throws {
+        let peek = ChatPeekView(theme: Self.theme, onBack: {}, onClose: {}, onJump: { _ in })
+        let peekSize = CGSize(width: ChromeMetrics.ChatPeek.width, height: ChromeMetrics.ChatPeek.PaneRow.height)
+        let peekLegacy = try await pixels(peek.paneRow(Self.legacyKay), size: peekSize)
+        let peekMinted = try await pixels(peek.paneRow(Self.mintedKay), size: peekSize)
+        let peekUnnamed = try await pixels(peek.paneRow(Self.unnamedKay), size: peekSize)
+        XCTAssertEqual(peekMinted, peekLegacy, "a peek row drew something other than the name")
+        XCTAssertNotEqual(peekUnnamed, peekLegacy, "control: an id with no name must draw differently")
+
+        let broadcast = ChatBroadcastView(theme: Self.theme, onBack: {}, onClose: {}, previewBuddies: [])
+        let broadcastSize = CGSize(width: ChromeMetrics.ChatBroadcast.width, height: ChromeMetrics.ChatBroadcast.PaneRow.height)
+        let broadcastLegacy = try await pixels(broadcast.paneRow(Self.legacyKay), size: broadcastSize)
+        let broadcastMinted = try await pixels(broadcast.paneRow(Self.mintedKay), size: broadcastSize)
+        let broadcastUnnamed = try await pixels(broadcast.paneRow(Self.unnamedKay), size: broadcastSize)
+        XCTAssertEqual(broadcastMinted, broadcastLegacy, "a broadcast row drew something other than the name")
+        XCTAssertNotEqual(broadcastUnnamed, broadcastLegacy, "control: an id with no name must draw differently")
+    }
+
+    func testThePopoverStatusAndQuickSendFooterDrawTheNameNeverTheId() async throws {
+        let legacy = ChatStatus(handle: "kay", state: "working", pane: "w1:p3", signedIn: true, rooms: ["#rt"])
+        let minted = ChatStatus(handle: "kay.k3f9", name: "kay", state: "working", pane: "w1:p3", signedIn: true, rooms: ["#rt"])
+        let unnamed = ChatStatus(handle: "kay.k3f9", state: "working", pane: "w1:p3", signedIn: true, rooms: ["#rt"])
+
+        func statusBlock(_ status: ChatStatus) -> some View {
+            ChatPopover(
+                theme: Self.theme, status: status, isPresented: .constant(true), onSignIn: {}, onSignOut: {}, onOpenViewer: {}
+            ).statusBlock
+        }
+        let statusSize = CGSize(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.Status.heightSignedIn)
+        let statusLegacy = try await pixels(statusBlock(legacy), size: statusSize)
+        let statusMinted = try await pixels(statusBlock(minted), size: statusSize)
+        let statusUnnamed = try await pixels(statusBlock(unnamed), size: statusSize)
+        XCTAssertEqual(statusMinted, statusLegacy, "the popover status line drew something other than the name")
+        XCTAssertNotEqual(statusUnnamed, statusLegacy, "control: an id with no name must draw differently")
+
+        func quickSend(_ status: ChatStatus) -> ChatQuickSendView {
+            ChatQuickSendView(theme: Self.theme, status: status, onBack: {}, onClose: {}, previewTargets: ["#rt"])
+        }
+        XCTAssertEqual(quickSend(minted).footerHint, "sent as kay")
+        let fieldSize = CGSize(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.FieldBand.height)
+        let fieldLegacy = try await pixels(quickSend(legacy).fieldBand, size: fieldSize)
+        let fieldMinted = try await pixels(quickSend(minted).fieldBand, size: fieldSize)
+        let fieldUnnamed = try await pixels(quickSend(unnamed).fieldBand, size: fieldSize)
+        XCTAssertEqual(fieldMinted, fieldLegacy, "the quick send footer drew something other than the name")
+        XCTAssertNotEqual(fieldUnnamed, fieldLegacy, "control: an id with no name must draw differently")
+    }
+
+    /// A DM room's hash never reaches the screen when herdr-chat sent a
+    /// label: the row and the chip draw exactly what a room literally named
+    /// by the label would draw. The unlabelled hash is the control.
+    func testDMRoomRowsAndChipsDrawTheLabelNeverTheHash() async throws {
+        let peek = ChatPeekView(theme: Self.theme, onBack: {}, onClose: {}, onJump: { _ in })
+        let rowSize = CGSize(width: ChromeMetrics.ChatPeek.width, height: ChromeMetrics.ChatPeek.PaneRow.height)
+        let labelled = try await pixels(
+            peek.roomRow(ChatPeekRoom(room: "dm-3f9a", label: "kai ↔ remy", unread: 0, mentions: 0), isFirst: true), size: rowSize
+        )
+        let literal = try await pixels(
+            peek.roomRow(ChatPeekRoom(room: "kai ↔ remy", unread: 0, mentions: 0), isFirst: true), size: rowSize
+        )
+        let unlabelled = try await pixels(
+            peek.roomRow(ChatPeekRoom(room: "dm-3f9a", unread: 0, mentions: 0), isFirst: true), size: rowSize
+        )
+        XCTAssertEqual(labelled, literal, "a peek DM room row drew something other than its label")
+        XCTAssertNotEqual(unlabelled, literal, "control: the raw hash must draw differently")
+
+        let status = ChatStatus(handle: "kay", state: "working", pane: "w1:p3", signedIn: true, rooms: ["#rt"])
+        let chipSize = CGSize(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.TargetBand.chipHeight)
+        let withLabels = ChatQuickSendView(
+            theme: Self.theme, status: status, onBack: {}, onClose: {},
+            previewTargets: ["#dm-3f9a"], previewLabels: ["#dm-3f9a": "kai ↔ remy"]
+        )
+        let literalTarget = ChatQuickSendView(theme: Self.theme, status: status, onBack: {}, onClose: {}, previewTargets: ["kai ↔ remy"])
+        let noLabels = ChatQuickSendView(theme: Self.theme, status: status, onBack: {}, onClose: {}, previewTargets: ["#dm-3f9a"])
+        let chipLabelled = try await pixels(withLabels.chip("#dm-3f9a"), size: chipSize)
+        let chipLiteral = try await pixels(literalTarget.chip("kai ↔ remy"), size: chipSize)
+        let chipRaw = try await pixels(noLabels.chip("#dm-3f9a"), size: chipSize)
+        XCTAssertEqual(chipLabelled, chipLiteral, "a quick send chip drew something other than its label")
+        XCTAssertNotEqual(chipRaw, chipLiteral, "control: the raw target must draw differently")
+    }
+
     // MARK: - Shared harness
 
     private func makeChatStore(peekJSON: String, targetsJSON: String) async -> ChatStore {
@@ -347,8 +447,9 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     /// stroke and clip (never painting its own), since production always
     /// hosts it inside that wrapper -- reproduced here so a standalone render
     /// samples the same ground `ChatPopover` would actually show it against.
-    private func hostWindow(_ view: some View, chatStore: ChatStore, size: CGSize) -> NSWindow {
-        let theme = Self.theme
+    private func hostWindow(
+        _ view: some View, chatStore: ChatStore, size: CGSize, theme: Theme = ChatFeatureViewsRenderTests.theme
+    ) -> NSWindow {
         let chrome = view
             .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(Color(theme.palette.panelBg)))
             .overlay(
@@ -398,6 +499,17 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         context.scaleBy(x: scale, y: scale)
         view.displayIgnoringOpacity(bounds, in: NSGraphicsContext(cgContext: context, flipped: false))
         return NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+    }
+
+    /// Raw pixels of `view`, hosted the way production hosts it, for comparing
+    /// two renders byte for byte.
+    private func pixels(_ view: some View, size: CGSize, theme: Theme = ChatFeatureViewsRenderTests.theme) async throws -> Data {
+        let window = hostWindow(view, chatStore: makeInertChatStore(), size: size, theme: theme)
+        defer { window.close() }
+        await settle(window)
+        let image = try snapshot(window)
+        let bytes = try XCTUnwrap(image.bitmapData)
+        return Data(bytes: bytes, count: image.bytesPerRow * image.pixelsHigh)
     }
 
     private func hex(_ image: NSBitmapImageRep, _ point: CGPoint, scale: CGFloat = 2) -> String {

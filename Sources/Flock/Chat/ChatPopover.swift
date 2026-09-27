@@ -212,8 +212,8 @@ struct ChatPopover: View {
                 Circle()
                     .fill(status?.signedIn == true ? theme.green : theme.overlay0)
                     .frame(width: ChromeMetrics.ChatPopover.Status.dotSize, height: ChromeMetrics.ChatPopover.Status.dotSize)
-                if let handle = status?.handle {
-                    Text(handle)
+                if let name = status?.displayName {
+                    Text(name)
                         .font(ChromeType.chatPopoverHandle)
                         .foregroundStyle(theme.text)
                 }

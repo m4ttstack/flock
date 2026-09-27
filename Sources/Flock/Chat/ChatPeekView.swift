@@ -79,7 +79,7 @@ struct ChatPeekView: View {
                     .fill(dotColor(for: buddy.status))
                     .frame(width: ChromeMetrics.ChatPeek.PaneRow.dotSize, height: ChromeMetrics.ChatPeek.PaneRow.dotSize)
                 VStack(alignment: .leading, spacing: ChromeMetrics.ChatPeek.PaneRow.stackGap) {
-                    Text(buddy.handle).font(ChromeType.chatPeekHandle).foregroundStyle(theme.text)
+                    Text(buddy.displayName).font(ChromeType.chatPeekHandle).foregroundStyle(theme.text)
                     Text(location(for: buddy)).font(ChromeType.chatPeekLocation).foregroundStyle(theme.overlay0)
                 }
                 Spacer(minLength: 0)
@@ -100,7 +100,7 @@ struct ChatPeekView: View {
 
     func roomRow(_ room: ChatPeekRoom, isFirst: Bool) -> some View {
         HStack(spacing: ChromeMetrics.ChatPeek.RoomRow.gap) {
-            Text(room.room).font(ChromeType.chatPeekRoomName).foregroundStyle(theme.subtext0)
+            Text(room.label ?? room.room).font(ChromeType.chatPeekRoomName).foregroundStyle(theme.subtext0)
             Spacer(minLength: 0)
             if room.unread > 0 { unreadPill(room.unread) }
         }
