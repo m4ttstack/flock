@@ -64,7 +64,7 @@ signs in.
 Header: title "Chat" at 14/600 in `text`, an open-viewer icon 15x15 in
 `overlay0` at the trailing edge.
 
-Status: a 7x7 dot (`green` when signed in, `overlay0` when not), the handle at
+Status: a 7x7 dot (`green` when signed in, `overlay0` when not), the name at
 13/600 in `text`, the state word at 12/regular in `subtext0` printed exactly as
 rt gives it, and a trailing pane chip 63x18, `surface0`, r4, pad 3/8, gap 5,
 holding a 10x10 icon in `overlay0` and the pane name at 10/regular in `subtext0`.
@@ -112,7 +112,7 @@ Label PANES ON CHAT: 31 tall, pad 13 / 14 / 6 / 14.
 
 Pane rows: 42 tall, pad 7/14, gap 9. A 7x7 status dot coloured by agent state
 (`yellow`, `green`, `accent`, `red`), then a two-line stack with gap 1: the
-handle at 12/500 in `text` and the location at 10/regular in `overlay0`. A row
+name at 12/500 in `text` and the location at 10/regular in `overlay0`. A row
 with unread carries a 19x16 pill, `accent`, r8, pad 2/6, count at 10/600 in
 `panelBg`; a 12x12 jump glyph in `overlay0` closes the row.
 
@@ -139,6 +139,10 @@ Field band 136 tall, pad 10 / 14 / 14 / 14, gap 9. The field is 332x74,
 The footer is 29 tall: the hint at 10/regular in `overlay0` reading who the
 message sends as, and an 82x29 send button, `accent`, r6, pad 7/13, gap 6, label
 at 12/600 in `panelBg` with `⌘⏎` beside it at 10/regular in `panelBg` at 67%.
+
+Every name on these surfaces is the identity's display name (`name`, falling
+back to `handle`). The identity id (`kay.k3f9`) is never drawn, and no name
+carries an `@`; chips keep their `#`/`@` because they are targets, not names.
 
 ## Broadcast
 
@@ -207,7 +211,7 @@ r4, pad 3/8, gap 6. Three children, and a fourth only when there is unread:
 
 | Child | Size | Colour | Type |
 | --- | --- | --- | --- |
-| Handle | h12, WIDTH FROM THE TEXT | `green` | 10/600, the handle with NO `@` prefix |
+| Name | h12, WIDTH FROM THE TEXT | `green` | 10/600, the display name with NO `@` prefix |
 | Icon | 11x11 | `green` | `bubble.left.fill` |
 | Count | h12, WIDTH FROM THE TEXT | `text` | 10/600, present only when unread is non-zero |
 
@@ -239,7 +243,7 @@ glyph. Every one of those was wrong in the running app:
 
 The count is `palette.text`, not `accent` and not `panelBg`: it differs from the
 unread pills in the popover and peek, which are `panelBg` on an `accent` ground.
-The count shows only when there is unread; at zero the button is the handle and
+The count shows only when there is unread; at zero the button is the name and
 the glyph, and nothing else.
 
 **Signed out:** 27x17, fill `surface0`, r4, pad 3/8, gap 6, no border. One child,

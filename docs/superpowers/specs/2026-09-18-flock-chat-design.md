@@ -76,14 +76,14 @@ fallback to the TUI. Mode is chosen by the caller, not inferred from a TTY.
 
 | Verb | Inputs | Output |
 | --- | --- | --- |
-| `status --json` | `--pane <id>` | `{ handle, state, pane, signedIn, rooms[] }` |
-| `peek --json` | | `{ buddies: [{handle, paneId, status, repo, branch, title, unread, mentions}], rooms: [{room, unread, mentions}] }` |
-| `targets --json` | | `{ rooms: [#name], people: [@handle] }` |
-| `quick-send --json` | `--to <#room\|@handle> --body <text>` | `{ ok, to }` |
+| `status --json` | `--pane <id>` | `{ handle, name, state, pane, signedIn, rooms[] }` |
+| `peek --json` | | `{ buddies: [{handle, name, paneId, status, repo, branch, title, unread, mentions}], rooms: [{room, label, unread, mentions}] }` |
+| `targets --json` | | `{ rooms: [#name], people: [@name], labels: {target: text} }` |
+| `quick-send --json` | `--to <#room\|@name> --body <text>` | `{ ok, to }` |
 | `broadcast --json` | `--panes <id,...> --body <text>` | `{ ok, results: [{paneId, ok, delivered, error?}] }` |
 | `sign-in --json` | `--pane <id>` | the same object as `status` |
 | `sign-out --json` | `--pane <id>` | the same object as `status` |
-| `jump --json` | `--handle <h>` | `{ paneId, workspace, handle }` |
+| `jump --json` | `--handle <id or name>` | `{ paneId, workspace, handle, name }` |
 | `open-viewer --json` | `--room <name>` optional | `{ url }` |
 
 Four of those shapes carry a reason.
@@ -109,6 +109,17 @@ used.
 **`targets` returns prefixed names.** `#room` and `@handle` are one namespace
 the caller passes straight back as `--to`, where a bare name would be ambiguous
 between a room and a person.
+
+**`handle` is an id; `name` is what is drawn.** rt chat gives every session a
+hidden identity id (`kay.k3f9`) behind its display name (`kay`), so a recycled
+name never inherits someone else's rooms or messages. `handle` carries the id,
+and it is what flock acts on (`jump --handle`). `name` is what every surface
+draws. A missing or null `name` falls back to `handle`, since a legacy
+identity's id is its name. Identity text is never drawn with an `@`; the only
+`@` on screen is the target prefix on a quick-send chip. A DM room's own name
+is a hash, so `peek` rooms carry a `label` and `targets` a `labels` map
+(`#dm-3f9a` reads `kai ↔ remy`); flock draws the label when present and
+still acts on the raw room or target.
 
 Two verbs deserve their reasoning stated. `jump` returns ids rather than moving
 focus, because flock focuses panes itself and moving focus twice fights its own
@@ -191,7 +202,7 @@ Designs: `docs/design/chat/` (`flock-chat.pen` is the source).
 A chat button sits in each pane's top chrome, left of the agent status dot. It
 is both the trigger and the state:
 
-- **Signed in:** the pane's chat handle, a divider, the chat glyph, and the
+- **Signed in:** the pane's chat name, a divider, the chat glyph, and the
   unread count. Accent-bordered.
 - **Signed out:** the chat glyph alone, muted, no border.
 - **No chat binary:** no button.
@@ -216,7 +227,7 @@ This is the `launcher` action, and the only view that has no herdr equivalent
 screen of its own... the launcher's job in a TUI is to be a menu, and in flock
 it is the surface everything else hangs off.
 
-- **Status block:** dot, handle, state word, and a chip naming the pane it acts
+- **Status block:** dot, name, state word, and a chip naming the pane it acts
   on. Rooms below it. Mirrors the TUI header's two lines, including its state
   vocabulary (`working`, `idle`, `signed out`, `not signed in`).
 - **Features:** Broadcast to panes, Chat peek, Quick send, Open viewer. Each
@@ -232,7 +243,7 @@ viewer closes the popover and opens the URL.
 
 `peek.png`
 
-Panes on chat, each with its status dot, handle, where it lives, unread count,
+Panes on chat, each with its status dot, name, where it lives, unread count,
 and a jump affordance. Rooms with unread below. Clicking a pane row is `jump`:
 flock focuses that workspace, tab and pane by the ids the verb returned.
 
@@ -241,7 +252,7 @@ flock focuses that workspace, tab and pane by the ids the verb returned.
 `quick-send.png`
 
 Targets as chips (rooms then people, from `targets`), a message field, and a
-send button carrying its own shortcut. The footer names the handle the message
+send button carrying its own shortcut. The footer names who the message
 will be sent as, because a pane that is not signed in cannot send and the user
 should see why before typing.
 

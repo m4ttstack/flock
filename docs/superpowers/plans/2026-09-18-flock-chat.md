@@ -115,19 +115,23 @@ Every task reads from this table rather than re-deriving it.
 
 | Verb | Argv | Keys it prints |
 | --- | --- | --- |
-| status | `status --json --pane <id>` | `handle`, `state`, `pane`, `signedIn`, `rooms` |
+| status | `status --json --pane <id>` | `handle`, `name`, `state`, `pane`, `signedIn`, `rooms` |
 | sign-in | `sign-in --json --pane <id>` | the same five, read back after the sign |
 | sign-out | `sign-out --json --pane <id>` | the same five |
 | peek | `peek --json` | `buddies`, `rooms` |
 | targets | `targets --json` | `rooms`, `people` |
 | quick-send | `quick-send --json --to <#room\|@handle> --body <text>` | `ok`, `to` |
 | broadcast | `broadcast --json --panes <id,id> --body <text>` | `ok`, `results` |
-| jump | `jump --json --handle <handle>` | `paneId`, `workspace`, `handle` |
+| jump | `jump --json --handle <handle>` | `paneId`, `workspace`, `handle`, `name` |
 | open-viewer | `open-viewer --json` (`--room <room>` optional) | `url` |
 
-Nested: a peek buddy is `handle`, `paneId`, `status`, `repo`, `branch`, `title`,
+Nested: a peek buddy is `handle`, `name`, `paneId`, `status`, `repo`, `branch`, `title`,
 `unread`, `mentions`; a peek room is `room`, `unread`, `mentions`; a broadcast
 result is `paneId`, `ok`, `delivered`, `error`.
+
+`handle` is an identity id and `name` its display name; views draw `name`,
+falling back to `handle`. `name` is the one exception to rule 2 below: an
+older herdr-chat omits the key, so it decodes as absent.
 
 Five rules that shape the Swift:
 
