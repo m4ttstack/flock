@@ -188,7 +188,7 @@ final class ChatDegradationRenderTests: XCTestCase {
                 guard calls.count > 1 else {
                     return (Data(#"{"error":"chat daemon unreachable"}"#.utf8), 1)
                 }
-                return (Data(#"{"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":[]}"#.utf8), 0)
+                return (Data(#"{"handle":"kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":[]}"#.utf8), 0)
             }
             func recordedCalls() -> [ChatVerb] { calls }
         }

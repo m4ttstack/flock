@@ -80,10 +80,10 @@ private func failed(_ json: String) -> Result<(stdout: Data, exitCode: Int32), E
 final class ChatStoreTests: XCTestCase {
     private static let pane = PaneID(rawValue: "w1:p1")
     private static let statusJSON = #"""
-    {"handle":"@matt","state":"active","pane":"w1:p1","signedIn":true,"rooms":["#general"]}
+    {"handle":"kay","state":"active","pane":"w1:p1","signedIn":true,"rooms":["#general"]}
     """#
     private static let signedOutStatusJSON = #"""
-    {"handle":"@matt","state":"inactive","pane":"w1:p1","signedIn":false,"rooms":[]}
+    {"handle":"kay","state":"inactive","pane":"w1:p1","signedIn":false,"rooms":[]}
     """#
     /// `ChatStatus`'s memberwise init is not public across the module
     /// boundary; decoding the same JSON the fake hands the store is what a

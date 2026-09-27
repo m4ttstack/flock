@@ -89,10 +89,10 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
         let pane = PaneID(rawValue: "w1:p2")
-        // rt's own printed handle carries the `@`; the design's own button
-        // does not, so the sample below reads "kay" rather than "@kay".
+        // A minted identity: the button draws the name, never the id, so it
+        // measures as "kay" below. "kay.k3f9" would be several glyphs wider.
         let signedInJSON = #"""
-        {"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
+        {"handle":"kay.k3f9","name":"kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
         """#
 
         let signedIn = try await Harness(theme: theme, chatAvailable: true, chatStatusJSON: [pane: signedInJSON])
@@ -183,7 +183,7 @@ final class ChromeRenderTests: XCTestCase {
         func buttonWidth(handle: String) async throws -> CGFloat {
             // Two pound signs: the room name puts a `"#` inside the literal,
             // which ends a single-pound raw string right there.
-            let json = ##"{"handle":"@\##(handle)","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}"##
+            let json = ##"{"handle":"\##(handle)","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}"##
             let harness = try await Harness(theme: theme, chatAvailable: true, chatStatusJSON: [pane: json])
             let window = harness.makeWindow(size: Self.windowSize)
             defer { window.close() }
@@ -404,7 +404,7 @@ final class ChromeRenderTests: XCTestCase {
         let theme = Theme.tokyoNight
         let pane = PaneID(rawValue: "w1:p2")
         let signedInJSON = #"""
-        {"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
+        {"handle":"kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
         """#
         let harness = try await Harness(
             theme: theme, chatAvailable: true, chatStatusJSON: [pane: signedInJSON], seedChatStatus: false
@@ -441,7 +441,7 @@ final class ChromeRenderTests: XCTestCase {
         let theme = Theme.tokyoNight
         let pane = PaneID(rawValue: "w1:p2")
         let signedInJSON = #"""
-        {"handle":"@kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
+        {"handle":"kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
         """#
         let harness = try await Harness(
             theme: theme, model: try Fixture.model(focusedPaneAgentStatus: "working"),

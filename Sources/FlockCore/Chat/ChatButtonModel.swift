@@ -8,7 +8,7 @@ public enum ChatButtonModel {
     public enum Appearance: Equatable {
         case absent
         case signedOut
-        case signedIn(handle: String, unread: Int)
+        case signedIn(name: String, unread: Int)
     }
 
     /// herdr's name for Claude Code in a pane's `agent`.
@@ -20,14 +20,7 @@ public enum ChatButtonModel {
     /// two are states a caller must never collapse into one another.
     public static func appearance(agent: String?, availability: Bool, status: ChatStatus?, unread: Int) -> Appearance {
         guard availability, agent == claudeAgent else { return .absent }
-        guard let status, status.signedIn, let handle = status.handle else { return .signedOut }
-        return .signedIn(handle: displayHandle(handle), unread: unread)
-    }
-
-    /// The design's own handle carries no `@`; `ChatStatus.handle` always
-    /// does (it is rt's own printed form), so this is the one place that
-    /// difference is resolved rather than left for every view to repeat.
-    private static func displayHandle(_ handle: String) -> String {
-        handle.hasPrefix("@") ? String(handle.dropFirst()) : handle
+        guard let status, status.signedIn, let name = status.displayName else { return .signedOut }
+        return .signedIn(name: name, unread: unread)
     }
 }

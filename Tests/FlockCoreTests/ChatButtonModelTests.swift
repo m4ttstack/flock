@@ -3,9 +3,9 @@ import XCTest
 @testable import FlockCore
 
 final class ChatButtonModelTests: XCTestCase {
-    private func status(signedIn: Bool, handle: String? = "@kay") -> ChatStatus {
+    private func status(signedIn: Bool, handle: String? = "kay", name: String? = nil) -> ChatStatus {
         ChatStatus(
-            handle: signedIn ? handle : nil, state: signedIn ? "live" : "not signed in",
+            handle: signedIn ? handle : nil, name: signedIn ? name : nil, state: signedIn ? "live" : "not signed in",
             pane: "w1:p1", signedIn: signedIn, rooms: signedIn ? ["#rt"] : []
         )
     }
@@ -41,20 +41,29 @@ final class ChatButtonModelTests: XCTestCase {
         )
     }
 
-    func testSignedInStatusCarriesTheHandleAndUnreadCount() {
+    func testSignedInStatusCarriesTheNameAndUnreadCount() {
         XCTAssertEqual(
-            ChatButtonModel.appearance(agent: "claude", availability: true, status: status(signedIn: true, handle: "@kay"), unread: 3),
-            .signedIn(handle: "kay", unread: 3)
+            ChatButtonModel.appearance(
+                agent: "claude", availability: true, status: status(signedIn: true, handle: "kay.k3f9", name: "kay"), unread: 3
+            ),
+            .signedIn(name: "kay", unread: 3)
         )
     }
 
-    /// The design's own handle drops the `@` rt prints; a handle with none
-    /// already (defensive: rt is not guaranteed to always send one) passes
-    /// through unchanged rather than losing a character.
-    func testSignedInHandleDropsTheLeadingAtSignRtPrints() {
+    /// A legacy identity has no name row: its id is its name, so the handle
+    /// is what the legend draws.
+    func testALegacyStatusWithNoNameDrawsItsHandle() {
         XCTAssertEqual(
             ChatButtonModel.appearance(agent: "claude", availability: true, status: status(signedIn: true, handle: "kay"), unread: 0),
-            .signedIn(handle: "kay", unread: 0)
+            .signedIn(name: "kay", unread: 0)
+        )
+    }
+
+    /// The legend never shows an `@`, even from a herdr-chat that prints one.
+    func testAnAtPrefixedHandleIsDrawnWithoutIt() {
+        XCTAssertEqual(
+            ChatButtonModel.appearance(agent: "claude", availability: true, status: status(signedIn: true, handle: "@kay"), unread: 0),
+            .signedIn(name: "kay", unread: 0)
         )
     }
 

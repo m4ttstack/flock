@@ -480,14 +480,14 @@ struct PaneCellView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Chat")
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
-        case let .signedIn(handle, unread):
+        case let .signedIn(name, unread):
             Button(action: { openChatPopover() }) {
                 HStack(spacing: ChromeMetrics.ChatButton.gap) {
-                    // `fixedSize` as well as no width: a handle is someone's
-                    // name and is never shortened, so it has to refuse to
-                    // compress even when the legend row runs out of room.
-                    // What gives instead is the pane title, which truncates.
-                    Text(handle)
+                    // `fixedSize` as well as no width: a name is never
+                    // shortened, so it has to refuse to compress even when
+                    // the legend row runs out of room. What gives instead is
+                    // the pane title, which truncates.
+                    Text(name)
                         .font(ChromeType.chatButtonHandle)
                         .foregroundStyle(theme.green)
                         .lineLimit(1)
@@ -513,7 +513,7 @@ struct PaneCellView: View {
                 .hoverWash(theme, cornerRadius: ChromeMetrics.ChatButton.cornerRadius)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(unread > 0 ? "Chat: \(handle), \(unread) unread" : "Chat: \(handle)")
+            .accessibilityLabel(unread > 0 ? "Chat: \(name), \(unread) unread" : "Chat: \(name)")
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
         }
     }
