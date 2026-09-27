@@ -2809,6 +2809,47 @@ final class ChromeRenderTests: XCTestCase {
         restingWindow.close()
     }
 
+    /// The zoom badge is the legend's last item, so the way out of a zoom
+    /// sits in the pane's corner even beside a status chip. The same zoomed
+    /// window is drawn idle and working: the chip is the only difference, so
+    /// every changed pixel has to land left of the badge, which a trailing
+    /// badge never moves for. PNGs of both schemes are written only when
+    /// `FLOCK_CHROME_RENDER_DIR` is set.
+    func testTheZoomBadgeSitsRightOfTheStatusChip() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let pane = PaneID(rawValue: "w1:p2")
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            var images: [NSBitmapImageRep] = []
+            var frame: CGRect?
+            for status in ["idle", "working"] {
+                let harness = try await Harness(theme: theme, model: try Fixture.model(zoomed: true, focusedPaneAgentStatus: status))
+                let window = harness.makeWindow(size: Self.windowSize)
+                await settle(window)
+                images.append(try snapshot(window))
+                frame = harness.drag.canvas.paneFrames[pane]
+                window.close()
+            }
+            if let directory {
+                try XCTUnwrap(images[1].representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("zoom-badge-status-\(scheme).png"))
+            }
+            let box = PaneBox.frame(in: try XCTUnwrap(frame), dividerThickness: DividerBand.gutter)
+            let row = CGRect(
+                x: box.midX, y: box.minY + PaneChrome.verticalPadding,
+                width: box.maxX - box.midX, height: PaneChrome.titleRowHeight
+            )
+            let badge = try XCTUnwrap(firstX(in: row, matching: theme.palette.mauve.hex, of: images[1]), "\(scheme): no zoom badge drew")
+            var chipEnd: CGFloat?
+            for y in stride(from: row.minY, to: row.maxY, by: 0.5) {
+                for x in stride(from: row.minX, to: row.maxX, by: 0.5)
+                where hex(images[0], CGPoint(x: x, y: y)) != hex(images[1], CGPoint(x: x, y: y)) {
+                    chipEnd = max(chipEnd ?? x, x)
+                }
+            }
+            XCTAssertLessThan(try XCTUnwrap(chipEnd, "\(scheme): no status chip drew"), badge, "\(scheme): the zoom badge is not the legend's last item")
+        }
+    }
+
     /// herdr's dots style, the one rule every surface draws a status with:
     /// working, blocked and done filled, idle a hollow ring, unknown a small
     /// centered dot. Drawn on its own rather than off a window fixture, which
@@ -2935,6 +2976,16 @@ final class ChromeRenderTests: XCTestCase {
             }
         }
         return nil
+    }
+
+    private func firstX(in rect: CGRect, matching target: String, of image: NSBitmapImageRep) -> CGFloat? {
+        var first: CGFloat?
+        for y in stride(from: rect.minY, to: rect.maxY, by: 0.5) {
+            for x in stride(from: rect.minX, to: rect.maxX, by: 0.5) where hex(image, CGPoint(x: x, y: y)) == target {
+                first = min(first ?? x, x)
+            }
+        }
+        return first
     }
 
     private func assertButtonsCentered(in window: NSWindow, file: StaticString = #filePath, line: UInt = #line) {

@@ -419,16 +419,15 @@ struct PaneCellView: View {
         }
     }
 
-    /// The legend's trailing end: the mouse badge, the zoom badge, the chat
-    /// button, the rt button, then the status chip. The mouse badge and the
-    /// two buttons are the live controls here, so hit testing is turned off on
-    /// the zoom badge and the status pill themselves -- never on a container
-    /// around them all -- since a disabled ancestor cannot be re-enabled from
-    /// below it.
+    /// The legend's trailing end: the mouse badge, the chat button, the rt
+    /// button, the status chip, then the zoom badge, last so the way out of a
+    /// zoom sits in the same corner whatever else the legend shows. Hit
+    /// testing is turned off on the status pill itself -- never on a
+    /// container around them all -- since a disabled ancestor cannot be
+    /// re-enabled from below it.
     private var statusChip: some View {
         HStack(spacing: ChromeMetrics.Pane.legendItemGap) {
             if ghosttySurface?.programHasMouse == true { mouseBadge }
-            if isZoomed { zoomBadge.allowsHitTesting(false) }
             if chatButtonAppearance != .absent { chatButton }
             rtButton
             if let statusColor {
@@ -440,6 +439,7 @@ struct PaneCellView: View {
                     .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(statusColor.opacity(0.14)))
                     .allowsHitTesting(false)
             }
+            if isZoomed { zoomBadge }
         }
         .padding(.top, PaneChrome.verticalPadding)
         .padding(.trailing, PaneChrome.horizontalPadding)
@@ -618,14 +618,27 @@ struct PaneCellView: View {
     /// badge is the only place the window says a tab is zoomed, so it has to
     /// be readable.
     private var zoomBadge: some View {
-        Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(ChromeType.zoomBadge)
+        Button(action: { Task { await viewModel.toggleZoom(pane.paneID) } }) {
+            HStack(spacing: ChromeMetrics.Pane.zoomBadgeGap) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(ChromeType.zoomBadge)
+                Text("Zoomed")
+                    .font(ChromeType.zoomBadgeLabel)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
             .foregroundStyle(theme.mauve)
             .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
             .frame(height: PaneChrome.titleRowHeight)
             .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.mauve.opacity(0.14)))
-            .accessibilityLabel("Zoomed")
-            .accessibilityIdentifier("flock.pane.zoomBadge.\(pane.paneID.rawValue)")
+            .contentShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+            .hoverWash(theme, cornerRadius: PaneChrome.cornerRadius)
+        }
+        .buttonStyle(.plain)
+        .help("Unzoom (\(ShortcutLabel.text(key: KeyEquivalent(FocusedPaneCommand.zoom.key), modifiers: FocusedPaneCommand.zoom.modifiers)))")
+        .accessibilityLabel("Zoomed")
+        .accessibilityHint("Unzooms the tab")
+        .accessibilityIdentifier("flock.pane.zoomBadge.\(pane.paneID.rawValue)")
     }
 
     /// Shown only while the program has the mouse: a plain shell's right-click

@@ -196,6 +196,7 @@ enum ChromeMetrics {
         /// chat button and the status chip, none of which is the chip's own
         /// inset.
         static let legendItemGap: CGFloat = 5
+        static let zoomBadgeGap: CGFloat = 5
         static let toastInset: CGFloat = 13
 
         /// The pane's drag grip: a 3x2 grid of dots in a pill that shows on
