@@ -104,12 +104,16 @@ public struct ChatViewer: Decodable, Equatable, Sendable {
 }
 
 /// The one rule for drawing a chat identity. `handle` is an id that only
-/// acts (jump, send); it is drawn only for a legacy identity, whose id is
-/// its name. Identity text never carries an `@`: that prefix belongs to
-/// quick-send targets, which are not drawn through here.
+/// acts (jump, send); it is drawn only when no name was sent (a legacy
+/// identity, whose id is its name, or a name that is missing or empty).
+/// Identity text never carries an `@`: that prefix belongs to quick-send
+/// targets, which are not drawn through here.
 enum ChatDisplayName {
     static func text(name: String?, handle: String) -> String {
-        let text = name.flatMap { $0.isEmpty ? nil : $0 } ?? handle
-        return text.hasPrefix("@") ? String(text.dropFirst()) : text
+        let strippedName = name.map { $0.hasPrefix("@") ? String($0.dropFirst()) : $0 }
+        if let strippedName, !strippedName.isEmpty {
+            return strippedName
+        }
+        return handle.hasPrefix("@") ? String(handle.dropFirst()) : handle
     }
 }

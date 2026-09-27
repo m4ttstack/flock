@@ -88,6 +88,7 @@ final class ChatShapesTests: XCTestCase {
         XCTAssertEqual(ChatDisplayName.text(name: "@kay", handle: "kay.k3f9"), "kay")
         XCTAssertEqual(ChatDisplayName.text(name: "", handle: "kay"), "kay")
         XCTAssertEqual(ChatDisplayName.text(name: "remy-2", handle: "remy.k3f9"), "remy-2")
+        XCTAssertEqual(ChatDisplayName.text(name: "@", handle: "kay.k3f9"), "kay.k3f9")
     }
 
     /// herdr-chat labels a DM room by its participants; an older herdr-chat

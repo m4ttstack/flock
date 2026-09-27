@@ -235,7 +235,7 @@ glyph. Every one of those was wrong in the running app:
   handle the canvas happened to draw. A button that sizes to content around a
   child pinned to one name's width still clips every wider name, and it does
   it unevenly: "nell" fits in 18pt because two `l`s are barely there, while
-  "olga" renders as "o...". **A handle is somebody's name and is never
+  "olga" renders as "o...". **A name is somebody's name and is never
   abbreviated.** The text sizes to itself, refuses to compress
   (`fixedSize`), and the pane title is what gives when the legend runs out of
   room. The same applies to the count, which the canvas drew as a single
