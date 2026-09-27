@@ -63,6 +63,13 @@ private func splitLayoutSnapshotResultJSON() -> String {
     """#
 }
 
+/// One tab holding one pane, with its layout: herdr refuses to zoom it.
+private func singlePaneLayoutSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":1,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":10},"focused_pane_id":"w1:p1","panes":[{"pane_id":"w1:p1","focused":true,"rect":{"x":0,"y":0,"width":20,"height":10}}],"splits":[]}]}}
+    """#
+}
+
 /// One tab, one pane, one `.down` root split at ratio 0.1 over a 2-row
 /// area: `childRegions` rounds the first child to 0 rows, so the second
 /// child's rect is identical to the root's own -- the degenerate collision
@@ -814,6 +821,31 @@ final class HerdrStoreTests: XCTestCase {
 
         hold()
         guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+    }
+
+    /// herdr answers a zoom on a one-pane tab with `single_pane` and leaves
+    /// the tab alone, so predicting the zoom flashed the badge until the
+    /// overlay expired.
+    @MainActor
+    func testExecuteZoomOnALonePanePredictsNoZoom() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: singlePaneLayoutSnapshotResultJSON())
+        fake.respond(to: "pane.zoom", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live && store.model?.layouts[TabID(rawValue: "w1:t1")] != nil }
+
+        let hold = fake.holdNext(method: "pane.zoom")
+        let task = Task { await store.execute(OpPlan(ops: [.zoom(PaneID(rawValue: "w1:p1"), mode: .toggle)], label: "Zoom pane")) }
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "pane.zoom" } }
+
+        XCTAssertEqual(store.model?.layouts[TabID(rawValue: "w1:t1")]?.zoomed, false)
+        hold()
+        _ = await task.value
+        XCTAssertEqual(store.model?.layouts[TabID(rawValue: "w1:t1")]?.zoomed, false)
     }
 
     // MARK: - setSplitRatio prediction (the divider drag's own optimistic overlay)

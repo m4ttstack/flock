@@ -445,6 +445,9 @@ public final class HerdrStore {
 
         case let .zoom(pane, mode):
             guard let record = model.panes[pane], let layout = model.layouts[record.tabID] else { return [] }
+            // herdr focuses the pane, then refuses to zoom a tab of one pane
+            // (`PaneZoomNoopReason::SinglePane`).
+            guard layout.panes.count > 1 else { return [.paneFocused(pane)] }
             let newZoomed: Bool
             switch mode {
             case .on: newZoomed = true
