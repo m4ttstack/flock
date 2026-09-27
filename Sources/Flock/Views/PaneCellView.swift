@@ -208,7 +208,7 @@ struct PaneCellView: View {
     private func cell(editorIsOpen: Bool) -> some View {
         box(editorIsOpen: editorIsOpen)
             .overlay(alignment: .topLeading) { title }
-            .overlay(alignment: .topTrailing) { statusChip }
+            .overlay(alignment: .topTrailing) { legendControls }
             // Last, so a long title running under it never takes its press.
             .overlay(alignment: .top) { grip }
             // While rearranging a drag starts from ANY point on the pane,
@@ -381,7 +381,10 @@ struct PaneCellView: View {
             .padding(.top, PaneChrome.verticalPadding)
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {
-            titleLabel
+            HStack(alignment: .top, spacing: ChromeMetrics.Pane.legendItemGap) {
+                titleLabel
+                statusChip
+            }
         }
     }
 
@@ -420,29 +423,35 @@ struct PaneCellView: View {
     }
 
     /// The legend's trailing end: the mouse badge, the chat button, the rt
-    /// button, the status chip, then the zoom badge, last so the way out of a
-    /// zoom sits in the same corner whatever else the legend shows. Hit
-    /// testing is turned off on the status pill itself -- never on a
-    /// container around them all -- since a disabled ancestor cannot be
-    /// re-enabled from below it.
-    private var statusChip: some View {
+    /// button, then the zoom badge, last so the way out of a zoom sits in the
+    /// same corner whatever else the legend shows.
+    private var legendControls: some View {
         HStack(spacing: ChromeMetrics.Pane.legendItemGap) {
             if ghosttySurface?.programHasMouse == true { mouseBadge }
             if chatButtonAppearance != .absent { chatButton }
             rtButton
-            if let statusColor {
-                Text(pane.agentStatus.rawValue)
-                    .font(ChromeType.statusChip)
-                    .foregroundStyle(statusColor)
-                    .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
-                    .frame(height: PaneChrome.titleRowHeight)
-                    .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(statusColor.opacity(0.14)))
-                    .allowsHitTesting(false)
-            }
             if isZoomed { zoomBadge }
         }
         .padding(.top, PaneChrome.verticalPadding)
         .padding(.trailing, PaneChrome.horizontalPadding)
+    }
+
+    /// Rides the title, so the pane's name and what its agent is doing read
+    /// together. `fixedSize` so a long title truncates before the chip does.
+    @ViewBuilder
+    private var statusChip: some View {
+        if let statusColor {
+            Text(pane.agentStatus.rawValue)
+                .font(ChromeType.statusChip)
+                .foregroundStyle(statusColor)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
+                .frame(height: PaneChrome.titleRowHeight)
+                .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(statusColor.opacity(0.14)))
+                .padding(.top, PaneChrome.verticalPadding)
+                .allowsHitTesting(false)
+        }
     }
 
     private var chatButtonAppearance: ChatButtonModel.Appearance {

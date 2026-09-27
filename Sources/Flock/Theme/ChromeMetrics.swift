@@ -192,9 +192,8 @@ enum ChromeMetrics {
         /// below: the two happened to share one constant, so widening this
         /// one for the chip's text also widened the gap before the chip.
         static let statusChipPadding: CGFloat = 8
-        /// The legend's trailing row: the gap between the zoom badge, the
-        /// chat button and the status chip, none of which is the chip's own
-        /// inset.
+        /// The gap between legend items: the title and its status chip, and
+        /// the trailing controls. Never the chip's own inset.
         static let legendItemGap: CGFloat = 5
         static let zoomBadgeGap: CGFloat = 5
         static let toastInset: CGFloat = 13

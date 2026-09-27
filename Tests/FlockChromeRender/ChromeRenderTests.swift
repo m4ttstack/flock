@@ -430,13 +430,10 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// The Count child, at render level rather than only the model: a
-    /// fixture pane carrying both a non-idle agent status (so the status
-    /// chip actually draws) and a signed-in chat with unread. Neither
-    /// element's exact frame is assumed here -- both are found by scanning the
-    /// legend row's own pixels, which is what proves the source order
-    /// (`PaneCellView.swift`'s chat button written before `statusColor`)
-    /// actually reaches the screen rather than just the compiler.
-    func testChatButtonDrawsUnreadAndSitsLeftOfTheStatusDot() async throws {
+    /// fixture pane carrying both a non-idle agent status and a signed-in
+    /// chat with unread. The button's frame is not assumed -- it is found by
+    /// scanning the legend row's own pixels.
+    func testChatButtonDrawsUnread() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
         let pane = PaneID(rawValue: "w1:p2")
@@ -504,12 +501,6 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertLessThanOrEqual(
             countDistance, 20, "no pixel close enough to palette.text in the count's slot (closest off by \(countDistance))"
         )
-
-        let pillMinX = try XCTUnwrap(
-            firstX(image, y: legendY, after: buttonMaxX + 2, to: scanTo, notMatching: theme.palette.chromeRoles.pane.hex),
-            "no status pill pixel found to the right of the chat button"
-        )
-        XCTAssertLessThan(buttonMaxX, pillMinX, "the chat button does not sit left of the status dot")
         window.close()
     }
 
@@ -2809,13 +2800,12 @@ final class ChromeRenderTests: XCTestCase {
         restingWindow.close()
     }
 
-    /// The zoom badge is the legend's last item, so the way out of a zoom
-    /// sits in the pane's corner even beside a status chip. The same zoomed
-    /// window is drawn idle and working: the chip is the only difference, so
-    /// every changed pixel has to land left of the badge, which a trailing
-    /// badge never moves for. PNGs of both schemes are written only when
-    /// `FLOCK_CHROME_RENDER_DIR` is set.
-    func testTheZoomBadgeSitsRightOfTheStatusChip() async throws {
+    /// The status chip rides the title and the zoom badge stays in the
+    /// trailing corner. The same zoomed window is drawn idle and working: the
+    /// chip is the only difference, so every changed pixel has to land in
+    /// the row's leading half, which the badge never moves for. PNGs of both
+    /// schemes are written only when `FLOCK_CHROME_RENDER_DIR` is set.
+    func testTheStatusChipRidesTheTitleAndTheZoomBadgeStaysTrailing() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let pane = PaneID(rawValue: "w1:p2")
         for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
@@ -2835,10 +2825,11 @@ final class ChromeRenderTests: XCTestCase {
             }
             let box = PaneBox.frame(in: try XCTUnwrap(frame), dividerThickness: DividerBand.gutter)
             let row = CGRect(
-                x: box.midX, y: box.minY + PaneChrome.verticalPadding,
-                width: box.maxX - box.midX, height: PaneChrome.titleRowHeight
+                x: box.minX, y: box.minY + PaneChrome.verticalPadding,
+                width: box.width, height: PaneChrome.titleRowHeight
             )
-            let badge = try XCTUnwrap(firstX(in: row, matching: theme.palette.mauve.hex, of: images[1]), "\(scheme): no zoom badge drew")
+            let trailingHalf = CGRect(x: box.midX, y: row.minY, width: box.width / 2, height: row.height)
+            XCTAssertNotNil(firstX(in: trailingHalf, matching: theme.palette.mauve.hex, of: images[1]), "\(scheme): no zoom badge in the trailing corner")
             var chipEnd: CGFloat?
             for y in stride(from: row.minY, to: row.maxY, by: 0.5) {
                 for x in stride(from: row.minX, to: row.maxX, by: 0.5)
@@ -2846,7 +2837,7 @@ final class ChromeRenderTests: XCTestCase {
                     chipEnd = max(chipEnd ?? x, x)
                 }
             }
-            XCTAssertLessThan(try XCTUnwrap(chipEnd, "\(scheme): no status chip drew"), badge, "\(scheme): the zoom badge is not the legend's last item")
+            XCTAssertLessThan(try XCTUnwrap(chipEnd, "\(scheme): no status chip drew"), box.midX, "\(scheme): the status chip is not beside the title")
         }
     }
 
