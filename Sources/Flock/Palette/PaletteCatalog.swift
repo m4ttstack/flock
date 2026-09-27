@@ -6,6 +6,7 @@ import SwiftUI
 /// menu item or button uses.
 struct PaletteContext {
     var canvasPane: PaneID? = nil
+    var focusedPaneZoomed = false
     var neighbors: Set<PaneDirection> = []
     var rtModalUp = false
     var rtInstalled = false
@@ -73,10 +74,13 @@ enum PaletteCatalog {
     private static func pane(_ context: PaletteContext) -> [PaletteEntry] {
         guard context.canvasPane != nil else { return [] }
         let menu = FocusedPaneCommand.all.map {
-            entry(.pane, $0.title, shortcut: ShortcutLabel.text(key: KeyEquivalent($0.key), modifiers: $0.modifiers), .paneMenu($0.action))
+            entry(
+                .pane, $0.title(zoomed: context.focusedPaneZoomed),
+                shortcut: ShortcutLabel.text(key: KeyEquivalent($0.key), modifiers: $0.modifiers),
+                id: Self.id(.pane, $0.title), .paneMenu($0.action)
+            )
         }
         let extras = [
-            entry(.pane, "Zoom Pane", .paneMenu(.zoom)),
             entry(.pane, "Rename Pane", shortcut: ShortcutLabel.text(key: .f2, modifiers: []), .paneMenu(.renamePane)),
         ]
         let directions = PaneDirectionCommand.all

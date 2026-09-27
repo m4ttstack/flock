@@ -27,10 +27,21 @@ struct FocusedPaneCommand: Equatable, Sendable {
         title: "Split Down", key: "d", modifiers: [.command, .shift],
         action: .splitDown, accessibilityIdentifier: "flock.view.splitDown"
     )
+    /// Shift-Command-Return is ghostty's macOS default for
+    /// `toggle_split_zoom`, on the same reasoning as the split keys.
+    static let zoom = FocusedPaneCommand(
+        title: "Zoom Pane", key: "\r", modifiers: [.command, .shift],
+        action: .zoom, accessibilityIdentifier: "flock.view.zoomPane"
+    )
     static let closePane = FocusedPaneCommand(
         title: "Close Pane", key: "x", modifiers: [.command, .shift],
         action: .closePane, accessibilityIdentifier: "flock.view.closePane"
     )
 
-    static let all: [FocusedPaneCommand] = [splitRight, splitDown, closePane]
+    static let all: [FocusedPaneCommand] = [splitRight, splitDown, zoom, closePane]
+
+    /// `title` stays the command's identity; this is what the row reads.
+    func title(zoomed: Bool) -> String {
+        action == .zoom && zoomed ? "Unzoom Pane" : title
+    }
 }

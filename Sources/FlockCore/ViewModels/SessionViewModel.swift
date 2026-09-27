@@ -468,6 +468,11 @@ public final class SessionViewModel {
         rt.modal == nil ? resolvedFocusedPaneID : nil
     }
 
+    public var canvasFocusedPaneIsZoomed: Bool {
+        guard let pane = canvasFocusedPaneID, let model else { return false }
+        return PaneMenuModel.isZoomed(pane, model: model)
+    }
+
     /// The selected workspace's tabs, or `[]` when nothing is selected yet
     /// or the workspace has none.
     public var tabsForSelectedWorkspace: [TabRecord] {

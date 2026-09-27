@@ -10,6 +10,7 @@ extension PaletteContext {
         let terminal = record?.terminalID
         return PaletteContext(
             canvasPane: viewModel.canvasFocusedPaneID,
+            focusedPaneZoomed: viewModel.canvasFocusedPaneIsZoomed,
             neighbors: Set(PaneDirection.allCases.filter { viewModel.focusedPaneHasNeighbor(toward: $0) }),
             rtModalUp: viewModel.rt.modal != nil,
             rtInstalled: rtInstalled && terminal != nil,

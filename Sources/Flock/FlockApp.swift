@@ -360,7 +360,7 @@ struct FlockApp: App {
                 // pane behind it is the one its items are linked to, and
                 // closing it would take them all down.
                 ForEach(FocusedPaneCommand.all, id: \.title) { command in
-                    Button(command.title) {
+                    Button(command.title(zoomed: viewModel.canvasFocusedPaneIsZoomed)) {
                         guard let pane = viewModel.canvasFocusedPaneID else { return }
                         Task { await command.action.perform(paneID: pane, on: viewModel) }
                     }

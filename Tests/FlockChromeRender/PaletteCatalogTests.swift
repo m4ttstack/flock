@@ -89,12 +89,23 @@ final class PaletteCatalogTests: XCTestCase {
         XCTAssertFalse(codex.contains("rt.cd"), "codex has no /cd")
     }
 
+    /// Renamed, not re-identified, so recents still find it after a zoom.
+    func testTheZoomRowNamesTheWayOutWhileZoomed() {
+        let name = { (zoomed: Bool) in
+            PaletteCatalog.entries(in: PaletteContext(canvasPane: self.pane, focusedPaneZoomed: zoomed))
+                .first { $0.command.id == "pane.zoompane" }?.command.name
+        }
+        XCTAssertEqual(name(false), "Zoom Pane")
+        XCTAssertEqual(name(true), "Unzoom Pane")
+    }
+
     func testShortcutsReadAsTheMenusShowThem() {
         let entries = PaletteCatalog.entries(in: PaletteContext(canvasPane: pane, neighbors: [.left], hasNotifications: true))
         let shortcut = { (id: String) in entries.first { $0.command.id == id }?.command.shortcut }
         XCTAssertEqual(shortcut("pane.splitright"), "⌘D")
         XCTAssertEqual(shortcut("pane.focuspaneleft"), "⌥⌘←")
         XCTAssertEqual(shortcut("pane.renamepane"), "F2")
+        XCTAssertEqual(shortcut("pane.zoompane"), "⇧⌘↩")
         XCTAssertEqual(shortcut("view.clearnotifications"), "⇧⌘K")
         XCTAssertFalse(entries.contains { $0.command.id == "view.commandpalette" }, "the palette does not list itself")
     }
