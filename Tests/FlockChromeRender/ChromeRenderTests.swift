@@ -2800,12 +2800,33 @@ final class ChromeRenderTests: XCTestCase {
         restingWindow.close()
     }
 
-    /// The status chip rides the title and the zoom badge stays in the
+    /// Idle and unknown panes wear a chip too, so the title row always
+    /// carries a status. Read just inside the chip's top-leading corner,
+    /// above any glyph: a pane with no chip shows the pane ground there.
+    func testEveryPaneWearsAStatusChip() async throws {
+        let theme = Theme.tokyoNight
+        let pane = PaneID(rawValue: "w1:p2")
+        for status in ["idle", "unknown", "working"] {
+            let harness = try await Harness(theme: theme, model: try Fixture.model(focusedPaneAgentStatus: status))
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let image = try snapshot(window)
+            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+            let fill = CGPoint(
+                x: box.minX + PaneChrome.horizontalPadding + 4,
+                y: box.minY + PaneChrome.verticalPadding + 1.5
+            )
+            XCTAssertNotEqual(hex(image, fill), theme.palette.chromeRoles.pane.hex, "\(status): no status chip at the title's leading edge")
+            window.close()
+        }
+    }
+
+    /// The status chip leads the title and the zoom badge stays in the
     /// trailing corner. The same zoomed window is drawn idle and working: the
     /// chip is the only difference, so every changed pixel has to land in
     /// the row's leading half, which the badge never moves for. PNGs of both
     /// schemes are written only when `FLOCK_CHROME_RENDER_DIR` is set.
-    func testTheStatusChipRidesTheTitleAndTheZoomBadgeStaysTrailing() async throws {
+    func testTheStatusChipLeadsTheTitleAndTheZoomBadgeStaysTrailing() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let pane = PaneID(rawValue: "w1:p2")
         for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {

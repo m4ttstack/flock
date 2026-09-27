@@ -382,9 +382,10 @@ struct PaneCellView: View {
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {
             HStack(alignment: .top, spacing: ChromeMetrics.Pane.legendItemGap) {
-                titleLabel
                 statusChip
+                titleLabel
             }
+            .padding(.leading, PaneChrome.horizontalPadding)
         }
     }
 
@@ -395,7 +396,6 @@ struct PaneCellView: View {
             .lineLimit(1)
             .frame(height: PaneChrome.titleRowHeight)
             .padding(.top, PaneChrome.verticalPadding)
-            .padding(.leading, PaneChrome.horizontalPadding)
             .contentShape(Rectangle())
         // ONE tap gesture, which is what keeps a plain click instant: a
         // `count: 2` sibling for the rename would make this one wait out the
@@ -436,22 +436,20 @@ struct PaneCellView: View {
         .padding(.trailing, PaneChrome.horizontalPadding)
     }
 
-    /// Rides the title, so the pane's name and what its agent is doing read
+    /// Leads the title, so the pane's name and what its agent is doing read
     /// together. `fixedSize` so a long title truncates before the chip does.
-    @ViewBuilder
     private var statusChip: some View {
-        if let statusColor {
-            Text(pane.agentStatus.rawValue)
-                .font(ChromeType.statusChip)
-                .foregroundStyle(statusColor)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
-                .frame(height: PaneChrome.titleRowHeight)
-                .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(statusColor.opacity(0.14)))
-                .padding(.top, PaneChrome.verticalPadding)
-                .allowsHitTesting(false)
-        }
+        let appearance = statusChipAppearance
+        return Text(appearance.label)
+            .font(ChromeType.statusChip)
+            .foregroundStyle(appearance.color)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
+            .frame(height: PaneChrome.titleRowHeight)
+            .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(appearance.color.opacity(0.14)))
+            .padding(.top, PaneChrome.verticalPadding)
+            .allowsHitTesting(false)
     }
 
     private var chatButtonAppearance: ChatButtonModel.Appearance {
@@ -659,10 +657,16 @@ struct PaneCellView: View {
         )
     }
 
-    /// Status chips only accompany the active states (working/blocked/done);
-    /// an idle or unknown pane shows no status in its title row.
-    private var statusColor: Color? {
-        theme.agentStatusColor(pane.agentStatus)
+    /// Every pane wears a chip. Idle takes herdr's idle green, which
+    /// `agentStatusColor` leaves out because the dots draw idle as a hollow
+    /// ring; unknown (no agent detected) reads as idle, dimmed, rather than
+    /// naming a state herdr never reported.
+    private var statusChipAppearance: (label: String, color: Color) {
+        switch pane.agentStatus {
+        case .idle: ("idle", theme.green)
+        case .unknown: ("idle", theme.overlay0)
+        default: (pane.agentStatus.rawValue, theme.agentStatusColor(pane.agentStatus) ?? theme.overlay0)
+        }
     }
 
     /// True once the badge has actually appeared, and for however much longer
