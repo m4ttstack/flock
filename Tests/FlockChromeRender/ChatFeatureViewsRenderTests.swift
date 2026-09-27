@@ -333,6 +333,56 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
 
     // MARK: - Identity: the name is drawn, the id never is
 
+    /// The UI-validation render for chat identity: the popover, Peek, Quick
+    /// send and Broadcast in a dark and a light theme, with kay a minted
+    /// identity (`kay.k3f9`, named `kay`). PNGs land in
+    /// `FLOCK_CHROME_RENDER_DIR` for a person to look at; the assertion only
+    /// proves each surface drew on its own theme's ground.
+    func testChatIdentitySurfacesRenderInBothSchemes() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let status = ChatStatus(
+            handle: "kay.k3f9", name: "kay", state: "working", pane: "w1:p3", signedIn: true, rooms: ["#rt", "#flock"]
+        )
+        let targetsJSON = ##"{"rooms":["#rt","#flock"],"people":["@scout","@codex","@kay"]}"##
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            let store = await makeChatStore(peekJSON: Self.peekJSONWithGhost, targetsJSON: targetsJSON)
+            let surfaces: [(String, AnyView, CGSize)] = [
+                (
+                    "popover",
+                    AnyView(ChatPopover(theme: theme, status: status, isPresented: .constant(true), onSignIn: {}, onSignOut: {}, onOpenViewer: {})),
+                    CGSize(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.signedInHeight)
+                ),
+                (
+                    "peek",
+                    AnyView(ChatPeekView(theme: theme, onBack: {}, onClose: {}, onJump: { _ in })),
+                    CGSize(width: ChromeMetrics.ChatPeek.width, height: 400)
+                ),
+                (
+                    "quick-send",
+                    AnyView(ChatQuickSendView(theme: theme, status: status, onBack: {}, onClose: {})),
+                    CGSize(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.height)
+                ),
+                (
+                    "broadcast",
+                    AnyView(ChatBroadcastView(theme: theme, onBack: {}, onClose: {})),
+                    CGSize(width: ChromeMetrics.ChatBroadcast.width, height: 420)
+                ),
+            ]
+            for (name, view, size) in surfaces {
+                let window = hostWindow(view, chatStore: store, size: size, theme: theme)
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try writePNG(image, to: directory, name: "chat-identity-\(name)-\(scheme).png")
+                }
+                XCTAssertEqual(
+                    hex(image, CGPoint(x: size.width * 0.6, y: 5)), theme.palette.panelBg.hex, "\(name), \(scheme): ground"
+                )
+                window.close()
+            }
+        }
+    }
+
     private static func decodeBuddy(_ json: String) -> ChatBuddy {
         try! JSONDecoder().decode(ChatBuddy.self, from: Data(json.utf8))
     }
