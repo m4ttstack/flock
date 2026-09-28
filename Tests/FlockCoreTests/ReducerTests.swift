@@ -112,6 +112,19 @@ final class ReducerTests: XCTestCase {
         XCTAssertNotNil(model.panes[PaneID(rawValue: "w1:p2")])
     }
 
+    /// herdr reports an agent starting in an existing pane with
+    /// `pane.agent_detected` alone, never a `pane.updated`.
+    func testAgentDetectedSetsAndClearsThePanesAgent() throws {
+        var model = try seededModel()
+        let pane = PaneID(rawValue: "w1:p2")
+
+        apply(.paneAgentDetected(pane, agent: "claude"), to: &model)
+        XCTAssertEqual(model.panes[pane]?.agent, "claude")
+
+        apply(.paneAgentDetected(pane, agent: nil), to: &model)
+        XCTAssertNil(model.panes[pane]?.agent)
+    }
+
     /// A workspace's dot is the loudest of its panes. Closing the tab that
     /// held the loudest one has to bring the dot down to what is left, or a
     /// closed "done" tab keeps the workspace blue over tabs that are working.

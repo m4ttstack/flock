@@ -64,6 +64,9 @@ private func reduce(_ event: HerdrEvent, into model: inout SessionModel) {
         pane.agentStatus = status
         model.panes[paneID] = pane
 
+    case .paneAgentDetected(let paneID, let agent):
+        model.panes[paneID]?.agent = agent
+
     case .paneExited(let paneID):
         removePane(paneID, closingAnEmptiedWorkspace: true, from: &model)
 

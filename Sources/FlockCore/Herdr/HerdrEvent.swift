@@ -20,6 +20,8 @@ public enum HerdrEvent: Sendable {
     case paneMoved(PaneMovedPayload)
     case paneExited(PaneID)
     case paneAgentStatusChanged(PaneID, AgentStatus)
+    /// `agent` is nil when herdr released the pane back to a shell.
+    case paneAgentDetected(PaneID, agent: String?)
     /// Never arrives on the blanket subscription: it is pane-scoped, fed by
     /// one `pane.scroll_changed` subscription per attached pane
     /// (`PaneScrollSubscriber`) and decoded by `HerdrDecoder.scrollChanged`.
@@ -54,6 +56,7 @@ extension HerdrDecoder {
         let tabID: TabID?
         let label: String?
         let agentStatus: AgentStatus?
+        let agent: String?
         let previousPaneID: PaneID?
         let previousWorkspaceID: WorkspaceID?
         let previousTabID: TabID?
@@ -63,7 +66,7 @@ extension HerdrDecoder {
         let closedWorkspaceID: WorkspaceID?
 
         enum CodingKeys: String, CodingKey {
-            case type, layout, pane, tab, workspace, workspaces, tabs, label
+            case type, layout, pane, tab, workspace, workspaces, tabs, label, agent
             case paneID = "pane_id"
             case workspaceID = "workspace_id"
             case tabID = "tab_id"
@@ -223,6 +226,9 @@ extension HerdrDecoder {
                 return .unknown(type: payload.type)
             }
             return .paneAgentStatusChanged(paneID, status)
+        case "pane_agent_detected":
+            guard let paneID = payload.paneID else { return .unknown(type: payload.type) }
+            return .paneAgentDetected(paneID, agent: payload.agent)
         case "tab_created":
             guard let tab = payload.tab else { return .unknown(type: payload.type) }
             return .tabCreated(tab)

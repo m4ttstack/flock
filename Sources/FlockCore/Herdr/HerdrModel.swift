@@ -113,7 +113,8 @@ public struct PaneRecord: Codable, Equatable, Sendable {
     /// and an agent the shell launched can be working somewhere else.
     public var foregroundCwd: String? = nil
     /// The agent herdr detected running in the pane (`claude`, `codex`), nil
-    /// for a shell. herdr sends a whole `pane.updated` when it changes.
+    /// for a shell. A change arrives as `pane.agent_detected`, not
+    /// `pane.updated`, which herdr sends only when the agent's name changes.
     public var agent: String? = nil
 
     enum CodingKeys: String, CodingKey {

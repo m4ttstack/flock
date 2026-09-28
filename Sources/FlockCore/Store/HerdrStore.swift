@@ -767,6 +767,7 @@ public final class HerdrStore {
     private static let subscriptionTypes: [String] = [
         "layout.updated",
         "pane.created", "pane.updated", "pane.closed", "pane.focused", "pane.moved", "pane.exited",
+        "pane.agent_detected",
         "tab.created", "tab.closed", "tab.renamed", "tab.moved", "tab.focused",
         "workspace.created", "workspace.closed", "workspace.renamed",
         "workspace.moved", "workspace.reordered", "workspace.focused",
