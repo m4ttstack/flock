@@ -60,34 +60,74 @@ HERDR_SOCKET_PATH=~/.config/herdr/sessions/work/herdr.sock open -a Flock
 
 ### Keyboard shortcuts
 
+Everything here except the last group is also in the menu bar, and the
+command palette (<kbd>⌘</kbd><kbd>K</kbd>) lists each command with its key.
+
+**Panes**
+
+| Shortcut | Action |
+|---|---|
+| <kbd>⌘</kbd><kbd>D</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>D</kbd> | Split right / split down |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>↩</kbd> | Zoom or unzoom the focused pane |
+| <kbd>⌘</kbd><kbd>W</kbd> | Close the focused pane |
+| <kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Focus the pane on that side |
+| <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd> + <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Move the focused pane that way |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Swap the focused pane with its neighbor that way |
+| <kbd>⌘</kbd><kbd>1</kbd> <kbd>⌘</kbd><kbd>2</kbd> <kbd>⌘</kbd><kbd>3</kbd> | Press the focused pane's launcher buttons (rt cd, Claude, Codex) |
+| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd> | Switch where the focused pane's plain right-clicks go: its program (the default) or the pane menu |
+
+**Tabs**
+
 | Shortcut | Action |
 |---|---|
 | <kbd>⌘</kbd><kbd>T</kbd> | New tab in the current workspace |
-| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> | New workspace |
-| <kbd>⌘</kbd><kbd>W</kbd> | Close the focused pane |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close the current tab |
-| <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close the current workspace |
-| <kbd>⌘</kbd><kbd>K</kbd> | Command palette |
-| <kbd>⌃</kbd><kbd>Tab</kbd> | Workspace switcher (hold <kbd>⌃</kbd>, press <kbd>Tab</kbd> to step, let go to switch) |
-| <kbd>⌥</kbd><kbd>Tab</kbd> | Tab switcher for the current workspace, held and stepped the same way with <kbd>⌥</kbd> |
-| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd> | Previous / next tab |
-| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↑</kbd><kbd>↓</kbd> | Previous / next workspace, in rail order |
+| <kbd>⌥</kbd><kbd>Tab</kbd> | Tab switcher: hold <kbd>⌥</kbd>, press <kbd>Tab</kbd> to step (with <kbd>⇧</kbd> to go back), let go to switch |
+| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd> / <kbd>⌃</kbd><kbd>⌘</kbd><kbd>→</kbd> | Previous / next tab |
 | <kbd>⌃</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>9</kbd> | Go to that tab |
+
+**Workspaces**
+
+| Shortcut | Action |
+|---|---|
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> | New workspace |
+| <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close the current workspace |
+| <kbd>⌃</kbd><kbd>Tab</kbd> | Workspace switcher: hold <kbd>⌃</kbd>, press <kbd>Tab</kbd> to step (with <kbd>⇧</kbd> to go back), let go to switch |
+| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↑</kbd> / <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↓</kbd> | Previous / next workspace, in rail order |
 | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>⌘</kbd><kbd>9</kbd> | Go to that workspace, in rail order |
-| <kbd>⌘</kbd><kbd>1</kbd> <kbd>⌘</kbd><kbd>2</kbd> <kbd>⌘</kbd><kbd>3</kbd> | Press the focused pane's launcher buttons (rt cd, Claude, Codex) |
-| <kbd>⌘</kbd><kbd>R</kbd> | Rearrange mode (<kbd>Esc</kbd> leaves it) |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | All Workspaces |
-| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Focus the pane on that side |
-| <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Move the focused pane that way |
-| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Swap the focused pane with its neighbor that way |
-| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd>, or click a pane's mouse icon | Switch where the focused pane's plain right-clicks go: its program (the default) or the pane menu. The icon shows while the program has the mouse |
-| <kbd>⌥</kbd> + right-click | Whichever of the two a plain right-click does not get |
-| <kbd>F2</kbd> | Rename the selected workspace or tab |
+
+**App**
+
+| Shortcut | Action |
+|---|---|
+| <kbd>⌘</kbd><kbd>K</kbd> | Command palette |
+| <kbd>⌘</kbd><kbd>R</kbd> | Rearrange mode (<kbd>Esc</kbd> leaves it) |
 | <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / redo a move |
-| <kbd>⌘</kbd><kbd>J</kbd> | Open the oldest notification |
-| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>J</kbd> | Clear notifications |
-| <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> | Bigger / smaller text |
+| <kbd>⌘</kbd><kbd>J</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>J</kbd> | Open the oldest notification / clear notifications |
+| <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> | Bigger / smaller text (the open rt modal's, while one is up) |
+| <kbd>F2</kbd> | Rename the selected workspace or tab |
 | <kbd>⌘</kbd><kbd>,</kbd> | Settings |
+
+**Chat** (when herdr-chat is available)
+
+| Shortcut | Action |
+|---|---|
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>C</kbd> | Chat panel |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>B</kbd> | Broadcast to panes |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> | Chat peek |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>S</kbd> | Quick send |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>V</kbd> | Open the viewer |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>I</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd> | Sign this pane in / out |
+
+**Mouse and gestures**
+
+| Input | Action |
+|---|---|
+| Click a pane's mouse icon | Same as <kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd>; the icon shows while the program has the mouse |
+| <kbd>⌥</kbd> + right-click | Whichever of the program and the pane menu a plain right-click does not get |
+| <kbd>⌘</kbd> + click in the rail | Select several workspaces to drag together |
+| <kbd>Esc</kbd> in a switcher | Cancel without switching |
 
 ## Settings
 
@@ -95,6 +135,9 @@ HERDR_SOCKET_PATH=~/.config/herdr/sessions/work/herdr.sock open -a Flock
   seconds*, or *Never*. A question from an agent stays until you answer it.
 - **Rearrange Mode > After a move:** turn rearrange mode off after a drag
   changes the layout (the default), or keep it on.
+- **rt Modal Text Size:** the size each rt command's modal opens at.
+  <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> change it while that
+  modal is up.
 - **herdr > Mouse support:** herdr 0.9.1 does not pass clicks and scrolling
   through to its panes from a client like Flock. Flock carries a build of the
   same herdr version that does, and can install it for you, keeping your
