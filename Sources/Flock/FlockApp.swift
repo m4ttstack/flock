@@ -564,7 +564,7 @@ struct FlockApp: App {
                 rtModalTextSizeStore: rtModalTextSizeStore
             )
         }
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
     }
 
     private func focusedPaneButton(_ command: FocusedPaneCommand) -> some View {
