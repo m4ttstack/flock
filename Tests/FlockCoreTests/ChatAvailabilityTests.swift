@@ -2,32 +2,39 @@ import XCTest
 @testable import FlockCore
 
 final class ChatAvailabilityTests: XCTestCase {
-    func testAnOverrideWinsOverEveryCandidate() {
+    private let runnable: Set<String> = ["/override", "/dev", "/bundled"]
+
+    func testTheFirstRunnableCandidateWins() {
         XCTAssertEqual(
-            ChatAvailability.resolve(environmentOverride: "/opt/chat", candidates: [("/a", 5), ("/b", 9)]),
-            "/opt/chat"
+            ChatAvailability.resolve(["/override", "/dev", "/bundled"], isRunnable: runnable.contains),
+            "/override"
+        )
+        XCTAssertEqual(
+            ChatAvailability.resolve([nil, "/dev", "/bundled"], isRunnable: runnable.contains),
+            "/dev"
         )
     }
 
-    /// Two installs of the same plugin are normal here, and the one built most
-    /// recently is the one the user last asked for.
-    func testTheNewestCandidateWins() {
+    /// A typo'd override or an unbuilt dev checkout must fall through to a
+    /// real binary rather than report chat present at a dead path.
+    func testAnUnrunnableCandidateFallsThrough() {
         XCTAssertEqual(
-            ChatAvailability.resolve(environmentOverride: nil, candidates: [("/a", 5), ("/b", 9), ("/c", 1)]),
-            "/b"
+            ChatAvailability.resolve(["/missing", "/also-missing", "/bundled"], isRunnable: runnable.contains),
+            "/bundled"
+        )
+    }
+
+    /// An empty string is a variable someone unset badly, not a path.
+    func testAnEmptyCandidateIsSkippedWithoutAsking() {
+        XCTAssertEqual(
+            ChatAvailability.resolve(["", "/bundled"], isRunnable: { !$0.isEmpty }),
+            "/bundled"
         )
     }
 
     /// Absent is a first-class answer, not an error to report.
-    func testNoOverrideAndNoCandidatesIsAbsent() {
-        XCTAssertNil(ChatAvailability.resolve(environmentOverride: nil, candidates: []))
-    }
-
-    /// An empty override is a variable someone unset badly, not a path.
-    func testAnEmptyOverrideIsIgnored() {
-        XCTAssertEqual(
-            ChatAvailability.resolve(environmentOverride: "", candidates: [("/a", 5)]),
-            "/a"
-        )
+    func testNothingRunnableIsAbsent() {
+        XCTAssertNil(ChatAvailability.resolve([nil, "/missing"], isRunnable: runnable.contains))
+        XCTAssertNil(ChatAvailability.resolve([], isRunnable: runnable.contains))
     }
 }

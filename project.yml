@@ -152,6 +152,9 @@ targets:
         # Scripts/dev-build.sh stamps every build; a running Flock Dev compares
         # its own stamp with the bundle on disk to offer a restart.
         FLOCK_BUILD_STAMP: ""
+        # Scripts/dev-build.sh points this at the mattstack checkout's own
+        # herdr-chat build, so Flock Dev runs whatever was last built there.
+        FLOCK_HERDR_CHAT_PATH: ""
     info:
       path: Generated/Flock-dev-Info.plist
       properties:
@@ -159,6 +162,7 @@ targets:
         CFBundleName: "Flock Dev"
         CFBundleDisplayName: "Flock Dev"
         FlockBuildStamp: "$(FLOCK_BUILD_STAMP)"
+        FlockHerdrChatPath: "$(FLOCK_HERDR_CHAT_PATH)"
   FlockCoreTests:
     type: bundle.unit-test
     platform: macOS

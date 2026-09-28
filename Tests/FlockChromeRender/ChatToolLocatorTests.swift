@@ -1,10 +1,8 @@
 import Foundation
 import XCTest
 
-/// `ChatToolLocator` globs a plugins tree with two wildcards
-/// (`<install>/<plugin>/target/release/herdr-chat`, or the same under the
-/// monorepo's `plugins/herdr-chat/`), so these tests build one under a
-/// temporary directory rather than touch the real `~/.config/herdr`.
+/// Builds binaries under a temporary directory rather than touch the app
+/// bundle or a real mattstack checkout.
 final class ChatToolLocatorTests: XCTestCase {
     private var root: URL!
 
@@ -21,138 +19,81 @@ final class ChatToolLocatorTests: XCTestCase {
         super.tearDown()
     }
 
-    /// `/var` is a symlink to `/private/var` on this machine, and Foundation
-    /// resolves it inconsistently between building a path here and walking
-    /// one inside the locator. Comparing paths modulo that prefix is the
-    /// actual test; a real difference in binary path still fails either form.
-    private func assertSamePath(_ actual: String?, _ expected: String, line: UInt = #line) {
-        func canonical(_ path: String) -> String {
-            path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path
-        }
-        XCTAssertEqual(actual.map(canonical), canonical(expected), line: line)
+    private func binary(_ name: String, permissions: Int = 0o755) throws -> String {
+        let url = root.appendingPathComponent(name)
+        FileManager.default.createFile(atPath: url.path, contents: Data([0x00]))
+        try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
+        return url.path
     }
 
-    @discardableResult
-    private func installBinary(
-        at installKind: String, plugin: String, subdirectory: String? = nil, modified: Date = Date()
-    ) throws -> URL {
-        var pluginRoot = root
-            .appendingPathComponent(installKind, isDirectory: true)
-            .appendingPathComponent(plugin, isDirectory: true)
-        if let subdirectory {
-            pluginRoot = pluginRoot.appendingPathComponent(subdirectory, isDirectory: true)
-        }
-        let directory = pluginRoot.appendingPathComponent("target/release", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let binary = directory.appendingPathComponent("herdr-chat")
-        FileManager.default.createFile(atPath: binary.path, contents: Data([0x00]))
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755, .modificationDate: modified], ofItemAtPath: binary.path
-        )
-        return binary
-    }
+    private var missing: String { root.appendingPathComponent("nowhere").path }
 
-    func testAnOverrideWinsEvenWithAnInstallPresent() throws {
-        try installBinary(at: "github", plugin: "m4ttstack.chat-abc123")
-        let override = root.appendingPathComponent("override-chat")
-        FileManager.default.createFile(atPath: override.path, contents: Data([0x00]))
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: override.path)
-        assertSamePath(
-            ChatToolLocator.resolve(environmentOverride: override.path, pluginsDirectory: root),
-            override.path
-        )
-    }
-
-    /// Both wildcards: the install-kind directory ("config" vs "github") and
-    /// the plugin directory itself, which carries a build hash suffix.
-    func testFindsTheBinaryThroughBothWildcards() throws {
-        let binary = try installBinary(at: "github", plugin: "m4ttstack.chat-3fdefc4d82ce")
-        assertSamePath(
-            ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), binary.path
-        )
-    }
-
-    /// The real machine carries a "config" install with a same-named
-    /// directory but no built, executable binary; only the executable counts.
-    func testANonExecutableCandidateIsSkipped() throws {
-        let directory = root
-            .appendingPathComponent("config", isDirectory: true)
-            .appendingPathComponent("m4ttstack.chat", isDirectory: true)
-            .appendingPathComponent("target/release", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let binary = directory.appendingPathComponent("herdr-chat")
-        FileManager.default.createFile(atPath: binary.path, contents: Data([0x00]))
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: binary.path)
-        XCTAssertNil(ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root))
-    }
-
-    func testTheNewestOfTwoInstallsWins() throws {
-        try installBinary(
-            at: "github", plugin: "m4ttstack.chat-oldbuild", modified: Date(timeIntervalSinceNow: -3600)
-        )
-        let newer = try installBinary(at: "github", plugin: "m4ttstack.chat-newbuild")
-        assertSamePath(
-            ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), newer.path
-        )
-    }
-
-    /// herdr clones the whole monorepo into the plugin directory and builds
-    /// in its `plugins/herdr-chat` subdirectory.
-    func testFindsTheBinaryInAMonorepoInstall() throws {
-        let binary = try installBinary(
-            at: "github", plugin: "m4ttstack.chat-3fdefc4d82ce", subdirectory: "plugins/herdr-chat"
-        )
-        assertSamePath(
-            ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), binary.path
-        )
-    }
-
-    func testTheNewestWinsAcrossStandaloneAndMonorepoLayouts() throws {
-        try installBinary(
-            at: "github", plugin: "m4ttstack.chat-standalone", modified: Date(timeIntervalSinceNow: -3600)
-        )
-        let monorepo = try installBinary(
-            at: "github", plugin: "m4ttstack.chat-monorepo", subdirectory: "plugins/herdr-chat"
-        )
-        assertSamePath(
-            ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), monorepo.path
-        )
-
-        let newerStandalone = try installBinary(
-            at: "config", plugin: "m4ttstack.chat", modified: Date(timeIntervalSinceNow: 3600)
-        )
-        assertSamePath(
-            ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), newerStandalone.path
-        )
-    }
-
-    func testNoPluginsDirectoryAtAllIsAbsent() {
-        let missing = root.appendingPathComponent("does-not-exist", isDirectory: true)
-        XCTAssertNil(ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: missing))
-    }
-
-    /// A typo or a deleted binary must fall through to a real install rather
-    /// than report chat present at a path nothing is at.
-    func testAnOverrideAtAMissingPathFallsThroughToACandidate() throws {
-        let installed = try installBinary(at: "github", plugin: "m4ttstack.chat-abc123")
-        assertSamePath(
+    func testAnOverrideWinsOverTheDevPathAndTheBundledCopy() throws {
+        let override = try binary("override")
+        XCTAssertEqual(
             ChatToolLocator.resolve(
-                environmentOverride: root.appendingPathComponent("nowhere").path, pluginsDirectory: root
+                environmentOverride: override, devPath: try binary("dev"), bundledPath: try binary("bundled")
             ),
-            installed.path
+            override
         )
     }
 
-    /// A directory or an unbuilt file at the override path is the same failure
-    /// as a missing one: present on disk, not runnable.
-    func testAnOverrideAtANonExecutablePathFallsThroughToACandidate() throws {
-        let installed = try installBinary(at: "github", plugin: "m4ttstack.chat-abc123")
-        let notExecutable = root.appendingPathComponent("not-executable")
-        FileManager.default.createFile(atPath: notExecutable.path, contents: Data([0x00]))
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: notExecutable.path)
-        assertSamePath(
-            ChatToolLocator.resolve(environmentOverride: notExecutable.path, pluginsDirectory: root),
-            installed.path
+    func testTheDevPathWinsOverTheBundledCopy() throws {
+        let dev = try binary("dev")
+        XCTAssertEqual(
+            ChatToolLocator.resolve(environmentOverride: nil, devPath: dev, bundledPath: try binary("bundled")),
+            dev
         )
+    }
+
+    func testTheBundledCopyIsUsedWithNoDevPath() throws {
+        let bundled = try binary("bundled")
+        XCTAssertEqual(
+            ChatToolLocator.resolve(environmentOverride: nil, devPath: nil, bundledPath: bundled),
+            bundled
+        )
+    }
+
+    /// A dev checkout that has not built herdr-chat yet.
+    func testAnUnbuiltDevPathFallsThroughToTheBundledCopy() throws {
+        let bundled = try binary("bundled")
+        XCTAssertEqual(
+            ChatToolLocator.resolve(environmentOverride: nil, devPath: missing, bundledPath: bundled),
+            bundled
+        )
+    }
+
+    func testAnOverrideAtAMissingPathFallsThrough() throws {
+        let bundled = try binary("bundled")
+        XCTAssertEqual(
+            ChatToolLocator.resolve(environmentOverride: missing, devPath: nil, bundledPath: bundled),
+            bundled
+        )
+    }
+
+    func testANonExecutableFileIsSkipped() throws {
+        let notExecutable = try binary("not-executable", permissions: 0o644)
+        XCTAssertNil(ChatToolLocator.resolve(environmentOverride: nil, devPath: notExecutable, bundledPath: nil))
+    }
+
+    func testADirectoryIsSkipped() throws {
+        let directory = root.appendingPathComponent("a-directory", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        XCTAssertNil(ChatToolLocator.resolve(environmentOverride: nil, devPath: directory.path, bundledPath: nil))
+    }
+
+    func testNothingBuiltAnywhereIsAbsent() {
+        XCTAssertNil(ChatToolLocator.resolve(environmentOverride: nil, devPath: missing, bundledPath: missing))
+    }
+
+    /// The release app's Info.plist never carries the key, and a build that
+    /// did not pass the setting leaves Xcode's unsubstituted variable or an
+    /// empty string behind.
+    func testTheDevPathIsReadOnlyWhenABuildWroteIt() {
+        XCTAssertEqual(ChatToolLocator.devPath(in: ["FlockHerdrChatPath": "/repo/herdr-chat"]), "/repo/herdr-chat")
+        XCTAssertNil(ChatToolLocator.devPath(in: ["FlockHerdrChatPath": ""]))
+        XCTAssertNil(ChatToolLocator.devPath(in: ["FlockHerdrChatPath": "$(FLOCK_HERDR_CHAT_PATH)"]))
+        XCTAssertNil(ChatToolLocator.devPath(in: [:]))
+        XCTAssertNil(ChatToolLocator.devPath(in: nil))
     }
 }
