@@ -69,6 +69,7 @@ HERDR_SOCKET_PATH=~/.config/herdr/sessions/work/herdr.sock open -a Flock
 | <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close the current workspace |
 | <kbd>⌘</kbd><kbd>K</kbd> | Command palette |
 | <kbd>⌃</kbd><kbd>Tab</kbd> | Workspace switcher (hold <kbd>⌃</kbd>, press <kbd>Tab</kbd> to step, let go to switch) |
+| <kbd>⌥</kbd><kbd>Tab</kbd> | Tab switcher for the current workspace, held and stepped the same way with <kbd>⌥</kbd> |
 | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd> | Previous / next tab |
 | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↑</kbd><kbd>↓</kbd> | Previous / next workspace, in rail order |
 | <kbd>⌃</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>9</kbd> | Go to that tab |

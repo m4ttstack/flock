@@ -79,6 +79,7 @@ struct FlockApp: App {
     @State private var commandPalette = CommandPaletteState()
     @State private var paletteRecents = PaletteRecentsStore()
     @State private var workspaceSwitcher = WorkspaceSwitcher()
+    @State private var tabSwitcher = TabSwitcher()
     /// Held for the app's life so its notification observers outlive `init`.
     @State private var herdrHoldCoordinator: HerdrHoldCoordinator
     #if FLOCK_SPARKLE
@@ -299,6 +300,7 @@ struct FlockApp: App {
                 .environment(commandPalette)
                 .environment(paletteRecents)
                 .environment(workspaceSwitcher)
+                .environment(tabSwitcher)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
                 .task {
                     await FlockClientGuard.settle(socketPath: socketPath, defaultSocketPath: Self.defaultSocketPath)

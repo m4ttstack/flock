@@ -10,6 +10,7 @@ struct MainWindow: View {
     @Environment(RailWidthStore.self) private var railWidth
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(WorkspaceSwitcher.self) private var switcher
+    @Environment(TabSwitcher.self) private var tabSwitcher
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
@@ -61,7 +62,7 @@ struct MainWindow: View {
                     // pane's rt button, which the grid does not show.
                     .overlay { RtModalView(theme: theme, viewModel: viewModel) }
                     .overlay { CommandPaletteView(theme: theme, viewModel: viewModel) }
-                    .overlay { WorkspaceSwitcherView(theme: theme, viewModel: viewModel) }
+                    .overlay { SwitcherOverlay(theme: theme, viewModel: viewModel) }
                 }
             }
         }
@@ -100,13 +101,16 @@ struct MainWindow: View {
         // palette draws over, and a rename editor on the live rail needs the
         // Return and Esc the palette would take.
         .onChange(of: dragCoordinator.isGridShown) { _, shown in
-            if shown { commandPalette.close(); switcher.cancel() }
+            if shown { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
         }
         .onChange(of: viewModel.renameEditorIsOnScreen) { _, renaming in
-            if renaming { commandPalette.close(); switcher.cancel() }
+            if renaming { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
         }
         .onChange(of: viewModel.selectedWorkspaceID, initial: true) { _, id in
             if let id { switcher.note(id) }
+        }
+        .onChange(of: viewModel.selectedTabID, initial: true) { _, id in
+            if let id { tabSwitcher.note(id) }
         }
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)

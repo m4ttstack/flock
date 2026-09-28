@@ -118,19 +118,55 @@ final class WorkspaceSwitcherTests: XCTestCase {
         XCTAssertFalse(switcher.isActive)
     }
 
-    func testKeys() {
-        typealias Key = WorkspaceSwitcherKey
+    func testControlKeys() {
+        func decide(_ keyCode: UInt16, control: Bool = true, shift: Bool = false, command: Bool = false, option: Bool = false, active: Bool = false)
+            -> SwitcherKey.Decision {
+            SwitcherKey.decide(
+                trigger: .control, keyCode: keyCode, control: control, shift: shift, command: command, option: option, active: active
+            )
+        }
         let tab: UInt16 = 48
-        XCTAssertEqual(Key.decide(keyCode: tab, control: true, shift: false, command: false, option: false, active: false), .next)
-        XCTAssertEqual(Key.decide(keyCode: tab, control: true, shift: true, command: false, option: false, active: false), .previous)
-        XCTAssertEqual(Key.decide(keyCode: tab, control: false, shift: false, command: false, option: false, active: false), .pass)
-        XCTAssertEqual(Key.decide(keyCode: tab, control: true, shift: false, command: true, option: false, active: false), .pass)
-        XCTAssertEqual(Key.decide(keyCode: tab, control: true, shift: false, command: false, option: true, active: false), .pass)
-        XCTAssertEqual(Key.decide(keyCode: 53, control: true, shift: false, command: false, option: false, active: true), .cancel)
-        XCTAssertEqual(Key.decide(keyCode: 36, control: true, shift: false, command: false, option: false, active: true), .commit)
-        XCTAssertEqual(Key.decide(keyCode: 125, control: true, shift: false, command: false, option: false, active: true), .next)
-        XCTAssertEqual(Key.decide(keyCode: 126, control: true, shift: false, command: false, option: false, active: true), .previous)
-        XCTAssertEqual(Key.decide(keyCode: 0, control: true, shift: false, command: false, option: false, active: true), .swallow)
-        XCTAssertEqual(Key.decide(keyCode: 53, control: false, shift: false, command: false, option: false, active: false), .pass)
+        XCTAssertEqual(decide(tab), .next)
+        XCTAssertEqual(decide(tab, shift: true), .previous)
+        XCTAssertEqual(decide(tab, control: false), .pass)
+        XCTAssertEqual(decide(tab, command: true), .pass)
+        XCTAssertEqual(decide(tab, option: true), .pass)
+        XCTAssertEqual(decide(53, active: true), .cancel)
+        XCTAssertEqual(decide(36, active: true), .commit)
+        XCTAssertEqual(decide(125, active: true), .next)
+        XCTAssertEqual(decide(126, active: true), .previous)
+        XCTAssertEqual(decide(0, active: true), .swallow)
+        XCTAssertEqual(decide(53, control: false), .pass)
+    }
+
+    func testOptionKeysAreTheTabSwitchers() {
+        func decide(_ keyCode: UInt16, control: Bool = false, shift: Bool = false, command: Bool = false, option: Bool = true, active: Bool = false)
+            -> SwitcherKey.Decision {
+            SwitcherKey.decide(
+                trigger: .option, keyCode: keyCode, control: control, shift: shift, command: command, option: option, active: active
+            )
+        }
+        let tab: UInt16 = 48
+        XCTAssertEqual(decide(tab), .next)
+        XCTAssertEqual(decide(tab, shift: true), .previous)
+        XCTAssertEqual(decide(tab, option: false), .pass)
+        XCTAssertEqual(decide(tab, control: true), .pass, "⌃⌥Tab is neither switcher's")
+        XCTAssertEqual(decide(tab, command: true), .pass)
+        XCTAssertEqual(decide(53, active: true), .cancel)
+    }
+
+    func testTabRecentsKeepTheirOwnList() {
+        let defaults = UserDefaults(suiteName: Self.suite)!
+        let workspaces = WorkspaceSwitcher(userDefaults: defaults)
+        let tabs = TabSwitcher(userDefaults: defaults)
+        workspaces.note(WorkspaceID(rawValue: "w1"))
+        tabs.note(TabID(rawValue: "w1:t2"))
+        tabs.note(TabID(rawValue: "w1:t1"))
+        XCTAssertEqual(TabSwitcher(userDefaults: defaults).recents.map(\.rawValue), ["w1:t1", "w1:t2"])
+        XCTAssertEqual(WorkspaceSwitcher(userDefaults: defaults).recents.map(\.rawValue), ["w1"])
+
+        XCTAssertTrue(tabs.begin(items: [TabID(rawValue: "w1:t1"), TabID(rawValue: "w1:t2"), TabID(rawValue: "w1:t3")], current: TabID(rawValue: "w1:t1")))
+        XCTAssertEqual(tabs.order.map(\.rawValue), ["w1:t1", "w1:t2", "w1:t3"])
+        XCTAssertEqual(tabs.selected?.rawValue, "w1:t2")
     }
 }

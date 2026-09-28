@@ -3132,6 +3132,35 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// ⌥Tab's panel is ⌃Tab's over the selected workspace's tabs: the current
+    /// tab on top, the last one used selected under it.
+    func testTheTabSwitcherSelectsTheLastTabUnderTheCurrentOne() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let tabs = harness.viewModel.tabsForSelectedWorkspace.map(\.tabID)
+            XCTAssertGreaterThan(tabs.count, 1, "the fixture's selected workspace needs a second tab")
+            let current = try XCTUnwrap(harness.viewModel.selectedTabID)
+            let last = try XCTUnwrap(tabs.last { $0 != current })
+            harness.tabSwitcher.note(last)
+            harness.tabSwitcher.note(current)
+            XCTAssertTrue(harness.tabSwitcher.begin(items: tabs, current: current))
+            harness.tabSwitcher.show(session: harness.tabSwitcher.session)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("tab-switcher-\(id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            XCTAssertEqual(harness.tabSwitcher.selected, last)
+            XCTAssertEqual(harness.tabSwitcher.order.first, current)
+            window.close()
+        }
+    }
+
     /// More workspaces than fit: the box keeps its margins, draws no scroll
     /// bar, and scrolls the selection into view at the far end of the list.
     func testALongSwitcherListKeepsItsMarginsAndItsSelectionInView() async throws {
@@ -3469,6 +3498,7 @@ private struct Harness {
     let optionAsAlt: OptionAsAltStore
     let palette = CommandPaletteState()
     let switcher: WorkspaceSwitcher
+    let tabSwitcher: TabSwitcher
     let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
 
@@ -3517,6 +3547,7 @@ private struct Harness {
         optionAsAlt = OptionAsAltStore(userDefaults: defaults)
         paletteRecents = PaletteRecentsStore(userDefaults: defaults)
         switcher = WorkspaceSwitcher(userDefaults: defaults)
+        tabSwitcher = TabSwitcher(userDefaults: defaults)
         chatStore = ChatStore(
             toasts: ToastCenter(),
             probe: { chatAvailable ? "/usr/bin/true" : nil },
@@ -3566,6 +3597,7 @@ private struct Harness {
             .environment(palette)
             .environment(paletteRecents)
             .environment(switcher)
+            .environment(tabSwitcher)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
