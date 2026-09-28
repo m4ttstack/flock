@@ -130,17 +130,9 @@ if [ -n "$VERSION" ] && ! Vendor/Sparkle/bin/generate_keys --account flock -p >/
   echo "release-build.sh: this Mac's keychain has no flock signing key; run Scripts/restore-signing-key.sh" >&2
   exit 1
 fi
-# The bundled herdr-chat is the only chat a released Flock has. xcodegen lists
-# Resources when it runs, so the artifact has to exist before it does.
-if [ ! -f Sources/Flock/Resources/herdr-chat ]; then
-  if [ -n "$VERSION" ]; then
-    echo "release-build.sh: no bundled herdr-chat; run Scripts/build-herdr-chat.sh" >&2
-    exit 1
-  fi
-  echo "release-build.sh: no bundled herdr-chat, so this build has no chat (Scripts/build-herdr-chat.sh)"
-elif ! Scripts/build-herdr-chat.sh --check; then
-  echo "release-build.sh: bundling herdr-chat as built; rerun Scripts/build-herdr-chat.sh to refresh it"
-fi
+# The bundled herdr-chat is the only chat a released Flock has, so every build
+# makes it fresh. xcodegen lists Resources when it runs, so this comes first.
+Scripts/build-herdr-chat.sh
 xcodegen
 
 # The vendored herdr patch and herdr-chat are Mach-Os sitting in Resources,

@@ -1,8 +1,9 @@
 #!/bin/bash
 # Builds herdr-chat from the mattstack checkout's committed HEAD and vendors it
-# into Sources/Flock/Resources, where Flock.app finds it (ChatToolLocator). The
-# artifact is gitignored: a clone without it ships no chat, which the app reads
-# as chat absent, not a crash.
+# into Sources/Flock/Resources, where Flock.app finds it (ChatToolLocator).
+# Scripts/release-build.sh runs this on every build. The artifact is
+# gitignored: a build without it ships no chat, which the app reads as chat
+# absent, not a crash.
 #
 # Flock Dev does not need this: Scripts/dev-build.sh points it at the
 # checkout's own build instead, uncommitted edits included.
@@ -14,36 +15,14 @@ CRATE="plugins/herdr-chat"
 ARTIFACT="Sources/Flock/Resources/herdr-chat"
 PROVENANCE="$ARTIFACT.provenance.txt"
 
-CHECK=0
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --check) CHECK=1; shift ;;
-    -h|--help)
-      echo "usage: Scripts/build-herdr-chat.sh [--check]"
-      echo "  --check  report whether the built artifact matches the checkout's current HEAD"
-      echo "  MATTSTACK_CHECKOUT overrides the default $HOME/Documents/GitHub/repo-tools"
-      exit 0 ;;
-    *) echo "build-herdr-chat: unknown option $1" >&2; exit 2 ;;
-  esac
-done
-
-if [ "$CHECK" = 1 ]; then
-  if [ ! -f "$ARTIFACT" ]; then
-    echo "build-herdr-chat: $ARTIFACT is missing. Run: Scripts/build-herdr-chat.sh" >&2
-    exit 1
-  fi
-  BUILT="$(sed -n 's/^mattstack_commit=//p' "$PROVENANCE" 2>/dev/null || true)"
-  CURRENT="$(git -C "$MATTSTACK_CHECKOUT" rev-parse HEAD 2>/dev/null || true)"
-  if [ -z "$BUILT" ]; then
-    echo "build-herdr-chat: $ARTIFACT has no $PROVENANCE, so what it holds is unknown." >&2
-    exit 1
-  elif [ "$BUILT" != "$CURRENT" ]; then
-    echo "build-herdr-chat: $ARTIFACT is built from ${BUILT:0:9}, but $MATTSTACK_CHECKOUT's HEAD is ${CURRENT:0:9}." >&2
-    exit 1
-  fi
-  echo "build-herdr-chat: $ARTIFACT is built from ${BUILT:0:9}"
-  exit 0
-fi
+case "${1:-}" in
+  "") ;;
+  -h|--help)
+    echo "usage: Scripts/build-herdr-chat.sh"
+    echo "  MATTSTACK_CHECKOUT overrides the default $HOME/Documents/GitHub/repo-tools"
+    exit 0 ;;
+  *) echo "build-herdr-chat: unknown option $1" >&2; exit 2 ;;
+esac
 
 if [ ! -f "$MATTSTACK_CHECKOUT/$CRATE/Cargo.toml" ]; then
   echo "build-herdr-chat: no $CRATE in $MATTSTACK_CHECKOUT (set MATTSTACK_CHECKOUT to point at it)" >&2

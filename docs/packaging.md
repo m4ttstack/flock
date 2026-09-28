@@ -21,7 +21,6 @@ already pushed:
 
 ```bash
 Scripts/fetch-sparkle.sh
-Scripts/build-herdr-chat.sh
 Scripts/release-build.sh --version 1.2.0
 Scripts/make-appcast.sh build/release 1.2.0
 Scripts/publish-release.sh 1.2.0
@@ -30,17 +29,15 @@ Scripts/publish-release.sh 1.2.0
 - `fetch-sparkle.sh` vendors Sparkle 2.9.6 into `Vendor/Sparkle/`, checked
   against pinned sha256 values. It is a no-op once done, and the build scripts
   run it themselves.
-- `build-herdr-chat.sh` builds herdr-chat from the mattstack checkout's HEAD
-  (`MATTSTACK_CHECKOUT`, default `~/Documents/GitHub/repo-tools`) into
-  `Sources/Flock/Resources/herdr-chat`. That copy is the only chat a released
-  Flock has, so `release-build.sh --version` stops without it, warns when it
-  was built from an older commit, and signs it before the build.
 - `release-build.sh --version` builds, signs, notarizes and staples
   `build/release/Flock.app`, then writes `Flock-<version>.zip` and
   `Flock-<version>.dmg` next to it. The build number (`CFBundleVersion`) is the
   commit count at HEAD, and Sparkle orders updates by it, which is why releases
   come from `main` and never from a branch that could count lower than a
-  release already out.
+  release already out. It first runs `build-herdr-chat.sh`, which builds
+  herdr-chat from the mattstack checkout's HEAD (`MATTSTACK_CHECKOUT`, default
+  `~/Documents/GitHub/repo-tools`) into the app, and stops if that fails:
+  the bundled copy is the only chat a released Flock has.
 - `make-appcast.sh` starts from the latest release's `appcast.xml` (none on the
   first release, which GitHub answers with a 404; any other failure stops it),
   adds the new zip, signs it and writes `build/release/appcast.xml`. The new
