@@ -148,4 +148,17 @@ final class RailSectionsTests: XCTestCase {
         XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: 2, in: full, board: nil), 3)
         XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: 3, in: full, board: nil), 4)
     }
+
+    // MARK: - Keyboard order
+
+    func testNavigationWalksTheRailTopToBottom() {
+        let sections = RailSections(model: model(["herd: ship", "🛹 Reviews", "flock", "acme"]), board: board)
+        XCTAssertEqual(sections.navigationOrder { _ in false }.map(\.title), ["flock", "acme", "🛹 Reviews", "ship"])
+    }
+
+    func testNavigationSkipsAFoldedSection() {
+        let sections = RailSections(model: model(["herd: ship", "🛹 Reviews", "flock"]), board: board)
+        XCTAssertEqual(sections.navigationOrder { $0 == .board }.map(\.title), ["flock", "ship"])
+        XCTAssertEqual(sections.navigationOrder { $0 == .herds }.map(\.title), ["flock", "🛹 Reviews"])
+    }
 }

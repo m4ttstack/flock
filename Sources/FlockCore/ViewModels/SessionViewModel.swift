@@ -484,10 +484,7 @@ public final class SessionViewModel {
     /// selected one, wrapping from either end to the other. `nil` with no
     /// other tab to go to.
     public func neighborTab(step: Int) -> TabID? {
-        let tabs = tabsForSelectedWorkspace
-        guard tabs.count > 1, let index = tabs.firstIndex(where: { $0.tabID == selectedTabID }) else { return nil }
-        let target = ((index + step) % tabs.count + tabs.count) % tabs.count
-        return tabs[target].tabID
+        WrappingStep.neighbor(of: selectedTabID, in: tabsForSelectedWorkspace.map(\.tabID), step: step)
     }
 
     /// The layout snapshot for the selected tab, or `nil` when no tab is

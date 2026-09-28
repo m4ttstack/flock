@@ -24,6 +24,21 @@ public struct RailSections: Equatable, Sendable {
         herdSummary = herdRail.summary
     }
 
+    /// One row of the rail as the keyboard walks it.
+    public struct Row: Equatable, Sendable {
+        public let workspaceID: WorkspaceID
+        public let title: String
+    }
+
+    /// The rows top to bottom as the rail draws them, so a folded section's
+    /// rows are skipped the way the eye skips them.
+    public func navigationOrder(isCollapsed: (RailSection) -> Bool) -> [Row] {
+        var rows = workspaces.map { Row(workspaceID: $0.workspaceID, title: $0.label) }
+        if !isCollapsed(.board) { rows += board.map { Row(workspaceID: $0.workspaceID, title: $0.label) } }
+        if !isCollapsed(.herds) { rows += herds.map { Row(workspaceID: $0.workspaceID, title: $0.name) } }
+        return rows
+    }
+
     public static func isRailRow(label: String, board: BoardWorkspaceNames?) -> Bool {
         !HerdWorkspace.isHerd(label: label) && !(board?.contains(label: label) ?? false)
             && !RtLabels.isFlockOwned(workspaceLabel: label)
