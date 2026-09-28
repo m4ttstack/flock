@@ -2156,6 +2156,12 @@ final class ChromeRenderTests: XCTestCase {
             window.contentView = NSHostingView(rootView: view)
             window.orderFront(nil)
             await settle(window)
+            XCTAssertTrue(window.styleMask.contains(.resizable), "\(name): Settings cannot be resized")
+            let content = window.contentRect(forFrameRect: window.frame).size
+            XCTAssertEqual(content.width, SettingsWindowSizer.width, "\(name): Settings is not its fixed width")
+            let screenRoom = (window.screen?.visibleFrame.height ?? SettingsWindowSizer.openHeight) - 40
+            XCTAssertEqual(content.height, min(SettingsWindowSizer.openHeight, screenRoom), accuracy: 1, "\(name): Settings did not open tall")
+            XCTAssertEqual(window.contentMaxSize.width, SettingsWindowSizer.width, "\(name): Settings can be widened")
             let image = try snapshot(window)
             XCTAssertGreaterThan(image.pixelsWide, 0)
             if let directory {

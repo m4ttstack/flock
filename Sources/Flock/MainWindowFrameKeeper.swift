@@ -44,14 +44,11 @@ final class MainWindowFrameKeeper {
         save(adopted)
     }
 
-    /// flock's window is the app's content window: titled, closable and
-    /// resizable. AppKit's own windows that can take main away from it (an
-    /// alert, the About box) are panels, or answer to at least one of those
-    /// differently, which is what keeps them from being adopted in its place.
+    /// Only the content window: Settings is titled, closable and resizable
+    /// too, and adopting it would give it the content window's frame and save
+    /// its own over that frame.
     private static func isFlockWindow(_ window: NSWindow) -> Bool {
-        guard !(window is NSPanel) else { return false }
-        let style = window.styleMask
-        return style.contains(.titled) && style.contains(.closable) && style.contains(.resizable)
+        FlockWindow.isContent(window)
     }
 
     private func adopt(_ window: NSWindow) {

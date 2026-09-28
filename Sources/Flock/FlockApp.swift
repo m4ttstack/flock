@@ -416,9 +416,21 @@ struct FlockApp: App {
             // window. None while the rt modal is up: the pane behind it is the
             // one its items are linked to, and closing it would take them all
             // down; the modal's own monitor takes ⌘W to close itself.
+            // In any other window (Settings) ⌘W closes that window, the Close
+            // item this group replaced; the items stay enabled for it.
             CommandGroup(replacing: .saveItem) {
-                focusedPaneButton(FocusedPaneCommand.closePane)
+                Button(FocusedPaneCommand.closePane.title) {
+                    guard FlockWindow.isContent(NSApp.keyWindow) else {
+                        NSApp.keyWindow?.performClose(nil)
+                        return
+                    }
+                    guard let pane = viewModel.canvasFocusedPaneID else { return }
+                    Task { await FocusedPaneCommand.closePane.action.perform(paneID: pane, on: viewModel) }
+                }
+                .keyboardShortcut(FocusedPaneCommand.closePane.shortcut)
+                .accessibilityIdentifier(FocusedPaneCommand.closePane.accessibilityIdentifier)
                 Button(ViewCommand.closeTab.title) {
+                    guard FlockWindow.isContent(NSApp.keyWindow) else { return }
                     guard let tab = viewModel.selectedTabID else { return }
                     Task { await viewModel.closeTab(tab) }
                 }
@@ -426,6 +438,7 @@ struct FlockApp: App {
                 .disabled(viewModel.selectedTabID == nil || viewModel.rt.modal != nil)
                 .accessibilityIdentifier(ViewCommand.closeTab.accessibilityIdentifier)
                 Button(ViewCommand.closeWorkspace.title) {
+                    guard FlockWindow.isContent(NSApp.keyWindow) else { return }
                     guard let workspace = viewModel.selectedWorkspaceID else { return }
                     Task { await viewModel.closeWorkspace(workspace) }
                 }
@@ -564,7 +577,7 @@ struct FlockApp: App {
                 rtModalTextSizeStore: rtModalTextSizeStore
             )
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
 
     private func focusedPaneButton(_ command: FocusedPaneCommand) -> some View {

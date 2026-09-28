@@ -176,11 +176,22 @@ final class TitlebarHostView: NSView {
             buttons.detach()
             return
         }
+        window.identifier = FlockWindow.contentID
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
         window.backgroundColor = windowBg
         buttons.attach(to: window)
+    }
+}
+
+/// flock's one content window, told apart from Settings and AppKit's own
+/// windows by the identifier its title bar gives it.
+enum FlockWindow {
+    static let contentID = NSUserInterfaceItemIdentifier("flock.content")
+
+    static func isContent(_ window: NSWindow?) -> Bool {
+        window?.identifier == contentID
     }
 }
 
