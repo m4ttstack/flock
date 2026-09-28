@@ -176,7 +176,7 @@ final class TitlebarHostView: NSView {
             buttons.detach()
             return
         }
-        window.identifier = FlockWindow.contentID
+        FlockWindow.content = window
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
@@ -185,13 +185,19 @@ final class TitlebarHostView: NSView {
     }
 }
 
-/// flock's one content window, told apart from Settings and AppKit's own
-/// windows by the identifier its title bar gives it.
+/// flock's one content window, as its title bar last saw it. A reference, not
+/// an identifier: SwiftUI owns `NSWindow.identifier` and keys its own window
+/// bookkeeping on it.
+@MainActor
 enum FlockWindow {
-    static let contentID = NSUserInterfaceItemIdentifier("flock.content")
+    static weak var content: NSWindow?
+    static weak var settings: NSWindow?
+
+    /// SwiftUI's name for the Settings scene's window.
+    static let settingsID = NSUserInterfaceItemIdentifier("com_apple_SwiftUI_Settings_window")
 
     static func isContent(_ window: NSWindow?) -> Bool {
-        window?.identifier == contentID
+        window != nil && window === content
     }
 }
 

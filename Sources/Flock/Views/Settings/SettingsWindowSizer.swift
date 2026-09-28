@@ -19,6 +19,7 @@ struct SettingsWindowSizer: NSViewRepresentable {
             super.viewDidMoveToWindow()
             guard let window, window !== sized else { return }
             sized = window
+            FlockWindow.settings = window
             // After SwiftUI's own first sizing pass, which would undo it.
             DispatchQueue.main.async {
                 window.styleMask.insert(.resizable)
