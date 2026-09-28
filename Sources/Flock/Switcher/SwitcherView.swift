@@ -17,6 +17,7 @@ struct SwitcherOverlay: View {
         ZStack {
             SwitcherView(
                 theme: theme, switcher: workspaces, trigger: .control, accessibilityPrefix: "flock.switcher",
+                heading: "Workspaces",
                 row: { [viewModel] id in
                     viewModel.model?.workspaces.first { $0.workspaceID == id }.map {
                         SwitcherRow(status: $0.agentStatus, label: $0.label, count: viewModel.paneCount(for: id))
@@ -31,6 +32,10 @@ struct SwitcherOverlay: View {
             )
             SwitcherView(
                 theme: theme, switcher: tabs, trigger: .option, accessibilityPrefix: "flock.tabSwitcher",
+                heading: "Tabs",
+                scope: { [viewModel] in
+                    viewModel.model?.workspaces.first { $0.workspaceID == viewModel.selectedWorkspaceID }?.label
+                },
                 row: { [viewModel] id in
                     guard let model = viewModel.model, let tab = viewModel.tabsForSelectedWorkspace.first(where: { $0.tabID == id })
                     else { return nil }
@@ -60,6 +65,10 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     let switcher: RecentsSwitcher<ID>
     let trigger: SwitcherTrigger
     let accessibilityPrefix: String
+    /// The header's heading, in the rail's heading style, and what it is
+    /// scoped to, if anything, on the right.
+    let heading: String
+    var scope: () -> String? = { nil }
     let row: (ID) -> SwitcherRow?
     let candidates: () -> [ID]
     let current: () -> ID?
@@ -112,6 +121,8 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
 
     private func box(rows: [(ID, SwitcherRow)], maxListHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
+            header
+            Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 1) {
@@ -161,6 +172,25 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
         .hoverWash(theme, cornerRadius: Metrics.rowCornerRadius)
         .contentShape(Rectangle())
         .accessibilityIdentifier("\(accessibilityPrefix).row.\(id.rawValue)")
+    }
+
+    private var header: some View {
+        HStack(spacing: Metrics.rowGap) {
+            Text(heading.uppercased())
+                .font(ChromeType.railHeading)
+                .tracking(ChromeType.railHeadingTracking)
+                .foregroundStyle(theme.textLabel)
+            Spacer(minLength: 0)
+            if let scope = scope() {
+                Text(scope)
+                    .font(ChromeType.paletteFooter)
+                    .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, Metrics.searchPadding)
+        .frame(height: ChromeMetrics.Switcher.headerHeight)
+        .accessibilityIdentifier("\(accessibilityPrefix).header")
     }
 
     private var footer: some View {

@@ -23,10 +23,10 @@ struct FlockSettingsView: View {
             HerdrMousePatchRow(store: herdrMousePatchStore)
         }
         .formStyle(.grouped)
-        // The width system settings panes settle near. Height is left to the
-        // content, which is what lets one section size like one section
-        // rather than reserving room it is not using.
-        .frame(width: 500)
+        // A grouped Form scrolls, so it offers no height of its own: the
+        // ideal size opens it with every section in view, and the minimum is
+        // what the resizable window stops at.
+        .frame(minWidth: 460, idealWidth: 500, minHeight: 320, idealHeight: 700)
         .onAppear { herdrMousePatchStore.refresh() }
     }
 }

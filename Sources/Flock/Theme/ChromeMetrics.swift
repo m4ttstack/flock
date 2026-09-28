@@ -885,19 +885,28 @@ enum ChromeMetrics {
         /// The least clear space above and below the box in the pane area.
         static let margin: CGFloat = 48
 
-        /// The list's tallest: the pane area less the margins and the footer,
-        /// so the box grows with the window and only a long list scrolls.
+        /// The title row naming what the list holds, and the rule under it.
+        static let headerHeight: CGFloat = 30
+
+        /// The header, the footer and a rule under or over each.
+        static var chromeHeight: CGFloat {
+            headerHeight + ChromeMetrics.Palette.footerHeight + 2 * ChromeMetrics.ruleWidth
+        }
+
+        /// The list's tallest: the pane area less the margins, header and
+        /// footer, so the box grows with the window and only a long list
+        /// scrolls.
         static func maxListHeight(inTabAreaHeight height: CGFloat) -> CGFloat {
             typealias Palette = ChromeMetrics.Palette
             let paneArea = height - ChromeMetrics.Strip.height
-            return max(Palette.rowHeight * 2, paneArea - 2 * margin - Palette.footerHeight - ChromeMetrics.ruleWidth)
+            return max(Palette.rowHeight * 2, paneArea - 2 * margin - chromeHeight)
         }
 
         /// The box centred in the pane area below the tab strip.
         static func top(inTabAreaHeight height: CGFloat, rowCount: Int) -> CGFloat {
             typealias Palette = ChromeMetrics.Palette
             let rows = CGFloat(rowCount) * Palette.rowHeight + CGFloat(max(rowCount - 1, 0)) + 2 * Palette.listPadding
-            let box = min(rows, maxListHeight(inTabAreaHeight: height)) + Palette.footerHeight + ChromeMetrics.ruleWidth
+            let box = min(rows, maxListHeight(inTabAreaHeight: height)) + chromeHeight
             let paneArea = height - ChromeMetrics.Strip.height
             return ChromeMetrics.Strip.height + max(Palette.minTop, (paneArea - box) / 2)
         }

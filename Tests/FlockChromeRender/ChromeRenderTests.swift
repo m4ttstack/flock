@@ -3127,7 +3127,7 @@ final class ChromeRenderTests: XCTestCase {
                 firstPixel(image, in: CGRect(x: x, y: top, width: 0, height: 200), matching: theme.palette.chromeRoles.selection.hex),
                 "\(id): no selected row"
             )
-            let secondRow = top + Metrics.listPadding + Metrics.rowHeight + 1
+            let secondRow = top + ChromeMetrics.Switcher.headerHeight + ChromeMetrics.ruleWidth + Metrics.listPadding + Metrics.rowHeight + 1
             XCTAssertEqual(selected.y, secondRow, accuracy: 1.5, "\(id): the selection is not on the second row")
             window.close()
         }
@@ -3195,7 +3195,7 @@ final class ChromeRenderTests: XCTestCase {
             let tabArea = try XCTUnwrap(window.contentView?.bounds.height) - ChromeMetrics.TitleBar.height
             let top = ChromeMetrics.Switcher.top(inTabAreaHeight: tabArea, rowCount: workspaces.count)
             XCTAssertGreaterThanOrEqual(top, ChromeMetrics.Strip.height + ChromeMetrics.Switcher.margin - 0.5, "\(id): the box rides into its top margin")
-            let listTop = ChromeMetrics.TitleBar.height + top
+            let listTop = ChromeMetrics.TitleBar.height + top + ChromeMetrics.Switcher.headerHeight + ChromeMetrics.ruleWidth
             let listHeight = ChromeMetrics.Switcher.maxListHeight(inTabAreaHeight: tabArea)
             let rail = harness.railWidth.width
             let x = rail + (Self.windowSize.width - rail) / 2 + ChromeMetrics.Switcher.width / 4
