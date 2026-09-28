@@ -130,13 +130,24 @@ if [ -n "$VERSION" ] && ! Vendor/Sparkle/bin/generate_keys --account flock -p >/
   echo "release-build.sh: this Mac's keychain has no flock signing key; run Scripts/restore-signing-key.sh" >&2
   exit 1
 fi
+# The bundled herdr-chat is the only chat a released Flock has. xcodegen lists
+# Resources when it runs, so the artifact has to exist before it does.
+if [ ! -f Sources/Flock/Resources/herdr-chat ]; then
+  if [ -n "$VERSION" ]; then
+    echo "release-build.sh: no bundled herdr-chat; run Scripts/build-herdr-chat.sh" >&2
+    exit 1
+  fi
+  echo "release-build.sh: no bundled herdr-chat, so this build has no chat (Scripts/build-herdr-chat.sh)"
+elif ! Scripts/build-herdr-chat.sh --check; then
+  echo "release-build.sh: bundling herdr-chat as built; rerun Scripts/build-herdr-chat.sh to refresh it"
+fi
 xcodegen
 
-# The vendored herdr patch is a Mach-O sitting in Resources, and Xcode treats
-# anything there as a resource: it seals the bytes into the bundle's signature
-# but never signs the file itself. Notarization rejects the whole app for it,
-# with all three of no Developer ID, no secure timestamp and no hardened
-# runtime against that one path.
+# The vendored herdr patch and herdr-chat are Mach-Os sitting in Resources,
+# and Xcode treats anything there as a resource: it seals the bytes into the
+# bundle's signature but never signs the file itself. Notarization rejects the
+# whole app for it, with all three of no Developer ID, no secure timestamp and
+# no hardened runtime against that one path.
 #
 # Signed here, BEFORE the build copies it in, so the bundle seals a binary
 # that is already correct. Signing it afterwards would mean re-signing the app
@@ -144,18 +155,19 @@ xcodegen
 # applied unless they are extracted and handed back... a step that fails
 # silently and is only visible much later.
 #
-# Idempotent by --force: the artifact is gitignored and rebuilt by
-# Scripts/build-herdr-patch.sh, so it arrives unsigned each time it is made.
-for patch in Sources/Flock/Resources/herdr-mouse-patch-*; do
-  case "$patch" in
+# Idempotent by --force: the artifacts are gitignored and rebuilt by
+# Scripts/build-herdr-patch.sh and Scripts/build-herdr-chat.sh, so each
+# arrives unsigned (or linker-signed ad-hoc) every time it is made.
+for binary in Sources/Flock/Resources/herdr-mouse-patch-* Sources/Flock/Resources/herdr-chat; do
+  case "$binary" in
     *.txt|*.LICENSE|*'*') continue ;;
   esac
-  [ -f "$patch" ] || continue
+  [ -f "$binary" ] || continue
   echo
-  echo "=== codesign (bundled herdr patch) ==="
+  echo "=== codesign (bundled $(basename "$binary")) ==="
   # shellcheck disable=SC2086
-  codesign --force --sign "$IDENTITY" $SIGN_FLAGS "$patch"
-  codesign -dv --verbose=2 "$patch" 2>&1 | grep -E "Authority|TeamIdentifier|flags" || true
+  codesign --force --sign "$IDENTITY" $SIGN_FLAGS "$binary"
+  codesign -dv --verbose=2 "$binary" 2>&1 | grep -E "Authority|TeamIdentifier|flags" || true
 done
 
 # Sparkle's helpers ship ad-hoc signed, which notarization rejects, and

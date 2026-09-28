@@ -4,10 +4,9 @@ import Foundation
 /// than from a failed call. Code past this point knows the binary exists, so a
 /// failure there is a real failure worth showing the user.
 public enum ChatAvailability {
-    public static func resolve(
-        environmentOverride: String?, candidates: [(path: String, modified: TimeInterval)]
-    ) -> String? {
-        if let override = environmentOverride, !override.isEmpty { return override }
-        return candidates.max { $0.modified < $1.modified }?.path
+    /// `candidates` in priority order; nil and empty entries are sources that
+    /// do not apply to this build.
+    public static func resolve(_ candidates: [String?], isRunnable: (String) -> Bool) -> String? {
+        candidates.lazy.compactMap { $0 }.first { !$0.isEmpty && isRunnable($0) }
     }
 }

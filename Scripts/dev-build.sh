@@ -18,11 +18,17 @@
 # Every build carries a stamp (FlockBuildStamp), and lands by rename, so a
 # running Flock Dev sees exactly one change in build/dev and offers a restart
 # onto the new build.
+#
+# Chat runs the mattstack checkout's own herdr-chat build rather than a copy
+# in the bundle: this builds it in place, working tree and all, and writes its
+# path into the app. Every chat verb spawns that path afresh, so rebuilding
+# herdr-chat alone lands on the next call with no Flock restart.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 OUTPUT_DIR="build/dev"
+MATTSTACK_CHECKOUT="${MATTSTACK_CHECKOUT:-$HOME/Documents/GitHub/repo-tools}"
 DERIVED_DIR="build/dev-derived"
 VERIFY=1
 ADHOC=0
@@ -35,6 +41,8 @@ usage: Scripts/dev-build.sh [options]
                      directory this was invoked from.
   --skip-verify      build and sign without the codesign checks
   --adhoc            sign ad-hoc even when a Developer ID is available
+MATTSTACK_CHECKOUT overrides where herdr-chat is built from (default:
+~/Documents/GitHub/repo-tools).
 USAGE
 }
 
@@ -59,6 +67,18 @@ APP_OUT="$OUTPUT_DIR/Flock-dev.app"
 Scripts/libghostty.sh --check
 xcodegen
 
+HERDR_CHAT_CRATE="$MATTSTACK_CHECKOUT/plugins/herdr-chat"
+HERDR_CHAT_PATH=""
+if [ -f "$HERDR_CHAT_CRATE/Cargo.toml" ]; then
+  command -v cargo >/dev/null 2>&1 || {
+    echo "dev-build.sh: cargo is required to build herdr-chat in $HERDR_CHAT_CRATE" >&2; exit 1
+  }
+  cargo build --release --manifest-path "$HERDR_CHAT_CRATE/Cargo.toml"
+  HERDR_CHAT_PATH="$HERDR_CHAT_CRATE/target/release/herdr-chat"
+else
+  echo "dev-build.sh: no herdr-chat at $HERDR_CHAT_CRATE (set MATTSTACK_CHECKOUT); Flock Dev falls back to a bundled copy, if any"
+fi
+
 mkdir -p "$OUTPUT_DIR"
 
 IDENTITY="-"
@@ -79,6 +99,7 @@ xcodebuild -scheme Flock-dev -configuration Release \
   CODE_SIGN_IDENTITY="$IDENTITY" \
   OTHER_CODE_SIGN_FLAGS="--options runtime" \
   FLOCK_BUILD_STAMP="$STAMP" \
+  FLOCK_HERDR_CHAT_PATH="$HERDR_CHAT_PATH" \
   build
 
 BUILT_APP="$DERIVED_DIR/Build/Products/Release/Flock-dev.app"
@@ -113,4 +134,5 @@ echo
 echo "dev-build.sh: $APP_OUT"
 echo "dev-build.sh: bundle id $BUNDLE_ID, stamp $STAMP"
 echo "dev-build.sh: signed by ${IDENTITY/#-/ad-hoc}"
+echo "dev-build.sh: herdr-chat ${HERDR_CHAT_PATH:-bundled copy, if any}"
 echo "dev-build.sh: open \"$APP_OUT\" to launch; rerun this script after an edit and reopen the same path, no install step"

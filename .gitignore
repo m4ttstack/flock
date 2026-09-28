@@ -10,6 +10,7 @@ Vendor/zig/
 Vendor/libghostty.version
 Vendor/Sparkle/
 Sources/Flock/Resources/herdr-mouse-patch-*
+Sources/Flock/Resources/herdr-chat*
 __pycache__/
 *.pyc
 # Worktrees live inside the checkout they belong to. Git skips a REGISTERED
