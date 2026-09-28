@@ -2144,10 +2144,11 @@ final class ChromeRenderTests: XCTestCase {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
-                rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults)
+                rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
+                rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults)
             )
             let window = NSWindow(
-                contentRect: CGRect(x: 0, y: 0, width: 500, height: 440),
+                contentRect: CGRect(x: 0, y: 0, width: 500, height: 640),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false
             )
             window.isReleasedWhenClosed = false

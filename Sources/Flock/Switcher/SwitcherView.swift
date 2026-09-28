@@ -32,9 +32,9 @@ struct SwitcherOverlay: View {
             SwitcherView(
                 theme: theme, switcher: tabs, trigger: .option, accessibilityPrefix: "flock.tabSwitcher",
                 row: { [viewModel] id in
-                    viewModel.tabsForSelectedWorkspace.first { $0.tabID == id }.map {
-                        SwitcherRow(status: $0.agentStatus, label: $0.label, count: $0.paneCount)
-                    }
+                    guard let model = viewModel.model, let tab = viewModel.tabsForSelectedWorkspace.first(where: { $0.tabID == id })
+                    else { return nil }
+                    return SwitcherRow(status: tab.agentStatus, label: TabSwitcher.title(for: tab, in: model), count: tab.paneCount)
                 },
                 candidates: { [viewModel] in viewModel.tabsForSelectedWorkspace.map(\.tabID) },
                 current: { [viewModel] in viewModel.selectedTabID },

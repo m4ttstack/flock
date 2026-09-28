@@ -155,6 +155,14 @@ final class WorkspaceSwitcherTests: XCTestCase {
         XCTAssertEqual(decide(53, active: true), .cancel)
     }
 
+    /// The seed fixture's `w1:t1` carries herdr's default label, its own
+    /// number; `w1:t2` is named.
+    func testAnUnnamedTabShowsItsFocusedPaneInBrackets() throws {
+        let model = SessionModel(snapshot: try HerdrDecoder.snapshot(fromResponseLine: try fixture("snapshot.json")))
+        let tabs = try XCTUnwrap(model.tabs[WorkspaceID(rawValue: "w1")])
+        XCTAssertEqual(tabs.map { TabSwitcher.title(for: $0, in: model) }, ["[shell]", "tabB"])
+    }
+
     func testTabRecentsKeepTheirOwnList() {
         let defaults = UserDefaults(suiteName: Self.suite)!
         let workspaces = WorkspaceSwitcher(userDefaults: defaults)

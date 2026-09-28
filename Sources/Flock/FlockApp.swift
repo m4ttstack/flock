@@ -456,7 +456,9 @@ struct FlockApp: App {
                 Divider()
                 Menu("Go to Tab") {
                     ForEach(Array(tabs.prefix(GoToCommand.limit).enumerated()), id: \.element.tabID) { index, tab in
-                        Button(tab.label) { Task { await viewModel.jumpToHerdr(tab: tab.tabID) } }
+                        Button(viewModel.model.map { TabSwitcher.title(for: tab, in: $0) } ?? tab.label) {
+                            Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
+                        }
                             .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.tabModifiers)
                             .disabled(viewModel.rt.modal != nil)
                     }
@@ -524,6 +526,9 @@ struct FlockApp: App {
                     .keyboardShortcut(ViewCommand.clearNotifications.shortcut)
                     .disabled(viewModel.attentionToasts.isEmpty)
                     .accessibilityIdentifier(ViewCommand.clearNotifications.accessibilityIdentifier)
+                // Closes the group: the system appends Enter Full Screen with
+                // an icon, and an icon in a group indents every row in it.
+                Divider()
             }
             // Rename's macOS home, and the only route to the editor that is
             // not a double-click on the thing itself. It renames the
@@ -555,7 +560,8 @@ struct FlockApp: App {
             FlockSettingsView(
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
-                rearrangeAfterMoveStore: rearrangeAfterMoveStore
+                rearrangeAfterMoveStore: rearrangeAfterMoveStore,
+                rtModalTextSizeStore: rtModalTextSizeStore
             )
         }
     }

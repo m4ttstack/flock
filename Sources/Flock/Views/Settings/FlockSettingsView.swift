@@ -13,11 +13,13 @@ struct FlockSettingsView: View {
     let herdrMousePatchStore: HerdrMousePatchStore
     let notificationLifetimeStore: NotificationLifetimeStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
+    let rtModalTextSizeStore: RtModalTextSizeStore
 
     var body: some View {
         Form {
             NotificationSettingsSection(store: notificationLifetimeStore)
             RearrangeSettingsSection(store: rearrangeAfterMoveStore)
+            RtModalTextSizeSection(store: rtModalTextSizeStore)
             HerdrMousePatchRow(store: herdrMousePatchStore)
         }
         .formStyle(.grouped)
