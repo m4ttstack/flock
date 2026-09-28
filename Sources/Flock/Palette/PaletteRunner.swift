@@ -70,6 +70,12 @@ struct PaletteRunner {
                 guard let workspace = viewModel.selectedWorkspaceID else { return }
                 Task { await viewModel.createTab(in: workspace) }
             case .newWorkspace: Task { await viewModel.createWorkspace() }
+            case .closeTab:
+                guard let tab = viewModel.selectedTabID else { return }
+                Task { await viewModel.closeTab(tab) }
+            case .closeWorkspace:
+                guard let workspace = viewModel.selectedWorkspaceID else { return }
+                Task { await viewModel.closeWorkspace(workspace) }
             case .rearrangeMode: rearrangeMode.toggle()
             case .allWorkspaces: dragCoordinator.toggleGrid()
             case .openOldestNotification: Task { await viewModel.jumpToOldestDisplayedAttentionToast() }

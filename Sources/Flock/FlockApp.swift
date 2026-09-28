@@ -33,6 +33,9 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
     /// runs is not something the app gets to know, so the keeper is started
     /// from both and is built to be started twice.
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Native window tabs would put Show Tab Bar and Show All Tabs in the
+        // View menu, beside flock's own tabs, which they know nothing of.
+        NSWindow.allowsAutomaticWindowTabbing = false
         windowFrame.start()
     }
 
@@ -326,6 +329,61 @@ struct FlockApp: App {
             CheckForUpdatesCommands(updater: updater)
             #endif
             PasteboardCommands()
+            // Declared ahead of Chat: command menus take the menu bar in
+            // declaration order.
+            CommandMenu("Pane") {
+                // The pane's own right-click rows, reachable from the keyboard
+                // and aimed at the canvas's focused pane rather than at the
+                // pane under the pointer.
+                ForEach(FocusedPaneCommand.paneMenu, id: \.title) { command in
+                    focusedPaneButton(command)
+                }
+                Divider()
+                // Move and swap compile the plan the equivalent drag would,
+                // through the same planner; focus is a click on the neighbor.
+                ForEach(PaneDirectionCommand.families, id: \.title) { family in
+                    Menu(family.title) {
+                        ForEach(PaneDirectionCommand.commands(for: family.kind), id: \.title) { command in
+                            Button(command.directionName) {
+                                Task {
+                                    switch command.kind {
+                                    case .focus: await viewModel.focusNeighbor(toward: command.direction)
+                                    case .move: await viewModel.moveFocusedPane(toward: command.direction)
+                                    case .swap: await viewModel.swapFocusedPane(toward: command.direction)
+                                    }
+                                }
+                            }
+                            .keyboardShortcut(command.key, modifiers: command.modifiers)
+                            // herdr's focused pane, which the rt modal does not hold.
+                            .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction) || viewModel.rt.modal != nil)
+                            .accessibilityIdentifier(command.accessibilityIdentifier)
+                        }
+                    }
+                }
+                Divider()
+                // Live only while the focused pane shows the launcher, which
+                // is only ever over an idle prompt; disabled, ⌘1 and on reach
+                // the pane's program as they did before.
+                let launcherPane = viewModel.canvasFocusedPaneID.flatMap { viewModel.isPristineLauncherPane($0) ? $0 : nil }
+                Menu("Launch") {
+                    ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
+                        Button(LauncherSlots.title(for: entry)) {
+                            guard let launcherPane else { return }
+                            Task { await LauncherSlots.launch(entry, in: launcherPane, on: viewModel) }
+                        }
+                        .keyboardShortcut(LauncherSlots.key(at: index), modifiers: .command)
+                        .disabled(launcherPane == nil)
+                        .accessibilityIdentifier("flock.pane.launch.\(entry.id)")
+                    }
+                }
+                Divider()
+                Button(RightClickToggle.title(for: viewModel.focusedPaneRightClickMode)) {
+                    viewModel.toggleFocusedPaneRightClicks()
+                }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+                .disabled(viewModel.focusedPaneRightClickMode == nil)
+                .accessibilityIdentifier("flock.pane.toggleRightClicks")
+            }
             ChatCommands(
                 chatStore: chatStore, viewModel: viewModel,
                 rows: ChatMenuModel.rows(
@@ -352,71 +410,64 @@ struct FlockApp: App {
                 .keyboardShortcut(ViewCommand.newWorkspace.shortcut)
                 .accessibilityIdentifier(ViewCommand.newWorkspace.accessibilityIdentifier)
             }
-            CommandGroup(after: .sidebar) {
-                Divider()
-                // The pane's own right-click rows, reachable from the keyboard
-                // and aimed at the canvas's focused pane rather than at the
-                // pane under the pointer. None while the rt modal is up: the
-                // pane behind it is the one its items are linked to, and
-                // closing it would take them all down.
-                ForEach(FocusedPaneCommand.all, id: \.title) { command in
-                    Button(command.title(zoomed: viewModel.canvasFocusedPaneIsZoomed)) {
-                        guard let pane = viewModel.canvasFocusedPaneID else { return }
-                        Task { await command.action.perform(paneID: pane, on: viewModel) }
-                    }
-                    .keyboardShortcut(command.shortcut)
-                    .disabled(viewModel.canvasFocusedPaneID == nil)
-                    .accessibilityIdentifier(command.accessibilityIdentifier)
+            // Takes the system Close's ⌘W, which would close flock's only
+            // window. None while the rt modal is up: the pane behind it is the
+            // one its items are linked to, and closing it would take them all
+            // down; the modal's own monitor takes ⌘W to close itself.
+            CommandGroup(replacing: .saveItem) {
+                focusedPaneButton(FocusedPaneCommand.closePane)
+                Button(ViewCommand.closeTab.title) {
+                    guard let tab = viewModel.selectedTabID else { return }
+                    Task { await viewModel.closeTab(tab) }
                 }
-                // Takes Minimize All's key: this menu comes before Window.
-                Button(RightClickToggle.title(for: viewModel.focusedPaneRightClickMode)) {
-                    viewModel.toggleFocusedPaneRightClicks()
+                .keyboardShortcut(ViewCommand.closeTab.shortcut)
+                .disabled(viewModel.selectedTabID == nil || viewModel.rt.modal != nil)
+                .accessibilityIdentifier(ViewCommand.closeTab.accessibilityIdentifier)
+                Button(ViewCommand.closeWorkspace.title) {
+                    guard let workspace = viewModel.selectedWorkspaceID else { return }
+                    Task { await viewModel.closeWorkspace(workspace) }
                 }
-                .keyboardShortcut("m", modifiers: [.command, .option])
-                .disabled(viewModel.focusedPaneRightClickMode == nil)
-                .accessibilityIdentifier("flock.view.toggleRightClicks")
-                Divider()
-                // Move and swap compile the plan the equivalent drag would,
-                // through the same planner; focus is a click on the neighbor.
-                ForEach(PaneDirectionCommand.all, id: \.title) { command in
+                .keyboardShortcut(ViewCommand.closeWorkspace.shortcut)
+                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.rt.modal != nil)
+                .accessibilityIdentifier(ViewCommand.closeWorkspace.accessibilityIdentifier)
+            }
+            CommandGroup(before: .windowArrangement) {
+                let railRows = viewModel.model.map {
+                    RailSections(model: $0, board: boardStore.names, herdProgress: herdProgressStore.progress)
+                        .navigationOrder { sectionCollapseStore.isCollapsed($0) }
+                } ?? []
+                let tabs = viewModel.tabsForSelectedWorkspace
+                ForEach(StepCommand.allCases, id: \.self) { command in
+                    let tab = command.isTab ? viewModel.neighborTab(step: command.step) : nil
+                    let workspace = command.isTab ? nil : WrappingStep.neighbor(
+                        of: viewModel.selectedWorkspaceID, in: railRows.map(\.workspaceID), step: command.step
+                    )
                     Button(command.title) {
-                        Task {
-                            switch command.kind {
-                            case .focus: await viewModel.focusNeighbor(toward: command.direction)
-                            case .move: await viewModel.moveFocusedPane(toward: command.direction)
-                            case .swap: await viewModel.swapFocusedPane(toward: command.direction)
-                            }
-                        }
+                        if let tab { Task { await viewModel.jumpToHerdr(tab: tab) } }
+                        if let workspace { Task { await viewModel.jumpToHerdr(workspace: workspace) } }
                     }
                     .keyboardShortcut(command.key, modifiers: command.modifiers)
-                    // herdr's focused pane, which the rt modal does not hold.
-                    .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction) || viewModel.rt.modal != nil)
+                    .disabled((tab == nil && workspace == nil) || viewModel.rt.modal != nil)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
+                    if command == .nextTab { Divider() }
                 }
                 Divider()
-                ForEach(TabStepCommand.allCases, id: \.self) { command in
-                    Button(command.title) {
-                        guard let tab = viewModel.neighborTab(step: command.step) else { return }
-                        Task { await viewModel.jumpToHerdr(tab: tab) }
+                Menu("Go to Tab") {
+                    ForEach(Array(tabs.prefix(GoToCommand.limit).enumerated()), id: \.element.tabID) { index, tab in
+                        Button(tab.label) { Task { await viewModel.jumpToHerdr(tab: tab.tabID) } }
+                            .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.tabModifiers)
+                            .disabled(viewModel.rt.modal != nil)
                     }
-                    .keyboardShortcut(command.key, modifiers: command.modifiers)
-                    .disabled(viewModel.neighborTab(step: command.step) == nil || viewModel.rt.modal != nil)
-                    .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
-                Divider()
-                // Live only while the focused pane shows the launcher, which
-                // is only ever over an idle prompt; disabled, ⌘1 and on reach
-                // the pane's program as they did before.
-                let launcherPane = viewModel.canvasFocusedPaneID.flatMap { viewModel.isPristineLauncherPane($0) ? $0 : nil }
-                ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
-                    Button(LauncherSlots.title(for: entry)) {
-                        guard let launcherPane else { return }
-                        Task { await LauncherSlots.launch(entry, in: launcherPane, on: viewModel) }
+                .disabled(tabs.isEmpty)
+                Menu("Go to Workspace") {
+                    ForEach(Array(railRows.prefix(GoToCommand.limit).enumerated()), id: \.element.workspaceID) { index, row in
+                        Button(row.title) { Task { await viewModel.jumpToHerdr(workspace: row.workspaceID) } }
+                            .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.workspaceModifiers)
+                            .disabled(viewModel.rt.modal != nil)
                     }
-                    .keyboardShortcut(LauncherSlots.key(at: index), modifiers: .command)
-                    .disabled(launcherPane == nil)
-                    .accessibilityIdentifier("flock.view.launch.\(entry.id)")
                 }
+                .disabled(railRows.isEmpty)
                 Divider()
             }
             CommandGroup(after: .sidebar) {
@@ -433,6 +484,7 @@ struct FlockApp: App {
                 )
                 OptionAsAltMenu(store: optionAsAltStore)
                 ScrollSpeedMenu(store: scrollSpeedStore)
+                Divider()
                 // The only key into rearrange mode, and the same switch this
                 // item's checkmark reflects.
                 Button {
@@ -457,6 +509,7 @@ struct FlockApp: App {
                 }
                 .keyboardShortcut(ViewCommand.allWorkspaces.shortcut)
                 .accessibilityIdentifier(ViewCommand.allWorkspaces.accessibilityIdentifier)
+                Divider()
                 Button(ViewCommand.openOldestNotification.title) {
                     Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
                 }
@@ -503,6 +556,16 @@ struct FlockApp: App {
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore
             )
         }
+    }
+
+    private func focusedPaneButton(_ command: FocusedPaneCommand) -> some View {
+        Button(command.title(zoomed: viewModel.canvasFocusedPaneIsZoomed)) {
+            guard let pane = viewModel.canvasFocusedPaneID else { return }
+            Task { await command.action.perform(paneID: pane, on: viewModel) }
+        }
+        .keyboardShortcut(command.shortcut)
+        .disabled(viewModel.canvasFocusedPaneID == nil)
+        .accessibilityIdentifier(command.accessibilityIdentifier)
     }
 
     /// The store's own re-snapshot backstop is minutes wide, which is longer

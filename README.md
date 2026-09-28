@@ -64,21 +64,27 @@ HERDR_SOCKET_PATH=~/.config/herdr/sessions/work/herdr.sock open -a Flock
 |---|---|
 | <kbd>⌘</kbd><kbd>T</kbd> | New tab in the current workspace |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> | New workspace |
+| <kbd>⌘</kbd><kbd>W</kbd> | Close the focused pane |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close the current tab |
+| <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd> | Close the current workspace |
 | <kbd>⌘</kbd><kbd>K</kbd> | Command palette |
 | <kbd>⌃</kbd><kbd>Tab</kbd> | Workspace switcher (hold <kbd>⌃</kbd>, press <kbd>Tab</kbd> to step, let go to switch) |
 | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd> | Previous / next tab |
+| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>↑</kbd><kbd>↓</kbd> | Previous / next workspace, in rail order |
+| <kbd>⌃</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>9</kbd> | Go to that tab |
+| <kbd>⌃</kbd><kbd>⌘</kbd><kbd>1</kbd> … <kbd>⌃</kbd><kbd>⌘</kbd><kbd>9</kbd> | Go to that workspace, in rail order |
 | <kbd>⌘</kbd><kbd>1</kbd> <kbd>⌘</kbd><kbd>2</kbd> <kbd>⌘</kbd><kbd>3</kbd> | Press the focused pane's launcher buttons (rt cd, Claude, Codex) |
 | <kbd>⌘</kbd><kbd>R</kbd> | Rearrange mode (<kbd>Esc</kbd> leaves it) |
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | All Workspaces |
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Focus the pane on that side |
-| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Move the focused pane that way |
-| <kbd>⇧</kbd><kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Swap the focused pane with its neighbor that way |
+| <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Move the focused pane that way |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> | Swap the focused pane with its neighbor that way |
 | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd>, or click a pane's mouse icon | Switch where the focused pane's plain right-clicks go: its program (the default) or the pane menu. The icon shows while the program has the mouse |
 | <kbd>⌥</kbd> + right-click | Whichever of the two a plain right-click does not get |
 | <kbd>F2</kbd> | Rename the selected workspace or tab |
 | <kbd>⌘</kbd><kbd>Z</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo / redo a move |
 | <kbd>⌘</kbd><kbd>J</kbd> | Open the oldest notification |
-| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>K</kbd> | Clear notifications |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>J</kbd> | Clear notifications |
 | <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> | Bigger / smaller text |
 | <kbd>⌘</kbd><kbd>,</kbd> | Settings |
 

@@ -3,12 +3,15 @@ import SwiftUI
 /// The File and View menus' one-step items, each with its title and
 /// shortcut, read by the menu bar and the palette alike.
 enum ViewCommand: String, CaseIterable {
-    case newTab, newWorkspace, rearrangeMode, allWorkspaces, openOldestNotification, clearNotifications, commandPalette
+    case newTab, newWorkspace, closeTab, closeWorkspace
+    case rearrangeMode, allWorkspaces, openOldestNotification, clearNotifications, commandPalette
 
     var title: String {
         switch self {
         case .newTab: "New Tab"
         case .newWorkspace: "New Workspace"
+        case .closeTab: "Close Tab"
+        case .closeWorkspace: "Close Workspace"
         case .rearrangeMode: "Rearrange Mode"
         case .allWorkspaces: "All Workspaces"
         case .openOldestNotification: "Open Oldest Notification"
@@ -21,17 +24,19 @@ enum ViewCommand: String, CaseIterable {
         switch self {
         case .newTab: "t"
         case .newWorkspace: "n"
+        case .closeTab, .closeWorkspace: "w"
         case .rearrangeMode: KeyEquivalent(ArrangeShortcut.rearrangeMode.key)
         case .allWorkspaces: KeyEquivalent(ArrangeShortcut.allWorkspaces.key)
-        case .openOldestNotification: "j"
-        case .clearNotifications, .commandPalette: "k"
+        case .openOldestNotification, .clearNotifications: "j"
+        case .commandPalette: "k"
         }
     }
 
     var modifiers: EventModifiers {
         switch self {
         case .newTab, .openOldestNotification, .commandPalette: .command
-        case .newWorkspace, .clearNotifications: [.command, .shift]
+        case .newWorkspace, .closeTab, .clearNotifications: [.command, .shift]
+        case .closeWorkspace: [.command, .option, .shift]
         case .rearrangeMode: ArrangeShortcut.rearrangeMode.modifiers
         case .allWorkspaces: ArrangeShortcut.allWorkspaces.modifiers
         }
@@ -43,6 +48,8 @@ enum ViewCommand: String, CaseIterable {
         switch self {
         case .newTab: "flock.file.newTab"
         case .newWorkspace: "flock.file.newWorkspace"
+        case .closeTab: "flock.file.closeTab"
+        case .closeWorkspace: "flock.file.closeWorkspace"
         case .rearrangeMode: "flock.view.rearrangeMode"
         case .allWorkspaces: "flock.view.allWorkspaces"
         case .openOldestNotification: "flock.view.openOldestNotification"

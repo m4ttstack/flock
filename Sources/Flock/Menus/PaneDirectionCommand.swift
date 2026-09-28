@@ -15,29 +15,38 @@ struct PaneDirectionCommand {
     let kind: Kind
     let accessibilityIdentifier: String
 
-    /// Command+Option+arrow focuses, as it moves between splits in Ghostty.
-    /// Command+Control+Option+arrow moves and Command+Control+Shift+arrow
-    /// swaps; Command+Control+arrow alone is the tab strip's. None is claimed
-    /// by the system.
-    static let all: [PaneDirectionCommand] = {
+    /// What the row reads inside its family's submenu.
+    let directionName: String
+
+    /// Every pane family sits on Command+Option, as Ghostty's split focus
+    /// does: Shift adds move, Control adds swap. Command+Control+arrow alone
+    /// is the strip's and the rail's. None is claimed by the system.
+    static let families: [(kind: Kind, title: String, modifiers: EventModifiers)] = [
+        (.focus, "Focus Pane", [.command, .option]),
+        (.move, "Move Pane", [.command, .option, .shift]),
+        (.swap, "Swap Pane", [.command, .option, .control]),
+    ]
+
+    static let all: [PaneDirectionCommand] = families.flatMap { commands(for: $0.kind) }
+
+    static func commands(for kind: Kind) -> [PaneDirectionCommand] {
+        guard let family = families.first(where: { $0.kind == kind }) else { return [] }
+        let identifier = switch kind {
+        case .focus: "focusPane"
+        case .move: "movePane"
+        case .swap: "swapPane"
+        }
         let directions: [(String, KeyEquivalent, PaneDirection)] = [
             ("Left", .leftArrow, .left), ("Right", .rightArrow, .right),
             ("Up", .upArrow, .up), ("Down", .downArrow, .down),
         ]
-        let families: [(Kind, String, EventModifiers, String)] = [
-            (.focus, "Focus Pane", [.command, .option], "focusPane"),
-            (.move, "Move Pane", [.command, .control, .option], "movePane"),
-            (.swap, "Swap Pane", [.command, .control, .shift], "swapPane"),
-        ]
-        return families.flatMap { kind, title, modifiers, identifier in
-            directions.map { name, key, direction in
-                PaneDirectionCommand(
-                    title: "\(title) \(name)", key: key, modifiers: modifiers, direction: direction,
-                    kind: kind, accessibilityIdentifier: "flock.view.\(identifier).\(name.lowercased())"
-                )
-            }
+        return directions.map { name, key, direction in
+            PaneDirectionCommand(
+                title: "\(family.title) \(name)", key: key, modifiers: family.modifiers, direction: direction,
+                kind: kind, accessibilityIdentifier: "flock.pane.\(identifier).\(name.lowercased())", directionName: name
+            )
         }
-    }()
+    }
 }
 
 /// F2. There is no `KeyEquivalent` case for a function key, so it is the

@@ -107,8 +107,9 @@ enum PaletteCatalog {
         let shortcut = { (command: ViewCommand) in ShortcutLabel.text(key: command.key, modifiers: command.modifiers) }
         var commands: [(PaletteNamespace, ViewCommand)] = [(.view, .rearrangeMode), (.view, .allWorkspaces)]
         if context.hasNotifications { commands += [(.view, .openOldestNotification), (.view, .clearNotifications)] }
-        if context.hasSelectedWorkspace { commands.append((.tab, .newTab)) }
+        if context.hasSelectedWorkspace { commands += [(.tab, .newTab), (.tab, .closeTab)] }
         commands.append((.workspace, .newWorkspace))
+        if context.hasSelectedWorkspace { commands.append((.workspace, .closeWorkspace)) }
         return commands.map { entry($0.0, $0.1.title, shortcut: shortcut($0.1), .view($0.1)) }
     }
 }

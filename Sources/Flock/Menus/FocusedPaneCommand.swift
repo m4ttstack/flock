@@ -21,24 +21,28 @@ struct FocusedPaneCommand: Equatable, Sendable {
     /// `ArrangeShortcut` left them free for this.
     static let splitRight = FocusedPaneCommand(
         title: "Split Right", key: "d", modifiers: .command,
-        action: .splitRight, accessibilityIdentifier: "flock.view.splitRight"
+        action: .splitRight, accessibilityIdentifier: "flock.pane.splitRight"
     )
     static let splitDown = FocusedPaneCommand(
         title: "Split Down", key: "d", modifiers: [.command, .shift],
-        action: .splitDown, accessibilityIdentifier: "flock.view.splitDown"
+        action: .splitDown, accessibilityIdentifier: "flock.pane.splitDown"
     )
     /// Shift-Command-Return is ghostty's macOS default for
     /// `toggle_split_zoom`, on the same reasoning as the split keys.
     static let zoom = FocusedPaneCommand(
         title: "Zoom Pane", key: "\r", modifiers: [.command, .shift],
-        action: .zoom, accessibilityIdentifier: "flock.view.zoomPane"
+        action: .zoom, accessibilityIdentifier: "flock.pane.zoomPane"
     )
+    /// Command-W is ghostty's `close_surface`; the File menu's Close Tab and
+    /// Close Workspace are its Shift and Option+Shift steps outward.
     static let closePane = FocusedPaneCommand(
-        title: "Close Pane", key: "x", modifiers: [.command, .shift],
-        action: .closePane, accessibilityIdentifier: "flock.view.closePane"
+        title: "Close Pane", key: "w", modifiers: .command,
+        action: .closePane, accessibilityIdentifier: "flock.file.closePane"
     )
 
     static let all: [FocusedPaneCommand] = [splitRight, splitDown, zoom, closePane]
+    /// The Pane menu's rows; Close Pane lives in File beside the other closes.
+    static let paneMenu: [FocusedPaneCommand] = [splitRight, splitDown, zoom]
 
     /// `title` stays the command's identity; this is what the row reads.
     func title(zoomed: Bool) -> String {

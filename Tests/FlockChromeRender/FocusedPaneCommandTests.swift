@@ -20,9 +20,25 @@ final class FocusedPaneCommandTests: XCTestCase {
         XCTAssertEqual(FocusedPaneCommand.splitDown.modifiers, [.command, .shift])
     }
 
-    func testClosePaneTakesCommandShiftX() {
-        XCTAssertEqual(FocusedPaneCommand.closePane.key, "x")
-        XCTAssertEqual(FocusedPaneCommand.closePane.modifiers, [.command, .shift])
+    func testClosePaneTakesCommandW() {
+        XCTAssertEqual(FocusedPaneCommand.closePane.key, "w")
+        XCTAssertEqual(FocusedPaneCommand.closePane.modifiers, .command)
+    }
+
+    /// Each step outward from the pane adds a modifier to the same W.
+    func testClosesWidenOnOneKey() {
+        XCTAssertEqual(ViewCommand.closeTab.key, KeyEquivalent(FocusedPaneCommand.closePane.key))
+        XCTAssertEqual(ViewCommand.closeTab.modifiers, [.command, .shift])
+        XCTAssertEqual(ViewCommand.closeWorkspace.key, ViewCommand.closeTab.key)
+        XCTAssertEqual(ViewCommand.closeWorkspace.modifiers, [.command, .shift, .option])
+    }
+
+    /// Every pane family is Command+Option plus at most one modifier.
+    func testPaneFamiliesShareCommandOption() {
+        for family in PaneDirectionCommand.families {
+            XCTAssertTrue(family.modifiers.isSuperset(of: [.command, .option]), family.title)
+        }
+        XCTAssertEqual(PaneDirectionCommand.all.count, 12)
     }
 
     func testZoomTakesGhosttysSplitZoomKey() {
