@@ -5,11 +5,14 @@ import os
 /// Where the herdr-chat binary is, or whether it exists on this machine at
 /// all -- decided from paths, never from spawning it and reading an error.
 ///
-/// The plugin installer writes a build under
-/// `~/.config/herdr/plugins/<install-kind>/<plugin-slug>-<hash>/target/release/`,
+/// The plugin installer writes each install under
+/// `~/.config/herdr/plugins/<install-kind>/<plugin-slug>-<hash>/`,
 /// `<install-kind>` being "config" or "github" and the hash distinguishing
 /// rebuilds of the same plugin id (`src/api/schema/plugins.rs` in the herdr
 /// repo, `plugin_managed_path_component`). Two wildcards, one per segment.
+/// Under that directory the build is at `target/release/herdr-chat` for a
+/// standalone plugin repo, or at `plugins/herdr-chat/target/release/herdr-chat`
+/// when herdr cloned the mattstack monorepo and built in its subdirectory.
 enum ChatToolLocator {
     static let log = Logger(subsystem: "dev.mattstack.flock", category: "chat")
 
@@ -61,6 +64,11 @@ enum ChatToolLocator {
         return executableModificationDate(URL(fileURLWithPath: override)) != nil ? override : nil
     }
 
+    private static let binaryLayouts = [
+        "target/release/herdr-chat",
+        "plugins/herdr-chat/target/release/herdr-chat",
+    ]
+
     private static func installCandidates(under pluginsDirectory: URL) -> [(path: String, modified: TimeInterval)] {
         let manager = FileManager.default
         guard let installKinds = try? manager.contentsOfDirectory(at: pluginsDirectory, includingPropertiesForKeys: nil)
@@ -71,9 +79,11 @@ enum ChatToolLocator {
             guard let plugins = try? manager.contentsOfDirectory(at: installKind, includingPropertiesForKeys: nil)
             else { continue }
             for plugin in plugins where plugin.lastPathComponent.hasPrefix("m4ttstack.chat") {
-                let binary = plugin.appendingPathComponent("target/release/herdr-chat")
-                guard let modified = executableModificationDate(binary) else { continue }
-                candidates.append((binary.path, modified))
+                for layout in binaryLayouts {
+                    let binary = plugin.appendingPathComponent(layout)
+                    guard let modified = executableModificationDate(binary) else { continue }
+                    candidates.append((binary.path, modified))
+                }
             }
         }
         return candidates

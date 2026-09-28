@@ -2,8 +2,9 @@ import Foundation
 import XCTest
 
 /// `ChatToolLocator` globs a plugins tree with two wildcards
-/// (`<install>/<plugin>/target/release/herdr-chat`), so these tests build one
-/// under a temporary directory rather than touch the real `~/.config/herdr`.
+/// (`<install>/<plugin>/target/release/herdr-chat`, or the same under the
+/// monorepo's `plugins/herdr-chat/`), so these tests build one under a
+/// temporary directory rather than touch the real `~/.config/herdr`.
 final class ChatToolLocatorTests: XCTestCase {
     private var root: URL!
 
@@ -33,12 +34,15 @@ final class ChatToolLocatorTests: XCTestCase {
 
     @discardableResult
     private func installBinary(
-        at installKind: String, plugin: String, modified: Date = Date()
+        at installKind: String, plugin: String, subdirectory: String? = nil, modified: Date = Date()
     ) throws -> URL {
-        let directory = root
+        var pluginRoot = root
             .appendingPathComponent(installKind, isDirectory: true)
             .appendingPathComponent(plugin, isDirectory: true)
-            .appendingPathComponent("target/release", isDirectory: true)
+        if let subdirectory {
+            pluginRoot = pluginRoot.appendingPathComponent(subdirectory, isDirectory: true)
+        }
+        let directory = pluginRoot.appendingPathComponent("target/release", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let binary = directory.appendingPathComponent("herdr-chat")
         FileManager.default.createFile(atPath: binary.path, contents: Data([0x00]))
@@ -89,6 +93,36 @@ final class ChatToolLocatorTests: XCTestCase {
         let newer = try installBinary(at: "github", plugin: "m4ttstack.chat-newbuild")
         assertSamePath(
             ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), newer.path
+        )
+    }
+
+    /// herdr clones the whole monorepo into the plugin directory and builds
+    /// in its `plugins/herdr-chat` subdirectory.
+    func testFindsTheBinaryInAMonorepoInstall() throws {
+        let binary = try installBinary(
+            at: "github", plugin: "m4ttstack.chat-3fdefc4d82ce", subdirectory: "plugins/herdr-chat"
+        )
+        assertSamePath(
+            ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), binary.path
+        )
+    }
+
+    func testTheNewestWinsAcrossStandaloneAndMonorepoLayouts() throws {
+        try installBinary(
+            at: "github", plugin: "m4ttstack.chat-standalone", modified: Date(timeIntervalSinceNow: -3600)
+        )
+        let monorepo = try installBinary(
+            at: "github", plugin: "m4ttstack.chat-monorepo", subdirectory: "plugins/herdr-chat"
+        )
+        assertSamePath(
+            ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), monorepo.path
+        )
+
+        let newerStandalone = try installBinary(
+            at: "config", plugin: "m4ttstack.chat", modified: Date(timeIntervalSinceNow: 3600)
+        )
+        assertSamePath(
+            ChatToolLocator.resolve(environmentOverride: nil, pluginsDirectory: root), newerStandalone.path
         )
     }
 
