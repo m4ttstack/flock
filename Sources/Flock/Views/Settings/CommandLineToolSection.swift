@@ -12,8 +12,8 @@ struct CommandLineToolSection: View {
                         .accessibilityIdentifier("flock.settings.commandLineTool.action")
                 }
             } label: {
-                Text(CommandLineTool.rowTitle(name: store.name))
-                Text(CommandLineTool.body(for: store.state, linkPath: store.linkPath))
+                Text(CommandLineTool.rowTitle)
+                Text(CommandLineTool.body(for: store.state, name: store.name, linkPath: store.linkPath))
             }
             if let message = store.lastErrorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")

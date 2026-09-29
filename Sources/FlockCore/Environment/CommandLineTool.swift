@@ -25,18 +25,15 @@ public enum CommandLineTool {
     }
 
     public static let heading = "Command Line"
+    public static let rowTitle = "Shell command"
 
-    public static func rowTitle(name: String) -> String {
-        "\(name) release"
-    }
-
-    public static func body(for state: CommandLineToolState, linkPath: String) -> String {
-        let what = "Hides Flock so herdr fits its panes to your phone."
+    public static func body(for state: CommandLineToolState, name: String, linkPath: String) -> String {
         switch state {
         case .notInstalled:
-            return "\(what) Installs to \(linkPath); ssh needs its folder on the PATH in ~/.zshenv."
+            return "Install \(name) in your PATH to control Flock from a terminal or over ssh. "
+                + "Over ssh, ~/.local/bin must be on the PATH in ~/.zshenv."
         case .installed:
-            return "\(what) Installed at \(linkPath)."
+            return "\(name) is installed at \(linkPath). Run \(name) help to see its commands."
         case .otherLink(let target):
             return "\(linkPath) points at \(target). Replace links it to this Flock."
         case .otherFile:
@@ -47,9 +44,41 @@ public enum CommandLineTool {
     public static func actionTitle(for state: CommandLineToolState) -> String? {
         switch state {
         case .notInstalled: "Install"
-        case .installed: "Remove"
+        case .installed: "Uninstall"
         case .otherLink: "Replace"
         case .otherFile: nil
         }
+    }
+}
+
+/// A `flock` subcommand, from the process's arguments.
+public enum FlockCommand: Equatable, Sendable {
+    case release
+    case help
+    case unknown(String)
+
+    /// Every command `flock help` lists, in order.
+    public static let summaries: [(name: String, summary: String)] = [
+        ("release", "Hide Flock so herdr sizes its panes for your other clients. Click Flock to take them back."),
+        ("help", "Show this list."),
+    ]
+
+    /// nil means launch the app. Through the installed link (`invokedAs` is
+    /// its name) every invocation is a command, so a bare `flock` prints help
+    /// rather than opening a second Flock. Through the bundle's own binary
+    /// only a named command is: Finder and launchd pass arguments of their own.
+    public static func parse(invokedAs: String, linkName: String, arguments: [String]) -> FlockCommand? {
+        switch arguments.first {
+        case "release": return .release
+        case "help", "-h", "--help": return .help
+        case let other?: return invokedAs == linkName ? .unknown(other) : nil
+        case nil: return invokedAs == linkName ? .help : nil
+        }
+    }
+
+    public static func usage(name: String) -> String {
+        let width = summaries.map(\.name.count).max() ?? 0
+        let lines = summaries.map { "  \($0.name.padding(toLength: width, withPad: " ", startingAt: 0))  \($0.summary)" }
+        return (["usage: \(name) <command>", "", "commands:"] + lines).joined(separator: "\n")
     }
 }
