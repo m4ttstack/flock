@@ -3,9 +3,6 @@ import Foundation
 /// The workspace rail split into the workspaces a person watches and the
 /// herds a shepherd watches for them.
 ///
-/// A herd row carries no status of its own: every gate a worker raises is
-/// the shepherd's to answer, so the rail reports only how far the herd has
-/// got and whether anything in it is still moving.
 public struct HerdRail: Equatable, Sendable {
     public struct Herd: Equatable, Sendable {
         public let workspaceID: WorkspaceID
@@ -13,6 +10,7 @@ public struct HerdRail: Equatable, Sendable {
         public let done: Int
         public let total: Int
         public let isRunning: Bool
+        public let agentStatus: AgentStatus
 
         /// A herd with no panes yet has not finished anything.
         public var isFinished: Bool { total > 0 && done == total }
@@ -67,7 +65,8 @@ public struct HerdRail: Equatable, Sendable {
                 name: workspace.label.dropFirst(HerdWorkspace.labelPrefix.count).trimmingCharacters(in: .whitespaces),
                 done: counted.done,
                 total: counted.total,
-                isRunning: counted.isRunning
+                isRunning: counted.isRunning,
+                agentStatus: workspace.agentStatus
             ))
         }
         self.workspaces = workspaces
@@ -102,7 +101,7 @@ public struct HerdRail: Equatable, Sendable {
             let name = shared ? entry.time.map { "\(entry.name) \($0)" } ?? herd.name : entry.name
             return Herd(
                 workspaceID: herd.workspaceID, name: name, done: herd.done, total: herd.total,
-                isRunning: herd.isRunning
+                isRunning: herd.isRunning, agentStatus: herd.agentStatus
             )
         }
     }

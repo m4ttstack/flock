@@ -1899,9 +1899,9 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// The rail's Herds section, expanded and folded, in a dark and a light
-    /// theme. The herds add no red to the rail however blocked their workers
-    /// are, and a herd's own tab strip draws its dots without a hue.
-    func testTheHerdsSectionRendersExpandedAndCollapsedWithNoRed() async throws {
+    /// theme. Open, a herd with a blocked worker carries a red dot like any
+    /// workspace; folded, its rows and their red are gone.
+    func testTheHerdsSectionRendersExpandedAndCollapsedWithStatusDots() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_HERDS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
@@ -1920,12 +1920,12 @@ final class ChromeRenderTests: XCTestCase {
             let window = harness.makeWindow(size: Self.windowSize)
             await settle(window)
             let expanded = try snapshot(window)
-            XCTAssertEqual(count(red, in: railBox, of: expanded), baselineRed, "\(id): herds add no red to the rail")
+            XCTAssertGreaterThan(count(red, in: railBox, of: expanded), baselineRed, "\(id): the blocked herd's row carries a red dot")
 
             harness.collapse.toggle(.herds)
             await settle(window)
             let collapsed = try snapshot(window)
-            XCTAssertEqual(count(red, in: railBox, of: collapsed), baselineRed, "\(id): folded, still no red")
+            XCTAssertEqual(count(red, in: railBox, of: collapsed), baselineRed, "\(id): folded, the herd rows' red goes with them")
             if let directory {
                 try XCTUnwrap(expanded.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herds-rail-expanded-\(scheme)-\(id).png"))

@@ -3,9 +3,7 @@ import FlockCore
 import SwiftUI
 
 /// The rail's last list: one row per herd, under a header that folds it.
-/// Herd rows carry no status dot, because every gate a worker raises is the
-/// shepherd's to answer; they say how far the herd has got and whether
-/// anything in it is still moving. `HerdRail` decides all of that.
+/// `HerdRail` decides what each row says.
 struct HerdsSection: View {
     let theme: Theme
     let herds: [HerdRail.Herd]
@@ -60,10 +58,7 @@ private struct HerdRow: View {
 
     var body: some View {
         HStack(spacing: ChromeMetrics.WorkspaceRow.spacing) {
-            // The dot's slot, left empty, so herd names start where
-            // workspace names do.
-            Color.clear
-                .frame(width: ChromeMetrics.WorkspaceRow.statusDot, height: 1)
+            StatusDot(status: herd.agentStatus, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
             Text(herd.name)
                 .font(ChromeType.workspaceName(selected: isSelected))
                 .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
