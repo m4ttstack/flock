@@ -14,6 +14,7 @@ struct FlockSettingsView: View {
     let notificationLifetimeStore: NotificationLifetimeStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
     let rtModalTextSizeStore: RtModalTextSizeStore
+    let commandLineToolStore: CommandLineToolStore
 
     var body: some View {
         Form {
@@ -21,6 +22,7 @@ struct FlockSettingsView: View {
             RearrangeSettingsSection(store: rearrangeAfterMoveStore)
             RtModalTextSizeSection(store: rtModalTextSizeStore)
             HerdrMousePatchRow(store: herdrMousePatchStore)
+            CommandLineToolSection(store: commandLineToolStore)
         }
         .formStyle(.grouped)
         // The width system settings panes settle near; the height follows
@@ -28,6 +30,9 @@ struct FlockSettingsView: View {
         .frame(width: SettingsWindowSizer.width)
         .frame(minHeight: SettingsWindowSizer.minHeight, maxHeight: .infinity)
         .background(SettingsWindowSizer())
-        .onAppear { herdrMousePatchStore.refresh() }
+        .onAppear {
+            herdrMousePatchStore.refresh()
+            commandLineToolStore.refresh()
+        }
     }
 }

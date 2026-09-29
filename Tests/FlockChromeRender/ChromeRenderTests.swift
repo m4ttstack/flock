@@ -2132,8 +2132,8 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// The Settings window in both system appearances, with the
-    /// Notifications and Rearrange Mode sections above herdr's. PNGs go to
+    /// The Settings window in both system appearances, from Notifications
+    /// down to Command Line. PNGs go to
     /// `FLOCK_SETTINGS_RENDER_DIR`; the assertion is only that it draws.
     func testTheSettingsWindowDrawsInBothAppearances() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -2145,7 +2145,12 @@ final class ChromeRenderTests: XCTestCase {
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
-                rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults)
+                rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults),
+                commandLineToolStore: CommandLineToolStore(
+                    directory: FileManager.default.temporaryDirectory.appendingPathComponent("flock-cli-\(UUID().uuidString)"),
+                    executablePath: "/Applications/Flock.app/Contents/MacOS/Flock",
+                    name: "flock"
+                )
             )
             let window = NSWindow(
                 contentRect: CGRect(x: 0, y: 0, width: 500, height: 640),

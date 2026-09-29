@@ -71,6 +71,7 @@ struct FlockApp: App {
     @State private var isStartingHerdr = false
     @State private var herdrStartFailure: String?
     @State private var herdrMousePatchStore = HerdrMousePatchStore()
+    @State private var commandLineToolStore = CommandLineToolStore()
     @State private var viewModel: SessionViewModel
     @State private var undoJournal: UndoJournal
     @State private var rearrangeMode: RearrangeMode
@@ -574,7 +575,8 @@ struct FlockApp: App {
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
-                rtModalTextSizeStore: rtModalTextSizeStore
+                rtModalTextSizeStore: rtModalTextSizeStore,
+                commandLineToolStore: commandLineToolStore
             )
         }
         .windowResizability(.contentMinSize)
