@@ -106,7 +106,7 @@ final class PaletteCatalogTests: XCTestCase {
         XCTAssertEqual(shortcut("pane.focuspaneleft"), "⌥⌘←")
         XCTAssertEqual(shortcut("pane.renamepane"), "F2")
         XCTAssertEqual(shortcut("pane.zoompane"), "⇧⌘↩")
-        XCTAssertEqual(shortcut("view.clearnotifications"), "⇧⌘K")
+        XCTAssertEqual(shortcut("view.clearnotifications"), "⇧⌘J")
         XCTAssertFalse(entries.contains { $0.command.id == "view.commandpalette" }, "the palette does not list itself")
     }
 }
