@@ -529,7 +529,7 @@ enum ChromeMetrics {
     /// the pane has rt run items) the RUNS label and its band, stacked with
     /// no gap between them.
     enum RtPopover {
-        static let width: CGFloat = 300
+        static let width: CGFloat = 270
         static let cornerRadius: CGFloat = 10
 
         /// The 18pt folder chip is a point taller than the 17 the canvas's
