@@ -63,4 +63,19 @@ final class FlockClientsTests: XCTestCase {
         registry.unregister(pid: 200)
         XCTAssertEqual(registry.records().map(\.pid), [201])
     }
+
+    func testReleaseTargetsEveryRecordedFlockStillRunning() {
+        let dev = FlockClientRecord(pid: 201, bundleID: "dev.mattstack.Flock.dev", appName: "Flock Dev", socketPath: work)
+        let targets = FlockReleaseTargets.targets(records: [record(200, home), dev]) { pid in
+            [200: "dev.mattstack.Flock", 201: "dev.mattstack.Flock.dev"][pid]
+        }
+        XCTAssertEqual(targets.map(\.pid), [200, 201])
+    }
+
+    func testReleaseSkipsARecordWhosePidIsGoneOrReused() {
+        let targets = FlockReleaseTargets.targets(records: [record(200, home), record(300, home)]) { pid in
+            pid == 300 ? "com.apple.Safari" : nil
+        }
+        XCTAssertEqual(targets, [])
+    }
 }

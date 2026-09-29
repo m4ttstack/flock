@@ -74,6 +74,21 @@ public struct FlockClientRegistry: Sendable {
     }
 }
 
+/// The Flocks `Flock release` signals.
+///
+/// A record is only trusted while its pid still belongs to the bundle that
+/// wrote it: one left by a crash names a pid the system may since have given
+/// to anything, and the release signal's default action kills.
+public enum FlockReleaseTargets {
+    public static func targets(
+        records: [FlockClientRecord], bundleIDOf: (Int32) -> String?
+    ) -> [FlockClientRecord] {
+        records
+            .filter { bundleIDOf($0.pid) == $0.bundleID }
+            .sorted { $0.pid < $1.pid }
+    }
+}
+
 public enum FlockClientConflict {
     /// Every other running Flock attached to `socketPath`.
     ///
