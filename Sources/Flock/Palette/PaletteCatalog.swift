@@ -59,7 +59,7 @@ enum PaletteCatalog {
         guard context.rtInstalled else { return [] }
         return context.rtCommands
             .filter { $0.kind != .cd || context.focusedAgent == ChatButtonModel.claudeAgent }
-            .map { entry(.rt, $0.kind.rawValue, hint: $0.title, .rt($0.kind)) }
+            .map { entry(.rt, $0.name, hint: $0.title, .rt($0.kind)) }
     }
 
     /// Hidden under a detected agent, whose prompt is not a shell's; any

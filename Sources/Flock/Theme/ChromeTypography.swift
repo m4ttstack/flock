@@ -84,7 +84,7 @@ enum ChromeType {
     static let rtPopoverBadge = inter(10, .bold)
     static let rtPopoverFolder = inter(10)
     static let rtPopoverRow = inter(12)
-    static let rtPopoverHint = mono(10)
+    static let rtPopoverDetail = inter(11)
     static let rtPopoverLabel = inter(10, .semibold)
     static let rtPopoverLabelTracking: CGFloat = 0.5
     static let rtPopoverState = inter(10)

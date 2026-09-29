@@ -125,9 +125,9 @@ public enum RtButtonModel {
 public struct RtCommandRow: Equatable, Sendable, Identifiable {
     public let kind: RtKind
     public let title: String
-    /// rt's own command, shown so the popover teaches it.
-    public let hint: String
 
+    /// rt's own command name, which leads the row in the popover and the palette.
+    public var name: String { kind.rawValue }
     public var id: RtKind { kind }
 }
 
@@ -150,11 +150,11 @@ public struct RtRunRow: Equatable, Sendable, Identifiable {
 public enum RtPopoverModel {
     public static func commands(hasRunner: Bool) -> [RtCommandRow] {
         [
-            RtCommandRow(kind: .cd, title: "Change directory", hint: "rt cd"),
-            RtCommandRow(kind: .nav, title: "Browse files", hint: "rt nav"),
-            RtCommandRow(kind: .glitter, title: "Review and commit", hint: "rt glitter"),
-            RtCommandRow(kind: .run, title: "Run a script…", hint: "rt run"),
-            RtCommandRow(kind: .runner, title: hasRunner ? "Show runner" : "Start runner", hint: "rt runner"),
+            RtCommandRow(kind: .cd, title: "Change directory"),
+            RtCommandRow(kind: .nav, title: "Browse files"),
+            RtCommandRow(kind: .glitter, title: "Review and commit"),
+            RtCommandRow(kind: .run, title: "Run a script…"),
+            RtCommandRow(kind: .runner, title: hasRunner ? "Show runner" : "Start runner"),
         ]
     }
 }
