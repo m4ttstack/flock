@@ -25,7 +25,8 @@ public enum HerdrMousePatchInstaller {
         public let hasVerbs: Bool
         public let hasBackup: Bool
         public let isWritable: Bool
-        public let versionSupported: Bool
+        /// The patchable herdr version this binary reports, nil for any other.
+        public let version: String?
     }
 
     /// Matches the name the owner's own hand-verified install already uses
@@ -49,7 +50,7 @@ public enum HerdrMousePatchInstaller {
             hasVerbs: HerdrMouseVerbs.present(in: data),
             hasBackup: fileManager.fileExists(atPath: backupPath(for: binaryPath)),
             isWritable: fileManager.isWritableFile(atPath: directory(of: binaryPath)),
-            versionSupported: HerdrMousePatchVersion.matches(HerdrMousePatchVersion.supported, in: data)
+            version: HerdrMousePatchVersion.detect(in: data)
         )
     }
 

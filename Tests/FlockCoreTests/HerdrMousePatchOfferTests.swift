@@ -3,12 +3,12 @@ import XCTest
 @testable import FlockCore
 
 final class HerdrMousePatchOfferTests: XCTestCase {
-    private let version = HerdrMousePatchVersion.supported
+    private let version = "0.9.2"
 
     func testPatchableWithNoDismissalIsOffered() {
         XCTAssertTrue(
             HerdrMousePatchOffer.shouldOffer(
-                state: .patchable(installPath: "/usr/local/bin/herdr"), dismissedForVersion: nil
+                state: .patchable(installPath: "/usr/local/bin/herdr", version: version), dismissedForVersion: nil
             )
         )
     }
@@ -19,7 +19,7 @@ final class HerdrMousePatchOfferTests: XCTestCase {
         let silent: [HerdrMousePatchRowState] = [
             .supportedByHerdr,
             .installed(backupPath: "/usr/local/bin/herdr.flock-backup"),
-            .artifactUnavailable(installPath: "/usr/local/bin/herdr"),
+            .artifactUnavailable(installPath: "/usr/local/bin/herdr", version: version),
             .notWritable(installPath: "/usr/local/bin/herdr"),
             .unsupportedVersion,
         ]
@@ -40,7 +40,7 @@ final class HerdrMousePatchOfferTests: XCTestCase {
     func testDismissalForThisVersionSilencesIt() {
         XCTAssertFalse(
             HerdrMousePatchOffer.shouldOffer(
-                state: .patchable(installPath: "/usr/local/bin/herdr"), dismissedForVersion: version
+                state: .patchable(installPath: "/usr/local/bin/herdr", version: version), dismissedForVersion: version
             )
         )
     }
@@ -52,7 +52,7 @@ final class HerdrMousePatchOfferTests: XCTestCase {
     func testDismissalForAnotherVersionDoesNotSilenceIt() {
         XCTAssertTrue(
             HerdrMousePatchOffer.shouldOffer(
-                state: .patchable(installPath: "/usr/local/bin/herdr"),
+                state: .patchable(installPath: "/usr/local/bin/herdr", version: version),
                 dismissedForVersion: "0.0.1-something-else"
             )
         )

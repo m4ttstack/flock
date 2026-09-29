@@ -2142,7 +2142,7 @@ final class ChromeRenderTests: XCTestCase {
         defaults.removeObject(forKey: RearrangeAfterMoveStore.defaultsKey)
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
             let view = FlockSettingsView(
-                herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil }),
+                herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults),
@@ -3588,7 +3588,7 @@ private struct Harness {
         let root = MainWindow(
             viewModel: viewModel,
             sessionLabel: "render",
-            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil }),
+            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
             isDevBuild: isDevBuild
         )
             .environment(devBuild)

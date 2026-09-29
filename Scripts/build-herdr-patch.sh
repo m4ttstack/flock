@@ -8,26 +8,39 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 HERDR_VERSION="0.9.1"
-HERDR_CHECKOUT="${HERDR_CHECKOUT:-$HOME/Documents/GitHub/herdr}"
-PATCH_COMMIT="a83af1c8"
 ZIG_VERSION="0.16.0"
 ARCH="$(uname -m)"
-ARTIFACT_NAME="herdr-mouse-patch-$HERDR_VERSION-$ARCH"
-ARTIFACT="Sources/Flock/Resources/$ARTIFACT_NAME"
-PROVENANCE="Sources/Flock/Resources/$ARTIFACT_NAME.provenance.txt"
 
 CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) CHECK=1; shift ;;
+    --version) HERDR_VERSION="$2"; shift 2 ;;
     -h|--help)
-      echo "usage: Scripts/build-herdr-patch.sh [--check]"
-      echo "  --check  report whether the built artifact matches the checkout's current HEAD"
-      echo "  HERDR_CHECKOUT overrides the default $HOME/Documents/GitHub/herdr"
+      echo "usage: Scripts/build-herdr-patch.sh [--version 0.9.1|0.9.2] [--check]"
+      echo "  --version  the herdr version to build the patch for (default 0.9.1)"
+      echo "  --check    report whether the built artifact matches the checkout's current HEAD"
+      echo "  HERDR_CHECKOUT overrides the version's default checkout"
       exit 0 ;;
     *) echo "build-herdr-patch: unknown option $1" >&2; exit 2 ;;
   esac
 done
+
+case "$HERDR_VERSION" in
+  0.9.1)
+    DEFAULT_CHECKOUT="$HOME/Documents/GitHub/herdr"
+    CHECKOUT_BRANCH_REQUIRED="master"
+    PATCH_COMMIT="a83af1c8" ;;
+  0.9.2)
+    DEFAULT_CHECKOUT="$HOME/Documents/GitHub/herdr/.worktrees/flock-mouse-0.9.2"
+    CHECKOUT_BRANCH_REQUIRED="flock-mouse-0.9.2"
+    PATCH_COMMIT="e2268fd9" ;;
+  *) echo "build-herdr-patch: no patch for herdr $HERDR_VERSION" >&2; exit 2 ;;
+esac
+HERDR_CHECKOUT="${HERDR_CHECKOUT:-$DEFAULT_CHECKOUT}"
+ARTIFACT_NAME="herdr-mouse-patch-$HERDR_VERSION-$ARCH"
+ARTIFACT="Sources/Flock/Resources/$ARTIFACT_NAME"
+PROVENANCE="Sources/Flock/Resources/$ARTIFACT_NAME.provenance.txt"
 
 if [ "$CHECK" = 1 ]; then
   if [ ! -f "$ARTIFACT" ]; then
@@ -75,14 +88,14 @@ if [ "$INSTALLED_ZIG_VERSION" != "$ZIG_VERSION" ]; then
 fi
 
 CHECKOUT_BRANCH="$(git -C "$HERDR_CHECKOUT" branch --show-current)"
-if [ "$CHECKOUT_BRANCH" != "master" ]; then
-  echo "build-herdr-patch: $HERDR_CHECKOUT is on '$CHECKOUT_BRANCH', not master. This script reads the" >&2
-  echo "                   checkout as-is and never switches its branch; check out master by hand first" >&2
+if [ "$CHECKOUT_BRANCH" != "$CHECKOUT_BRANCH_REQUIRED" ]; then
+  echo "build-herdr-patch: $HERDR_CHECKOUT is on '$CHECKOUT_BRANCH', not $CHECKOUT_BRANCH_REQUIRED. This script reads the" >&2
+  echo "                   checkout as-is and never switches its branch; check out $CHECKOUT_BRANCH_REQUIRED by hand first" >&2
   exit 1
 fi
 
 if ! git -C "$HERDR_CHECKOUT" merge-base --is-ancestor "$PATCH_COMMIT" HEAD 2>/dev/null; then
-  echo "build-herdr-patch: $HERDR_CHECKOUT's master has no $PATCH_COMMIT (the mouse patch commit)" >&2
+  echo "build-herdr-patch: $HERDR_CHECKOUT's $CHECKOUT_BRANCH_REQUIRED has no $PATCH_COMMIT (the mouse patch commit)" >&2
   exit 1
 fi
 
@@ -121,8 +134,8 @@ BUILT="$WORK/target/release/herdr"
 # for a pipeline status of 141. That made the guard fail precisely WHEN the
 # verb was found, so it reported "the patch did not land" on every correct
 # build and passed only on a broken one.
-if [ "$(strings "$BUILT" | grep -cF "terminal.mouse")" -eq 0 ]; then
-  echo "build-herdr-patch: built binary carries no terminal.mouse verb; the patch did not land" >&2
+if [ "$(strings "$BUILT" | grep -cF "terminal.mouse_capture")" -eq 0 ]; then
+  echo "build-herdr-patch: built binary carries no terminal.mouse_capture verb; the patch did not land" >&2
   exit 1
 fi
 
@@ -135,7 +148,8 @@ cat > "$PROVENANCE" <<EOF
 # Written by Scripts/build-herdr-patch.sh. This binary is an Apache-2.0
 # build of herdr $HERDR_VERSION carrying the changes at $PATCH_COMMIT
 # (mouse events and capture state on terminal session control), offered
-# upstream in discussion 4058 on 2026-09-13 with no maintainer reply.
+# upstream in discussion 4058 on 2026-09-13. Upstream shipped inbound
+# terminal.mouse in 0.9.2; capture state is still flock's own.
 herdr_version=$HERDR_VERSION
 herdr_commit=$CHECKOUT_HEAD
 patch_commit=$(git -C "$WORK/herdr" rev-parse "$PATCH_COMMIT")

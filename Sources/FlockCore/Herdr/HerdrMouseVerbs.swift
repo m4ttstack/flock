@@ -6,9 +6,9 @@ import Foundation
 /// since running an unknown herdr build to interrogate it is both slower and
 /// riskier than inspecting it.
 public enum HerdrMouseVerbs {
-    /// The shorter of the two verb names; every occurrence of the longer one
-    /// contains this as a prefix, so one substring search covers both.
-    public static let marker = "terminal.mouse"
+    /// The outbound verb, never the inbound one: stock herdr 0.9.2 accepts
+    /// `terminal.mouse` but never reports capture, and flock needs both.
+    public static let marker = "terminal.mouse_capture"
 
     public static func present(in data: Data) -> Bool {
         data.range(of: Data(marker.utf8)) != nil

@@ -22,7 +22,7 @@ final class HerdrMousePatchStore {
     }
 
     @ObservationIgnored private let resolveBinaryPath: () -> String?
-    @ObservationIgnored private let resolveArtifactPath: () -> String?
+    @ObservationIgnored private let resolveArtifactPath: (String) -> String?
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -33,7 +33,7 @@ final class HerdrMousePatchStore {
 
     init(
         resolveBinaryPath: @escaping () -> String? = { ToolPath.resolve("herdr") },
-        resolveArtifactPath: @escaping () -> String? = { HerdrMousePatchArtifactLocator.path() },
+        resolveArtifactPath: @escaping (String) -> String? = { HerdrMousePatchArtifactLocator.path(version: $0) },
         fileManager: FileManager = .default,
         defaults: UserDefaults = .standard
     ) {
@@ -58,7 +58,8 @@ final class HerdrMousePatchStore {
     /// unaffected and still offers Install: this silences the unprompted
     /// offer, it does not withdraw the feature.
     func dismissBannerOffer() {
-        defaults.set(HerdrMousePatchVersion.supported, forKey: Self.dismissedVersionKey)
+        guard case .patchable(_, let version) = state else { return }
+        defaults.set(version, forKey: Self.dismissedVersionKey)
     }
 
     /// Re-probes the binary on disk. Called on init, and meant to be called
@@ -73,18 +74,19 @@ final class HerdrMousePatchStore {
         state = HerdrMousePatchDecision.decide(
             hasVerbs: probe.hasVerbs,
             hasBackup: probe.hasBackup,
-            versionSupported: probe.versionSupported,
+            version: probe.version,
             isWritable: probe.isWritable,
-            artifactAvailable: resolveArtifactPath() != nil,
+            artifactAvailable: probe.version.flatMap(resolveArtifactPath) != nil,
             installPath: binaryPath,
             backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)
         )
     }
 
     func requestInstall() {
-        guard case .patchable(let installPath) = state else { return }
+        guard case .patchable(let installPath, let version) = state else { return }
         pendingConfirmation = PendingConfirmation(
-            action: .install, confirmation: HerdrMousePatchCopy.installConfirmation(installPath: installPath)
+            action: .install,
+            confirmation: HerdrMousePatchCopy.installConfirmation(installPath: installPath, version: version)
         )
     }
 
@@ -110,7 +112,8 @@ final class HerdrMousePatchStore {
     }
 
     private func performInstall() {
-        guard let binaryPath = resolveBinaryPath(), let artifactPath = resolveArtifactPath() else {
+        guard case .patchable(_, let version) = state, let binaryPath = resolveBinaryPath(),
+              let artifactPath = resolveArtifactPath(version) else {
             refresh()
             return
         }

@@ -22,11 +22,10 @@ import Foundation
 public enum HerdrMousePatchOffer {
     public static func shouldOffer(
         state: HerdrMousePatchRowState?,
-        dismissedForVersion: String?,
-        currentVersion: String = HerdrMousePatchVersion.supported
+        dismissedForVersion: String?
     ) -> Bool {
-        guard case .patchable = state else { return false }
-        return dismissedForVersion != currentVersion
+        guard case .patchable(_, let version) = state else { return false }
+        return dismissedForVersion != version
     }
 
     public static let bannerHeadline = "This herdr cannot report mouse events"

@@ -17,7 +17,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         binaryPath = root.appendingPathComponent("herdr").path
         artifactPath = root.appendingPathComponent("herdr-patched").path
         try Data("herdr 0.9.1 unpatched build".utf8).write(to: URL(fileURLWithPath: binaryPath))
-        try Data("herdr 0.9.1 terminal.mouse patched build".utf8).write(to: URL(fileURLWithPath: artifactPath))
+        try Data("herdr 0.9.1 terminal.mouse_capture patched build".utf8).write(to: URL(fileURLWithPath: artifactPath))
     }
 
     override func tearDownWithError() throws {
@@ -27,23 +27,23 @@ final class HerdrMousePatchStoreTests: XCTestCase {
     private func makeStore(artifactAvailable: Bool = true) -> HerdrMousePatchStore {
         HerdrMousePatchStore(
             resolveBinaryPath: { [binaryPath] in binaryPath },
-            resolveArtifactPath: { [artifactPath] in artifactAvailable ? artifactPath : nil }
+            resolveArtifactPath: { [artifactPath] _ in artifactAvailable ? artifactPath : nil }
         )
     }
 
     func testNoHerdrResolvesToNoState() {
-        let store = HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { nil })
+        let store = HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil })
         XCTAssertNil(store.state)
     }
 
     func testAPlainUnpatchedHerdrWithAnArtifactIsPatchable() {
         let store = makeStore()
-        XCTAssertEqual(store.state, .patchable(installPath: binaryPath))
+        XCTAssertEqual(store.state, .patchable(installPath: binaryPath, version: "0.9.1"))
     }
 
     func testNoArtifactReadsAsArtifactUnavailable() {
         let store = makeStore(artifactAvailable: false)
-        XCTAssertEqual(store.state, .artifactUnavailable(installPath: binaryPath))
+        XCTAssertEqual(store.state, .artifactUnavailable(installPath: binaryPath, version: "0.9.1"))
     }
 
     func testRequestInstallOnAnUnpatchableStateDoesNothing() {
@@ -67,7 +67,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         XCTAssertNil(store.pendingConfirmation)
         XCTAssertEqual(store.state, .installed(backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
         XCTAssertEqual(
-            try? String(contentsOfFile: binaryPath, encoding: .utf8), "herdr 0.9.1 terminal.mouse patched build")
+            try? String(contentsOfFile: binaryPath, encoding: .utf8), "herdr 0.9.1 terminal.mouse_capture patched build")
     }
 
     func testCancelPendingConfirmationLeavesTheBinaryUntouched() {
@@ -90,7 +90,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         XCTAssertEqual(store.pendingConfirmation?.action, .revert)
         store.confirmPendingAction()
 
-        XCTAssertEqual(store.state, .patchable(installPath: binaryPath))
+        XCTAssertEqual(store.state, .patchable(installPath: binaryPath, version: "0.9.1"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
     }
 
@@ -120,9 +120,9 @@ final class HerdrMousePatchStoreTests: XCTestCase {
 
     func testRefreshPicksUpAHerdrThatChangedUnderneathTheStore() throws {
         let store = makeStore()
-        XCTAssertEqual(store.state, .patchable(installPath: binaryPath))
+        XCTAssertEqual(store.state, .patchable(installPath: binaryPath, version: "0.9.1"))
 
-        try Data("herdr 0.9.1 terminal.mouse already upstream".utf8).write(to: URL(fileURLWithPath: binaryPath))
+        try Data("herdr 0.9.1 terminal.mouse_capture already upstream".utf8).write(to: URL(fileURLWithPath: binaryPath))
         store.refresh()
 
         XCTAssertEqual(store.state, .supportedByHerdr)

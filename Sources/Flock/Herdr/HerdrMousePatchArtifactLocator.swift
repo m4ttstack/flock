@@ -10,7 +10,7 @@ import Foundation
 /// `.artifactUnavailable`, never a crash.
 enum HerdrMousePatchArtifactLocator {
     static func path(
-        version: String = HerdrMousePatchVersion.supported,
+        version: String,
         bundle: Bundle = .main,
         fileManager: FileManager = .default
     ) -> String? {

@@ -9,11 +9,11 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
     private let backupPath = "/Users/matt/.local/bin/herdr.pre-mouse-backup"
 
     private func decide(
-        hasVerbs: Bool, hasBackup: Bool, versionSupported: Bool = true,
+        hasVerbs: Bool, hasBackup: Bool, version: String? = "0.9.2",
         isWritable: Bool = true, artifactAvailable: Bool = true
     ) -> HerdrMousePatchRowState {
         HerdrMousePatchDecision.decide(
-            hasVerbs: hasVerbs, hasBackup: hasBackup, versionSupported: versionSupported,
+            hasVerbs: hasVerbs, hasBackup: hasBackup, version: version,
             isWritable: isWritable, artifactAvailable: artifactAvailable,
             installPath: installPath, backupPath: backupPath
         )
@@ -46,28 +46,28 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
     /// is the installed signal regardless of how the verbs got there.
     func testVerbsWithABackupReadsAsInstalledEvenIfVersionOrWritabilityWouldOtherwiseSayNo() {
         XCTAssertEqual(
-            decide(hasVerbs: true, hasBackup: true, versionSupported: false, isWritable: false),
+            decide(hasVerbs: true, hasBackup: true, version: nil, isWritable: false),
             .installed(backupPath: backupPath)
         )
     }
 
     func testNoVerbsUnwritableInstallReadsAsNotWritableRegardlessOfVersion() {
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: false, versionSupported: true, isWritable: false),
+            decide(hasVerbs: false, hasBackup: false, version: "0.9.2", isWritable: false),
             .notWritable(installPath: installPath)
         )
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: false, versionSupported: false, isWritable: false),
+            decide(hasVerbs: false, hasBackup: false, version: nil, isWritable: false),
             .notWritable(installPath: installPath)
         )
     }
 
-    /// Scope for this build is 0.9.1 only; anything else reports "not
+    /// Only the versions this build carries a patch for; anything else reports "not
     /// covered" and offers nothing, with no attempt to identify what version
     /// it actually is.
     func testNoVerbsWrongVersionReadsAsUnsupportedVersion() {
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: false, versionSupported: false, isWritable: true),
+            decide(hasVerbs: false, hasBackup: false, version: nil, isWritable: true),
             .unsupportedVersion
         )
     }
@@ -76,15 +76,15 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
     /// normal state, not a crash.
     func testNoVerbsRightVersionNoArtifactReadsAsArtifactUnavailable() {
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: false, versionSupported: true, artifactAvailable: false),
-            .artifactUnavailable(installPath: installPath)
+            decide(hasVerbs: false, hasBackup: false, version: "0.9.2", artifactAvailable: false),
+            .artifactUnavailable(installPath: installPath, version: "0.9.2")
         )
     }
 
     func testNoVerbsRightVersionWritableWithArtifactReadsAsPatchable() {
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: false, versionSupported: true, isWritable: true, artifactAvailable: true),
-            .patchable(installPath: installPath)
+            decide(hasVerbs: false, hasBackup: false, version: "0.9.2", isWritable: true, artifactAvailable: true),
+            .patchable(installPath: installPath, version: "0.9.2")
         )
     }
 
@@ -94,8 +94,8 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
     /// to it.
     func testNoVerbsWithAStaleBackupStillFallsThroughToTheOrdinaryRules() {
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: true, versionSupported: true, isWritable: true, artifactAvailable: true),
-            .patchable(installPath: installPath)
+            decide(hasVerbs: false, hasBackup: true, version: "0.9.2", isWritable: true, artifactAvailable: true),
+            .patchable(installPath: installPath, version: "0.9.2")
         )
     }
 }

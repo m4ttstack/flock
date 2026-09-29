@@ -1,15 +1,19 @@
 import Foundation
 
-/// Whether a herdr binary's own bytes report the one version this build's
-/// patch is made for. Scope for this build is a single version only; any
-/// other reports "not covered" with no attempt to say what it actually is.
+/// Which of the herdr versions this build carries a patch for a binary's own
+/// bytes report, if any. Any other version reports "not covered" with no
+/// attempt to say what it actually is.
 ///
 /// rustc packs adjacent string literals in `.rodata` with no separating byte,
 /// so a naive substring search for "0.9.1" also lights up inside "0.9.12" or
 /// "1.0.9.1". `matches` requires a digit or `.` on neither side of the
 /// version string, so a longer number never reads as a match.
 public enum HerdrMousePatchVersion {
-    public static let supported = "0.9.1"
+    public static let supported = ["0.9.1", "0.9.2"]
+
+    public static func detect(in data: Data) -> String? {
+        supported.first { matches($0, in: data) }
+    }
 
     /// A herdr binary runs past 20 MB and Settings probes it on the main
     /// thread, so the search is `Data.range(of:)` (`memmem`), never a walk

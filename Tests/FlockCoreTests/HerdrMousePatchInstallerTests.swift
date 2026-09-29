@@ -16,7 +16,7 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
         binaryPath = root.appendingPathComponent("herdr").path
         artifactPath = root.appendingPathComponent("herdr-patched-artifact").path
         try Data("unpatched herdr build, no verbs here".utf8).write(to: URL(fileURLWithPath: binaryPath))
-        try Data("patched herdr build carrying terminal.mouse".utf8).write(to: URL(fileURLWithPath: artifactPath))
+        try Data("patched herdr build carrying terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: artifactPath))
     }
 
     override func tearDownWithError() throws {
@@ -32,7 +32,7 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
 
         XCTAssertEqual(try String(contentsOfFile: backupPath, encoding: .utf8), "unpatched herdr build, no verbs here")
         XCTAssertEqual(
-            try String(contentsOfFile: binaryPath, encoding: .utf8), "patched herdr build carrying terminal.mouse")
+            try String(contentsOfFile: binaryPath, encoding: .utf8), "patched herdr build carrying terminal.mouse_capture")
     }
 
     /// The staging file must be gone once install lands: nothing is left
@@ -162,9 +162,12 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
 
     func testProbeReportsVersionSupportFromTheBinarysOwnBytes() throws {
         try Data("herdr 0.9.1".utf8).write(to: URL(fileURLWithPath: binaryPath))
-        XCTAssertTrue(HerdrMousePatchInstaller.probe(binaryPath: binaryPath).versionSupported)
+        XCTAssertEqual(HerdrMousePatchInstaller.probe(binaryPath: binaryPath).version, "0.9.1")
+
+        try Data("herdr 0.9.2".utf8).write(to: URL(fileURLWithPath: binaryPath))
+        XCTAssertEqual(HerdrMousePatchInstaller.probe(binaryPath: binaryPath).version, "0.9.2")
 
         try Data("herdr 0.10.0".utf8).write(to: URL(fileURLWithPath: binaryPath))
-        XCTAssertFalse(HerdrMousePatchInstaller.probe(binaryPath: binaryPath).versionSupported)
+        XCTAssertNil(HerdrMousePatchInstaller.probe(binaryPath: binaryPath).version)
     }
 }

@@ -17,22 +17,21 @@ public enum HerdrMousePatchCopy {
     }
 
     public static func body(for state: HerdrMousePatchRowState) -> String {
-        let version = HerdrMousePatchVersion.supported
         switch state {
         case .supportedByHerdr:
             return "On. This herdr passes clicks and scrolling through to panes on its own."
         case .installed(let backupPath):
-            return "On. flock installed a build of herdr \(version) that passes clicks and scrolling through "
+            return "On. flock installed a build of your herdr version that passes clicks and scrolling through "
                 + "to your panes. Your original herdr is saved at \(displayPath(backupPath))."
-        case .patchable:
+        case .patchable(_, let version):
             return "Off. herdr \(version) doesn't pass clicks and scrolling through to panes. flock can "
                 + "install a build of the same version that does, and keep your original to restore later."
-        case .artifactUnavailable:
+        case .artifactUnavailable(_, let version):
             return "Not available. This build of flock doesn't include mouse support for herdr \(version)."
         case .notWritable(let installPath):
             return "Off. flock can't write to \(displayPath(installPath)) from this account, so it leaves herdr alone."
         case .unsupportedVersion:
-            return "Not available. Mouse support is built for herdr \(version) only, and this herdr is a "
+            return "Not available. Mouse support is built for herdr \(supportedList) only, and this herdr is a "
                 + "different version."
         }
     }
@@ -54,11 +53,15 @@ public enum HerdrMousePatchCopy {
         public let confirmButtonTitle: String
     }
 
-    public static func installConfirmation(installPath: String) -> Confirmation {
+    static var supportedList: String {
+        HerdrMousePatchVersion.supported.joined(separator: " and ")
+    }
+
+    public static func installConfirmation(installPath: String, version: String) -> Confirmation {
         Confirmation(
             title: "Install mouse support?",
             message: "flock will replace \(displayPath(installPath)) with a build of herdr "
-                + "\(HerdrMousePatchVersion.supported) that passes clicks and scrolling through to panes. Your "
+                + "\(version) that passes clicks and scrolling through to panes. Your "
                 + "original is saved beside it and can be restored here.",
             confirmButtonTitle: "Install"
         )

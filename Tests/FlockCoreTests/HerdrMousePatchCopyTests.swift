@@ -21,7 +21,7 @@ final class HerdrMousePatchCopyTests: XCTestCase {
     }
 
     func testPatchableOffersInstall() {
-        XCTAssertEqual(HerdrMousePatchCopy.actionTitle(for: .patchable(installPath: installPath)), "Install")
+        XCTAssertEqual(HerdrMousePatchCopy.actionTitle(for: .patchable(installPath: installPath, version: "0.9.2")), "Install")
     }
 
     func testNotWritableOffersNoActionAndNamesThePath() {
@@ -31,21 +31,23 @@ final class HerdrMousePatchCopyTests: XCTestCase {
 
     func testUnsupportedVersionOffersNoActionAndNamesTheSupportedVersion() {
         XCTAssertNil(HerdrMousePatchCopy.actionTitle(for: .unsupportedVersion))
-        XCTAssertTrue(HerdrMousePatchCopy.body(for: .unsupportedVersion).contains(HerdrMousePatchVersion.supported))
+        let body = HerdrMousePatchCopy.body(for: .unsupportedVersion)
+        XCTAssertTrue(body.contains("0.9.1"))
+        XCTAssertTrue(body.contains("0.9.2"))
     }
 
     func testArtifactUnavailableOffersNoAction() {
-        XCTAssertNil(HerdrMousePatchCopy.actionTitle(for: .artifactUnavailable(installPath: installPath)))
+        XCTAssertNil(HerdrMousePatchCopy.actionTitle(for: .artifactUnavailable(installPath: installPath, version: "0.9.2")))
     }
 
     /// The install confirmation is the one line the spec insists on: it must
     /// name the exact path being replaced, every time, never a generic
     /// "install the patch?".
     func testInstallConfirmationNamesTheExactPath() {
-        let confirmation = HerdrMousePatchCopy.installConfirmation(installPath: installPath)
+        let confirmation = HerdrMousePatchCopy.installConfirmation(installPath: installPath, version: "0.9.2")
 
         XCTAssertTrue(confirmation.message.contains("~/.local/bin/herdr"))
-        XCTAssertTrue(confirmation.message.contains(HerdrMousePatchVersion.supported))
+        XCTAssertTrue(confirmation.message.contains("0.9.2"))
     }
 
     func testRestoreConfirmationNamesTheSavedCopy() {
