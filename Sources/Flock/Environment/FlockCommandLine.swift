@@ -10,7 +10,9 @@ enum FlockCommandLine {
     static func run(_ command: FlockCommand, name: String) -> Never {
         switch command {
         case .release:
-            release(name: name)
+            exit(release(name: name) ? 0 : 1)
+        case .attach(let arguments):
+            attach(name: name, herdrArguments: arguments)
         case .help:
             print(FlockCommand.usage(name: name))
             exit(0)
@@ -21,7 +23,8 @@ enum FlockCommandLine {
     }
 
     /// Hides every running Flock so herdr's own clients size its panes again.
-    private static func release(name: String) -> Never {
+    /// False when there was none to hide.
+    private static func release(name: String) -> Bool {
         let records = FlockClientRegistry.shared.records()
         let targets = FlockReleaseTargets.targets(records: records, bundleIDOf: bundleID(of:))
         for older in records where older.hidesOnRelease != true && bundleID(of: older.pid) == older.bundleID {
@@ -30,12 +33,34 @@ enum FlockCommandLine {
         guard !targets.isEmpty else {
             fflush(stdout)
             fputs("\(name): no running Flock to release\n", stderr)
-            exit(1)
+            return false
         }
         for flock in targets where kill(flock.pid, releaseSignal) == 0 {
             print("\(flock.appName) (pid \(flock.pid)) hidden; its panes are herdr's until you click it")
         }
-        exit(0)
+        fflush(stdout)
+        return true
+    }
+
+    /// Replaces this process with herdr, so the terminal becomes a herdr
+    /// client. herdr is looked up on the caller's own PATH first: over ssh
+    /// that is the one the user set up, and Flock's cached login-shell PATH is
+    /// only the fallback.
+    private static func attach(name: String, herdrArguments: [String]) -> Never {
+        if release(name: name) {
+            // Outlasts `HoldPolicy.releaseDelay` plus the app's hide, so the
+            // panes are unlocked before herdr's first size lands.
+            usleep(800_000)
+        }
+        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        guard let herdr = UserPath.resolve("herdr", on: path) ?? ToolPath.resolve("herdr") else {
+            fputs("\(name): herdr is not on your PATH\n", stderr)
+            exit(1)
+        }
+        let argv = ([herdr] + herdrArguments).map { strdup($0) } + [nil]
+        execv(herdr, argv)
+        fputs("\(name): could not start \(herdr): \(String(cString: strerror(errno)))\n", stderr)
+        exit(1)
     }
 
     /// Read from the process's exec arguments, not `proc_pidpath`: that fails

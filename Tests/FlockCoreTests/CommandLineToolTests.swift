@@ -31,6 +31,14 @@ final class CommandLineToolTests: XCTestCase {
         XCTAssertEqual(FlockCommand.parse(invokedAs: "flock", arguments: ["relase"]), .unknown("relase"))
     }
 
+    func testAttachPassesTheRestToHerdr() {
+        XCTAssertEqual(FlockCommand.parse(invokedAs: "flock", arguments: ["attach"]), .attach([]))
+        XCTAssertEqual(
+            FlockCommand.parse(invokedAs: "flock", arguments: ["attach", "--session", "work"]),
+            .attach(["--session", "work"])
+        )
+    }
+
     func testUsageListsEveryCommand() {
         let usage = FlockCommand.usage(name: "flock")
         XCTAssertTrue(usage.hasPrefix("usage: flock <command>"))

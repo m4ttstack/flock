@@ -54,12 +54,15 @@ public enum CommandLineTool {
 /// A `flock` subcommand, from the process's arguments.
 public enum FlockCommand: Equatable, Sendable {
     case release
+    /// Release, then run herdr in this terminal with these arguments.
+    case attach([String])
     case help
     case unknown(String)
 
     /// Every command `flock help` lists, in order.
     public static let summaries: [(name: String, summary: String)] = [
         ("release", "Hide Flock so herdr sizes its panes for your other clients. Click Flock to take them back."),
+        ("attach", "Release, then open herdr here. Arguments after attach go to herdr."),
         ("help", "Show this list."),
     ]
 
@@ -78,6 +81,7 @@ public enum FlockCommand: Equatable, Sendable {
         let viaLink = linkNames.contains(invokedAs)
         switch arguments.first {
         case "release": return .release
+        case "attach": return .attach(Array(arguments.dropFirst()))
         case "help", "-h", "--help": return .help
         case let other?: return viaLink ? .unknown(other) : nil
         case nil: return viaLink ? .help : nil
