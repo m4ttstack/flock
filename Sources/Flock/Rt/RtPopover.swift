@@ -108,7 +108,7 @@ struct RtPopover: View {
                 Spacer(minLength: 0)
                 Text(command.title)
                     .font(ChromeType.rtPopoverDetail)
-                    .foregroundStyle(theme.textLabel)
+                    .foregroundStyle(Color(theme.palette.overlay1))
                     .lineLimit(1)
             }
             .padding(.horizontal, Metrics.Row.horizontalPadding)
