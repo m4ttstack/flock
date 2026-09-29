@@ -11,12 +11,19 @@ public struct FlockClientRecord: Codable, Equatable, Sendable {
     public let bundleID: String
     public let appName: String
     public let socketPath: String
+    /// Whether this Flock handles `Flock release`'s signal. Optional so a
+    /// record written by a build without the handler decodes as nil: the
+    /// signal's default action would quit that Flock instead of hiding it.
+    public let hidesOnRelease: Bool?
 
-    public init(pid: Int32, bundleID: String, appName: String, socketPath: String) {
+    public init(
+        pid: Int32, bundleID: String, appName: String, socketPath: String, hidesOnRelease: Bool = false
+    ) {
         self.pid = pid
         self.bundleID = bundleID
         self.appName = appName
         self.socketPath = FlockClientRecord.normalized(socketPath)
+        self.hidesOnRelease = hidesOnRelease
     }
 
     /// One session reached by two spellings of its path is still one session.
@@ -78,13 +85,14 @@ public struct FlockClientRegistry: Sendable {
 ///
 /// A record is only trusted while its pid still belongs to the bundle that
 /// wrote it: one left by a crash names a pid the system may since have given
-/// to anything, and the release signal's default action kills.
+/// to anything, and the release signal's default action kills. A Flock built
+/// without the handler is skipped for the same reason.
 public enum FlockReleaseTargets {
     public static func targets(
         records: [FlockClientRecord], bundleIDOf: (Int32) -> String?
     ) -> [FlockClientRecord] {
         records
-            .filter { bundleIDOf($0.pid) == $0.bundleID }
+            .filter { $0.hidesOnRelease == true && bundleIDOf($0.pid) == $0.bundleID }
             .sorted { $0.pid < $1.pid }
     }
 }

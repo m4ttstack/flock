@@ -5,8 +5,8 @@ final class FlockClientsTests: XCTestCase {
     private let home = "/Users/someone/.config/herdr/herdr.sock"
     private let work = "/Users/someone/.config/herdr/sessions/work/herdr.sock"
 
-    private func record(_ pid: Int32, _ socket: String, name: String = "Flock") -> FlockClientRecord {
-        FlockClientRecord(pid: pid, bundleID: "dev.mattstack.Flock", appName: name, socketPath: socket)
+    private func record(_ pid: Int32, _ socket: String, name: String = "Flock", hides: Bool = true) -> FlockClientRecord {
+        FlockClientRecord(pid: pid, bundleID: "dev.mattstack.Flock", appName: name, socketPath: socket, hidesOnRelease: hides)
     }
 
     private func running(_ pid: Int32, name: String = "Flock") -> RunningFlock {
@@ -65,7 +65,7 @@ final class FlockClientsTests: XCTestCase {
     }
 
     func testReleaseTargetsEveryRecordedFlockStillRunning() {
-        let dev = FlockClientRecord(pid: 201, bundleID: "dev.mattstack.Flock.dev", appName: "Flock Dev", socketPath: work)
+        let dev = FlockClientRecord(pid: 201, bundleID: "dev.mattstack.Flock.dev", appName: "Flock Dev", socketPath: work, hidesOnRelease: true)
         let targets = FlockReleaseTargets.targets(records: [record(200, home), dev]) { pid in
             [200: "dev.mattstack.Flock", 201: "dev.mattstack.Flock.dev"][pid]
         }
@@ -75,6 +75,15 @@ final class FlockClientsTests: XCTestCase {
     func testReleaseSkipsARecordWhosePidIsGoneOrReused() {
         let targets = FlockReleaseTargets.targets(records: [record(200, home), record(300, home)]) { pid in
             pid == 300 ? "com.apple.Safari" : nil
+        }
+        XCTAssertEqual(targets, [])
+    }
+
+    func testReleaseSkipsAFlockWithoutTheHandler() throws {
+        let older = Data(#"{"pid":200,"bundleID":"dev.mattstack.Flock","appName":"Flock","socketPath":"/tmp/h.sock"}"#.utf8)
+        let decoded = try JSONDecoder().decode(FlockClientRecord.self, from: older)
+        let targets = FlockReleaseTargets.targets(records: [decoded, record(201, home, hides: false)]) { _ in
+            "dev.mattstack.Flock"
         }
         XCTAssertEqual(targets, [])
     }

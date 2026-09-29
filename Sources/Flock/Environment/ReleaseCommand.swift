@@ -8,9 +8,11 @@ enum ReleaseCommand {
     static let signal = SIGUSR1
 
     static func run() -> Never {
-        let targets = FlockReleaseTargets.targets(
-            records: FlockClientRegistry.shared.records(), bundleIDOf: bundleID(of:)
-        )
+        let records = FlockClientRegistry.shared.records()
+        let targets = FlockReleaseTargets.targets(records: records, bundleIDOf: bundleID(of:))
+        for older in records where older.hidesOnRelease != true && bundleID(of: older.pid) == older.bundleID {
+            print("\(older.appName) (pid \(older.pid)) predates `release`; hide it with ⌘H or quit it")
+        }
         guard !targets.isEmpty else {
             fputs("flock: no Flock is running\n", stderr)
             exit(1)

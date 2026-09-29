@@ -14,11 +14,13 @@ enum FlockClientGuard {
     static func settle(socketPath: String, defaultSocketPath: String) async {
         let registry = FlockClientRegistry.shared
         let me = ProcessInfo.processInfo.processIdentifier
+        ReleaseSignal.listen()
         try? registry.register(FlockClientRecord(
             pid: me,
             bundleID: Bundle.main.bundleIdentifier ?? "",
             appName: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Flock",
-            socketPath: socketPath
+            socketPath: socketPath,
+            hidesOnRelease: true
         ))
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main

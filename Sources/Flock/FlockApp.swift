@@ -40,7 +40,6 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ReleaseSignal.listen()
         DispatchQueue.global(qos: .utility).async { ClipboardImageStaging.sweep() }
         windowFrame.start()
     }
