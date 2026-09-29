@@ -14,7 +14,8 @@ enum ReleaseCommand {
             print("\(older.appName) (pid \(older.pid)) predates `release`; hide it with ⌘H or quit it")
         }
         guard !targets.isEmpty else {
-            fputs("flock: no Flock is running\n", stderr)
+            fflush(stdout)
+            fputs("flock: no running Flock to release\n", stderr)
             exit(1)
         }
         for flock in targets where kill(flock.pid, signal) == 0 {
@@ -23,10 +24,17 @@ enum ReleaseCommand {
         exit(0)
     }
 
+    /// Read from the process's exec arguments, not `proc_pidpath`: that fails
+    /// once `dev-build.sh` has swapped a new bundle in under a running Flock
+    /// Dev, which is exactly the one waiting on its Restart pill.
     private static func bundleID(of pid: Int32) -> String? {
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        let app = URL(fileURLWithPath: String(cString: buffer))
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+        let execPath = buffer[MemoryLayout<Int32>.size..<size].prefix { $0 != 0 }
+        let app = URL(fileURLWithPath: String(decoding: execPath, as: UTF8.self))
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
