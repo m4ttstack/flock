@@ -12,10 +12,7 @@ let invokedAs = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
 if bridgeArguments.contains("--bridge") {
     ControlBridge.run(arguments: bridgeArguments)
 } else if let command = FlockCommand.parse(invokedAs: invokedAs, arguments: bridgeArguments) {
-    let name = FlockCommand.linkNames.contains(invokedAs)
-        ? invokedAs
-        : CommandLineTool.name(bundleID: Bundle.main.bundleIdentifier)
-    FlockCommandLine.run(command, name: name)
+    FlockCommandLine.run(command, name: CommandLineTool.name)
 } else {
     FlockApp.main()
 }

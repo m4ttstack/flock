@@ -2,21 +2,23 @@ import XCTest
 @testable import FlockCore
 
 final class CommandLineToolTests: XCTestCase {
-    private let me = "/Applications/Flock.app/Contents/MacOS/Flock"
+    private let flocks: Set<String> = [
+        "/Applications/Flock.app/Contents/MacOS/Flock",
+        "/Users/someone/flock/build/dev/Flock-dev.app/Contents/MacOS/Flock-dev",
+    ]
 
-    func testEachFlavorGetsItsOwnName() {
-        XCTAssertEqual(CommandLineTool.name(bundleID: "dev.mattstack.Flock"), "flock")
-        XCTAssertEqual(CommandLineTool.name(bundleID: "dev.mattstack.Flock.dev"), "flock-dev")
+    private func state(exists: Bool, linkTarget: String?) -> CommandLineToolState {
+        CommandLineTool.state(exists: exists, linkTarget: linkTarget, isFlock: flocks.contains)
     }
 
     func testStateFromWhatIsAtThePath() {
-        XCTAssertEqual(CommandLineTool.state(exists: false, linkTarget: nil, executablePath: me), .notInstalled)
-        XCTAssertEqual(CommandLineTool.state(exists: true, linkTarget: me, executablePath: me), .installed)
-        XCTAssertEqual(
-            CommandLineTool.state(exists: true, linkTarget: "/Old/Flock", executablePath: me),
-            .otherLink(target: "/Old/Flock")
-        )
-        XCTAssertEqual(CommandLineTool.state(exists: true, linkTarget: nil, executablePath: me), .otherFile)
+        XCTAssertEqual(state(exists: false, linkTarget: nil), .notInstalled)
+        XCTAssertEqual(state(exists: true, linkTarget: "/Old/Flock"), .otherLink(target: "/Old/Flock"))
+        XCTAssertEqual(state(exists: true, linkTarget: nil), .otherFile)
+    }
+
+    func testALinkToEitherFlavorIsInstalled() {
+        for flock in flocks { XCTAssertEqual(state(exists: true, linkTarget: flock), .installed) }
     }
 
     func testTheBundleBinaryLaunchesTheAppUnlessACommandIsNamed() {

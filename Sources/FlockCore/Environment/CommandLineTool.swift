@@ -11,17 +11,20 @@ public enum CommandLineToolState: Equatable, Sendable {
 }
 
 public enum CommandLineTool {
-    /// Per flavor, so Flock and Flock Dev can both be installed at once.
-    public static func name(bundleID: String?) -> String {
-        bundleID == "dev.mattstack.Flock.dev" ? "flock-dev" : "flock"
-    }
+    /// One name for every flavor: each command acts on whichever Flocks are
+    /// running, so it does not matter which one's binary the link names.
+    public static let name = "flock"
 
     /// `linkTarget` is the symlink's destination when the path is a symlink,
     /// dangling or not; `exists` counts the link itself, not what it names.
-    public static func state(exists: Bool, linkTarget: String?, executablePath: String) -> CommandLineToolState {
+    /// A link to any Flock counts as installed, so Flock and Flock Dev never
+    /// offer to replace each other's.
+    public static func state(
+        exists: Bool, linkTarget: String?, isFlock: (String) -> Bool
+    ) -> CommandLineToolState {
         guard exists else { return .notInstalled }
         guard let linkTarget else { return .otherFile }
-        return linkTarget == executablePath ? .installed : .otherLink(target: linkTarget)
+        return isFlock(linkTarget) ? .installed : .otherLink(target: linkTarget)
     }
 
     public static let heading = "Command Line"
@@ -66,8 +69,9 @@ public enum FlockCommand: Equatable, Sendable {
         ("help", "Show this list."),
     ]
 
-    /// The names the installed link can have. Matched case-sensitively: the
-    /// bundle's own binaries are `Flock` and `Flock-dev`.
+    /// The names the installed link can have, `flock-dev` from builds that
+    /// installed one per flavor. Matched case-sensitively: the bundle's own
+    /// binaries are `Flock` and `Flock-dev`.
     public static let linkNames: Set<String> = ["flock", "flock-dev"]
 
     /// nil means launch the app. Through the installed link every invocation

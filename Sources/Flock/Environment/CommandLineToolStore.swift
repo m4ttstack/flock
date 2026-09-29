@@ -2,8 +2,7 @@ import FlockCore
 import Foundation
 import Observation
 
-/// Drives the Settings row that links `flock` (or `flock-dev`) into
-/// `~/.local/bin`. The link names the binary inside the app bundle, so it
+/// Drives the Settings row that links `flock` into `~/.local/bin`. The link names the binary inside the app bundle, so it
 /// survives Sparkle updates and dev-build swaps, which replace the bundle in
 /// place.
 @MainActor
@@ -26,7 +25,7 @@ final class CommandLineToolStore {
     init(
         directory: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin"),
         executablePath: String = Bundle.main.executablePath ?? "",
-        name: String = CommandLineTool.name(bundleID: Bundle.main.bundleIdentifier),
+        name: String = CommandLineTool.name,
         fileManager: FileManager = .default
     ) {
         self.directory = directory
@@ -41,7 +40,14 @@ final class CommandLineToolStore {
         state = CommandLineTool.state(
             exists: exists,
             linkTarget: try? fileManager.destinationOfSymbolicLink(atPath: link.path),
-            executablePath: executablePath
+            isFlock: { [executablePath] target in
+                if target == executablePath { return true }
+                let app = URL(fileURLWithPath: target)
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                return Bundle(url: app)?.bundleIdentifier.map(FlockClientGuard.flockBundleIDs.contains) ?? false
+            }
         )
     }
 
