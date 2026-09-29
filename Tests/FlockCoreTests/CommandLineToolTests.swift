@@ -20,15 +20,15 @@ final class CommandLineToolTests: XCTestCase {
     }
 
     func testTheBundleBinaryLaunchesTheAppUnlessACommandIsNamed() {
-        XCTAssertNil(FlockCommand.parse(invokedAs: "Flock", linkName: "flock", arguments: []))
-        XCTAssertNil(FlockCommand.parse(invokedAs: "Flock", linkName: "flock", arguments: ["-NSDocumentRevisionsDebugMode", "YES"]))
-        XCTAssertEqual(FlockCommand.parse(invokedAs: "Flock", linkName: "flock", arguments: ["release"]), .release)
+        XCTAssertNil(FlockCommand.parse(invokedAs: "Flock", arguments: []))
+        XCTAssertNil(FlockCommand.parse(invokedAs: "Flock", arguments: ["-NSDocumentRevisionsDebugMode", "YES"]))
+        XCTAssertEqual(FlockCommand.parse(invokedAs: "Flock", arguments: ["release"]), .release)
     }
 
     func testTheInstalledLinkIsAlwaysACommand() {
-        XCTAssertEqual(FlockCommand.parse(invokedAs: "flock", linkName: "flock", arguments: []), .help)
-        XCTAssertEqual(FlockCommand.parse(invokedAs: "flock-dev", linkName: "flock-dev", arguments: ["--help"]), .help)
-        XCTAssertEqual(FlockCommand.parse(invokedAs: "flock", linkName: "flock", arguments: ["relase"]), .unknown("relase"))
+        XCTAssertEqual(FlockCommand.parse(invokedAs: "flock", arguments: []), .help)
+        XCTAssertEqual(FlockCommand.parse(invokedAs: "flock-dev", arguments: ["--help"]), .help)
+        XCTAssertEqual(FlockCommand.parse(invokedAs: "flock", arguments: ["relase"]), .unknown("relase"))
     }
 
     func testUsageListsEveryCommand() {

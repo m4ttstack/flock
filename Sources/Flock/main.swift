@@ -9,11 +9,13 @@ import SwiftUI
 // checked first instead.
 let bridgeArguments = Array(CommandLine.arguments.dropFirst())
 let invokedAs = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
-let commandName = CommandLineTool.name(bundleID: Bundle.main.bundleIdentifier)
 if bridgeArguments.contains("--bridge") {
     ControlBridge.run(arguments: bridgeArguments)
-} else if let command = FlockCommand.parse(invokedAs: invokedAs, linkName: commandName, arguments: bridgeArguments) {
-    FlockCommandLine.run(command, name: commandName)
+} else if let command = FlockCommand.parse(invokedAs: invokedAs, arguments: bridgeArguments) {
+    let name = FlockCommand.linkNames.contains(invokedAs)
+        ? invokedAs
+        : CommandLineTool.name(bundleID: Bundle.main.bundleIdentifier)
+    FlockCommandLine.run(command, name: name)
 } else {
     FlockApp.main()
 }

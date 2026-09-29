@@ -63,16 +63,24 @@ public enum FlockCommand: Equatable, Sendable {
         ("help", "Show this list."),
     ]
 
-    /// nil means launch the app. Through the installed link (`invokedAs` is
-    /// its name) every invocation is a command, so a bare `flock` prints help
-    /// rather than opening a second Flock. Through the bundle's own binary
-    /// only a named command is: Finder and launchd pass arguments of their own.
-    public static func parse(invokedAs: String, linkName: String, arguments: [String]) -> FlockCommand? {
+    /// The names the installed link can have. Matched case-sensitively: the
+    /// bundle's own binaries are `Flock` and `Flock-dev`.
+    public static let linkNames: Set<String> = ["flock", "flock-dev"]
+
+    /// nil means launch the app. Through the installed link every invocation
+    /// is a command, so a bare `flock` prints help rather than opening a
+    /// second Flock. Through the bundle's own binary only a named command is:
+    /// Finder and launchd pass arguments of their own.
+    ///
+    /// Decided from `invokedAs` alone because a process started through the
+    /// link has no main bundle to ask which flavor it is.
+    public static func parse(invokedAs: String, arguments: [String]) -> FlockCommand? {
+        let viaLink = linkNames.contains(invokedAs)
         switch arguments.first {
         case "release": return .release
         case "help", "-h", "--help": return .help
-        case let other?: return invokedAs == linkName ? .unknown(other) : nil
-        case nil: return invokedAs == linkName ? .help : nil
+        case let other?: return viaLink ? .unknown(other) : nil
+        case nil: return viaLink ? .help : nil
         }
     }
 
