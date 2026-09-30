@@ -54,7 +54,9 @@ public enum HerdrMousePatchCopy {
     }
 
     static var supportedList: String {
-        HerdrMousePatchVersion.supported.joined(separator: " and ")
+        let versions = HerdrMousePatchVersion.supported
+        guard let last = versions.last, versions.count > 1 else { return versions.first ?? "" }
+        return versions.dropLast().joined(separator: ", ") + " and " + last
     }
 
     public static func installConfirmation(installPath: String, version: String) -> Confirmation {

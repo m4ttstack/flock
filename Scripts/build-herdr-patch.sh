@@ -17,7 +17,7 @@ while [ $# -gt 0 ]; do
     --check) CHECK=1; shift ;;
     --version) HERDR_VERSION="$2"; shift 2 ;;
     -h|--help)
-      echo "usage: Scripts/build-herdr-patch.sh [--version 0.9.1|0.9.2] [--check]"
+      echo "usage: Scripts/build-herdr-patch.sh [--version 0.9.1|0.9.2|0.9.3] [--check]"
       echo "  --version  the herdr version to build the patch for (default 0.9.1)"
       echo "  --check    report whether the built artifact matches the checkout's current HEAD"
       echo "  HERDR_CHECKOUT overrides the version's default checkout"
@@ -35,6 +35,10 @@ case "$HERDR_VERSION" in
     DEFAULT_CHECKOUT="$HOME/Documents/GitHub/herdr/.worktrees/flock-mouse-0.9.2"
     CHECKOUT_BRANCH_REQUIRED="flock-mouse-0.9.2"
     PATCH_COMMIT="e2268fd9" ;;
+  0.9.3)
+    DEFAULT_CHECKOUT="$HOME/Documents/GitHub/herdr/.worktrees/flock-mouse-0.9.3"
+    CHECKOUT_BRANCH_REQUIRED="flock-mouse-0.9.3"
+    PATCH_COMMIT="51805c5b" ;;
   *) echo "build-herdr-patch: no patch for herdr $HERDR_VERSION" >&2; exit 2 ;;
 esac
 HERDR_CHECKOUT="${HERDR_CHECKOUT:-$DEFAULT_CHECKOUT}"

@@ -9,7 +9,7 @@ import Foundation
 /// "1.0.9.1". `matches` requires a digit or `.` on neither side of the
 /// version string, so a longer number never reads as a match.
 public enum HerdrMousePatchVersion {
-    public static let supported = ["0.9.1", "0.9.2"]
+    public static let supported = ["0.9.1", "0.9.2", "0.9.3"]
 
     public static func detect(in data: Data) -> String? {
         supported.first { matches($0, in: data) }
