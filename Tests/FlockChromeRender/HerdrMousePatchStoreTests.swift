@@ -70,6 +70,27 @@ final class HerdrMousePatchStoreTests: XCTestCase {
             try? String(contentsOfFile: binaryPath, encoding: .utf8), "herdr 0.9.1 terminal.mouse_capture patched build")
     }
 
+    /// Running bridges keep the herdr they were started from, so only a
+    /// swap that actually happened asks for a restart.
+    func testASuccessfulInstallOrRestoreAsksForARestartAndAFailureDoesNot() throws {
+        let failing = makeStore()
+        try FileManager.default.removeItem(atPath: artifactPath)
+        failing.requestInstall()
+        failing.confirmPendingAction()
+        XCTAssertNil(failing.restartReason)
+
+        try Data("herdr 0.9.1 terminal.mouse_capture patched build".utf8).write(to: URL(fileURLWithPath: artifactPath))
+        let store = makeStore()
+        XCTAssertNil(store.restartReason)
+        store.requestInstall()
+        store.confirmPendingAction()
+        XCTAssertEqual(store.restartReason, .installed)
+
+        store.requestRevert()
+        store.confirmPendingAction()
+        XCTAssertEqual(store.restartReason, .restored)
+    }
+
     func testCancelPendingConfirmationLeavesTheBinaryUntouched() {
         let store = makeStore()
         store.requestInstall()

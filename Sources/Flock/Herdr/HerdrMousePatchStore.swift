@@ -14,6 +14,7 @@ final class HerdrMousePatchStore {
     private(set) var state: HerdrMousePatchRowState?
     private(set) var pendingConfirmation: PendingConfirmation?
     private(set) var lastErrorMessage: String?
+    private(set) var restartReason: HerdrMousePatchCopy.RestartReason?
 
     struct PendingConfirmation: Equatable {
         enum Action: Equatable { case install, revert }
@@ -119,6 +120,7 @@ final class HerdrMousePatchStore {
         }
         do {
             try HerdrMousePatchInstaller.install(artifactPath: artifactPath, binaryPath: binaryPath, fileManager: fileManager)
+            restartReason = .installed
         } catch {
             lastErrorMessage = Self.message(for: error)
         }
@@ -129,6 +131,7 @@ final class HerdrMousePatchStore {
         guard let binaryPath = resolveBinaryPath() else { return }
         do {
             try HerdrMousePatchInstaller.revert(binaryPath: binaryPath, fileManager: fileManager)
+            restartReason = .restored
         } catch {
             lastErrorMessage = Self.message(for: error)
         }

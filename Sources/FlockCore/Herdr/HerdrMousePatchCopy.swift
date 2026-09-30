@@ -36,6 +36,22 @@ public enum HerdrMousePatchCopy {
         }
     }
 
+    /// Every pane's bridge is a herdr process started from the binary that was
+    /// on disk at launch, so a swap only reaches panes once Flock restarts.
+    public enum RestartReason: Equatable, Sendable {
+        case installed, restored
+    }
+
+    public static func restartHeadline(for reason: RestartReason) -> String {
+        switch reason {
+        case .installed: "Mouse support is installed"
+        case .restored: "The original herdr is restored"
+        }
+    }
+
+    public static let restartDetail = "Restart Flock so your panes pick it up."
+    public static let restartActionTitle = "Restart Flock"
+
     public static func actionTitle(for state: HerdrMousePatchRowState) -> String? {
         switch state {
         case .patchable: return "Install"

@@ -22,6 +22,15 @@ struct HerdrMousePatchRow: View {
                 Text(HerdrMousePatchCopy.rowTitle)
                 Text(bodyText)
             }
+            if let reason = store.restartReason {
+                LabeledContent {
+                    Button(HerdrMousePatchCopy.restartActionTitle) { AppRelaunch.relaunch() }
+                        .accessibilityIdentifier("flock.settings.herdrMousePatch.restart")
+                } label: {
+                    Text(HerdrMousePatchCopy.restartHeadline(for: reason))
+                    Text(HerdrMousePatchCopy.restartDetail)
+                }
+            }
             if let message = store.lastErrorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)

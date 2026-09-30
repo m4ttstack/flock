@@ -26,7 +26,9 @@ struct MainWindow: View {
             }
             // Below the protocol banner deliberately: a herdr too old to talk
             // to at all outranks an optional capability of one that works.
-            if herdrMousePatchStore.shouldOfferBanner {
+            if let reason = herdrMousePatchStore.restartReason {
+                HerdrMousePatchRestartBanner(theme: theme, reason: reason)
+            } else if herdrMousePatchStore.shouldOfferBanner {
                 HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
             }
             if dragCoordinator.isGridShown {
@@ -332,22 +334,60 @@ private struct HerdrMousePatchBanner: View {
                 .font(ChromeType.banner)
                 .foregroundStyle(theme.textLabel)
                 .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
-            Button { store.requestInstall() } label: {
-                Text(HerdrMousePatchOffer.bannerActionTitle)
-                    .font(ChromeType.bannerAction)
-                    .foregroundStyle(theme.chrome)
-                    .padding(.horizontal, ChromeMetrics.TitleBar.restartHorizontalPadding)
-                    .padding(.vertical, ChromeMetrics.TitleBar.restartVerticalPadding)
-                    .background(theme.accent, in: Capsule())
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
+            BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall() }
+                .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
         }
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
         .boundedBackground(theme.accent.opacity(0.12))
         .accessibilityIdentifier("flock.herdrMousePatch.banner")
+    }
+}
+
+private struct HerdrMousePatchRestartBanner: View {
+    let theme: Theme
+    let reason: HerdrMousePatchCopy.RestartReason
+
+    var body: some View {
+        HStack(spacing: ChromeMetrics.Banner.spacing) {
+            Image(systemName: "arrow.clockwise")
+                .font(ChromeType.bannerSymbol)
+                .foregroundStyle(theme.accent)
+            Text(HerdrMousePatchCopy.restartHeadline(for: reason))
+                .font(ChromeType.banner)
+                .foregroundStyle(theme.textStrong)
+            Text(HerdrMousePatchCopy.restartDetail)
+                .font(ChromeType.banner)
+                .foregroundStyle(theme.textLabel)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: ChromeMetrics.Banner.spacing)
+            BannerPillButton(theme: theme, title: HerdrMousePatchCopy.restartActionTitle) { AppRelaunch.relaunch() }
+                .accessibilityIdentifier("flock.herdrMousePatch.banner.restart")
+        }
+        .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
+        .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
+        .boundedBackground(theme.accent.opacity(0.12))
+        .accessibilityIdentifier("flock.herdrMousePatch.restartBanner")
+    }
+}
+
+private struct BannerPillButton: View {
+    let theme: Theme
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(ChromeType.bannerAction)
+                .foregroundStyle(theme.chrome)
+                .padding(.horizontal, ChromeMetrics.TitleBar.restartHorizontalPadding)
+                .padding(.vertical, ChromeMetrics.TitleBar.restartVerticalPadding)
+                .background(theme.accent, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 

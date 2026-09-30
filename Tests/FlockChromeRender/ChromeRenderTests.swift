@@ -2186,30 +2186,37 @@ final class ChromeRenderTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: herdrDir) }
         try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
         let herdr = herdrDir.appendingPathComponent("herdr").path
-        try Data("herdr 0.9.3 terminal.mouse".utf8).write(to: URL(fileURLWithPath: herdr))
+        let artifact = herdrDir.appendingPathComponent("herdr-patched").path
+        try Data("herdr 0.9.3 terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: artifact))
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "flock-banner-\(UUID().uuidString)"))
+        let band = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 60)
 
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            try? FileManager.default.removeItem(atPath: HerdrMousePatchInstaller.backupPath(for: herdr))
+            try Data("herdr 0.9.3 terminal.mouse".utf8).write(to: URL(fileURLWithPath: herdr))
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let store = HerdrMousePatchStore(
-                resolveBinaryPath: { herdr }, resolveArtifactPath: { _ in herdr }, defaults: defaults
+                resolveBinaryPath: { herdr }, resolveArtifactPath: { _ in artifact }, defaults: defaults
             )
             XCTAssertTrue(store.shouldOfferBanner, "\(scheme): a plain herdr 0.9.3 should be offered the patch")
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
             let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
-            await settle(window)
-            let image = try snapshot(window)
-            if let directory {
-                try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("mouse-banner-\(scheme)-\(id).png"))
+            for stage in ["offer", "restart"] {
+                if stage == "restart" {
+                    store.requestInstall()
+                    store.confirmPendingAction()
+                    XCTAssertEqual(store.restartReason, .installed, "\(scheme): install did not land")
+                }
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("mouse-banner-\(stage)-\(scheme)-\(id).png"))
+                }
+                XCTAssertGreaterThan(
+                    count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme) \(stage): no filled pill at the right"
+                )
             }
-            let band = CGRect(
-                x: Self.windowSize.width - 160, y: ChromeMetrics.TitleBar.height,
-                width: 160, height: 60
-            )
-            XCTAssertGreaterThan(
-                count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme): no filled Install pill at the right"
-            )
             window.close()
         }
     }

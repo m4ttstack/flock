@@ -70,10 +70,16 @@ final class DevBuildWatcher {
         if ready != newerBuildReady { newerBuildReady = ready }
     }
 
+    func relaunch() {
+        AppRelaunch.relaunch(bundleURL: bundleURL)
+    }
+}
+
+enum AppRelaunch {
     /// Quits, then opens the bundle again once this process has exited. The
     /// hand-off is a shell that outlives the app; it gives up after thirty
     /// seconds, so a quit that gets cancelled never reopens anything later.
-    func relaunch() {
+    static func relaunch(bundleURL: URL = Bundle.main.bundleURL) {
         let pid = ProcessInfo.processInfo.processIdentifier
         let script = """
         i=0; while kill -0 \(pid) 2>/dev/null && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
