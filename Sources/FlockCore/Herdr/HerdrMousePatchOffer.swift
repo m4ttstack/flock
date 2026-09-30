@@ -29,8 +29,7 @@ public enum HerdrMousePatchOffer {
     }
 
     public static let bannerHeadline = "This herdr cannot report mouse events"
-    public static let bannerDetail =
-        "flock can replace it with a build of the same version that does, keeping the original beside it."
+    public static let bannerDetail = "flock can install a patch to fix this!"
     public static let bannerActionTitle = "Install"
     public static let bannerDismissTitle = "Not now"
 }

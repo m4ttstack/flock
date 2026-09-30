@@ -2177,6 +2177,43 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The unprompted mouse patch offer under the title bar. PNGs go to
+    /// `FLOCK_CHROME_RENDER_DIR`; the assertion is that Install is drawn as a
+    /// filled accent pill rather than a system button that fades into the band.
+    func testTheMousePatchBannerDrawsInstallAsAnAccentPill() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let herdrDir = FileManager.default.temporaryDirectory.appendingPathComponent("flock-banner-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: herdrDir) }
+        try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
+        let herdr = herdrDir.appendingPathComponent("herdr").path
+        try Data("herdr 0.9.3 terminal.mouse".utf8).write(to: URL(fileURLWithPath: herdr))
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "flock-banner-\(UUID().uuidString)"))
+
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let store = HerdrMousePatchStore(
+                resolveBinaryPath: { herdr }, resolveArtifactPath: { _ in herdr }, defaults: defaults
+            )
+            XCTAssertTrue(store.shouldOfferBanner, "\(scheme): a plain herdr 0.9.3 should be offered the patch")
+            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
+            let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("mouse-banner-\(scheme)-\(id).png"))
+            }
+            let band = CGRect(
+                x: Self.windowSize.width - 160, y: ChromeMetrics.TitleBar.height,
+                width: 160, height: 60
+            )
+            XCTAssertGreaterThan(
+                count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme): no filled Install pill at the right"
+            )
+            window.close()
+        }
+    }
+
     /// Flock Dev's title bar: the DEV tag beside the title, and the restart
     /// offer once a build with another stamp is on disk where this one was
     /// launched from. PNGs go to `FLOCK_DEV_RENDER_DIR`.
@@ -3582,13 +3619,17 @@ private struct Harness {
         }
     }
 
-    func makeWindow(size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil) -> NSWindow {
-        // Resolves to no herdr, so the patch banner stays off and every
-        // render assertion here measures the same chrome on any machine.
+    func makeWindow(
+        size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil,
+        herdrMousePatchStore: HerdrMousePatchStore? = nil
+    ) -> NSWindow {
+        // The default resolves to no herdr, so the patch banner stays off and
+        // every render assertion here measures the same chrome on any machine.
         let root = MainWindow(
             viewModel: viewModel,
             sessionLabel: "render",
-            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
+            herdrMousePatchStore: herdrMousePatchStore
+                ?? HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
             isDevBuild: isDevBuild
         )
             .environment(devBuild)

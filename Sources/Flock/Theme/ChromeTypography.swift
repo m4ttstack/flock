@@ -31,6 +31,7 @@ enum ChromeType {
     static let restartLabel = inter(11, .medium)
     static let restartGlyph = Font.system(size: 9.5, weight: .semibold)
     static let banner = inter(14)
+    static let bannerAction = inter(14, .semibold)
     static let bannerSymbol = Font.system(size: 16.5)
 
     static let railHeading = inter(10, .semibold)

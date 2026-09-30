@@ -332,8 +332,17 @@ private struct HerdrMousePatchBanner: View {
                 .font(ChromeType.banner)
                 .foregroundStyle(theme.textLabel)
                 .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
-            Button(HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall() }
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
+            Button { store.requestInstall() } label: {
+                Text(HerdrMousePatchOffer.bannerActionTitle)
+                    .font(ChromeType.bannerAction)
+                    .foregroundStyle(theme.chrome)
+                    .padding(.horizontal, ChromeMetrics.TitleBar.restartHorizontalPadding)
+                    .padding(.vertical, ChromeMetrics.TitleBar.restartVerticalPadding)
+                    .background(theme.accent, in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
         }
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
