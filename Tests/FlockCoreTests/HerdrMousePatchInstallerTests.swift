@@ -59,16 +59,29 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
         XCTAssertEqual(stillOpenContent, "unpatched herdr build, no verbs here")
     }
 
-    /// Never overwrite a backup that is already there: it may be the one
-    /// original copy of a binary that predates this session entirely.
-    func testInstallRefusesToClobberAnExistingBackup() throws {
-        try Data("an earlier, unrelated backup".utf8).write(to: URL(fileURLWithPath: backupPath))
+    /// While a patch is live, the backup is the one original copy: never
+    /// overwrite it.
+    func testInstallRefusesToClobberTheBackupOfALivePatch() throws {
+        try Data("herdr carrying terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: binaryPath))
+        try Data("the original herdr".utf8).write(to: URL(fileURLWithPath: backupPath))
 
         XCTAssertThrowsError(try HerdrMousePatchInstaller.install(artifactPath: artifactPath, binaryPath: binaryPath)) { error in
             XCTAssertEqual(error as? HerdrMousePatchInstaller.InstallError, .backupAlreadyExists)
         }
-        XCTAssertEqual(try String(contentsOfFile: backupPath, encoding: .utf8), "an earlier, unrelated backup")
-        XCTAssertEqual(try String(contentsOfFile: binaryPath, encoding: .utf8), "unpatched herdr build, no verbs here")
+        XCTAssertEqual(try String(contentsOfFile: backupPath, encoding: .utf8), "the original herdr")
+        XCTAssertEqual(try String(contentsOfFile: binaryPath, encoding: .utf8), "herdr carrying terminal.mouse_capture")
+    }
+
+    /// herdr upgraded over an old patch: the backup is the previous version,
+    /// and the plain binary now on disk is the original worth keeping.
+    func testInstallOverAnUpgradedHerdrReplacesTheStaleBackup() throws {
+        try Data("herdr 0.9.2 original".utf8).write(to: URL(fileURLWithPath: backupPath))
+
+        try HerdrMousePatchInstaller.install(artifactPath: artifactPath, binaryPath: binaryPath)
+
+        XCTAssertEqual(try String(contentsOfFile: backupPath, encoding: .utf8), "unpatched herdr build, no verbs here")
+        XCTAssertEqual(
+            try String(contentsOfFile: binaryPath, encoding: .utf8), "patched herdr build carrying terminal.mouse_capture")
     }
 
     func testInstallFailsWhenTheArtifactIsUnreadable() throws {

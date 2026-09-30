@@ -67,12 +67,32 @@ public enum HerdrMousePatchInstaller {
     public static func install(artifactPath: String, binaryPath: String, fileManager: FileManager = .default) throws {
         guard fileManager.isReadableFile(atPath: artifactPath) else { throw InstallError.sourceUnreadable }
         let backup = backupPath(for: binaryPath)
-        guard !fileManager.fileExists(atPath: backup) else { throw InstallError.backupAlreadyExists }
+        let backupExists = fileManager.fileExists(atPath: backup)
+        // A backup beside a binary with no patch live is left over from before
+        // a herdr upgrade: the binary on disk is now the original to keep, and
+        // restoring the old one would downgrade herdr.
+        if backupExists, HerdrMouseVerbs.present(in: fileManager.contents(atPath: binaryPath) ?? Data()) {
+            throw InstallError.backupAlreadyExists
+        }
         guard fileManager.isWritableFile(atPath: directory(of: binaryPath)) else {
             throw InstallError.destinationNotWritable
         }
 
-        try fileManager.copyItem(atPath: binaryPath, toPath: backup)
+        if backupExists {
+            let fresh = sibling(of: binaryPath, suffix: ".flock-backup-staging")
+            if fileManager.fileExists(atPath: fresh) {
+                try fileManager.removeItem(atPath: fresh)
+            }
+            try fileManager.copyItem(atPath: binaryPath, toPath: fresh)
+            do {
+                try atomicRename(from: fresh, to: backup)
+            } catch let failure as RenameFailure {
+                try? fileManager.removeItem(atPath: fresh)
+                throw InstallError.renameFailed(errno: failure.errno)
+            }
+        } else {
+            try fileManager.copyItem(atPath: binaryPath, toPath: backup)
+        }
 
         let staging = stagingPath(for: binaryPath)
         if fileManager.fileExists(atPath: staging) {
