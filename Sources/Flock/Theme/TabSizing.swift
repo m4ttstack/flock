@@ -6,8 +6,13 @@ import FlockCore
 /// is the measurement it takes, which needs the real face.
 enum TabSizing {
     static func width(of title: String) -> CGFloat {
-        TabWidth.fitting(
-            titleWidth: titleWidth(title),
+        width(of: TabTitle(text: title, isFromPane: false))
+    }
+
+    static func width(of title: TabTitle) -> CGFloat {
+        let glyph = title.isFromPane ? ChromeMetrics.Tab.paneGlyphWidth + ChromeMetrics.Tab.paneGlyphGap : 0
+        return TabWidth.fitting(
+            titleWidth: glyph + titleWidth(title.text),
             horizontalPadding: ChromeMetrics.Tab.horizontalPadding,
             labelDotGap: ChromeMetrics.Tab.labelDotGap,
             trailingSlot: ChromeMetrics.Tab.trailingSlot

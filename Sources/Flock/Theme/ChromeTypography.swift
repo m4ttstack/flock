@@ -44,6 +44,10 @@ enum ChromeType {
     static let tabLabelSize: CGFloat = 14
     static func tabLabelWeight(selected: Bool) -> Weight { selected ? .medium : .regular }
     static func tabLabel(selected: Bool) -> Font { inter(tabLabelSize, tabLabelWeight(selected: selected)) }
+    /// Leads a tab title borrowed from its one pane; the pane's own symbol
+    /// wherever flock draws one, as on a pane's drag ghost.
+    static let tabPaneGlyph = Font.system(size: 10.5, weight: .regular)
+    static let tabPaneGlyphName = "macwindow"
     static let protocolReadout = mono(11.5)
     /// The new-tab affordance's glyph. Named apart from the SF Symbol string
     /// literal it draws, so a render test can assert that exact name still

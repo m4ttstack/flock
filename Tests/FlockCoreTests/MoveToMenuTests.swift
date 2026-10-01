@@ -43,6 +43,19 @@ final class MoveToMenuTests: XCTestCase {
         ))
     }
 
+    func testAnUnnamedOnePaneTabIsListedByItsPanesTitle() {
+        var model = canonicalFixture()
+        model.tabs[WorkspaceID(rawValue: "w1")]?[1].label = "2"
+        model.panes[PaneID(rawValue: "w1:p3")] = PaneRecord(
+            paneID: PaneID(rawValue: "w1:p3"), workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t2"),
+            focused: false, agentStatus: .idle, revision: 0, terminalTitleStripped: nil, label: "release", cwd: "/tmp", scroll: nil
+        )
+
+        let entries = MoveToMenu.entries(for: PaneID(rawValue: "w1:p1"), model: model)
+
+        XCTAssertEqual(entries.first?.label, "Tab: release")
+    }
+
     func testEntriesListsOtherTabsThenOtherWorkspacesThenTheTwoNewItems() {
         let entries = MoveToMenu.entries(for: PaneID(rawValue: "w1:p1"), model: canonicalFixture())
 

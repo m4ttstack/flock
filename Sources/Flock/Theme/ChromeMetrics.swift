@@ -134,6 +134,9 @@ enum ChromeMetrics {
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6
         static let underlineHeight: CGFloat = 3
+        /// The glyph leading a title borrowed from the tab's one pane.
+        static let paneGlyphWidth: CGFloat = 12
+        static let paneGlyphGap: CGFloat = 5
         /// The status dot and the hover close stand in the same place, one at
         /// a time, so the room kept for them is the wider of the two. Kept as
         /// a slot rather than as the close's own size because what the tab

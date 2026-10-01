@@ -35,6 +35,7 @@ struct TabStrip: View {
                             TabBlock(
                                 theme: theme,
                                 tab: tab,
+                                title: title(for: tab),
                                 isSelected: tab.tabID == selectedTabID,
                                 isRenaming: viewModel.renameTarget == .tab(tab.tabID),
                                 showsClose: hoveredTabID == tab.tabID && viewModel.renameTarget != .tab(tab.tabID),
@@ -150,7 +151,7 @@ struct TabStrip: View {
     /// there is any, is `NewTabAffordance`'s.
     private var newTabAffordanceFrame: CGRect? {
         let gap = ChromeMetrics.Strip.tabGap
-        let tabsWidth = tabs.reduce(CGFloat(0)) { $0 + TabSizing.width(of: $1.label) }
+        let tabsWidth = tabs.reduce(CGFloat(0)) { $0 + TabSizing.width(of: title(for: $1)) }
         let tabsEnd = ChromeMetrics.Strip.horizontalPadding + tabsWidth + gap * CGFloat(max(tabs.count - 1, 0))
         return NewTabAffordance.frame(
             tabsEnd: tabsEnd, gap: gap, viewportWidth: drag.stripViewport?.width ?? 0, height: ChromeMetrics.Tab.height
@@ -199,6 +200,10 @@ struct TabStrip: View {
         .allowsHitTesting(false)
     }
 
+    private func title(for tab: TabRecord) -> TabTitle {
+        viewModel.model.map { TabTitle.resolve(tab, in: $0) } ?? TabTitle(text: tab.label, isFromPane: false)
+    }
+
     /// The strip's own order and workspace: `DropTarget`'s tab cases carry a
     /// workspace id the tab frames themselves cannot supply, and the order is
     /// what turns those frames back into a list.
@@ -216,7 +221,7 @@ struct TabStrip: View {
                 drag.beginIfIdle(
                     .tab(tab.tabID),
                     ghost: DragCoordinator.Ghost(
-                        title: tab.label,
+                        title: title(for: tab).text,
                         symbol: "rectangle.stack",
                         originSize: drag.tabFrames.first { $0.id == tab.tabID }?.frame.size ?? .zero
                     ),
@@ -229,6 +234,7 @@ struct TabStrip: View {
 private struct TabBlock: View {
     let theme: Theme
     let tab: TabRecord
+    let title: TabTitle
     let isSelected: Bool
     var isRenaming = false
     /// The hover-reveal close: laid out on every tab either way, so a tab
@@ -275,7 +281,15 @@ private struct TabBlock: View {
                         onCommit: onCommitRename, onCancel: onCancelRename
                     )
                 } else {
-                    Text(tab.label)
+                    if title.isFromPane {
+                        Image(systemName: ChromeType.tabPaneGlyphName)
+                            .font(ChromeType.tabPaneGlyph)
+                            .foregroundStyle(theme.textLabel)
+                            .frame(width: ChromeMetrics.Tab.paneGlyphWidth)
+                            .padding(.trailing, ChromeMetrics.Tab.paneGlyphGap)
+                            .accessibilityLabel("Named after its pane")
+                    }
+                    Text(title.text)
                         .font(ChromeType.tabLabel(selected: isSelected))
                         .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
                         .lineLimit(1)
@@ -295,7 +309,7 @@ private struct TabBlock: View {
         // Sized off the tab's own label, not the editor's text: a rename in
         // flight must not resize the tab under the field, nor slide the tabs
         // after it along the strip with every keystroke.
-        .frame(width: TabSizing.width(of: tab.label), height: ChromeMetrics.Tab.height)
+        .frame(width: TabSizing.width(of: title), height: ChromeMetrics.Tab.height)
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(x: displacement)

@@ -437,6 +437,10 @@ private struct TabThumbnail: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
 
+    private var tabTitle: String {
+        viewModel.model.map { TabTitle.resolve(tab, in: $0).text } ?? tab.label
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             titleStrip
@@ -471,7 +475,7 @@ private struct TabThumbnail: View {
         // somewhere along the card instead, with nothing failing to build and
         // no test naming the modifier that moved.
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(tab.label)
+        .accessibilityLabel(tabTitle)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { show() }
         .accessibilityIdentifier("flock.grid.tab.\(tab.tabID.rawValue)")
@@ -499,7 +503,7 @@ private struct TabThumbnail: View {
 
     private var titleStrip: some View {
         TabHandleStrip(
-            theme: theme, title: tab.label, status: tab.agentStatus,
+            theme: theme, title: tabTitle, status: tab.agentStatus,
             isFocusedTab: tab.tabID == viewModel.model?.focusedTabID
         )
         .onHover { hovering in
@@ -515,7 +519,7 @@ private struct TabThumbnail: View {
                 drag.beginIfIdle(
                     .tab(tab.tabID),
                     ghost: DragCoordinator.Ghost(
-                        title: tab.label, symbol: "rectangle.stack",
+                        title: tabTitle, symbol: "rectangle.stack",
                         originSize: size, isCompact: true, tabMiniature: miniature(size: size)
                     ),
                     at: value.startLocation,
@@ -538,7 +542,7 @@ private struct TabThumbnail: View {
             return .init(title: pane.displayTitle, status: pane.agentStatus, box: placed.frame)
         }
         return DragCoordinator.Ghost.TabMiniature(
-            title: tab.label, status: tab.agentStatus,
+            title: tabTitle, status: tab.agentStatus,
             isFocusedTab: tab.tabID == model?.focusedTabID, panes: panes
         )
     }

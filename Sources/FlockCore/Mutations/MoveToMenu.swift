@@ -28,7 +28,7 @@ public enum MoveToMenu {
 
         for tab in model.tabs[record.workspaceID] ?? [] where tab.tabID != record.tabID {
             entries.append(MoveToEntry(
-                label: "Tab: \(tab.label)",
+                label: "Tab: \(TabTitle.resolve(tab, in: model).text)",
                 target: .tabThumbnail(tab.tabID),
                 accessibilityIdentifier: "flock.pane.menu.moveTo.tab.\(tab.tabID.rawValue)"
             ))

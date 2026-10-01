@@ -52,6 +52,18 @@ final class TabSizingTests: XCTestCase {
         )
     }
 
+    /// A title borrowed from the pane is led by the pane glyph, which takes
+    /// room of its own rather than the title's.
+    func testAPaneTitledTabMakesRoomForItsGlyph() {
+        let title = "Trash Runner"
+        let named = TabSizing.width(of: TabTitle(text: title, isFromPane: false))
+        XCTAssertEqual(named, TabSizing.width(of: title))
+        XCTAssertLessThan(named, TabWidth.maximum - 40, "the title is near the maximum, so this test proves nothing")
+
+        let borrowed = TabSizing.width(of: TabTitle(text: title, isFromPane: true))
+        XCTAssertGreaterThanOrEqual(borrowed, named + ChromeMetrics.Tab.paneGlyphWidth + ChromeMetrics.Tab.paneGlyphGap - 1)
+    }
+
     func testAShortTitleStillGetsAWholeTab() {
         XCTAssertEqual(TabSizing.width(of: "M"), TabWidth.minimum)
     }

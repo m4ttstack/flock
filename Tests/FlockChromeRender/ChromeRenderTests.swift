@@ -1086,7 +1086,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let long = String(repeating: "wide ", count: 20)
         let harness = try await Harness(
-            theme: .tokyoNight, model: try Fixture.model(flockTabLabels: ["2", "web", "claude", long])
+            theme: .tokyoNight, model: try Fixture.model(flockTabLabels: ["x", "web", "claude", long])
         )
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
@@ -1115,6 +1115,35 @@ final class ChromeRenderTests: XCTestCase {
             )
         }
         window.close()
+    }
+
+    /// An unnamed tab holding one pane wears that pane's title behind the
+    /// pane glyph, sized for both; a named tab is untouched. PNGs go to
+    /// `FLOCK_CHROME_RENDER_DIR`.
+    func testAnUnnamedOnePaneTabWearsItsPanesTitleInDarkAndLightThemes() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        var model = try Fixture.model(flockTabLabels: ["1", "web", "claude", "4"])
+        let claudeTitle = "✳ Fixing tab sizes"
+        model.panes[PaneID(rawValue: "w1:p3")] = PaneRecord(
+            paneID: PaneID(rawValue: "w1:p3"), workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"),
+            focused: false, agentStatus: .idle, revision: 1, terminalTitleStripped: claudeTitle, label: nil,
+            cwd: "/private/tmp", scroll: nil
+        )
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            let harness = try await Harness(theme: theme, model: model)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("tab-pane-title-\(scheme).png"))
+            }
+            let frames = harness.drag.tabFrames
+            let width = { (tab: String) in frames.first { $0.id == TabID(rawValue: tab) }?.frame.width }
+            XCTAssertEqual(width("w1:t1"), TabSizing.width(of: TabTitle(text: claudeTitle, isFromPane: true)), scheme)
+            XCTAssertEqual(width("w1:t4"), TabSizing.width(of: TabTitle(text: "shell", isFromPane: true)), scheme)
+            XCTAssertEqual(width("w1:t2"), TabSizing.width(of: "web"), scheme)
+            window.close()
+        }
     }
 
     /// A pane dragged out of a mini pane, first over another workspace's
