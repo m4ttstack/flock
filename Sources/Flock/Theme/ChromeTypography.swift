@@ -104,6 +104,7 @@ enum ChromeType {
     static let paletteBadge = inter(10.5, .semibold)
     static let paletteSection = inter(10, .semibold)
     static let paletteFooter = inter(11)
+    static let switcherChatGlyph = Font.system(size: 9.5)
     static let emptyCanvas = inter(15.5)
     static let rearrangeSymbol = Font.system(size: 28, weight: .semibold)
 

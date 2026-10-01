@@ -881,6 +881,12 @@ enum ChromeMetrics {
     /// The command palette over the tab area.
     enum Switcher {
         static let width: CGFloat = 360
+        /// The tab switcher, while chat is available: room for the name of
+        /// who is signed in beside each tab.
+        static let chatWidth: CGFloat = 460
+        static let chatGap: CGFloat = 4
+        /// Keeps "2 more" from running into the pane count after it.
+        static let chatCountGap: CGFloat = 14
         /// How long ⌃Tab is held before the panel shows: a quicker tap goes
         /// back to the last workspace without it.
         static let showDelay: Duration = .milliseconds(150)

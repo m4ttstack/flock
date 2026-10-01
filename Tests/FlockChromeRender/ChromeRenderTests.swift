@@ -3260,6 +3260,43 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// Two people signed in to chat in the selected tab and one in another:
+    /// each row names its tab's first in reading order, with how many more,
+    /// in the wider box chat earns. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
+    func testTheTabSwitcherNamesWhoIsSignedInToChat() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let buddy = { (handle: String, name: String, pane: String) in
+            #"{"handle":"\#(handle)","name":"\#(name)","paneId":"\#(pane)","status":"online","unread":0,"mentions":0}"#
+        }
+        let peek = #"{"buddies":[\#(buddy("@oak-claude", "oak", "w1:p2")),\#(buddy("@ivy-claude", "ivy", "w1:p1")),\#(buddy("@fern-codex", "fern", "w1:p4"))],"rooms":[]}"#
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme, chatAvailable: true, chatPeekJSON: peek)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let model = try XCTUnwrap(harness.viewModel.model)
+            let tabs = harness.viewModel.tabsForSelectedWorkspace
+            let label = { (tab: String) in
+                tabs.first { $0.tabID == TabID(rawValue: tab) }.flatMap {
+                    TabChatPresence.label(for: $0, in: model, buddies: harness.chatStore.buddies)
+                }
+            }
+            XCTAssertEqual(label("w1:t3"), "ivy · 1 more", "\(id): the left pane reads first")
+            XCTAssertEqual(label("w1:t2"), "fern", id)
+            XCTAssertNil(label("w1:t1"), id)
+
+            let current = try XCTUnwrap(harness.viewModel.selectedTabID)
+            XCTAssertTrue(harness.tabSwitcher.begin(items: tabs.map(\.tabID), current: current))
+            harness.tabSwitcher.show(session: harness.tabSwitcher.session)
+            await settle(window)
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("tab-switcher-chat-\(id).png"))
+            }
+            window.close()
+        }
+    }
+
     /// More workspaces than fit: the box keeps its margins, draws no scroll
     /// bar, and scrolls the selection into view at the far end of the list.
     func testALongSwitcherListKeepsItsMarginsAndItsSelectionInView() async throws {
@@ -3608,6 +3645,7 @@ private struct Harness {
         // test that does not care about chat must keep seeing exactly what it
         // saw before this button existed.
         chatAvailable: Bool = false, chatStatusJSON: [PaneID: String] = [:], chatUnread: [PaneID: Int] = [:],
+        chatPeekJSON: String? = nil,
         // False only for a test proving the production fetch wiring itself:
         // every other test wants status/unread in place before the first
         // render, which calling the store here directly gives for free.
@@ -3651,9 +3689,10 @@ private struct Harness {
             toasts: ToastCenter(),
             probe: { chatAvailable ? "/usr/bin/true" : nil },
             rtProbe: { true }, deckProbe: { true },
-            makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON) }
+            makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON, peekJSON: chatPeekJSON) }
         )
         await chatStore.probeTask.value
+        await chatStore.peekTask?.value
         if seedChatStatus {
             for pane in chatStatusJSON.keys {
                 await chatStore.refreshStatus(for: pane)
@@ -3726,12 +3765,15 @@ private struct OfflineHerdrClient: HerdrCommandClient {
 /// pane not in the map, is not something a chrome render ever asks for.
 private actor FixtureChatRunning: ChatRunning {
     private let statusJSON: [PaneID: String]
+    private let peekJSON: String?
 
-    init(statusJSON: [PaneID: String]) {
+    init(statusJSON: [PaneID: String], peekJSON: String? = nil) {
         self.statusJSON = statusJSON
+        self.peekJSON = peekJSON
     }
 
     func run(_ verb: ChatVerb) async throws -> (stdout: Data, exitCode: Int32) {
+        if case .peek = verb, let peekJSON { return (Data(peekJSON.utf8), 0) }
         guard case let .status(pane: rawPane) = verb, let json = statusJSON[PaneID(rawValue: rawPane)] else {
             throw ChatFailure(message: "FixtureChatRunning has no status for \(verb)")
         }

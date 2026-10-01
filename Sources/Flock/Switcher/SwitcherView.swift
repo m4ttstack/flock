@@ -10,6 +10,7 @@ struct SwitcherOverlay: View {
     @Environment(WorkspaceSwitcher.self) private var workspaces
     @Environment(TabSwitcher.self) private var tabs
     @Environment(CommandPaletteState.self) private var commandPalette
+    @Environment(ChatStore.self) private var chatStore
 
     var body: some View {
         let palette = commandPalette
@@ -30,17 +31,25 @@ struct SwitcherOverlay: View {
                 blocked: { [tabs] in busy() || tabs.isActive },
                 go: { [viewModel] id in Task { await viewModel.jumpToHerdr(workspace: id) } }
             )
+            // Chat's names only where chat runs at all: without herdr-chat or
+            // rt the box keeps its narrow width and no row asks after anyone.
+            let chat = chatStore.isAvailable ? chatStore : nil
             SwitcherView(
                 theme: theme, switcher: tabs, trigger: .option, accessibilityPrefix: "flock.tabSwitcher",
                 heading: "Tabs",
+                width: chat == nil ? ChromeMetrics.Switcher.width : ChromeMetrics.Switcher.chatWidth,
                 scope: { [viewModel] in
                     viewModel.model?.workspaces.first { $0.workspaceID == viewModel.selectedWorkspaceID }?.label
                 },
                 row: { [viewModel] id in
                     guard let model = viewModel.model, let tab = viewModel.tabsForSelectedWorkspace.first(where: { $0.tabID == id })
                     else { return nil }
-                    return SwitcherRow(status: tab.agentStatus, label: TabSwitcher.title(for: tab, in: model), count: tab.paneCount)
+                    return SwitcherRow(
+                        status: tab.agentStatus, label: TabSwitcher.title(for: tab, in: model), count: tab.paneCount,
+                        chat: chat.flatMap { TabChatPresence.label(for: tab, in: model, buddies: $0.buddies) }
+                    )
                 },
+                onBegin: { if let chat { Task { await chat.refreshBuddies() } } },
                 candidates: { [viewModel] in viewModel.tabsForSelectedWorkspace.map(\.tabID) },
                 current: { [viewModel] in viewModel.selectedTabID },
                 blocked: { [workspaces] in busy() || workspaces.isActive },
@@ -54,6 +63,8 @@ struct SwitcherRow {
     let status: AgentStatus
     let label: String
     let count: Int
+    /// Who in this tab is signed in to chat, when anyone is.
+    var chat: String? = nil
 }
 
 /// One switcher's panel: the items most recently used first, the one letting
@@ -68,8 +79,11 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     /// The header's heading, in the rail's heading style, and what it is
     /// scoped to, if anything, on the right.
     let heading: String
+    var width: CGFloat = ChromeMetrics.Switcher.width
     var scope: () -> String? = { nil }
     let row: (ID) -> SwitcherRow?
+    /// Runs as the trigger first goes down, before the box shows.
+    var onBegin: () -> Void = {}
     let candidates: () -> [ID]
     let current: () -> ID?
     let blocked: () -> Bool
@@ -104,6 +118,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
 
     private func begin(reverse: Bool) {
         guard switcher.begin(items: candidates(), current: current(), reverse: reverse) else { return }
+        onBegin()
         let session = switcher.session
         Task {
             try? await Task.sleep(for: ChromeMetrics.Switcher.showDelay)
@@ -146,7 +161,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
             Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
             footer
         }
-        .frame(width: ChromeMetrics.Switcher.width)
+        .frame(width: width)
         .background(theme.chrome)
         .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius))
         .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius).strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth))
@@ -161,7 +176,19 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                 .font(selected ? ChromeType.paletteNameSelected : ChromeType.paletteName)
                 .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
+                .layoutPriority(1)
             Spacer(minLength: 0)
+            if let chat = item.chat {
+                HStack(spacing: ChromeMetrics.Switcher.chatGap) {
+                    Image(systemName: "bubble.left.fill")
+                        .font(ChromeType.switcherChatGlyph)
+                    Text(chat)
+                        .font(ChromeType.paletteShortcut)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(theme.textLabel)
+                .padding(.trailing, ChromeMetrics.Switcher.chatCountGap)
+            }
             Text("\(item.count)")
                 .font(ChromeType.paletteShortcut)
                 .foregroundStyle(theme.textLabel)
