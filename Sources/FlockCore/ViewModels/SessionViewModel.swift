@@ -138,6 +138,9 @@ public final class SessionViewModel {
     @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
     @ObservationIgnored private let attentionToastArchive: AttentionToastArchive?
     @ObservationIgnored private let navigationPollInterval: Duration
+    /// Read at each create, so a change in Settings lands on the next one.
+    @ObservationIgnored private let startingFolder: @MainActor (NewTerminalKind) -> StartingFolderChoice
+    @ObservationIgnored private let homeDirectory: String
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
     @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
@@ -155,6 +158,8 @@ public final class SessionViewModel {
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
         attentionToastArchive: AttentionToastArchive? = nil,
         navigationPollInterval: Duration = .milliseconds(300),
+        startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
+        homeDirectory: String = NSHomeDirectory(),
         rt: RtCoordinator? = nil,
         rightClickDefaults: UserDefaults? = nil
     ) {
@@ -170,6 +175,8 @@ public final class SessionViewModel {
         self.notificationLifetime = notificationLifetime
         self.attentionToastArchive = attentionToastArchive
         self.navigationPollInterval = navigationPollInterval
+        self.startingFolder = startingFolder
+        self.homeDirectory = homeDirectory
         self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
         self.rightClicks = RightClickModeStore(userDefaults: rightClickDefaults)
         if let attentionToastArchive, notificationLifetime() != .never {
@@ -969,8 +976,8 @@ public final class SessionViewModel {
     /// Splits `pane` rightward via `pane.split` and focuses the new pane,
     /// registering it as flock-created so the launcher can show on it --
     /// a "Split Right" context-menu command exercising the provenance
-    /// registry live; `cwd` is deliberately omitted so herdr follows the
-    /// source pane's own cwd.
+    /// registry live. Starts where the New Pane setting says, `pane`'s own
+    /// folder by default.
     public func splitRight(from pane: PaneID) async {
         await performSplit(from: pane, direction: "right")
     }
@@ -983,10 +990,13 @@ public final class SessionViewModel {
     }
 
     private func performSplit(from pane: PaneID, direction: String) async {
-        guard let data = try? await client.requestRaw(
-            "pane.split",
-            ["target_pane_id": .string(pane.rawValue), "direction": .string(direction), "focus": .bool(true)]
-        ) else { return }
+        var params: [String: JSONValue] = [
+            "target_pane_id": .string(pane.rawValue), "direction": .string(direction), "focus": .bool(true),
+        ]
+        if let cwd = await startingCwd(for: .pane, from: pane) {
+            params["cwd"] = .string(cwd)
+        }
+        guard let data = try? await client.requestRaw("pane.split", params) else { return }
         guard let newPaneID = Self.extractSplitPaneID(data) else { return }
         landIn(pane: newPaneID)
     }
@@ -1383,18 +1393,49 @@ public final class SessionViewModel {
     /// swallowed failure is indistinguishable from a click that missed, and
     /// the natural retry spawns a second real shell.
     public func createTab(in workspace: WorkspaceID) async {
-        await create("tab.create", ["workspace_id": .string(workspace.rawValue), "focus": .bool(true)], label: "New tab")
+        var params: [String: JSONValue] = ["workspace_id": .string(workspace.rawValue), "focus": .bool(true)]
+        if let cwd = await startingCwd(for: .tab, from: resolvedFocusedPaneID) {
+            params["cwd"] = .string(cwd)
+        }
+        await create("tab.create", params, label: "New tab")
     }
 
     /// `source_workspace_id` is what herdr reads the new workspace's cwd
-    /// policy from, so a workspace created from the rail follows whatever the
-    /// one on screen was pointed at.
+    /// policy from when no `cwd` is sent, so a workspace following the pane
+    /// follows whatever the one on screen was pointed at.
     public func createWorkspace() async {
         var params: [String: JSONValue] = ["focus": .bool(true)]
         if let source = selectedWorkspaceID {
             params["source_workspace_id"] = .string(source.rawValue)
         }
+        if let cwd = await startingCwd(for: .workspace, from: resolvedFocusedPaneID) {
+            params["cwd"] = .string(cwd)
+        }
         await create("workspace.create", params, label: "New workspace")
+    }
+
+    /// The `cwd` a create of `kind` carries, nil to let herdr follow the
+    /// pane. Only the main checkout needs `source`'s live folder, so only it
+    /// costs a herdr round trip; the disk reads after it run off the main
+    /// actor.
+    private func startingCwd(for kind: NewTerminalKind, from source: PaneID?) async -> String? {
+        let choice = startingFolder(kind)
+        guard choice.folder != .currentPane else { return nil }
+        let paneFolder = choice.folder.needsPaneFolder ? await liveFolder(of: source) : nil
+        let home = homeDirectory
+        return await Task.detached { choice.cwd(paneFolder: paneFolder, home: home) }.value
+    }
+
+    /// Where the pane's shell is now, as herdr reports its foreground
+    /// leader; the folder herdr last recorded when it cannot say.
+    private func liveFolder(of pane: PaneID?) async -> String? {
+        guard let pane else { return nil }
+        if let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)]),
+           let leaderCwd = PaneForegroundJob.snapshot(processInfoResponse: data)?.leaderCwd {
+            return leaderCwd
+        }
+        let record = fullModel?.panes[pane]
+        return record?.foregroundCwd ?? record?.cwd
     }
 
     /// Both create responses name the tab that was made and its root pane
