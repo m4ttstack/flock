@@ -65,9 +65,12 @@ enum PaletteCatalog {
     /// Hidden under a detected agent, whose prompt is not a shell's; any
     /// other program is caught by the runner asking herdr before it types.
     private static func launch(_ context: PaletteContext) -> [PaletteEntry] {
-        guard context.canvasPane != nil, context.focusedAgent == nil else { return [] }
-        return context.launchers.map {
-            entry(.pane, $0.paletteName ?? LauncherSlots.title(for: $0), hint: $0.paletteHint, .launch($0))
+        guard LaunchTarget.pane(canvasPane: context.canvasPane, agent: context.focusedAgent) != nil else { return [] }
+        return context.launchers.enumerated().map { index, launcher in
+            entry(
+                .pane, launcher.paletteName ?? LauncherSlots.title(for: launcher),
+                shortcut: LauncherSlots.shortcutLabel(at: index), hint: launcher.paletteHint, .launch(launcher)
+            )
         }
     }
 

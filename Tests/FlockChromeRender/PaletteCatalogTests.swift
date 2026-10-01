@@ -71,6 +71,18 @@ final class PaletteCatalogTests: XCTestCase {
         XCTAssertFalse(ids(PaletteContext(canvasPane: nil, launchers: launchers)).contains("pane.rtcd"))
     }
 
+    func testLaunchRowsShowTheKeyOfTheirLauncherSlot() {
+        let launchers = LauncherSlots.ordered(navigator: NavigatorRoster.rtCd, entries: HarnessRoster.known)
+        let launchRows = PaletteCatalog.entries(in: PaletteContext(canvasPane: pane, launchers: launchers))
+            .filter { if case .launch = $0.action { true } else { false } }
+        XCTAssertEqual(launchRows.map(\.command.shortcut), ["⌘1", "⌘2", "⌘3"])
+
+        let withoutRt = LauncherSlots.ordered(navigator: nil, entries: HarnessRoster.known)
+        let claudeFirst = PaletteCatalog.entries(in: PaletteContext(canvasPane: pane, launchers: withoutRt))
+            .first { $0.command.id == "pane.claude" }
+        XCTAssertEqual(claudeFirst?.command.shortcut, "⌘1", "a number names a slot, so it moves with the row")
+    }
+
     /// A shell has the launcher's in-pane `rt cd`; Claude's prompt is not a
     /// shell's, so its pane gets the modal instead.
     func testTheRtCdModalIsListedOnlyUnderClaude() {
