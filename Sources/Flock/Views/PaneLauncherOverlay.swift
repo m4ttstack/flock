@@ -1,4 +1,5 @@
 import FlockCore
+import os
 import SwiftUI
 
 /// One CLI agent harness `HarnessRoster` knows how to launch. `mark` is the
@@ -86,6 +87,26 @@ enum LauncherSlots {
 
     static func title(for entry: HarnessEntry) -> String {
         entry.id == NavigatorRoster.rtCd.id ? NavigatorRoster.command : "Launch \(entry.displayName)"
+    }
+
+    private static let log = Logger(subsystem: "dev.mattstack.flock", category: "launcher")
+
+    @MainActor
+    static func target(on viewModel: SessionViewModel) -> PaneID? {
+        let pane = viewModel.canvasFocusedPaneID
+        return LaunchTarget.pane(canvasPane: pane, agent: pane.flatMap { viewModel.model?.panes[$0]?.agent })
+    }
+
+    /// ⌘1 and on, and the palette's rows: the pane is read as the key lands,
+    /// never captured when the menu last rendered, and herdr is asked then
+    /// whether its shell is at a prompt to type into.
+    @MainActor
+    static func launchInFocusedPane(_ entry: HarnessEntry, on viewModel: SessionViewModel) async {
+        guard let pane = target(on: viewModel) else { return }
+        let atPrompt = await viewModel.isAtPrompt(pane)
+        log.notice("launch \(entry.id, privacy: .public) in \(pane.rawValue, privacy: .public): at prompt \(atPrompt)")
+        guard atPrompt else { return NSSound.beep() }
+        await launch(entry, in: pane, on: viewModel)
     }
 
     @MainActor

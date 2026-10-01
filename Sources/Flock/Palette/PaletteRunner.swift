@@ -59,11 +59,7 @@ struct PaletteRunner {
         case .toggleRightClicks:
             viewModel.toggleFocusedPaneRightClicks()
         case .launch(let entry):
-            guard let pane = viewModel.canvasFocusedPaneID else { return }
-            Task {
-                guard await viewModel.isAtPrompt(pane) else { return NSSound.beep() }
-                await LauncherSlots.launch(entry, in: pane, on: viewModel)
-            }
+            Task { await LauncherSlots.launchInFocusedPane(entry, on: viewModel) }
         case .view(let command):
             switch command {
             case .newTab:

@@ -364,18 +364,16 @@ struct FlockApp: App {
                     }
                 }
                 Divider()
-                // Live only while the focused pane shows the launcher, which
-                // is only ever over an idle prompt; disabled, ⌘1 and on reach
-                // the pane's program as they did before.
-                let launcherPane = viewModel.canvasFocusedPaneID.flatMap { viewModel.isPristineLauncherPane($0) ? $0 : nil }
+                // Disabled under an agent, where ⌘1 and on reach the pane's
+                // program as they did before.
+                let canLaunch = LauncherSlots.target(on: viewModel) != nil
                 Menu("Launch") {
                     ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
                         Button(LauncherSlots.title(for: entry)) {
-                            guard let launcherPane else { return }
-                            Task { await LauncherSlots.launch(entry, in: launcherPane, on: viewModel) }
+                            Task { await LauncherSlots.launchInFocusedPane(entry, on: viewModel) }
                         }
                         .keyboardShortcut(LauncherSlots.key(at: index), modifiers: .command)
-                        .disabled(launcherPane == nil)
+                        .disabled(!canLaunch)
                         .accessibilityIdentifier("flock.pane.launch.\(entry.id)")
                     }
                 }
