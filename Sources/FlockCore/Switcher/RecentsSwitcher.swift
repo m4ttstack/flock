@@ -121,11 +121,11 @@ extension RecentsSwitcher where ID == TabID {
         self.init(defaultsKey: Self.defaultsKey, userDefaults: userDefaults)
     }
 
-    /// A tab's row title. herdr labels an unnamed tab with its own number,
-    /// which says nothing in a list ordered by use, so such a tab shows its
-    /// focused pane's title in brackets instead.
+    /// A tab's row title. herdr labels an unnamed tab with a number, which
+    /// says nothing in a list ordered by use, so such a tab shows its focused
+    /// pane's title in brackets instead.
     public static func title(for tab: TabRecord, in model: SessionModel) -> String {
-        guard tab.label.isEmpty || tab.label == String(tab.number) else { return tab.label }
+        guard TabTitle.isAutoNamed(tab.label) else { return tab.label }
         let paneID = model.layouts[tab.tabID]?.focusedPaneID ?? model.layouts[tab.tabID]?.panes.first?.paneID
         guard let pane = paneID.flatMap({ model.panes[$0] }) else { return tab.label }
         return "[\(pane.displayTitle)]"

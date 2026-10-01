@@ -72,7 +72,7 @@ public enum RenameEditor {
         case .pane(let pane):
             return model.panes[pane]?.label ?? ""
         case .tab(let tab):
-            return tabRecord(tab, model: model)?.label ?? ""
+            return tabRecord(tab, model: model).map { TabTitle.resolve($0, in: model).text } ?? ""
         case .workspace(let workspace):
             return model.workspaces.first { $0.workspaceID == workspace }?.label ?? ""
         }
@@ -86,7 +86,9 @@ public enum RenameEditor {
             guard let record = model.panes[pane], record.label != trimmed else { return nil }
             return .renamePane(pane, trimmed)
         case .tab(let tab):
-            guard let record = tabRecord(tab, model: model), record.label != trimmed else { return nil }
+            guard let record = tabRecord(tab, model: model), record.label != trimmed,
+                  TabTitle.resolve(record, in: model).text != trimmed
+            else { return nil }
             return .renameTab(tab, trimmed)
         case .workspace(let workspace):
             guard let record = model.workspaces.first(where: { $0.workspaceID == workspace }), record.label != trimmed else { return nil }
