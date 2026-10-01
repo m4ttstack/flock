@@ -32,7 +32,6 @@ private actor FolderClient: HerdrCommandClient {
     }
 }
 
-@MainActor
 final class StartingFolderCreateTests: XCTestCase {
     private let home = "/Users/acme"
     private var root: URL!
@@ -59,6 +58,7 @@ final class StartingFolderCreateTests: XCTestCase {
         return (repo.path, worktree.path)
     }
 
+    @MainActor
     private func makeViewModel(
         client: FolderClient, _ choices: [NewTerminalKind: StartingFolderChoice], paneCwd: String = "/tmp"
     ) -> SessionViewModel {
@@ -84,6 +84,7 @@ final class StartingFolderCreateTests: XCTestCase {
         string(params, "cwd")
     }
 
+    @MainActor
     func testANewTabFromAWorktreeStartsInTheMainCheckout() async throws {
         let (repo, worktree) = try makeRepoAndWorktree()
         let client = FolderClient(leaderCwd: worktree)
@@ -97,6 +98,7 @@ final class StartingFolderCreateTests: XCTestCase {
         XCTAssertEqual(cwd(created), repo)
     }
 
+    @MainActor
     func testFollowingThePaneSendsNoFolderAndAsksHerdrNothing() async throws {
         let client = FolderClient(leaderCwd: "/Users/acme/code")
         let viewModel = makeViewModel(client: client, [:])
@@ -114,6 +116,7 @@ final class StartingFolderCreateTests: XCTestCase {
         XCTAssertEqual(processInfoCalls, 0)
     }
 
+    @MainActor
     func testANewPaneSetToHomeStartsAtHome() async throws {
         let client = FolderClient(leaderCwd: "/Users/acme/code")
         let viewModel = makeViewModel(client: client, [.pane: StartingFolderChoice(folder: .home)])
@@ -126,6 +129,7 @@ final class StartingFolderCreateTests: XCTestCase {
         XCTAssertEqual(processInfoCalls, 0, "home needs no pane folder")
     }
 
+    @MainActor
     func testANewWorkspaceSetToACustomFolderStartsThere() async throws {
         let client = FolderClient(leaderCwd: "/Users/acme/code")
         let viewModel = makeViewModel(client: client, [.workspace: StartingFolderChoice(folder: .custom, customPath: root.path)])
@@ -136,6 +140,7 @@ final class StartingFolderCreateTests: XCTestCase {
         XCTAssertEqual(cwd(created), root.path)
     }
 
+    @MainActor
     func testASplitReadsTheFolderOfThePaneItSplits() async throws {
         let (repo, worktree) = try makeRepoAndWorktree()
         let client = FolderClient(leaderCwd: worktree)
@@ -149,6 +154,7 @@ final class StartingFolderCreateTests: XCTestCase {
         XCTAssertEqual(cwd(split), repo)
     }
 
+    @MainActor
     func testWhenHerdrCannotSayThePanesRecordedFolderIsUsed() async throws {
         let (repo, worktree) = try makeRepoAndWorktree()
         let client = FolderClient(leaderCwd: nil)

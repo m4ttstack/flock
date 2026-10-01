@@ -1,6 +1,7 @@
 import XCTest
 @testable import FlockCore
 
+@MainActor
 final class StartingFolderSettingsSectionTests: XCTestCase {
     func testACustomFolderIsShownFromHome() {
         let choice = StartingFolderChoice(folder: .custom, customPath: NSHomeDirectory() + "/notes")
