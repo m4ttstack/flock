@@ -13,11 +13,13 @@ struct FlockSettingsView: View {
     let herdrMousePatchStore: HerdrMousePatchStore
     let notificationLifetimeStore: NotificationLifetimeStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
+    let startingFolderStore: StartingFolderStore
     let rtModalTextSizeStore: RtModalTextSizeStore
     let commandLineToolStore: CommandLineToolStore
 
     var body: some View {
         Form {
+            StartingFolderSettingsSection(store: startingFolderStore)
             NotificationSettingsSection(store: notificationLifetimeStore)
             RearrangeSettingsSection(store: rearrangeAfterMoveStore)
             RtModalTextSizeSection(store: rtModalTextSizeStore)

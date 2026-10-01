@@ -58,6 +58,7 @@ struct FlockApp: App {
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
+    @State private var startingFolderStore: StartingFolderStore
     @State private var scrollSpeedStore = ScrollSpeedStore()
     @State private var railWidthStore = RailWidthStore()
     @State private var sectionCollapseStore = SectionCollapseStore()
@@ -183,6 +184,8 @@ struct FlockApp: App {
         let paneAgentStatusSubscriber = HerdrPaneAgentStatusSubscriber(socketPath: socketPath) { pane, status in
             herdrStore.applyAgentStatusChanged(pane: pane, status: status)
         }
+        let startingFolderStore = StartingFolderStore()
+        _startingFolderStore = State(initialValue: startingFolderStore)
         // One client, two roles: `HerdrClient` conforms to both
         // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
         // command verbs and the layout-export coordinator share the same
@@ -202,6 +205,7 @@ struct FlockApp: App {
             noticeSink: { message in toastCenter.show(message, kind: .info) },
             notificationLifetime: { notificationLifetimeStore.active },
             attentionToastArchive: AttentionToastArchive(),
+            startingFolder: { startingFolderStore.choice(for: $0) },
             rightClickDefaults: .standard
         )
         _viewModel = State(initialValue: viewModel)
@@ -573,6 +577,7 @@ struct FlockApp: App {
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
+                startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,
                 commandLineToolStore: commandLineToolStore
             )

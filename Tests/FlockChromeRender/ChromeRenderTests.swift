@@ -2140,11 +2140,25 @@ final class ChromeRenderTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
         defaults.removeObject(forKey: NotificationLifetimeStore.defaultsKey)
         defaults.removeObject(forKey: RearrangeAfterMoveStore.defaultsKey)
-        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+        for kind in NewTerminalKind.allCases {
+            defaults.removeObject(forKey: StartingFolderStore.defaultsKey(for: kind))
+            defaults.removeObject(forKey: StartingFolderStore.customPathKey(for: kind))
+        }
+        let customSuite = "\(ChromeRenderTests.defaultsSuite).custom"
+        defer { UserDefaults().removePersistentDomain(forName: customSuite) }
+        let customTab = StartingFolderStore(userDefaults: try XCTUnwrap(UserDefaults(suiteName: customSuite)))
+        customTab.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
+        for (name, appearance, startingFolderStore) in [
+            ("light", NSAppearance.Name.aqua, StartingFolderStore(userDefaults: defaults)),
+            ("dark", NSAppearance.Name.darkAqua, StartingFolderStore(userDefaults: defaults)),
+            ("custom-tab-light", NSAppearance.Name.aqua, customTab),
+            ("custom-tab-dark", NSAppearance.Name.darkAqua, customTab),
+        ] {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
+                startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults),
                 commandLineToolStore: CommandLineToolStore(
                     directory: FileManager.default.temporaryDirectory.appendingPathComponent("flock-cli-\(UUID().uuidString)"),
