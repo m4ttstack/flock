@@ -46,6 +46,8 @@ final class ChatStore {
     private var statuses: [PaneID: ChatStatus] = [:]
     /// Populated by `peek()`, keyed by each buddy's own pane.
     private var unreadCounts: [PaneID: Int] = [:]
+    /// Everyone signed in as of the last peek, keyed by their own pane.
+    private(set) var buddies: [PaneID: ChatBuddy] = [:]
     /// Set when a status call fails and cleared on its next success: what
     /// the popover's Retry banner reads, kept separate from the toast so the
     /// reason stays on screen after a transient toast has faded.
@@ -162,10 +164,22 @@ final class ChatStore {
     /// without a second, competing source of truth.
     func peek() async -> ChatPeek? {
         guard let peek: ChatPeek = await run(.peek) else { return nil }
+        record(peek)
+        return peek
+    }
+
+    /// The tab switcher's refresh on every ⌥Tab: a failure keeps the last
+    /// list and says nothing, since nobody asked chat anything.
+    func refreshBuddies() async {
+        guard case let .success(peek) = await attempt(.peek) as RunOutcome<ChatPeek> else { return }
+        record(peek)
+    }
+
+    private func record(_ peek: ChatPeek) {
+        buddies = Dictionary(peek.buddies.map { (PaneID(rawValue: $0.paneID), $0) }, uniquingKeysWith: { first, _ in first })
         for buddy in peek.buddies {
             setUnreadCount(buddy.unread, for: PaneID(rawValue: buddy.paneID))
         }
-        return peek
     }
 
     func targets() async -> ChatTargets? {
