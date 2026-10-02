@@ -11,7 +11,8 @@ struct TabStrip: View {
     let workspace: WorkspaceID?
     let tabs: [TabRecord]
     let selectedTabID: TabID?
-    let protocolVersion: Int
+    /// What the connected herdr reports; nil until a snapshot has landed.
+    let protocolVersion: Int?
     let onSelect: (TabID) -> Void
     /// Exists only so a render test can sample the new-tab affordance's drawn
     /// state without simulating a real pointer -- production call sites never
@@ -91,7 +92,7 @@ struct TabStrip: View {
                         }
                     }
                 }
-                Text("protocol \(protocolVersion)")
+                Text(protocolVersion.map { "protocol \($0)" } ?? "")
                     .font(ChromeType.protocolReadout)
                     .foregroundStyle(theme.textLabel)
                     .padding(.bottom, ChromeMetrics.Strip.readoutBottomInset)

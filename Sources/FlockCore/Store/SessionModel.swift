@@ -8,8 +8,12 @@ public struct SessionModel: Equatable, Sendable {
     public var focusedWorkspaceID: WorkspaceID?
     public var focusedTabID: TabID?
     public var focusedPaneID: PaneID?
+    /// The control protocol the connected herdr reports, which can be newer
+    /// than the minimum flock requires.
+    public let protocolVersion: Int
 
     public init(snapshot: SessionSnapshot) {
+        protocolVersion = snapshot.protocolVersion
         workspaces = snapshot.workspaces
 
         var groupedTabs: [WorkspaceID: [TabRecord]] = [:]

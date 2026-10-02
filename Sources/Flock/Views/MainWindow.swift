@@ -54,7 +54,7 @@ struct MainWindow: View {
                             workspace: viewModel.selectedWorkspaceID,
                             tabs: viewModel.tabsForSelectedWorkspace,
                             selectedTabID: viewModel.selectedTabID,
-                            protocolVersion: HerdrClient.minimumProtocol,
+                            protocolVersion: viewModel.model?.protocolVersion,
                             onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
                         )
                         PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
