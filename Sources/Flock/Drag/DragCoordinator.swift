@@ -308,9 +308,7 @@ final class DragCoordinator {
     /// The All Workspaces grid, written only through `updateGrid`.
     @ObservationIgnored private(set) var grid = AllWorkspacesGridState()
     private(set) var isGridShown = false
-    private(set) var gridHover: PaneID?
-    @ObservationIgnored var gridHoverIntent: Task<Void, Never>?
-    @ObservationIgnored var gridHoverGrace: Task<Void, Never>?
+    private(set) var gridPreview: PaneID?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
     /// Selects what a fired dwell uncovers. Synchronous and run before the
@@ -484,7 +482,7 @@ final class DragCoordinator {
         )
     }
 
-    /// Read on its own by the hover card, which is placed against a mini
+    /// Read on its own by the preview card, which is placed against a mini
     /// pane's box while nothing is being dragged at all.
     var gridSurfaces: GridDropSurfaces? {
         guard grid.isShown else { return nil }
@@ -1126,7 +1124,7 @@ final class DragCoordinator {
         case .drag, .focusedView:
             return event
         case .grid:
-            closeGrid()
+            updateGrid { $0.escape() }
             return nil
         case .railSelection:
             updateSelection { _ = $0.escapePressed(dragIdle: true) }
@@ -1178,9 +1176,8 @@ final class DragCoordinator {
         gridScrollExtent = (offset, maximumOffset)
     }
 
-    /// Views observe the three mirrors, each written only on a real change,
-    /// so a hover never re-renders the cards and a card expanding never
-    /// re-renders the window. A wait still running is not mirrored at all.
+    /// Views observe the mirrors, each written only on a real change, so a
+    /// preview opening never re-renders the cards or the window.
     @discardableResult
     func updateGrid<Result>(_ change: (inout AllWorkspacesGridState) -> Result) -> Result {
         let result = change(&grid)
@@ -1196,8 +1193,8 @@ final class DragCoordinator {
             isGridShown = grid.isShown
         }
         stripOrder.isGridShown = grid.isShown
-        if gridHover != grid.hover {
-            gridHover = grid.hover
+        if gridPreview != grid.preview {
+            gridPreview = grid.preview
         }
         syncSelectionMonitor()
         return result

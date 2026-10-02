@@ -69,7 +69,12 @@ struct AllWorkspacesGrid: View {
             .reportsScrollExtent(.vertical) { drag.setGridScroll(offset: $0, maximumOffset: $1) }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .boundedBackground(theme.canvas)
-            .overlay(alignment: .topLeading) { GridHoverCard(theme: theme, viewModel: viewModel) }
+            // A click anywhere a thumbnail does not claim puts the preview
+            // away. Applied before the overlay, so a click on the card itself
+            // never reaches it.
+            .contentShape(Rectangle())
+            .onTapGesture { drag.dismissGridPreview() }
+            .overlay(alignment: .topLeading) { GridPreviewCard(theme: theme, viewModel: viewModel) }
             .reportsDragFrame { drag.gridViewport = $0 }
             .onAppear { drag.gridScroller = { y in scrollPosition.scrollTo(y: y) } }
         }
@@ -389,16 +394,9 @@ private struct TabThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
         .contentShape(Rectangle())
-        // Selected before the grid closes, so the window never draws the
-        // previously selected tab in between.
-        //
-        // Guarded even though the grid has no context menu of its own: this
-        // moves herdr's real focus, so an unguarded secondary click jumps the
-        // terminal somewhere else with nothing on screen having asked for it.
-        .onTapGesture {
-            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-            show()
-        }
+        // The handle and the padding around the mini panes mean the whole
+        // tab; a mini pane's own tap is a descendant's and answers first.
+        .onTapGesture { clicked(pane: nil) }
         // One element, not a group of mini pane titles to step through: the
         // thumbnail is a tile that selects its tab, and that is the whole of
         // what it offers. Undeclared it would not be an element at all --
@@ -428,13 +426,41 @@ private struct TabThumbnail: View {
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
     }
 
-    /// What activating this thumbnail does, for the click and for the
-    /// accessibility action alike. Selected before the grid closes, so the
-    /// window never draws the previously selected tab in between.
-    private func show() {
+    /// A click previews, a double-click goes there. Read off the event's own
+    /// click count rather than a second, two-tap gesture: that one holds every
+    /// single click back for the double-click interval before it answers.
+    ///
+    /// Guarded against the secondary button even though the grid has no
+    /// context menu of its own: a double-click moves herdr's real focus, so an
+    /// unguarded one jumps the terminal somewhere nothing on screen asked for.
+    private func clicked(pane: PaneID?) {
+        guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+            show(pane: pane)
+        } else if let previewed = pane ?? tabsOwnPane {
+            drag.showGridPreview(pane: previewed)
+        }
+    }
+
+    /// The pane a click on the tab's handle previews: the one herdr has
+    /// focused in it, or its first when that is not known.
+    private var tabsOwnPane: PaneID? {
+        let model = viewModel.model
+        if let focused = model?.layouts[tab.tabID]?.focusedPane { return focused }
+        return model?.panes.values.filter { $0.tabID == tab.tabID }.map(\.paneID).min { $0.rawValue < $1.rawValue }
+    }
+
+    /// What activating this thumbnail does, for the double-click and for the
+    /// accessibility action alike: the tab, and the pane inside it when one
+    /// was named. Selected before the grid closes, so the window never draws
+    /// the previously selected tab in between.
+    private func show(pane: PaneID? = nil) {
         viewModel.select(tab: tab.tabID)
         drag.closeGrid()
-        Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
+        Task {
+            await viewModel.jumpToHerdr(tab: tab.tabID)
+            if let pane { await viewModel.jumpToHerdr(pane: pane) }
+        }
     }
 
     private var titleStrip: some View {
@@ -567,21 +593,16 @@ private struct TabThumbnail: View {
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .allowsHitTesting(false)
                 } else if let pane = model?.panes[placed.pane] {
-                    MiniPane(theme: theme, title: pane.displayTitle, status: pane.agentStatus)
+                    MiniPane(
+                        theme: theme, title: pane.displayTitle, status: pane.agentStatus,
+                        isPreviewed: drag.gridPreviewCard == pane.paneID
+                    )
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
+                        .onTapGesture { clicked(pane: pane.paneID) }
                         .gesture(paneDrag(pane, box: placed.frame))
-                        .onContinuousHover(coordinateSpace: DragSpace.coordinateSpace) { phase in
-                            switch phase {
-                            case .active:
-                                drag.gridHoverMoved(pane: pane.paneID)
-                                GridCursor.hover(true, dragInFlight: drag.holdsGrabCursor)
-                            case .ended:
-                                drag.gridHoverEnded(pane: pane.paneID)
-                                GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor)
-                            }
-                        }
+                        .onHover { GridCursor.hover($0, dragInFlight: drag.holdsGrabCursor) }
                         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: placed.frame)
                 }
             }
@@ -659,6 +680,8 @@ struct MiniPane: View {
     let theme: Theme
     let title: String
     let status: AgentStatus
+    /// Its preview card is the one open, so the card's pane is findable.
+    var isPreviewed = false
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
@@ -675,7 +698,7 @@ struct MiniPane: View {
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
-                .strokeBorder(theme.paneBorder, lineWidth: ChromeMetrics.ruleWidth)
+                .strokeBorder(isPreviewed ? theme.accent : theme.paneBorder, lineWidth: ChromeMetrics.ruleWidth)
         )
         .contentShape(Rectangle())
     }
@@ -747,9 +770,8 @@ private struct DropWash: View {
 }
 
 /// Drawn over the grid's scroll view rather than inside a card, so it is
-/// never clipped by the card or the row below it, and only it re-renders as
-/// the pointer moves.
-private struct GridHoverCard: View {
+/// never clipped by the card or the row below it.
+private struct GridPreviewCard: View {
     let theme: Theme
     let viewModel: SessionViewModel
 
@@ -757,44 +779,34 @@ private struct GridHoverCard: View {
     @State private var size = CGSize(width: ChromeMetrics.HoverCard.width, height: ChromeMetrics.HoverCard.estimatedHeight)
 
     var body: some View {
-        if let hovered = drag.gridHoverCard,
+        if let previewed = drag.gridPreviewCard,
            let viewport = drag.gridViewport,
-           let box = drag.gridPaneFrame(of: hovered),
+           let box = drag.gridPaneFrame(of: previewed),
            let model = viewModel.model,
-           let pane = model.panes[hovered],
+           let pane = model.panes[previewed],
            let content = PaneHoverCardContent.make(
-               pane: hovered, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory()
+               pane: previewed, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory()
            ) {
             let origin = HoverCardPlacement.origin(
                 pane: box.offsetBy(dx: -viewport.minX, dy: -viewport.minY),
                 card: size, container: CGRect(origin: .zero, size: viewport.size), gap: ChromeMetrics.HoverCard.paneGap
             )
-            PaneHoverCardView(theme: theme, content: content, tail: viewModel.paneTail(for: hovered))
+            PaneHoverCardView(theme: theme, content: content, tail: viewModel.paneTail(for: previewed))
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
                 .offset(x: origin.x, y: origin.y)
-                // The card takes the pointer, which is what makes anything in
-                // it usable at all: entering it holds it open for as long as
-                // the pointer stays, past the grace the pane's own exit armed.
-                .onHover { hovering in
-                    if hovering {
-                        drag.gridHoverCardEntered()
-                        // The card is not draggable, so the open hand the pane
-                        // under the pointer set has no meaning over it.
-                        GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor)
-                    } else {
-                        drag.gridHoverCardExited()
-                    }
-                }
+                // The card is not draggable, so the open hand the pane under
+                // the pointer set has no meaning over it.
+                .onHover { if $0 { GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor) } }
                 // The card's own cadence, and the whole of what keeps a
                 // running pane's tail current: nothing herdr reports about a
                 // pane changes when it prints, so there is no event to follow.
                 // Cancelled with the card, so no pane is read once its card
                 // has gone.
-                .task(id: hovered) {
+                .task(id: previewed) {
                     while !Task.isCancelled {
                         try? await Task.sleep(for: PaneTailPolicy.refreshInterval)
                         guard !Task.isCancelled else { return }
-                        viewModel.refreshPaneTail(for: hovered)
+                        viewModel.refreshPaneTail(for: previewed)
                     }
                 }
         }

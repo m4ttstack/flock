@@ -19,17 +19,15 @@ public struct PaneTail: Equatable, Sendable {
 /// How much of a pane the hover card reads, how often, and what it keeps.
 ///
 /// The grid never attaches a pane, so `pane.read` is the only way it can show
-/// output at all, and every read costs a round trip to herdr. The delay before
-/// a card shows is what keeps that cheap: a sweep across thirty panes reads
-/// nothing, because no card opens. Only the pane whose card is up is ever
-/// read.
+/// output at all, and every read costs a round trip to herdr. A card opens
+/// only on a click, so only the pane whose card is up is ever read.
 public enum PaneTailPolicy {
-    /// Lines of output the card draws. Eight is the tail of a build, a test
-    /// run or an agent's last exchange rather than a single line, and at the
-    /// card's width and line height it leaves the card shorter than the grid
-    /// is tall at the window's own minimum height, so a long tail can never
-    /// push the card off screen.
-    public static let lines = 8
+    /// Lines of output the card draws: enough of a build, a test run or an
+    /// agent's last exchange to follow what happened, while at the card's line
+    /// height it still leaves the card shorter than the grid is tall at the
+    /// window's own minimum height, so a long tail can never push the card off
+    /// screen.
+    public static let lines = 20
 
     /// Rows of the pane's visible screen the card asks for, which is more than
     /// it draws. A pane sitting at an agent's prompt spends its last rows on
@@ -37,7 +35,7 @@ public enum PaneTailPolicy {
     /// card draws would arrive with a cardful of furniture and nothing under
     /// it. The gap is wider than the tallest frame the trim will take, so even
     /// a fully trimmed screen carries a whole card of output.
-    public static let readLines = 24
+    public static let readLines = 36
 
     /// The tallest bottom strip `outputRows` will read as an agent's prompt.
     ///

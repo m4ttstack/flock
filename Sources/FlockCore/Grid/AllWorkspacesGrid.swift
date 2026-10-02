@@ -125,48 +125,14 @@ public enum GridCardLayout {
     }
 }
 
-/// What a pointer report over a mini pane asks of the caller's timers.
-public enum GridHoverOutcome: Equatable, Sendable {
-    /// The pointer is still on the pane the card, or the wait, already
-    /// belongs to.
-    case unchanged
-    /// A wait started, timed out through `hoverIntentElapsed`.
-    case waits
-    /// A card was already up, so this pane's replaced it with no wait.
-    case shows
-}
-
-/// The grid's own state: whether it covers the window, and which mini pane
-/// the pointer rests on.
+/// The grid's own state: whether it covers the window, and which mini pane's
+/// preview card is open.
 public struct AllWorkspacesGridState: Equatable, Sendable {
-    /// How long the pointer must rest on one pane before its card shows, so
-    /// a sweep across the grid neither flickers cards nor reads every pane
-    /// it crosses. In the band desktop tooltips occupy (Windows' hover time
-    /// 400ms, GTK 500ms, AppKit's own tooltip 1000ms), at the fast end
-    /// because this card is read while scanning a grid rather than to
-    /// explain one control.
-    public static let hoverIntentDelay: Duration = .milliseconds(500)
-    /// How long a card outlives the pointer leaving its pane, or leaving the
-    /// card itself. The card is anchored beside its pane with a gap between
-    /// them, and that gap is over no pane at all: without this the card would
-    /// close as the pointer set out for it, and nothing in it could ever be
-    /// clicked. Shorter than the delay, so a card cannot still be up over the
-    /// pane the pointer has moved on to.
-    public static let hoverCardGrace: Duration = .milliseconds(250)
-
     public private(set) var isShown = false
-    /// The pane whose card is showing.
-    public private(set) var hover: PaneID?
-    /// The pane waiting out the intent delay.
-    public private(set) var pendingHover: PaneID?
-    /// The pointer is inside the card itself, which no grace closes.
-    public private(set) var isCardHovered = false
-    /// A card has been up and the pointer has not been off the panes long
-    /// enough to cool: the next pane's card shows at once.
-    public private(set) var isWarm = false
-    /// A grace is running: the pointer has left the card's pane, or the card,
-    /// and has not arrived anywhere that keeps it up.
-    private var cardIsLeaving = false
+    /// The pane whose preview card is open. A click opens it and it stays
+    /// until something closes it, so it can be read, scrolled past and copied
+    /// from at leisure.
+    public private(set) var preview: PaneID?
 
     public init() {}
 
@@ -174,10 +140,10 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         isShown = true
     }
 
-    /// A grid opened again starts at rest.
+    /// A grid opened again starts with no card open.
     public mutating func close() {
         isShown = false
-        forgetHover()
+        preview = nil
     }
 
     public mutating func toggle() {
@@ -188,97 +154,36 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         }
     }
 
-    /// Every pointer report over a mini pane. The pane the card or the wait
-    /// already belongs to asks for nothing: a card names a pane, so moving
-    /// within one changes nothing about it. Any other pane shows its card at
-    /// once while the grid is warm, and otherwise starts a wait.
-    @discardableResult
-    public mutating func hoverMoved(pane: PaneID) -> GridHoverOutcome {
-        if hover == pane {
-            cardIsLeaving = false
-            return .unchanged
+    /// A click on another pane moves the card to it; a click on the pane
+    /// already shown leaves it open.
+    public mutating func showPreview(pane: PaneID) {
+        guard isShown else { return }
+        preview = pane
+    }
+
+    public mutating func dismissPreview() {
+        preview = nil
+    }
+
+    /// Esc takes the card down first and the grid only once no card is up,
+    /// so dismissing a preview never also throws away the grid behind it.
+    public mutating func escape() {
+        if preview != nil {
+            preview = nil
+        } else {
+            close()
         }
-        if pendingHover == pane { return .unchanged }
-        isCardHovered = false
-        cardIsLeaving = false
-        guard isWarm else {
-            hover = nil
-            pendingHover = pane
-            return .waits
-        }
-        pendingHover = nil
-        hover = pane
-        return .shows
     }
 
-    /// A wait that has since moved to another pane, or ended, shows nothing.
-    public mutating func hoverIntentElapsed(pane: PaneID) {
-        guard pendingHover == pane else { return }
-        hover = pane
-        pendingHover = nil
-        isWarm = true
-    }
-
-    /// Only the pane still hovered or waited on answers: moving onto a
-    /// neighbor can report the neighbor's entry before this pane's exit. A
-    /// showing card is not closed here, only set leaving; true when the caller
-    /// must arm the grace that closes it.
-    @discardableResult
-    public mutating func hoverEnded(pane: PaneID) -> Bool {
-        if pendingHover == pane {
-            pendingHover = nil
-        }
-        guard hover == pane, !isCardHovered else { return false }
-        cardIsLeaving = true
-        return true
-    }
-
-    /// The pointer has reached the card itself, which outranks every grace:
-    /// the card stays up for as long as the pointer is inside it.
-    public mutating func cardEntered() {
-        guard hover != nil else { return }
-        isCardHovered = true
-        cardIsLeaving = false
-    }
-
-    /// True when the caller must arm the grace: the pointer may be on its way
-    /// back to the pane, which keeps the card.
-    @discardableResult
-    public mutating func cardExited() -> Bool {
-        guard isCardHovered else { return false }
-        isCardHovered = false
-        guard hover != nil else { return false }
-        cardIsLeaving = true
-        return true
-    }
-
-    /// The grace ran out with the pointer on neither the pane nor the card,
-    /// so the card closes and the grid cools: the next one waits again.
-    public mutating func hoverGraceElapsed() {
-        guard cardIsLeaving else { return }
-        cardIsLeaving = false
-        hover = nil
-        isWarm = false
-    }
-
-    /// Hover reports stop while the button is held, so whatever was hovered
-    /// when a drag began is stale by the time it ends.
+    /// A drag carries the pointer away from whatever the card was about.
     public mutating func dragBegan() {
-        forgetHover()
+        preview = nil
     }
 
     /// Never while a drag is in flight, when the card would cover the
     /// thumbnails the drop is aimed at.
-    public func hoverCard(dragInFlight: Bool) -> PaneID? {
-        dragInFlight ? nil : hover
-    }
-
-    private mutating func forgetHover() {
-        hover = nil
-        pendingHover = nil
-        isCardHovered = false
-        cardIsLeaving = false
-        isWarm = false
+    public func previewCard(dragInFlight: Bool) -> PaneID? {
+        dragInFlight ? nil : preview
     }
 }
 

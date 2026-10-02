@@ -4,10 +4,8 @@ import XCTest
 
 final class AllWorkspacesGridTests: XCTestCase {
     private let w1 = WorkspaceID(rawValue: "w1")
-    private let w2 = WorkspaceID(rawValue: "w2")
     private let p1 = PaneID(rawValue: "w1:p1")
     private let p2 = PaneID(rawValue: "w1:p2")
-    private let p3 = PaneID(rawValue: "w1:p3")
 
     /// One row width to lay the card shapes out against. Not the window's
     /// own answer, which `slots(gridWidth:)` derives; the shapes here are
@@ -234,170 +232,76 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     // MARK: - grid state
 
-    func testClosingForgetsTheCardAndAPendingWait() {
+    func testClosingForgetsTheCard() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.hoverMoved(pane: p1)
-        state.hoverIntentElapsed(pane: p1)
-        state.hoverMoved(pane: p2)
+        state.showPreview(pane: p1)
         state.close()
         XCTAssertFalse(state.isShown)
-        XCTAssertNil(state.hover)
-        XCTAssertFalse(state.isWarm, "a grid opened again makes its first card wait")
+        XCTAssertNil(state.preview)
         state.open()
-        state.hoverIntentElapsed(pane: p2)
-        XCTAssertNil(state.hover, "a wait from before the grid closed must not show a card")
+        XCTAssertNil(state.preview, "a grid opened again starts with no card open")
     }
 
-    // MARK: - hover intent
+    // MARK: - preview card
 
-    /// A card shows a pane rather than a point, so a pointer that moves within
-    /// the pane it is already on asks the grid for nothing at all.
-    private func show(_ pane: PaneID, in state: inout AllWorkspacesGridState) {
-        state.hoverMoved(pane: pane)
-        state.hoverIntentElapsed(pane: pane)
-    }
-
-    func testACardShowsOnlyOnceThePointerHasRestedThroughTheWait() {
+    func testAClickOpensThePanesCardAndItStaysOpen() {
         var state = AllWorkspacesGridState()
-        XCTAssertEqual(state.hoverMoved(pane: p1), .waits, "entering a pane starts a wait")
-        XCTAssertNil(state.hoverCard(dragInFlight: false))
-        state.hoverIntentElapsed(pane: p1)
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p1)
+        state.open()
+        state.showPreview(pane: p1)
+        XCTAssertEqual(state.previewCard(dragInFlight: false), p1)
+        state.showPreview(pane: p1)
+        XCTAssertEqual(state.previewCard(dragInFlight: false), p1, "a second click on the same pane leaves it open")
     }
 
-    func testLeavingBeforeTheWaitEndsShowsNothing() {
+    func testAClickOnAnotherPaneMovesTheCard() {
         var state = AllWorkspacesGridState()
-        state.hoverMoved(pane: p1)
-        XCTAssertFalse(state.hoverEnded(pane: p1), "nothing is showing, so nothing needs the grace")
-        state.hoverIntentElapsed(pane: p1)
-        XCTAssertNil(state.hoverCard(dragInFlight: false))
+        state.open()
+        state.showPreview(pane: p1)
+        state.showPreview(pane: p2)
+        XCTAssertEqual(state.previewCard(dragInFlight: false), p2)
     }
 
-    /// Crossing three panes starts three waits, and only the pane the pointer
-    /// stopped on ever shows: the first two waits end on panes already left.
-    func testASweepShowsOnlyThePaneThePointerStoppedOn() {
+    func testDismissingPutsTheCardAwayAndLeavesTheGrid() {
         var state = AllWorkspacesGridState()
-        XCTAssertEqual(state.hoverMoved(pane: p1), .waits)
-        XCTAssertEqual(state.hoverMoved(pane: p2), .waits)
-        XCTAssertEqual(state.hoverMoved(pane: p3), .waits)
-        state.hoverIntentElapsed(pane: p1)
-        state.hoverIntentElapsed(pane: p2)
-        XCTAssertNil(state.hoverCard(dragInFlight: false))
-        state.hoverIntentElapsed(pane: p3)
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p3)
+        state.open()
+        state.showPreview(pane: p1)
+        state.dismissPreview()
+        XCTAssertNil(state.preview)
+        XCTAssertTrue(state.isShown)
     }
 
-    func testAnotherReportFromThePaneAlreadyWaitedOnDoesNotRestartTheWait() {
+    func testNoCardOpensWhileTheGridIsClosed() {
         var state = AllWorkspacesGridState()
-        XCTAssertEqual(state.hoverMoved(pane: p1), .waits)
-        XCTAssertEqual(state.hoverMoved(pane: p1), .unchanged)
-        state.hoverIntentElapsed(pane: p1)
-        XCTAssertEqual(state.hoverMoved(pane: p1), .unchanged)
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p1)
+        state.showPreview(pane: p1)
+        XCTAssertNil(state.preview)
     }
 
-    /// Tooltip warmth: the wait buys the first card, and once one is up its
-    /// neighbors are read at once rather than each buying the wait again.
-    func testOnceACardIsUpANeighborsCardShowsWithNoWait() {
+    func testEscPutsTheCardAwayBeforeTheGrid() {
         var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        XCTAssertEqual(state.hoverMoved(pane: p2), .shows)
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p2)
+        state.open()
+        state.showPreview(pane: p1)
+        state.escape()
+        XCTAssertNil(state.preview)
+        XCTAssertTrue(state.isShown, "the first Esc belongs to the card")
+        state.escape()
+        XCTAssertFalse(state.isShown)
     }
 
-    /// The grid cools once the pointer has been off every pane for the grace,
-    /// so the next card waits out the full delay again.
-    func testTheGridCoolsOnceTheGraceEndsWithThePointerOnNothing() {
+    func testTheCardNeverShowsWhileADragIsInFlight() {
         var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        XCTAssertTrue(state.hoverEnded(pane: p1))
-        state.hoverGraceElapsed()
-        XCTAssertNil(state.hoverCard(dragInFlight: false))
-        XCTAssertEqual(state.hoverMoved(pane: p2), .waits)
+        state.open()
+        state.showPreview(pane: p1)
+        XCTAssertNil(state.previewCard(dragInFlight: true))
     }
 
-    /// The gap between a pane and the card anchored beside it: leaving the
-    /// pane cannot close the card outright, or nothing in it could ever be
-    /// reached.
-    func testTheCardOutlivesLeavingItsPaneUntilTheGraceEnds() {
+    func testADragBeginningPutsTheCardAway() {
         var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        XCTAssertTrue(state.hoverEnded(pane: p1), "the caller must arm the grace")
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p1)
-        state.hoverGraceElapsed()
-        XCTAssertNil(state.hoverCard(dragInFlight: false))
-    }
-
-    func testEnteringTheCardKeepsItUpPastTheGrace() {
-        var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        XCTAssertTrue(state.hoverEnded(pane: p1))
-        state.cardEntered()
-        state.hoverGraceElapsed()
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p1, "the pointer is inside the card")
-    }
-
-    func testLeavingTheCardClosesItOnTheGrace() {
-        var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        state.hoverEnded(pane: p1)
-        state.cardEntered()
-        XCTAssertTrue(state.cardExited(), "the caller must arm the grace")
-        state.hoverGraceElapsed()
-        XCTAssertNil(state.hoverCard(dragInFlight: false))
-    }
-
-    /// Back onto the pane from the card: the card was never closed, so there
-    /// is nothing to re-arm and nothing to show again.
-    func testGoingFromTheCardBackToItsPaneKeepsTheSameCard() {
-        var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        state.hoverEnded(pane: p1)
-        state.cardEntered()
-        XCTAssertTrue(state.cardExited())
-        XCTAssertEqual(state.hoverMoved(pane: p1), .unchanged)
-        state.hoverGraceElapsed()
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p1, "the pointer came back before the grace ended")
-    }
-
-    /// A pane's exit can be reported after its neighbor's entry. The card the
-    /// neighbor is showing must survive that late exit, and the grace it would
-    /// otherwise arm must not be armed at all.
-    func testLeavingAPaneAfterItsNeighborWasEnteredKeepsTheNeighborsCard() {
-        var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        XCTAssertEqual(state.hoverMoved(pane: p2), .shows)
-        XCTAssertFalse(state.hoverEnded(pane: p1))
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p2)
-    }
-
-    func testTheHoverCardNeverShowsWhileADragIsInFlight() {
-        var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        XCTAssertEqual(state.hoverCard(dragInFlight: false), p1)
-        XCTAssertNil(state.hoverCard(dragInFlight: true))
-    }
-
-    func testADragBeginningForgetsTheCardTheWaitAndTheWarmth() {
-        var state = AllWorkspacesGridState()
-        show(p1, in: &state)
-        state.hoverMoved(pane: p2)
+        state.open()
+        state.showPreview(pane: p1)
         state.dragBegan()
-        state.hoverIntentElapsed(pane: p2)
-        XCTAssertNil(state.hoverCard(dragInFlight: false))
-        XCTAssertEqual(state.hoverMoved(pane: p3), .waits, "a drag leaves the grid cold")
-    }
-
-    /// The delay is what the pointer rests through before a card appears, and
-    /// the grace is what the pointer crosses the gap to the card within. Both
-    /// are decisions, not view details: a grace longer than the delay would
-    /// keep a card up long enough to cover the pane the pointer moved on to.
-    func testTheHoverDelayAndGraceAreInTooltipRange() {
-        XCTAssertGreaterThanOrEqual(AllWorkspacesGridState.hoverIntentDelay, .milliseconds(300))
-        XCTAssertLessThanOrEqual(AllWorkspacesGridState.hoverIntentDelay, .milliseconds(1000))
-        XCTAssertGreaterThan(AllWorkspacesGridState.hoverCardGrace, .milliseconds(100))
-        XCTAssertLessThan(AllWorkspacesGridState.hoverCardGrace, AllWorkspacesGridState.hoverIntentDelay)
+        XCTAssertNil(state.previewCard(dragInFlight: false))
+        XCTAssertTrue(state.isShown)
     }
 
     // MARK: - Esc

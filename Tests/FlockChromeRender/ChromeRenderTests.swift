@@ -958,7 +958,7 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The All Workspaces grid from fixture layouts, with a pane's hover card
+    /// The All Workspaces grid from fixture layouts, with a pane's preview card
     /// open. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set; the
     /// samples and the no-attach check always run.
     func testAllWorkspacesGridRendersFromLayoutsWithoutAttachingAPane() async throws {
@@ -979,8 +979,7 @@ final class ChromeRenderTests: XCTestCase {
             padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
         )
         let claude = try XCTUnwrap(boxes.first { $0.pane == GridFixture.claudePane })
-        harness.drag.gridHoverMoved(pane: claude.pane)
-        harness.drag.gridHoverIntentElapsed(pane: claude.pane)
+        harness.drag.showGridPreview(pane: claude.pane)
         await settle(window)
         // The card is placed against this box, so a card drawn anywhere else
         // means the grid published a box the layout does not agree with.
@@ -995,12 +994,42 @@ final class ChromeRenderTests: XCTestCase {
         let rest = try snapshot(window)
         if let directory {
             try XCTUnwrap(rest.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-hover.png"))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-preview.png"))
         }
         for pane in model.panes.keys where !shownByTheCanvas.contains(pane) {
             XCTAssertNil(harness.viewModel.ghosttySurface(for: pane), "the grid attached \(pane.rawValue)")
         }
         assertGridSamples(rest, theme: .tokyoNight)
+        window.close()
+    }
+
+    /// The preview card in a light theme, where its chrome ground sits over a
+    /// light canvas. A click on another pane moves it, and Esc puts it away
+    /// without closing the grid behind it.
+    func testThePreviewCardRendersInALightThemeAndEscPutsItAwayFirst() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })
+        let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        harness.drag.showGridPreview(pane: GridFixture.buildPane)
+        harness.drag.showGridPreview(pane: GridFixture.claudePane)
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridPreviewCard, GridFixture.claudePane, "the last click's pane")
+        XCTAssertNotNil(harness.viewModel.paneTails[GridFixture.claudePane], "the card opened without reading its pane")
+        if let directory {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-preview-latte.png"))
+        }
+
+        harness.drag.updateGrid { $0.escape() }
+        XCTAssertNil(harness.drag.gridPreviewCard)
+        XCTAssertTrue(harness.drag.isGridShown, "Esc took the grid down with the card")
+        harness.drag.updateGrid { $0.escape() }
+        XCTAssertFalse(harness.drag.isGridShown)
         window.close()
     }
 
@@ -3745,13 +3774,27 @@ private struct GroundSurfaceFactory: GhosttyPaneFactory {
 /// to show for it.
 private struct GridFixtureClient: HerdrCommandClient {
     static let screen = """
+        $ bun install
+        bun install v1.2.4
+        Checked 212 installs across 240 packages (no changes) [41.00ms]
         $ bun test lib/daemon
         lib/daemon/port-allocator.test.ts:
         (pass) allocates the first free port
         (pass) refuses a port already held
         (pass) releases on close
+        (pass) hands a released port to the next caller before probing past it
+        lib/daemon/lease.test.ts:
+        (pass) renews a lease before it expires
+        (pass) expires a lease nobody renewed
+        (pass) keeps the newest lease when two renewals race
+        lib/daemon/socket.test.ts:
+        (pass) accepts a client on the unix socket
+        (pass) drops a client that never sends a frame
+        (pass) answers a ping with the daemon's own version string and uptime
 
          31 pass, 0 fail
+         64 expect() calls
+        Ran 31 tests across 3 files. [1.12s]
         Editing lib/daemon.ts
 
         """

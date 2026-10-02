@@ -834,7 +834,10 @@ enum ChromeMetrics {
     }
 
     enum HoverCard {
-        static let width: CGFloat = 274
+        /// Wide enough for about 75 columns of the tail's own face, so most
+        /// terminal lines read whole rather than clipped, and narrow enough to
+        /// sit beside a pane in the narrowest grid the app allows.
+        static let width: CGFloat = 560
         static let verticalPadding: CGFloat = 10
         static let horizontalPadding: CGFloat = 13
         static let spacing: CGFloat = 5
@@ -842,8 +845,7 @@ enum ChromeMetrics {
         static let titleSpacing: CGFloat = 6
         static let statusDot: CGFloat = 6
         /// Between the pane and the card beside it: wide enough to read as
-        /// two things, short enough for the pointer to cross it well inside
-        /// `AllWorkspacesGridState.hoverCardGrace`.
+        /// two things.
         static let paneGap: CGFloat = 8
         /// The tail's lines sit at the terminal's own rhythm, tighter than the
         /// card's rows, so a screenful reads as one block of output.
@@ -855,7 +857,7 @@ enum ChromeMetrics {
         /// Where placement starts before the card has measured itself once:
         /// a card with a full tail, since that is what nearly every card
         /// settles at.
-        static let estimatedHeight: CGFloat = 220
+        static let estimatedHeight: CGFloat = 420
     }
 
     enum Ghost {

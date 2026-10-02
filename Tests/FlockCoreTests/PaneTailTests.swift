@@ -58,11 +58,11 @@ final class PaneTailTests: XCTestCase {
         XCTAssertNil(PaneHoverCardCopy.text(of: PaneTailPolicy.make(from: "\n \n")))
     }
 
-    /// The card is read while scanning a grid, so the cost has to stay small
-    /// enough that one pane's card is one read a second and no more.
-    func testTheTailIsSmallAndRefreshesSlowly() {
+    /// One pane's card is one read a second and no more, and the card's tail
+    /// stays short enough to fit the grid at the window's minimum height.
+    func testTheTailFitsTheGridAndRefreshesSlowly() {
         XCTAssertGreaterThan(PaneTailPolicy.lines, 1)
-        XCTAssertLessThanOrEqual(PaneTailPolicy.lines, 12)
+        XCTAssertLessThanOrEqual(PaneTailPolicy.lines, 20)
         XCTAssertGreaterThanOrEqual(PaneTailPolicy.refreshInterval, .milliseconds(500))
     }
 
