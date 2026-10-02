@@ -292,7 +292,7 @@ private struct TabBlock: View {
                     if isComplete {
                         Image(systemName: ChromeType.tabCompleteGlyphName)
                             .font(ChromeType.tabCompleteGlyph)
-                            .foregroundStyle(theme.green)
+                            .foregroundStyle(theme.mauve)
                             .frame(width: ChromeMetrics.Tab.completeGlyphWidth)
                             .padding(.trailing, ChromeMetrics.Tab.completeGlyphGap)
                             .accessibilityLabel("Complete")
