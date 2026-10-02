@@ -1146,8 +1146,8 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// A complete tab, selected and resting, leads with its checkmark in a
-    /// dimmer title and is sized for both. PNGs go to
+    /// Complete tabs, selected and resting, move to the strip's end and lead
+    /// with a checkmark; the resting one is compact. PNGs go to
     /// `FLOCK_CHROME_RENDER_DIR`.
     func testACompleteTabWearsACheckmarkInDarkAndLightThemes() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -1165,8 +1165,15 @@ final class ChromeRenderTests: XCTestCase {
             let frames = harness.drag.tabFrames
             let width = { (tab: String) in frames.first { $0.id == TabID(rawValue: tab) }?.frame.width }
             XCTAssertEqual(width("w1:t1"), TabSizing.width(of: TabTitle(text: "api", isFromPane: false), isComplete: true), scheme)
-            XCTAssertEqual(width("w1:t3"), TabSizing.width(of: TabTitle(text: "claude", isFromPane: false), isComplete: true), scheme)
+            XCTAssertEqual(
+                width("w1:t3"), TabSizing.width(of: TabTitle(text: "claude", isFromPane: false), isComplete: true, isSelected: true),
+                "a selected complete tab is full width; \(scheme)"
+            )
             XCTAssertEqual(width("w1:t2"), TabSizing.width(of: "Trash Runner"), scheme)
+            XCTAssertEqual(
+                frames.sorted { $0.frame.minX < $1.frame.minX }.map(\.id.rawValue), ["w1:t2", "w1:t4", "w1:t1", "w1:t3"],
+                "complete tabs follow the open ones; \(scheme)"
+            )
             window.close()
         }
     }

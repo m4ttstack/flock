@@ -142,6 +142,7 @@ struct TabStrip: View {
         .boundedBackground(theme.chrome)
         .onAppear { publishIdentity() }
         .onChange(of: tabs.map(\.tabID)) { _, _ in publishIdentity() }
+        .onChange(of: workspace.flatMap { viewModel.model?.tabs[$0] }?.map(\.tabID)) { _, _ in publishIdentity() }
         .onChange(of: workspace) { _, _ in publishIdentity() }
         .onChange(of: selectedTabID) { _, id in if let id { drag.revealTab(id) } }
     }
@@ -153,7 +154,9 @@ struct TabStrip: View {
     private var newTabAffordanceFrame: CGRect? {
         let gap = ChromeMetrics.Strip.tabGap
         let tabsWidth = tabs.reduce(CGFloat(0)) {
-            $0 + TabSizing.width(of: title(for: $1), isComplete: viewModel.completedTabs.isComplete($1.tabID))
+            $0 + TabSizing.width(
+                of: title(for: $1), isComplete: viewModel.completedTabs.isComplete($1.tabID), isSelected: $1.tabID == selectedTabID
+            )
         }
         let tabsEnd = ChromeMetrics.Strip.horizontalPadding + tabsWidth + gap * CGFloat(max(tabs.count - 1, 0))
         return NewTabAffordance.frame(
@@ -212,7 +215,7 @@ struct TabStrip: View {
     /// what turns those frames back into a list.
     private func publishIdentity() {
         drag.stripWorkspace = workspace
-        drag.setTabOrder(tabs.map(\.tabID))
+        drag.setTabOrder(tabs.map(\.tabID), modelOrder: workspace.flatMap { viewModel.model?.tabs[$0] }?.map(\.tabID) ?? [])
     }
 
     /// Starts the drag and nothing else: `DragCoordinator` drives it from
@@ -327,7 +330,7 @@ private struct TabBlock: View {
         // Sized off the tab's own label, not the editor's text: a rename in
         // flight must not resize the tab under the field, nor slide the tabs
         // after it along the strip with every keystroke.
-        .frame(width: TabSizing.width(of: title, isComplete: isComplete), height: ChromeMetrics.Tab.height)
+        .frame(width: TabSizing.width(of: title, isComplete: isComplete, isSelected: isSelected), height: ChromeMetrics.Tab.height)
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(x: displacement)

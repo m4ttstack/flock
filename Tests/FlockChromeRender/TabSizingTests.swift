@@ -73,8 +73,18 @@ final class TabSizingTests: XCTestCase {
             let open = TabSizing.width(of: title)
             XCTAssertLessThan(open, TabWidth.maximum - 40, "the title is near the maximum, so this test proves nothing")
 
-            XCTAssertGreaterThanOrEqual(TabSizing.width(of: title, isComplete: true), open + check - 1)
+            XCTAssertGreaterThanOrEqual(TabSizing.width(of: title, isComplete: true, isSelected: true), open + check - 1)
         }
+    }
+
+    /// A complete tab nobody is looking at is compact; selecting it gives
+    /// back the room any other tab would have.
+    func testACompleteTabIsCompactUntilSelected() {
+        let title = TabTitle(text: String(repeating: "wide ", count: 20), isFromPane: false)
+
+        XCTAssertEqual(TabSizing.width(of: title, isComplete: true), TabWidth.compactMaximum)
+        XCTAssertEqual(TabSizing.width(of: title, isComplete: true, isSelected: true), TabWidth.maximum)
+        XCTAssertEqual(TabSizing.width(of: TabTitle(text: "M", isFromPane: false), isComplete: true), TabWidth.compactMinimum)
     }
 
     func testAShortTitleStillGetsAWholeTab() {

@@ -486,9 +486,11 @@ public final class SessionViewModel {
 
     /// The selected workspace's tabs, or `[]` when nothing is selected yet
     /// or the workspace has none.
+    /// In the strip's order (`StripTabOrder`), which every per-workspace tab
+    /// list on screen and every tab key follows.
     public var tabsForSelectedWorkspace: [TabRecord] {
         guard let workspaceID = selectedWorkspaceID else { return [] }
-        return model?.tabs[workspaceID] ?? []
+        return StripTabOrder.ordered(model?.tabs[workspaceID] ?? [], isComplete: completedTabs.isComplete)
     }
 
     /// The tab `step` places along the selected workspace's strip from the

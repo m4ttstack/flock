@@ -19,6 +19,24 @@ final class DragOutcomeRelay {
     var last: Record?
 }
 
+/// The strip's order beside herdr's, for the commit to turn a strip slot into
+/// herdr's index. Read inside the controller's commit, which is built before
+/// the coordinator's own initializer has finished, so it goes through this box.
+/// The grid's slots are already herdr's.
+final class StripOrderRelay {
+    var strip: [TabID] = []
+    var model: [TabID] = []
+    var isGridShown = false
+
+    func modelTarget(for target: DropTarget) -> DropTarget {
+        guard !isGridShown, case let .tabStrip(workspace, insertIndex) = target else { return target }
+        return .tabStrip(
+            workspace: workspace,
+            insertIndex: StripTabOrder.modelInsertIndex(forStripIndex: insertIndex, strip: strip, model: model)
+        )
+    }
+}
+
 /// Tells the coordinator a spring load fired, inside the controller call that
 /// fired it. The controller needs the closure before the coordinator's own
 /// initializer has finished, so it goes through this box.
@@ -237,6 +255,7 @@ final class DragCoordinator {
     @ObservationIgnored private let toasts: ToastCenter
     @ObservationIgnored private let rearrangeMode: RearrangeMode
     @ObservationIgnored private let outcomes = DragOutcomeRelay()
+    @ObservationIgnored private let stripOrder = StripOrderRelay()
     @ObservationIgnored private let springLoads = SpringLoadRelay()
     /// The tick decision lives in `AutoScroller`; this only owns the display
     /// link that asks it once per frame.
@@ -305,6 +324,7 @@ final class DragCoordinator {
         self.rearrangeMode = rearrangeMode
         self.reveal = reveal
         let outcomes = self.outcomes
+        let stripOrder = self.stripOrder
         let springLoads = self.springLoads
         controller = DragController(
             commit: { subject, target in
@@ -313,7 +333,7 @@ final class DragCoordinator {
                 // already bumped the counter, and reading it on the way out
                 // would tag the reply with that later drag's number.
                 let issuedBy = outcomes.generation
-                let outcome = await commit(subject, target)
+                let outcome = await commit(subject, stripOrder.modelTarget(for: target))
                 outcomes.last = DragOutcomeRelay.Record(generation: issuedBy, outcome: outcome)
                 return outcome
             },
@@ -361,7 +381,11 @@ final class DragCoordinator {
     /// A tab that has left the strip can never report the frame its queued
     /// reveal is waiting for, so the reveal dies with it rather than sitting
     /// in the field until some later tab of the same id inherits it.
-    func setTabOrder(_ order: [TabID]) {
+    /// `modelOrder` is herdr's order for the same tabs, when the strip draws
+    /// them in another (`StripTabOrder`).
+    func setTabOrder(_ order: [TabID], modelOrder: [TabID]? = nil) {
+        stripOrder.strip = order
+        stripOrder.model = modelOrder ?? order
         writeIfChanged(\.tabItems) { $0.setOrder(order) }
         if let pendingReveal, !order.contains(pendingReveal) {
             self.pendingReveal = nil
@@ -1172,6 +1196,7 @@ final class DragCoordinator {
         if isGridShown != grid.isShown {
             isGridShown = grid.isShown
         }
+        stripOrder.isGridShown = grid.isShown
         if expandedGridCards != grid.expanded {
             expandedGridCards = grid.expanded
         }

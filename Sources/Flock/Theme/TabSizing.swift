@@ -9,14 +9,16 @@ enum TabSizing {
         width(of: TabTitle(text: title, isFromPane: false))
     }
 
-    static func width(of title: TabTitle, isComplete: Bool = false) -> CGFloat {
+    /// A complete tab is compact until it is selected.
+    static func width(of title: TabTitle, isComplete: Bool = false, isSelected: Bool = false) -> CGFloat {
         let check = isComplete ? ChromeMetrics.Tab.completeGlyphWidth + ChromeMetrics.Tab.completeGlyphGap : 0
         let glyph = title.isFromPane ? ChromeMetrics.Tab.paneGlyphWidth + ChromeMetrics.Tab.paneGlyphGap : 0
         return TabWidth.fitting(
             titleWidth: check + glyph + titleWidth(title.text),
             horizontalPadding: ChromeMetrics.Tab.horizontalPadding,
             labelDotGap: ChromeMetrics.Tab.labelDotGap,
-            trailingSlot: ChromeMetrics.Tab.trailingSlot
+            trailingSlot: ChromeMetrics.Tab.trailingSlot,
+            isCompact: isComplete && !isSelected
         )
     }
 

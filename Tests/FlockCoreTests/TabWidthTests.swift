@@ -10,9 +10,9 @@ final class TabWidthTests: XCTestCase {
     /// the tabs a user sees rather than an arrangement nothing draws: the
     /// padding either side, the gap after the title, and the trailing slot the
     /// status dot and the close button share.
-    private func width(title: CGFloat, trailingSlot: CGFloat = 6) -> CGFloat {
+    private func width(title: CGFloat, trailingSlot: CGFloat = 6, isCompact: Bool = false) -> CGFloat {
         TabWidth.fitting(
-            titleWidth: title, horizontalPadding: 12, labelDotGap: 6, trailingSlot: trailingSlot
+            titleWidth: title, horizontalPadding: 12, labelDotGap: 6, trailingSlot: trailingSlot, isCompact: isCompact
         )
     }
 
@@ -45,6 +45,16 @@ final class TabWidthTests: XCTestCase {
     func testEachBoundMeetsTheFitExactly() {
         XCTAssertEqual(width(title: 64), TabWidth.minimum)
         XCTAssertEqual(width(title: 204), TabWidth.maximum)
+    }
+
+    /// A compact tab (a complete one nobody is looking at) keeps narrower
+    /// bounds of its own, so it gives the strip back room either way.
+    func testACompactTabKeepsItsOwnNarrowerBounds() {
+        XCTAssertEqual(width(title: 0, isCompact: true), TabWidth.compactMinimum)
+        XCTAssertEqual(width(title: 400, isCompact: true), TabWidth.compactMaximum)
+        XCTAssertEqual(width(title: 60, isCompact: true), 96)
+        XCTAssertLessThan(TabWidth.compactMinimum, TabWidth.minimum)
+        XCTAssertLessThan(TabWidth.compactMaximum, TabWidth.maximum)
     }
 
     /// Measured text lands on fractions of a point. The chrome's surfaces are

@@ -8,6 +8,8 @@ import CoreGraphics
 public enum TabWidth {
     public static let minimum: CGFloat = 100
     public static let maximum: CGFloat = 240
+    public static let compactMinimum: CGFloat = 80
+    public static let compactMaximum: CGFloat = 140
 
     /// `titleWidth` is the label measured in the face it is drawn in; the rest
     /// is what the tab lays out beside it. `trailingSlot` is the one place the
@@ -19,9 +21,10 @@ public enum TabWidth {
     /// carries every tab after it off that grid. Up rather than to nearest,
     /// because a title rounded down is a title truncated.
     public static func fitting(
-        titleWidth: CGFloat, horizontalPadding: CGFloat, labelDotGap: CGFloat, trailingSlot: CGFloat
+        titleWidth: CGFloat, horizontalPadding: CGFloat, labelDotGap: CGFloat, trailingSlot: CGFloat,
+        isCompact: Bool = false
     ) -> CGFloat {
         let fitted = (horizontalPadding * 2 + titleWidth + labelDotGap + trailingSlot).rounded(.up)
-        return min(max(fitted, minimum), maximum)
+        return isCompact ? min(max(fitted, compactMinimum), compactMaximum) : min(max(fitted, minimum), maximum)
     }
 }
