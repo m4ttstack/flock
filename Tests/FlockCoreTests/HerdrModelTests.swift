@@ -10,11 +10,12 @@ final class HerdrModelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(snap.protocolVersion, 19)
     }
 
-    /// The model keeps the protocol herdr reported, which is what the strip
-    /// shows, rather than flock's own minimum.
-    func testTheModelKeepsTheProtocolHerdrReported() throws {
+    /// The model keeps the release herdr reported, which is what the strip
+    /// shows.
+    func testTheModelKeepsTheVersionHerdrReported() throws {
         let snap = try HerdrDecoder.snapshot(fromResponseLine: try fixture("snapshot.json"))
-        XCTAssertEqual(SessionModel(snapshot: snap).protocolVersion, snap.protocolVersion)
+        XCTAssertFalse(snap.version.isEmpty)
+        XCTAssertEqual(SessionModel(snapshot: snap).herdrVersion, snap.version)
     }
 
     func testEventFixtureLinesDecode() throws {

@@ -49,7 +49,7 @@ enum ChromeType {
     static let tabPaneGlyphName = "macwindow"
     static let tabCompleteGlyph = Font.system(size: 10.5, weight: .semibold)
     static let tabCompleteGlyphName = "checkmark"
-    static let protocolReadout = mono(11.5)
+    static let versionReadout = mono(11.5)
     /// The new-tab affordance's glyph. Named apart from the SF Symbol string
     /// literal it draws, so a render test can assert that exact name still
     /// resolves rather than duplicating it.
