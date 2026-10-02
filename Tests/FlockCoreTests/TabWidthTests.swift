@@ -44,7 +44,7 @@ final class TabWidthTests: XCTestCase {
     /// room it cannot use or a tab that clips what it just measured.
     func testEachBoundMeetsTheFitExactly() {
         XCTAssertEqual(width(title: 64), TabWidth.minimum)
-        XCTAssertEqual(width(title: 164), TabWidth.maximum)
+        XCTAssertEqual(width(title: 204), TabWidth.maximum)
     }
 
     /// Measured text lands on fractions of a point. The chrome's surfaces are
