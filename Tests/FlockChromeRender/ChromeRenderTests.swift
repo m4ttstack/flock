@@ -979,6 +979,8 @@ final class ChromeRenderTests: XCTestCase {
             padding: ChromeMetrics.Grid.thumbnailPadding, gap: ChromeMetrics.Grid.miniPaneGap, displayScale: 2
         )
         let claude = try XCTUnwrap(boxes.first { $0.pane == GridFixture.claudePane })
+        let rest = try snapshot(window)
+        assertGridSamples(rest, theme: .tokyoNight)
         harness.drag.showGridPreview(pane: claude.pane)
         await settle(window)
         // The card is placed against this box, so a card drawn anywhere else
@@ -991,15 +993,20 @@ final class ChromeRenderTests: XCTestCase {
         let tail = try XCTUnwrap(harness.viewModel.paneTails[claude.pane], "the card opened without reading its pane")
         XCTAssertEqual(tail.lines.count, PaneTailPolicy.lines)
         XCTAssertEqual(tail.lines.last, "Editing lib/daemon.ts")
-        let rest = try snapshot(window)
+        let previewing = try snapshot(window)
         if let directory {
-            try XCTUnwrap(rest.representation(using: .png, properties: [:]))
+            try XCTUnwrap(previewing.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-preview.png"))
         }
         for pane in model.panes.keys where !shownByTheCanvas.contains(pane) {
             XCTAssertNil(harness.viewModel.ghosttySurface(for: pane), "the grid attached \(pane.rawValue)")
         }
-        assertGridSamples(rest, theme: .tokyoNight)
+        // The grid's own canvas margin, well clear of the card: dimmed while
+        // the card is up, and only slightly.
+        let margin = CGPoint(x: 5, y: 120)
+        let dimming = channelDistance(hex(previewing, margin), hex(rest, margin))
+        XCTAssertGreaterThan(dimming, 0, "nothing dims the grid behind the card")
+        XCTAssertLessThan(dimming, 16, "the dim is heavy enough to hide the grid")
         window.close()
     }
 

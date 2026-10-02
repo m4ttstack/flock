@@ -779,6 +779,27 @@ private struct GridPreviewCard: View {
     @State private var size = CGSize(width: ChromeMetrics.HoverCard.width, height: ChromeMetrics.HoverCard.estimatedHeight)
 
     var body: some View {
+        ZStack(alignment: .topLeading) {
+            if drag.gridPreviewCard != nil {
+                scrim.transition(.opacity)
+            }
+            card
+        }
+        .animation(.easeOut(duration: ChromeMetrics.HoverCard.openDuration), value: drag.gridPreviewCard)
+    }
+
+    /// Takes no clicks: the grid behind stays live, so a click on another
+    /// pane moves the card and a click on empty space puts it away.
+    private var scrim: some View {
+        let isLight = ChromeRoles.isLight(panelBg: theme.palette.panelBg)
+        return Color.black
+            .opacity(isLight ? ChromeMetrics.HoverCard.lightScrimOpacity : ChromeMetrics.HoverCard.darkScrimOpacity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var card: some View {
         if let previewed = drag.gridPreviewCard,
            let viewport = drag.gridViewport,
            let box = drag.gridPaneFrame(of: previewed),
@@ -787,29 +808,63 @@ private struct GridPreviewCard: View {
            let content = PaneHoverCardContent.make(
                pane: previewed, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory()
            ) {
+            let paneBox = box.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
             let origin = HoverCardPlacement.origin(
-                pane: box.offsetBy(dx: -viewport.minX, dy: -viewport.minY),
-                card: size, container: CGRect(origin: .zero, size: viewport.size), gap: ChromeMetrics.HoverCard.paneGap
+                pane: paneBox, card: size, container: CGRect(origin: .zero, size: viewport.size),
+                gap: ChromeMetrics.HoverCard.paneGap
             )
-            PaneHoverCardView(theme: theme, content: content, tail: viewModel.paneTail(for: previewed))
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-                .offset(x: origin.x, y: origin.y)
-                // The card is not draggable, so the open hand the pane under
-                // the pointer set has no meaning over it.
-                .onHover { if $0 { GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor) } }
-                // The card's own cadence, and the whole of what keeps a
-                // running pane's tail current: nothing herdr reports about a
-                // pane changes when it prints, so there is no event to follow.
-                // Cancelled with the card, so no pane is read once its card
-                // has gone.
-                .task(id: previewed) {
-                    while !Task.isCancelled {
-                        try? await Task.sleep(for: PaneTailPolicy.refreshInterval)
-                        guard !Task.isCancelled else { return }
-                        viewModel.refreshPaneTail(for: previewed)
-                    }
+            PaneHoverCardView(
+                theme: theme, content: content, tail: viewModel.paneTail(for: previewed),
+                open: { openPane(previewed, tab: pane.tabID) },
+                close: { drag.dismissGridPreview() }
+            )
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+            .shadow(
+                color: .black.opacity(ChromeMetrics.HoverCard.shadowOpacity),
+                radius: ChromeMetrics.HoverCard.shadowRadius, y: ChromeMetrics.HoverCard.shadowY
+            )
+            // A card moving to another pane is a new card, so it grows out of
+            // that pane rather than sliding across the grid from the last one.
+            .id(previewed)
+            .transition(
+                .scale(scale: ChromeMetrics.HoverCard.openScale, anchor: Self.anchor(toward: paneBox, from: origin, card: size))
+                    .combined(with: .opacity)
+            )
+            .offset(x: origin.x, y: origin.y)
+            // The card is not draggable, so the open hand the pane under the
+            // pointer set has no meaning over it.
+            .onHover { if $0 { GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor) } }
+            // The card's own cadence, and the whole of what keeps a running
+            // pane's tail current: nothing herdr reports about a pane changes
+            // when it prints, so there is no event to follow. Cancelled with
+            // the card, so no pane is read once its card has gone.
+            .task(id: previewed) {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: PaneTailPolicy.refreshInterval)
+                    guard !Task.isCancelled else { return }
+                    viewModel.refreshPaneTail(for: previewed)
                 }
+            }
         }
+    }
+
+    private func openPane(_ pane: PaneID, tab: TabID) {
+        viewModel.select(tab: tab)
+        drag.closeGrid()
+        Task {
+            await viewModel.jumpToHerdr(tab: tab)
+            await viewModel.jumpToHerdr(pane: pane)
+        }
+    }
+
+    /// The point of the card nearest the pane it describes, so the card grows
+    /// out of that pane.
+    private static func anchor(toward pane: CGRect, from origin: CGPoint, card: CGSize) -> UnitPoint {
+        guard card.width > 0, card.height > 0 else { return .center }
+        return UnitPoint(
+            x: min(max((pane.midX - origin.x) / card.width, 0), 1),
+            y: min(max((pane.midY - origin.y) / card.height, 0), 1)
+        )
     }
 }
 
@@ -817,56 +872,84 @@ private struct PaneHoverCardView: View {
     let theme: Theme
     let content: PaneHoverCardContent
     let tail: PaneTail?
+    let open: () -> Void
+    let close: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.spacing) {
-            HStack(spacing: ChromeMetrics.HoverCard.titleSpacing) {
-                StatusDot(status: content.status, theme: theme, size: ChromeMetrics.HoverCard.statusDot)
-                Text(content.title)
-                    .font(ChromeType.hoverCardTitle)
-                    .foregroundStyle(theme.textStrong)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Text(content.statusWord)
-                    .font(ChromeType.hoverCardDetail)
-                    .foregroundStyle(theme.agentStatusColor(content.status) ?? theme.textLabel)
-            }
-            Text(content.position)
-                .font(ChromeType.hoverCardDetail)
-                .foregroundStyle(theme.textLabel)
-                .lineLimit(1)
-            Text(content.cwd)
-                .font(ChromeType.hoverCardDetail)
-                .foregroundStyle(theme.textDim)
-                .lineLimit(1)
-                .truncationMode(.head)
-            // Until the read lands there is no output to set apart, so the
-            // rule waits for it too, and a pane with nothing on screen is
-            // offered no copy of it.
-            if let tail, let copy = PaneHoverCardCopy.text(of: tail) {
-                Rectangle()
-                    .fill(theme.rule)
-                    .frame(height: ChromeMetrics.ruleWidth)
-                tailLines(tail)
-                HStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
+            bar
+            VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.spacing) {
+                HStack(spacing: ChromeMetrics.HoverCard.titleSpacing) {
+                    Text(content.position)
+                        .font(ChromeType.hoverCardDetail)
+                        .foregroundStyle(theme.textLabel)
+                        .lineLimit(1)
                     Spacer(minLength: 0)
-                    HoverCardCopyButton(theme: theme, text: copy)
+                    Text(content.statusWord)
+                        .font(ChromeType.hoverCardDetail)
+                        .foregroundStyle(theme.agentStatusColor(content.status) ?? theme.textLabel)
+                }
+                Text(content.cwd)
+                    .font(ChromeType.hoverCardDetail)
+                    .foregroundStyle(theme.textDim)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                // Until the read lands there is no output to set apart, so the
+                // rule waits for it too, and a pane with nothing on screen is
+                // offered no copy of it.
+                if let tail, let copy = PaneHoverCardCopy.text(of: tail) {
+                    Rectangle()
+                        .fill(theme.rule)
+                        .frame(height: ChromeMetrics.ruleWidth)
+                    tailLines(tail)
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        HoverCardCopyButton(theme: theme, text: copy)
+                    }
                 }
             }
+            .padding(.vertical, ChromeMetrics.HoverCard.verticalPadding)
+            .padding(.horizontal, ChromeMetrics.HoverCard.horizontalPadding)
         }
-        .padding(.vertical, ChromeMetrics.HoverCard.verticalPadding)
-        .padding(.horizontal, ChromeMetrics.HoverCard.horizontalPadding)
         .frame(width: ChromeMetrics.HoverCard.width, alignment: .leading)
-        .background(theme.chrome, in: RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.cornerRadius))
+        .background(theme.chrome)
+        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.cornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.cornerRadius)
                 .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
         )
-        // A container, not one combined element: the card holds a control now,
-        // and combining would fold the button into the card's own text and
-        // leave nothing to press.
+        // A container, not one combined element: the card holds controls, and
+        // combining would fold them into the card's own text and leave nothing
+        // to press.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("flock.grid.hoverCard")
+    }
+
+    /// The card's handle, in the roles a thumbnail's own handle strip uses, so
+    /// the card reads as that pane's window rather than a tooltip.
+    private var bar: some View {
+        HStack(spacing: ChromeMetrics.HoverCard.barSpacing) {
+            StatusDot(status: content.status, theme: theme, size: ChromeMetrics.HoverCard.statusDot)
+            Text(content.title)
+                .font(ChromeType.hoverCardTitle)
+                .foregroundStyle(theme.tabStripTitle)
+                .lineLimit(1)
+            Spacer(minLength: ChromeMetrics.HoverCard.titleSpacing)
+            HoverCardBarButton(
+                theme: theme, symbol: "arrow.up.forward.square", label: "Open pane",
+                identifier: "flock.grid.hoverCard.open", action: open
+            )
+            HoverCardBarButton(
+                theme: theme, symbol: "xmark", label: nil,
+                identifier: "flock.grid.hoverCard.close", action: close
+            )
+            .accessibilityLabel("Close preview")
+        }
+        .padding(.leading, ChromeMetrics.HoverCard.horizontalPadding)
+        .padding(.trailing, ChromeMetrics.HoverCard.barTrailingPadding)
+        .frame(height: ChromeMetrics.HoverCard.barHeight)
+        .frame(maxWidth: .infinity)
+        .background(theme.tabStripFill)
     }
 
     /// The pane's own last lines, in the terminal face. Each line stands alone
@@ -886,6 +969,43 @@ private struct PaneHoverCardView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("flock.grid.hoverCard.tail")
+    }
+}
+
+/// A control in the card's bar: a symbol, and a word when the symbol alone
+/// would not say what it does.
+private struct HoverCardBarButton: View {
+    let theme: Theme
+    let symbol: String
+    let label: String?
+    let identifier: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: ChromeMetrics.HoverCard.copySpacing) {
+                Image(systemName: symbol)
+                    .font(ChromeType.hoverCardCopySymbol)
+                if let label {
+                    Text(label)
+                        .font(ChromeType.hoverCardCopy)
+                }
+            }
+            .foregroundStyle(theme.tabStripTitle.opacity(isHovering ? 1 : ChromeMetrics.HoverCard.barControlRestOpacity))
+            .padding(.horizontal, ChromeMetrics.HoverCard.copyHorizontalPadding)
+            .padding(.vertical, ChromeMetrics.HoverCard.copyVerticalPadding)
+            .background(
+                RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.copyCornerRadius)
+                    .fill(theme.chrome)
+                    .opacity(isHovering ? 1 : 0)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityIdentifier(identifier)
     }
 }
 

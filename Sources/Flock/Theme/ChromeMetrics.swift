@@ -847,6 +847,21 @@ enum ChromeMetrics {
         /// Between the pane and the card beside it: wide enough to read as
         /// two things.
         static let paneGap: CGFloat = 8
+        static let barHeight: CGFloat = 30
+        static let barSpacing: CGFloat = 6
+        /// Tighter than the leading edge: the controls carry their own hover
+        /// padding, so their glyphs still line up with the body's text inset.
+        static let barTrailingPadding: CGFloat = 6
+        static let barControlRestOpacity: Double = 0.75
+        static let shadowOpacity: Double = 0.35
+        static let shadowRadius: CGFloat = 18
+        static let shadowY: CGFloat = 10
+        /// Far lighter than a modal's backdrop: the grid behind stays readable
+        /// and clickable, it only stops competing with the card.
+        static let darkScrimOpacity: Double = 0.14
+        static let lightScrimOpacity: Double = 0.08
+        static let openScale: CGFloat = 0.96
+        static let openDuration: Double = 0.16
         /// The tail's lines sit at the terminal's own rhythm, tighter than the
         /// card's rows, so a screenful reads as one block of output.
         static let tailLineSpacing: CGFloat = 1
