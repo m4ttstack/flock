@@ -84,7 +84,7 @@ final class TabSizingTests: XCTestCase {
 
         XCTAssertEqual(TabSizing.width(of: title, isComplete: true), TabWidth.compactMaximum)
         XCTAssertEqual(TabSizing.width(of: title, isComplete: true, isSelected: true), TabWidth.maximum)
-        XCTAssertEqual(TabSizing.width(of: TabTitle(text: "M", isFromPane: false), isComplete: true), TabWidth.compactMinimum)
+        XCTAssertEqual(TabSizing.width(of: TabTitle(text: "", isFromPane: false), isComplete: true), TabWidth.compactMinimum)
     }
 
     func testAShortTitleStillGetsAWholeTab() {

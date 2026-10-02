@@ -22,6 +22,7 @@ struct TabStrip: View {
     @Environment(DragCoordinator.self) private var drag
     @State private var scrollPosition = ScrollPosition()
     @State private var hoveredTabID: TabID?
+    @State private var completeGroupWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,48 +32,8 @@ struct TabStrip: View {
                 // to the rail's rule while a strip that fits keeps its inset.
                 ScrollView(.horizontal) {
                     HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
-                        ForEach(Array(tabs.enumerated()), id: \.element.tabID) { index, tab in
-                            TabBlock(
-                                theme: theme,
-                                tab: tab,
-                                title: title(for: tab),
-                                isSelected: tab.tabID == selectedTabID,
-                                isComplete: viewModel.completedTabs.isComplete(tab.tabID),
-                                isRenaming: viewModel.renameTarget == .tab(tab.tabID),
-                                showsClose: hoveredTabID == tab.tabID && viewModel.renameTarget != .tab(tab.tabID),
-                                renameText: viewModel.renameText(for: .tab(tab.tabID)),
-                                onCommitRename: { text in Task { await viewModel.commitRename(text, for: .tab(tab.tabID)) } },
-                                onCancelRename: { viewModel.cancelRename() },
-                                onClose: { Task { await viewModel.closeTab(tab.tabID) } },
-                                displacement: drag.tabDisplacement(at: index),
-                                isGhosted: drag.isDragging(tab: tab.tabID)
-                            )
-                            // Outside the tab, which offsets its own content: an
-                            // offset leaves the layout frame alone, so what is
-                            // published here is the tab's resting place rather
-                            // than its reshuffled one -- which is what the
-                            // insertion index must be measured against.
-                            .reportsFrame(in: DragSpace.stripContent) { drag.setTabFrame($0, for: tab.tabID) }
-                            // A container, so the controls inside the tab keep
-                            // their own identifiers: folded into its label,
-                            // the tab's close button and rename editor are not
-                            // reachable at all.
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("flock.strip.tab.\(tab.tabID.rawValue)")
-                            .onHover { hoveredTabID = $0 ? tab.tabID : (hoveredTabID == tab.tabID ? nil : hoveredTabID) }
-                            .onTapGesture { handleClick(on: tab.tabID, select: onSelect) }
-                            // Disarmed while this tab is being renamed: a press
-                            // inside the field must reach the text, not start a
-                            // drag.
-                            .simultaneousGesture(tabDrag(tab), including: viewModel.renameTarget == .tab(tab.tabID) ? .subviews : .all)
-                            .contextMenu {
-                                ForEach(tabMenuEntries(for: tab.tabID), id: \.accessibilityIdentifier) { entry in
-                                    Button(entry.label) {
-                                        Task { await entry.action.perform(tabID: tab.tabID, on: viewModel) }
-                                    }
-                                    .accessibilityIdentifier(entry.accessibilityIdentifier)
-                                }
-                            }
+                        ForEach(Array(openTabs.enumerated()), id: \.element.tabID) { index, tab in
+                            tabCell(tab, index: index)
                         }
                         // A real sibling in the same content, so it scrolls
                         // and hit-tests with the tabs rather than behind them
@@ -89,8 +50,17 @@ struct TabStrip: View {
                                 previewHovering: previewHoversNewTabAffordance
                             )
                         }
+                        if !completeTabs.isEmpty {
+                            Spacer(minLength: 0)
+                            completeGroup
+                                .reportsDragFrame { completeGroupWidth = $0.width }
+                        }
                     }
                     .padding(.leading, ChromeMetrics.Strip.horizontalPadding)
+                    .padding(.trailing, completeTabs.isEmpty ? 0 : ChromeMetrics.Strip.horizontalPadding)
+                    // As wide as the viewport at least, so the complete group
+                    // sits at the strip's far end while the tabs still fit.
+                    .frame(minWidth: drag.stripViewport?.width ?? 0, alignment: .leading)
                     .frame(height: ChromeMetrics.Strip.height, alignment: .bottom)
                     .coordinateSpace(.named(DragSpace.stripContent))
                     .reportsDragFrame { drag.setStripContentOrigin($0.origin) }
@@ -144,7 +114,77 @@ struct TabStrip: View {
         .onChange(of: tabs.map(\.tabID)) { _, _ in publishIdentity() }
         .onChange(of: workspace.flatMap { viewModel.model?.tabs[$0] }?.map(\.tabID)) { _, _ in publishIdentity() }
         .onChange(of: workspace) { _, _ in publishIdentity() }
+        .onChange(of: completeTabs.map(\.tabID)) { _, _ in publishIdentity() }
         .onChange(of: selectedTabID) { _, id in if let id { drag.revealTab(id) } }
+    }
+
+    private var openTabs: [TabRecord] { tabs.filter { !viewModel.completedTabs.isComplete($0.tabID) } }
+    private var completeTabs: [TabRecord] { tabs.filter { viewModel.completedTabs.isComplete($0.tabID) } }
+
+    /// The complete tabs as a stack of cards under their heading, each tucked
+    /// under the next. The hovered or selected one comes to the front.
+    private var completeGroup: some View {
+        HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
+            Text("COMPLETED")
+                .font(ChromeType.railHeading)
+                .tracking(ChromeType.railHeadingTracking)
+                .foregroundStyle(theme.textLabel)
+                .frame(height: ChromeMetrics.Tab.height)
+            HStack(alignment: .bottom, spacing: -ChromeMetrics.Tab.completeOverlap) {
+                ForEach(Array(completeTabs.enumerated()), id: \.element.tabID) { offset, tab in
+                    tabCell(tab, index: openTabs.count + offset)
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth)
+                        }
+                        .zIndex(tab.tabID == hoveredTabID || tab.tabID == selectedTabID ? Double(tabs.count) : Double(offset))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tabCell(_ tab: TabRecord, index: Int) -> some View {
+        TabBlock(
+            theme: theme,
+            tab: tab,
+            title: title(for: tab),
+            isSelected: tab.tabID == selectedTabID,
+            isComplete: viewModel.completedTabs.isComplete(tab.tabID),
+            isRenaming: viewModel.renameTarget == .tab(tab.tabID),
+            showsClose: hoveredTabID == tab.tabID && viewModel.renameTarget != .tab(tab.tabID),
+            renameText: viewModel.renameText(for: .tab(tab.tabID)),
+            onCommitRename: { text in Task { await viewModel.commitRename(text, for: .tab(tab.tabID)) } },
+            onCancelRename: { viewModel.cancelRename() },
+            onClose: { Task { await viewModel.closeTab(tab.tabID) } },
+            displacement: drag.tabDisplacement(at: index),
+            isGhosted: drag.isDragging(tab: tab.tabID)
+        )
+        // Outside the tab, which offsets its own content: an
+        // offset leaves the layout frame alone, so what is
+        // published here is the tab's resting place rather
+        // than its reshuffled one -- which is what the
+        // insertion index must be measured against.
+        .reportsFrame(in: DragSpace.stripContent) { drag.setTabFrame($0, for: tab.tabID) }
+        // A container, so the controls inside the tab keep
+        // their own identifiers: folded into its label,
+        // the tab's close button and rename editor are not
+        // reachable at all.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("flock.strip.tab.\(tab.tabID.rawValue)")
+        .onHover { hoveredTabID = $0 ? tab.tabID : (hoveredTabID == tab.tabID ? nil : hoveredTabID) }
+        .onTapGesture { handleClick(on: tab.tabID, select: onSelect) }
+        // Disarmed while this tab is being renamed: a press
+        // inside the field must reach the text, not start a
+        // drag.
+        .simultaneousGesture(tabDrag(tab), including: viewModel.renameTarget == .tab(tab.tabID) ? .subviews : .all)
+        .contextMenu {
+            ForEach(tabMenuEntries(for: tab.tabID), id: \.accessibilityIdentifier) { entry in
+                Button(entry.label) {
+                    Task { await entry.action.perform(tabID: tab.tabID, on: viewModel) }
+                }
+                .accessibilityIdentifier(entry.accessibilityIdentifier)
+            }
+        }
     }
 
     /// `tabsEnd` -- every current tab's own width, gaps and the strip's own
@@ -153,14 +193,13 @@ struct TabStrip: View {
     /// there is any, is `NewTabAffordance`'s.
     private var newTabAffordanceFrame: CGRect? {
         let gap = ChromeMetrics.Strip.tabGap
-        let tabsWidth = tabs.reduce(CGFloat(0)) {
-            $0 + TabSizing.width(
-                of: title(for: $1), isComplete: viewModel.completedTabs.isComplete($1.tabID), isSelected: $1.tabID == selectedTabID
-            )
-        }
-        let tabsEnd = ChromeMetrics.Strip.horizontalPadding + tabsWidth + gap * CGFloat(max(tabs.count - 1, 0))
+        let open = openTabs
+        let tabsWidth = open.reduce(CGFloat(0)) { $0 + TabSizing.width(of: title(for: $1)) }
+        let tabsEnd = ChromeMetrics.Strip.horizontalPadding + tabsWidth + gap * CGFloat(max(open.count - 1, 0))
+        let completeRoom = completeTabs.isEmpty ? 0 : completeGroupWidth + gap
         return NewTabAffordance.frame(
-            tabsEnd: tabsEnd, gap: gap, viewportWidth: drag.stripViewport?.width ?? 0, height: ChromeMetrics.Tab.height
+            tabsEnd: tabsEnd, gap: gap, viewportWidth: max((drag.stripViewport?.width ?? 0) - completeRoom, 0),
+            height: ChromeMetrics.Tab.height
         )
     }
 
@@ -215,6 +254,7 @@ struct TabStrip: View {
     /// what turns those frames back into a list.
     private func publishIdentity() {
         drag.stripWorkspace = workspace
+        drag.stripCompleteTabs = Set(completeTabs.map(\.tabID))
         drag.setTabOrder(tabs.map(\.tabID), modelOrder: workspace.flatMap { viewModel.model?.tabs[$0] }?.map(\.tabID) ?? [])
     }
 

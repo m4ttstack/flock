@@ -8,8 +8,8 @@ import CoreGraphics
 public enum TabWidth {
     public static let minimum: CGFloat = 100
     public static let maximum: CGFloat = 240
-    public static let compactMinimum: CGFloat = 80
-    public static let compactMaximum: CGFloat = 140
+    public static let compactMinimum: CGFloat = 72
+    public static let compactMaximum: CGFloat = 110
 
     /// `titleWidth` is the label measured in the face it is drawn in; the rest
     /// is what the tab lays out beside it. `trailingSlot` is the one place the

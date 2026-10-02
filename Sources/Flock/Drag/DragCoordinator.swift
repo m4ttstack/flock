@@ -190,12 +190,18 @@ final class DragCoordinator {
     /// so they move with the items rather than being published separately and
     /// going stale behind them. Which subjects may use them is
     /// `resolveDropTarget`'s decision, not this one's.
+    /// Between the open tabs and the complete group the strip pins to its
+    /// far end, when it has one.
     var newTabZone: CGRect? {
         guard let stripFrame else { return nil }
+        let frames = tabFrames
+        let firstComplete = frames.first { stripCompleteTabs.contains($0.id) }
         return DropZones.trailing(
-            in: stripFrame, itemsEndingAt: tabFrames.last?.frame.maxX, before: stripTrailingLimit ?? stripFrame.maxX
+            in: stripFrame, itemsEndingAt: frames.last { !stripCompleteTabs.contains($0.id) }?.frame.maxX,
+            before: firstComplete?.frame.minX ?? stripTrailingLimit ?? stripFrame.maxX
         )
     }
+    var stripCompleteTabs: Set<TabID> = []
 
     var newWorkspaceZone: CGRect? {
         guard let railFrame else { return nil }
