@@ -64,6 +64,19 @@ final class TabSizingTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(borrowed, named + ChromeMetrics.Tab.paneGlyphWidth + ChromeMetrics.Tab.paneGlyphGap - 1)
     }
 
+    /// A complete tab's checkmark leads everything else in it, the pane glyph
+    /// included, and takes room of its own rather than the title's.
+    func testACompleteTabMakesRoomForItsCheckmark() {
+        let check = ChromeMetrics.Tab.completeGlyphWidth + ChromeMetrics.Tab.completeGlyphGap
+        for isFromPane in [false, true] {
+            let title = TabTitle(text: "Trash Runner", isFromPane: isFromPane)
+            let open = TabSizing.width(of: title)
+            XCTAssertLessThan(open, TabWidth.maximum - 40, "the title is near the maximum, so this test proves nothing")
+
+            XCTAssertGreaterThanOrEqual(TabSizing.width(of: title, isComplete: true), open + check - 1)
+        }
+    }
+
     func testAShortTitleStillGetsAWholeTab() {
         XCTAssertEqual(TabSizing.width(of: "M"), TabWidth.minimum)
     }

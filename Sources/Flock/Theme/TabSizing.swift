@@ -9,10 +9,11 @@ enum TabSizing {
         width(of: TabTitle(text: title, isFromPane: false))
     }
 
-    static func width(of title: TabTitle) -> CGFloat {
+    static func width(of title: TabTitle, isComplete: Bool = false) -> CGFloat {
+        let check = isComplete ? ChromeMetrics.Tab.completeGlyphWidth + ChromeMetrics.Tab.completeGlyphGap : 0
         let glyph = title.isFromPane ? ChromeMetrics.Tab.paneGlyphWidth + ChromeMetrics.Tab.paneGlyphGap : 0
         return TabWidth.fitting(
-            titleWidth: glyph + titleWidth(title.text),
+            titleWidth: check + glyph + titleWidth(title.text),
             horizontalPadding: ChromeMetrics.Tab.horizontalPadding,
             labelDotGap: ChromeMetrics.Tab.labelDotGap,
             trailingSlot: ChromeMetrics.Tab.trailingSlot

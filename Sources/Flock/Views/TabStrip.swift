@@ -37,6 +37,7 @@ struct TabStrip: View {
                                 tab: tab,
                                 title: title(for: tab),
                                 isSelected: tab.tabID == selectedTabID,
+                                isComplete: viewModel.completedTabs.isComplete(tab.tabID),
                                 isRenaming: viewModel.renameTarget == .tab(tab.tabID),
                                 showsClose: hoveredTabID == tab.tabID && viewModel.renameTarget != .tab(tab.tabID),
                                 renameText: viewModel.renameText(for: .tab(tab.tabID)),
@@ -151,7 +152,9 @@ struct TabStrip: View {
     /// there is any, is `NewTabAffordance`'s.
     private var newTabAffordanceFrame: CGRect? {
         let gap = ChromeMetrics.Strip.tabGap
-        let tabsWidth = tabs.reduce(CGFloat(0)) { $0 + TabSizing.width(of: title(for: $1)) }
+        let tabsWidth = tabs.reduce(CGFloat(0)) {
+            $0 + TabSizing.width(of: title(for: $1), isComplete: viewModel.completedTabs.isComplete($1.tabID))
+        }
         let tabsEnd = ChromeMetrics.Strip.horizontalPadding + tabsWidth + gap * CGFloat(max(tabs.count - 1, 0))
         return NewTabAffordance.frame(
             tabsEnd: tabsEnd, gap: gap, viewportWidth: drag.stripViewport?.width ?? 0, height: ChromeMetrics.Tab.height
@@ -186,7 +189,7 @@ struct TabStrip: View {
 
     private func tabMenuEntries(for tab: TabID) -> [ChromeMenuEntry<TabMenuAction>] {
         guard let model = viewModel.model else { return [] }
-        return TabMenuModel.entries(for: tab, model: model)
+        return TabMenuModel.entries(for: tab, model: model, isComplete: viewModel.completedTabs.isComplete(tab))
     }
 
     /// Hints at tabs scrolled past this edge: the strip's own color run down
@@ -236,6 +239,7 @@ private struct TabBlock: View {
     let tab: TabRecord
     let title: TabTitle
     let isSelected: Bool
+    var isComplete = false
     var isRenaming = false
     /// The hover-reveal close: laid out on every tab either way, so a tab
     /// never reflows as the pointer crosses it.
@@ -265,6 +269,15 @@ private struct TabBlock: View {
         .frame(width: ChromeMetrics.Tab.trailingSlot)
     }
 
+    /// A complete tab's title sits one step dimmer than it would otherwise.
+    private var labelColor: Color {
+        switch (isSelected, isComplete) {
+        case (true, false): theme.textStrong
+        case (true, true), (false, false): theme.textDim
+        case (false, true): theme.textLabel
+        }
+    }
+
     var body: some View {
         // The underline takes its height out of the selected block, so the
         // selected label centers on the block above it; resting tabs have no
@@ -281,6 +294,14 @@ private struct TabBlock: View {
                         onCommit: onCommitRename, onCancel: onCancelRename
                     )
                 } else {
+                    if isComplete {
+                        Image(systemName: ChromeType.tabCompleteGlyphName)
+                            .font(ChromeType.tabCompleteGlyph)
+                            .foregroundStyle(labelColor)
+                            .frame(width: ChromeMetrics.Tab.completeGlyphWidth)
+                            .padding(.trailing, ChromeMetrics.Tab.completeGlyphGap)
+                            .accessibilityLabel("Complete")
+                    }
                     if title.isFromPane {
                         Image(systemName: ChromeType.tabPaneGlyphName)
                             .font(ChromeType.tabPaneGlyph)
@@ -291,7 +312,7 @@ private struct TabBlock: View {
                     }
                     Text(title.text)
                         .font(ChromeType.tabLabel(selected: isSelected))
-                        .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
+                        .foregroundStyle(labelColor)
                         .lineLimit(1)
                     Spacer(minLength: ChromeMetrics.Tab.labelDotGap)
                     trailingSlot
@@ -309,7 +330,7 @@ private struct TabBlock: View {
         // Sized off the tab's own label, not the editor's text: a rename in
         // flight must not resize the tab under the field, nor slide the tabs
         // after it along the strip with every keystroke.
-        .frame(width: TabSizing.width(of: title), height: ChromeMetrics.Tab.height)
+        .frame(width: TabSizing.width(of: title, isComplete: isComplete), height: ChromeMetrics.Tab.height)
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(x: displacement)

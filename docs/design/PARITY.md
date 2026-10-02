@@ -76,6 +76,7 @@ row.
 | Pane: `Close pane` | `Close Pane` | `PaneMenuModel` | always |
 | Tab: `New tab` | `New Tab` | `TabMenuModel` | always |
 | Tab: `Rename` | `Rename` | `TabMenuModel` | always |
+| (none) | `Mark Complete` / `Mark Incomplete` | `TabMenuModel` | flock's own: always; `Mark Incomplete` while the tab is marked (`TabCompletionStore`) |
 | Tab: `Close` | `Close` | `TabMenuModel` | always, last tab included |
 | Workspace: `Rename` | `Rename` | `WorkspaceMenuModel` | always |
 | Workspace: `Close` / `Close group` | `Close` | `WorkspaceMenuModel` | always; herdr's group form is flock's confirmation prompt on `workspace_group_close_required` |

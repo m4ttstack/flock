@@ -28,21 +28,29 @@ final class ChromeMenuModelTests: XCTestCase {
 
     // MARK: - Tab menu
 
-    func testTheTabMenuMirrorsHerdrsThreeRowsInOrder() {
-        let entries = TabMenuModel.entries(for: Self.tab, model: model())
+    /// herdr's three rows in its order, with flock's own completion row
+    /// between Rename and Close.
+    func testTheTabMenuMirrorsHerdrsRowsInOrderAroundFlocksOwn() {
+        let entries = TabMenuModel.entries(for: Self.tab, model: model(), isComplete: false)
 
-        XCTAssertEqual(entries.map(\.label), ["New Tab", "Rename", "Close"])
+        XCTAssertEqual(entries.map(\.label), ["New Tab", "Rename", "Mark Complete", "Close"])
         XCTAssertEqual(entries.map(\.accessibilityIdentifier), [
-            "flock.tab.menu.newTab", "flock.tab.menu.rename", "flock.tab.menu.close",
+            "flock.tab.menu.newTab", "flock.tab.menu.rename", "flock.tab.menu.complete", "flock.tab.menu.close",
         ])
-        XCTAssertEqual(entries.map(\.action), [.newTab(Self.workspace), .rename, .close])
+        XCTAssertEqual(entries.map(\.action), [.newTab(Self.workspace), .rename, .toggleComplete, .close])
+    }
+
+    func testACompleteTabsMenuOffersToUndoTheMark() {
+        let entries = TabMenuModel.entries(for: Self.tab, model: model(), isComplete: true)
+
+        XCTAssertEqual(entries.first { $0.action == .toggleComplete }?.label, "Mark Incomplete")
     }
 
     /// The created tab belongs to the RIGHT-CLICKED tab's own workspace, not
     /// to whatever the rail has selected: a tab menu can be opened from a
     /// grid card of another workspace.
     func testNewTabCarriesTheRightClickedTabsOwnWorkspace() {
-        let entries = TabMenuModel.entries(for: Self.otherTab, model: model())
+        let entries = TabMenuModel.entries(for: Self.otherTab, model: model(), isComplete: false)
 
         XCTAssertEqual(entries.first?.action, .newTab(Self.otherWorkspace))
     }
@@ -52,11 +60,11 @@ final class ChromeMenuModelTests: XCTestCase {
     func testCloseIsOfferedOnAWorkspacesOnlyTab() {
         XCTAssertEqual(model().tabs[Self.otherWorkspace]?.count, 1)
 
-        XCTAssertTrue(TabMenuModel.entries(for: Self.otherTab, model: model()).contains { $0.action == .close })
+        XCTAssertTrue(TabMenuModel.entries(for: Self.otherTab, model: model(), isComplete: false).contains { $0.action == .close })
     }
 
     func testATabTheModelDoesNotCarryHasNoMenuAtAll() {
-        XCTAssertTrue(TabMenuModel.entries(for: TabID(rawValue: "ghost"), model: model()).isEmpty)
+        XCTAssertTrue(TabMenuModel.entries(for: TabID(rawValue: "ghost"), model: model(), isComplete: false).isEmpty)
     }
 
     // MARK: - Workspace menu

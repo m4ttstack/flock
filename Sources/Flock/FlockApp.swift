@@ -206,7 +206,8 @@ struct FlockApp: App {
             notificationLifetime: { notificationLifetimeStore.active },
             attentionToastArchive: AttentionToastArchive(),
             startingFolder: { startingFolderStore.choice(for: $0) },
-            rightClickDefaults: .standard
+            rightClickDefaults: .standard,
+            completedTabDefaults: .standard
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))

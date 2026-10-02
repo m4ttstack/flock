@@ -20,6 +20,7 @@ public struct ChromeMenuEntry<Action: Equatable & Sendable>: Equatable, Sendable
 public enum TabMenuAction: Equatable, Sendable {
     case newTab(WorkspaceID)
     case rename
+    case toggleComplete
     case close
 }
 
@@ -34,7 +35,8 @@ public enum RailMenuAction: Equatable, Sendable {
 
 /// Pure model for a tab's right-click menu. Mirrors herdr's own
 /// `ClientContextMenuTarget::Tab` list (`src/client/shell/context_menu.rs`):
-/// New tab, Rename, Close, in that order and unconditionally. herdr offers
+/// New tab, Rename, Close, in that order and unconditionally, with flock's
+/// own completion row (`TabCompletionStore`) between Rename and Close. herdr offers
 /// Close on a workspace's last tab too, and so does flock; what differs is
 /// what the row then does. herdr closes the workspace outright, while flock
 /// asks first, since a close cannot be undone (`CloseConsequence`, reached
@@ -43,11 +45,15 @@ public enum RailMenuAction: Equatable, Sendable {
 /// Empty for a tab the model does not carry, which is what leaves the view
 /// with no menu at all rather than one whose rows name a dead id.
 public enum TabMenuModel {
-    public static func entries(for tab: TabID, model: SessionModel) -> [ChromeMenuEntry<TabMenuAction>] {
+    public static func entries(for tab: TabID, model: SessionModel, isComplete: Bool) -> [ChromeMenuEntry<TabMenuAction>] {
         guard let workspace = model.tabs.first(where: { $0.value.contains { $0.tabID == tab } })?.key else { return [] }
         return [
             ChromeMenuEntry(label: "New Tab", action: .newTab(workspace), accessibilityIdentifier: "flock.tab.menu.newTab"),
             ChromeMenuEntry(label: "Rename", action: .rename, accessibilityIdentifier: "flock.tab.menu.rename"),
+            ChromeMenuEntry(
+                label: isComplete ? "Mark Incomplete" : "Mark Complete", action: .toggleComplete,
+                accessibilityIdentifier: "flock.tab.menu.complete"
+            ),
             ChromeMenuEntry(label: "Close", action: .close, accessibilityIdentifier: "flock.tab.menu.close"),
         ]
     }
@@ -88,6 +94,8 @@ extension TabMenuAction {
             await viewModel.createTab(in: workspace)
         case .rename:
             viewModel.beginRename(.tab(tabID))
+        case .toggleComplete:
+            viewModel.completedTabs.toggle(tabID)
         case .close:
             await viewModel.closeTab(tabID)
         }

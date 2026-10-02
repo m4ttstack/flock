@@ -33,6 +33,7 @@ public final class SessionViewModel {
     public let rt: RtCoordinator
     /// Each canvas pane's right-click mode (see `RightClickDisposition`).
     public let rightClicks: RightClickModeStore
+    public let completedTabs: TabCompletionStore
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
@@ -161,7 +162,8 @@ public final class SessionViewModel {
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
         homeDirectory: String = NSHomeDirectory(),
         rt: RtCoordinator? = nil,
-        rightClickDefaults: UserDefaults? = nil
+        rightClickDefaults: UserDefaults? = nil,
+        completedTabDefaults: UserDefaults? = nil
     ) {
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -179,6 +181,7 @@ public final class SessionViewModel {
         self.homeDirectory = homeDirectory
         self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
         self.rightClicks = RightClickModeStore(userDefaults: rightClickDefaults)
+        self.completedTabs = TabCompletionStore(userDefaults: completedTabDefaults)
         if let attentionToastArchive, notificationLifetime() != .never {
             attentionToasts = attentionToastArchive.load()
         }
@@ -236,6 +239,7 @@ public final class SessionViewModel {
         rt.update(model: fullModel)
         if connection == .live, let fullModel {
             rightClicks.keepOnly(Set(fullModel.panes.values.compactMap(\.terminalID)))
+            completedTabs.keepOnly(Set(fullModel.tabs.values.flatMap { $0.map(\.tabID) }))
         }
     }
 

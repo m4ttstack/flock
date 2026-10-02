@@ -137,6 +137,9 @@ enum ChromeMetrics {
         /// The glyph leading a title borrowed from the tab's one pane.
         static let paneGlyphWidth: CGFloat = 12
         static let paneGlyphGap: CGFloat = 5
+        /// The checkmark leading a tab marked complete.
+        static let completeGlyphWidth: CGFloat = 12
+        static let completeGlyphGap: CGFloat = 5
         /// The status dot and the hover close stand in the same place, one at
         /// a time, so the room kept for them is the wider of the two. Kept as
         /// a slot rather than as the close's own size because what the tab

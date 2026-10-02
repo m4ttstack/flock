@@ -1146,6 +1146,31 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// A complete tab, selected and resting, leads with its checkmark in a
+    /// dimmer title and is sized for both. PNGs go to
+    /// `FLOCK_CHROME_RENDER_DIR`.
+    func testACompleteTabWearsACheckmarkInDarkAndLightThemes() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let model = try Fixture.model(flockTabLabels: ["api", "Trash Runner", "claude", "logs"])
+        let complete = [TabID(rawValue: "w1:t1"), TabID(rawValue: "w1:t3")]
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            let harness = try await Harness(theme: theme, model: model)
+            complete.forEach(harness.viewModel.completedTabs.toggle)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("tab-complete-\(scheme).png"))
+            }
+            let frames = harness.drag.tabFrames
+            let width = { (tab: String) in frames.first { $0.id == TabID(rawValue: tab) }?.frame.width }
+            XCTAssertEqual(width("w1:t1"), TabSizing.width(of: TabTitle(text: "api", isFromPane: false), isComplete: true), scheme)
+            XCTAssertEqual(width("w1:t3"), TabSizing.width(of: TabTitle(text: "claude", isFromPane: false), isComplete: true), scheme)
+            XCTAssertEqual(width("w1:t2"), TabSizing.width(of: "Trash Runner"), scheme)
+            window.close()
+        }
+    }
+
     /// A pane dragged out of a mini pane, first over another workspace's
     /// thumbnail and then over a third workspace's card where no thumbnail
     /// sits. Both renders carry the ghost, the drop wash and the targeted
