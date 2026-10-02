@@ -3785,6 +3785,7 @@ private struct GridFixtureClient: HerdrCommandClient {
         bun install v1.2.4
         Checked 212 installs across 240 packages (no changes) [41.00ms]
         $ bun test lib/daemon
+        warn: lib/daemon/socket.ts:42 the idle timeout falls back to its default because DAEMON_IDLE_MS is unset in this environment
         lib/daemon/port-allocator.test.ts:
         (pass) allocates the first free port
         (pass) refuses a port already held

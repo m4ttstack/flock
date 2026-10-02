@@ -875,6 +875,11 @@ private struct PaneHoverCardView: View {
     let open: () -> Void
     let close: () -> Void
 
+    @State private var tailHeight: CGFloat = 0
+    @State private var tailScroll = ScrollPosition(edge: .bottom)
+    @State private var followsTail = true
+    @State private var tailAtEnd = true
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             bar
@@ -952,21 +957,58 @@ private struct PaneHoverCardView: View {
         .background(theme.tabStripFill)
     }
 
-    /// The pane's own last lines, in the terminal face. Each line stands alone
-    /// and clips: the card is one fixed width, and a line allowed to wrap
-    /// would make the card's height depend on how long the pane's output
-    /// happens to be.
+    /// The pane's own last lines, in the terminal face, wrapped rather than
+    /// clipped: a pane is usually wider than the card. Wrapping makes the
+    /// output's height depend on its line lengths, so it scrolls past a cap
+    /// and opens on its newest lines, as the terminal itself would.
     private func tailLines(_ tail: PaneTail) -> some View {
-        VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.tailLineSpacing) {
-            ForEach(Array(tail.lines.enumerated()), id: \.offset) { _, line in
-                Text(line)
-                    .font(ChromeType.hoverCardTail)
-                    .foregroundStyle(theme.textDim)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.tailLineSpacing) {
+                ForEach(Array(tail.lines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(ChromeType.hoverCardTail)
+                        .foregroundStyle(theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tailHeight = $0 }
+        }
+        .scrollIndicators(.automatic)
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .scrollPosition($tailScroll)
+        // Wrapped lines settle their height a pass after the first layout,
+        // which leaves an anchor taken then short of the end, and a scroll to
+        // the bottom edge lands a few points short of it too. So the end is
+        // computed from the scroll view's own geometry and followed only
+        // while the reader is at it, so new output never yanks them away from
+        // what they scrolled to.
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height - $0.containerSize.height } action: { _, end in
+            guard followsTail else { return }
+            // Snapped, never animated: the card's own open animation would
+            // otherwise carry the scroll, leaving it short while it runs.
+            var snap = Transaction()
+            snap.disablesAnimations = true
+            withTransaction(snap) { tailScroll.scrollTo(y: max(0, end)) }
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 1
+        } action: { _, atEnd in
+            tailAtEnd = atEnd
+        }
+        // Only the reader's own scroll decides whether the tail is followed:
+        // content growing under a scroll that already ran also leaves the view
+        // short of the end for a moment, and that is not the reader leaving it.
+        .onScrollPhaseChange { old, new in
+            if new == .interacting {
+                followsTail = false
+            } else if new == .idle, old == .interacting || old == .decelerating {
+                followsTail = tailAtEnd
             }
         }
+        // Sized to the output up to the cap, so a short tail leaves no gap
+        // above the copy action.
+        .frame(height: min(tailHeight, ChromeMetrics.HoverCard.tailMaxHeight))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("flock.grid.hoverCard.tail")
     }

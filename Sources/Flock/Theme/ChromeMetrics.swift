@@ -847,6 +847,10 @@ enum ChromeMetrics {
         /// Between the pane and the card beside it: wide enough to read as
         /// two things.
         static let paneGap: CGFloat = 8
+        /// About twenty lines of the tail's face, so a full tail of short
+        /// lines never scrolls and the card stays shorter than the grid at the
+        /// window's minimum height.
+        static let tailMaxHeight: CGFloat = 300
         static let barHeight: CGFloat = 30
         static let barSpacing: CGFloat = 6
         /// Tighter than the leading edge: the controls carry their own hover
