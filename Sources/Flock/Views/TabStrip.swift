@@ -121,23 +121,16 @@ struct TabStrip: View {
     private var openTabs: [TabRecord] { tabs.filter { !viewModel.completedTabs.isComplete($0.tabID) } }
     private var completeTabs: [TabRecord] { tabs.filter { viewModel.completedTabs.isComplete($0.tabID) } }
 
-    /// The complete tabs as a stack of cards under their heading, each tucked
-    /// under the next. The hovered or selected one comes to the front.
+    /// The complete tabs as a stack of cards, each tucked under the next. The
+    /// hovered or selected one comes to the front.
     private var completeGroup: some View {
-        HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
-            Text("COMPLETED")
-                .font(ChromeType.railHeading)
-                .tracking(ChromeType.railHeadingTracking)
-                .foregroundStyle(theme.textLabel)
-                .frame(height: ChromeMetrics.Tab.height)
-            HStack(alignment: .bottom, spacing: -ChromeMetrics.Tab.completeOverlap) {
-                ForEach(Array(completeTabs.enumerated()), id: \.element.tabID) { offset, tab in
-                    tabCell(tab, index: openTabs.count + offset)
-                        .overlay(alignment: .leading) {
-                            Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth)
-                        }
-                        .zIndex(tab.tabID == hoveredTabID || tab.tabID == selectedTabID ? Double(tabs.count) : Double(offset))
-                }
+        HStack(alignment: .bottom, spacing: -ChromeMetrics.Tab.completeOverlap) {
+            ForEach(Array(completeTabs.enumerated()), id: \.element.tabID) { offset, tab in
+                tabCell(tab, index: openTabs.count + offset)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth)
+                    }
+                    .zIndex(tab.tabID == hoveredTabID || tab.tabID == selectedTabID ? Double(tabs.count) : Double(offset))
             }
         }
     }
