@@ -61,6 +61,8 @@ enum ChromeMetrics {
         /// than the heading text: the overflow is absorbed by the padding
         /// above and the gap below.
         static let headingButtonSize: CGFloat = 22
+        /// The grid glyph's drawn square inside that block.
+        static let headingSymbolSize: CGFloat = 13
         static let headingButtonCornerRadius: CGFloat = 3
         /// How much accent a held press blends over the selection fill, so
         /// pressed reads a step deeper than hover.

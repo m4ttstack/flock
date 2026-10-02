@@ -298,7 +298,7 @@ struct WorkspaceRail: View {
 
 /// The way into the All Workspaces grid that does not need the menu. The way
 /// back is Esc: the grid covers this rail while it is shown.
-private struct AllWorkspacesButton: View {
+struct AllWorkspacesButton: View {
     let theme: Theme
 
     @Environment(DragCoordinator.self) private var drag
@@ -308,19 +308,29 @@ private struct AllWorkspacesButton: View {
         Button {
             drag.toggleGrid()
         } label: {
-            Image(systemName: "square.grid.2x2")
-                .font(ChromeType.railHeadingSymbol)
+            Self.glyph
         }
         .buttonStyle(HeadingButtonStyle(theme: theme, isHovering: isHovering))
         .onHover { isHovering = $0 }
         .help("All workspaces")
         .accessibilityIdentifier("flock.rail.allWorkspaces")
     }
+
+    /// Drawn at an explicit square size rather than as a font glyph: a
+    /// glyph's layout box carries the font's descent, so centering the box
+    /// sits the drawn grid low in the block behind it.
+    static var glyph: some View {
+        Image(systemName: "square.grid.2x2")
+            .resizable()
+            .fontWeight(.medium)
+            .scaledToFit()
+            .frame(width: ChromeMetrics.Rail.headingSymbolSize, height: ChromeMetrics.Rail.headingSymbolSize)
+    }
 }
 
 /// The selected-tab block behind the glyph, appearing on hover and taking a
 /// wash of accent while the press is held.
-private struct HeadingButtonStyle: ButtonStyle {
+struct HeadingButtonStyle: ButtonStyle {
     let theme: Theme
     let isHovering: Bool
 
