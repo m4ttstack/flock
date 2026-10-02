@@ -130,7 +130,7 @@ struct TabStrip: View {
                     .overlay(alignment: .leading) {
                         Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth)
                     }
-                    .zIndex(tab.tabID == hoveredTabID || tab.tabID == selectedTabID ? Double(tabs.count) : Double(offset))
+                    .zIndex(tab.tabID == hoveredTabID ? Double(tabs.count + 1) : tab.tabID == selectedTabID ? Double(tabs.count) : Double(offset))
             }
         }
     }
@@ -143,6 +143,7 @@ struct TabStrip: View {
             title: title(for: tab),
             isSelected: tab.tabID == selectedTabID,
             isComplete: viewModel.completedTabs.isComplete(tab.tabID),
+            isLifted: hoveredTabID == tab.tabID && viewModel.completedTabs.isComplete(tab.tabID),
             isRenaming: viewModel.renameTarget == .tab(tab.tabID),
             showsClose: hoveredTabID == tab.tabID && viewModel.renameTarget != .tab(tab.tabID),
             renameText: viewModel.renameText(for: .tab(tab.tabID)),
@@ -276,6 +277,8 @@ private struct TabBlock: View {
     let title: TabTitle
     let isSelected: Bool
     var isComplete = false
+    /// A complete tab under the pointer, drawn out of its stack.
+    var isLifted = false
     var isRenaming = false
     /// The hover-reveal close: laid out on every tab either way, so a tab
     /// never reflows as the pointer crosses it.
@@ -305,9 +308,9 @@ private struct TabBlock: View {
         .frame(width: ChromeMetrics.Tab.trailingSlot)
     }
 
-    private var labelColor: Color { isSelected ? theme.textStrong : theme.textDim }
+    private var labelColor: Color { isSelected || isLifted ? theme.textStrong : theme.textDim }
 
-    private var titleOpacity: Double { isComplete ? ChromeMetrics.Tab.completeTitleOpacity : 1 }
+    private var titleOpacity: Double { isComplete && !isLifted ? ChromeMetrics.Tab.completeTitleOpacity : 1 }
 
     var body: some View {
         // The underline takes its height out of the selected block, so the
@@ -353,7 +356,7 @@ private struct TabBlock: View {
             }
             .padding(.horizontal, ChromeMetrics.Tab.horizontalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .boundedBackground(isSelected ? theme.selection : theme.tabRest)
+            .boundedBackground(isSelected || isLifted ? theme.selection : theme.tabRest)
             if isSelected {
                 Rectangle()
                     .fill(theme.accent)
@@ -364,6 +367,8 @@ private struct TabBlock: View {
         // flight must not resize the tab under the field, nor slide the tabs
         // after it along the strip with every keystroke.
         .frame(width: TabSizing.width(of: title, isComplete: isComplete, isSelected: isSelected), height: ChromeMetrics.Tab.height)
+        .shadow(color: .black.opacity(isLifted ? 0.35 : 0), radius: 4)
+        .animation(.easeOut(duration: 0.12), value: isLifted)
         .contentShape(Rectangle())
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(x: displacement)
