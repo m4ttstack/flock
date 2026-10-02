@@ -269,14 +269,9 @@ private struct TabBlock: View {
         .frame(width: ChromeMetrics.Tab.trailingSlot)
     }
 
-    /// A complete tab's title sits one step dimmer than it would otherwise.
-    private var labelColor: Color {
-        switch (isSelected, isComplete) {
-        case (true, false): theme.textStrong
-        case (true, true), (false, false): theme.textDim
-        case (false, true): theme.textLabel
-        }
-    }
+    private var labelColor: Color { isSelected ? theme.textStrong : theme.textDim }
+
+    private var titleOpacity: Double { isComplete ? ChromeMetrics.Tab.completeTitleOpacity : 1 }
 
     var body: some View {
         // The underline takes its height out of the selected block, so the
@@ -306,6 +301,7 @@ private struct TabBlock: View {
                         Image(systemName: ChromeType.tabPaneGlyphName)
                             .font(ChromeType.tabPaneGlyph)
                             .foregroundStyle(theme.textLabel)
+                            .opacity(titleOpacity)
                             .frame(width: ChromeMetrics.Tab.paneGlyphWidth)
                             .padding(.trailing, ChromeMetrics.Tab.paneGlyphGap)
                             .accessibilityLabel("Named after its pane")
@@ -313,6 +309,7 @@ private struct TabBlock: View {
                     Text(title.text)
                         .font(ChromeType.tabLabel(selected: isSelected))
                         .foregroundStyle(labelColor)
+                        .opacity(titleOpacity)
                         .lineLimit(1)
                     Spacer(minLength: ChromeMetrics.Tab.labelDotGap)
                     trailingSlot
