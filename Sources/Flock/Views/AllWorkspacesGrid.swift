@@ -30,8 +30,7 @@ struct AllWorkspacesGrid: View {
                 cardGap: ChromeMetrics.Grid.cardGap, cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
             ),
             width: ChromeMetrics.Grid.thumbnailWidth,
-            gap: ChromeMetrics.Grid.tabGap,
-            cap: ChromeMetrics.Grid.maxTabsPerRow
+            gap: ChromeMetrics.Grid.tabGap
         )
     }
 
@@ -77,7 +76,6 @@ struct AllWorkspacesGrid: View {
         .boundedBackground(theme.chrome)
         .onAppear { drag.setGridOrder(itemOrder) }
         .onChange(of: itemOrder) { _, order in drag.setGridOrder(order) }
-        .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.retainGridCards(ids) }
     }
 
     private var header: some View {
@@ -99,27 +97,22 @@ struct AllWorkspacesGrid: View {
     }
 
     /// The items a drop can hit, in grid order: what turns their frames back
-    /// into a list and drops the frame of an item no longer shown. The
-    /// placeholder and the tile that stands in for it are both tracked as
-    /// `.newTab`, since what that id names is the rect the created tab lands
-    /// in, whichever cell is drawing it.
+    /// into a list and drops the frame of an item no longer shown. `.newTab`
+    /// names the rect the created tab lands in, whichever cell is drawing it.
     private var itemOrder: [GridItemID] {
         workspaces.flatMap { workspace in
-            let expanded = drag.expandedGridCards.contains(workspace.workspaceID)
             let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
             let preview = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
-            let cells = preview.cells(of: tabs, expanded: expanded, perRow: slotsPerRow)
-            let lands = preview.landingSlot(of: tabs, expanded: expanded, perRow: slotsPerRow) != nil
+            let cells = preview.cells(of: tabs, perRow: slotsPerRow)
             // The created tab's id is published once, wherever its slot turns
             // out to be: the card hangs the reporter on that cell rather than
             // on the placeholder, which is drawn somewhere else whenever the
             // drop also empties one of this card's tabs.
             return [.card(workspace.workspaceID)]
-                + (lands ? [.newTab(workspace.workspaceID)] : [])
+                + (preview.takesTheDrop ? [.newTab(workspace.workspaceID)] : [])
                 + cells.compactMap { cell -> GridItemID? in
                     switch cell {
                     case .tab(let id): .tab(id)
-                    case .moreTabs, .collapse: .tile(workspace.workspaceID)
                     case .newTab: nil
                     }
                 }
@@ -158,32 +151,15 @@ private struct CardDropPreview {
     /// The cells this card draws while the drop is previewed. Read by both the
     /// card and the grid's item order, so the two cannot disagree about which
     /// slot stands in for the created tab.
-    func cells(of tabs: [TabID], expanded: Bool, perRow: Int) -> [GridCell] {
-        GridCardLayout.cells(tabs: tabs, expanded: expanded, newTab: takesTheDrop, closing: closingTab, perRow: perRow)
-    }
-
-    /// Whether the card's trailing tile carries the preview instead, which is
-    /// what a card that cannot draw a placeholder has to say the drop with.
-    func tileCarriesTheDrop(of tabs: [TabID], expanded: Bool, perRow: Int) -> Bool {
-        takesTheDrop && GridCardLayout.tilePreviewsTheDrop(
-            tabs: tabs, expanded: expanded, closing: closingTab, perRow: perRow
-        )
+    func cells(of tabs: [TabID], perRow: Int) -> [GridCell] {
+        GridCardLayout.cells(tabs: tabs, newTab: takesTheDrop, closing: closingTab, perRow: perRow)
     }
 
     /// The cell a committed drop actually lands in, as an index into the cells
-    /// the card draws: the slot the created tab takes, or the trailing tile
-    /// when the card will not be drawing that tab at all, since the tile's own
-    /// count is then the only trace the drop leaves. Nil when the card has
-    /// neither, and so nothing honest to settle or flash on.
-    func landingSlot(of tabs: [TabID], expanded: Bool, perRow: Int) -> Int? {
+    /// the card draws. Nil when this card takes no drop.
+    func landingSlot(of tabs: [TabID]) -> Int? {
         guard takesTheDrop else { return nil }
-        let cells = cells(of: tabs, expanded: expanded, perRow: perRow)
-        if let slot = GridCardLayout.landingSlot(
-            tabs: tabs, expanded: expanded, closing: closingTab, perRow: perRow
-        ), cells.indices.contains(slot) {
-            return slot
-        }
-        return cells.firstIndex(where: \.isTile)
+        return GridCardLayout.landingSlot(tabs: tabs, closing: closingTab)
     }
 
     private static func tabEmptiedBy(_ subject: DragSubject, of workspace: WorkspaceID, model: SessionModel) -> TabID? {
@@ -234,13 +210,7 @@ private struct WorkspaceCard: View {
 
     var body: some View {
         let tabs = viewModel.model?.tabs[workspace.workspaceID] ?? []
-        let rows = GridCardLayout.rows(
-            preview.cells(
-                of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
-                perRow: slotsPerRow
-            ),
-            perRow: slotsPerRow
-        )
+        let rows = GridCardLayout.rows(preview.cells(of: tabs.map(\.tabID), perRow: slotsPerRow), perRow: slotsPerRow)
         // Read once per card rather than per cell: only the card a reorder is
         // over, and only while that reorder commits, has any to report.
         let displacements = reorder.displacements
@@ -251,11 +221,17 @@ private struct WorkspaceCard: View {
                     // Every row keeps all its slots, so a short row's tabs are
                     // as wide as a full row's.
                     HStack(alignment: .top, spacing: ChromeMetrics.Grid.tabGap) {
-                        // One width for every cell, so a thumbnail, a tile and
-                        // the placeholder are always the same size and a row
-                        // that does not fill its card leaves the slack at its
-                        // own trailing edge.
-                        ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
+                        // One width for every cell, so a thumbnail and the
+                        // placeholder are always the same size and a row that
+                        // does not fill its card leaves the slack at its own
+                        // trailing edge.
+                        //
+                        // Keyed by the cell, never its column. A frame report
+                        // fires only on appear and on a geometry change, so a
+                        // tab that rewraps into the very slot another tab held
+                        // (the first pass lays out at one per row, before the
+                        // width is measured) would never report where it is.
+                        ForEach(Array(row.enumerated()), id: \.element) { column, cell in
                             self.cell(
                                 cell, at: rowIndex * slotsPerRow + column, tabs: tabs, displacements: displacements
                             )
@@ -331,10 +307,7 @@ private struct WorkspaceCard: View {
 
     /// Which of this card's cells a committed drop lands in, if any.
     private func landingSlot(_ tabs: [TabRecord]) -> Int? {
-        preview.landingSlot(
-            of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
-            perRow: slotsPerRow
-        )
+        preview.landingSlot(of: tabs.map(\.tabID))
     }
 
     @ViewBuilder
@@ -356,56 +329,19 @@ private struct WorkspaceCard: View {
                 // insertion index is counted against resting cells.
                 .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(id)) }
             }
-        case .moreTabs(let hidden):
-            tile(title: "+\(hidden)", label: "more tabs", tabs: tabs)
-        case .collapse:
-            tile(title: "fewer", label: "fewer tabs", tabs: tabs)
         case .newTab:
             NewTabPlaceholder(theme: theme, workspace: workspace.workspaceID)
         }
     }
 
-    /// Either tile a card can show. Neither takes a drop, so both refuse one
-    /// visibly rather than letting the card behind them make a tab.
-    ///
-    /// The tile is also where a card with no free slot puts the tab a drop on
-    /// its empty space will create: while that drop is live it gives up its
-    /// own face for the new tab's, so the card says where the tab is going
-    /// rather than only that something is going somewhere. It reports its
-    /// frame as the new tab's too, since that cell is where the created tab
-    /// lands and so where a committed drop has to settle.
-    ///
-    /// Its own meaning is untouched: a drop ON the tile is still the no-op it
-    /// always was, and a dwell still expands or collapses the card, so the
-    /// face only changes while the pointer is somewhere else on the card.
-    private func tile(title: String, label: String, tabs: [TabRecord]) -> some View {
-        let carriesTheCardsDrop = carriesTheCardsDrop(tabs: tabs)
-        return GridTile(
-            theme: theme, title: title, label: label, workspace: workspace.workspaceID,
-            isTargeted: drag.target == .moreTabs(workspace.workspaceID),
-            previewsNewTab: carriesTheCardsDrop,
-            reportsAs: .tile(workspace.workspaceID)
-        ) {
-            drag.toggleGridCard(workspace.workspaceID)
-        }
-    }
-
-    private func carriesTheCardsDrop(tabs: [TabRecord]) -> Bool {
-        preview.tileCarriesTheDrop(
-            of: tabs.map(\.tabID), expanded: drag.expandedGridCards.contains(workspace.workspaceID),
-            perRow: slotsPerRow
-        )
-    }
-
     /// The accent outline: on whichever card owns the target, whether that is
-    /// one of its thumbnails, its tile, a reorder among its own cells, or the
-    /// card itself.
+    /// one of its thumbnails, a reorder among its own cells, or the card
+    /// itself.
     private func isTargeted(_ tabs: [TabRecord]) -> Bool {
         switch drag.target {
         case .tabThumbnail?, .paneEdge?, .paneInterior?:
             let targeted = MiniPaneLayout.targetedTab(of: drag.target, dragging: drag.activeSubject, model: viewModel.model)
             return tabs.contains { $0.tabID == targeted }
-        case .moreTabs(let id)?: return id == workspace.workspaceID
         case .tabStrip?: return reorder.takesTheDrop
         default: return takesTheDrop
         }
@@ -745,69 +681,18 @@ struct MiniPane: View {
     }
 }
 
-/// The +N tile and the collapse tile: a thumbnail-sized block with a count or
-/// word over its label. Both lines live inside the block, so a tile is exactly
-/// as tall as the thumbnails beside it.
-private struct GridTile: View {
-    let theme: Theme
-    let title: String
-    let label: String
-    let workspace: WorkspaceID
-    let isTargeted: Bool
-    /// The card this tile ends is taking a drop with nowhere else to draw the
-    /// tab it creates, so this cell IS that tab's slot for as long as the drop
-    /// is live and wears the new tab's face in place of its own.
-    var previewsNewTab = false
-    let reportsAs: GridItemID
-    let action: () -> Void
-
-    @Environment(DragCoordinator.self) private var drag
-
-    var body: some View {
-        face
-        .background {
-            Color.clear.reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: reportsAs) }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-            action()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private var face: some View {
-        if previewsNewTab {
-            NewTabFace(theme: theme, workspace: workspace)
-        } else {
-            VStack(spacing: ChromeMetrics.Grid.tabLabelGap) {
-                Text(title)
-                    .font(ChromeType.gridTileTitle)
-                    .foregroundStyle(theme.textDim)
-                Text(label)
-                    .font(ChromeType.gridTileLabel)
-                    .foregroundStyle(theme.textLabel)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: ChromeMetrics.Grid.thumbnailHeight)
-            .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-            .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
-        }
-    }
-}
-
-/// How the tab a drop will create is drawn, wherever its slot happens to be:
-/// a free cell of its own, or the trailing tile of a card that has none. The
-/// wash alone, never a stroke, which is how the canvas previews a drop; the
-/// strip band takes a second coat of it so the tab's own handle shape still
-/// reads inside an otherwise empty slot.
+/// The tab a drop on this card's empty space is about to create, drawn in the
+/// slot that tab will take. Its own cell comes from `GridCardLayout`, so the
+/// card's rows place it exactly as they place a real thumbnail. It reports a
+/// frame but is never a drop surface: the card behind it is what answers.
 ///
-/// Over `canvas`, which is the ground a real thumbnail's own wash lands on, so
-/// a slot standing in for a tab and a thumbnail taking a drop are the same
-/// drawing over the same ground wherever either is drawn.
-private struct NewTabFace: View {
+/// The wash alone, never a stroke, which is how the canvas previews a drop;
+/// the strip band takes a second coat of it so the tab's own handle shape
+/// still reads inside an otherwise empty slot. Over `canvas`, which is the
+/// ground a real thumbnail's own wash lands on, so a slot standing in for a
+/// tab and a thumbnail taking a drop are the same drawing over the same
+/// ground.
+private struct NewTabPlaceholder: View {
     let theme: Theme
     let workspace: WorkspaceID
 
@@ -832,22 +717,7 @@ private struct NewTabFace: View {
         .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .accessibilityIdentifier("flock.grid.newTab.\(workspace.rawValue)")
-    }
-}
-
-/// The tab a drop on this card's empty space is about to create, drawn in the
-/// slot that tab will take. Its own cell comes from `GridCardLayout`, so the
-/// card's rows place it exactly as they place a real thumbnail. It reports a
-/// frame but is never a drop surface: the card behind it is what answers.
-private struct NewTabPlaceholder: View {
-    let theme: Theme
-    let workspace: WorkspaceID
-
-    @Environment(DragCoordinator.self) private var drag
-
-    var body: some View {
-        NewTabFace(theme: theme, workspace: workspace)
-            .allowsHitTesting(false)
+        .allowsHitTesting(false)
     }
 }
 

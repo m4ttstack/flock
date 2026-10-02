@@ -1650,7 +1650,7 @@ extension DropTarget {
         case .paneEdge(let target, _), .paneInterior(let target):
             guard let from = model.panes[pane]?.tabID, let into = model.panes[target]?.tabID else { return false }
             return from != into
-        case .tabStrip, .workspaceRail, .moreTabs:
+        case .tabStrip, .workspaceRail:
             return false
         }
     }

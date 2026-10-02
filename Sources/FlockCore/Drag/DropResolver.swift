@@ -57,21 +57,16 @@ public struct GridThumbnailPanes: Equatable, Sendable {
 }
 
 /// The All Workspaces grid while it covers the window, every frame in the
-/// drag space. `viewport` is the grid's scroll view: a thumbnail or tile
-/// scrolled out of it is not there to hit.
+/// drag space. `viewport` is the grid's scroll view: a thumbnail scrolled out
+/// of it is not there to hit.
 ///
-/// `cards` are the whole workspace cards, which contain their own thumbnails
-/// and tiles. A card's "empty space" is not a frame of its own: it is
-/// whatever of the card the thumbnails and tiles do not cover, which is why
-/// the card is hit-tested last.
-///
-/// `tiles` is the one tile a card shows, "+N" at rest and "fewer" once
-/// expanded. Neither takes a drop: both read as controls, so a release on
-/// either springs back rather than making a tab behind them.
+/// `cards` are the whole workspace cards, which contain their own thumbnails.
+/// A card's "empty space" is not a frame of its own: it is whatever of the
+/// card the thumbnails do not cover, which is why the card is hit-tested
+/// last.
 public struct GridDropSurfaces: Equatable, Sendable {
     public let viewport: CGRect
     public let thumbnails: [TabItemFrame]
-    public let tiles: [WorkspaceItemFrame]
     public let cards: [WorkspaceItemFrame]
     /// Where a card is previewing the tab a drop on its empty space will
     /// create. Never hit-tested: the card behind it is what answers, so a
@@ -89,12 +84,11 @@ public struct GridDropSurfaces: Equatable, Sendable {
     public let miniPanes: [GridThumbnailPanes]
 
     public init(
-        viewport: CGRect, thumbnails: [TabItemFrame], tiles: [WorkspaceItemFrame], cards: [WorkspaceItemFrame],
+        viewport: CGRect, thumbnails: [TabItemFrame], cards: [WorkspaceItemFrame],
         newTabSlots: [WorkspaceItemFrame] = [], cardTabs: [GridCardTabs] = [], miniPanes: [GridThumbnailPanes] = []
     ) {
         self.viewport = viewport
         self.thumbnails = thumbnails
-        self.tiles = tiles
         self.cards = cards
         self.newTabSlots = newTabSlots
         self.cardTabs = cardTabs
@@ -280,9 +274,6 @@ private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDro
     case .pane:
         if let hit = grid.thumbnails.first(where: { $0.frame.contains(point) }) {
             return resolveThumbnail(at: point, tab: hit.id, frame: hit.frame, dragging: dragging, grid: grid)
-        }
-        if let hit = grid.tiles.first(where: { $0.frame.contains(point) }) {
-            return .moreTabs(hit.id)
         }
         return card()
     case .tab(let dragged):

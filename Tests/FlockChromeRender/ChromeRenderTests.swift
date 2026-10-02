@@ -958,10 +958,9 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The All Workspaces grid from fixture layouts: at rest with a pane's
-    /// hover card open, then with the nine-tab card expanded. PNGs are
-    /// written only when `FLOCK_GRID_RENDER_DIR` is set; the samples and
-    /// the no-attach check always run.
+    /// The All Workspaces grid from fixture layouts, with a pane's hover card
+    /// open. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set; the
+    /// samples and the no-attach check always run.
     func testAllWorkspacesGridRendersFromLayoutsWithoutAttachingAPane() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
@@ -1002,16 +1001,6 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertNil(harness.viewModel.ghosttySurface(for: pane), "the grid attached \(pane.rawValue)")
         }
         assertGridSamples(rest, theme: .tokyoNight)
-
-        harness.drag.gridHoverEnded(pane: claude.pane)
-        harness.drag.toggleGridCard(GridFixture.repoTools)
-        await settle(window)
-        let expanded = try snapshot(window)
-        if let directory {
-            try XCTUnwrap(expanded.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-expanded.png"))
-        }
-        assertGridSamples(expanded, theme: .tokyoNight)
         window.close()
     }
 
@@ -1219,8 +1208,8 @@ final class ChromeRenderTests: XCTestCase {
         }
         assertGridSamples(overThumbnail, theme: .tokyoNight)
 
-        // The card's header row: inside the card, and no thumbnail or tile
-        // covers it, which is what makes it the card's own empty space.
+        // The card's header row: inside the card, and no thumbnail covers it,
+        // which is what makes it the card's own empty space.
         let card = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
         harness.drag.move(to: CGPoint(
             x: card.midX,
@@ -1251,7 +1240,7 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
 
         let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.repoTools })
-        XCTAssertEqual(card.tabs.map(\.id.rawValue), ["w1:t1", "w1:t2", "w1:t3"], "the three tabs a resting card draws")
+        XCTAssertEqual(card.tabs.map(\.id.rawValue), (1...9).map { "w1:t\($0)" }, "a card draws every tab")
         let first = card.tabs[0].frame
         let second = card.tabs[1].frame
         let cardFrame = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
@@ -1310,12 +1299,14 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-        let window = harness.makeWindow(size: Self.gridWindowSize)
+        // Tall enough that the glance card, in the grid's third row, is on
+        // screen to be dropped on.
+        let window = harness.makeWindow(size: CGSize(width: Self.gridWindowSize.width, height: 900))
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
 
-        // Three tabs, none hidden, so every slot the card draws is a real one.
+        // Three tabs, so every slot the card draws is a real one.
         let cells = try XCTUnwrap(harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.herdr }?.tabs)
         XCTAssertEqual(cells.map(\.id), [GridFixture.srcTab, GridFixture.buildTab, GridFixture.issuesTab])
         let slots = cells.map(\.frame)
@@ -1453,21 +1444,19 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// A thumbnail is the same size at every window and the row holds as many
-    /// as fit, up to the cap. Driven at four window widths through the real
-    /// view, so the arithmetic that derives the slot count cannot drift from
-    /// the width the cards are actually given.
-    func testAThumbnailIsTheSameWidthAtEveryWindowAndTheRowHoldsWhatFitsUpToTheCap() async throws {
+    /// as fit. Driven at five window widths through the real view, so the
+    /// arithmetic that derives the slot count cannot drift from the width the
+    /// cards are actually given.
+    func testAThumbnailIsTheSameWidthAtEveryWindowAndTheRowHoldsWhatFits() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
 
         /// The cells one card draws in its first row, read off the frames the
-        /// view published: its thumbnails plus its trailing tile.
+        /// view published.
         func firstRow(of harness: Harness, workspace: WorkspaceID, prefix: String) throws -> [CGRect] {
             let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
             let card = try XCTUnwrap(grid.cards.first { $0.id == workspace }?.frame)
-            let tile = grid.tiles.first { $0.id == workspace }?.frame
-            let thumbnails = grid.thumbnails.filter { $0.id.rawValue.hasPrefix(prefix) }.map(\.frame)
-            let cells = thumbnails + (tile.map { [$0] } ?? [])
+            let cells = grid.thumbnails.filter { $0.id.rawValue.hasPrefix(prefix) }.map(\.frame)
             let top = try XCTUnwrap(cells.map(\.minY).min())
             XCTAssertTrue(cells.allSatisfy { card.contains($0.origin) }, "a cell outside its own card")
             return cells.filter { $0.minY == top }.sorted { $0.minX < $1.minX }
@@ -1479,8 +1468,7 @@ final class ChromeRenderTests: XCTestCase {
         // is a width whose row is a few points short of a fifth slot: it is
         // rendered like the rest but it is here for the overrun check, since
         // that is where an over-generous slot count shows up as real points.
-        // 2000 is the very wide case: its row fits well past the cap, so what
-        // it draws is the cap's answer rather than the row's.
+        // 2000 is the very wide case, which spends its width on more slots.
         let rendered: Set<CGFloat> = [Self.windowSize.width, 1200, 1600, 2000]
         for width in [Self.windowSize.width, 1090, 1200, 1600, 2000] as [CGFloat] {
             let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
@@ -1488,8 +1476,7 @@ final class ChromeRenderTests: XCTestCase {
             await settle(window)
             harness.drag.toggleGrid()
             await settle(window)
-            // The nine-tab card, which is over its cap at every width here, so
-            // its row is full and its last slot is the tile.
+            // The nine-tab card, which fills its first row at every width here.
             let row = try firstRow(of: harness, workspace: GridFixture.repoTools, prefix: "w1:")
             drawn[width] = row
             for cell in row {
@@ -1535,10 +1522,9 @@ final class ChromeRenderTests: XCTestCase {
         let wide = try XCTUnwrap(drawn[1600])
         let veryWide = try XCTUnwrap(drawn[2000])
         XCTAssertEqual(design.count, 3, "the narrowest window the app allows lost its shape")
-        XCTAssertGreaterThan(middle.count, design.count, "a wider window drew no more cells")
-        XCTAssertEqual(middle.count, ChromeMetrics.Grid.maxTabsPerRow, "1200 is the width that first reaches the cap")
-        XCTAssertEqual(wide.count, middle.count, "a window past the cap kept buying slots")
-        XCTAssertEqual(veryWide.count, middle.count, "a very wide window kept buying slots")
+        XCTAssertEqual(middle.count, 4)
+        XCTAssertEqual(wide.count, 5)
+        XCTAssertEqual(veryWide.count, 7, "a very wide window left its width unused")
         XCTAssertEqual(
             Set(drawn.values.flatMap { $0 }.map { ($0.width * 100).rounded() }).count, 1,
             "a thumbnail changed size between windows"
@@ -1743,10 +1729,9 @@ final class ChromeRenderTests: XCTestCase {
         )
     }
 
-    /// The placeholder's frame against the frame the real tab takes, from
-    /// real reported frames on both sides. The expanded card's collapse tile
-    /// sits in exactly the slot the tenth tab will land in, so its rect
-    /// BEFORE the drag is the answer to compare against.
+    /// The placeholder's frame against the frames of the tabs it follows,
+    /// from real reported frames on both sides: the slot after a card's last
+    /// tab, or the start of a new row when that tab ends one.
     func testTheNewTabPlaceholderTakesTheSlotTheTabWillLandIn() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
@@ -1754,14 +1739,18 @@ final class ChromeRenderTests: XCTestCase {
         let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
-        harness.drag.toggleGridCard(GridFixture.repoTools)
         await settle(window)
 
-        // Nine tabs plus the collapse tile fill ten slots, so the tile holds
-        // the slot the tenth tab takes. Read before anything is dragged.
-        let landing = try XCTUnwrap(harness.drag.surfaces?.grid?.tiles.first { $0.id == GridFixture.repoTools }?.frame)
-        let herdrTabs = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.filter { $0.id.rawValue.hasPrefix("w4:") })
-        let lastHerdrTab = try XCTUnwrap(herdrTabs.map(\.frame).max { $0.minX < $1.minX })
+        func lastTab(of workspace: WorkspaceID) throws -> CGRect {
+            let frames = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails
+                .filter { $0.id.rawValue.hasPrefix("\(workspace.rawValue):") }.map(\.frame))
+            return try XCTUnwrap(frames.max { ($0.minY, $0.minX) < ($1.minY, $1.minX) })
+        }
+        let lastRepoToolsTab = try lastTab(of: GridFixture.repoTools)
+        let lastHerdrTab = try lastTab(of: GridFixture.herdr)
+        let fullRow = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails
+            .filter { $0.id.rawValue.hasPrefix("\(GridFixture.mattstackApps.rawValue):") }.map(\.frame))
+        let fullCard = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
 
         let source = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         harness.drag.beginIfIdle(
@@ -1770,119 +1759,36 @@ final class ChromeRenderTests: XCTestCase {
             at: CGPoint(x: source.midX, y: source.midY)
         )
 
+        // Nine tabs at four per row end a row with three slots free.
         try await overEmptySpace(of: GridFixture.repoTools, harness: harness, window: window)
-        let expandedPlaceholder = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)))
-        XCTAssertEqual(expandedPlaceholder.minX, landing.minX, accuracy: 0.5, "the slot the tenth tab lands in")
-        XCTAssertEqual(expandedPlaceholder.minY, landing.minY, accuracy: 0.5)
-        XCTAssertEqual(expandedPlaceholder.width, landing.width, accuracy: 0.5)
-        XCTAssertEqual(expandedPlaceholder.height, landing.height, accuracy: 0.5)
-
-        let movedTile = try XCTUnwrap(harness.drag.surfaces?.grid?.tiles.first { $0.id == GridFixture.repoTools }?.frame)
-        assertSlotFollows(movedTile, expandedPlaceholder, "the placeholder that took its slot")
-        let expanded = try snapshot(window)
+        let repoTools = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)))
+        assertSlotFollows(repoTools, lastRepoToolsTab, "the card's last tab")
         if let directory {
-            try XCTUnwrap(expanded.representation(using: .png, properties: [:]))
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-new-tab.png"))
         }
 
-        // A resting card under its cap draws the tab, so the placeholder
-        // stands in the next slot of the row it is already in.
         try await overEmptySpace(of: GridFixture.herdr, harness: harness, window: window)
         XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)), "the placeholder left with the card it was over")
-        let resting = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.herdr)))
-        assertSlotFollows(resting, lastHerdrTab, "the card's last tab")
-
-        // A resting card whose row is already full hides the tab it would
-        // create, so it shows no placeholder and keeps its single row. It has
-        // no tile either, so nothing carries the preview but its outline.
-        try await assertNoPlaceholderAndNoNewRow(
-            on: GridFixture.mattstackApps, harness: harness, window: window, directory: nil, render: nil
+        assertSlotFollows(
+            try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.herdr))), lastHerdrTab, "the card's last tab"
         )
 
-        // A resting card already over its cap draws no tab either, but it has
-        // a "+N" tile, and that tile is where the created tab really lands:
-        // it gives up its own face for the new tab's while the drop is live.
-        try await assertNoPlaceholderAndNoNewRow(
-            on: GridFixture.flock, harness: harness, window: window,
-            directory: directory, render: "grid-drag-resting-card.png"
-        )
+        // Four tabs fill the row, so the created tab opens a row of its own,
+        // and the drop keeps it.
+        XCTAssertEqual(Set(fullRow.map(\.minY)).count, 1, "the premise: a card whose tabs fill exactly one row")
+        try await overEmptySpace(of: GridFixture.mattstackApps, harness: harness, window: window)
+        let opened = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.mattstackApps)))
+        let first = try XCTUnwrap(fullRow.min { $0.minX < $1.minX })
+        XCTAssertEqual(opened.minX, first.minX, accuracy: 0.5, "the new row starts where the full one does")
+        XCTAssertEqual(opened.minY, first.maxY + ChromeMetrics.Grid.tabGap, accuracy: 0.5)
+        let grown = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
+        XCTAssertEqual(grown.height, fullCard.height + first.height + ChromeMetrics.Grid.tabGap, accuracy: 0.5)
+        if let directory {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-drag-new-row.png"))
+        }
         window.close()
-    }
-
-    /// Moves the drag onto a card that will not draw the tab it creates, and
-    /// pins that the card shows no placeholder and does not grow. A card with
-    /// a tile also has to light that tile, which is the only preview such a
-    /// drop can honestly carry.
-    private func assertNoPlaceholderAndNoNewRow(
-        on workspace: WorkspaceID, harness: Harness, window: NSWindow, directory: String?, render: String?
-    ) async throws {
-        let before = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
-        // A sibling thumbnail's own ground is the control: it carries the
-        // card's wash and nothing else, so the tile can only differ from it by
-        // taking a second one. Both are the same role at rest, which the
-        // before-sample pins rather than assumes.
-        // The cell that should light, and a control that should not: two cells
-        // of the same card sharing a ground, so only a second wash can part
-        // them. A card with no tile has nothing that may light, so the two
-        // controls have to stay equal instead.
-        let siblings = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails
-            .filter { $0.id.rawValue.hasPrefix("\(workspace.rawValue):") }.map(\.frame))
-        let tile = harness.drag.surfaces?.grid?.tiles.first { $0.id == workspace }?.frame
-        let lights = tile ?? siblings.first
-        let control = try XCTUnwrap(tile == nil ? siblings.dropFirst().first : siblings.first)
-        let atRest = try snapshot(window)
-        XCTAssertEqual(
-            hex(atRest, groundPoint(of: try XCTUnwrap(lights))), hex(atRest, groundPoint(of: control)),
-            "\(workspace.rawValue): the two sampled cells do not share a ground at rest, so the check below proves nothing"
-        )
-
-        try await overEmptySpace(of: workspace, harness: harness, window: window)
-        let after = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
-        XCTAssertEqual(after.height, before.height, accuracy: 0.5, "\(workspace.rawValue) grew a row the drop will not keep")
-
-        // Whatever stands in for the created tab is also where a committed
-        // drop lands. A card with a tile publishes the tile's own rect under
-        // that id, from the real view rather than a written-in frame; a card
-        // with nothing to stand in has no rect at all and falls back to
-        // itself.
-        if let tile {
-            XCTAssertEqual(
-                harness.drag.gridItemFrame(for: .newTab(workspace)), tile,
-                "\(workspace.rawValue)'s tile carries the drop but never published its rect for it"
-            )
-        } else {
-            XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(workspace)), "\(workspace.rawValue)")
-        }
-
-        let image = try snapshot(window)
-        let lit = hex(image, groundPoint(of: try XCTUnwrap(lights)))
-        let unlit = hex(image, groundPoint(of: control))
-        if let tile {
-            XCTAssertNotEqual(lit, unlit, "\(workspace.rawValue)'s tile did not take the drop wash the card's other cells do without")
-            // The tile is wearing the new tab's face, not just a wash: only
-            // that face carries a handle strip, which is a second coat over
-            // its own body. Sampled at the band's trailing end, clear of the
-            // "new tab" label. At rest the tile's own face has no band at all,
-            // which the before-sample pins.
-            let band = CGPoint(
-                x: tile.maxX - ChromeMetrics.Grid.tabStripHorizontalPadding - 1,
-                y: tile.minY + ChromeMetrics.Grid.tabStripHeight / 2
-            )
-            XCTAssertEqual(
-                hex(atRest, band), hex(atRest, groundPoint(of: tile)),
-                "\(workspace.rawValue): the tile already had a band at rest, so the check below proves nothing"
-            )
-            XCTAssertNotEqual(
-                hex(image, band), lit,
-                "\(workspace.rawValue)'s tile only washed: it did not take the new tab's own face"
-            )
-        } else {
-            XCTAssertEqual(unlit, lit, "\(workspace.rawValue) has no tile, so nothing inside it may take a second wash")
-        }
-        if let directory, let render {
-            try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent(render))
-        }
     }
 
     /// The largest per-channel gap between two sampled hexes. A blend against
@@ -1894,13 +1800,6 @@ final class ChromeRenderTests: XCTestCase {
             return stride(from: 0, to: 6, by: 2).map { Int(String(digits[$0...$0 + 1]), radix: 16) ?? 0 }
         }
         return zip(channels(lhs), channels(rhs)).map { abs($0 - $1) }.max() ?? 0
-    }
-
-    /// A cell's own ground: the BOTTOM-left corner, two points in. A
-    /// thumbnail's top is its handle strip and its middle is mini panes, so
-    /// only the padding below them is the ground a tile can be compared with.
-    private func groundPoint(of cell: CGRect) -> CGPoint {
-        CGPoint(x: cell.minX + 2, y: cell.maxY - 2)
     }
 
     /// A drop the planner refuses must promise nothing: no placeholder and no
@@ -2584,7 +2483,7 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// Moves the live drag onto a card's own empty space, which is its header
-    /// row: no thumbnail or tile covers it.
+    /// row: no thumbnail covers it.
     private func overEmptySpace(of workspace: WorkspaceID, harness: Harness, window: NSWindow) async throws {
         let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == workspace }?.frame)
         harness.drag.move(to: Self.headerGround(of: card))
@@ -2593,7 +2492,7 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// A card's own empty space: the middle of its header row, which no
-    /// thumbnail or tile covers.
+    /// thumbnail covers.
     private static func headerGround(of card: CGRect) -> CGPoint {
         CGPoint(
             x: card.midX,
@@ -3867,11 +3766,11 @@ private struct GridFixtureClient: HerdrCommandClient {
 /// and every agent status.
 private enum GridFixture {
     static let repoTools = WorkspaceID(rawValue: "w1")
-    /// Six tabs: a resting card already over its cap, so it draws a "+N" tile.
     static let flock = WorkspaceID(rawValue: "w2")
+    /// Four tabs, which fill one row of the 1200pt grid exactly.
     static let mattstackApps = WorkspaceID(rawValue: "w3")
-    /// Three tabs: a resting card still under its visible-tab cap. `src`
-    /// holds one pane (a drop from it empties the tab), `build` holds two.
+    /// Three tabs. `src` holds one pane (a drop from it empties the tab),
+    /// `build` holds two.
     static let herdr = WorkspaceID(rawValue: "w4")
     static let srcTab = TabID(rawValue: "w4:t1")
     static let buildTab = TabID(rawValue: "w4:t2")

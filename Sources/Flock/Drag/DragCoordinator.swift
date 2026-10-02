@@ -48,9 +48,7 @@ final class SpringLoadRelay {
 /// A grid item a drop can hit.
 enum GridItemID: Hashable, Sendable {
     case tab(TabID)
-    /// The one tile a card shows: "+N" at rest, "fewer" once expanded.
-    case tile(WorkspaceID)
-    /// The whole workspace card, which the thumbnails and tiles sit inside.
+    /// The whole workspace card, which the thumbnails sit inside.
     case card(WorkspaceID)
     /// The placeholder for the tab a drop on this card's empty space will
     /// create. Tracked only so its frame can be read back; it is never a drop
@@ -310,7 +308,6 @@ final class DragCoordinator {
     /// The All Workspaces grid, written only through `updateGrid`.
     @ObservationIgnored private(set) var grid = AllWorkspacesGridState()
     private(set) var isGridShown = false
-    private(set) var expandedGridCards: Set<WorkspaceID> = []
     private(set) var gridHover: PaneID?
     @ObservationIgnored var gridHoverIntent: Task<Void, Never>?
     @ObservationIgnored var gridHoverGrace: Task<Void, Never>?
@@ -492,7 +489,6 @@ final class DragCoordinator {
     var gridSurfaces: GridDropSurfaces? {
         guard grid.isShown else { return nil }
         var thumbnails: [TabItemFrame] = []
-        var tiles: [WorkspaceItemFrame] = []
         var cards: [WorkspaceItemFrame] = []
         var newTabSlots: [WorkspaceItemFrame] = []
         // The grid's items arrive grouped by card, each group led by its own
@@ -509,7 +505,6 @@ final class DragCoordinator {
                 if let currentCard {
                     drawnTabs[currentCard, default: []].append(TabItemFrame(id: id, frame: item.frame))
                 }
-            case .tile(let id): tiles.append(WorkspaceItemFrame(id: id, frame: item.frame))
             case .card(let id):
                 cards.append(WorkspaceItemFrame(id: id, frame: item.frame))
                 cardOrder.append(id)
@@ -518,7 +513,7 @@ final class DragCoordinator {
             }
         }
         return GridDropSurfaces(
-            viewport: gridViewport ?? .zero, thumbnails: thumbnails, tiles: tiles, cards: cards,
+            viewport: gridViewport ?? .zero, thumbnails: thumbnails, cards: cards,
             newTabSlots: newTabSlots,
             cardTabs: cardOrder.map { GridCardTabs(workspace: $0, tabs: drawnTabs[$0] ?? []) },
             // Built from the thumbnails actually drawn, so a tab whose
@@ -1028,9 +1023,8 @@ final class DragCoordinator {
     }
 
     /// A reveal just changed what sits under the pointer (see
-    /// `AutoScroller.springLoaded`). A dwell inside the grid only ever
-    /// uncovers more of the grid, so the window under it is never revealed
-    /// while a grid drag is in flight.
+    /// `AutoScroller.springLoaded`). A grid drag stays in the grid, so the
+    /// window under it is never revealed while one is in flight.
     private func springLoadFired(_ target: DropTarget) {
         autoScrollTicker.stop()
         if let lastPointer {
@@ -1039,7 +1033,6 @@ final class DragCoordinator {
         if !grid.isShown {
             reveal(target)
         }
-        updateGrid { $0.springLoaded(target) }
     }
 
     private func stopAutoScroll() {
@@ -1203,9 +1196,6 @@ final class DragCoordinator {
             isGridShown = grid.isShown
         }
         stripOrder.isGridShown = grid.isShown
-        if expandedGridCards != grid.expanded {
-            expandedGridCards = grid.expanded
-        }
         if gridHover != grid.hover {
             gridHover = grid.hover
         }
@@ -1260,12 +1250,12 @@ final class DragCoordinator {
     var targetHighlight: CGRect? {
         guard let target, let surfaces else { return nil }
         // Every grid target is the grid's own to draw: a wash on the
-        // thumbnail, tile or card, and an accent outline on the card.
+        // thumbnail or card, and an accent outline on the card.
         guard !grid.isShown else { return nil }
         switch target {
         case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
             return dropTargetRect(for: target, surfaces: surfaces)
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .moreTabs:
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail:
             return nil
         }
     }

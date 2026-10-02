@@ -2171,7 +2171,6 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(DropTarget.paneInterior(elsewhere).takesThePaneOffItsTab(pane, model: model))
         XCTAssertFalse(DropTarget.tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 0).takesThePaneOffItsTab(pane, model: model))
         XCTAssertFalse(DropTarget.workspaceRail(insertIndex: 0).takesThePaneOffItsTab(pane, model: model))
-        XCTAssertFalse(DropTarget.moreTabs(WorkspaceID(rawValue: "w1")).takesThePaneOffItsTab(pane, model: model))
     }
 
     // MARK: - Inline rename

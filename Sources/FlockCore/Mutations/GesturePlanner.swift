@@ -42,9 +42,6 @@ public func plan(
         let modelIndex = RailSections.modelInsertIndex(forRailIndex: insertIndex, in: model, board: board)
         return planWorkspaceBlockReorder(block: block, insertIndex: modelIndex, model: model)
 
-    case (_, .moreTabs):
-        return .failure(.noOp)
-
     default:
         return .failure(.invalidCombination)
     }

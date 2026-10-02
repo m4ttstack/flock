@@ -12,14 +12,6 @@ extension DragCoordinator {
         updateGrid { $0.close() }
     }
 
-    func toggleGridCard(_ workspace: WorkspaceID) {
-        updateGrid { $0.toggleExpanded(workspace) }
-    }
-
-    func retainGridCards(_ order: [WorkspaceID]) {
-        updateGrid { $0.retain(order) }
-    }
-
     /// Every pointer report over a mini pane. A report that starts a wait
     /// replaces whatever wait was running; one that shows a card outright
     /// ends the grace the pane it came from armed.

@@ -423,7 +423,7 @@ final class GridGeometryTests: XCTestCase {
     // MARK: - grid drop resolution
 
     /// Two cards side by side inside the grid's viewport, and a third scrolled
-    /// below it. Card w1 holds a thumbnail and a +N tile; card w2 holds one
+    /// below it. Card w1 holds a thumbnail; card w2 holds one
     /// thumbnail. Everything else inside a card is its empty space.
     private let viewport = CGRect(x: 0, y: 40, width: 600, height: 300)
     private let cardOne = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 10, y: 50, width: 280, height: 160))
@@ -432,31 +432,11 @@ final class GridGeometryTests: XCTestCase {
     private let gridThumbnail = TabItemFrame(id: TabID(rawValue: "w1:t2"), frame: CGRect(x: 20, y: 60, width: 90, height: 82))
     private let otherCardThumbnail = TabItemFrame(id: TabID(rawValue: "w2:t1"), frame: CGRect(x: 320, y: 60, width: 90, height: 82))
     private let scrolledAway = TabItemFrame(id: TabID(rawValue: "w3:t1"), frame: CGRect(x: 20, y: 360, width: 90, height: 82))
-    private let plusTile = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 130, y: 60, width: 90, height: 82))
     /// Card w1 is previewing the tab a drop on it will create, in the slot
-    /// after its tile. Drawn in the card's empty space and hit-tested by
+    /// after its tabs. Drawn in the card's empty space and hit-tested by
     /// nothing.
     private let newTabSlot = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 20, y: 150, width: 90, height: 40))
-    /// Card w3's own tile, standing in for the tab its drop will create: the
-    /// same rect reported under the new tab's id as well.
-    private let tileAsNewTab = WorkspaceItemFrame(id: WorkspaceID(rawValue: "w3"), frame: CGRect(x: 130, y: 360, width: 90, height: 82))
-
-    private func surfacesWithTheTileCarryingTheDrop() -> DropSurfaces {
-        let base = surfaces(grid: true)
-        let grid = base.grid
-        return DropSurfaces(
-            canvas: base.canvas, stripWorkspace: base.stripWorkspace, tabFrames: base.tabFrames,
-            workspaceFrames: base.workspaceFrames, stripFrame: base.stripFrame, railFrame: base.railFrame,
-            newTabZone: base.newTabZone, newWorkspaceZone: base.newWorkspaceZone,
-            grid: GridDropSurfaces(
-                viewport: grid?.viewport ?? .zero, thumbnails: grid?.thumbnails ?? [],
-                tiles: (grid?.tiles ?? []) + [tileAsNewTab], cards: grid?.cards ?? [],
-                newTabSlots: (grid?.newTabSlots ?? []) + [tileAsNewTab], cardTabs: grid?.cardTabs ?? []
-            )
-        )
-    }
-
-    /// Points inside a card that no thumbnail or tile covers.
+    /// Points inside a card that no thumbnail covers.
     private var cardOneEmptySpace: CGPoint { CGPoint(x: 250, y: 180) }
     private var cardTwoEmptySpace: CGPoint { CGPoint(x: 550, y: 180) }
 
@@ -477,7 +457,6 @@ final class GridGeometryTests: XCTestCase {
             grid: grid ? GridDropSurfaces(
                 viewport: viewport,
                 thumbnails: [gridThumbnail, otherCardThumbnail, scrolledAway],
-                tiles: [plusTile],
                 cards: [cardOne, cardTwo, cardThree],
                 newTabSlots: [newTabSlot],
                 cardTabs: [
@@ -509,18 +488,8 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(resolveDropTarget(at: strip, dragging: pane, surfaces: surfaces(grid: true)), .tabThumbnail(TabID(rawValue: "w1:t2")))
     }
 
-    /// Both tiles a card can show report as one grid item, so the "fewer" tile
-    /// of an expanded card refuses a drop exactly as "+N" does rather than
-    /// letting the card behind it make a tab.
-    func testAPaneOverACardsTileTargetsTheTileNeverTheCardBehindIt() {
-        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 170, y: 100), dragging: pane, surfaces: surfaces(grid: true)), .moreTabs(WorkspaceID(rawValue: "w1")))
-        guard case .failure(.noOp) = plan(dragging: pane, onto: .moreTabs(WorkspaceID(rawValue: "w1")), model: model()) else {
-            return XCTFail("a tile must spring back silently")
-        }
-    }
-
-    /// The card's empty space is whatever its thumbnails and tiles do not
-    /// cover, so it can only be answered after both of them miss.
+    /// The card's empty space is whatever its thumbnails do not cover, so it
+    /// can only be answered after they miss.
     func testAPaneOverACardsEmptySpaceTargetsThatWorkspace() {
         XCTAssertEqual(resolveDropTarget(at: cardOneEmptySpace, dragging: pane, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w1")))
         XCTAssertEqual(resolveDropTarget(at: cardTwoEmptySpace, dragging: pane, surfaces: surfaces(grid: true)), .workspaceThumbnail(WorkspaceID(rawValue: "w2")))
@@ -551,18 +520,6 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(
             dropFlashRect(for: .workspaceThumbnail(workspace), surfaces: surfaces(grid: true)), newTabSlot.frame
         )
-    }
-
-    /// A resting card over its cap draws no placeholder and lights its tile
-    /// instead, so the tile is the cell the created tab lands in. It reports
-    /// its own rect under both ids, and the landing rect reads the same
-    /// `newTabSlots` either way.
-    func testTheLandingRectForACardPreviewingOnItsTileIsThatTile() {
-        let workspace = WorkspaceID(rawValue: "w3")
-        let surfaces = surfacesWithTheTileCarryingTheDrop()
-        XCTAssertEqual(dropTargetRect(for: .workspaceThumbnail(workspace), surfaces: surfaces), tileAsNewTab.frame)
-        XCTAssertEqual(dropFlashRect(for: .workspaceThumbnail(workspace), surfaces: surfaces), tileAsNewTab.frame)
-        XCTAssertNotEqual(tileAsNewTab.frame, cardThree.frame, "the tile is not the card")
     }
 
     /// The gaps between cards, the header strip and the canvas margin are not
@@ -699,11 +656,6 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(dropFlashRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w2")), surfaces: surfaces(grid: true)), cardTwo.frame)
     }
 
-    func testTheDwellOnlyTargetHasARectButNeverFlashes() {
-        XCTAssertEqual(dropTargetRect(for: .moreTabs(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)), plusTile.frame)
-        XCTAssertNil(dropFlashRect(for: .moreTabs(WorkspaceID(rawValue: "w1")), surfaces: surfaces(grid: true)))
-    }
-
     // MARK: - a pane aimed inside a thumbnail
 
     /// The thumbnail the grid really draws: `ChromeMetrics.Grid`'s fixed
@@ -745,7 +697,6 @@ final class GridGeometryTests: XCTestCase {
             grid: GridDropSurfaces(
                 viewport: viewport,
                 thumbnails: [TabItemFrame(id: layout.tabID, frame: frame)],
-                tiles: [],
                 cards: [WorkspaceItemFrame(id: layout.workspaceID, frame: frame.insetBy(dx: -10, dy: -10))],
                 miniPanes: [GridThumbnailPanes(tab: layout.tabID, panes: drawnPanes(layout))]
             )
@@ -1096,15 +1047,5 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertNil(MiniPaneLayout.targetedTab(of: .workspaceThumbnail(WorkspaceID(rawValue: "w1")), dragging: visitor, model: model))
         XCTAssertNil(MiniPaneLayout.targetedTab(of: nil, dragging: visitor, model: model))
         XCTAssertNil(MiniPaneLayout.targetedTab(of: .paneEdge(p1, .left), dragging: nil, model: model))
-    }
-
-    // MARK: - planner
-
-    func testADropOnADwellOnlyTargetIsANoOpNeverARejection() {
-        for subject in [pane, tab] {
-            guard case .failure(.noOp) = plan(dragging: subject, onto: .moreTabs(WorkspaceID(rawValue: "w1")), model: model()) else {
-                return XCTFail("\(subject) onto a +N tile must spring back silently")
-            }
-        }
     }
 }

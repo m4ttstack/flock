@@ -743,8 +743,8 @@ final class GesturePlannerTests: XCTestCase {
         }
 
         // Guards against a sweep that silently covers nothing: every one of
-        // the resolver's nine target cases is reachable from these surfaces.
-        XCTAssertEqual(Set(produced.map { Self.caseName($0.1) }).count, 9, "\(Set(produced.map { Self.caseName($0.1) }))")
+        // the resolver's eight target cases is reachable from these surfaces.
+        XCTAssertEqual(Set(produced.map { Self.caseName($0.1) }).count, 8, "\(Set(produced.map { Self.caseName($0.1) }))")
 
         for (subject, target) in produced {
             if case .failure(.invalidCombination) = plan(dragging: subject, onto: target, model: model) {
@@ -763,7 +763,6 @@ final class GesturePlannerTests: XCTestCase {
         case .newTab: "newTab"
         case .newWorkspace: "newWorkspace"
         case .workspaceRail: "workspaceRail"
-        case .moreTabs: "moreTabs"
         }
     }
 
@@ -778,7 +777,6 @@ final class GesturePlannerTests: XCTestCase {
             grid: GridDropSurfaces(
                 viewport: CGRect(x: 0, y: 0, width: 600, height: 600),
                 thumbnails: [TabItemFrame(id: TabID(rawValue: "w1:t2"), frame: CGRect(x: 10, y: 10, width: 100, height: 82))],
-                tiles: [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 120, y: 10, width: 100, height: 82))],
                 cards: [
                     WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 0, width: 240, height: 120)),
                     WorkspaceItemFrame(id: WorkspaceID(rawValue: "w2"), frame: CGRect(x: 260, y: 0, width: 240, height: 120)),

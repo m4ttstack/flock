@@ -67,7 +67,7 @@ public enum DropPreview {
                 return DropPreviewFrames(incoming: box(incomingRect(in: frame, edge: .right)))
             }
             return DropPreviewFrames(incoming: box(frame))
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .moreTabs:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
             return nil
         }
     }
@@ -102,7 +102,7 @@ public enum DropPreview {
             return replacingLeaf(targetPane, in: root) { existing in
                 split(incoming: .pane(ExportedLayoutPane(paneID: pane)), existing: existing, on: .right)
             }
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .moreTabs:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail:
             return nil
         }
     }
@@ -191,10 +191,9 @@ public enum DropPreview {
 /// can land in: an insertion bar marks a gap that stops meaning anything the
 /// moment the items close over it, so lighting it for 700ms would leave a
 /// sliver burning at a position the new arrangement has already moved past.
-/// The dwell-only targets never take a drop, so there is nothing to flash.
 public func dropFlashRect(for target: DropTarget, surfaces: DropSurfaces) -> CGRect? {
     switch target {
-    case .tabStrip, .workspaceRail, .moreTabs:
+    case .tabStrip, .workspaceRail:
         return nil
     case .paneEdge, .paneInterior, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
         return dropTargetRect(for: target, surfaces: surfaces)
@@ -222,8 +221,6 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
             return grid.thumbnails.first { $0.id == tab }?.frame
         }
         return surfaces.tabFrames.first { $0.id == tab }?.frame
-    case .moreTabs(let workspace):
-        return surfaces.grid?.tiles.first { $0.id == workspace }?.frame
     case .workspaceThumbnail(let workspace):
         if let grid = surfaces.grid {
             // The slot the tab will really occupy, when the card is drawing

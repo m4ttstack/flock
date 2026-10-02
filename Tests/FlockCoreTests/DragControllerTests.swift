@@ -199,32 +199,6 @@ final class DragControllerTests: XCTestCase {
         XCTAssertEqual(controller.springLoad?.target, .workspaceThumbnail(Self.workspaceID))
     }
 
-    /// The one dwell-only target left: a card's +N tile, which arms like a
-    /// thumbnail and fires once its 500ms are up.
-    func testDwellingOnAPlusTileFiresItsSpringLoad() async {
-        let clock = FakeClock()
-        let springLoad = SpringLoadSpy()
-        let controller = makeController(commit: CommitSpy(), springLoad: springLoad, clock: clock)
-        let grid = DropSurfaces(
-            canvas: .empty, stripWorkspace: WorkspaceID(rawValue: "w1"), tabFrames: [], workspaceFrames: [],
-            newTabZone: nil, newWorkspaceZone: nil,
-            grid: GridDropSurfaces(
-                viewport: CGRect(x: 0, y: 0, width: 600, height: 300), thumbnails: [],
-                tiles: [WorkspaceItemFrame(id: Self.workspaceID, frame: CGRect(x: 10, y: 10, width: 80, height: 80))],
-                cards: []
-            )
-        )
-        controller.began(.pane(Self.paneID), at: .zero)
-
-        controller.moved(to: CGPoint(x: 50, y: 50), surfaces: grid)
-        XCTAssertEqual(controller.springLoad?.target, .moreTabs(Self.workspaceID))
-        clock.advance(by: .milliseconds(500))
-        controller.moved(to: CGPoint(x: 51, y: 50), surfaces: grid)
-        await springLoad.waitForFire(count: 1)
-
-        XCTAssertEqual(springLoad.fired, [.moreTabs(Self.workspaceID)])
-    }
-
     func testMovedOverPaneEdgeDoesNotArmSpringLoad() {
         let controller = makeController(commit: CommitSpy(), springLoad: SpringLoadSpy(), clock: FakeClock())
         controller.began(.pane(Self.paneID), at: .zero)
