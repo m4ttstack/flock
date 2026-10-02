@@ -52,7 +52,7 @@ struct MainWindow: View {
                             theme: theme,
                             viewModel: viewModel,
                             workspace: viewModel.selectedWorkspaceID,
-                            tabs: viewModel.tabsForSelectedWorkspace,
+                            tabs: viewModel.stripTabs,
                             selectedTabID: viewModel.selectedTabID,
                             protocolVersion: HerdrClient.minimumProtocol,
                             onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }

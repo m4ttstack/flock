@@ -3,8 +3,13 @@
 /// herdr's order is never changed for it, which is what puts a tab back where
 /// it was once its mark comes off.
 public enum StripTabOrder {
-    public static func ordered(_ tabs: [TabRecord], isComplete: (TabID) -> Bool) -> [TabRecord] {
-        tabs.filter { !isComplete($0.tabID) } + tabs.filter { isComplete($0.tabID) }
+    /// `leading`, when it is complete, heads the complete run for as long as
+    /// it is passed: the strip lifts a selected complete tab there and lets it
+    /// fall back once the selection moves on.
+    public static func ordered(_ tabs: [TabRecord], isComplete: (TabID) -> Bool, leading: TabID? = nil) -> [TabRecord] {
+        let complete = tabs.filter { isComplete($0.tabID) }
+        let lifted = complete.filter { $0.tabID == leading } + complete.filter { $0.tabID != leading }
+        return tabs.filter { !isComplete($0.tabID) } + lifted
     }
 
     /// herdr's `tab.move` takes an index into its own list. A slot before the

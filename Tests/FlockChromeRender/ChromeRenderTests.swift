@@ -1171,8 +1171,8 @@ final class ChromeRenderTests: XCTestCase {
             )
             XCTAssertEqual(width("w1:t2"), TabSizing.width(of: "Trash Runner"), scheme)
             XCTAssertEqual(
-                frames.sorted { $0.frame.minX < $1.frame.minX }.map(\.id.rawValue), ["w1:t2", "w1:t4", "w1:t1", "w1:t3"],
-                "complete tabs follow the open ones; \(scheme)"
+                frames.sorted { $0.frame.minX < $1.frame.minX }.map(\.id.rawValue), ["w1:t2", "w1:t4", "w1:t3", "w1:t1"],
+                "complete tabs follow the open ones, the selected one first; \(scheme)"
             )
             window.close()
         }
