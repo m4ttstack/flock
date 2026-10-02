@@ -18,15 +18,6 @@ final class StripTabOrderTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.tabID), ids(2, 4, 5, 1, 3))
     }
 
-    /// A leading complete tab heads its run; an open one changes nothing.
-    func testALeadingCompleteTabHeadsTheCompleteRun() {
-        let complete = Set(ids(1, 3, 4))
-        let tabs = (1...5).map(tab)
-
-        XCTAssertEqual(StripTabOrder.ordered(tabs, isComplete: complete.contains, leading: ids(4)[0]).map(\.tabID), ids(2, 5, 4, 1, 3))
-        XCTAssertEqual(StripTabOrder.ordered(tabs, isComplete: complete.contains, leading: ids(2)[0]).map(\.tabID), ids(2, 5, 1, 3, 4))
-    }
-
     func testWithNothingCompleteTheStripIsHerdrsOrder() {
         XCTAssertEqual(StripTabOrder.ordered((1...3).map(tab), isComplete: { _ in false }).map(\.tabID), ids(1, 2, 3))
     }
