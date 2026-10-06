@@ -1,0 +1,193 @@
+# Mission control
+
+**Goal:** a second mode of the All Workspaces view that shows, at a glance and
+live, what every agent across every workspace is doing and what needs you, so
+it can be left open, watched, jumped out of and come back to.
+
+**Status:** design approved 2026-10-06. flock only. Visual reference: board
+`05 · MC · Lanes` in `docs/design/workspaces/flock-workspaces.pen`.
+
+## Why
+
+The All Workspaces grid is good at one job: arranging, pulling panes that
+landed in the wrong workspace back where they belong. As an overview it is a
+flat wall of thumbnails. Every pane gets the same box whether it is blocked,
+busy or untouched since yesterday, so finding what matters means scanning all
+of it. Mission control answers a different question, "what is happening and
+what needs me", and leaves quiet panes out of the way.
+
+## What exists today
+
+Mission control reads these; it replaces none of them.
+
+| Piece | What it gives | Where |
+|---|---|---|
+| All Workspaces grid | the view, its open/close state, Esc routing | `AllWorkspacesGrid` (both targets), `AllWorkspacesGridState` |
+| Attention stack | the "needs input" and "finished" cards, their rules and lifetime | `AttentionToastStack`, `NotificationLifetime`, `SessionViewModel.withdrawSettledAttentionToasts` |
+| ⌘J | jump to the oldest card the dock draws, dismissing it | `SessionViewModel.jumpToOldestDisplayedAttentionToast` |
+| ⇧⌘J | Clear Notifications | `ViewCommand.clearNotifications` |
+| ⇧⌘R | All Workspaces | `ArrangeShortcut.allWorkspaces` |
+| Agent status | per pane, with change events | `PaneRecord.agentStatus`, `HerdrEvent.paneAgentStatusChanged` |
+| Pane title | the name or the agent's current task | `PaneRecord.displayTitle` |
+| Rail order and sections | workspaces, board, herds | `RailSections` |
+| Herd progress | done / total workers | `HerdProgress`, `HerdRail` |
+| Main checkout | a folder's repository from git's files | `MainCheckout` |
+
+## Behaviour
+
+### Modes
+
+The All Workspaces view gets a segmented control at the left of its header:
+**Mission control | Arrange**. Arrange is today's grid, unchanged. The view
+remembers the mode last used across launches, and ⇧⌘R opens it in that mode.
+
+A pane drag always shows Arrange, because the grid is the drop target. A drag
+that starts while mission control is up switches the view to Arrange for the
+drag; the remembered mode is not changed by it.
+
+### Lanes
+
+Three equal columns, each scrolling on its own. Every pane that is not
+dormant appears in exactly one lane, decided in this order:
+
+1. **Needs you**: the pane has a card in the attention stack. The lane IS the
+   stack: same cards, same raising, coalescing, lifetime and withdrawal rules,
+   so the dock and the lane can never disagree. Ordered oldest first.
+2. **Working**: the pane's status is `working`. Ordered by rail order
+   (workspaces, then board, then herds), then by tab and pane order inside a
+   workspace. A small workspace label sits above the first card of each
+   workspace, so a workspace's agents stay together.
+3. **Cooling down**: anything else whose last status change is within the
+   dormant cutoff. Most recent change first. Cards draw at reduced opacity.
+4. **Dormant**: anything else. Not drawn as cards. The foot of Cooling down
+   holds one line, "N dormant", that expands in place to a compact list (dot,
+   workspace › tab, title) and collapses again. A dormant pane moves to its
+   lane the moment its status changes.
+
+A blocked or done pane whose card was cleared (⇧⌘U, or a "finished" card
+that timed out) is not in Needs you; it falls to Cooling down, then Dormant.
+
+Each lane's header shows its status dot, its name and its count. An empty
+Needs you lane reads "Nothing needs you".
+
+### A card
+
+Top line: status dot, `workspace › tab` (a herd's workspace reads `auth
+sweep · herd 2/4`), and at the right the state and its age in the terminal
+face, `working 18m`, in the status hue. In Working the workspace label above
+the group already names it, so the top line there is the tab alone.
+
+Title: the pane's `displayTitle`, wrapped to at most two lines.
+
+Bottom line: `repo @ branch` in the terminal face, and at the right a
+timeline of the last 60 minutes: working, blocked and done as solid
+segments in their hues, idle as a thin line, time with no record as the
+track alone.
+
+A blocked card carries a 1.5pt outline in the blocked hue.
+
+### Live updates
+
+While shown, the view follows the model as it changes. A card whose lane
+changes moves to its new place with a short ease (no bounce); with Reduce
+Motion on it appears there without moving. Ages and timelines refresh once a
+minute, not continuously.
+
+### Keys and jumping
+
+- **⌘J** is unchanged in meaning everywhere: jump to the oldest attention
+  card, dismissing it. In mission control every card is drawn, so it is the
+  top card of Needs you.
+- **Clicking a card**, or Return on the selected card, jumps to that pane
+  (tab, then pane, as `jumpToAttentionToast` does) and closes the view. A
+  Needs-you card is dismissed by the jump, exactly as a dock card is.
+- **⇧⌘J, Jump Back** (new, View menu and palette): returns to where the last
+  jump started. A jump is ⌘J, a dock card click, or a mission-control card
+  activation. Its origin is mission control when the jump left from there
+  (reopened at the same scroll position and selection), otherwise the pane
+  that was focused. Jump Back records where it left from as the new origin,
+  so pressing it again goes forward: it toggles between two places. One
+  level only. Disabled when there is no origin or the origin pane has closed.
+- **⇧⌘U, Clear Notifications** moves here from ⇧⌘J.
+- **Arrows** move a selection ring between cards (up and down inside a lane,
+  left and right across lanes, keeping the nearest row). The first open
+  selects the top card of the first non-empty lane. **Esc** closes the view.
+
+The header's right side shows the keys: `⌘J oldest · ⇧⌘J back · esc`.
+
+## Data
+
+### Status history
+
+A new FlockCore type records, per pane, every status transition with its
+time, as `paneAgentStatusChanged` and snapshots arrive, and drops entries
+older than 60 minutes (keeping the transition that was in force at the
+window's start). It lives in memory only: after a launch timelines start
+empty and fill in. A pane first seen at launch is recorded as having entered
+its current status at launch time.
+
+It answers, for a pane: the current status's age, the timeline segments for
+the last 60 minutes, and the time of the last change. It takes the clock as
+a parameter so tests control time.
+
+### Dormancy
+
+A pane is dormant when it is not in the attention stack, its status is not
+`working`, and its last status change is older than the cutoff. The cutoff is
+a Settings value under Notifications, "Dormant after", one of 15, 30
+(default), 60 or 120 minutes, persisted like `NotificationLifetimeStore`.
+
+A shell with no agent never changes status, so it reads dormant once the
+cutoff passes after launch even while a command runs in it. Using
+`PaneForegroundJob` to keep busy shells awake is a follow-up, not part of
+this work.
+
+### Repo and branch
+
+From the pane's `foregroundCwd`, else its `cwd`: the repository is the main
+checkout's folder name (`MainCheckout`), the branch is read from the
+worktree's `HEAD` file (`ref: refs/heads/<name>`; a detached head shows the
+short hash). File reads only, never a git process. Cached per folder and read
+again when a pane's folder changes or the view opens. A folder outside any
+repository shows the folder's last path component and no branch.
+
+## Layout and visuals
+
+As board 05, in the minimal-chrome roles (`docs/design/colors/minimal-spec.md`):
+canvas behind, lanes on `pane`, cards on `chrome` with a `rule` outline,
+status hues from the theme. Lanes are equal width with a 16pt gap and 24pt
+canvas padding; cards have 12 by 14pt padding, a 6pt radius and a 10pt gap.
+The design file draws at 1x like the rest of the chrome; implementation
+follows the same 1.28x rule as the minimal spec.
+
+Board 05 needs two additions before it is the reference: workspace labels in
+the Working lane, and the key hints in the header. Both themes are rendered
+and checked before implementation starts.
+
+## Out of scope
+
+- Redesigning Arrange (boards 02 and 03 in the design file are parked).
+- A separate or torn-off mission-control window.
+- Recent output lines on cards (costs a `pane.read` per pane per refresh).
+- Keeping status history across launches.
+- Keeping busy agentless shells out of Dormant.
+
+## Testing
+
+FlockCore unit tests:
+
+- the status history: recording, trimming at 60 minutes with the in-force
+  entry kept, age and segment answers under an injected clock;
+- lane assignment and its precedence, including a cleared blocked card and a
+  pane at the cutoff's edge;
+- lane ordering: oldest-first Needs you, rail-ordered Working with label
+  breaks, most-recent-first Cooling down;
+- Jump Back's origin rules: set by each jump kind, toggling, disabled on a
+  closed origin;
+- `HEAD` parsing for a branch, a detached head and a missing file;
+- the dormant cutoff store's default and persistence.
+
+A FlockChromeRender test renders mission control with fixture data in a dark
+and a light theme, writing PNGs under `FLOCK_GRID_RENDER_DIR`, and samples a
+blocked card's outline and a lane header's dot. The UI is looked at in both
+themes before it is called done.
