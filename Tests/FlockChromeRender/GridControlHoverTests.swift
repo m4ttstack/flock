@@ -47,10 +47,41 @@ final class GridControlAppearanceTests: XCTestCase {
         XCTAssertGreaterThan(cold.pressWash, 0)
     }
 
-    func testAThumbnailsHoverOutlineGivesWayToALiveDrag() {
-        XCTAssertEqual(ThumbnailHover.outline(theme: theme, isHovering: false, dragInFlight: false), .clear)
-        XCTAssertNotEqual(ThumbnailHover.outline(theme: theme, isHovering: true, dragInFlight: false), .clear)
-        XCTAssertEqual(ThumbnailHover.outline(theme: theme, isHovering: true, dragInFlight: true), .clear)
+    private let pane = PaneID(rawValue: "w1:t1:p1")
+    private let other = PaneID(rawValue: "w1:t1:p2")
+
+    private func part(_ part: ThumbnailPart, hovered: ThumbnailPart?, pressed: ThumbnailPart? = nil, dragging: Bool = false) -> ControlInteraction {
+        ThumbnailPart.interaction(of: part, hovered: hovered, pressed: pressed, dragInFlight: dragging)
+    }
+
+    func testOverAPaneOnlyThatPaneLightsNotTheTabOrItsNeighbour() {
+        XCTAssertEqual(part(.pane(pane), hovered: .pane(pane)), .hover)
+        XCTAssertEqual(part(.tab, hovered: .pane(pane)), .rest, "a pane under the pointer must not read as the tab")
+        XCTAssertEqual(part(.pane(other), hovered: .pane(pane)), .rest)
+        XCTAssertEqual(ThumbnailPart.thumbnailOutline(theme: theme, tab: part(.tab, hovered: .pane(pane))), .clear)
+    }
+
+    func testOverTheHandleTheTabLightsAndNoPaneDoes() {
+        XCTAssertEqual(part(.tab, hovered: .tab), .hover)
+        XCTAssertEqual(part(.pane(pane), hovered: .tab), .rest)
+        XCTAssertNotEqual(ThumbnailPart.thumbnailOutline(theme: theme, tab: part(.tab, hovered: .tab)), .clear)
+    }
+
+    func testAPressLightsThePartItBeganOn() {
+        XCTAssertEqual(part(.pane(pane), hovered: .pane(pane), pressed: .pane(pane)), .pressed)
+        XCTAssertFalse(part(.tab, hovered: .pane(pane), pressed: .pane(pane)).isPressed)
+    }
+
+    func testNothingInAThumbnailLightsWhileADragIsLive() {
+        XCTAssertEqual(part(.tab, hovered: .tab, pressed: .tab, dragging: true), .rest)
+        XCTAssertEqual(part(.pane(pane), hovered: .pane(pane), dragging: true), .rest)
+    }
+
+    func testAPaneHoverRingNeverReplacesTheBlockedOrPreviewedOutline() {
+        XCTAssertEqual(ThumbnailPart.paneOutline(theme: theme, status: .blocked, isPreviewed: false, pane: .hover), theme.red)
+        XCTAssertEqual(ThumbnailPart.paneOutline(theme: theme, status: .idle, isPreviewed: true, pane: .hover), theme.accent)
+        XCTAssertEqual(ThumbnailPart.paneOutline(theme: theme, status: .idle, isPreviewed: false, pane: .rest), .clear)
+        XCTAssertNotEqual(ThumbnailPart.paneOutline(theme: theme, status: .idle, isPreviewed: false, pane: .hover), .clear)
     }
 }
 
@@ -60,7 +91,7 @@ final class GridControlAppearanceTests: XCTestCase {
 @MainActor
 final class GridControlHoverRenderTests: XCTestCase {
     private static let scale: CGFloat = 2
-    private static let size = CGSize(width: 1180, height: 330)
+    private static let size = CGSize(width: 1180, height: 450)
     private static let column: CGFloat = 380
     private static let states: [(String, ControlInteraction)] = [("rest", .rest), ("hover", .hover), ("pressed", .pressed)]
 
@@ -146,11 +177,34 @@ final class GridControlHoverRenderTests: XCTestCase {
                         .padding(.horizontal, ChromeMetrics.MissionControl.dormantRowHorizontalPadding)
                     }
                     .frame(width: Self.column - 30)
+                    HStack(alignment: .top, spacing: 12) {
+                        Self.thumbnail(theme, tab: interaction, pane: .rest)
+                        Self.thumbnail(theme, tab: .rest, pane: interaction)
+                    }
                 }
                 .frame(width: Self.column - 30, alignment: .leading)
             }
         }
         .padding(16)
+    }
+
+    /// An Arrange thumbnail drawn from its parts: the handle in `tab`'s state
+    /// over two mini panes, the first in `pane`'s.
+    private static func thumbnail(_ theme: Theme, tab: ControlInteraction, pane: ControlInteraction) -> some View {
+        VStack(spacing: 0) {
+            TabHandleStrip(theme: theme, title: "api", status: .working, isFocusedTab: false, interaction: tab)
+            HStack(spacing: ChromeMetrics.Grid.miniPaneGap) {
+                MiniPane(theme: theme, title: "claude", status: .working, interaction: pane)
+                MiniPane(theme: theme, title: "zsh", status: .idle)
+            }
+            .padding(ChromeMetrics.Grid.thumbnailPadding)
+        }
+        .frame(width: 160, height: 90)
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius)
+                .strokeBorder(ThumbnailPart.thumbnailOutline(theme: theme, tab: tab), lineWidth: ChromeMetrics.ruleWidth)
+        )
     }
 
     private func host(_ view: some View, theme: Theme) -> NSWindow {

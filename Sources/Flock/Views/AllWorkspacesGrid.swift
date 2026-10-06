@@ -345,7 +345,6 @@ private struct WorkspaceIsland: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(WorkspaceIdentityStore.self) private var identityStore
     @Environment(\.gridThumbnailSize) private var thumbnailSize
-    @State private var isHeaderHovered = false
 
     private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
 
@@ -432,14 +431,8 @@ private struct WorkspaceIsland: View {
                 .fixedSize()
         }
         .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
-        .background {
-            HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius)
-                .padding(.horizontal, -ChromeMetrics.Grid.islandHeaderHoverOutset)
-                .opacity(isHeaderHovered && drag.activeSubject == nil ? 1 : 0)
-        }
         .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
         .contentShape(Rectangle())
-        .fadingHover($isHeaderHovered)
         .contextMenu { colourMenu }
     }
 
@@ -551,7 +544,19 @@ private struct TabThumbnail: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
     @Environment(\.gridThumbnailSize) private var thumbnailSize
-    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isOverThumbnail = false
+    @State private var hoveredPane: PaneID?
+    @State private var pressed: ThumbnailPart?
+
+    private var hovered: ThumbnailPart? {
+        if let hoveredPane { return .pane(hoveredPane) }
+        return isOverThumbnail ? .tab : nil
+    }
+
+    private func interaction(of part: ThumbnailPart) -> ControlInteraction {
+        ThumbnailPart.interaction(of: part, hovered: hovered, pressed: pressed, dragInFlight: drag.activeSubject != nil)
+    }
 
     private var tabTitle: String {
         viewModel.model.map { TabTitle.resolve(tab, in: $0).text } ?? tab.label
@@ -571,13 +576,20 @@ private struct TabThumbnail: View {
         .overlay {
             RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius)
                 .strokeBorder(
-                    ThumbnailHover.outline(theme: theme, isHovering: isHovering, dragInFlight: drag.activeSubject != nil),
+                    ThumbnailPart.thumbnailOutline(theme: theme, tab: interaction(of: .tab)),
                     lineWidth: ChromeMetrics.ruleWidth
                 )
                 .allowsHitTesting(false)
         }
         .contentShape(Rectangle())
-        .fadingHover($isHovering)
+        .fadingHover($isOverThumbnail)
+        // Alongside the tap and the drags, never instead of them: it only
+        // records which part the press began on.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in if pressed == nil { pressed = hovered ?? .tab } }
+                .onEnded { _ in pressed = nil }
+        )
         // The handle and the padding around the mini panes mean the whole
         // tab; a mini pane's own tap is a descendant's and answers first.
         .onTapGesture { clicked(pane: nil) }
@@ -650,7 +662,8 @@ private struct TabThumbnail: View {
     private var titleStrip: some View {
         TabHandleStrip(
             theme: theme, title: tabTitle, status: tab.agentStatus,
-            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID, fill: handleFill
+            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID, fill: handleFill,
+            interaction: interaction(of: .tab)
         )
         .onHover { hovering in
             GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
@@ -779,14 +792,20 @@ private struct TabThumbnail: View {
                 } else if let pane = model?.panes[placed.pane] {
                     MiniPane(
                         theme: theme, title: pane.displayTitle, status: pane.agentStatus,
-                        isPreviewed: drag.gridPreviewCard == pane.paneID
+                        isPreviewed: drag.gridPreviewCard == pane.paneID,
+                        interaction: interaction(of: .pane(pane.paneID))
                     )
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
                         .onTapGesture { clicked(pane: pane.paneID) }
                         .gesture(paneDrag(pane, box: placed.frame))
-                        .onHover { GridCursor.hover($0, dragInFlight: drag.holdsGrabCursor) }
+                        .onHover { hovering in
+                            GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
+                            withAnimation(GridControlFade.animation(reduceMotion: reduceMotion)) {
+                                if hovering { hoveredPane = pane.paneID } else if hoveredPane == pane.paneID { hoveredPane = nil }
+                            }
+                        }
                         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: placed.frame)
                 }
             }
@@ -819,12 +838,17 @@ struct TabHandleStrip: View {
     let status: AgentStatus
     let isFocusedTab: Bool
     var fill: Color?
+    var interaction: ControlInteraction = .rest
 
     var body: some View {
+        let appearance = GridControlAppearance.resolve(
+            theme: theme, restForeground: isFocusedTab ? theme.textStrong : theme.textDim,
+            isHovering: interaction.isHovering, isPressed: interaction.isPressed
+        )
         HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
             Text(title)
                 .font(ChromeType.gridTabLabel(selected: isFocusedTab))
-                .foregroundStyle(isFocusedTab ? theme.textStrong : theme.textDim)
+                .foregroundStyle(appearance.foreground)
                 .lineLimit(1)
             Spacer(minLength: 0)
             StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
@@ -832,7 +856,9 @@ struct TabHandleStrip: View {
         .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: ChromeMetrics.Grid.tabStripHeight)
-        .background(fill ?? .clear)
+        .background(
+            GridControlGround(theme: theme, shape: AnyShape(Rectangle()), restFill: fill ?? .clear, appearance: appearance)
+        )
     }
 }
 
@@ -848,8 +874,14 @@ struct MiniPane: View {
     let status: AgentStatus
     /// Its preview card is the one open, so the card's pane is findable.
     var isPreviewed = false
+    var interaction: ControlInteraction = .rest
 
     var body: some View {
+        let appearance = GridControlAppearance.resolve(
+            theme: theme, restForeground: theme.textStrong,
+            isHovering: interaction.isHovering, isPressed: interaction.isPressed
+        )
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
         // A narrow box gives up title lines before the status word; one too
         // short for the status word over the title, as a stacked split at the
         // 120pt floor is, keeps the dot and the title on one line rather than
@@ -865,13 +897,21 @@ struct MiniPane: View {
             .padding(.horizontal, ChromeMetrics.Grid.miniPaneTitleSpacing + ChromeMetrics.Grid.thumbnailPadding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.tabRest, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius))
-        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius))
+        .background(GridControlGround(theme: theme, shape: AnyShape(shape), restFill: theme.tabRest, appearance: appearance))
+        .clipShape(shape)
         .overlay(
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
-                .strokeBorder(outline, lineWidth: ChromeMetrics.Grid.miniPaneBlockedOutline)
+            shape.strokeBorder(
+                ThumbnailPart.paneOutline(theme: theme, status: status, isPreviewed: isPreviewed, pane: interaction),
+                lineWidth: outlineWidth
+            )
         )
         .contentShape(Rectangle())
+    }
+
+    /// The blocked and previewed outlines are the island's alarms; a hover
+    /// ring is a lighter mark so it never reads as one.
+    private var outlineWidth: CGFloat {
+        isPreviewed || status == .blocked ? ChromeMetrics.Grid.miniPaneBlockedOutline : ChromeMetrics.ruleWidth
     }
 
     private func stacked(titleLines: Int) -> some View {
@@ -895,11 +935,6 @@ struct MiniPane: View {
 
     private var titleText: Text {
         Text(title).font(ChromeType.gridMiniPaneTitle).foregroundStyle(theme.textStrong)
-    }
-
-    private var outline: Color {
-        if isPreviewed { return theme.accent }
-        return status == .blocked ? theme.red : .clear
     }
 }
 

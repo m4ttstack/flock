@@ -1,3 +1,4 @@
+import FlockCore
 import SwiftUI
 
 /// A forced hover and press, for renders: a test cannot move a pointer or
@@ -115,12 +116,35 @@ struct GridControlButton<Label: View>: View {
     }
 }
 
-/// An Arrange thumbnail's hover: an outline, so it never meets the drop
-/// wash (a fill), the previewed mini pane's accent ring or the focused tab's
-/// handle tint. Off while a drag is live, when the wash says where it lands.
-enum ThumbnailHover {
-    static func outline(theme: Theme, isHovering: Bool, dragInFlight: Bool) -> Color {
-        isHovering && !dragInFlight ? theme.textDim : .clear
+/// The part of an Arrange thumbnail under the pointer, which is what a drag
+/// from there picks up: the tab (its handle or the padding around the mini
+/// panes) or one pane.
+enum ThumbnailPart: Equatable {
+    case tab
+    case pane(PaneID)
+
+    /// Only the part a drag would pick up lights, and nothing does while a
+    /// drag is live, when the drop wash says where it lands.
+    static func interaction(
+        of part: ThumbnailPart, hovered: ThumbnailPart?, pressed: ThumbnailPart?, dragInFlight: Bool
+    ) -> ControlInteraction {
+        guard !dragInFlight else { return .rest }
+        return ControlInteraction(isHovering: hovered == part, isPressed: pressed == part)
+    }
+
+    /// The whole thumbnail's outline: on only while the tab is the part, so
+    /// a pane under the pointer never reads as the tab. An outline, so it
+    /// never meets the drop wash (a fill) or the focused tab's handle tint.
+    static func thumbnailOutline(theme: Theme, tab: ControlInteraction) -> Color {
+        tab.isHovering || tab.isPressed ? theme.textDim : .clear
+    }
+
+    /// A mini pane's outline. Previewed and blocked keep theirs; hover
+    /// draws one only where neither already does.
+    static func paneOutline(theme: Theme, status: AgentStatus, isPreviewed: Bool, pane: ControlInteraction) -> Color {
+        if isPreviewed { return theme.accent }
+        if status == .blocked { return theme.red }
+        return pane.isHovering || pane.isPressed ? theme.textDim : .clear
     }
 }
 
