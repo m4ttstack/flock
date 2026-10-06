@@ -2,7 +2,7 @@ import AppKit
 import FlockCore
 import SwiftUI
 
-/// Every workspace at once, one card each, its tabs drawn as their split
+/// Every workspace at once, one island each, its tabs drawn as their split
 /// layouts in miniature. It stands in for the rail, strip and canvas while
 /// shown. Thumbnails come from the layout snapshots and cached exports only:
 /// the grid never attaches a pane, since attaching sizes the real one.
@@ -15,28 +15,20 @@ struct AllWorkspacesGrid: View {
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
+    @Environment(DormantCutoffStore.self) private var cutoff
     @State private var scrollPosition = ScrollPosition()
-    /// The width the scroll content is laid out in, measured rather than
-    /// assumed: it is what decides how many slots a card row holds. Taken
-    /// OUTSIDE the grid's own padding, which is why `rowWidth` takes that
-    /// padding off again.
-    @State private var contentWidth: CGFloat = 0
+    /// The fit on screen. Written only while no drag is live, so the fit a
+    /// drag starts with is the one it keeps (`IslandFitHold`).
+    @State private var hold = IslandFitHold()
+    /// The space the islands can use: the scroll view less the canvas
+    /// padding on each side.
+    @State private var viewport: CGSize = .zero
+    /// Dormant workspaces opened by a click, until the view closes.
+    @State private var openedDormant: Set<WorkspaceID> = []
+    /// Dormant workspaces sprung open by a dwell, until that drag ends.
+    @State private var sprungDormant: Set<WorkspaceID> = []
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
-
-    /// Decided once for the whole grid and handed to every card, so the cells
-    /// a card draws and the ids the grid publishes for them cannot be laid
-    /// out against different counts.
-    private var slotsPerRow: Int {
-        GridCardLayout.tabsPerRow(
-            rowWidth: GridCardLayout.rowWidth(
-                gridWidth: contentWidth, canvasPadding: ChromeMetrics.Grid.canvasPadding,
-                cardGap: ChromeMetrics.Grid.cardGap, cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
-            ),
-            width: ChromeMetrics.Grid.thumbnailWidth,
-            gap: ChromeMetrics.Grid.tabGap
-        )
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,29 +58,50 @@ struct AllWorkspacesGrid: View {
     private var publishedOrder: [GridItemID] { shownMode == .arrange ? itemOrder : [] }
 
     private var arrangeGrid: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardGap) {
-                ForEach(Array(GridCardLayout.cardRows(workspaces).enumerated()), id: \.offset) { _, row in
-                    HStack(alignment: .top, spacing: ChromeMetrics.Grid.cardGap) {
-                        ForEach(row, id: \.workspaceID) { workspace in
-                            WorkspaceCard(
-                                theme: theme, viewModel: viewModel, workspace: workspace, slotsPerRow: slotsPerRow
-                            )
-                        }
-                        if row.count < GridCardLayout.columns {
-                            Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+        let arrange = self.arrange
+        let fit = arrange.fit
+        let metrics = ChromeMetrics.Grid.islands
+        return ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: metrics.islandGap) {
+                ForEach(fit.rows, id: \.self) { row in
+                    HStack(alignment: .top, spacing: metrics.islandGap) {
+                        ForEach(row, id: \.self) { id in
+                            if let workspace = workspaces.first(where: { $0.workspaceID == id }) {
+                                WorkspaceIsland(
+                                    theme: theme, viewModel: viewModel, workspace: workspace,
+                                    slotsPerRow: fit.tabsPerRow[id] ?? 1,
+                                    identity: arrange.sections.flatMap {
+                                        MissionBoard.identityColor(id, sections: $0, identity: identity, theme: theme)
+                                    },
+                                    identityKey: arrange.sections.flatMap { WorkspaceIdentityStore.key(for: id, sections: $0) }
+                                )
+                            }
                         }
                     }
-                    // Cards sharing a row share the taller one's height.
+                    // Islands sharing a row share the taller one's height.
                     .fixedSize(horizontal: false, vertical: true)
                 }
+                if !arrange.chips.isEmpty { dormantStrip(arrange.chips) }
             }
+            .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
             .padding(ChromeMetrics.Grid.canvasPadding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .coordinateSpace(.named(DragSpace.gridContent))
             .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         }
+        .onGeometryChange(for: CGSize.self) { proxy in
+            CGSize(
+                width: max(0, proxy.size.width - 2 * ChromeMetrics.Grid.canvasPadding),
+                height: max(0, proxy.size.height - 2 * ChromeMetrics.Grid.canvasPadding)
+            )
+        } action: { viewport = $0 }
+        .onChange(of: arrange.inputs, initial: true) { holdFit(arrange.inputs) }
+        .onChange(of: drag.activeSubject == nil) { _, idle in
+            guard idle else { return }
+            sprungDormant = []
+            holdFit(self.arrange.inputs)
+        }
+        .onDisappear { openedDormant = [] }
         .scrollIndicators(.never)
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .scrollPosition($scrollPosition)
@@ -153,27 +166,99 @@ struct AllWorkspacesGrid: View {
         identity.assign(keys)
     }
 
+    /// What Arrange draws: the islands as the fit lays them out, and the
+    /// dormant workspaces left as chips.
+    private struct Arrangement {
+        struct Inputs: Equatable {
+            let islands: [IslandLayout.Island]
+            let viewport: CGSize
+            let hasDormantStrip: Bool
+        }
+
+        let sections: RailSections?
+        let inputs: Inputs
+        let fit: IslandLayout.Fit
+        let chips: [WorkspaceRecord]
+    }
+
+    private var arrange: Arrangement {
+        let model = viewModel.model
+        let made = MissionBoard.make(
+            viewModel: viewModel, board: boardNames, herdProgress: herdProgress, cutoff: cutoff, now: viewModel.currentTime
+        )
+        let sections = made?.1
+        let ranked = sections?.railOrder ?? []
+        let ordered = ranked.compactMap { id in workspaces.first { $0.workspaceID == id } }
+            + workspaces.filter { !ranked.contains($0.workspaceID) }
+        let dormant = (made?.0.dormantWorkspaces ?? []).subtracting(openedDormant).subtracting(sprungDormant)
+        let islands = ordered.filter { !dormant.contains($0.workspaceID) }.map {
+            IslandLayout.Island(id: $0.workspaceID, tabs: model?.tabs[$0.workspaceID]?.count ?? 1)
+        }
+        let inputs = Arrangement.Inputs(islands: islands, viewport: viewport, hasDormantStrip: !dormant.isEmpty)
+        // A copy, so `body` never writes state; `holdFit` keeps the stored one.
+        var held = hold
+        var fit = held.update(
+            islands, in: viewport, hasDormantStrip: inputs.hasDormantStrip, dragging: drag.activeSubject != nil,
+            metrics: ChromeMetrics.Grid.islands
+        )
+        let drawn = Set(fit.rows.joined())
+        fit = fit.appending(islands.filter { !drawn.contains($0.id) }, width: viewport.width, metrics: ChromeMetrics.Grid.islands)
+        let shown = Set(fit.rows.joined())
+        let chips = ordered.filter { dormant.contains($0.workspaceID) && !shown.contains($0.workspaceID) }
+        return Arrangement(sections: sections, inputs: inputs, fit: fit, chips: chips)
+    }
+
+    private func holdFit(_ inputs: Arrangement.Inputs) {
+        guard drag.activeSubject == nil else { return }
+        _ = hold.update(
+            inputs.islands, in: inputs.viewport, hasDormantStrip: inputs.hasDormantStrip, dragging: false,
+            metrics: ChromeMetrics.Grid.islands
+        )
+    }
+
+    private func dormantStrip(_ chips: [WorkspaceRecord]) -> some View {
+        HStack(spacing: ChromeMetrics.Grid.dormantChipSpacing) {
+            Text("DORMANT")
+                .font(ChromeType.missionLaneTitle)
+                .tracking(1.28)
+                .foregroundStyle(theme.textLabel)
+                .padding(.trailing, ChromeMetrics.Grid.dormantChipSpacing)
+            ForEach(chips, id: \.workspaceID) { workspace in
+                DormantChip(theme: theme, viewModel: viewModel, workspace: workspace) {
+                    openedDormant.insert(workspace.workspaceID)
+                } springOpen: {
+                    sprungDormant.insert(workspace.workspaceID)
+                }
+            }
+        }
+        .frame(height: ChromeMetrics.Grid.islands.dormantStripHeight - ChromeMetrics.Grid.islands.islandGap, alignment: .bottom)
+    }
+
     /// The items a drop can hit, in grid order: what turns their frames back
     /// into a list and drops the frame of an item no longer shown. `.newTab`
     /// names the rect the created tab lands in, whichever cell is drawing it.
+    /// A chip is a card with no cells: a drop on it lands in a new tab.
     private var itemOrder: [GridItemID] {
-        workspaces.flatMap { workspace in
-            let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
-            let preview = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
-            let cells = preview.cells(of: tabs, perRow: slotsPerRow)
+        let arrange = self.arrange
+        let chips = arrange.chips.map { GridItemID.card($0.workspaceID) }
+        let drawn = arrange.fit.rows.joined().filter { id in workspaces.contains { $0.workspaceID == id } }
+        return drawn.flatMap { id -> [GridItemID] in
+            let tabs = (viewModel.model?.tabs[id] ?? []).map(\.tabID)
+            let preview = CardDropPreview(workspace: id, drag: drag, model: viewModel.model)
+            let cells = preview.cells(of: tabs, perRow: arrange.fit.tabsPerRow[id] ?? 1)
             // The created tab's id is published once, wherever its slot turns
             // out to be: the card hangs the reporter on that cell rather than
             // on the placeholder, which is drawn somewhere else whenever the
             // drop also empties one of this card's tabs.
-            return [.card(workspace.workspaceID)]
-                + (preview.takesTheDrop ? [.newTab(workspace.workspaceID)] : [])
+            return [.card(id)]
+                + (preview.takesTheDrop ? [.newTab(id)] : [])
                 + cells.compactMap { cell -> GridItemID? in
                     switch cell {
-                    case .tab(let id): .tab(id)
+                    case .tab(let tab): .tab(tab)
                     case .newTab: nil
                     }
                 }
-        }
+        } + chips
     }
 }
 
@@ -255,23 +340,32 @@ private struct CardReorderPreview {
     }
 }
 
-private struct WorkspaceCard: View {
+private struct WorkspaceIsland: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let workspace: WorkspaceRecord
-    /// The grid's own slot count, so every card in a row divides its width
-    /// the same way and the ids the grid publishes match the cells drawn.
+    /// The fit's slot count for this island, so the cells it draws and the
+    /// ids the grid publishes for them are laid out against one count.
     let slotsPerRow: Int
+    let identity: Color?
+    /// Nil for a herd, which takes no colour of its own.
+    let identityKey: String?
 
     @Environment(DragCoordinator.self) private var drag
+    @Environment(WorkspaceIdentityStore.self) private var identityStore
+    @Environment(\.gridThumbnailSize) private var thumbnailSize
+
+    private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
 
     var body: some View {
         let tabs = viewModel.model?.tabs[workspace.workspaceID] ?? []
         let rows = GridCardLayout.rows(preview.cells(of: tabs.map(\.tabID), perRow: slotsPerRow), perRow: slotsPerRow)
-        // Read once per card rather than per cell: only the card a reorder is
-        // over, and only while that reorder commits, has any to report.
+        // Read once per island rather than per cell: only the island a
+        // reorder is over, and only while that reorder commits, has any.
         let displacements = reorder.displacements
-        VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardSpacing) {
+        let metrics = ChromeMetrics.Grid.islands
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.Grid.islandCornerRadius)
+        VStack(alignment: .leading, spacing: 0) {
             header(tabCount: tabs.count)
             VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabGap) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
@@ -292,56 +386,81 @@ private struct WorkspaceCard: View {
                             self.cell(
                                 cell, at: rowIndex * slotsPerRow + column, tabs: tabs, displacements: displacements
                             )
-                            .frame(width: ChromeMetrics.Grid.thumbnailWidth)
+                            .frame(width: thumbnailSize.width)
                         }
                     }
                 }
             }
         }
-        .padding(.vertical, ChromeMetrics.Grid.cardVerticalPadding)
-        .padding(.horizontal, ChromeMetrics.Grid.cardHorizontalPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.cardCornerRadius))
-        .overlay {
-            DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.cardCornerRadius)
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.cardCornerRadius)
-                .strokeBorder(isTargeted(tabs) ? theme.accent : theme.paneBorder, lineWidth: ChromeMetrics.ruleWidth)
+        .padding(.top, ChromeMetrics.Grid.islandTopPadding)
+        .padding(.bottom, metrics.bottomPadding)
+        .padding(.horizontal, metrics.horizontalPadding)
+        // The fit's own width, so a long name truncates rather than widening
+        // the island past what the fit measured.
+        .frame(
+            width: IslandLayout.width(tabs: tabs.count, perRow: slotsPerRow, thumbnail: thumbnailSize.width, metrics: metrics),
+            alignment: .leading
         )
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background((identity ?? theme.textLabel).opacity(ChromeMetrics.Grid.islandTint), in: shape)
+        .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.islandCornerRadius) }
+        .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
         .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
-        // A container, not one combined element: a card really does hold the
-        // tab thumbnails, each of which is its own tile. Undeclared, SwiftUI
-        // folds the whole card into its text leaves and stamps this identifier
-        // on every one of them, which both loses the card's own box and
-        // overwrites the identifier each thumbnail carries. Left unnamed for
-        // the same reason the pane cell is.
+        // A container, not one combined element: an island really does hold
+        // the tab thumbnails, each of which is its own tile. Undeclared,
+        // SwiftUI folds the whole island into its text leaves and stamps this
+        // identifier on every one of them, which both loses the island's own
+        // box and overwrites the identifier each thumbnail carries.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("flock.grid.workspace.\(workspace.workspaceID.rawValue)")
     }
 
-    /// herdr's focused workspace carries the rail's accent bar; the header
-    /// keeps the row height either way so cards in a row line up.
+    private func outline(_ tabs: [TabRecord]) -> Color {
+        if isTargeted(tabs) { return theme.accent }
+        if isFocusedWorkspace, let identity { return identity }
+        return .clear
+    }
+
     private func header(tabCount: Int) -> some View {
-        HStack(spacing: ChromeMetrics.Grid.cardHeaderSpacing) {
-            if workspace.workspaceID == viewModel.model?.focusedWorkspaceID {
-                RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.indicatorSize.width / 2)
-                    .fill(theme.accent)
-                    .frame(width: ChromeMetrics.WorkspaceRow.indicatorSize.width, height: ChromeMetrics.WorkspaceRow.indicatorSize.height)
-            }
+        HStack(spacing: ChromeMetrics.Grid.islandHeaderSpacing) {
+            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.identitySquareRadius)
+                .fill(identity ?? theme.textLabel)
+                .frame(width: ChromeMetrics.Grid.identitySquare, height: ChromeMetrics.Grid.identitySquare)
             Text(workspace.label)
                 .font(ChromeType.gridCardName)
                 .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
+            StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.Grid.cardStatusDot + 2)
+            Spacer(minLength: 0)
             Text(tabCount == 1 ? "1 tab" : "\(tabCount) tabs")
                 .font(ChromeType.gridCardMeta)
                 .foregroundStyle(theme.textLabel)
                 .lineLimit(1)
-            Spacer(minLength: 0)
-            StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.Grid.cardStatusDot)
+                .fixedSize()
         }
-        .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
+        .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
+        .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
+        .contentShape(Rectangle())
+        .contextMenu { colourMenu }
+    }
+
+    @ViewBuilder
+    private var colourMenu: some View {
+        if let identityKey {
+            let colors = IdentityPalette.colors(for: theme.palette)
+            ForEach(Array(colors.enumerated()), id: \.offset) { index, rgb in
+                Button {
+                    identityStore.setOverride(index, for: identityKey)
+                } label: {
+                    Label { Text("Colour \(index + 1)") } icon: { Image(nsImage: IdentitySwatch.image(rgb)) }
+                }
+                .accessibilityIdentifier("flock.grid.island.colour.\(index)")
+            }
+            Divider()
+            Button("Automatic") { identityStore.setOverride(nil, for: identityKey) }
+                .accessibilityIdentifier("flock.grid.island.colour.automatic")
+        }
     }
 
     /// One cell, plus the reporter for the slot a committed drop lands in
@@ -375,7 +494,9 @@ private struct WorkspaceCard: View {
                 TabThumbnail(
                     theme: theme, viewModel: viewModel, tab: tab,
                     isTargeted: MiniPaneLayout.targetedTab(of: drag.target, dragging: drag.activeSubject, model: viewModel.model) == id,
-                    displacement: displacements[id] ?? .zero
+                    displacement: displacements[id] ?? .zero,
+                    handleFill: isFocusedWorkspace && id == viewModel.model?.focusedTabID
+                        ? identity?.opacity(ChromeMetrics.Grid.selectedHandleTint) : nil
                 )
                 // One frame for the whole thumbnail, strip included: a drop
                 // anywhere on it is a drop on this tab, so the strip never
@@ -426,9 +547,12 @@ private struct TabThumbnail: View {
     /// How far this thumbnail slides to open the slot a reorder inside its
     /// card would land the dragged tab in.
     var displacement: CGSize = .zero
+    /// The handle's fill: only the tab you came from takes one.
+    var handleFill: Color?
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.gridThumbnailSize) private var thumbnailSize
 
     private var tabTitle: String {
         viewModel.model.map { TabTitle.resolve(tab, in: $0).text } ?? tab.label
@@ -441,8 +565,8 @@ private struct TabThumbnail: View {
                 miniPanes(size: proxy.size)
             }
         }
-        .frame(height: ChromeMetrics.Grid.thumbnailHeight)
-        .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .frame(height: thumbnailSize.height)
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
         .contentShape(Rectangle())
@@ -518,7 +642,7 @@ private struct TabThumbnail: View {
     private var titleStrip: some View {
         TabHandleStrip(
             theme: theme, title: tabTitle, status: tab.agentStatus,
-            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID
+            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID, fill: handleFill
         )
         .onHover { hovering in
             GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
@@ -677,43 +801,22 @@ private struct TabThumbnail: View {
     }
 }
 
-/// A tab's handle: a band across the top of its thumbnail carrying the title
-/// and status dot. Shared with the drag proxy, which draws a whole tab as a
-/// miniature of its own thumbnail and has to use the same roles.
-///
-/// Filled with `paneBorder` rather than a lighter step: the thumbnail's body
-/// is `canvas`, and the roles between the two (`tabRest`, `rule`) land within
-/// about 1.1:1 of it in every builtin theme, which reads as the same surface.
-/// `paneBorder` is the nearest role that separates (1.49:1 at worst, on
-/// Catppuccin Latte) and it is already the role a box edge takes, so a solid
-/// band of it reads as structure.
-///
-/// The title is `textStrong` whether or not the tab is focused. `textDim` on
-/// this band falls under 4.5:1 in three of the seventeen builtin themes
-/// (nord, one-dark, dracula), and no role that separates from the body keeps
-/// it above AA everywhere; `textStrong` clears at 5.07:1 at worst. Focus is
-/// carried by the accent bar at the leading edge, which is the rail's own
-/// mark for its focused workspace, and by the weight
-/// `ChromeType.gridTabLabel(selected:)` sets; the status dot encodes agent
-/// status and nothing else. The bar's slot is present on every strip, clear
-/// where there is nothing to mark, so titles stay aligned across a card.
+/// A tab's handle: the top of its thumbnail carrying the title and status
+/// dot. Shared with the drag proxy, which draws a whole tab as a miniature of
+/// its own thumbnail and has to use the same roles. No fill but the one the
+/// island hands the tab you came from.
 struct TabHandleStrip: View {
     let theme: Theme
     let title: String
     let status: AgentStatus
     let isFocusedTab: Bool
+    var fill: Color?
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.tabStripIndicatorSize.width / 2)
-                .fill(isFocusedTab ? theme.accent : .clear)
-                .frame(
-                    width: ChromeMetrics.Grid.tabStripIndicatorSize.width,
-                    height: ChromeMetrics.Grid.tabStripIndicatorSize.height
-                )
             Text(title)
                 .font(ChromeType.gridTabLabel(selected: isFocusedTab))
-                .foregroundStyle(theme.tabStripTitle)
+                .foregroundStyle(isFocusedTab ? theme.textStrong : theme.textDim)
                 .lineLimit(1)
             Spacer(minLength: 0)
             StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
@@ -721,13 +824,16 @@ struct TabHandleStrip: View {
         .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: ChromeMetrics.Grid.tabStripHeight)
-        .background(theme.tabStripFill)
+        .background(fill ?? .clear)
     }
 }
 
-/// A pane in miniature: its title and status dot, nothing else. Takes the two
-/// values rather than a `PaneRecord` so the drag proxy, which carries a
+/// A pane in miniature: its status word and title, nothing else. Takes the
+/// two values rather than a `PaneRecord` so the drag proxy, which carries a
 /// snapshot of what was picked up, can draw the same box.
+///
+/// Outlined only when blocked or previewed: a blocked pane is the one outline
+/// inside an island, so it is found at a glance.
 struct MiniPane: View {
     let theme: Theme
     let title: String
@@ -736,23 +842,128 @@ struct MiniPane: View {
     var isPreviewed = false
 
     var body: some View {
-        HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
-            StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.miniPaneStatusDot)
-            Text(title)
-                .font(ChromeType.gridMiniPaneTitle)
-                .foregroundStyle(theme.textStrong)
-                .lineLimit(1)
+        // A narrow box gives up title lines before the status word; one too
+        // short for the status word over the title, as a stacked split at the
+        // 120pt floor is, keeps the dot and the title on one line rather than
+        // clipping the title away.
+        ViewThatFits(in: .vertical) {
+            stacked(titleLines: 3)
+            stacked(titleLines: 1)
+            HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
+                dot
+                titleText.lineLimit(1)
+            }
+            .padding(.vertical, ChromeMetrics.Grid.thumbnailPadding)
+            .padding(.horizontal, ChromeMetrics.Grid.miniPaneTitleSpacing + ChromeMetrics.Grid.thumbnailPadding)
         }
-        .padding(.vertical, ChromeMetrics.Grid.miniPaneVerticalPadding)
-        .padding(.horizontal, ChromeMetrics.Grid.miniPaneHorizontalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius))
+        .background(theme.tabRest, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
-                .strokeBorder(isPreviewed ? theme.accent : theme.paneBorder, lineWidth: ChromeMetrics.ruleWidth)
+                .strokeBorder(outline, lineWidth: ChromeMetrics.Grid.miniPaneBlockedOutline)
         )
         .contentShape(Rectangle())
+    }
+
+    private func stacked(titleLines: Int) -> some View {
+        VStack(alignment: .leading, spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
+            HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
+                dot
+                Text(status.rawValue)
+                    .font(ChromeType.gridMiniPaneStatus)
+                    .foregroundStyle(status == .blocked ? theme.red : theme.textLabel)
+                    .lineLimit(1)
+            }
+            titleText.lineLimit(titleLines)
+        }
+        .padding(.vertical, ChromeMetrics.Grid.miniPaneVerticalPadding)
+        .padding(.horizontal, ChromeMetrics.Grid.miniPaneHorizontalPadding)
+    }
+
+    private var dot: some View {
+        StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.miniPaneStatusDot)
+    }
+
+    private var titleText: Text {
+        Text(title).font(ChromeType.gridMiniPaneTitle).foregroundStyle(theme.textStrong)
+    }
+
+    private var outline: Color {
+        if isPreviewed { return theme.accent }
+        return status == .blocked ? theme.red : .clear
+    }
+}
+
+/// The identity colours as menu images: a menu draws a symbol as a template,
+/// which would drop the very colour the item names.
+private enum IdentitySwatch {
+    static func image(_ rgb: RGB) -> NSImage {
+        let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            NSColor(
+                srgbRed: CGFloat(rgb.red) / 255, green: CGFloat(rgb.green) / 255, blue: CGFloat(rgb.blue) / 255, alpha: 1
+            ).setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+}
+
+private struct GridThumbnailSizeKey: EnvironmentKey {
+    static let defaultValue = CGSize(width: ChromeMetrics.Grid.thumbnailWidth, height: ChromeMetrics.Grid.thumbnailHeight)
+}
+
+extension EnvironmentValues {
+    /// Arrange's one thumbnail size, chosen per window by `IslandLayout.fit`.
+    var gridThumbnailSize: CGSize {
+        get { self[GridThumbnailSizeKey.self] }
+        set { self[GridThumbnailSizeKey.self] = newValue }
+    }
+}
+
+/// A dormant workspace in the strip: a drop target that creates a tab there,
+/// and that springs open as a full island when a drag dwells on it.
+private struct DormantChip: View {
+    let theme: Theme
+    let viewModel: SessionViewModel
+    let workspace: WorkspaceRecord
+    let open: () -> Void
+    let springOpen: () -> Void
+
+    @Environment(DragCoordinator.self) private var drag
+
+    private var isDwelledOn: Bool {
+        drag.activeSubject != nil && drag.target == .workspaceThumbnail(workspace.workspaceID)
+    }
+
+    var body: some View {
+        let takesTheDrop = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model).takesTheDrop
+        HStack(spacing: 7) {
+            StatusDot(status: workspace.agentStatus, theme: theme, size: 8)
+            Text(workspace.label)
+                .font(ChromeType.gridCardMeta)
+                .foregroundStyle(theme.textDim)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: ChromeMetrics.Grid.dormantChipHeight)
+        .background(theme.chrome, in: Capsule())
+        .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.dormantChipHeight / 2) }
+        .overlay(Capsule().strokeBorder(takesTheDrop ? theme.accent : .clear, lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
+        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
+        .contentShape(Capsule())
+        .onTapGesture { open() }
+        .task(id: isDwelledOn) {
+            guard isDwelledOn else { return }
+            try? await Task.sleep(for: ChromeMetrics.Grid.dormantDwell)
+            guard !Task.isCancelled, isDwelledOn else { return }
+            springOpen()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("flock.grid.dormant.\(workspace.workspaceID.rawValue)")
     }
 }
 
@@ -763,7 +974,7 @@ struct MiniPane: View {
 ///
 /// The wash alone, never a stroke, which is how the canvas previews a drop;
 /// the strip band takes a second coat of it so the tab's own handle shape
-/// still reads inside an otherwise empty slot. Over `canvas`, which is the
+/// still reads inside an otherwise empty slot. Over `pane`, which is the
 /// ground a real thumbnail's own wash lands on, so a slot standing in for a
 /// tab and a thumbnail taking a drop are the same drawing over the same
 /// ground.
@@ -771,15 +982,14 @@ private struct NewTabPlaceholder: View {
     let theme: Theme
     let workspace: WorkspaceID
 
+    @Environment(\.gridThumbnailSize) private var thumbnailSize
+
     var body: some View {
         VStack(spacing: 0) {
             Text("new tab")
                 .font(ChromeType.gridTabLabel(selected: false))
                 .foregroundStyle(theme.textDim)
                 .lineLimit(1)
-                // Past the slot a real strip keeps for its focus bar, so the
-                // placeholder's title lines up with the titles beside it.
-                .padding(.leading, ChromeMetrics.Grid.tabStripIndicatorSize.width + ChromeMetrics.Grid.tabStripSpacing)
                 .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: ChromeMetrics.Grid.tabStripHeight)
@@ -787,9 +997,9 @@ private struct NewTabPlaceholder: View {
             Color.clear
         }
         .frame(maxWidth: .infinity)
-        .frame(height: ChromeMetrics.Grid.thumbnailHeight)
+        .frame(height: thumbnailSize.height)
         .background(theme.accent.opacity(DragVisuals.dropWashOpacity), in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .accessibilityIdentifier("flock.grid.newTab.\(workspace.rawValue)")
         .allowsHitTesting(false)

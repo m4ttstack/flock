@@ -51,4 +51,17 @@ final class IslandLayoutTests: XCTestCase {
         let after = hold.update(islands([2, 6, 6, 6]), in: CGSize(width: 900, height: 500), hasDormantStrip: false, dragging: false)
         XCTAssertNotEqual(first, after)
     }
+
+    func testAnIslandSprungOpenMidDragGoesBelowTheHeldRowsAtTheHeldSize() {
+        let held = IslandLayout.fit(islands([3, 2]), in: CGSize(width: 1300, height: 800), hasDormantStrip: true)
+        let sprung = IslandLayout.Island(id: WorkspaceID(rawValue: "w9"), tabs: 12)
+        let grown = held.appending([sprung], width: 1300)
+        XCTAssertEqual(Array(grown.rows.prefix(held.rows.count)), held.rows, "an island already drawn moved")
+        XCTAssertEqual(grown.rows.last, [sprung.id])
+        XCTAssertEqual(grown.thumbnailWidth, held.thumbnailWidth)
+        XCTAssertEqual(grown.thumbnailHeight, held.thumbnailHeight)
+        let perRow = try! XCTUnwrap(grown.tabsPerRow[sprung.id])
+        XCTAssertLessThanOrEqual(IslandLayout.width(tabs: 12, perRow: perRow, thumbnail: held.thumbnailWidth, metrics: .init()), 1300)
+        XCTAssertEqual(held.appending([], width: 1300), held)
+    }
 }

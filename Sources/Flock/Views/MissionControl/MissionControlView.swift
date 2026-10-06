@@ -53,13 +53,7 @@ struct MissionControlView: View {
 
     /// The one place the board is built, for drawing and for the keys alike.
     private func makeBoard(now: Date) -> (MissionBoard, RailSections)? {
-        guard let model = viewModel.model else { return nil }
-        let sections = RailSections(model: model, board: boardNames, herdProgress: herdProgress)
-        let board = MissionBoard(
-            model: model, sections: sections, toasts: viewModel.attentionToasts,
-            history: viewModel.statusHistory, cutoff: cutoff.active.seconds, now: now
-        )
-        return (board, sections)
+        MissionBoard.make(viewModel: viewModel, board: boardNames, herdProgress: herdProgress, cutoff: cutoff, now: now)
     }
 
     private func resolveSelection(in board: MissionBoard) {
@@ -202,11 +196,7 @@ struct MissionControlView: View {
     }
 
     private func identityColor(_ workspace: WorkspaceID, sections: RailSections) -> Color? {
-        guard let key = WorkspaceIdentityStore.key(for: workspace, sections: sections),
-              let index = identity.index(for: key)
-        else { return nil }
-        let colors = IdentityPalette.colors(for: theme.palette)
-        return colors.indices.contains(index) ? Color(colors[index]) : nil
+        MissionBoard.identityColor(workspace, sections: sections, identity: identity, theme: theme)
     }
 
     private func move(_ direction: MissionSelection.Direction) -> KeyPress.Result {
@@ -238,6 +228,37 @@ struct MissionControlView: View {
     private func open(_ pane: PaneID) {
         mode.missionSelection = pane
         JumpNavigator(viewModel: viewModel, drag: drag, mode: mode).open(pane: pane)
+    }
+}
+
+extension MissionBoard {
+    /// The board as the app's stores hold it, for every view that reads lanes
+    /// or dormancy, so mission control and Arrange agree on both.
+    @MainActor
+    static func make(
+        viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore,
+        cutoff: DormantCutoffStore, now: Date
+    ) -> (MissionBoard, RailSections)? {
+        guard let model = viewModel.model else { return nil }
+        let sections = RailSections(model: model, board: board, herdProgress: herdProgress)
+        let missionBoard = MissionBoard(
+            model: model, sections: sections, toasts: viewModel.attentionToasts,
+            history: viewModel.statusHistory, cutoff: cutoff.active.seconds, now: now
+        )
+        return (missionBoard, sections)
+    }
+
+    /// The identity colour a mission card or an Arrange island wears; nil for
+    /// a herd, which has no identity of its own.
+    @MainActor
+    static func identityColor(
+        _ workspace: WorkspaceID, sections: RailSections, identity: WorkspaceIdentityStore, theme: Theme
+    ) -> Color? {
+        guard let key = WorkspaceIdentityStore.key(for: workspace, sections: sections),
+              let index = identity.index(for: key)
+        else { return nil }
+        let colors = IdentityPalette.colors(for: theme.palette)
+        return colors.indices.contains(index) ? Color(colors[index]) : nil
     }
 }
 

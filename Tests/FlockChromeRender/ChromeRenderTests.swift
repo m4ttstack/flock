@@ -1247,10 +1247,7 @@ final class ChromeRenderTests: XCTestCase {
         // The card's header row: inside the card, and no thumbnail covers it,
         // which is what makes it the card's own empty space.
         let card = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
-        harness.drag.move(to: CGPoint(
-            x: card.midX,
-            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
-        ))
+        harness.drag.move(to: Self.headerGround(of: card))
         XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.mattstackApps))
         await settle(window)
         let overCard = try snapshot(window)
@@ -1282,8 +1279,8 @@ final class ChromeRenderTests: XCTestCase {
         let cardFrame = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
 
         let atRest = try snapshot(window)
-        XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.accent.hex, "the focused tab's own bar")
-        XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: second)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex, "and no other")
+        XCTAssertNotEqual(hex(atRest, Self.focusBarPoint(of: first)), Self.bareHandle, "the focused tab's own handle fill")
+        XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: second)), Self.bareHandle, "and no other")
 
         harness.drag.beginIfIdle(
             .tab(GridFixture.agentsTab),
@@ -1310,11 +1307,11 @@ final class ChromeRenderTests: XCTestCase {
 
         let mid = try snapshot(window)
         XCTAssertEqual(
-            hex(mid, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            hex(mid, Self.focusBarPoint(of: first)), Self.bareHandle,
             "the first slot still holds the focused tab, so nothing slid"
         )
         XCTAssertNotEqual(
-            hex(mid, Self.focusBarPoint(of: second)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            hex(mid, Self.focusBarPoint(of: second)), Self.bareHandle,
             "the dragged tab did not slide into the slot it is about to take"
         )
         if let directory {
@@ -1347,17 +1344,18 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(cells.map(\.id), [GridFixture.srcTab, GridFixture.buildTab, GridFixture.issuesTab])
         let slots = cells.map(\.frame)
 
-        // From another workspace: the card keeps its three tabs and the
-        // created one takes the next slot.
+        // From another workspace: the island keeps its three tabs and the
+        // created one takes the next slot, which opens a row, since an
+        // island is exactly as wide as its own tabs.
         try await assertNewTabSlot(
             of: GridFixture.herdr, dragging: GridFixture.claudePane, harness: harness, window: window,
-            follows: slots[2], render: nil, directory: nil
+            opensRowUnder: slots, render: nil, directory: nil
         )
-        // From a multi-pane tab of this very card: the same slot, since the
+        // From a multi-pane tab of this very island: the same slot, since the
         // tab the pane leaves keeps its other panes.
         try await assertNewTabSlot(
             of: GridFixture.herdr, dragging: GridFixture.buildPane, harness: harness, window: window,
-            follows: slots[2], render: nil, directory: nil
+            opensRowUnder: slots, render: nil, directory: nil
         )
         // From the only pane of a tab of this card: that tab goes with the
         // drop, and it STAYS DRAWN in its own slot until then, so the
@@ -1392,7 +1390,8 @@ final class ChromeRenderTests: XCTestCase {
     /// `lands`.
     private func assertNewTabSlot(
         of workspace: WorkspaceID, dragging pane: PaneID, harness: Harness, window: NSWindow,
-        follows previous: CGRect? = nil, lands: CGRect? = nil, render: String?, directory: String?
+        follows previous: CGRect? = nil, opensRowUnder row: [CGRect]? = nil, lands: CGRect? = nil,
+        render: String?, directory: String?
     ) async throws {
         harness.drag.beginIfIdle(
             .pane(pane), ghost: DragCoordinator.Ghost(title: "pane", symbol: "macwindow", originSize: CGSize(width: 40, height: 40), isCompact: true),
@@ -1404,6 +1403,9 @@ final class ChromeRenderTests: XCTestCase {
         )
         if let previous {
             assertSlotFollows(slot, previous, "\(pane.rawValue): the card's last tab")
+        }
+        if let row {
+            assertSlotOpensRow(slot, under: row, "\(pane.rawValue): the island's full row")
         }
         if let lands {
             XCTAssertEqual(slot.minX, lands.minX, accuracy: 0.5, "\(pane.rawValue)")
@@ -1437,11 +1439,12 @@ final class ChromeRenderTests: XCTestCase {
         let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
         let cells = try XCTUnwrap(harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.repoTools }?.tabs)
         let first = cells[0].frame
-        // The card's own border, on the edge furthest from the proxy: accent
-        // while the card takes a drop, `paneBorder` otherwise.
-        let border = CGPoint(x: card.maxX - ChromeMetrics.ruleWidth / 4, y: card.midY)
+        // The island's own outline, on the edge furthest from the proxy:
+        // accent while it takes a drop, its identity colour otherwise (it is
+        // the focused workspace's island).
+        let border = CGPoint(x: card.maxX - ChromeMetrics.Grid.islandCurrentOutline / 2, y: card.midY)
         let atRest = try snapshot(window)
-        XCTAssertEqual(hex(atRest, border), Theme.tokyoNight.palette.chromeRoles.paneBorder.hex)
+        XCTAssertNotEqual(hex(atRest, border), Theme.tokyoNight.palette.chromeRoles.accent.hex)
 
         harness.drag.beginIfIdle(
             .tab(GridFixture.agentsTab),
@@ -1469,102 +1472,61 @@ final class ChromeRenderTests: XCTestCase {
         // origin) and slot 2 still carries no bar at all.
         let mid = try snapshot(window)
         XCTAssertNotEqual(
-            hex(mid, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            hex(mid, Self.focusBarPoint(of: first)), Self.bareHandle,
             "the focused tab left the slot it still holds"
         )
         XCTAssertEqual(
-            hex(mid, Self.focusBarPoint(of: cells[1].frame)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            hex(mid, Self.focusBarPoint(of: cells[1].frame)), Self.bareHandle,
             "a cell slid for a drop that moves nothing"
         )
         window.close()
     }
 
-    /// A thumbnail is the same size at every window and the row holds as many
-    /// as fit. Driven at five window widths through the real view, so the
-    /// arithmetic that derives the slot count cannot drift from the width the
-    /// cards are actually given.
-    func testAThumbnailIsTheSameWidthAtEveryWindowAndTheRowHoldsWhatFits() async throws {
+    /// Every thumbnail in a window is one size, chosen per window: from the
+    /// 120pt floor up as the window allows, never shrinking as it widens.
+    /// Driven through the real view at four widths, so the fit cannot drift
+    /// from the width the islands are actually given: no island's cells run
+    /// past its own padding, and no island runs past the canvas padding.
+    func testThumbnailsTakeOneSizePerWindowAndNoIslandOverruns() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
-
-        /// The cells one card draws in its first row, read off the frames the
-        /// view published.
-        func firstRow(of harness: Harness, workspace: WorkspaceID, prefix: String) throws -> [CGRect] {
-            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
-            let card = try XCTUnwrap(grid.cards.first { $0.id == workspace }?.frame)
-            let cells = grid.thumbnails.filter { $0.id.rawValue.hasPrefix(prefix) }.map(\.frame)
-            let top = try XCTUnwrap(cells.map(\.minY).min())
-            XCTAssertTrue(cells.allSatisfy { card.contains($0.origin) }, "a cell outside its own card")
-            return cells.filter { $0.minY == top }.sorted { $0.minX < $1.minX }
-        }
-
-        var drawn: [CGFloat: [CGRect]] = [:]
-        // 900 is the narrowest the app allows (`MainWindow` sets that
-        // minimum), so it is the narrow case as well as the design one. 1090
-        // is a width whose row is a few points short of a fifth slot: it is
-        // rendered like the rest but it is here for the overrun check, since
-        // that is where an over-generous slot count shows up as real points.
-        // 2000 is the very wide case, which spends its width on more slots.
-        let rendered: Set<CGFloat> = [Self.windowSize.width, 1200, 1600, 2000]
-        for width in [Self.windowSize.width, 1090, 1200, 1600, 2000] as [CGFloat] {
+        let height: CGFloat = 1000
+        var widths: [CGFloat] = []
+        // 900 is the narrowest the app allows (`MainWindow` sets that minimum).
+        for width in [Self.windowSize.width, 1200, 1600, 2000] as [CGFloat] {
             let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-            let window = harness.makeWindow(size: CGSize(width: width, height: Self.windowSize.height))
+            let window = harness.makeWindow(size: CGSize(width: width, height: height))
             await settle(window)
             harness.drag.toggleGrid()
             await settle(window)
-            // The nine-tab card, which fills its first row at every width here.
-            let row = try firstRow(of: harness, workspace: GridFixture.repoTools, prefix: "w1:")
-            drawn[width] = row
-            for cell in row {
-                XCTAssertEqual(
-                    cell.width, ChromeMetrics.Grid.thumbnailWidth, accuracy: 0.5,
-                    "\(width): a cell is not the one thumbnail width"
+            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
+            let sizes = Set(grid.thumbnails.map { "\(($0.frame.width * 2).rounded())x\(($0.frame.height * 2).rounded())" })
+            XCTAssertEqual(sizes.count, 1, "\(width): thumbnails of more than one size: \(sizes)")
+            let thumbnail = try XCTUnwrap(grid.thumbnails.first?.frame)
+            XCTAssertGreaterThanOrEqual(thumbnail.width, ChromeMetrics.Grid.minimumThumbnailWidth - 0.5, "\(width)")
+            XCTAssertLessThanOrEqual(thumbnail.width, ChromeMetrics.Grid.islands.maximumWidth + 0.5, "\(width)")
+            for island in grid.cardTabs {
+                let frame = try XCTUnwrap(grid.cards.first { $0.id == island.workspace }?.frame)
+                for cell in island.tabs {
+                    XCTAssertLessThanOrEqual(
+                        cell.frame.maxX, frame.maxX - ChromeMetrics.Grid.islands.horizontalPadding + 0.5,
+                        "\(width): \(island.workspace.rawValue)'s row ran past its island"
+                    )
+                }
+                XCTAssertLessThanOrEqual(
+                    frame.maxX, width - ChromeMetrics.Grid.canvasPadding + 0.5,
+                    "\(width): \(island.workspace.rawValue) ran past the canvas"
                 )
             }
-            // One slot too many costs real points: the cells run past their
-            // card's padding, and the cards then run past the grid's. Both
-            // ends are checked, since SwiftUI spends the overrun on whichever
-            // has slack. This is what pins the derived slot count against the
-            // width a row is actually given.
-            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
-            let card = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.repoTools }?.frame)
-            XCTAssertLessThanOrEqual(
-                try XCTUnwrap(row.last).maxX, card.maxX - ChromeMetrics.Grid.cardHorizontalPadding + 0.5,
-                "\(width): the row ran past its card"
-            )
-            // And the derivation itself, against the card the view really laid
-            // out. The overrun check above is what pins the derived slot COUNT
-            // against real frames; this pins the width that count is derived
-            // from. It reads the viewport rather than the `contentWidth` the
-            // app measures, which are the same number for a grid that only
-            // scrolls vertically and hides its indicators.
-            XCTAssertEqual(
-                GridCardLayout.rowWidth(
-                    gridWidth: grid.viewport.width, canvasPadding: ChromeMetrics.Grid.canvasPadding,
-                    cardGap: ChromeMetrics.Grid.cardGap, cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
-                ),
-                card.width - ChromeMetrics.Grid.cardHorizontalPadding * 2, accuracy: 0.5,
-                "\(width): the derived row width is not the width a card gives its row"
-            )
-            if let directory, rendered.contains(width) {
+            widths.append(thumbnail.width)
+            if let directory {
                 try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-\(Int(width)).png"))
             }
             window.close()
         }
-
-        let design = try XCTUnwrap(drawn[Self.windowSize.width])
-        let middle = try XCTUnwrap(drawn[1200])
-        let wide = try XCTUnwrap(drawn[1600])
-        let veryWide = try XCTUnwrap(drawn[2000])
-        XCTAssertEqual(design.count, 3, "the narrowest window the app allows lost its shape")
-        XCTAssertEqual(middle.count, 4)
-        XCTAssertEqual(wide.count, 5)
-        XCTAssertEqual(veryWide.count, 7, "a very wide window left its width unused")
-        XCTAssertEqual(
-            Set(drawn.values.flatMap { $0 }.map { ($0.width * 100).rounded() }).count, 1,
-            "a thumbnail changed size between windows"
-        )
+        XCTAssertEqual(widths, widths.sorted(), "a wider window shrank its thumbnails: \(widths)")
+        XCTAssertGreaterThan(try XCTUnwrap(widths.last), ChromeMetrics.Grid.minimumThumbnailWidth, "a very wide window left its width unused")
     }
 
     /// A pane aimed INSIDE another tab's thumbnail: the mini pane under the
@@ -1647,11 +1609,13 @@ final class ChromeRenderTests: XCTestCase {
             }
             let slot = inWindow(opened)
             let untouched = inWindow(try XCTUnwrap(landing.first { $0.pane == right.pane }).frame)
-            // Sampled at the bottom of each box, clear of the proxy the
-            // pointer carries and of a mini pane's own title row.
+            // Sampled along the bottom of each box, clear of a mini pane's
+            // own title row. The flatness pair sits either side of the slot's
+            // middle on one line, so the proxy's edge and shadow, which reach
+            // this far down a floor-size thumbnail, fall on both alike.
             XCTAssertLessThanOrEqual(
                 channelDistance(
-                    hex(image, CGPoint(x: slot.midX, y: slot.maxY - 10)), hex(image, CGPoint(x: slot.midX, y: slot.maxY - 4))
+                    hex(image, CGPoint(x: slot.midX - 4, y: slot.maxY - 4)), hex(image, CGPoint(x: slot.midX + 4, y: slot.maxY - 4))
                 ),
                 Self.washDither, "the slot the arriving pane takes is not one wash", line: line
             )
@@ -1743,10 +1707,12 @@ final class ChromeRenderTests: XCTestCase {
 
         let opened = inWindow(landed)
         let untouched = inWindow(try XCTUnwrap(landing.first { ![arrival.pane, focused].contains($0.pane) }).frame)
-        // Both samples sit in the bottom of their box, below the proxy and
-        // below a mini pane's own title row.
+        // Every sample sits along the bottom of its box, below a mini pane's
+        // own title row. The flatness pair sits either side of the slot's
+        // middle on one line, so the proxy's shadow, which reaches this far
+        // down a floor-size thumbnail, falls on both alike.
         XCTAssertEqual(
-            hex(image, CGPoint(x: opened.midX, y: opened.maxY - 14)), hex(image, CGPoint(x: opened.midX, y: opened.maxY - 4)),
+            hex(image, CGPoint(x: opened.midX - 4, y: opened.maxY - 4)), hex(image, CGPoint(x: opened.midX + 4, y: opened.maxY - 4)),
             "the slot the arriving pane takes is one flat wash"
         )
         XCTAssertNotEqual(
@@ -1756,14 +1722,15 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The focus bar's own pixel inside a thumbnail's handle strip: the bar
-    /// is drawn at the strip's leading edge, inside its padding.
+    /// A pixel of a thumbnail's handle clear of its title and status dot.
+    /// Only the focused workspace's focused tab fills its handle (with its
+    /// identity colour), so this pixel says where that tab is drawn.
     private static func focusBarPoint(of thumbnail: CGRect) -> CGPoint {
-        CGPoint(
-            x: thumbnail.minX + ChromeMetrics.Grid.tabStripHorizontalPadding + ChromeMetrics.Grid.tabStripIndicatorSize.width / 2,
-            y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2
-        )
+        CGPoint(x: thumbnail.minX + thumbnail.width * 0.7, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2)
     }
+
+    /// A handle with no fill: the thumbnail's own `pane` ground.
+    private static let bareHandle = Theme.tokyoNight.palette.chromeRoles.pane.hex
 
     /// The placeholder's frame against the frames of the tabs it follows,
     /// from real reported frames on both sides: the slot after a card's last
@@ -1783,7 +1750,8 @@ final class ChromeRenderTests: XCTestCase {
             return try XCTUnwrap(frames.max { ($0.minY, $0.minX) < ($1.minY, $1.minX) })
         }
         let lastRepoToolsTab = try lastTab(of: GridFixture.repoTools)
-        let lastHerdrTab = try lastTab(of: GridFixture.herdr)
+        let herdrRow = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails
+            .filter { $0.id.rawValue.hasPrefix("\(GridFixture.herdr.rawValue):") }.map(\.frame))
         let fullRow = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails
             .filter { $0.id.rawValue.hasPrefix("\(GridFixture.mattstackApps.rawValue):") }.map(\.frame))
         let fullCard = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
@@ -1795,7 +1763,7 @@ final class ChromeRenderTests: XCTestCase {
             at: CGPoint(x: source.midX, y: source.midY)
         )
 
-        // Nine tabs at four per row end a row with three slots free.
+        // Nine tabs wrap to a second row with slots free beside the ninth.
         try await overEmptySpace(of: GridFixture.repoTools, harness: harness, window: window)
         let repoTools = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)))
         assertSlotFollows(repoTools, lastRepoToolsTab, "the card's last tab")
@@ -1806,8 +1774,8 @@ final class ChromeRenderTests: XCTestCase {
 
         try await overEmptySpace(of: GridFixture.herdr, harness: harness, window: window)
         XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)), "the placeholder left with the card it was over")
-        assertSlotFollows(
-            try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.herdr))), lastHerdrTab, "the card's last tab"
+        assertSlotOpensRow(
+            try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.herdr))), under: herdrRow, "the island's full row"
         )
 
         // Four tabs fill the row, so the created tab opens a row of its own,
@@ -1856,7 +1824,7 @@ final class ChromeRenderTests: XCTestCase {
         let refusedGround = Self.headerGround(of: other)
         // Clear of the proxy, which hangs from the pointer: the card's own
         // fill at its leading edge, on the same row.
-        let refusedSample = CGPoint(x: other.minX + ChromeMetrics.Grid.cardHorizontalPadding / 2, y: refusedGround.y)
+        let refusedSample = CGPoint(x: other.minX + ChromeMetrics.Grid.islands.horizontalPadding / 2, y: refusedGround.y)
         let refusedAtRest = hex(try snapshot(window), refusedSample)
         let multiPane = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         harness.drag.beginIfIdle(
@@ -2523,6 +2491,42 @@ final class ChromeRenderTests: XCTestCase {
         return hits
     }
 
+    /// Arrange on a roomy window: thumbnails grow past the floor, each island
+    /// is tinted off the canvas, and `glance`, left alone past the dormant
+    /// cutoff, is a chip in the strip rather than an island.
+    func testArrangeDrawsTintedIslandsThatFillTheWindow() async throws {
+        for (id, file) in [("tokyo-night", "islands-dark.png"), ("tokyo-night-day", "islands-light.png")] {
+            let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
+            let harness = try await Harness(
+                theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [], now: { clock.date }
+            )
+            clock.date = clock.date.addingTimeInterval(45 * 60)
+            harness.modeStore.select(.arrange)
+            let window = harness.makeWindow(size: Self.islandsWindowSize)
+            await settle(window)
+            harness.drag.toggleGrid()
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
+            }
+            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
+            let thumbnail = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+            XCTAssertGreaterThan(thumbnail.width, ChromeMetrics.Grid.minimumThumbnailWidth, "\(id): a roomy window buys bigger thumbnails")
+            let islandGround = hex(image, CGPoint(x: thumbnail.minX - 8, y: thumbnail.midY))
+            XCTAssertNotEqual(islandGround, theme.palette.chromeRoles.canvas.hex, "\(id): the island is tinted, not bare canvas")
+            XCTAssertFalse(grid.thumbnails.contains { $0.id == GridFixture.glanceTab }, "\(id): a dormant workspace draws no thumbnails")
+            let chip = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.glance }?.frame, "\(id): the dormant chip is a drop target")
+            XCTAssertEqual(chip.height, ChromeMetrics.Grid.dormantChipHeight, accuracy: 0.5)
+            window.close()
+        }
+    }
+
+    private static let islandsWindowSize = CGSize(width: 1600, height: 1000)
+
     private func renderGrid(themed id: String, into file: String) async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
@@ -2539,16 +2543,14 @@ final class ChromeRenderTests: XCTestCase {
         }
         assertGridSamples(image, theme: theme)
 
-        // The strip is a band, not the body it sits on: sampled inside a
-        // thumbnail's strip and inside the same thumbnail's ground. The
-        // sample sits in the run between the title and the status dot, clear
-        // of both, since either would be its own colour.
+        // The focused tab's handle takes its island's identity colour, so it
+        // is not the thumbnail body. Sampled in the run between the title and
+        // the status dot, clear of both, since either would be its own colour.
         let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         let beforeTheDot = ChromeMetrics.Grid.tabStripHorizontalPadding
             + ChromeMetrics.Grid.labelStatusDot + ChromeMetrics.Grid.tabStripSpacing
         let strip = hex(image, CGPoint(x: thumbnail.maxX - beforeTheDot, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2))
-        XCTAssertEqual(strip, theme.palette.chromeRoles.tabStripFill.hex, "\(id): the strip carries the role it was given")
-        XCTAssertNotEqual(strip, theme.palette.chromeRoles.canvas.hex, "\(id): and it is not the thumbnail body")
+        XCTAssertNotEqual(strip, theme.palette.chromeRoles.pane.hex, "\(id): the focused tab's handle is not the thumbnail body")
         window.close()
     }
 
@@ -2593,10 +2595,7 @@ final class ChromeRenderTests: XCTestCase {
         )
 
         let target = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
-        harness.drag.move(to: CGPoint(
-            x: target.midX,
-            y: target.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
-        ))
+        harness.drag.move(to: Self.headerGround(of: target))
         XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.mattstackApps))
         // This fixture's tabs carry no split tree, so a MULTI-pane tab cannot
         // be migrated and the card it is over is left unlit. That is the
@@ -2642,13 +2641,25 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
     }
 
-    /// A card's own empty space: the middle of its header row, which no
+    /// An island's own empty space: the middle of its header row, which no
     /// thumbnail covers.
     private static func headerGround(of card: CGRect) -> CGPoint {
         CGPoint(
             x: card.midX,
-            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
+            y: card.minY + ChromeMetrics.Grid.islandTopPadding + ChromeMetrics.Grid.islandHeaderHeight / 2
         )
+    }
+
+    /// The first cell of a new row under a full one: the row's leading edge,
+    /// one `tabGap` below it, the same size as its cells.
+    private func assertSlotOpensRow(_ slot: CGRect, under row: [CGRect], _ label: String) {
+        guard let first = row.min(by: { $0.minX < $1.minX }), let bottom = row.map(\.maxY).max() else {
+            return XCTFail("\(label): no row")
+        }
+        XCTAssertEqual(slot.minX, first.minX, accuracy: 0.5, "the leading edge of \(label)")
+        XCTAssertEqual(slot.minY, bottom + ChromeMetrics.Grid.tabGap, accuracy: 0.5, "the row under \(label)")
+        XCTAssertEqual(slot.width, first.width, accuracy: 0.5, "same width as \(label)")
+        XCTAssertEqual(slot.height, first.height, accuracy: 0.5, "same height as \(label)")
     }
 
     /// Two cells of one row: same top edge and height, one `tabGap` apart.
@@ -2659,9 +2670,8 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(slot.minX, previous.maxX + ChromeMetrics.Grid.tabGap, accuracy: 0.5, "the slot after \(label)")
     }
 
-    /// Points are top-left in the 900x560 window: the title bar, the grid
-    /// header over its rule, the canvas margin, and the first card's border,
-    /// fill and focused accent bar.
+    /// Points are top-left in the window: the title bar, the grid header over
+    /// its rule, and the canvas margin around the islands.
     private func assertGridSamples(_ image: NSBitmapImageRep, theme: Theme) {
         let roles = theme.palette.chromeRoles
         let samples: [(String, CGPoint, RGB)] = [
@@ -2669,9 +2679,6 @@ final class ChromeRenderTests: XCTestCase {
             ("chrome/header", CGPoint(x: 450, y: 28), roles.chrome),
             ("rule/header", CGPoint(x: 450, y: 62.25), roles.rule),
             ("canvas/margin", CGPoint(x: 5, y: 120), roles.canvas),
-            ("paneBorder/card", CGPoint(x: 13.25, y: 150), roles.paneBorder),
-            ("pane/card", CGPoint(x: 18, y: 80), roles.pane),
-            ("accent/focusedBar", CGPoint(x: 27.5, y: 94), roles.accent),
         ]
         for (name, point, expected) in samples {
             XCTAssertEqual(hex(image, point), expected.hex, "\(theme.id) \(name) at \(point)")

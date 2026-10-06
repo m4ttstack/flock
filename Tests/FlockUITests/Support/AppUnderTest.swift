@@ -33,6 +33,11 @@ enum Aim {
     /// drawn inside an element that carries no identifier of its own. The grid
     /// thumbnail's mini panes are the only such surface a pane drag uses.
     case fraction(x: CGFloat, y: CGFloat)
+
+    /// A fraction across and a fixed depth in points below the top: Arrange
+    /// sizes thumbnails per window, so a band that starts under the fixed
+    /// handle strip is at no one fraction of every thumbnail's height.
+    case belowTop(x: CGFloat, points: CGFloat)
 }
 
 /// What one synthesized drag actually did, for a failure message: a case that
@@ -323,6 +328,8 @@ private func offset(_ aim: Aim, in frame: CGRect) -> CGVector {
         return CGVector(dx: frame.width / 2, dy: paneGripCenterDepth)
     case .fraction(let x, let y):
         return CGVector(dx: frame.width * x, dy: frame.height * y)
+    case .belowTop(let x, let points):
+        return CGVector(dx: frame.width * x, dy: points)
     }
 }
 

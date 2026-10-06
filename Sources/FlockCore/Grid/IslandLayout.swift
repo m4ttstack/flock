@@ -37,6 +37,18 @@ public enum IslandLayout {
         public let rows: [[WorkspaceID]]
         public let tabsPerRow: [WorkspaceID: Int]
         public let scrolls: Bool
+
+        /// `islands` laid out below this fit's rows at its own thumbnail
+        /// size, every island already drawn left where it is: the shape a
+        /// dormant island sprung open by a live drag takes.
+        public func appending(_ islands: [Island], width: CGFloat, metrics: Metrics = Metrics()) -> Fit {
+            guard !islands.isEmpty else { return self }
+            let added = IslandLayout.layout(islands, thumbnail: thumbnailWidth, in: width, metrics: metrics)
+            return Fit(
+                thumbnailWidth: thumbnailWidth, thumbnailHeight: thumbnailHeight, rows: rows + added.rows,
+                tabsPerRow: tabsPerRow.merging(added.perRow) { _, new in new }, scrolls: true
+            )
+        }
     }
 
     public static func thumbnailHeight(_ width: CGFloat, metrics: Metrics) -> CGFloat {

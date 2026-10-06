@@ -823,52 +823,48 @@ enum ChromeMetrics {
         static let headerHeight: CGFloat = 36
         static let headerHorizontalPadding: CGFloat = 13
         static let headerSpacing: CGFloat = 8
-        static let canvasPadding: CGFloat = 13
-        /// Between cards, across a row and down the grid.
-        static let cardGap: CGFloat = 13
-        static let cardCornerRadius: CGFloat = 3
-        static let cardVerticalPadding: CGFloat = 10
-        static let cardHorizontalPadding: CGFloat = 13
-        static let cardSpacing: CGFloat = 10
-        static let cardHeaderSpacing: CGFloat = 8
+        /// Around the islands. `IslandLayout.fit` is handed the viewport
+        /// less this on each side.
+        static let canvasPadding: CGFloat = 28
         static let cardStatusDot: CGFloat = 6
-        /// Between tabs, across a row and down a card.
-        static let tabGap: CGFloat = 10
-        /// The thumbnail carries the tab's own title strip, so it is taller
-        /// than the block alone by exactly what the label row under it used
-        /// to spend: a card's rows are the same height either way.
-        static let thumbnailHeight: CGFloat = 101
-        /// How wide a thumbnail is drawn, at every window size: a miniature
-        /// that stretches with the window stops reading as one, and a card's
-        /// row buys or loses slots instead. Thumbnails and the new-tab
-        /// placeholder both take it.
-        ///
-        /// Wide enough to read as a tab rather than a sliver, which costs the
-        /// narrowest window the app allows (900pt) a slot: it holds three of
-        /// these where it held four of the 93.625pt slot the design draws at
-        /// that width. 93 is the widest that would have kept four, and the
-        /// cost of keeping it is a thumbnail too narrow to read.
-        static let thumbnailWidth: CGFloat = 120
+        /// Gaps, island padding and the thumbnail aspect, shared with the fit
+        /// so the islands drawn are the islands it measured.
+        static let islands = IslandLayout.Metrics()
+        static let tabGap = islands.tabGap
+        /// The fit-to-window floor (`IslandLayout.Metrics.minimumWidth`):
+        /// below it Arrange scrolls rather than shrinking further.
+        static let minimumThumbnailWidth: CGFloat = 120
+        /// What a thumbnail is drawn at before the view has measured itself.
+        static let thumbnailWidth: CGFloat = minimumThumbnailWidth
+        static let thumbnailHeight: CGFloat = 86
+        static let islandCornerRadius: CGFloat = 14
+        static let islandTint: Double = 0.10
+        static let islandCurrentOutline: CGFloat = 1.5
+        /// `IslandLayout.Metrics.headerHeight` is these three summed.
+        static let islandTopPadding: CGFloat = 14
+        static let islandHeaderHeight: CGFloat = 20
+        static let islandHeaderGap: CGFloat = 12
+        static let islandHeaderSpacing: CGFloat = 10
+        static let identitySquare: CGFloat = 14
+        static let identitySquareRadius: CGFloat = 4
+        static let selectedHandleTint: Double = 0.25
+        static let dormantChipHeight: CGFloat = 26
+        static let dormantChipSpacing: CGFloat = 8
+        static let dormantDwell: Duration = .milliseconds(500)
         /// The tab's handle: a band across the top of its thumbnail, holding
         /// the title and status dot.
-        static let tabStripHeight: CGFloat = 15
-        static let tabStripHorizontalPadding: CGFloat = 5
+        static let tabStripHeight: CGFloat = 24
+        static let tabStripHorizontalPadding: CGFloat = 8
         static let tabStripSpacing: CGFloat = 5
-        /// herdr's focused tab is marked the way the rail marks its focused
-        /// workspace: the same bar, holding the same share of the row it sits
-        /// in.
-        static let tabStripIndicatorSize = CGSize(
-            width: WorkspaceRow.indicatorSize.width,
-            height: (tabStripHeight * WorkspaceRow.indicatorSize.height / WorkspaceRow.contentHeight).rounded()
-        )
-        static let thumbnailCornerRadius: CGFloat = 3
+        static let thumbnailCornerRadius: CGFloat = 6
         static let thumbnailPadding: CGFloat = 4
         static let miniPaneGap: CGFloat = 4
-        static let miniPaneCornerRadius: CGFloat = 1
-        static let miniPaneVerticalPadding: CGFloat = 4
-        static let miniPaneHorizontalPadding: CGFloat = 5
-        static let miniPaneTitleSpacing: CGFloat = 3
-        static let miniPaneStatusDot: CGFloat = 4
+        static let miniPaneCornerRadius: CGFloat = 4
+        static let miniPaneVerticalPadding: CGFloat = 8
+        static let miniPaneHorizontalPadding: CGFloat = 9
+        static let miniPaneTitleSpacing: CGFloat = 4
+        static let miniPaneStatusDot: CGFloat = 6
+        static let miniPaneBlockedOutline: CGFloat = 1.5
         static let labelStatusDot: CGFloat = 6
     }
 
