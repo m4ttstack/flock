@@ -45,6 +45,9 @@ public final class SessionViewModel {
             if attentionToasts != oldValue { attentionToastArchive?.save(attentionToasts) }
         }
     }
+    public private(set) var statusHistory = PaneStatusHistory()
+    public private(set) var jumpBack = JumpBack()
+    public let repoBranches = RepoBranchCache()
 
     /// Written from inside view bodies, which must not invalidate the views
     /// reading it; `lastLines` is what they observe.
@@ -215,6 +218,13 @@ public final class SessionViewModel {
         let previousFocusedTabID = self.model?.focusedTabID
         let previousModel = self.model
         self.model = model
+        if let model {
+            // Assigned only on a real change: the setter notifies every
+            // observer, and most updates change no pane's status.
+            var history = statusHistory
+            history.observe(model, at: now())
+            if history != statusHistory { statusHistory = history }
+        }
         connectionState = connection
         if selectedWorkspaceID == nil {
             selectedWorkspaceID = model?.focusedWorkspaceID
@@ -380,20 +390,47 @@ public final class SessionViewModel {
     /// screen from the ones under the "+N more" pill.
     public var attentionCardLimit = AttentionToastStack.minimumVisible
 
-    public func jumpToOldestDisplayedAttentionToast() async {
+    /// The injected clock, so mission control's ages and history agree.
+    public var currentTime: Date { now() }
+
+    public func jumpToOldestDisplayedAttentionToast(from origin: JumpPlace?) async {
         guard let toast = attentionToasts.oldestVisible(limit: attentionCardLimit) else { return }
-        await jumpToAttentionToast(pane: toast.paneID)
+        await jumpToAttentionToast(pane: toast.paneID, from: origin)
+    }
+
+    /// Mission control draws every card, so its oldest is the stack's.
+    public func jumpToOldestAttentionToast(from origin: JumpPlace?) async {
+        guard let toast = attentionToasts.toasts.last else { return }
+        await jumpToAttentionToast(pane: toast.paneID, from: origin)
     }
 
     /// Focuses the tab and pane by explicit id, never the workspace:
     /// `tab.focus` moves herdr's workspace along with it, while a separate
     /// `workspace.focus` lands on that workspace's remembered tab first, and
     /// herdr's echo of it shows the wrong tab before the target arrives.
-    public func jumpToAttentionToast(pane: PaneID) async {
+    public func jumpToAttentionToast(pane: PaneID, from origin: JumpPlace?) async {
         guard let toast = attentionToasts.toast(pane: pane) else { return }
+        recordJump(from: origin)
         attentionToasts.dismiss(pane: pane)
         await jumpToHerdr(tab: toast.tabID)
         await jumpToHerdr(pane: toast.paneID)
+    }
+
+    public func jumpToPane(_ pane: PaneID, from origin: JumpPlace?) async {
+        guard let record = model?.panes[pane] else { return }
+        recordJump(from: origin)
+        attentionToasts.dismiss(pane: pane)
+        await jumpToHerdr(tab: record.tabID)
+        await jumpToHerdr(pane: pane)
+    }
+
+    public var jumpBackTarget: JumpPlace? {
+        jumpBack.target(livePanes: Set(model?.panes.keys ?? [:].keys))
+    }
+
+    public func recordJump(from origin: JumpPlace?) {
+        guard let origin else { return }
+        jumpBack.jumped(from: origin)
     }
 
     /// Closes the editor when herdr no longer carries what it is open on. A

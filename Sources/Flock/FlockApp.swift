@@ -532,7 +532,7 @@ struct FlockApp: App {
                 .accessibilityIdentifier(ViewCommand.allWorkspaces.accessibilityIdentifier)
                 Divider()
                 Button(ViewCommand.openOldestNotification.title) {
-                    Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
+                    Task { await viewModel.jumpToOldestDisplayedAttentionToast(from: nil) }
                 }
                 .keyboardShortcut(ViewCommand.openOldestNotification.shortcut)
                 .disabled(viewModel.attentionToasts.isEmpty)

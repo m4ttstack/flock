@@ -112,7 +112,7 @@ private struct AttentionToastCard: View {
         .onTapGesture {
             guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
             NSApp.activate()
-            Task { await viewModel.jumpToAttentionToast(pane: toast.paneID) }
+            Task { await viewModel.jumpToAttentionToast(pane: toast.paneID, from: nil) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(toast.accessibilityIdentifier)

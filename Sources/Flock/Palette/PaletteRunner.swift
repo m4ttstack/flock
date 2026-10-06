@@ -74,7 +74,7 @@ struct PaletteRunner {
                 Task { await viewModel.closeWorkspace(workspace) }
             case .rearrangeMode: rearrangeMode.toggle()
             case .allWorkspaces: dragCoordinator.toggleGrid()
-            case .openOldestNotification: Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
+            case .openOldestNotification: Task { await viewModel.jumpToOldestDisplayedAttentionToast(from: nil) }
             case .clearNotifications: viewModel.clearAttentionToasts()
             case .commandPalette: break
             }

@@ -532,7 +532,7 @@ final class AttentionToastTests: XCTestCase {
         viewModel.update(model: attentionModel(), connection: .live)
         viewModel.update(model: attentionModel(statuses: ["w2:p1": .blocked]), connection: .live)
 
-        await viewModel.jumpToAttentionToast(pane: PaneID(rawValue: "w2:p1"))
+        await viewModel.jumpToAttentionToast(pane: PaneID(rawValue: "w2:p1"), from: nil)
 
         let calls = await client.calls
         XCTAssertEqual(calls.map(\.method), ["tab.focus", "pane.focus"])
@@ -558,7 +558,7 @@ final class AttentionToastTests: XCTestCase {
         }
         viewModel.attentionCardLimit = 3
 
-        await viewModel.jumpToOldestDisplayedAttentionToast()
+        await viewModel.jumpToOldestDisplayedAttentionToast(from: nil)
 
         let calls = await client.calls
         XCTAssertEqual(calls.last?.params.values.compactMap(stringValue).first, "w2:p2")
@@ -575,7 +575,7 @@ final class AttentionToastTests: XCTestCase {
         let viewModel = makeViewModel(client, clock: clock)
         viewModel.update(model: attentionModel(), connection: .live)
 
-        await viewModel.jumpToOldestDisplayedAttentionToast()
+        await viewModel.jumpToOldestDisplayedAttentionToast(from: nil)
 
         let calls = await client.calls
         XCTAssertTrue(calls.isEmpty)
@@ -588,7 +588,7 @@ final class AttentionToastTests: XCTestCase {
         let viewModel = makeViewModel(client, clock: clock)
         viewModel.update(model: attentionModel(), connection: .live)
 
-        await viewModel.jumpToAttentionToast(pane: PaneID(rawValue: "w2:p1"))
+        await viewModel.jumpToAttentionToast(pane: PaneID(rawValue: "w2:p1"), from: nil)
 
         let calls = await client.calls
         XCTAssertTrue(calls.isEmpty)
