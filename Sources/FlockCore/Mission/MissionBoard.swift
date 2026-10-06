@@ -190,9 +190,12 @@ public enum MissionKey {
     }
 
     /// A modified key is someone else's: a menu shortcut, or a selection
-    /// gesture this view does not have.
-    public static func decide(keyCode: UInt16, command: Bool, control: Bool, option: Bool, shift: Bool) -> Decision {
-        guard !command, !control, !option, !shift else { return .pass }
+    /// gesture this view does not have. While a text field is up every key
+    /// is the field's.
+    public static func decide(
+        keyCode: UInt16, command: Bool, control: Bool, option: Bool, shift: Bool, editingText: Bool = false
+    ) -> Decision {
+        guard !editingText, !command, !control, !option, !shift else { return .pass }
         switch keyCode {
         case 126: return .move(.up)
         case 125: return .move(.down)

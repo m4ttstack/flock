@@ -216,13 +216,14 @@ public enum EscapeRoute: Equatable, Sendable {
     case railSelection
     case focusedView
 
-    /// A live drag owns Esc as its cancel. A pane focused inside the grid is
-    /// a live terminal, and Esc is its key. Otherwise the grid covers the
+    /// A live drag owns Esc as its cancel. The grid yields Esc to what is
+    /// inside it when that is a live terminal (a focused pane) or a text
+    /// field (a rename), whose key it is. Otherwise the grid covers the
     /// rail, so it outranks the rail's selection, and what is left reaches
     /// the focused terminal.
-    public static func route(dragIdle: Bool, gridShown: Bool, gridFocusesPane: Bool, railTakesEscape: Bool) -> EscapeRoute {
+    public static func route(dragIdle: Bool, gridShown: Bool, gridYieldsEscape: Bool, railTakesEscape: Bool) -> EscapeRoute {
         guard dragIdle else { return .drag }
-        if gridShown { return gridFocusesPane ? .focusedView : .grid }
+        if gridShown { return gridYieldsEscape ? .focusedView : .grid }
         return railTakesEscape ? .railSelection : .focusedView
     }
 }

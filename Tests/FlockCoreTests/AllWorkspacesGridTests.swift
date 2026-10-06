@@ -345,9 +345,9 @@ final class AllWorkspacesGridTests: XCTestCase {
     }
 
     func testEscBelongsToTheTerminalWhileAPaneIsFocused() {
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridFocusesPane: true, railTakesEscape: false), .focusedView)
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridFocusesPane: false, railTakesEscape: false), .grid)
-        XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: true, gridFocusesPane: true, railTakesEscape: false), .drag)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: true, railTakesEscape: false), .focusedView)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: false, railTakesEscape: false), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: true, gridYieldsEscape: true, railTakesEscape: false), .drag)
     }
 
     // MARK: - Esc
@@ -355,19 +355,19 @@ final class AllWorkspacesGridTests: XCTestCase {
     func testALiveDragAlwaysOwnsEsc() {
         for grid in [false, true] {
             for rail in [false, true] {
-                XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: grid, gridFocusesPane: false, railTakesEscape: rail), .drag)
+                XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: grid, gridYieldsEscape: false, railTakesEscape: rail), .drag)
             }
         }
     }
 
     func testAnIdleEscClosesAShownGridBeforeTheRailSelectionSeesIt() {
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridFocusesPane: false, railTakesEscape: true), .grid)
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridFocusesPane: false, railTakesEscape: false), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: false, railTakesEscape: true), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: false, railTakesEscape: false), .grid)
     }
 
     func testWithNoGridEscIsTheRailsOrTheTerminals() {
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, gridFocusesPane: false, railTakesEscape: true), .railSelection)
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, gridFocusesPane: false, railTakesEscape: false), .focusedView)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, gridYieldsEscape: false, railTakesEscape: true), .railSelection)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, gridYieldsEscape: false, railTakesEscape: false), .focusedView)
     }
 
     // MARK: - last line requests

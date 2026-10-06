@@ -2276,7 +2276,6 @@ final class ChromeRenderTests: XCTestCase {
         clock.date = launch.addingTimeInterval(45 * 60)
         harness.modeStore.select(.missionControl)
         MissionCardFrames.shared.frames = [:]
-        MissionCardFrames.shared.identitySquares = [:]
         let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
@@ -2300,7 +2299,7 @@ final class ChromeRenderTests: XCTestCase {
         )
 
         let scratch = UserDefaults(suiteName: "flock-identity-\(UUID().uuidString)")!
-        let (board, sections) = try XCTUnwrap(MissionBoard.make(
+        let (board, _) = try XCTUnwrap(MissionBoard.make(
             viewModel: harness.viewModel, board: harness.board, herdProgress: HerdProgressStore(sources: .unanswered),
             cutoff: DormantCutoffStore(userDefaults: scratch), now: harness.viewModel.currentTime
         ))
@@ -2311,14 +2310,10 @@ final class ChromeRenderTests: XCTestCase {
             theme.palette.chromeRoles.pane.hex,
             "\(id): a Working group sits on its identity tint, not the lane's ground"
         )
-        let expected = WorkspaceIdentityStore(userDefaults: scratch)
-        expected.assign(WorkspaceIdentityStore.keys(in: sections))
-        let key = try XCTUnwrap(WorkspaceIdentityStore.key(for: GridFixture.herdr, sections: sections))
-        let index = try XCTUnwrap(expected.index(for: key))
-        let square = try XCTUnwrap(MissionCardFrames.shared.identitySquares[GridFixture.buildPane], "the Needs-you card draws a square")
-        XCTAssertEqual(
-            hex(image, CGPoint(x: square.midX, y: square.midY)), IdentityPalette.colors(for: theme.palette)[index].hex,
-            "\(id): a Needs-you card leads with its workspace's identity square"
+        // Inside the card's top padding, clear of its text and its outline.
+        XCTAssertNotEqual(
+            hex(image, CGPoint(x: card.maxX - 10, y: card.minY + 5)), theme.palette.chromeRoles.chrome.hex,
+            "\(id): a Needs-you card sits on its workspace's identity wash"
         )
         window.close()
     }

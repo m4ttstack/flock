@@ -38,7 +38,7 @@ struct MissionControlView: View {
         .padding(.vertical, M.canvasVerticalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.canvas)
-        .background(MissionKeyMonitor { decision in
+        .background(MissionKeyMonitor(isEditingText: { viewModel.renameTarget != nil }) { decision in
             switch decision {
             case .move(let direction): move(direction)
             case .open: activateSelection()
@@ -140,6 +140,7 @@ struct MissionControlView: View {
                     .foregroundStyle(theme.identityInk(identity))
                     .lineLimit(1)
             }
+            .contextMenu { IdentityColourMenu(theme: theme, key: WorkspaceIdentityStore.key(for: group.workspaceID, sections: sections)) }
             ForEach(group.cards) { card($0, sections: sections, now: now, showsWorkspace: false, cooling: false) }
         }
         .padding(M.groupPadding)
@@ -154,10 +155,26 @@ struct MissionControlView: View {
             repoBranch: viewModel.repoBranches.repoBranch(for: card.folder),
             segments: viewModel.statusHistory.segments(of: card.paneID, at: now), now: now,
             isSelected: mode.missionSelection == card.paneID, isCooling: cooling,
+            rename: rename(card.paneID),
             activate: { open(card.paneID) }
         )
+        .contextMenu {
+            Button("Rename Pane") { viewModel.beginRename(.pane(card.paneID)) }
+                .accessibilityIdentifier("flock.mission.card.rename")
+            Divider()
+            IdentityColourMenu(theme: theme, key: WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections))
+        }
         .matchedGeometryEffect(id: card.paneID, in: laneSpace)
         .id(card.paneID)
+    }
+
+    private func rename(_ pane: PaneID) -> PaneRename? {
+        guard viewModel.renameTarget == .pane(pane) else { return nil }
+        return PaneRename(
+            initialText: viewModel.renameText(for: .pane(pane)),
+            commit: { text in Task { await viewModel.commitRename(text, for: .pane(pane)) } },
+            cancel: { viewModel.cancelRename() }
+        )
     }
 
     private func dormantFold(_ dormant: [MissionCard]) -> some View {
@@ -249,15 +266,18 @@ struct MissionControlView: View {
 /// mission control opens over a terminal that does: keyed on focus, the
 /// arrows would reach the shell.
 private struct MissionKeyMonitor: NSViewRepresentable {
+    let isEditingText: () -> Bool
     let onDecision: (MissionKey.Decision) -> Void
 
     func makeNSView(context: Context) -> MonitorView { MonitorView() }
 
     func updateNSView(_ view: MonitorView, context: Context) {
+        view.isEditingText = isEditingText
         view.onDecision = onDecision
     }
 
     final class MonitorView: NSView {
+        var isEditingText: () -> Bool = { false }
         var onDecision: (MissionKey.Decision) -> Void = { _ in }
         nonisolated(unsafe) private var monitor: Any?
 
@@ -277,7 +297,7 @@ private struct MissionKeyMonitor: NSViewRepresentable {
                 let flags = event.modifierFlags
                 let decision = MissionKey.decide(
                     keyCode: event.keyCode, command: flags.contains(.command), control: flags.contains(.control),
-                    option: flags.contains(.option), shift: flags.contains(.shift)
+                    option: flags.contains(.option), shift: flags.contains(.shift), editingText: self.isEditingText()
                 )
                 guard decision != .pass else { return event }
                 self.onDecision(decision)

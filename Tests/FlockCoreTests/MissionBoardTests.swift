@@ -212,4 +212,17 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(decide(125, shift: true), .pass)
         XCTAssertEqual(decide(53), .pass, "Esc closes the grid elsewhere")
     }
+
+    func testARenameFieldKeepsArrowsAndReturn() {
+        for code: UInt16 in [126, 125, 123, 124, 36, 76] {
+            XCTAssertEqual(
+                MissionKey.decide(keyCode: code, command: false, control: false, option: false, shift: false, editingText: true),
+                .pass, "key \(code) belongs to the field"
+            )
+        }
+    }
+
+    func testTheGridYieldsEscapeToARenameField() {
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: true, railTakesEscape: false), .focusedView)
+    }
 }

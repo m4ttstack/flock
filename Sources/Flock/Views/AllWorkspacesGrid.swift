@@ -358,7 +358,6 @@ private struct WorkspaceIsland: View {
     let identityKey: String?
 
     @Environment(DragCoordinator.self) private var drag
-    @Environment(WorkspaceIdentityStore.self) private var identityStore
     @Environment(\.gridThumbnailSize) private var thumbnailSize
 
     private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
@@ -449,25 +448,7 @@ private struct WorkspaceIsland: View {
         .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
         .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
         .contentShape(Rectangle())
-        .contextMenu { colourMenu }
-    }
-
-    @ViewBuilder
-    private var colourMenu: some View {
-        if let identityKey {
-            let colors = IdentityPalette.colors(for: theme.palette)
-            ForEach(Array(colors.enumerated()), id: \.offset) { index, rgb in
-                Button {
-                    identityStore.setOverride(index, for: identityKey)
-                } label: {
-                    Label { Text("Colour \(index + 1)") } icon: { Image(nsImage: IdentitySwatch.image(rgb)) }
-                }
-                .accessibilityIdentifier("flock.grid.island.colour.\(index)")
-            }
-            Divider()
-            Button("Automatic") { identityStore.setOverride(nil, for: identityKey) }
-                .accessibilityIdentifier("flock.grid.island.colour.automatic")
-        }
+        .contextMenu { IdentityColourMenu(theme: theme, key: identityKey) }
     }
 
     /// One cell, plus the reporter for the slot a committed drop lands in
@@ -953,22 +934,6 @@ struct MiniPane: View {
 
     private var titleText: Text {
         Text(title).font(ChromeType.gridMiniPaneTitle).foregroundStyle(theme.textStrong)
-    }
-}
-
-/// The identity colours as menu images: a menu draws a symbol as a template,
-/// which would drop the very colour the item names.
-private enum IdentitySwatch {
-    static func image(_ rgb: RGB) -> NSImage {
-        let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
-            NSColor(
-                srgbRed: CGFloat(rgb.red) / 255, green: CGFloat(rgb.green) / 255, blue: CGFloat(rgb.blue) / 255, alpha: 1
-            ).setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5)).fill()
-            return true
-        }
-        image.isTemplate = false
-        return image
     }
 }
 

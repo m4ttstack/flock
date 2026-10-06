@@ -6,7 +6,6 @@ import SwiftUI
 final class MissionCardFrames {
     static let shared = MissionCardFrames()
     var frames: [PaneID: CGRect] = [:]
-    var identitySquares: [PaneID: CGRect] = [:]
 }
 
 struct MissionCardView: View {
@@ -22,6 +21,9 @@ struct MissionCardView: View {
     let isSelected: Bool
     let isCooling: Bool
     var forced: ControlInteraction?
+    /// Set while this card's pane is being renamed: the title becomes the
+    /// rename field, and the card stops being a button so clicks reach it.
+    var rename: PaneRename?
     let activate: () -> Void
 
     @State private var isHovering = false
@@ -29,12 +31,7 @@ struct MissionCardView: View {
     private typealias M = ChromeMetrics.MissionControl
 
     var body: some View {
-        Button(action: activate) { content }
-            .buttonStyle(GridControlStyle(
-                theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: M.cardCornerRadius)),
-                restFill: theme.chrome, restForeground: theme.textStrong, pressAccent: M.cardPressedAccent,
-                isHovering: forced?.isHovering ?? isHovering, forcePressed: forced?.isPressed ?? false
-            ))
+        surface
             .overlay(
                 RoundedRectangle(cornerRadius: M.cardCornerRadius)
                     .strokeBorder(outline, lineWidth: outlineWidth)
@@ -57,20 +54,34 @@ struct MissionCardView: View {
             .accessibilityIdentifier("flock.mission.card.\(card.paneID.rawValue)")
     }
 
+    private var shape: AnyShape { AnyShape(RoundedRectangle(cornerRadius: M.cardCornerRadius)) }
+
+    /// Working's group already carries the workspace's wash.
+    private var restFill: Color { showsWorkspace ? theme.identityGround(identity) : theme.chrome }
+
+    @ViewBuilder
+    private var surface: some View {
+        if rename != nil {
+            content.background(
+                GridControlGround(
+                    theme: theme, shape: shape, restFill: restFill,
+                    appearance: .resolve(theme: theme, restForeground: theme.textStrong, isHovering: false, isPressed: false)
+                )
+            )
+        } else {
+            Button(action: activate) { content }
+                .buttonStyle(GridControlStyle(
+                    theme: theme, shape: shape, restFill: restFill,
+                    restForeground: theme.textStrong, pressAccent: M.cardPressedAccent,
+                    isHovering: forced?.isHovering ?? isHovering, forcePressed: forced?.isPressed ?? false
+                ))
+        }
+    }
+
     private var content: some View {
         VStack(alignment: .leading, spacing: M.cardLineSpacing) {
             HStack(spacing: 8) {
-                HStack(spacing: M.cardIdentitySpacing) {
-                    if showsWorkspace {
-                        IdentitySquare(
-                            theme: theme, identity: identity, size: M.cardIdentitySquare, cornerRadius: M.cardIdentitySquareRadius
-                        )
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
-                            MissionCardFrames.shared.identitySquares[card.paneID] = $0
-                        }
-                    }
-                    StatusDot(status: card.status, theme: theme, size: M.cardDot)
-                }
+                StatusDot(status: card.status, theme: theme, size: M.cardDot)
                 HStack(spacing: 4) {
                     if showsWorkspace {
                         Text(card.workspaceName).foregroundStyle(theme.identityInk(identity))
@@ -85,11 +96,20 @@ struct MissionCardView: View {
             }
             .font(ChromeType.missionCardMeta)
             .lineLimit(1)
-            Text(card.title)
-                .font(ChromeType.missionCardTitle)
-                .foregroundStyle(theme.textStrong)
-                .lineLimit(2)
+            if let rename {
+                InlineRenameField(
+                    theme: theme, font: ChromeType.missionCardTitle, initialText: rename.initialText,
+                    accessibilityIdentifier: "flock.mission.rename.\(card.paneID.rawValue)",
+                    onCommit: rename.commit, onCancel: rename.cancel
+                )
                 .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(card.title)
+                    .font(ChromeType.missionCardTitle)
+                    .foregroundStyle(theme.textStrong)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack(spacing: 12) {
                 Text(repoBranch.text)
                     .font(ChromeType.missionCardMono)
@@ -152,4 +172,11 @@ struct StatusTimeline: View {
             Color.clear
         }
     }
+}
+
+/// A pane rename in progress, as a card shows it.
+struct PaneRename {
+    let initialText: String
+    let commit: (String) -> Void
+    let cancel: () -> Void
 }

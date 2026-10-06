@@ -91,7 +91,7 @@ final class GridControlAppearanceTests: XCTestCase {
 @MainActor
 final class GridControlHoverRenderTests: XCTestCase {
     private static let scale: CGFloat = 2
-    private static let size = CGSize(width: 1180, height: 450)
+    private static let size = CGSize(width: 1180, height: 590)
     private static let column: CGFloat = 380
     private static let states: [(String, ControlInteraction)] = [("rest", .rest), ("hover", .hover), ("pressed", .pressed)]
 
@@ -122,7 +122,7 @@ final class GridControlHoverRenderTests: XCTestCase {
                 let frame = try XCTUnwrap(MissionCardFrames.shared.frames[Self.pane(.working, index)])
                 return hex(image, CGPoint(x: frame.maxX - 10, y: frame.minY + 5))
             }
-            XCTAssertEqual(grounds[0], theme.palette.chromeRoles.chrome.hex, "\(id): a resting card is on chrome")
+            XCTAssertNotEqual(grounds[0], theme.palette.chromeRoles.chrome.hex, "\(id): a resting card wears its workspace wash")
             XCTAssertEqual(Set(grounds).count, 3, "\(id): rest, hover and press grounds \(grounds) must differ")
             for index in 0..<3 {
                 let frame = try XCTUnwrap(MissionCardFrames.shared.frames[Self.pane(.blocked, index)])
@@ -136,7 +136,7 @@ final class GridControlHoverRenderTests: XCTestCase {
 
     private func sheet(_ theme: Theme) -> some View {
         let now = Date(timeIntervalSince1970: 1_000_000)
-        func card(_ status: AgentStatus, _ index: Int) -> some View {
+        func card(_ status: AgentStatus, _ index: Int, renaming: Bool = false) -> some View {
             MissionCardView(
                 theme: theme,
                 card: MissionCard(
@@ -145,7 +145,9 @@ final class GridControlHoverRenderTests: XCTestCase {
                     status: status, since: now.addingTimeInterval(-300), folder: "/tmp/acme"
                 ),
                 showsWorkspace: true, identity: nil, repoBranch: RepoBranch(repo: "acme", branch: "main"),
-                segments: [], now: now, isSelected: false, isCooling: false, forced: Self.states[index].1, activate: {}
+                segments: [], now: now, isSelected: false, isCooling: false, forced: Self.states[index].1,
+                rename: renaming ? PaneRename(initialText: "Refactor the request pipeline", commit: { _ in }, cancel: {}) : nil,
+                activate: {}
             )
             .frame(width: Self.column - 30)
         }
@@ -181,6 +183,7 @@ final class GridControlHoverRenderTests: XCTestCase {
                         Self.thumbnail(theme, tab: interaction, pane: .rest)
                         Self.thumbnail(theme, tab: .rest, pane: interaction)
                     }
+                    if index == 0 { card(.idle, 0, renaming: true) }
                 }
                 .frame(width: Self.column - 30, alignment: .leading)
             }

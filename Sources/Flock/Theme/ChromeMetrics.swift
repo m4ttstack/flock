@@ -816,9 +816,6 @@ enum ChromeMetrics {
         static let groupIdentitySquare: CGFloat = 10
         static let groupIdentitySquareRadius: CGFloat = 3
         static let groupLabelSpacing: CGFloat = 7
-        static let cardIdentitySquare: CGFloat = 9
-        static let cardIdentitySquareRadius: CGFloat = 2.5
-        static let cardIdentitySpacing: CGFloat = 6
         static let toggleHeight: CGFloat = 26
         static let toggleCornerRadius: CGFloat = 6
         static let toggleSegmentPadding: CGFloat = 12
