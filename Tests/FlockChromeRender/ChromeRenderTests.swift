@@ -2287,7 +2287,7 @@ final class ChromeRenderTests: XCTestCase {
         var model = try GridFixture.model()
         let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
         let harness = try await Harness(
-            theme: theme, model: model, client: GridFixtureClient(), attaching: [], now: { clock.date }
+            theme: theme, model: model, client: GridFixtureClient(), attaching: [], now: { clock.date }, oneTitle: true
         )
         // Minutes after launch. Panes left alone since launch are dormant by
         // the end, past the 30 minute default.
@@ -2592,6 +2592,8 @@ final class ChromeRenderTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
         defaults.removeObject(forKey: NotificationLifetimeStore.defaultsKey)
         defaults.removeObject(forKey: RearrangeAfterMoveStore.defaultsKey)
+        defaults.removeObject(forKey: MissionBottomLineStore.defaultsKey)
+        defaults.removeObject(forKey: OneTitleStore.defaultsKey)
         for kind in NewTerminalKind.allCases {
             defaults.removeObject(forKey: StartingFolderStore.defaultsKey(for: kind))
             defaults.removeObject(forKey: StartingFolderStore.customPathKey(for: kind))
@@ -2610,6 +2612,8 @@ final class ChromeRenderTests: XCTestCase {
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 dormantCutoffStore: DormantCutoffStore(userDefaults: defaults),
+                missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
+                oneTitleStore: OneTitleStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults),
@@ -2868,13 +2872,43 @@ final class ChromeRenderTests: XCTestCase {
     /// Arrange on a roomy window: thumbnails grow past the floor, each island
     /// is tinted off the canvas, and `glance`, left alone past the dormant
     /// cutoff, is a chip in the strip rather than an island.
+    /// The main window with Settings > Titles on, over a tab of one pane and
+    /// a tab of two. PNGs go to `FLOCK_CHROME_RENDER_DIR`. Alone, the pane's
+    /// title row keeps its status chip and draws no title: the tab strip's is
+    /// the one title.
+    func testOneTitleHidesTheTitleOfAPaneAloneInItsTab() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            for (name, onePane) in [("one-pane", true), ("two-pane", false)] {
+                let model = try Fixture.model(onePane: onePane)
+                let harness = try await Harness(
+                    theme: theme, model: model,
+                    attaching: onePane ? [PaneID(rawValue: "w1:p2")] : Fixture.canvasPanes, oneTitle: true
+                )
+                let pane = try XCTUnwrap(model.panes[PaneID(rawValue: "w1:p2")])
+                let shown = PaneNaming.shownTitle(pane: pane, model: model, oneTitle: true)
+                XCTAssertEqual(shown == nil, onePane, "\(name): a pane is titled only while it shares its tab")
+                let window = harness.makeWindow(size: Self.windowSize)
+                await settle(window)
+                let image = try snapshot(window)
+                XCTAssertGreaterThan(image.pixelsWide, 0)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("titles-\(name)-\(scheme).png"))
+                }
+                window.close()
+            }
+        }
+    }
+
     func testArrangeDrawsTintedIslandsThatFillTheWindow() async throws {
         for (id, file) in [("tokyo-night", "islands-dark.png"), ("tokyo-night-day", "islands-light.png")] {
             let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
             let harness = try await Harness(
-                theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [], now: { clock.date }
+                theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [], now: { clock.date },
+                oneTitle: true
             )
             clock.date = clock.date.addingTimeInterval(45 * 60)
             harness.modeStore.select(.arrange)
@@ -4238,7 +4272,10 @@ private struct Harness {
         // No Board config by default, same as a machine without the board
         // app, so every render that predates the section is unchanged.
         boardSources: BoardSources = .unconfigured,
-        mouseHolders: Set<PaneID> = []
+        mouseHolders: Set<PaneID> = [],
+        // Off by default, so every render that predates Settings > Titles
+        // keeps drawing each pane's own title.
+        oneTitle: Bool = false
     ) async throws {
         ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -4290,7 +4327,7 @@ private struct Harness {
         }
         viewModel = SessionViewModel(
             client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now,
-            notificationLifetime: { notificationLifetime }, repoBranches: repoBranches
+            notificationLifetime: { notificationLifetime }, oneTitle: { oneTitle }, repoBranches: repoBranches
         )
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
         for pane in panes {
@@ -4353,6 +4390,7 @@ private struct Harness {
             .environment(drag)
             .environment(modeStore)
             .environment(DormantCutoffStore(userDefaults: modeDefaults))
+            .environment(MissionBottomLineStore(userDefaults: modeDefaults))
             .environment(WorkspaceIdentityStore(userDefaults: modeDefaults))
             .environment(dividerDrag)
             .environment(chatStore)
@@ -4705,8 +4743,11 @@ private enum Fixture {
     /// `idle`, the default every existing caller still gets): the one pane a
     /// test can also carry a chat status on, for a fixture with both a status
     /// dot and a chat button on the same legend.
+    /// `onePane` moves `w1:p1` out to the `logs` tab, leaving the selected
+    /// tab holding `w1:p2` alone.
     static func model(
-        zoomed: Bool = false, flockTabLabels: [String]? = nil, focusedPaneAgentStatus: String = "idle"
+        zoomed: Bool = false, flockTabLabels: [String]? = nil, focusedPaneAgentStatus: String = "idle",
+        onePane: Bool = false
     ) throws -> SessionModel {
         let workspaces: [(id: String, label: String, panes: Int, status: String)] = [
             ("w1", "flock", 5, "idle"), ("w2", "repo-tools", 3, "blocked"), ("w3", "board", 2, "working"),
@@ -4728,7 +4769,7 @@ private enum Fixture {
                     "number": tabIndex + 1, "pane_count": 1, "agent_status": "idle",
                 ])
             }
-            let flockTabs = ["w1:t3", "w1:t3", "w1:t1", "w1:t2", "w1:t4"]
+            let flockTabs = [onePane ? "w1:t4" : "w1:t3", "w1:t3", "w1:t1", "w1:t2", "w1:t4"]
             for paneIndex in 0..<workspace.panes {
                 let paneID = "\(workspace.id):p\(paneIndex + 1)"
                 paneRows.append([
@@ -4743,11 +4784,13 @@ private enum Fixture {
         let area: [String: Int] = ["x": 0, "y": 0, "width": 120, "height": 40]
         let layout: [String: Any] = [
             "workspace_id": "w1", "tab_id": "w1:t3", "zoomed": zoomed, "area": area, "focused_pane_id": "w1:p2",
-            "panes": [
-                ["pane_id": "w1:p1", "focused": false, "rect": ["x": 0, "y": 0, "width": 60, "height": 40]],
-                ["pane_id": "w1:p2", "focused": true, "rect": ["x": 60, "y": 0, "width": 60, "height": 40]],
-            ],
-            "splits": [["id": "split_0_root", "direction": "right", "ratio": 0.5, "rect": area]],
+            "panes": onePane
+                ? [["pane_id": "w1:p2", "focused": true, "rect": area]]
+                : [
+                    ["pane_id": "w1:p1", "focused": false, "rect": ["x": 0, "y": 0, "width": 60, "height": 40]],
+                    ["pane_id": "w1:p2", "focused": true, "rect": ["x": 60, "y": 0, "width": 60, "height": 40]],
+                ],
+            "splits": onePane ? [] : [["id": "split_0_root", "direction": "right", "ratio": 0.5, "rect": area]],
         ]
         let snapshot: [String: Any] = [
             "version": "0.8.0", "protocol": 22, "focused_workspace_id": "w1", "focused_tab_id": "w1:t3",

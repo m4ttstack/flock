@@ -7,7 +7,6 @@ import SwiftUI
 /// setting not working.
 struct NotificationSettingsSection: View {
     let store: NotificationLifetimeStore
-    let cutoffStore: DormantCutoffStore
 
     var body: some View {
         Section("Notifications") {
@@ -20,15 +19,6 @@ struct NotificationSettingsSection: View {
                 Text("When an agent finishes or needs your input. A question stays until you answer it.")
             }
             .accessibilityIdentifier("flock.settings.notificationLifetime")
-            Picker(selection: Binding(get: { cutoffStore.active }, set: { cutoffStore.select($0) })) {
-                ForEach(DormantCutoff.allCases, id: \.self) { cutoff in
-                    Text(cutoff.displayName).tag(cutoff)
-                }
-            } label: {
-                Text("Dormant after")
-                Text("Overview folds away a pane whose status has not changed for this long.")
-            }
-            .accessibilityIdentifier("flock.settings.dormantCutoff")
         }
     }
 }

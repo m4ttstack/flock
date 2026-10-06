@@ -103,8 +103,8 @@ dormant appears in exactly one lane, decided in this order:
    comes first. Cards draw at reduced opacity.
 4. **Dormant**: anything else. Not drawn as cards. The foot of Cooling down
    holds one line, "N dormant", that expands in place to a compact list (dot,
-   workspace › tab, title) and collapses again. A dormant pane moves to its
-   lane the moment its status changes.
+   workspace › the card's title, its second line dim) and collapses again.
+   A dormant pane moves to its lane the moment its status changes.
 
 A blocked or done pane whose card was cleared (⇧⌘U, or a "finished" card
 that timed out) is not in Needs you; it falls to Cooling down, then Dormant.
@@ -115,16 +115,26 @@ Needs you lane reads "Nothing needs you".
 ### A card
 
 Every card sits in its workspace's group, whose label names the workspace
-(a herd's reads `auth sweep · herd 2/4`), so a card has two lines.
+(a herd's reads `auth sweep · herd 2/4`), so a card says its task once
+(board `13 · Overview · labels, groups, quieter cards`).
 
-Top line: status dot, the pane's `displayTitle` on one line, and at the
-right the state and its age in the terminal face, `working 18m`, in the
+Top line: status dot, the card's title (Titles, below) on one line, and at
+the right the state and its age in the terminal face, `working 18m`, in the
 status hue.
 
-Bottom line: `repo @ branch` in the terminal face, and at the right a
-timeline of the last 60 minutes: working, blocked and done as solid
-segments in their hues, idle as a thin line, time with no record as the
-track alone.
+Second line, only when there is one: a small dim line (12pt, `textDim`).
+With One title on, it is the pane's own `displayTitle` when the tab holds
+two or more panes and the title differs from the tab's, ignoring case. With
+it off, it is the tab's title when that differs from the pane's.
+
+Bottom line: the pane's repo and branch in the terminal face as Settings >
+Overview > Bottom line words them, and at the right a timeline of the last
+60 minutes: working, blocked and done as solid segments in their hues, idle
+as a thin line, time with no record as the track alone. **Branch** (the
+default) drops the repo when it is named like the workspace, ignoring case,
+and shows `repo @ branch` otherwise; **Repo and branch** always shows both;
+**Hidden** shows no text and leaves the timeline. A folder with no branch
+shows its name in either text setting.
 
 A blocked card carries a 1.5pt outline in the blocked hue.
 
@@ -187,10 +197,11 @@ oldest card), open the pane here. A Needs-you card is dismissed on opening.
 
 - A header the grid header's height:
   - left: a "‹ Overview ⌘[" button, then the identity square, `workspace ›
-    tab` (workspace in its identity colour), the status dot and the state
-    with its age (`blocked 12m`) in the status hue;
+    title` (workspace in its identity colour, the card's title and its
+    second line dim after it), the status dot and the state with its age
+    (`blocked 12m`) in the status hue;
   - right: a Next chip naming the oldest other Needs-you card: `NEXT`, its
-    status dot, its workspace in its identity colour, its tab, its state
+    status dot, its workspace in its identity colour, its card's title, its state
     and age in the status hue, `+N` when more than that one wait, a rule
     and `⌘]`. Clicking it opens that card here. With no other card it
     reads "Queue clear", dim, and does nothing.
@@ -295,13 +306,47 @@ a parameter so tests control time.
 
 A pane is dormant when it is not in the attention stack, its status is not
 `working`, and its last status change is older than the cutoff. The cutoff is
-a Settings value under Notifications, "Dormant after", one of 15, 30
+a Settings value under Overview, "Dormant after", one of 15, 30
 (default), 60 or 120 minutes, persisted like `NotificationLifetimeStore`.
 
 A shell with no agent never changes status, so it reads dormant once the
 cutoff passes after launch even while a command runs in it. Using
 `PaneForegroundJob` to keep busy shells awake is a follow-up, not part of
 this work.
+
+### Titles
+
+Board `15 · Settings · Overview cards`. Settings has a **Titles** section
+with one toggle, "One title for a one-pane tab", on by default and persisted
+like the other stores (`OneTitleStore`). It is display only: it never
+writes to herdr.
+
+While it is on, a pane in a tab holding exactly one pane (counted from the
+model, so a zoomed tab of two still has two) has no title of its own
+anywhere flock names it. The tab's title (`TabTitle.resolve`: its name, or
+the pane's title when the tab has none) is the one title:
+
+- the pane's title row, in the main canvas and the focused view, draws no
+  title text; the status chip, grip and legend controls stay where they
+  were, and the row keeps its clicks;
+- Arrange's mini panes in such a tab show the status word alone;
+- Overview cards, the focused view's header and the Next chip lead with
+  the tab's title (A card, above);
+- dock cards name the tab, with a breadcrumb of the workspace alone;
+- the grid's pane preview card and drag proxies name the tab.
+
+Renames follow: Rename Pane (both context menus, the palette and the card's
+menu), a double-click on the title row and the rename key all open the
+editor on the tab, with the tab's current name. The main window's tab strip
+draws that editor; the focused view's title row and an Overview card draw
+it themselves. Clear Pane Name is hidden for such a pane while the setting
+is on.
+
+A tab herdr only numbered says nothing, so a number never leads a card and
+never fills its second line: a card in an unnamed tab of several panes
+leads with the pane's title.
+
+The rule is one FlockCore type, `PaneNaming`, that every surface reads.
 
 ### Identity colour
 
@@ -366,6 +411,10 @@ FlockCore unit tests:
   and none for the pane in Overview's focused view;
 - `HEAD` parsing for a branch, a detached head and a missing file;
 - the dormant cutoff store's default and persistence;
+- `PaneNaming`: a named and an unnamed one-pane tab, a tab of two, a zoomed
+  tab of two, the setting off, a pane moving between tabs, the rename
+  target, Clear Pane Name hidden, and dock cards naming the tab;
+- the bottom line's three settings and its store;
 - the fit-to-window size: largest width that fits, the 120pt floor, the
   260pt cap, and no change while a drag is live;
 - island packing in rail order, and dormant workspaces moving to chips;

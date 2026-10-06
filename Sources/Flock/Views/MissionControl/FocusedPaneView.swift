@@ -127,7 +127,7 @@ struct FocusedPaneView: View {
                 .font(ChromeType.focusedNextPlace)
                 .foregroundStyle(theme.identityInk(color))
                 .fixedSize()
-            Text(card.tabTitle)
+            Text(card.title)
                 .font(ChromeType.focusedNextPlace)
                 .foregroundStyle(theme.textStrong)
                 .truncationMode(.tail)
@@ -171,7 +171,10 @@ struct FocusedPaneView: View {
             HStack(spacing: 5) {
                 Text(card.workspaceName).foregroundStyle(theme.identityInk(color))
                 Text("›").foregroundStyle(theme.textLabel)
-                Text(card.tabTitle).foregroundStyle(theme.textStrong)
+                Text(card.title).foregroundStyle(theme.textStrong)
+                if let detail = card.detail {
+                    Text(detail).foregroundStyle(theme.textDim)
+                }
             }
             .font(ChromeType.focusedPlace)
             .truncationMode(.middle)

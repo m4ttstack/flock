@@ -270,7 +270,7 @@ struct PaneCellView: View {
     /// frame is the fallback before the canvas has published one.
     private var paneGhost: DragCoordinator.Ghost {
         DragCoordinator.Ghost(
-            title: pane.displayTitle,
+            title: viewModel.model.map { PaneNaming.name(pane: pane, model: $0, oneTitle: viewModel.oneTitle) } ?? pane.displayTitle,
             symbol: "macwindow",
             originSize: drag.canvas.paneFrames[pane.paneID]?.size ?? bodyFrame.size
         )
@@ -315,7 +315,10 @@ struct PaneCellView: View {
     /// two can never drift.
     private var paneMenuEntries: [PaneMenuEntry] {
         guard let model = viewModel.model else { return [] }
-        return PaneMenuModel.entries(for: pane.paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: role == .solo)
+        return PaneMenuModel.entries(
+            for: pane.paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: role == .solo,
+            oneTitle: viewModel.oneTitle
+        )
     }
 
     /// The bordered terminal box. The content is pinned to exactly the
@@ -381,19 +384,32 @@ struct PaneCellView: View {
         .allowsHitTesting(false)
     }
 
-    /// Whether the one rename editor is open on THIS pane.
-    private var isRenaming: Bool {
-        viewModel.renameTarget == .pane(pane.paneID)
+    /// What the one rename editor is open on when this title row draws it:
+    /// this pane, or the tab standing for it. In the main window the tab
+    /// strip draws a tab's editor; the focused view has no strip.
+    private var editorTarget: RenameTarget? {
+        let own = viewModel.renameTarget(for: .pane(pane.paneID))
+        guard viewModel.renameTarget == own else { return nil }
+        if case .tab = own, role != .solo { return nil }
+        return own
+    }
+
+    private var isRenaming: Bool { editorTarget != nil }
+
+    /// nil while the tab's title stands for this pane's (`PaneNaming`).
+    private var shownTitle: String? {
+        guard let model = viewModel.model else { return pane.displayTitle }
+        return PaneNaming.shownTitle(pane: pane, model: model, oneTitle: viewModel.oneTitle)
     }
 
     @ViewBuilder
     private var title: some View {
-        if isRenaming {
+        if let editorTarget {
             InlineRenameField(
                 theme: theme, font: ChromeType.paneTitle,
-                initialText: viewModel.renameText(for: .pane(pane.paneID)),
+                initialText: viewModel.renameText(for: editorTarget),
                 accessibilityIdentifier: "flock.pane.rename.\(pane.paneID.rawValue)",
-                onCommit: { text in Task { await viewModel.commitRename(text, for: .pane(pane.paneID)) } },
+                onCommit: { text in Task { await viewModel.commitRename(text, for: editorTarget) } },
                 onCancel: { viewModel.cancelRename() }
             )
             .frame(width: ChromeMetrics.Rename.paneWidth, height: PaneChrome.titleRowHeight)
@@ -408,10 +424,13 @@ struct PaneCellView: View {
         }
     }
 
+    /// A hidden title keeps its place and its clicks, so nothing beside it moves.
     private var titleLabel: some View {
-        Text(pane.displayTitle)
+        let shown = shownTitle
+        return Text(shown ?? pane.displayTitle)
             .font(ChromeType.paneTitle)
-            .foregroundStyle(isFocused ? theme.textStrong : theme.textDim)
+            .foregroundStyle(shown == nil ? Color.clear : isFocused ? theme.textStrong : theme.textDim)
+            .accessibilityHidden(shown == nil)
             .lineLimit(1)
             .frame(height: PaneChrome.titleRowHeight)
             .padding(.top, PaneChrome.verticalPadding)

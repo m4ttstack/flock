@@ -74,18 +74,23 @@ public struct AttentionToast: Identifiable, Equatable, Codable, Sendable {
         }
     }
 
-    public static func make(kind: Kind, pane: PaneRecord, model: SessionModel, raisedAt: Date) -> AttentionToast {
+    /// A pane with no title of its own (`PaneNaming`) is named by its tab,
+    /// so the breadcrumb stops at the workspace rather than say the tab twice.
+    public static func make(
+        kind: Kind, pane: PaneRecord, model: SessionModel, raisedAt: Date, oneTitle: Bool = false
+    ) -> AttentionToast {
         let workspaceLabel = model.workspaces.first { $0.workspaceID == pane.workspaceID }?.label
             ?? pane.workspaceID.rawValue
         let tabLabel = model.tabs[pane.workspaceID]?.first { $0.tabID == pane.tabID }?.label
             ?? pane.tabID.rawValue
+        let oneTitled = PaneNaming.titleTab(of: pane, model: model, oneTitle: oneTitle) != nil
         return AttentionToast(
             paneID: pane.paneID,
             tabID: pane.tabID,
             workspaceID: pane.workspaceID,
             kind: kind,
-            subject: pane.displayTitle,
-            breadcrumb: "\(workspaceLabel) › \(tabLabel)",
+            subject: PaneNaming.name(pane: pane, model: model, oneTitle: oneTitle),
+            breadcrumb: oneTitled ? workspaceLabel : "\(workspaceLabel) › \(tabLabel)",
             raisedAt: raisedAt,
             announcedStatus: pane.agentStatus
         )

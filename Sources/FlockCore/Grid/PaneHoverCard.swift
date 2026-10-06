@@ -30,7 +30,8 @@ public struct PaneHoverCardContent: Equatable, Sendable {
     /// Panes are counted over the boxes the thumbnail draws, cached export
     /// included, so "pane 1" is the top-left box the user is looking at.
     public static func make(
-        pane id: PaneID, model: SessionModel, exported: ExportedLayoutDescription?, homeDirectory: String
+        pane id: PaneID, model: SessionModel, exported: ExportedLayoutDescription?, homeDirectory: String,
+        oneTitle: Bool = false
     ) -> PaneHoverCardContent? {
         guard let pane = model.panes[id] else { return nil }
         let tabLabel = model.tabs[pane.workspaceID]?.first { $0.tabID == pane.tabID }?.label ?? pane.tabID.rawValue
@@ -41,7 +42,7 @@ public struct PaneHoverCardContent: Equatable, Sendable {
         ).map(\.pane)
         let position = order.firstIndex(of: id).map { "\(tabLabel) · pane \($0 + 1) of \(order.count)" } ?? tabLabel
         return PaneHoverCardContent(
-            title: pane.displayTitle,
+            title: PaneNaming.name(pane: pane, model: model, oneTitle: oneTitle),
             status: pane.agentStatus,
             position: position,
             cwd: abbreviatingHome(pane.cwd, home: homeDirectory)

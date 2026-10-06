@@ -9,7 +9,9 @@ public struct MissionCard: Equatable, Sendable, Identifiable {
     /// A herd's workspace reads "auth-sweep · herd 2/4".
     public let workspaceName: String
     public let tabTitle: String
+    /// `PaneNaming.cardTitles`: the card's title and its small second line.
     public let title: String
+    public var detail: String? = nil
     public let status: AgentStatus
     /// When the pane entered `status`, or when its attention card was raised.
     public let since: Date?
@@ -24,13 +26,16 @@ public struct MissionCard: Equatable, Sendable, Identifiable {
 
 extension MissionCard {
     /// `names` is `MissionBoard.workspaceNames`, built once per board.
-    init(_ pane: PaneRecord, status: AgentStatus, since: Date?, model: SessionModel, names: [WorkspaceID: String]) {
+    init(
+        _ pane: PaneRecord, status: AgentStatus, since: Date?, model: SessionModel, names: [WorkspaceID: String], oneTitle: Bool
+    ) {
         let tab = model.tabs[pane.workspaceID]?.first { $0.tabID == pane.tabID }
+        let titles = PaneNaming.cardTitles(pane: pane, model: model, oneTitle: oneTitle)
         self.init(
             paneID: pane.paneID, workspaceID: pane.workspaceID, tabID: pane.tabID,
             workspaceName: names[pane.workspaceID] ?? pane.workspaceID.rawValue,
             tabTitle: tab.map { TabTitle.resolve($0, in: model).text } ?? pane.tabID.rawValue,
-            title: pane.displayTitle, status: status, since: since,
+            title: titles.title, detail: titles.detail, status: status, since: since,
             folder: pane.foregroundCwd ?? pane.cwd
         )
     }
@@ -94,14 +99,17 @@ public struct MissionBoard: Equatable, Sendable {
     /// The pane's card as the board draws it, without building the board:
     /// which lane holds a card never changes how the card reads.
     public static func card(
-        _ pane: PaneID, model: SessionModel, sections: RailSections, toasts: AttentionToastStack, history: PaneStatusHistory
+        _ pane: PaneID, model: SessionModel, sections: RailSections, toasts: AttentionToastStack, history: PaneStatusHistory,
+        oneTitle: Bool = false
     ) -> MissionCard? {
         guard let record = model.panes[pane] else { return nil }
         let names = workspaceNames(model: model, sections: sections)
         if let toast = toasts.toast(pane: pane) {
-            return MissionCard(record, status: toast.status, since: toast.raisedAt, model: model, names: names)
+            return MissionCard(record, status: toast.status, since: toast.raisedAt, model: model, names: names, oneTitle: oneTitle)
         }
-        return MissionCard(record, status: record.agentStatus, since: history.lastChange(of: pane), model: model, names: names)
+        return MissionCard(
+            record, status: record.agentStatus, since: history.lastChange(of: pane), model: model, names: names, oneTitle: oneTitle
+        )
     }
 
     static func workspaceNames(model: SessionModel, sections: RailSections) -> [WorkspaceID: String] {
@@ -114,13 +122,13 @@ public struct MissionBoard: Equatable, Sendable {
 
     public init(
         model: SessionModel, sections: RailSections, toasts: AttentionToastStack,
-        history: PaneStatusHistory, cutoff: TimeInterval, now: Date
+        history: PaneStatusHistory, cutoff: TimeInterval, now: Date, oneTitle: Bool = false
     ) {
         let rank = Dictionary(sections.railOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let names = Self.workspaceNames(model: model, sections: sections)
 
         func card(_ pane: PaneRecord, status: AgentStatus, since: Date?) -> MissionCard {
-            MissionCard(pane, status: status, since: since, model: model, names: names)
+            MissionCard(pane, status: status, since: since, model: model, names: names, oneTitle: oneTitle)
         }
 
         func railKey(_ pane: PaneRecord) -> (Int, Int, String) {

@@ -134,6 +134,7 @@ enum ChromeType {
     static let missionLaneCount = inter(12)
     static let missionCardMeta = inter(11.5)
     static let missionCardTitle = inter(14.5, .medium)
+    static let missionCardDetail = inter(12)
     static let missionCardMono = mono(11)
     static let missionDormantRow = inter(11.5, .medium)
     static let missionGroupName = inter(11.5, .semibold)

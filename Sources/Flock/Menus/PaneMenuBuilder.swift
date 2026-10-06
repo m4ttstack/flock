@@ -11,7 +11,9 @@ import FlockCore
 enum PaneMenuBuilder {
     static func menu(for paneID: PaneID, viewModel: SessionViewModel, solo: Bool = false) -> NSMenu? {
         guard let model = viewModel.model else { return nil }
-        let entries = PaneMenuModel.entries(for: paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: solo)
+        let entries = PaneMenuModel.entries(
+            for: paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: solo, oneTitle: viewModel.oneTitle
+        )
         let target = PaneMenuActionTarget(paneID: paneID, viewModel: viewModel)
         let menu = PaneContextMenu(actionTarget: target)
         for entry in entries {

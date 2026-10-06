@@ -680,7 +680,7 @@ private struct TabThumbnail: View {
         )
         let panes = paneBoxes(size: paneArea.size).compactMap { placed -> DragCoordinator.Ghost.TabMiniature.Pane? in
             guard let pane = model?.panes[placed.pane] else { return nil }
-            return .init(title: pane.displayTitle, status: pane.agentStatus, box: placed.frame)
+            return .init(title: shownTitle(pane), status: pane.agentStatus, box: placed.frame)
         }
         return DragCoordinator.Ghost.TabMiniature(
             title: tabTitle, status: tab.agentStatus,
@@ -721,12 +721,19 @@ private struct TabThumbnail: View {
                 drag.beginIfIdle(
                     .pane(pane.paneID),
                     ghost: DragCoordinator.Ghost(
-                        title: pane.displayTitle, symbol: "macwindow", originSize: box.size, isCompact: true
+                        title: viewModel.model.map { PaneNaming.name(pane: pane, model: $0, oneTitle: viewModel.oneTitle) }
+                            ?? pane.displayTitle,
+                        symbol: "macwindow", originSize: box.size, isCompact: true
                     ),
                     at: value.startLocation,
                     home: home(box: inThumbnail)
                 )
             }
+    }
+
+    private func shownTitle(_ pane: PaneRecord) -> String? {
+        guard let model = viewModel.model else { return pane.displayTitle }
+        return PaneNaming.shownTitle(pane: pane, model: model, oneTitle: viewModel.oneTitle)
     }
 
     /// This tab's mini panes inside a pane area of `size`. Shared with the
@@ -773,7 +780,7 @@ private struct TabThumbnail: View {
                         .allowsHitTesting(false)
                 } else if let pane = model?.panes[placed.pane] {
                     MiniPane(
-                        theme: theme, title: pane.displayTitle, status: pane.agentStatus,
+                        theme: theme, title: shownTitle(pane), status: pane.agentStatus,
                         isPreviewed: drag.gridPreviewCard == pane.paneID,
                         interaction: interaction(of: .pane(pane.paneID))
                     )
@@ -852,7 +859,8 @@ struct TabHandleStrip: View {
 /// inside an island, so it is found at a glance.
 struct MiniPane: View {
     let theme: Theme
-    let title: String
+    /// nil draws the status word alone: the tab's title above stands for it.
+    let title: String?
     let status: AgentStatus
     /// Its preview card is the one open, so the card's pane is findable.
     var isPreviewed = false
@@ -869,11 +877,11 @@ struct MiniPane: View {
         // 120pt floor is, keeps the dot and the title on one line rather than
         // clipping the title away.
         ViewThatFits(in: .vertical) {
-            stacked(titleLines: 3)
-            stacked(titleLines: 1)
+            stacked(titleLines: title == nil ? 0 : 3)
+            stacked(titleLines: title == nil ? 0 : 1)
             HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
                 dot
-                titleText.lineLimit(1)
+                if title == nil { statusWord } else { titleText.lineLimit(1) }
             }
             .padding(.vertical, ChromeMetrics.Grid.thumbnailPadding)
             .padding(.horizontal, ChromeMetrics.Grid.miniPaneTitleSpacing + ChromeMetrics.Grid.thumbnailPadding)
@@ -900,15 +908,19 @@ struct MiniPane: View {
         VStack(alignment: .leading, spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
             HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
                 dot
-                Text(status.rawValue)
-                    .font(ChromeType.gridMiniPaneStatus)
-                    .foregroundStyle(status == .blocked ? theme.red : theme.textLabel)
-                    .lineLimit(1)
+                statusWord
             }
-            titleText.lineLimit(titleLines)
+            if titleLines > 0 { titleText.lineLimit(titleLines) }
         }
         .padding(.vertical, ChromeMetrics.Grid.miniPaneVerticalPadding)
         .padding(.horizontal, ChromeMetrics.Grid.miniPaneHorizontalPadding)
+    }
+
+    private var statusWord: some View {
+        Text(status.rawValue)
+            .font(ChromeType.gridMiniPaneStatus)
+            .foregroundStyle(status == .blocked ? theme.red : theme.textLabel)
+            .lineLimit(1)
     }
 
     private var dot: some View {
@@ -916,7 +928,7 @@ struct MiniPane: View {
     }
 
     private var titleText: Text {
-        Text(title).font(ChromeType.gridMiniPaneTitle).foregroundStyle(theme.textStrong)
+        Text(title ?? "").font(ChromeType.gridMiniPaneTitle).foregroundStyle(theme.textStrong)
     }
 }
 
@@ -1098,7 +1110,8 @@ private struct GridPreviewCard: View {
            let model = viewModel.model,
            let pane = model.panes[previewed],
            let content = PaneHoverCardContent.make(
-               pane: previewed, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory()
+               pane: previewed, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory(),
+               oneTitle: viewModel.oneTitle
            ) {
             let paneBox = box.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
             let origin = HoverCardPlacement.origin(

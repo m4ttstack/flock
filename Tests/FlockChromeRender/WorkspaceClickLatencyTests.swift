@@ -215,6 +215,7 @@ private struct Harness {
             .environment(drag)
             .environment(AllWorkspacesModeStore(userDefaults: missionDefaults))
             .environment(DormantCutoffStore(userDefaults: missionDefaults))
+            .environment(MissionBottomLineStore(userDefaults: missionDefaults))
             .environment(WorkspaceIdentityStore(userDefaults: missionDefaults))
             .environment(dividerDrag)
             .environment(chatStore)

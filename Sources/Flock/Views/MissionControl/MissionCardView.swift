@@ -11,7 +11,9 @@ final class MissionCardFrames {
 struct MissionCardView: View {
     let theme: Theme
     let card: MissionCard
-    let repoBranch: RepoBranch
+    /// Repo and branch as Settings > Overview > Bottom line words them; nil
+    /// leaves the timeline alone on its line.
+    let place: String?
     let segments: [PaneStatusHistory.Segment]
     let now: Date
     let isSelected: Bool
@@ -81,13 +83,21 @@ struct MissionCardView: View {
                 Spacer(minLength: 8)
                 stateText
             }
-            HStack(spacing: 12) {
-                Text(repoBranch.text)
-                    .font(ChromeType.missionCardMono)
-                    .foregroundStyle(theme.textLabel)
+            if let detail = card.detail {
+                Text(detail)
+                    .font(ChromeType.missionCardDetail)
+                    .foregroundStyle(theme.textDim)
                     .lineLimit(1)
-                    .truncationMode(.middle)
-                    .layoutPriority(1)
+            }
+            HStack(spacing: 12) {
+                if let place {
+                    Text(place)
+                        .font(ChromeType.missionCardMono)
+                        .foregroundStyle(theme.textLabel)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .layoutPriority(1)
+                }
                 Spacer(minLength: 8)
                 StatusTimeline(theme: theme, segments: segments)
                     .frame(minWidth: M.timelineMinimumWidth, maxWidth: M.timelineWidth)

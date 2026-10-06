@@ -80,7 +80,8 @@ final class DragCoordinator {
         /// up rather than a live view that reflows under the drag.
         struct TabMiniature: Equatable {
             struct Pane: Equatable {
-                let title: String
+                /// nil when the tab's title stands for the pane's (`PaneNaming`).
+                let title: String?
                 let status: AgentStatus
                 /// In the mini pane AREA's space, as `MiniPaneLayout` states
                 /// it; the strip above it is what the miniature adds back.

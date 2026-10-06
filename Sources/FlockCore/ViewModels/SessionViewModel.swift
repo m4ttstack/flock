@@ -140,6 +140,8 @@ public final class SessionViewModel {
     /// window's next sweep without anything pushing it here.
     @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
     @ObservationIgnored private let attentionToastArchive: AttentionToastArchive?
+    /// Settings > Titles, read at each use; a view reading it observes the store.
+    @ObservationIgnored private let oneTitleSetting: @MainActor () -> Bool
     @ObservationIgnored private let navigationPollInterval: Duration
     /// Read at each create, so a change in Settings lands on the next one.
     @ObservationIgnored private let startingFolder: @MainActor (NewTerminalKind) -> StartingFolderChoice
@@ -160,6 +162,7 @@ public final class SessionViewModel {
         now: @escaping @MainActor () -> Date = { Date() },
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
         attentionToastArchive: AttentionToastArchive? = nil,
+        oneTitle: @escaping @MainActor () -> Bool = { false },
         navigationPollInterval: Duration = .milliseconds(300),
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
         homeDirectory: String = NSHomeDirectory(),
@@ -180,6 +183,7 @@ public final class SessionViewModel {
         self.now = now
         self.notificationLifetime = notificationLifetime
         self.attentionToastArchive = attentionToastArchive
+        self.oneTitleSetting = oneTitle
         self.navigationPollInterval = navigationPollInterval
         self.startingFolder = startingFolder
         self.homeDirectory = homeDirectory
@@ -318,7 +322,7 @@ public final class SessionViewModel {
                       paneID != watchedFocusedPaneID, paneID != paneShownInOverview,
                       !HerdWorkspace.isHerdPane(pane, in: model)
                 else { continue }
-                attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt))
+                attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt, oneTitle: oneTitle))
             }
         }
         withdrawSettledAttentionToasts(model: model, at: raisedAt)
@@ -426,7 +430,7 @@ public final class SessionViewModel {
         case .done: kind = .finished
         default: return
         }
-        attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: now()))
+        attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: now(), oneTitle: oneTitle))
     }
 
     /// The card the jump key takes next when every card is drawn.
@@ -1356,7 +1360,8 @@ public final class SessionViewModel {
     /// at all (`RenameEditor.isOnScreen`).
     public var renameEditorIsOnScreen: Bool {
         RenameEditor.isOnScreen(
-            renameTarget, selectedWorkspace: selectedWorkspaceID, selectedTab: selectedTabID, model: model
+            renameTarget, selectedWorkspace: selectedWorkspaceID, selectedTab: selectedTabID, model: model,
+            soloPane: paneShownInOverview
         )
     }
 
@@ -1384,8 +1389,19 @@ public final class SessionViewModel {
 
     public private(set) var pendingGroupClose: PendingGroupClose?
 
+    /// Whether a pane alone in its tab is named by the tab (`PaneNaming`).
+    public var oneTitle: Bool { oneTitleSetting() }
+
+    /// Opens the editor on what `target` really renames: a pane with no title
+    /// of its own opens it on its tab.
     public func beginRename(_ target: RenameTarget) {
-        renameTarget = target
+        renameTarget = renameTarget(for: target)
+    }
+
+    /// What a rename opened on `target` names, which is what its editor is
+    /// open on while one is.
+    public func renameTarget(for target: RenameTarget) -> RenameTarget {
+        PaneNaming.renameTarget(target, model: model, oneTitle: oneTitle)
     }
 
     /// What the rename key opens on right now, or `nil` when nothing is
@@ -1393,7 +1409,8 @@ public final class SessionViewModel {
     /// what to open.
     public var renameShortcutTarget: RenameTarget? {
         RenameShortcut.target(
-            focusedPane: resolvedFocusedPaneID, selectedTab: selectedTabID, selectedWorkspace: selectedWorkspaceID
+            focusedPane: resolvedFocusedPaneID, selectedTab: selectedTabID, selectedWorkspace: selectedWorkspaceID,
+            model: model, oneTitle: oneTitle
         )
     }
 
@@ -1429,7 +1446,9 @@ public final class SessionViewModel {
     /// so a pane without is a no-op rather than a wire call herdr would
     /// answer with no change.
     public func clearPaneName(_ pane: PaneID) async {
-        guard model?.panes[pane]?.label != nil else { return }
+        guard let model, let record = model.panes[pane], record.label != nil,
+              PaneNaming.titleTab(of: record, model: model, oneTitle: oneTitle) == nil
+        else { return }
         await run(OpPlan(ops: [.renamePane(pane, nil)], label: "Clear pane name"))
     }
 

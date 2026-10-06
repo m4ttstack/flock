@@ -59,6 +59,8 @@ struct FlockApp: App {
     @State private var notificationLifetimeStore: NotificationLifetimeStore
     @State private var allWorkspacesModeStore: AllWorkspacesModeStore
     @State private var dormantCutoffStore: DormantCutoffStore
+    @State private var missionBottomLineStore = MissionBottomLineStore()
+    @State private var oneTitleStore: OneTitleStore
     @State private var workspaceIdentityStore: WorkspaceIdentityStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
     @State private var startingFolderStore: StartingFolderStore
@@ -192,6 +194,8 @@ struct FlockApp: App {
         }
         let startingFolderStore = StartingFolderStore()
         _startingFolderStore = State(initialValue: startingFolderStore)
+        let oneTitleStore = OneTitleStore()
+        _oneTitleStore = State(initialValue: oneTitleStore)
         // One client, two roles: `HerdrClient` conforms to both
         // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
         // command verbs and the layout-export coordinator share the same
@@ -211,6 +215,7 @@ struct FlockApp: App {
             noticeSink: { message in toastCenter.show(message, kind: .info) },
             notificationLifetime: { notificationLifetimeStore.active },
             attentionToastArchive: AttentionToastArchive(),
+            oneTitle: { oneTitleStore.active },
             startingFolder: { startingFolderStore.choice(for: $0) },
             rightClickDefaults: .standard,
             completedTabDefaults: .standard
@@ -321,6 +326,7 @@ struct FlockApp: App {
                 .environment(dragCoordinator)
                 .environment(allWorkspacesModeStore)
                 .environment(dormantCutoffStore)
+                .environment(missionBottomLineStore)
                 .environment(workspaceIdentityStore)
                 .environment(dividerDragCoordinator)
                 .environment(commandPalette)
@@ -621,6 +627,8 @@ struct FlockApp: App {
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
                 dormantCutoffStore: dormantCutoffStore,
+                missionBottomLineStore: missionBottomLineStore,
+                oneTitleStore: oneTitleStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,

@@ -12,6 +12,7 @@ struct MissionControlView: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(AllWorkspacesModeStore.self) private var mode
     @Environment(DormantCutoffStore.self) private var cutoff
+    @Environment(MissionBottomLineStore.self) private var bottomLine
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
@@ -151,7 +152,7 @@ struct MissionControlView: View {
     private func card(_ card: MissionCard, sections: RailSections, now: Date, cooling: Bool) -> some View {
         MissionCardView(
             theme: theme, card: card,
-            repoBranch: viewModel.repoBranches.repoBranch(for: card.folder),
+            place: bottomLine.active.text(viewModel.repoBranches.repoBranch(for: card.folder), workspace: card.workspaceName),
             segments: viewModel.statusHistory.segments(of: card.paneID, at: now), now: now,
             isSelected: mode.missionSelection == card.paneID, isCooling: cooling,
             rename: rename(card.paneID),
@@ -167,11 +168,13 @@ struct MissionControlView: View {
         .id(card.paneID)
     }
 
+    /// The card hosts the editor for its pane, or for the tab standing for it.
     private func rename(_ pane: PaneID) -> PaneRename? {
-        guard viewModel.renameTarget == .pane(pane) else { return nil }
+        let target = viewModel.renameTarget(for: .pane(pane))
+        guard viewModel.renameTarget == target else { return nil }
         return PaneRename(
-            initialText: viewModel.renameText(for: .pane(pane)),
-            commit: { text in Task { await viewModel.commitRename(text, for: .pane(pane)) } },
+            initialText: viewModel.renameText(for: target),
+            commit: { text in Task { await viewModel.commitRename(text, for: target) } },
             cancel: { viewModel.cancelRename() }
         )
     }
@@ -201,8 +204,8 @@ struct MissionControlView: View {
                             } label: {
                                 HStack(spacing: 8) {
                                     StatusDot(status: card.status, theme: theme, size: M.cardDot)
-                                    Text("\(card.workspaceName) › \(card.tabTitle)")
-                                    Text(card.title).foregroundStyle(theme.textDim)
+                                    Text("\(card.workspaceName) › \(card.title)")
+                                    if let detail = card.detail { Text(detail).foregroundStyle(theme.textDim) }
                                     Spacer(minLength: 0)
                                 }
                                 .font(ChromeType.missionCardMeta)
@@ -318,7 +321,7 @@ extension MissionBoard {
         let sections = RailSections(model: model, board: board, herdProgress: herdProgress)
         let missionBoard = MissionBoard(
             model: model, sections: sections, toasts: viewModel.attentionToasts,
-            history: viewModel.statusHistory, cutoff: cutoff.active.seconds, now: now
+            history: viewModel.statusHistory, cutoff: cutoff.active.seconds, now: now, oneTitle: viewModel.oneTitle
         )
         return (missionBoard, sections)
     }
@@ -332,7 +335,8 @@ extension MissionBoard {
         guard let model = viewModel.model else { return nil }
         let sections = RailSections(model: model, board: board, herdProgress: herdProgress)
         let card = MissionBoard.card(
-            pane, model: model, sections: sections, toasts: viewModel.attentionToasts, history: viewModel.statusHistory
+            pane, model: model, sections: sections, toasts: viewModel.attentionToasts, history: viewModel.statusHistory,
+            oneTitle: viewModel.oneTitle
         )
         return card.map { ($0, sections) }
     }
