@@ -11,6 +11,7 @@ struct MainWindow: View {
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
+    @Environment(AllWorkspacesModeStore.self) private var allWorkspacesMode
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
@@ -36,9 +37,13 @@ struct MainWindow: View {
                     // The grid covers the rail and its dock, so the dock
                     // floats where the rail would be: the one layout with no
                     // rail to hold it.
+                    // Mission control draws none: its Needs you lane is the
+                    // same stack, every card of it.
                     .overlay(alignment: .bottomLeading) {
-                        MessageDock(theme: theme, viewModel: viewModel, placement: .overGrid)
-                            .frame(width: railWidth.width)
+                        if allWorkspacesMode.active == .arrange {
+                            MessageDock(theme: theme, viewModel: viewModel, placement: .overGrid)
+                                .frame(width: railWidth.width)
+                        }
                     }
             } else {
                 HStack(spacing: 0) {

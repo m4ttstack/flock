@@ -782,6 +782,40 @@ enum ChromeMetrics {
         static let borderOpacity: Double = 0.45
     }
 
+    enum MissionControl {
+        static let canvasPadding: CGFloat = 24
+        static let canvasVerticalPadding: CGFloat = 20
+        static let laneGap: CGFloat = 16
+        static let lanePadding: CGFloat = 12
+        static let laneCornerRadius: CGFloat = 8
+        static let laneHeaderSpacing: CGFloat = 8
+        static let laneDot: CGFloat = 9
+        static let cardGap: CGFloat = 10
+        static let cardVerticalPadding: CGFloat = 12
+        static let cardHorizontalPadding: CGFloat = 14
+        static let cardCornerRadius: CGFloat = 6
+        static let cardLineSpacing: CGFloat = 7
+        static let cardDot: CGFloat = 7
+        static let blockedOutline: CGFloat = 1.5
+        static let selectionOutline: CGFloat = 2
+        /// The selection ring sits this far outside the card, so a blocked
+        /// card keeps its own outline while selected. A lane's scroll content
+        /// is inset by the same amount, or the scroll view would clip the ring.
+        static let selectionInset: CGFloat = 3
+        static let coolingOpacity: Double = 0.75
+        static let timelineWidth: CGFloat = 180
+        /// A narrow window's lanes give the timeline up before `repo @
+        /// branch`, down to this.
+        static let timelineMinimumWidth: CGFloat = 60
+        static let timelineHeight: CGFloat = 5
+        static let timelineIdleHeight: CGFloat = 2
+        static let groupLabelTopPadding: CGFloat = 6
+        static let toggleHeight: CGFloat = 26
+        static let toggleCornerRadius: CGFloat = 6
+        static let toggleSegmentPadding: CGFloat = 12
+        static let laneMoveDuration: Double = 0.2
+    }
+
     enum Grid {
         static let headerHeight: CGFloat = 36
         static let headerHorizontalPadding: CGFloat = 13

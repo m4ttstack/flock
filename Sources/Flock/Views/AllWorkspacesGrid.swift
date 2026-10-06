@@ -11,6 +11,10 @@ struct AllWorkspacesGrid: View {
     let viewModel: SessionViewModel
 
     @Environment(DragCoordinator.self) private var drag
+    @Environment(AllWorkspacesModeStore.self) private var mode
+    @Environment(WorkspaceIdentityStore.self) private var identity
+    @Environment(BoardStore.self) private var boardNames
+    @Environment(HerdProgressStore.self) private var herdProgress
     @State private var scrollPosition = ScrollPosition()
     /// The width the scroll content is laid out in, measured rather than
     /// assumed: it is what decides how many slots a card row holds. Taken
@@ -40,65 +44,115 @@ struct AllWorkspacesGrid: View {
             Rectangle()
                 .fill(theme.rule)
                 .frame(height: ChromeMetrics.ruleWidth)
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardGap) {
-                    ForEach(Array(GridCardLayout.cardRows(workspaces).enumerated()), id: \.offset) { _, row in
-                        HStack(alignment: .top, spacing: ChromeMetrics.Grid.cardGap) {
-                            ForEach(row, id: \.workspaceID) { workspace in
-                                WorkspaceCard(
-                                    theme: theme, viewModel: viewModel, workspace: workspace, slotsPerRow: slotsPerRow
-                                )
-                            }
-                            if row.count < GridCardLayout.columns {
-                                Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
-                            }
-                        }
-                        // Cards sharing a row share the taller one's height.
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(ChromeMetrics.Grid.canvasPadding)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .coordinateSpace(.named(DragSpace.gridContent))
-                .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            if mode.active == .missionControl {
+                MissionControlView(theme: theme, viewModel: viewModel)
+            } else {
+                arrangeGrid
             }
-            .scrollIndicators(.never)
-            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-            .scrollPosition($scrollPosition)
-            .reportsScrollExtent(.vertical) { drag.setGridScroll(offset: $0, maximumOffset: $1) }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .boundedBackground(theme.canvas)
-            // A click anywhere a thumbnail does not claim puts the preview
-            // away. Applied before the overlay, so a click on the card itself
-            // never reaches it.
-            .contentShape(Rectangle())
-            .onTapGesture { drag.dismissGridPreview() }
-            .overlay(alignment: .topLeading) { GridPreviewCard(theme: theme, viewModel: viewModel) }
-            .reportsDragFrame { drag.gridViewport = $0 }
-            .onAppear { drag.gridScroller = { y in scrollPosition.scrollTo(y: y) } }
         }
         .boundedBackground(theme.chrome)
-        .onAppear { drag.setGridOrder(itemOrder) }
-        .onChange(of: itemOrder) { _, order in drag.setGridOrder(order) }
+        .onAppear {
+            refreshIdentities()
+            drag.setGridOrder(publishedOrder)
+        }
+        .onChange(of: itemOrder) { drag.setGridOrder(publishedOrder) }
+        .onChange(of: mode.active) { drag.setGridOrder(publishedOrder) }
+    }
+
+    /// Mission control is never a drop target, so it publishes no items.
+    private var publishedOrder: [GridItemID] { mode.active == .arrange ? itemOrder : [] }
+
+    private var arrangeGrid: some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardGap) {
+                ForEach(Array(GridCardLayout.cardRows(workspaces).enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .top, spacing: ChromeMetrics.Grid.cardGap) {
+                        ForEach(row, id: \.workspaceID) { workspace in
+                            WorkspaceCard(
+                                theme: theme, viewModel: viewModel, workspace: workspace, slotsPerRow: slotsPerRow
+                            )
+                        }
+                        if row.count < GridCardLayout.columns {
+                            Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                        }
+                    }
+                    // Cards sharing a row share the taller one's height.
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(ChromeMetrics.Grid.canvasPadding)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .coordinateSpace(.named(DragSpace.gridContent))
+            .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+        }
+        .scrollIndicators(.never)
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .scrollPosition($scrollPosition)
+        .reportsScrollExtent(.vertical) { drag.setGridScroll(offset: $0, maximumOffset: $1) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .boundedBackground(theme.canvas)
+        // A click anywhere a thumbnail does not claim puts the preview
+        // away. Applied before the overlay, so a click on the card itself
+        // never reaches it.
+        .contentShape(Rectangle())
+        .onTapGesture { drag.dismissGridPreview() }
+        .overlay(alignment: .topLeading) { GridPreviewCard(theme: theme, viewModel: viewModel) }
+        .reportsDragFrame { drag.gridViewport = $0 }
+        .onAppear { drag.gridScroller = { y in scrollPosition.scrollTo(y: y) } }
     }
 
     private var header: some View {
         HStack(spacing: ChromeMetrics.Grid.headerSpacing) {
-            Text("All workspaces")
-                .font(ChromeType.gridTitle)
-                .foregroundStyle(theme.textStrong)
+            modeToggle
             Text(workspaces.count == 1 ? "1 workspace" : "\(workspaces.count) workspaces")
                 .font(ChromeType.gridCount)
                 .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
-            Text("esc to return")
+            Text(mode.active == .missionControl ? "⌘J oldest · ⇧⌘J back · esc" : "esc to return")
                 .font(ChromeType.gridHint)
                 .foregroundStyle(theme.textLabel)
         }
         .padding(.horizontal, ChromeMetrics.Grid.headerHorizontalPadding)
         .frame(height: ChromeMetrics.Grid.headerHeight)
         .background(WindowDragExclusion())
+    }
+
+    private var modeToggle: some View {
+        HStack(spacing: 2) {
+            ForEach(AllWorkspacesMode.allCases, id: \.self) { option in
+                let on = mode.active == option
+                Button { mode.select(option) } label: {
+                    Text(option.title)
+                        .font(ChromeType.modeToggle(selected: on))
+                        .foregroundStyle(on ? theme.textStrong : theme.textLabel)
+                        .padding(.horizontal, ChromeMetrics.MissionControl.toggleSegmentPadding)
+                        .frame(height: ChromeMetrics.MissionControl.toggleHeight - 4)
+                        .background(
+                            on ? theme.selection : .clear,
+                            in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius - 2)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("flock.grid.mode.\(option.rawValue)")
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(theme.tabRest, in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius))
+    }
+
+    /// Keyed in rail order, so a first sighting takes hues in the order the
+    /// rail lists workspaces.
+    private func refreshIdentities() {
+        guard let model = viewModel.model, !model.workspaces.isEmpty else { return }
+        let sections = RailSections(model: model, board: boardNames.names, herdProgress: herdProgress.progress)
+        let railOrder = sections.workspaces.map(\.workspaceID) + sections.board.map(\.workspaceID)
+            + sections.herds.map(\.workspaceID)
+        let keys = railOrder.compactMap { WorkspaceIdentityStore.key(for: $0, sections: sections) }
+        identity.keepOnly(Set(keys))
+        identity.assign(keys)
     }
 
     /// The items a drop can hit, in grid order: what turns their frames back

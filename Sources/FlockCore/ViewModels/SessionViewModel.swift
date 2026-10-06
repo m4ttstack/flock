@@ -47,7 +47,7 @@ public final class SessionViewModel {
     }
     public private(set) var statusHistory = PaneStatusHistory()
     public private(set) var jumpBack = JumpBack()
-    public let repoBranches = RepoBranchCache()
+    public let repoBranches: RepoBranchCache
 
     /// Written from inside view bodies, which must not invalidate the views
     /// reading it; `lastLines` is what they observe.
@@ -166,8 +166,10 @@ public final class SessionViewModel {
         homeDirectory: String = NSHomeDirectory(),
         rt: RtCoordinator? = nil,
         rightClickDefaults: UserDefaults? = nil,
-        completedTabDefaults: UserDefaults? = nil
+        completedTabDefaults: UserDefaults? = nil,
+        repoBranches: RepoBranchCache = RepoBranchCache()
     ) {
+        self.repoBranches = repoBranches
         self.client = client
         self.ghosttyFactory = ghosttyFactory
         self.layoutExportCoordinator = layoutExportClient.map { LayoutExportCoordinator(client: $0) }

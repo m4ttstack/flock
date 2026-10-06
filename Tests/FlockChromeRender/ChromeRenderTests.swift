@@ -1894,6 +1894,64 @@ final class ChromeRenderTests: XCTestCase {
         try await renderGrid(themed: "nord", into: "grid-rest-nord.png")
     }
 
+    /// Mission control's lanes in a dark and a light theme. A pane that went
+    /// working to blocked is a Needs-you card wearing the blocked outline,
+    /// and, as the first card of the first lane, the selection ring outside it.
+    func testMissionControlRendersInDarkAndLight() async throws {
+        try await renderMissionControl(themed: "tokyo-night", into: "mission-dark.png")
+        try await renderMissionControl(themed: "tokyo-night-day", into: "mission-light.png")
+    }
+
+    private func renderMissionControl(themed id: String, into file: String) async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+        var model = try GridFixture.model()
+        let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
+        let harness = try await Harness(
+            theme: theme, model: model, client: GridFixtureClient(), attaching: [], now: { clock.date }
+        )
+        // Minutes after launch. Panes left alone since launch are dormant by
+        // the end, past the 30 minute default.
+        let steps: [(minute: Double, pane: PaneID, status: AgentStatus)] = [
+            (5, GridFixture.glancePane, .working),
+            (10, GridFixture.buildPane, .working),
+            (25, PaneID(rawValue: "w2:p1"), .done),
+            (35, GridFixture.buildPane, .blocked),
+            (40, GridFixture.srcPane, .done),
+        ]
+        let launch = clock.date
+        for step in steps {
+            clock.date = launch.addingTimeInterval(step.minute * 60)
+            model.panes[step.pane]?.agentStatus = step.status
+            harness.viewModel.update(model: model, connection: .live)
+        }
+        clock.date = launch.addingTimeInterval(45 * 60)
+        harness.modeStore.select(.missionControl)
+        MissionCardFrames.shared.frames = [:]
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let image = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
+        }
+        let card = try XCTUnwrap(harness.missionCardFrame(of: GridFixture.buildPane), "the blocked pane is a Needs-you card")
+        XCTAssertEqual(
+            hex(image, CGPoint(x: card.minX + 0.75, y: card.midY)), theme.palette.red.hex,
+            "\(id): a blocked card wears the blocked hue"
+        )
+        XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane, "\(id): the first open selects the top card")
+        let ringMiddle = ChromeMetrics.MissionControl.selectionInset - ChromeMetrics.MissionControl.selectionOutline / 2
+        XCTAssertEqual(
+            hex(image, CGPoint(x: card.minX - ringMiddle, y: card.midY)), theme.palette.accent.hex,
+            "\(id): the selection ring sits outside the blocked outline"
+        )
+        window.close()
+    }
+
     /// The rail's Herds section, expanded and folded, in a dark and a light
     /// theme. Open, a herd with a blocked worker carries a red dot like any
     /// workspace; folded, its rows and their red are gone.
@@ -3605,6 +3663,11 @@ private struct Harness {
     let tabSwitcher: TabSwitcher
     let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
+    /// Arrange unless a test selects otherwise: every grid render that
+    /// predates mission control measures Arrange.
+    let modeStore: AllWorkspacesModeStore
+
+    @MainActor func missionCardFrame(of pane: PaneID) -> CGRect? { MissionCardFrames.shared.frames[pane] }
 
     init(
         theme: Theme, model: SessionModel? = nil, client: any HerdrCommandClient = OfflineHerdrClient(),
@@ -3669,7 +3732,17 @@ private struct Harness {
                 chatStore.setUnreadCount(count, for: pane)
             }
         }
-        viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now)
+        modeStore = AllWorkspacesModeStore(userDefaults: try XCTUnwrap(UserDefaults(suiteName: "flock-mode-\(UUID().uuidString)")))
+        modeStore.select(.arrange)
+        // Fixture folders name real checkouts on a developer's machine; a
+        // render must not read their git files.
+        let repoBranches = RepoBranchCache { folder in
+            RepoBranch(repo: URL(fileURLWithPath: folder).lastPathComponent, branch: "main")
+        }
+        viewModel = SessionViewModel(
+            client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now,
+            repoBranches: repoBranches
+        )
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
         for pane in panes {
             _ = await viewModel.attachPane(pane)
@@ -3702,7 +3775,7 @@ private struct Harness {
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)
-            .environment(AllWorkspacesModeStore(userDefaults: modeDefaults))
+            .environment(modeStore)
             .environment(DormantCutoffStore(userDefaults: modeDefaults))
             .environment(WorkspaceIdentityStore(userDefaults: modeDefaults))
             .environment(dividerDrag)
@@ -3723,6 +3796,12 @@ private struct Harness {
         window.contentView?.layoutSubtreeIfNeeded()
         return window
     }
+}
+
+@MainActor
+private final class FixtureClock {
+    var date: Date
+    init(_ date: Date) { self.date = date }
 }
 
 private struct OfflineHerdrClient: HerdrCommandClient {

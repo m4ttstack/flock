@@ -128,6 +128,15 @@ enum ChromeType {
     static func gridTabLabel(selected: Bool) -> Font { inter(11.5, selected ? .medium : .regular) }
     static let gridMiniPaneTitle = inter(8.5, .medium)
 
+    static let missionLaneTitle = inter(10.5, .semibold)
+    static let missionLaneCount = inter(12)
+    static let missionCardMeta = inter(11.5)
+    static let missionCardTitle = inter(14.5, .medium)
+    static let missionCardMono = mono(11)
+    static let missionGroupLabel = inter(11.5, .medium)
+    static let missionEmpty = inter(12.5)
+    static func modeToggle(selected: Bool) -> Font { inter(12, selected ? .medium : .regular) }
+
     static let hoverCardTitle = inter(14, .medium)
     static let hoverCardDetail = inter(11.5)
     static let hoverCardTail = mono(11.5)
