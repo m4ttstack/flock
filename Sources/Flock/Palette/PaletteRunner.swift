@@ -26,7 +26,8 @@ extension PaletteContext {
             programHasMouse: focused.flatMap { viewModel.ghosttySurface(for: $0) }?.programHasMouse ?? false,
             hasSelectedWorkspace: viewModel.selectedWorkspaceID != nil,
             hasNotifications: !viewModel.attentionToasts.isEmpty,
-            canJumpBack: viewModel.jumpBackTarget != nil
+            // The palette is drawn only over the canvas, never over the grid.
+            canJumpBack: viewModel.jumpBackTarget(from: focused.map(JumpPlace.pane)) != nil
         )
     }
 }

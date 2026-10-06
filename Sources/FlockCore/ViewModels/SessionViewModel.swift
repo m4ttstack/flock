@@ -416,7 +416,7 @@ public final class SessionViewModel {
     /// herdr's echo of it shows the wrong tab before the target arrives.
     public func jumpToAttentionToast(pane: PaneID, from origin: JumpPlace?) async {
         guard let toast = attentionToasts.toast(pane: pane) else { return }
-        recordJump(from: origin)
+        recordJump(from: origin, to: .pane(pane))
         attentionToasts.dismiss(pane: pane)
         await jumpToHerdr(tab: toast.tabID)
         await jumpToHerdr(pane: toast.paneID)
@@ -424,19 +424,19 @@ public final class SessionViewModel {
 
     public func jumpToPane(_ pane: PaneID, from origin: JumpPlace?) async {
         guard let record = model?.panes[pane] else { return }
-        recordJump(from: origin)
+        recordJump(from: origin, to: .pane(pane))
         attentionToasts.dismiss(pane: pane)
         await jumpToHerdr(tab: record.tabID)
         await jumpToHerdr(pane: pane)
     }
 
-    public var jumpBackTarget: JumpPlace? {
-        jumpBack.target(livePanes: Set(model?.panes.keys ?? [:].keys))
+    public func jumpBackTarget(from current: JumpPlace?) -> JumpPlace? {
+        jumpBack.target(livePanes: Set(model?.panes.keys ?? [:].keys), current: current)
     }
 
-    public func recordJump(from origin: JumpPlace?) {
+    public func recordJump(from origin: JumpPlace?, to destination: JumpPlace) {
         guard let origin else { return }
-        jumpBack.jumped(from: origin)
+        jumpBack.jumped(from: origin, to: destination)
     }
 
     /// Closes the editor when herdr no longer carries what it is open on. A

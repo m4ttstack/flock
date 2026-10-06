@@ -552,7 +552,7 @@ struct FlockApp: App {
                     .accessibilityIdentifier(ViewCommand.openOldestNotification.accessibilityIdentifier)
                 Button(ViewCommand.jumpBack.title) { navigator.back() }
                     .keyboardShortcut(ViewCommand.jumpBack.shortcut)
-                    .disabled(viewModel.jumpBackTarget == nil)
+                    .disabled(navigator.backTarget == nil)
                     .accessibilityIdentifier(ViewCommand.jumpBack.accessibilityIdentifier)
                 // The only way to clear a "needs input" toast without
                 // answering the pane or dismissing each one by hand.

@@ -40,7 +40,7 @@ final class MissionJumpTests: XCTestCase {
         await viewModel.jumpToPane(PaneID(rawValue: "w2:t1:p1"), from: .missionControl)
         let calls = await client.calls
         XCTAssertEqual(calls, ["tab.focus", "pane.focus"])
-        XCTAssertEqual(viewModel.jumpBackTarget, .missionControl)
+        XCTAssertEqual(viewModel.jumpBackTarget(from: .pane(PaneID(rawValue: "w2:t1:p1"))), .missionControl)
     }
 
     func testInMissionControlTheKeyOpensTheOldestCardOfAllNotTheOldestTheDockDraws() async {
@@ -62,6 +62,20 @@ final class MissionJumpTests: XCTestCase {
         viewModel.update(model: model([.working, .idle]), connection: .live)
         await viewModel.jumpToPane(PaneID(rawValue: "w2:t1:p1"), from: .pane(PaneID(rawValue: "w2:t1:p2")))
         viewModel.update(model: model([.working]), connection: .live)
-        XCTAssertNil(viewModel.jumpBackTarget)
+        XCTAssertNil(viewModel.jumpBackTarget(from: .pane(PaneID(rawValue: "w2:t1:p1"))))
+    }
+
+    /// Jump A to B, click back to A by hand: Jump Back is off rather than a
+    /// jump from A to A that records A and then does nothing for good.
+    func testJumpBackIsOffWhereItWouldLand() async {
+        let viewModel = SessionViewModel(client: RecordingClient())
+        viewModel.update(model: model([.working, .idle]), connection: .live)
+        let a = PaneID(rawValue: "w2:t1:p2")
+        let b = PaneID(rawValue: "w2:t1:p1")
+        await viewModel.jumpToPane(b, from: .pane(a))
+        XCTAssertEqual(viewModel.jumpBackTarget(from: .pane(b)), .pane(a))
+        XCTAssertNil(viewModel.jumpBackTarget(from: .pane(a)), "already at the origin")
+        await viewModel.jumpToPane(a, from: .pane(a))
+        XCTAssertEqual(viewModel.jumpBackTarget(from: .pane(b)), .pane(a), "a jump to where it started records nothing")
     }
 }

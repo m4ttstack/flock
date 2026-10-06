@@ -18,10 +18,12 @@ struct JumpNavigator {
         return viewModel.resolvedFocusedPaneID.map(JumpPlace.pane)
     }
 
+    /// Closes the grid in either mode, as a click on a card does.
     func openOldest() {
         let from = currentPlace
-        if isInMissionControl {
-            drag.closeGrid()
+        let inMissionControl = isInMissionControl
+        drag.closeGrid()
+        if inMissionControl {
             Task { await viewModel.jumpToOldestAttentionToast(from: from) }
         } else {
             Task { await viewModel.jumpToOldestDisplayedAttentionToast(from: from) }
@@ -40,12 +42,14 @@ struct JumpNavigator {
         Task { await viewModel.jumpToPane(pane, from: from) }
     }
 
+    var backTarget: JumpPlace? { viewModel.jumpBackTarget(from: currentPlace) }
+
     func back() {
-        guard let target = viewModel.jumpBackTarget else { return }
+        guard let target = backTarget else { return }
         let from = currentPlace
         switch target {
         case .missionControl:
-            viewModel.recordJump(from: from)
+            viewModel.recordJump(from: from, to: .missionControl)
             mode.select(.missionControl)
             drag.openGrid()
         case .pane(let pane):
