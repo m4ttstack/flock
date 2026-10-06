@@ -244,7 +244,7 @@ struct FlockApp: App {
             },
             // Repo and branch are read again each time the view opens.
             gridOpened: { viewModel.repoBranches.invalidate() },
-            gridIsEditingText: { viewModel.renameTarget != nil }
+            gridHoldsEscape: { viewModel.renameTarget != nil || viewModel.paneShownInOverview != nil }
         ))
         let dividerDragSession = DividerDragSession(
             commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }

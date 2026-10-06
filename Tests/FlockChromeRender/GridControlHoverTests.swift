@@ -159,11 +159,11 @@ final class GridControlHoverRenderTests: XCTestCase {
                     card(.blocked, index)
                     HStack(spacing: 12) {
                         DormantChipButton(theme: theme, status: .idle, label: "acme-docs", forced: interaction, action: {})
-                        HStack(spacing: ChromeMetrics.TitleBar.tabGap) {
+                        HStack(spacing: 0) {
                             ViewTabButton(theme: theme, tab: .overview, isSelected: true, forced: interaction, action: {})
                             ViewTabButton(theme: theme, tab: .arrange, isSelected: false, forced: interaction, action: {})
                         }
-                        .frame(height: ChromeMetrics.TitleBar.height - ChromeMetrics.TitleBar.tabTopInset)
+                        .frame(height: ChromeMetrics.TitleBar.height)
                         .fixedSize()
                         .background(theme.chrome)
                     }

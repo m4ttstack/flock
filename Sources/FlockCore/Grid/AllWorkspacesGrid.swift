@@ -133,8 +133,10 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
     /// until something closes it, so it can be read, scrolled past and copied
     /// from at leisure.
     public private(set) var preview: PaneID?
-    /// The pane Overview has opened in its focused view. Belongs to this
-    /// opening of the view: a closed view forgets it.
+    /// The pane Overview has opened in its focused view. Overview's own
+    /// place: it survives the grid closing, Arrange being shown and a drag,
+    /// so returning to Overview returns to it. Only going back, or the pane
+    /// closing, ends it.
     public private(set) var focused: PaneID?
 
     public init() {}
@@ -162,7 +164,6 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
     public mutating func close() {
         isShown = false
         preview = nil
-        focused = nil
     }
 
     public mutating func toggle() {
@@ -194,12 +195,9 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         }
     }
 
-    /// A drag carries the pointer away from whatever the card was about. The
-    /// focused view holds nothing to drag, so a drag means that view is gone
-    /// and its pane stops claiming Esc for its terminal.
+    /// A drag carries the pointer away from whatever the card was about.
     public mutating func dragBegan() {
         preview = nil
-        focused = nil
     }
 
     /// Never while a drag is in flight, when the card would cover the

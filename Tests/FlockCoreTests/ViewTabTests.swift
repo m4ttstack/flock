@@ -19,29 +19,26 @@ final class ViewTabTests: XCTestCase {
     }
 
     func testOverviewAndArrangeOpenTheGridInTheirMode() {
-        XCTAssertEqual(ViewTab.overview.steps(gridShown: false, focused: false, dragInFlight: false), [.select(.missionControl), .openGrid])
-        XCTAssertEqual(ViewTab.arrange.steps(gridShown: false, focused: false, dragInFlight: false), [.select(.arrange), .openGrid])
-        XCTAssertEqual(ViewTab.arrange.steps(gridShown: true, focused: false, dragInFlight: false), [.select(.arrange), .openGrid])
+        XCTAssertEqual(ViewTab.overview.steps(gridShown: false, shownMode: .arrange, dragInFlight: false), [.select(.missionControl), .openGrid])
+        XCTAssertEqual(ViewTab.arrange.steps(gridShown: false, shownMode: .missionControl, dragInFlight: false), [.select(.arrange), .openGrid])
+        XCTAssertEqual(ViewTab.arrange.steps(gridShown: true, shownMode: .missionControl, dragInFlight: false), [.select(.arrange), .openGrid])
+        XCTAssertEqual(ViewTab.overview.steps(gridShown: true, shownMode: .arrange, dragInFlight: false), [.select(.missionControl), .openGrid])
     }
 
     func testWorkspacesClosesTheGridAndIsANoOpWhenAlreadyThere() {
-        XCTAssertEqual(ViewTab.workspaces.steps(gridShown: true, focused: false, dragInFlight: false), [.closeGrid])
-        XCTAssertEqual(ViewTab.workspaces.steps(gridShown: true, focused: true, dragInFlight: false), [.closeGrid])
-        XCTAssertEqual(ViewTab.workspaces.steps(gridShown: false, focused: false, dragInFlight: false), [])
+        XCTAssertEqual(ViewTab.workspaces.steps(gridShown: true, shownMode: .missionControl, dragInFlight: false), [.closeGrid])
+        XCTAssertEqual(ViewTab.workspaces.steps(gridShown: false, shownMode: .missionControl, dragInFlight: false), [])
     }
 
-    func testAFocusedPaneBelongsToOverview() {
-        XCTAssertEqual(ViewTab.overview.steps(gridShown: true, focused: true, dragInFlight: false), [])
-        XCTAssertEqual(
-            ViewTab.arrange.steps(gridShown: true, focused: true, dragInFlight: false),
-            [.unfocus, .select(.arrange), .openGrid]
-        )
+    func testTheTabAlreadyShownDoesNothing() {
+        XCTAssertEqual(ViewTab.overview.steps(gridShown: true, shownMode: .missionControl, dragInFlight: false), [])
+        XCTAssertEqual(ViewTab.arrange.steps(gridShown: true, shownMode: .arrange, dragInFlight: false), [])
     }
 
     func testNothingDuringADrag() {
         for tab in ViewTab.allCases {
-            XCTAssertEqual(tab.steps(gridShown: true, focused: false, dragInFlight: true), [], "\(tab)")
-            XCTAssertEqual(tab.steps(gridShown: false, focused: false, dragInFlight: true), [], "\(tab)")
+            XCTAssertEqual(tab.steps(gridShown: true, shownMode: .arrange, dragInFlight: true), [], "\(tab)")
+            XCTAssertEqual(tab.steps(gridShown: false, shownMode: .missionControl, dragInFlight: true), [], "\(tab)")
         }
     }
 

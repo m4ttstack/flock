@@ -318,8 +318,9 @@ final class DragCoordinator {
     @ObservationIgnored private let reveal: @MainActor (DropTarget) -> Void
     /// Run as the grid opens, before any frame of it draws.
     @ObservationIgnored private let gridOpened: @MainActor () -> Void
-    /// A text field inside the grid (a rename) is up, and Esc is its cancel.
-    @ObservationIgnored private let gridIsEditingText: @MainActor () -> Bool
+    /// Something inside the grid owns Esc: a rename field (its cancel) or the
+    /// focused view's live terminal while it is on screen.
+    @ObservationIgnored private let gridHoldsEscape: @MainActor () -> Bool
 
     init(
         toasts: ToastCenter,
@@ -327,13 +328,13 @@ final class DragCoordinator {
         commit: @escaping DragCommit,
         reveal: @escaping @MainActor (DropTarget) -> Void,
         gridOpened: @escaping @MainActor () -> Void = {},
-        gridIsEditingText: @escaping @MainActor () -> Bool = { false }
+        gridHoldsEscape: @escaping @MainActor () -> Bool = { false }
     ) {
         self.toasts = toasts
         self.rearrangeMode = rearrangeMode
         self.reveal = reveal
         self.gridOpened = gridOpened
-        self.gridIsEditingText = gridIsEditingText
+        self.gridHoldsEscape = gridHoldsEscape
         let outcomes = self.outcomes
         let stripOrder = self.stripOrder
         let springLoads = self.springLoads
@@ -1128,7 +1129,7 @@ final class DragCoordinator {
             return event
         }
         let route = EscapeRoute.route(
-            dragIdle: machine.state == .idle, gridShown: grid.isShown, gridYieldsEscape: grid.focused != nil || gridIsEditingText(),
+            dragIdle: machine.state == .idle, gridShown: grid.isShown, gridYieldsEscape: gridHoldsEscape(),
             railTakesEscape: workspaceSelection.takesEscape
         )
         switch route {

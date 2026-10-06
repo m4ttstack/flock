@@ -62,9 +62,11 @@ Mattstack viewer's.
 
 - The title bar grows to 36pt. The tabs sit right after the traffic
   lights, each a small glyph and a label: Workspaces (a split), Overview
-  (three lanes), Arrange (a 2×2 grid). The selected tab takes the
-  tab-strip fill, an accent glyph, strong text and a 2pt accent underline;
-  the others are dim, with the grid controls' hover and press. "flock" and
+  (three lanes), Arrange (a 2×2 grid). Like the viewer's, each tab is a
+  flat cell the bar's full height with square corners, ruled from its
+  neighbours. The selected tab takes the tab-strip fill, an accent glyph,
+  strong text and a 2pt accent underline; the others are dim, with the
+  grid controls' hover and press. "flock" and
   the dev tag stay centred and hide before they would overlap the tabs;
   the right side keeps the restart pill and connection notice. The tabs'
   keys are in the View menu and each tab's tooltip, not drawn in the bar.
@@ -76,9 +78,14 @@ Mattstack viewer's.
   focused pane Esc still belongs to the terminal.
 - The selected tab is derived, not stored: Workspaces while the grid is
   closed, otherwise the mode drawn (a live drag still forces Arrange).
-- A focused pane belongs to Overview: Overview's tab stays selected, and
-  its back button stays the way out. Choosing Arrange (tab or key) leaves
-  the focused pane. Choosing Overview while focused changes nothing.
+- Each view keeps its place. A pane focused in Overview stays focused
+  while Workspaces or Arrange is shown, after the grid closes (any route:
+  a tab, ⌥⌘1, ⇧⌘R, Esc from the lanes) and through a drag; choosing
+  Overview returns to it. Only ⌘[ or "‹ Overview" returns to the lanes,
+  and a pane that closed meanwhile lands on the lanes. While the
+  remembered pane is not on screen it raises Needs-you cards like any
+  other pane, and Esc goes to the grid, not to its terminal. Choosing the
+  tab already shown does nothing.
 - During a drag the tabs are drawn but inert.
 - The rail's All Workspaces button (the 2×2 grid glyph in the workspace
   list's header) is removed: the tabs are the way in.
@@ -97,17 +104,17 @@ dormant appears in exactly one lane, decided in this order:
    (workspaces, then board, then herds), then by tab and pane order inside a
    workspace. A small workspace label sits above the first card of each
    workspace, so a workspace's agents stay together.
-3. **Cooling down**: anything else whose last status change is within the
+3. **At rest**: anything else whose last status change is within the
    dormant cutoff. Grouped by workspace as Working is; the group with the
    most recent change comes first, and inside a group the most recent change
    comes first. Cards draw at reduced opacity.
-4. **Dormant**: anything else. Not drawn as cards. The foot of Cooling down
+4. **Dormant**: anything else. Not drawn as cards. The foot of At rest
    holds one line, "N dormant", that expands in place to a compact list (dot,
    workspace › the card's title, its second line dim) and collapses again.
    A dormant pane moves to its lane the moment its status changes.
 
 A blocked or done pane whose card was cleared (⇧⌘U, or a "finished" card
-that timed out) is not in Needs you; it falls to Cooling down, then Dormant.
+that timed out) is not in Needs you; it falls to At rest, then Dormant.
 
 Each lane's header shows its status dot, its name and its count. An empty
 Needs you lane reads "Nothing needs you".
@@ -404,7 +411,7 @@ FlockCore unit tests:
 - lane assignment and its precedence, including a cleared blocked card and a
   pane at the cutoff's edge;
 - lane ordering: Needs you grouped by workspace with the oldest card on
-  top, rail-ordered Working with label breaks, Cooling down grouped by workspace most recent first, and the
+  top, rail-ordered Working with label breaks, At rest grouped by workspace most recent first, and the
   keyboard's columns walking the drawn order;
 - the main window's focused pane: no card while the canvas shows it, a card
   while the grid covers it, the held-back card raised as the grid opens,

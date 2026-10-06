@@ -304,12 +304,12 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertTrue(state.isShown)
     }
 
-    func testADragBeginningLeavesTheFocusedPane() {
+    func testADragKeepsOverviewsFocusedPane() {
         var grid = AllWorkspacesGridState()
         grid.open()
         grid.focus(pane: p1)
         grid.dragBegan()
-        XCTAssertNil(grid.focused)
+        XCTAssertEqual(grid.focused, p1, "Arrange's drag leaves Overview's place alone")
         XCTAssertTrue(grid.isShown)
     }
 
@@ -324,13 +324,15 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertNil(grid.focused)
     }
 
-    func testClosingTheViewForgetsTheFocusedPane() {
+    func testReopeningTheViewReturnsToTheFocusedPane() {
         var grid = AllWorkspacesGridState()
         grid.open()
         grid.focus(pane: PaneID(rawValue: "p1"))
         grid.close()
         grid.open()
-        XCTAssertNil(grid.focused, "reopening shows Overview's lanes")
+        XCTAssertEqual(grid.focused, PaneID(rawValue: "p1"), "Overview remembers its place")
+        grid.unfocus()
+        XCTAssertNil(grid.focused, "only going back leaves it")
     }
 
     func testAFocusedPaneThatClosesReturnsToOverview() {

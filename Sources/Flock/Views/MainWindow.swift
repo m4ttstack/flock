@@ -273,7 +273,7 @@ struct TitleBar: View {
         // restart pill's clicks for a title-bar drag.
         .overlay(alignment: .bottomLeading) {
             ViewTabBar(theme: theme, forced: forcedTabs)
-                .frame(height: ChromeMetrics.TitleBar.height - ChromeMetrics.TitleBar.tabTopInset)
+                .frame(height: ChromeMetrics.TitleBar.height)
                 .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
                 .fixedSize(horizontal: true, vertical: false)
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .local).width } action: {

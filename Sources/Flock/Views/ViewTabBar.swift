@@ -15,14 +15,20 @@ struct ViewTabBar: View {
     var body: some View {
         let selected = navigator.selected
         let inert = navigator.dragInFlight
-        HStack(spacing: ChromeMetrics.TitleBar.tabGap) {
+        HStack(spacing: 0) {
             ForEach(ViewTab.allCases, id: \.self) { tab in
                 ViewTabButton(
                     theme: theme, tab: tab, isSelected: tab == selected, hoverEnabled: !inert, forced: forced[tab]
                 ) { navigator.choose(tab) }
             }
         }
+        // The viewer's tabs: flat cells the bar's full height, ruled apart.
+        .overlay(alignment: .leading) { rule }
         .allowsHitTesting(!inert)
+    }
+
+    private var rule: some View {
+        Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
     }
 }
 
@@ -34,9 +40,7 @@ struct ViewTabButton: View {
     var forced: ControlInteraction?
     let action: () -> Void
 
-    private static let shape = AnyShape(UnevenRoundedRectangle(
-        topLeadingRadius: ChromeMetrics.TitleBar.tabCornerRadius, topTrailingRadius: ChromeMetrics.TitleBar.tabCornerRadius
-    ))
+    private static let shape = AnyShape(Rectangle())
 
     var body: some View {
         GridControlButton(
@@ -64,6 +68,9 @@ struct ViewTabButton: View {
                     Rectangle().fill(theme.accent).frame(height: ChromeMetrics.TitleBar.tabUnderline)
                 }
             }
+        }
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
         }
         .background(WindowDragExclusion())
         .help("\(tab.title) (\(ShortcutLabel.text(key: ViewCommand.show(tab).key, modifiers: ViewCommand.show(tab).modifiers)))")

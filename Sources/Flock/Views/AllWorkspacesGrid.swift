@@ -59,7 +59,9 @@ struct AllWorkspacesGrid: View {
         }
         .onChange(of: order) { drag.setGridOrder(order) }
         .onChange(of: workspaces.map(\.workspaceID)) { refreshIdentities() }
-        .onChange(of: livePanes) { _, live in
+        // Initial too: a remembered focused pane may have closed while the
+        // view was away.
+        .onChange(of: livePanes, initial: true) { _, live in
             // A nil model is a gap in the connection, not every pane closing.
             guard let live else { return }
             drag.updateGrid { $0.reconcile(livePanes: live) }

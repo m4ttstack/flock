@@ -86,7 +86,7 @@ struct MissionCardView: View {
             if let detail = card.detail {
                 Text(detail)
                     .font(ChromeType.missionCardDetail)
-                    .foregroundStyle(theme.textDim)
+                    .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
             }
             HStack(spacing: 12) {

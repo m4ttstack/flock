@@ -51,26 +51,22 @@ public enum ViewTab: String, CaseIterable, Sendable {
     }
 
     public enum Step: Equatable, Sendable {
-        case unfocus
         case select(AllWorkspacesMode)
         case openGrid
         case closeGrid
     }
 
     /// What choosing `self` does, in order. Nothing during a drag, when the
-    /// tabs are inert. Arrange never inherits a focused pane, so leaving one
-    /// for Arrange unfocuses first; choosing Overview while a pane is focused
-    /// keeps it.
-    public func steps(gridShown: Bool, focused: Bool, dragInFlight: Bool) -> [Step] {
+    /// tabs are inert, and nothing for the tab already shown. Each grid mode
+    /// keeps its own place: a pane focused in Overview stays focused while
+    /// Arrange or Workspaces is shown, and choosing Overview returns to it.
+    public func steps(gridShown: Bool, shownMode: AllWorkspacesMode, dragInFlight: Bool) -> [Step] {
         guard !dragInFlight else { return [] }
+        guard self != Self.selected(gridShown: gridShown, shownMode: shownMode) else { return [] }
         switch self {
-        case .workspaces:
-            return gridShown ? [.closeGrid] : []
-        case .overview:
-            if gridShown && focused { return [] }
-            return [.select(.missionControl), .openGrid]
-        case .arrange:
-            return (gridShown && focused ? [.unfocus] : []) + [.select(.arrange), .openGrid]
+        case .workspaces: return [.closeGrid]
+        case .overview: return [.select(.missionControl), .openGrid]
+        case .arrange: return [.select(.arrange), .openGrid]
         }
     }
 }

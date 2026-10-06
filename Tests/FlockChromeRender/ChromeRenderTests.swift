@@ -4292,10 +4292,13 @@ private struct Harness {
         self.board = board
         toasts = ToastCenter()
         rearrange = RearrangeMode()
+        // The view model is built below; the app wires the same rule.
+        var escapeOwner: SessionViewModel?
         drag = DragCoordinator(
             toasts: toasts, rearrangeMode: rearrange,
             commit: { _, _ in fatalError("a render never drops") },
-            reveal: { _ in }
+            reveal: { _ in },
+            gridHoldsEscape: { escapeOwner.map { $0.renameTarget != nil || $0.paneShownInOverview != nil } ?? false }
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
         optionAsAlt = OptionAsAltStore(userDefaults: defaults)
@@ -4329,6 +4332,7 @@ private struct Harness {
             client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now,
             notificationLifetime: { notificationLifetime }, oneTitle: { oneTitle }, repoBranches: repoBranches
         )
+        escapeOwner = viewModel
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
         for pane in panes {
             _ = await viewModel.attachPane(pane)

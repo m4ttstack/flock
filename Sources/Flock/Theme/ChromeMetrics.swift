@@ -36,14 +36,9 @@ enum ChromeMetrics {
         /// Clears the standard window buttons, which sit at the bar's
         /// leading edge.
         static let tabsLeadingInset: CGFloat = 86
-        static let tabGap: CGFloat = 2
-        /// A tab runs from this far below the bar's top to its bottom edge,
-        /// where its underline sits.
-        static let tabTopInset: CGFloat = 5
-        static let tabHorizontalPadding: CGFloat = 11
+        static let tabHorizontalPadding: CGFloat = 14
         static let tabGlyphSize: CGFloat = 12
         static let tabGlyphGap: CGFloat = 7
-        static let tabCornerRadius: CGFloat = 5
         static let tabUnderline: CGFloat = 2
         /// The least clearance the centred title keeps from either end's
         /// content before it hides.

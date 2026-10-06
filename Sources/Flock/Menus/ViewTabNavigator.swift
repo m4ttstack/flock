@@ -16,11 +16,10 @@ struct ViewTabNavigator {
 
     func choose(_ tab: ViewTab) {
         let steps = tab.steps(
-            gridShown: drag.isGridShown, focused: drag.gridFocusedPane != nil, dragInFlight: dragInFlight
+            gridShown: drag.isGridShown, shownMode: mode.shown(dragInFlight: dragInFlight), dragInFlight: dragInFlight
         )
         for step in steps {
             switch step {
-            case .unfocus: drag.unfocusGridPane()
             case .select(let gridMode): mode.select(gridMode)
             case .openGrid: drag.openGrid()
             case .closeGrid: drag.closeGrid()

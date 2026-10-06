@@ -73,7 +73,7 @@ struct MissionControlView: View {
             } footer: {
                 EmptyView()
             }
-            lane(title: "COOLING DOWN", status: .idle, count: board.coolingGroups.reduce(0) { $0 + $1.cards.count }) {
+            lane(title: "AT REST", status: .idle, count: board.coolingGroups.reduce(0) { $0 + $1.cards.count }) {
                 ForEach(board.coolingGroups) { group($0, sections: sections, now: now, cooling: true) }
             } footer: {
                 if !board.dormant.isEmpty { dormantFold(board.dormant) }
