@@ -113,9 +113,10 @@ struct StatusTimeline: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let total = segments.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
+            let drawn = PaneStatusHistory.Segment.drawable(segments, width: proxy.size.width)
+            let total = drawn.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
             HStack(spacing: 0) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                ForEach(Array(drawn.enumerated()), id: \.offset) { _, segment in
                     let width = total > 0 ? proxy.size.width * segment.end.timeIntervalSince(segment.start) / total : 0
                     band(segment.status)
                         .frame(width: width, height: proxy.size.height)

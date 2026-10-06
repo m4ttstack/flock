@@ -73,4 +73,42 @@ final class PaneStatusHistoryTests: XCTestCase {
         let history = PaneStatusHistory()
         XCTAssertEqual(history.segments(of: pane, at: t0).map(\.status), [nil])
     }
+
+    /// A pane flapping every second for an hour would be thousands of bands;
+    /// drawn at 120pt it is at most one band per point.
+    func testAFlappingPaneDrawsNoMoreBandsThanTheTimelineHasPoints() {
+        var history = PaneStatusHistory()
+        for second in 0..<3600 {
+            history.observe(MissionFixture.single([second.isMultiple(of: 2) ? .working : .idle]), at: t0.addingTimeInterval(Double(second)))
+        }
+        let now = t0.addingTimeInterval(3600)
+        let segments = history.segments(of: pane, at: now)
+        XCTAssertGreaterThan(segments.count, 3000, "the premise: one segment per flap")
+        let drawn = PaneStatusHistory.Segment.drawable(segments, width: 120)
+        XCTAssertLessThanOrEqual(drawn.count, 121)
+        XCTAssertEqual(drawn.first?.start, segments.first?.start)
+        XCTAssertEqual(drawn.last?.end, now)
+        for (left, right) in zip(drawn, drawn.dropFirst()) {
+            XCTAssertEqual(left.end, right.start, "the bands still tile the hour")
+        }
+    }
+
+    func testSegmentsWideEnoughToSeeAreLeftAlone() {
+        let segments = [
+            PaneStatusHistory.Segment(status: nil, start: t0, end: t0.addingTimeInterval(1800)),
+            PaneStatusHistory.Segment(status: .working, start: t0.addingTimeInterval(1800), end: t0.addingTimeInterval(3600)),
+        ]
+        XCTAssertEqual(PaneStatusHistory.Segment.drawable(segments, width: 120), segments)
+    }
+
+    func testASliverTooNarrowToSeeJoinsTheNeighbourBeforeIt() {
+        let segments = [
+            PaneStatusHistory.Segment(status: .working, start: t0, end: t0.addingTimeInterval(3590)),
+            PaneStatusHistory.Segment(status: .blocked, start: t0.addingTimeInterval(3590), end: t0.addingTimeInterval(3591)),
+            PaneStatusHistory.Segment(status: .idle, start: t0.addingTimeInterval(3591), end: t0.addingTimeInterval(3600)),
+        ]
+        let drawn = PaneStatusHistory.Segment.drawable(segments, width: 120)
+        XCTAssertEqual(drawn.map(\.status), [.working])
+        XCTAssertEqual(drawn.last?.end, t0.addingTimeInterval(3600))
+    }
 }

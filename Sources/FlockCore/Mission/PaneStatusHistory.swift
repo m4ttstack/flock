@@ -14,6 +14,36 @@ public struct PaneStatusHistory: Equatable, Sendable {
         public let status: AgentStatus?
         public let start: Date
         public let end: Date
+
+        public init(status: AgentStatus?, start: Date, end: Date) {
+            self.status = status
+            self.start = start
+            self.end = end
+        }
+
+        /// The segments as a timeline `width` points wide can show them: a
+        /// segment narrower than `minimumWidth` joins the one before it (the
+        /// one after, at the start), taking the longer piece's status. Every
+        /// band but the last is at least `minimumWidth` wide, so a pane whose
+        /// status flaps draws no more bands than the timeline has points.
+        public static func drawable(_ segments: [Segment], width: Double, minimumWidth: Double = 1) -> [Segment] {
+            let total = segments.reduce(0) { $0 + $1.span }
+            let minimumSpan = width > 0 ? total * minimumWidth / width : .infinity
+            var result: [Segment] = []
+            for segment in segments {
+                guard let last = result.last,
+                      segment.span < minimumSpan || last.span < minimumSpan || segment.status == last.status
+                else {
+                    result.append(segment)
+                    continue
+                }
+                let status = segment.span > last.span ? segment.status : last.status
+                result[result.count - 1] = Segment(status: status, start: last.start, end: segment.end)
+            }
+            return result
+        }
+
+        private var span: TimeInterval { end.timeIntervalSince(start) }
     }
 
     public static let window: TimeInterval = 60 * 60
