@@ -50,9 +50,8 @@ Mission control reads these; it replaces none of them.
 The All Workspaces view gets a segmented control at the left of its header:
 **Mission control | Arrange**. The view remembers the mode last used across launches, and ⇧⌘R opens it in that mode.
 
-A pane drag always shows Arrange, because the grid is the drop target. A drag
-that starts while mission control is up switches the view to Arrange for the
-drag; the remembered mode is not changed by it.
+Mission control has no drag sources and is never a drop target: a drag starts
+only in Arrange or the main window, so the drop surface is always Arrange.
 
 ### Lanes
 
@@ -114,7 +113,7 @@ minute, not continuously.
 - **⇧⌘J, Jump Back** (new, View menu and palette): returns to where the last
   jump started. A jump is ⌘J, a dock card click, or a mission-control card
   activation. Its origin is mission control when the jump left from there
-  (reopened at the same scroll position and selection), otherwise the pane
+  (reopened with the same card selected and scrolled into view), otherwise the pane
   that was focused. Jump Back records where it left from as the new origin,
   so pressing it again goes forward: it toggles between two places. One
   level only. Disabled when there is no origin or the origin pane has closed.
@@ -201,10 +200,10 @@ A palette of eight hues per theme, chosen so none sits within 25 degrees of
 hue of a status colour (working, blocked, done, idle) and each keeps 3:1
 against the canvas for the identity square. Flock assigns the next unused hue
 to a workspace the first time it sees it, keyed by workspace id so a rename
-keeps the colour, and stores the assignment in UserDefaults. A workspace's
-right-click menu gets Colour, which lists the eight hues and stores an
-override the same way. Assignments for workspaces herdr no longer reports
-are dropped on launch.
+keeps the colour, and stores the assignment in UserDefaults. An island
+header's right-click menu in Arrange gets Colour, which lists the eight hues
+and stores an override the same way. Assignments for workspaces herdr no longer reports
+are dropped whenever the view opens.
 
 Identity colour appears in Arrange and on mission-control cards only. The
 rail and the tab strip stay as they are, where colour already means status.
@@ -224,8 +223,9 @@ As board 05, in the minimal-chrome roles (`docs/design/colors/minimal-spec.md`):
 canvas behind, lanes on `pane`, cards on `chrome` with a `rule` outline,
 status hues from the theme. Lanes are equal width with a 16pt gap and 24pt
 canvas padding; cards have 12 by 14pt padding, a 6pt radius and a 10pt gap.
-The design file draws at 1x like the rest of the chrome; implementation
-follows the same 1.28x rule as the minimal spec.
+These boards are drawn in app points (today's 120pt thumbnail measures 120
+on them), so their values are used as they are, without the minimal spec's
+1.28x scale.
 
 Board 05 needs two additions before it is the reference: workspace labels in
 the Working lane, and the key hints in the header. Both themes are rendered
