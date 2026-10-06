@@ -1529,6 +1529,82 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(widths.last), ChromeMetrics.Grid.minimumThumbnailWidth, "a very wide window left its width unused")
     }
 
+    /// One open Arrange view refits as its window resizes: narrower rewraps
+    /// the islands inside the new edge, wider gives the larger fit back, and
+    /// a resize under a live drag waits for the drag to end.
+    func testArrangeRefitsWhenTheWindowResizesButNotMidDrag() async throws {
+        try await resizeArrange(themed: "tokyo-night", renderSuffix: "dark")
+        try await resizeArrange(themed: "catppuccin-latte", renderSuffix: "light")
+    }
+
+    private func resizeArrange(themed id: String, renderSuffix: String) async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+        let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        let wide = CGSize(width: 2000, height: 1000)
+        let narrow = CGSize(width: Self.windowSize.width, height: 1000)
+        let window = harness.makeWindow(size: wide)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        func measure(_ label: String, width: CGFloat) throws -> (thumbnail: CGFloat, rows: Int) {
+            let grid = try XCTUnwrap(harness.drag.surfaces?.grid, label)
+            let thumbnail = try XCTUnwrap(grid.thumbnails.first?.frame.width, label)
+            let cards = grid.cards.map(\.frame)
+            for card in cards {
+                XCTAssertLessThanOrEqual(card.maxX, width - ChromeMetrics.Grid.canvasPadding + 0.5, "\(label): an island ran past the window")
+            }
+            let rows = Set(cards.map { ($0.minY * 2).rounded() }).count
+            return (thumbnail, rows)
+        }
+
+        let opened = try measure("wide", width: wide.width)
+        window.setContentSize(narrow)
+        await settle(window)
+        let shrunk = try measure("narrowed", width: narrow.width)
+        if let directory {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-resized-narrow-\(renderSuffix).png"))
+        }
+        XCTAssertGreaterThan(shrunk.rows, opened.rows, "narrowing the window did not rewrap the islands")
+        window.setContentSize(wide)
+        await settle(window)
+        let regrown = try measure("widened", width: wide.width)
+        XCTAssertEqual(regrown.thumbnail, opened.thumbnail, accuracy: 0.5, "widening again did not give the larger fit back")
+        XCTAssertEqual(regrown.rows, opened.rows)
+        if let directory {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-resized-wide-\(renderSuffix).png"))
+        }
+
+        let grabbed = try XCTUnwrap(harness.drag.surfaces?.grid?.miniPaneFrame(of: GridFixture.claudePane))
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.claudePane),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: grabbed.size, isCompact: true),
+            at: CGPoint(x: grabbed.midX, y: grabbed.midY)
+        )
+        await settle(window)
+        window.setContentSize(CGSize(width: 1400, height: 1000))
+        await settle(window)
+        let frozen = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first?.frame.width)
+        XCTAssertEqual(frozen, regrown.thumbnail, accuracy: 0.5, "the fit changed under a live drag")
+        harness.drag.move(to: CGPoint(x: 5, y: 120))
+        XCTAssertNil(harness.drag.target, "released where nothing resolves, so nothing commits")
+        harness.drag.release()
+        for _ in 0..<40 where harness.drag.activeSubject != nil {
+            await settle(window)
+        }
+        XCTAssertNil(harness.drag.activeSubject, "the drag never ended")
+        await settle(window)
+        let released = try measure("after the drag", width: 1400)
+        XCTAssertTrue(
+            released.thumbnail != regrown.thumbnail || released.rows != regrown.rows,
+            "the resize made during the drag was never applied: \(released) vs \(regrown)"
+        )
+        window.close()
+    }
+
     /// A pane aimed INSIDE another tab's thumbnail: the mini pane under the
     /// pointer answers, on the canvas's own rules, and the slot the thumbnail
     /// opens is the one that aim produces. Two aims, two renders: a mini

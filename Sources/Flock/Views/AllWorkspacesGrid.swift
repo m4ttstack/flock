@@ -86,7 +86,10 @@ struct AllWorkspacesGrid: View {
             }
             .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
             .padding(ChromeMetrics.Grid.canvasPadding)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            // A minimum of zero, or the rows laid out for the last viewport
+            // hold the scroll view (and so the measured viewport) at least
+            // that wide, and narrowing the window never refits.
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
             .coordinateSpace(.named(DragSpace.gridContent))
             .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
         }
