@@ -122,7 +122,7 @@ final class GridControlHoverRenderTests: XCTestCase {
                 let frame = try XCTUnwrap(MissionCardFrames.shared.frames[Self.pane(.working, index)])
                 return hex(image, CGPoint(x: frame.maxX - 10, y: frame.minY + 5))
             }
-            XCTAssertNotEqual(grounds[0], theme.palette.chromeRoles.chrome.hex, "\(id): a resting card wears its workspace wash")
+            XCTAssertEqual(grounds[0], theme.palette.chromeRoles.chrome.hex, "\(id): a resting card sits on chrome inside its group")
             XCTAssertEqual(Set(grounds).count, 3, "\(id): rest, hover and press grounds \(grounds) must differ")
             for index in 0..<3 {
                 let frame = try XCTUnwrap(MissionCardFrames.shared.frames[Self.pane(.blocked, index)])
@@ -160,8 +160,8 @@ final class GridControlHoverRenderTests: XCTestCase {
                     HStack(spacing: 12) {
                         DormantChipButton(theme: theme, status: .idle, label: "acme-docs", forced: interaction, action: {})
                         HStack(spacing: 0) {
-                            ViewTabButton(theme: theme, tab: .overview, isSelected: true, forced: interaction, action: {})
-                            ViewTabButton(theme: theme, tab: .arrange, isSelected: false, forced: interaction, action: {})
+                            ViewTabButton(theme: theme, tab: .overview, isSelected: false, badge: 3, forced: interaction, action: {})
+                            ViewTabButton(theme: theme, tab: .arrange, isSelected: true, forced: interaction, action: {})
                         }
                         .frame(height: ChromeMetrics.TitleBar.height)
                         .fixedSize()

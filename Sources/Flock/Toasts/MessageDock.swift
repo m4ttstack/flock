@@ -17,7 +17,7 @@ import SwiftUI
 /// In the rail it grows while it is busy, into at most
 /// `DockCapacity.maximumShareOfRail` of the rail's height: it measures a card,
 /// the notice and the pill as they draw and shows as many cards as that room
-/// holds. Over the grid it keeps to `AttentionToastStack.minimumVisible`.
+/// holds. Over the grid it carries flock's notices only.
 ///
 /// A pane-scoped toast (the copied whisper) is not drawn here; its own pane
 /// cell draws it (see `PaneCellView`).
@@ -55,8 +55,12 @@ struct MessageDock: View {
         )
     }
 
+    /// Over the grid only flock's own notices (a refused drop, say) draw:
+    /// attention cards are Overview's Needs you lane, a tab away.
+    private var showsCards: Bool { placement == .rail && !viewModel.attentionToasts.isEmpty }
+
     var body: some View {
-        if notice != nil || !viewModel.attentionToasts.isEmpty {
+        if notice != nil || showsCards {
             VStack(spacing: 0) {
                 if placement == .rail {
                     Rectangle()
@@ -70,11 +74,13 @@ struct MessageDock: View {
                             .transition(.opacity)
                             .onGeometryChange(for: CGFloat.self, of: \.size.height) { noticeHeight = $0 }
                     }
-                    AttentionToastStackView(
-                        theme: theme, viewModel: viewModel, isFloating: isFloating, cardLimit: cardLimit,
-                        onCardHeight: { cardHeight = $0 }, onPillHeight: { pillHeight = $0 }
-                    )
-                    .onChange(of: cardLimit, initial: true) { _, limit in viewModel.attentionCardLimit = limit }
+                    if placement == .rail {
+                        AttentionToastStackView(
+                            theme: theme, viewModel: viewModel, isFloating: isFloating, cardLimit: cardLimit,
+                            onCardHeight: { cardHeight = $0 }, onPillHeight: { pillHeight = $0 }
+                        )
+                        .onChange(of: cardLimit, initial: true) { _, limit in viewModel.attentionCardLimit = limit }
+                    }
                 }
                 .padding(.top, isFloating ? 0 : ChromeMetrics.Dock.ruleToFirstItem)
                 .padding(.bottom, ChromeMetrics.Dock.bottomInset)

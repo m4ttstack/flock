@@ -27,6 +27,7 @@ enum ChromeType {
     static let windowTitle = inter(11.5, .medium)
     static let connectionNotice = inter(11.5)
     static func viewTab(selected: Bool) -> Font { inter(12.5, selected ? .medium : .regular) }
+    static let viewTabBadge = inter(10.5, .semibold)
     static let devTag = inter(8.5, .bold)
     static let devTagTracking: CGFloat = 0.8
     static let restartLabel = inter(11, .medium)

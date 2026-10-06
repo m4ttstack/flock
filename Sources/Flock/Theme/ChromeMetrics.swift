@@ -37,6 +37,9 @@ enum ChromeMetrics {
         /// leading edge.
         static let tabsLeadingInset: CGFloat = 86
         static let tabHorizontalPadding: CGFloat = 14
+        static let badgeHeight: CGFloat = 16
+        static let badgeHorizontalPadding: CGFloat = 5
+        static let badgeFillOpacity: Double = 0.18
         static let tabGlyphSize: CGFloat = 12
         static let tabGlyphGap: CGFloat = 7
         static let tabUnderline: CGFloat = 2

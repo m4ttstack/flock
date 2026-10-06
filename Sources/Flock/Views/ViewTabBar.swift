@@ -4,6 +4,7 @@ import SwiftUI
 /// The title bar's Workspaces | Overview | Arrange tabs.
 struct ViewTabBar: View {
     let theme: Theme
+    var needsYouCount = 0
     /// Per tab, for renders.
     var forced: [ViewTab: ControlInteraction] = [:]
 
@@ -18,7 +19,8 @@ struct ViewTabBar: View {
         HStack(spacing: 0) {
             ForEach(ViewTab.allCases, id: \.self) { tab in
                 ViewTabButton(
-                    theme: theme, tab: tab, isSelected: tab == selected, hoverEnabled: !inert, forced: forced[tab]
+                    theme: theme, tab: tab, isSelected: tab == selected, hoverEnabled: !inert,
+                    badge: tab == .overview && selected != .overview ? needsYouCount : 0, forced: forced[tab]
                 ) { navigator.choose(tab) }
             }
         }
@@ -37,6 +39,8 @@ struct ViewTabButton: View {
     let tab: ViewTab
     let isSelected: Bool
     var hoverEnabled = true
+    /// Needs-you cards waiting, on Overview's tab; none drawn at zero.
+    var badge = 0
     var forced: ControlInteraction?
     let action: () -> Void
 
@@ -60,6 +64,15 @@ struct ViewTabButton: View {
                     .foregroundStyle(isSelected ? theme.accent : theme.textLabel)
                 Text(tab.title)
                     .font(ChromeType.viewTab(selected: isSelected))
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(ChromeType.viewTabBadge)
+                        .foregroundStyle(theme.red)
+                        .padding(.horizontal, ChromeMetrics.TitleBar.badgeHorizontalPadding)
+                        .frame(minWidth: ChromeMetrics.TitleBar.badgeHeight, minHeight: ChromeMetrics.TitleBar.badgeHeight)
+                        .background(theme.red.opacity(ChromeMetrics.TitleBar.badgeFillOpacity), in: Capsule())
+                        .accessibilityLabel("\(badge) need you")
+                }
             }
             .padding(.horizontal, ChromeMetrics.TitleBar.tabHorizontalPadding)
             .frame(maxHeight: .infinity)

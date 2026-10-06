@@ -34,11 +34,9 @@ struct MainWindow: View {
             }
             if dragCoordinator.isGridShown {
                 AllWorkspacesGrid(theme: theme, viewModel: viewModel)
-                    // The grid covers the rail and its dock, so the dock
-                    // floats where the rail would be: the one layout with no
-                    // rail to hold it.
-                    // Mission control draws none: its Needs you lane is the
-                    // same stack, every card of it.
+                    // The grid covers the rail and its dock, so Arrange's
+                    // notices float where the rail would be. Overview draws
+                    // none: its Needs you lane holds the cards.
                     .overlay(alignment: .bottomLeading) {
                         if allWorkspacesMode.shown(dragInFlight: dragCoordinator.activeSubject != nil) == .arrange {
                             MessageDock(theme: theme, viewModel: viewModel, placement: .overGrid)
@@ -80,7 +78,7 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild
+                isDevBuild: isDevBuild, needsYouCount: viewModel.attentionToasts.toasts.count
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -229,6 +227,8 @@ struct TitleBar: View {
     let sessionLabel: String
     let connectionState: ConnectionState
     let isDevBuild: Bool
+    /// Overview's tab shows it while Overview is not the view shown.
+    var needsYouCount = 0
     /// Per tab, for renders.
     var forcedTabs: [ViewTab: ControlInteraction] = [:]
 
@@ -272,7 +272,7 @@ struct TitleBar: View {
         // Over the mouse area, which would otherwise take the tabs' and the
         // restart pill's clicks for a title-bar drag.
         .overlay(alignment: .bottomLeading) {
-            ViewTabBar(theme: theme, forced: forcedTabs)
+            ViewTabBar(theme: theme, needsYouCount: needsYouCount, forced: forcedTabs)
                 .frame(height: ChromeMetrics.TitleBar.height)
                 .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
                 .fixedSize(horizontal: true, vertical: false)
