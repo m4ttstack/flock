@@ -34,6 +34,23 @@ struct PaneHoverLift: ViewModifier {
     }
 }
 
+/// Where a `PaneCellView` is drawn. `.solo` is `PaneCanvas`'s solo mode: the
+/// cell never moves herdr's focus.
+enum PaneCellRole {
+    case canvas, solo
+}
+
+private struct PaneCellRoleKey: EnvironmentKey {
+    static let defaultValue = PaneCellRole.canvas
+}
+
+extension EnvironmentValues {
+    var paneCellRole: PaneCellRole {
+        get { self[PaneCellRoleKey.self] }
+        set { self[PaneCellRoleKey.self] = newValue }
+    }
+}
+
 /// A single pane cell: a bordered box with the pane's title in its top
 /// chrome, over its one ghostty surface once `SessionViewModel` hands one
 /// back. Every pane the canvas renders is a visible pane of the selected tab,
@@ -79,6 +96,7 @@ struct PaneCellView: View {
     @Environment(OptionAsAltStore.self) private var optionAsAltStore
     @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(CommandPaletteState.self) private var commandPalette
+    @Environment(\.paneCellRole) private var role
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
@@ -414,12 +432,19 @@ struct PaneCellView: View {
     private func handleTitleClick() {
         switch NSEvent.chromeRowClick(NSApp.currentEvent) {
         case .select:
-            Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
+            focusInHerdr()
         case .beginRename:
             viewModel.beginRename(.pane(pane.paneID))
         case .ignore:
             break
         }
+    }
+
+    /// A solo cell already holds the keyboard, and its view must leave
+    /// herdr's focus where the user left it.
+    private func focusInHerdr() {
+        guard role == .canvas else { return }
+        Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
     }
 
     /// The legend's trailing end: the mouse badge, the chat button, the rt
@@ -773,7 +798,7 @@ struct PaneCellView: View {
                     // and this pane is the focused one whose surface would
                     // otherwise take the keystrokes.
                     editorIsOpen: editorIsOpen,
-                    onPrimaryClick: { Task { await viewModel.jumpToHerdr(pane: pane.paneID) } },
+                    onPrimaryClick: { focusInHerdr() },
                     menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) },
                     onBodyDragBegan: handleBodyDragBegan
                 )
@@ -819,7 +844,7 @@ struct PaneCellView: View {
             .onTapGesture {
                 guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
                 guard !isFocused, viewModel.isPristineLauncherPane(pane.paneID) else { return }
-                Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
+                focusInHerdr()
             }
             .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)
             .onChange(of: holdsTerminalSize) { _, held in

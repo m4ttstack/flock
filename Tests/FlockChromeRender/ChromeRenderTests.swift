@@ -3013,6 +3013,67 @@ final class ChromeRenderTests: XCTestCase {
         restingWindow.close()
     }
 
+    /// The canvas in solo mode shows one pane over the whole canvas, as the
+    /// focused view draws it. The fixture's tab is zoomed on `w1:p2` and its
+    /// canvas focus is `w1:p2` too, so soloing `w1:p1` fails if either the
+    /// layout's own zoom or the main window's focus leaks through: the box
+    /// spanning the row must be `w1:p1`'s and must wear the accent border,
+    /// with no canvas-coloured gutter anywhere along it and no mauve zoom
+    /// badge in its legend. Only `w1:p1`'s program holds the mouse, so its lit
+    /// mouse badge in the legend names the pane drawn and shows the legend
+    /// controls survive solo. Nothing is published to the drag coordinator.
+    /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
+    func testASoloCanvasDrawsOnePaneAcrossTheWholeCanvasWithoutAZoomBadge() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let solo = PaneID(rawValue: "w1:p1")
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            let roles = theme.palette.chromeRoles
+            var model = try Fixture.model(zoomed: true)
+            model.panes[solo]?.terminalID = TerminalID(rawValue: "term_p1")
+            let harness = try await Harness(theme: theme, model: model, mouseHolders: [solo])
+            let window = harness.makeSoloCanvasWindow(size: Self.windowSize, solo: solo)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("focused-canvas-\(scheme).png"))
+            }
+
+            let rowY = Self.windowSize.height / 2
+            var accents: [CGFloat] = []
+            for x in stride(from: CGFloat(0), to: Self.windowSize.width, by: 0.5)
+            where hex(image, CGPoint(x: x, y: rowY)) == roles.accent.hex {
+                accents.append(x)
+            }
+            let first = try XCTUnwrap(accents.first, "\(scheme): no accent border on the row: the solo pane does not hold the keyboard")
+            let last = try XCTUnwrap(accents.last)
+            let slack = ChromeMetrics.Canvas.margin + DividerBand.gutter + 2
+            XCTAssertLessThan(first, slack, "\(scheme): the solo box does not start at the canvas's leading edge")
+            XCTAssertGreaterThan(last, Self.windowSize.width - slack, "\(scheme): the solo box does not reach the canvas's trailing edge")
+            XCTAssertNil(
+                stride(from: first, through: last, by: 0.5).first { hex(image, CGPoint(x: $0, y: rowY)) == roles.canvas.hex },
+                "\(scheme): a gutter is drawn inside the solo box: more than one pane is on the canvas"
+            )
+
+            let midX = Self.windowSize.width / 2
+            let top = try XCTUnwrap(
+                stride(from: CGFloat(0), to: Self.windowSize.height / 4, by: 0.5).first { hex(image, CGPoint(x: midX, y: $0)) == roles.accent.hex },
+                "\(scheme): the solo box has no accent top border"
+            )
+            let legend = CGRect(
+                x: midX, y: top + PaneChrome.verticalPadding,
+                width: last - PaneChrome.horizontalPadding - midX, height: PaneChrome.titleRowHeight
+            )
+            XCTAssertNotNil(
+                firstPoint(in: legend, matching: theme.palette.accent.hex, of: image),
+                "\(scheme): no lit mouse badge in the legend: the pane drawn is not \(solo.rawValue), or its controls are gone"
+            )
+            XCTAssertNil(firstPoint(in: legend, matching: theme.palette.mauve.hex, of: image), "\(scheme): the solo pane wears a zoom badge")
+            XCTAssertTrue(harness.drag.canvas.paneFrames.isEmpty, "\(scheme): the solo canvas published frames for drop hit-testing")
+            window.close()
+        }
+    }
+
     /// The three places the one inline rename editor opens, and the zoom
     /// badge. Each is compared against the SAME window at rest: the editor
     /// has to change its own surface and leave the other two alone, which is
@@ -3946,7 +4007,6 @@ private struct Harness {
         size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil,
         herdrMousePatchStore: HerdrMousePatchStore? = nil
     ) -> NSWindow {
-        let modeDefaults = UserDefaults(suiteName: "flock-mission-\(UUID().uuidString)")!
         // The default resolves to no herdr, so the patch banner stays off and
         // every render assertion here measures the same chrome on any machine.
         let root = MainWindow(
@@ -3957,6 +4017,21 @@ private struct Harness {
             isDevBuild: isDevBuild
         )
             .environment(devBuild)
+        return host(root, size: size)
+    }
+
+    /// The main window's own canvas alone, showing one pane of the selected
+    /// tab in solo mode.
+    func makeSoloCanvasWindow(size: CGSize, solo: PaneID) -> NSWindow {
+        host(
+            PaneCanvas(theme: themeStore.active, viewModel: viewModel, layout: viewModel.selectedLayout, solo: solo),
+            size: size
+        )
+    }
+
+    private func host(_ content: some View, size: CGSize) -> NSWindow {
+        let modeDefaults = UserDefaults(suiteName: "flock-mission-\(UUID().uuidString)")!
+        let root = content
             .environment(themeStore)
             .environment(textSize)
             .environment(rtModalSize)
