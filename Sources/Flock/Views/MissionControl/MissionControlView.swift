@@ -17,7 +17,6 @@ struct MissionControlView: View {
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showsDormant = false
     /// One space for every lane, so a card whose lane changes is the same
     /// view moving rather than one fading out and another in.
     @Namespace private var laneSpace
@@ -184,10 +183,10 @@ struct MissionControlView: View {
         let rowShape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.dormantRowCornerRadius))
         return VStack(alignment: .leading, spacing: 0) {
             GridControlButton(theme: theme, shape: rowShape, restForeground: theme.textLabel) {
-                showsDormant.toggle()
+                mode.showsDormant.toggle()
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: showsDormant ? "chevron.down" : "chevron.right")
+                    Image(systemName: mode.showsDormant ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                     Text("\(dormant.count) dormant").font(ChromeType.missionDormantRow)
                     Spacer(minLength: 0)
@@ -196,7 +195,7 @@ struct MissionControlView: View {
                 .padding(.horizontal, M.dormantRowHorizontalPadding)
             }
             .accessibilityIdentifier("flock.mission.dormant")
-            if showsDormant {
+            if mode.showsDormant {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(dormant) { card in

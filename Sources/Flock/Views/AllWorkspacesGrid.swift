@@ -24,7 +24,6 @@ struct AllWorkspacesGrid: View {
     /// padding on each side.
     @State private var viewport: CGSize = .zero
     /// Dormant workspaces opened by a click, until the view closes.
-    @State private var openedDormant: Set<WorkspaceID> = []
     /// Dormant workspaces sprung open by a dwell, until that drag ends.
     @State private var sprungDormant: Set<WorkspaceID> = []
 
@@ -118,7 +117,6 @@ struct AllWorkspacesGrid: View {
             sprungDormant = []
             holdFit(self.arrange.inputs)
         }
-        .onDisappear { openedDormant = [] }
         .scrollIndicators(.never)
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .scrollPosition($scrollPosition)
@@ -182,7 +180,7 @@ struct AllWorkspacesGrid: View {
         let ordered = ranked.compactMap { id in workspaces.first { $0.workspaceID == id } }
             + workspaces.filter { !ranked.contains($0.workspaceID) }
         let dormant = (made?.0.arrangeDormantWorkspaces(focused: model?.focusedWorkspaceID) ?? [])
-            .subtracting(openedDormant).subtracting(sprungDormant)
+            .subtracting(mode.openedDormant).subtracting(sprungDormant)
         let islands = ordered.filter { !dormant.contains($0.workspaceID) }.map {
             IslandLayout.Island(id: $0.workspaceID, tabs: model?.tabs[$0.workspaceID]?.count ?? 1)
         }
@@ -217,7 +215,7 @@ struct AllWorkspacesGrid: View {
                 .padding(.trailing, ChromeMetrics.Grid.dormantChipSpacing)
             ForEach(chips, id: \.workspaceID) { workspace in
                 DormantChip(theme: theme, viewModel: viewModel, workspace: workspace) {
-                    openedDormant.insert(workspace.workspaceID)
+                    mode.openedDormant.insert(workspace.workspaceID)
                 } springOpen: {
                     sprungDormant.insert(workspace.workspaceID)
                 }
