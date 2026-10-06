@@ -110,6 +110,21 @@ struct MainWindow: View {
         .onChange(of: dragCoordinator.isGridShown) { _, shown in
             if shown { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
         }
+        // Here, where it runs once whichever view draws the stack: the dock,
+        // or mission control's Needs you lane, which has no dock. It runs for
+        // as long as anything is in the stack, not just while a finished
+        // toast is counting down: the sweep is also what notices that a
+        // "needs input" toast's coalescing grace has expired, and that toast
+        // has no clock of its own.
+        .task(id: viewModel.attentionToasts.isEmpty) {
+            guard !viewModel.attentionToasts.isEmpty else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: ChromeMetrics.AttentionToast.sweepInterval)
+                if Task.isCancelled { return }
+                guard !viewModel.isAttentionStackHovered else { continue }
+                viewModel.sweepAttentionToasts()
+            }
+        }
         .onChange(of: viewModel.renameEditorIsOnScreen) { _, renaming in
             if renaming { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
         }

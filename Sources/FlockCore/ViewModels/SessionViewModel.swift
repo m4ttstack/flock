@@ -138,7 +138,7 @@ public final class SessionViewModel {
     /// attention stack's coalescing window without sleeping.
     @ObservationIgnored private let now: @MainActor () -> Date
     /// Read at every raise and sweep, so a change in Settings lands at the
-    /// dock's next sweep without anything pushing it here.
+    /// window's next sweep without anything pushing it here.
     @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
     @ObservationIgnored private let attentionToastArchive: AttentionToastArchive?
     @ObservationIgnored private let navigationPollInterval: Duration
@@ -353,9 +353,13 @@ public final class SessionViewModel {
         }
     }
 
+    /// Set by the dock while the pointer is over its cards: the window's
+    /// ticker skips the sweep, which is what hover-pauses-auto-dismiss means.
+    @ObservationIgnored public var isAttentionStackHovered = false
+
     /// Drops every finished toast past the Settings lifetime, then re-runs the
-    /// withdrawal pass. The stack's own ticker calls this; a hovered stack
-    /// stops calling it, which is what hover-pauses-auto-dismiss means.
+    /// withdrawal pass. The window's ticker calls this while any toast exists,
+    /// whether the dock or mission control's Needs you lane is drawing it.
     ///
     /// The second half is not a tidy-up: "no longer blocked" only withdraws a
     /// toast once it is older than the coalescing window, and the snapshot

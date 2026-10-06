@@ -1888,6 +1888,33 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// Mission control draws no dock, so the stack's sweep cannot live in the
+    /// dock: a finished card under a timed lifetime leaves Needs you on time.
+    func testMissionControlExpiresAFinishedCardWithNoDockOnScreen() async throws {
+        var model = try GridFixture.model()
+        let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
+        let harness = try await Harness(
+            theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [],
+            now: { clock.date }, notificationLifetime: .fiveSeconds
+        )
+        model.panes[GridFixture.glancePane]?.agentStatus = .working
+        harness.viewModel.update(model: model, connection: .live)
+        clock.date = clock.date.addingTimeInterval(60)
+        model.panes[GridFixture.glancePane]?.agentStatus = .done
+        harness.viewModel.update(model: model, connection: .live)
+        XCTAssertNotNil(harness.viewModel.attentionToasts.toast(pane: GridFixture.glancePane), "the premise: a finished card")
+        harness.modeStore.select(.missionControl)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+        clock.date = clock.date.addingTimeInterval(10)
+        await settle(window)
+        await settle(window)
+        XCTAssertNil(harness.viewModel.attentionToasts.toast(pane: GridFixture.glancePane), "the card outlived its lifetime")
+        window.close()
+    }
+
     /// Opened mid-drag, the view is the drop surface, which is always Arrange,
     /// whatever mode is remembered; the remembered mode is left alone.
     func testOpenedMidDragTheViewDrawsArrangeAndRemembersMissionControl() async throws {
@@ -3749,6 +3776,7 @@ private struct Harness {
         // read the wall clock would flip on a loaded machine that took that
         // long to build and settle two windows.
         now: @escaping @MainActor () -> Date = { Date() },
+        notificationLifetime: NotificationLifetime = .untilSeen,
         // No Board config by default, same as a machine without the board
         // app, so every render that predates the section is unchanged.
         boardSources: BoardSources = .unconfigured,
@@ -3804,7 +3832,7 @@ private struct Harness {
         }
         viewModel = SessionViewModel(
             client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now,
-            repoBranches: repoBranches
+            notificationLifetime: { notificationLifetime }, repoBranches: repoBranches
         )
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
         for pane in panes {
