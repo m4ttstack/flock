@@ -95,6 +95,20 @@ track alone.
 
 A blocked card carries a 1.5pt outline in the blocked hue.
 
+**Identity grouping** (board `05c · Overview · identity groups`). Overview
+wears Arrange's colours so the two read as one place:
+
+- In Working, each workspace's cards sit in a group on its identity tint,
+  the same colour and strength as its Arrange island (radius 10, 10pt
+  padding, 10pt between cards). The group label is the identity square and
+  the workspace name in its identity colour; no rule.
+- In Needs you and Cooling down, a card's top line leads with the identity
+  square, then the status dot, then the workspace name in its identity
+  colour and `› tab` in the label colour.
+- Status keeps its own colours: dots, ages, the blocked outline and the
+  timeline stay in status hues, and identity never fills a card.
+- A herd's group and name draw in the neutral label grey, as in Arrange.
+
 ### Live updates
 
 While shown, the view follows the model as it changes. A card whose lane
@@ -107,9 +121,9 @@ minute, not continuously.
 - **⌘J** is unchanged in meaning everywhere: jump to the oldest attention
   card, dismissing it. In mission control every card is drawn, so it is the
   top card of Needs you.
-- **Clicking a card**, or Return on the selected card, jumps to that pane
-  (tab, then pane, as `jumpToAttentionToast` does) and closes the view. A
-  Needs-you card is dismissed by the jump, exactly as a dock card is.
+- **Clicking a card**, or Return on the selected card, opens that pane in
+  the focused view (below). A Needs-you card is dismissed by opening it,
+  exactly as a dock card is by a jump.
 - **⇧⌘J, Jump Back** (new, View menu and palette): returns to where the last
   jump started. A jump is ⌘J, a dock card click, or a mission-control card
   activation. Its origin is mission control when the jump left from there
@@ -123,6 +137,62 @@ minute, not continuously.
   selects the top card of the first non-empty lane. **Esc** closes the view.
 
 The header's right side shows the keys: `⌘J oldest · ⇧⌘J back · esc`.
+
+### Focused pane
+
+Board `11 · Overview · Focused pane`. Opening a card from Overview shows
+that one pane, live, inside the All Workspaces view, with going back to
+Overview as the only way to navigate. A jump from Overview no longer lands
+in the main window, which had no visible way back.
+
+**Opening.** A card click or Return, and ⌘J while Overview is shown (the
+oldest card), open the pane here. A Needs-you card is dismissed on opening.
+⌘J and dock clicks from the main window jump in the main window as before.
+
+**What it draws.**
+
+- A header the grid header's height:
+  - left: a "‹ Overview" button, then the identity square, `workspace ›
+    tab` (workspace in its identity colour), the status dot and the state
+    with its age (`blocked 12m`) in the status hue;
+  - right: "N more need you" while other Needs-you cards remain, then
+    `⌘J next · ⇧⌘J overview`.
+- Below it, the pane exactly as the main window's canvas draws it,
+  filling the space: its terminal, title and status chip, and its
+  top-right legend controls (mouse badge, chat button, rt button). Typing
+  goes to it. The rt modal and the chat popover open from it as they do
+  in the main window. The zoom badge is not shown: there is no zoom here
+  to leave.
+- No tab strip, rail or dock, so nothing reads as navigation but the back
+  button.
+
+**Keys.**
+
+- ⇧⌘J or "‹ Overview" returns to Overview with this pane's card selected
+  and scrolled into view.
+- ⌘J swaps in the next oldest Needs-you card, staying in the focused view;
+  disabled when none remain.
+- Esc and every other key go to the terminal; nothing here navigates on
+  Esc.
+
+**herdr is not moved.** Opening, swapping and returning never focus a tab
+or pane in herdr, and a click on the pane's title only gives its terminal
+the keyboard. Leaving Overview (Esc there) returns the main window exactly
+as it was.
+
+**Sizing.** The pane fills the view at the Terminal Text size; its PTY is
+resized to fit, as a window resize would, and resized back when the main
+window shows it again.
+
+**Edge cases.** If the pane closes while focused, the view returns to
+Overview. Its header follows status changes live. The focused view has no
+drag sources and is never a drop target.
+
+**Built from the main window's pieces.** The pane is the canvas's own
+`PaneCellView` inside `PaneCanvas`, shown through the canvas's existing
+`CanvasComposition.zoomed` with the badge and herdr focusing turned off,
+not a second terminal view. Which pane is focused, and the open, next and
+back rules, live in FlockCore beside the mode store and are unit tested.
 
 ### Arrange
 
@@ -257,9 +327,14 @@ FlockCore unit tests:
   260pt cap, and no change while a drag is live;
 - island packing in rail order, and dormant workspaces moving to chips;
 - identity assignment: stable across a rename, overrides kept, stale ids
-  dropped, and no palette hue near a status hue in any builtin theme.
+  dropped, and no palette hue near a status hue in any builtin theme;
+- the focused pane: opening from a card or ⌘J, ⌘J swapping to the next
+  oldest card and disabling when none remain, back selecting the card, a
+  closed pane returning to Overview, and no herdr focus call on any of them.
 
 FlockChromeRender tests render mission control and Arrange with fixture data in a dark
 and a light theme, writing PNGs under `FLOCK_GRID_RENDER_DIR`, and samples a
-blocked card's outline and a lane header's dot. The UI is looked at in both
-themes before it is called done.
+blocked card's outline and a lane header's dot. They also render the focused
+pane (its header and its pane's legend controls) and Overview's identity
+groups in both themes. The UI is looked at in both themes before it is
+called done.
