@@ -26,6 +26,7 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
         let collapse: SectionCollapseStore
         let board: BoardStore
         let toasts: ToastCenter
+        let missionDefaults: UserDefaults
 
         var body: some View {
             WorkspaceRail(theme: .tokyoNight, viewModel: viewModel, onSelect: { _ in })
@@ -35,6 +36,9 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
                 .environment(board)
                 .environment(HerdProgressStore(sources: .unanswered))
                 .environment(toasts)
+                .environment(AllWorkspacesModeStore(userDefaults: missionDefaults))
+                .environment(DormantCutoffStore(userDefaults: missionDefaults))
+                .environment(WorkspaceIdentityStore(userDefaults: missionDefaults))
                 .frame(width: Self.size.width, height: Self.size.height)
         }
     }
@@ -74,7 +78,8 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
         let collapse = SectionCollapseStore(userDefaults: defaults)
         let board = BoardStore(sources: .unconfigured, userDefaults: defaults)
         let hosting = NSHostingView(rootView: Probe(
-            viewModel: viewModel, drag: drag, railWidth: railWidth, collapse: collapse, board: board, toasts: toasts
+            viewModel: viewModel, drag: drag, railWidth: railWidth, collapse: collapse, board: board, toasts: toasts,
+            missionDefaults: UserDefaults(suiteName: "flock-mission-\(UUID().uuidString)")!
         ))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Probe.size),

@@ -193,6 +193,7 @@ private struct Harness {
     }
 
     func makeWindow(size: CGSize) -> NSWindow {
+        let missionDefaults = UserDefaults(suiteName: "flock-mission-\(UUID().uuidString)")!
         // Resolves to no herdr, so the patch banner stays off and this
         // measures the same chrome on every machine. A real probe would make
         // the result depend on whichever herdr the host happens to have.
@@ -212,6 +213,9 @@ private struct Harness {
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)
+            .environment(AllWorkspacesModeStore(userDefaults: missionDefaults))
+            .environment(DormantCutoffStore(userDefaults: missionDefaults))
+            .environment(WorkspaceIdentityStore(userDefaults: missionDefaults))
             .environment(dividerDrag)
             .environment(chatStore)
             .environment(optionAsAlt)
