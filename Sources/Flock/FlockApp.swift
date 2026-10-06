@@ -592,6 +592,7 @@ struct FlockApp: App {
             FlockSettingsView(
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
+                dormantCutoffStore: dormantCutoffStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,

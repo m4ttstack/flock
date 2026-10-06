@@ -2153,6 +2153,7 @@ final class ChromeRenderTests: XCTestCase {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
+                dormantCutoffStore: DormantCutoffStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults),
