@@ -414,8 +414,8 @@ private struct WorkspaceIsland: View {
 
     private func header(tabCount: Int) -> some View {
         HStack(spacing: ChromeMetrics.Grid.islandHeaderSpacing) {
-            IdentitySquare(
-                theme: theme, identity: identity,
+            WorkspaceMark(
+                theme: theme, key: identityKey, identity: identity,
                 size: ChromeMetrics.Grid.identitySquare, cornerRadius: ChromeMetrics.Grid.identitySquareRadius
             )
             Text(workspace.label)
@@ -467,9 +467,7 @@ private struct WorkspaceIsland: View {
                 TabThumbnail(
                     theme: theme, viewModel: viewModel, tab: tab,
                     isTargeted: MiniPaneLayout.targetedTab(of: drag.target, dragging: drag.activeSubject, model: viewModel.model) == id,
-                    displacement: displacements[id] ?? .zero,
-                    handleFill: isFocusedWorkspace && id == viewModel.model?.focusedTabID
-                        ? identity?.opacity(ChromeMetrics.Grid.selectedHandleTint) : nil
+                    displacement: displacements[id] ?? .zero
                 )
                 // One frame for the whole thumbnail, strip included: a drop
                 // anywhere on it is a drop on this tab, so the strip never
@@ -520,8 +518,6 @@ private struct TabThumbnail: View {
     /// How far this thumbnail slides to open the slot a reorder inside its
     /// card would land the dragged tab in.
     var displacement: CGSize = .zero
-    /// The handle's fill: only the tab you came from takes one.
-    var handleFill: Color?
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
@@ -637,7 +633,7 @@ private struct TabThumbnail: View {
     private var titleStrip: some View {
         TabHandleStrip(
             theme: theme, title: tabTitle, status: tab.agentStatus,
-            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID, fill: handleFill,
+            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID,
             interaction: interaction(of: .tab)
         )
         .onHover { hovering in
@@ -821,14 +817,13 @@ private struct TabThumbnail: View {
 
 /// A tab's handle: the top of its thumbnail carrying the title and status
 /// dot. Shared with the drag proxy, which draws a whole tab as a miniature of
-/// its own thumbnail and has to use the same roles. No fill but the one the
-/// island hands the tab you came from.
+/// its own thumbnail and has to use the same roles. No fill; the tab you came
+/// from is underlined as the tab strip underlines a selected tab.
 struct TabHandleStrip: View {
     let theme: Theme
     let title: String
     let status: AgentStatus
     let isFocusedTab: Bool
-    var fill: Color?
     var interaction: ControlInteraction = .rest
 
     var body: some View {
@@ -848,8 +843,13 @@ struct TabHandleStrip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: ChromeMetrics.Grid.tabStripHeight)
         .background(
-            GridControlGround(theme: theme, shape: AnyShape(Rectangle()), restFill: fill ?? .clear, appearance: appearance)
+            GridControlGround(theme: theme, shape: AnyShape(Rectangle()), restFill: .clear, appearance: appearance)
         )
+        .overlay(alignment: .bottom) {
+            if isFocusedTab {
+                Rectangle().fill(theme.accent).frame(height: ChromeMetrics.Grid.currentTabUnderline).allowsHitTesting(false)
+            }
+        }
     }
 }
 

@@ -55,6 +55,35 @@ private enum IdentitySwatch {
     }
 }
 
+/// What marks a workspace beside its name outside the rail, matching how the
+/// rail marks its sections: the board app's logo for board's workspaces, the
+/// ram for a herd, otherwise the workspace's identity square. `key` is its
+/// `WorkspaceIdentityStore` key, which already says which it is.
+struct WorkspaceMark: View {
+    let theme: Theme
+    let key: String?
+    let identity: Color?
+    let size: CGFloat
+    let cornerRadius: CGFloat
+
+    @Environment(BoardStore.self) private var board
+
+    var body: some View {
+        if key == WorkspaceIdentityStore.boardKey, let logo = board.logo {
+            Image(nsImage: logo)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else if key == nil {
+            HerdMark(theme: theme, size: size, isMoving: false)
+                .frame(width: size, height: size)
+        } else {
+            IdentitySquare(theme: theme, identity: identity, size: size, cornerRadius: cornerRadius)
+        }
+    }
+}
+
 /// The square that marks a workspace by its identity colour.
 struct IdentitySquare: View {
     let theme: Theme

@@ -869,7 +869,7 @@ enum ChromeMetrics {
         static let islandHeaderSpacing: CGFloat = 10
         static let identitySquare: CGFloat = 12
         static let identitySquareRadius: CGFloat = 3
-        static let selectedHandleTint: Double = 0.25
+        static let currentTabUnderline: CGFloat = 2
         static let dormantChipHeight: CGFloat = 26
         static let dormantChipSpacing: CGFloat = 8
         static let dormantDwell: Duration = .milliseconds(500)

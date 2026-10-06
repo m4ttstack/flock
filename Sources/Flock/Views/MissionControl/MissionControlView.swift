@@ -133,8 +133,9 @@ struct MissionControlView: View {
         let identity = identityColor(group.workspaceID, sections: sections)
         return VStack(alignment: .leading, spacing: M.cardGap) {
             HStack(spacing: M.groupLabelSpacing) {
-                IdentitySquare(
-                    theme: theme, identity: identity, size: M.groupIdentitySquare, cornerRadius: M.groupIdentitySquareRadius
+                WorkspaceMark(
+                    theme: theme, key: WorkspaceIdentityStore.key(for: group.workspaceID, sections: sections),
+                    identity: identity, size: M.groupIdentitySquare, cornerRadius: M.groupIdentitySquareRadius
                 )
                 Text(group.name)
                     .font(ChromeType.missionGroupName)
