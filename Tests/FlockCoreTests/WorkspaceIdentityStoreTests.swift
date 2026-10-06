@@ -43,6 +43,24 @@ final class WorkspaceIdentityStoreTests: XCTestCase {
         XCTAssertNotNil(store.index(for: WorkspaceIdentityStore.boardKey))
     }
 
+    func testAssignCountsOverridesWhenChoosingTheLeastUsedHue() {
+        let store = WorkspaceIdentityStore(userDefaults: defaults())
+        store.assign(["w1"])
+        store.setOverride(1, for: "w1")
+        store.assign(["w2"])
+        XCTAssertEqual(store.index(for: "w2"), 0)
+        store.assign(["w3"])
+        XCTAssertEqual(store.index(for: "w3"), 2)
+    }
+
+    func testAnOverrideOutsideThePaletteIsIgnored() {
+        let store = WorkspaceIdentityStore(userDefaults: defaults())
+        store.assign(["w1"])
+        store.setOverride(IdentityPalette.count, for: "w1")
+        store.setOverride(-1, for: "w1")
+        XCTAssertEqual(store.index(for: "w1"), 0)
+    }
+
     func testKeysShareTheBoardsAndGiveHerdsNone() {
         let model = MissionFixture.model([
             .init(label: "acme", tabs: [.init(label: "a", panes: [.init(status: .idle)])]),

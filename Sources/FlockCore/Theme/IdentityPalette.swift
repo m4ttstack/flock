@@ -16,7 +16,7 @@ public enum IdentityPalette {
         }
         let accent = HSL(palette.accent)
         let darkens = ChromeRoles.isLight(panelBg: palette.panelBg)
-        return spread(allowed).map { hue in
+        return pick(allowed, awayFrom: statusHues).map { hue in
             legible(
                 HSL(hue: hue, saturation: max(accent.saturation, 0.55), lightness: accent.lightness),
                 on: palette.chromeRoles.canvas, darkening: darkens
@@ -31,11 +31,25 @@ public enum IdentityPalette {
         return min(d, 360 - d)
     }
 
-    /// Evenly spaced through the allowed hues, so neighbours differ as much
-    /// as the gaps between status hues allow.
-    private static func spread(_ hues: [Double]) -> [Double] {
-        guard hues.count > count else { return hues }
-        return (0..<count).map { hues[$0 * hues.count / count] }
+    /// Greedy farthest-point order: the first hue sits furthest from any
+    /// status hue and each next one furthest from those already picked, so
+    /// the leading hues, which the first workspaces wear, are already apart.
+    private static func pick(_ hues: [Double], awayFrom status: [Double]) -> [Double] {
+        func nearest(_ hue: Double, _ others: [Double]) -> Double {
+            others.map { distance(hue, $0) }.min() ?? 360
+        }
+        var picked: [Double] = []
+        var remaining = hues
+        while picked.count < count, !remaining.isEmpty {
+            let best = remaining.max { a, b in
+                let keyA = (nearest(a, picked), nearest(a, status), -a)
+                let keyB = (nearest(b, picked), nearest(b, status), -b)
+                return keyA < keyB
+            }!
+            picked.append(best)
+            remaining.removeAll { $0 == best }
+        }
+        return picked
     }
 
     private static func legible(_ start: HSL, on ground: RGB, darkening: Bool) -> RGB {

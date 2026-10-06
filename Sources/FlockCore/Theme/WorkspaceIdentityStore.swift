@@ -37,12 +37,14 @@ public final class WorkspaceIdentityStore {
         overrides[key] ?? assigned[key]
     }
 
-    /// Gives each key without a hue the least used one, lowest index first.
+    /// Gives each key without a hue the least used one, lowest index first; overrides count as uses.
     public func assign(_ keys: [String]) {
         var next = assigned
         for key in keys where next[key] == nil {
             var uses = Array(repeating: 0, count: IdentityPalette.count)
-            for index in next.values where uses.indices.contains(index) { uses[index] += 1 }
+            for key in Set(next.keys).union(overrides.keys) {
+                if let index = overrides[key] ?? next[key], uses.indices.contains(index) { uses[index] += 1 }
+            }
             next[key] = uses.indices.min { (uses[$0], $0) < (uses[$1], $1) } ?? 0
         }
         guard next != assigned else { return }
@@ -51,6 +53,7 @@ public final class WorkspaceIdentityStore {
     }
 
     public func setOverride(_ index: Int?, for key: String) {
+        if let index, !(0..<IdentityPalette.count).contains(index) { return }
         overrides[key] = index
         save()
     }
