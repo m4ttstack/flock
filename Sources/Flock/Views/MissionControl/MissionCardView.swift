@@ -1,4 +1,3 @@
-import AppKit
 import FlockCore
 import SwiftUI
 
@@ -21,11 +20,43 @@ struct MissionCardView: View {
     let now: Date
     let isSelected: Bool
     let isCooling: Bool
+    var forced: ControlInteraction?
     let activate: () -> Void
+
+    @State private var isHovering = false
 
     private typealias M = ChromeMetrics.MissionControl
 
     var body: some View {
+        Button(action: activate) { content }
+            .buttonStyle(GridControlStyle(
+                theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: M.cardCornerRadius)),
+                restFill: theme.chrome, restForeground: theme.textStrong, pressAccent: M.cardPressedAccent,
+                isHovering: forced?.isHovering ?? isHovering, forcePressed: forced?.isPressed ?? false
+            ))
+            .overlay(
+                RoundedRectangle(cornerRadius: M.cardCornerRadius)
+                    .strokeBorder(outline, lineWidth: outlineWidth)
+                    .allowsHitTesting(false)
+            )
+            .opacity(isCooling ? M.coolingOpacity : 1)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                MissionCardFrames.shared.frames[card.paneID] = $0
+            }
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: M.cardCornerRadius + M.selectionInset)
+                        .strokeBorder(theme.accent, lineWidth: M.selectionOutline)
+                        .padding(-M.selectionInset)
+                        .allowsHitTesting(false)
+                }
+            }
+            .fadingHover($isHovering)
+            .pointerStyle(.link)
+            .accessibilityIdentifier("flock.mission.card.\(card.paneID.rawValue)")
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: M.cardLineSpacing) {
             HStack(spacing: 8) {
                 StatusDot(status: card.status, theme: theme, size: M.cardDot)
@@ -63,31 +94,7 @@ struct MissionCardView: View {
         }
         .padding(.vertical, M.cardVerticalPadding)
         .padding(.horizontal, M.cardHorizontalPadding)
-        .background(theme.chrome, in: RoundedRectangle(cornerRadius: M.cardCornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: M.cardCornerRadius)
-                .strokeBorder(outline, lineWidth: outlineWidth)
-        )
-        .opacity(isCooling ? M.coolingOpacity : 1)
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
-            MissionCardFrames.shared.frames[card.paneID] = $0
-        }
-        .overlay {
-            if isSelected {
-                RoundedRectangle(cornerRadius: M.cardCornerRadius + M.selectionInset)
-                    .strokeBorder(theme.accent, lineWidth: M.selectionOutline)
-                    .padding(-M.selectionInset)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-            activate()
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { activate() }
-        .accessibilityIdentifier("flock.mission.card.\(card.paneID.rawValue)")
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var ageText: String {

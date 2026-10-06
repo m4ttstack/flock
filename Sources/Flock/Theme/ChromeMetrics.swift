@@ -813,6 +813,14 @@ enum ChromeMetrics {
         static let toggleHeight: CGFloat = 26
         static let toggleCornerRadius: CGFloat = 6
         static let toggleSegmentPadding: CGFloat = 12
+        /// Room around a dormant row's text for its hover block. Taken out of
+        /// the fold's own padding and its row gap, so the rows sit where they
+        /// did before the block existed.
+        static let dormantRowVerticalPadding: CGFloat = 3
+        static let dormantRowHorizontalPadding: CGFloat = 6
+        /// Half the launcher's press accent: over a whole card the launcher's
+        /// own amount read as a selected surface rather than a press.
+        static let cardPressedAccent: Double = 0.1
         static let laneMoveDuration: Double = 0.2
         /// How far sideways a lane lets a moving card draw: past any lane
         /// it could be crossing from.
@@ -820,6 +828,9 @@ enum ChromeMetrics {
     }
 
     enum Grid {
+        /// How far an island header's hover block reaches past its text,
+        /// into the island's own side padding.
+        static let islandHeaderHoverOutset: CGFloat = 6
         static let headerHeight: CGFloat = 36
         static let headerHorizontalPadding: CGFloat = 13
         static let headerSpacing: CGFloat = 8

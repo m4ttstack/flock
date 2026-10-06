@@ -151,32 +151,40 @@ struct MissionControlView: View {
     }
 
     private func dormantFold(_ dormant: [MissionCard]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { showsDormant.toggle() } label: {
+        let rowShape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius))
+        return VStack(alignment: .leading, spacing: 0) {
+            GridControlButton(theme: theme, shape: rowShape, restForeground: theme.textLabel) {
+                showsDormant.toggle()
+            } label: {
                 HStack(spacing: 8) {
                     Image(systemName: showsDormant ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                     Text("\(dormant.count) dormant").font(ChromeType.missionGroupLabel)
                     Spacer(minLength: 0)
                 }
-                .foregroundStyle(theme.textLabel)
-                .contentShape(Rectangle())
+                .padding(.vertical, M.dormantRowVerticalPadding)
+                .padding(.horizontal, M.dormantRowHorizontalPadding)
             }
-            .buttonStyle(.plain)
             .accessibilityIdentifier("flock.mission.dormant")
             if showsDormant {
                 ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 0) {
                         ForEach(dormant) { card in
-                            HStack(spacing: 8) {
-                                StatusDot(status: card.status, theme: theme, size: M.cardDot)
-                                Text("\(card.workspaceName) › \(card.tabTitle)").foregroundStyle(theme.textLabel)
-                                Text(card.title).foregroundStyle(theme.textDim)
+                            GridControlButton(theme: theme, shape: rowShape, restForeground: theme.textLabel) {
+                                open(card.paneID)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    StatusDot(status: card.status, theme: theme, size: M.cardDot)
+                                    Text("\(card.workspaceName) › \(card.tabTitle)")
+                                    Text(card.title).foregroundStyle(theme.textDim)
+                                    Spacer(minLength: 0)
+                                }
+                                .font(ChromeType.missionCardMeta)
+                                .lineLimit(1)
+                                .padding(.vertical, M.dormantRowVerticalPadding)
+                                .padding(.horizontal, M.dormantRowHorizontalPadding)
                             }
-                            .font(ChromeType.missionCardMeta)
-                            .lineLimit(1)
-                            .contentShape(Rectangle())
-                            .onTapGesture { open(card.paneID) }
+                            .pointerStyle(.link)
                         }
                     }
                 }
@@ -185,8 +193,8 @@ struct MissionControlView: View {
                 .frame(maxHeight: 220)
             }
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
+        .padding(.vertical, 10 - M.dormantRowVerticalPadding)
+        .padding(.horizontal, 12 - M.dormantRowHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(RoundedRectangle(cornerRadius: M.cardCornerRadius).strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth))
     }

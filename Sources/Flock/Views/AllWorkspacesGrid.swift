@@ -138,22 +138,9 @@ struct AllWorkspacesGrid: View {
     private var modeToggle: some View {
         HStack(spacing: 2) {
             ForEach(AllWorkspacesMode.allCases, id: \.self) { option in
-                let on = shownMode == option
-                Button { mode.select(option) } label: {
-                    Text(option.title)
-                        .font(ChromeType.modeToggle(selected: on))
-                        .foregroundStyle(on ? theme.textStrong : theme.textLabel)
-                        .padding(.horizontal, ChromeMetrics.MissionControl.toggleSegmentPadding)
-                        .frame(height: ChromeMetrics.MissionControl.toggleHeight - 4)
-                        .background(
-                            on ? theme.selection : .clear,
-                            in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius - 2)
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("flock.grid.mode.\(option.rawValue)")
-                .accessibilityAddTraits(on ? .isSelected : [])
+                ModeToggleSegment(theme: theme, title: option.title, isOn: shownMode == option) { mode.select(option) }
+                    .accessibilityIdentifier("flock.grid.mode.\(option.rawValue)")
+                    .accessibilityAddTraits(shownMode == option ? .isSelected : [])
             }
         }
         .padding(2)
@@ -355,6 +342,7 @@ private struct WorkspaceIsland: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(WorkspaceIdentityStore.self) private var identityStore
     @Environment(\.gridThumbnailSize) private var thumbnailSize
+    @State private var isHeaderHovered = false
 
     private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
 
@@ -441,8 +429,14 @@ private struct WorkspaceIsland: View {
                 .fixedSize()
         }
         .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
+        .background {
+            HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius)
+                .padding(.horizontal, -ChromeMetrics.Grid.islandHeaderHoverOutset)
+                .opacity(isHeaderHovered && drag.activeSubject == nil ? 1 : 0)
+        }
         .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
         .contentShape(Rectangle())
+        .fadingHover($isHeaderHovered)
         .contextMenu { colourMenu }
     }
 
@@ -554,6 +548,7 @@ private struct TabThumbnail: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
     @Environment(\.gridThumbnailSize) private var thumbnailSize
+    @State private var isHovering = false
 
     private var tabTitle: String {
         viewModel.model.map { TabTitle.resolve(tab, in: $0).text } ?? tab.label
@@ -570,7 +565,16 @@ private struct TabThumbnail: View {
         .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
+        .overlay {
+            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius)
+                .strokeBorder(
+                    ThumbnailHover.outline(theme: theme, isHovering: isHovering, dragInFlight: drag.activeSubject != nil),
+                    lineWidth: ChromeMetrics.ruleWidth
+                )
+                .allowsHitTesting(false)
+        }
         .contentShape(Rectangle())
+        .fadingHover($isHovering)
         // The handle and the padding around the mini panes mean the whole
         // tab; a mini pane's own tap is a descendant's and answers first.
         .onTapGesture { clicked(pane: nil) }
@@ -941,30 +945,75 @@ private struct DormantChip: View {
 
     var body: some View {
         let takesTheDrop = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model).takesTheDrop
-        HStack(spacing: 7) {
-            StatusDot(status: workspace.agentStatus, theme: theme, size: 8)
-            Text(workspace.label)
-                .font(ChromeType.gridCardMeta)
-                .foregroundStyle(theme.textDim)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 10)
-        .frame(height: ChromeMetrics.Grid.dormantChipHeight)
-        .background(theme.chrome, in: Capsule())
+        DormantChipButton(
+            theme: theme, status: workspace.agentStatus, label: workspace.label,
+            hoverEnabled: drag.activeSubject == nil, action: open
+        )
         .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.dormantChipHeight / 2) }
-        .overlay(Capsule().strokeBorder(takesTheDrop ? theme.accent : .clear, lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
+        .overlay(
+            Capsule()
+                .strokeBorder(takesTheDrop ? theme.accent : .clear, lineWidth: ChromeMetrics.Grid.islandCurrentOutline)
+                .allowsHitTesting(false)
+        )
         .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
-        .contentShape(Capsule())
-        .onTapGesture { open() }
         .task(id: isDwelledOn) {
             guard isDwelledOn else { return }
             try? await Task.sleep(for: ChromeMetrics.Grid.dormantDwell)
             guard !Task.isCancelled, isDwelledOn else { return }
             springOpen()
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("flock.grid.dormant.\(workspace.workspaceID.rawValue)")
+    }
+}
+
+/// A dormant chip's face, apart from its drop preview so a render can force
+/// its hover and press.
+struct DormantChipButton: View {
+    let theme: Theme
+    let status: AgentStatus
+    let label: String
+    var hoverEnabled = true
+    var forced: ControlInteraction?
+    let action: () -> Void
+
+    var body: some View {
+        GridControlButton(
+            theme: theme, shape: AnyShape(Capsule()), restFill: theme.chrome, restForeground: theme.textDim,
+            hoverEnabled: hoverEnabled, forced: forced, action: action
+        ) {
+            HStack(spacing: 7) {
+                StatusDot(status: status, theme: theme, size: 8)
+                Text(label)
+                    .font(ChromeType.gridCardMeta)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: ChromeMetrics.Grid.dormantChipHeight)
+        }
+    }
+}
+
+/// One half of the Mission control | Arrange toggle.
+struct ModeToggleSegment: View {
+    let theme: Theme
+    let title: String
+    let isOn: Bool
+    var forced: ControlInteraction?
+    let action: () -> Void
+
+    var body: some View {
+        GridControlButton(
+            theme: theme,
+            shape: AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius - 2)),
+            restFill: isOn ? theme.selection : .clear,
+            restForeground: isOn ? theme.textStrong : theme.textLabel,
+            forced: forced, action: action
+        ) {
+            Text(title)
+                .font(ChromeType.modeToggle(selected: isOn))
+                .padding(.horizontal, ChromeMetrics.MissionControl.toggleSegmentPadding)
+                .frame(height: ChromeMetrics.MissionControl.toggleHeight - 4)
+        }
     }
 }
 
