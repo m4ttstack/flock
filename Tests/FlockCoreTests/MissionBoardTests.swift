@@ -122,6 +122,15 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertNil(MissionSelection.move(nil, .down, in: [[], [], []]))
     }
 
+    func testASelectionNoCardHoldsFallsToTheFirstCardOrToNothing() {
+        let a = PaneID(rawValue: "a"), b = PaneID(rawValue: "b"), gone = PaneID(rawValue: "gone")
+        let columns = [[], [a], [b]]
+        XCTAssertEqual(MissionSelection.resolve(b, in: columns), b)
+        XCTAssertEqual(MissionSelection.resolve(gone, in: columns), a, "a dormant or closed pane is not kept")
+        XCTAssertEqual(MissionSelection.resolve(nil, in: columns), a)
+        XCTAssertNil(MissionSelection.resolve(gone, in: [[], [], []]), "no drawn card, nothing to select or open")
+    }
+
     func testAgeText() {
         XCTAssertEqual(MissionAge.text(20), "<1m")
         XCTAssertEqual(MissionAge.text(18 * 60), "18m")

@@ -9,7 +9,9 @@ struct JumpNavigator {
     let drag: DragCoordinator
     let mode: AllWorkspacesModeStore
 
-    var isInMissionControl: Bool { drag.isGridShown && mode.active == .missionControl }
+    var isInMissionControl: Bool {
+        drag.isGridShown && mode.shown(dragInFlight: drag.activeSubject != nil) == .missionControl
+    }
 
     var currentPlace: JumpPlace? {
         if isInMissionControl { return .missionControl }

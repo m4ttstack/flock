@@ -236,7 +236,9 @@ struct FlockApp: App {
                 case .workspaceThumbnail(let id): viewModel.select(workspace: id)
                 case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail: break
                 }
-            }
+            },
+            // Repo and branch are read again each time the view opens.
+            gridOpened: { viewModel.repoBranches.invalidate() }
         ))
         let dividerDragSession = DividerDragSession(
             commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }

@@ -40,7 +40,7 @@ struct MainWindow: View {
                     // Mission control draws none: its Needs you lane is the
                     // same stack, every card of it.
                     .overlay(alignment: .bottomLeading) {
-                        if allWorkspacesMode.active == .arrange {
+                        if allWorkspacesMode.shown(dragInFlight: dragCoordinator.activeSubject != nil) == .arrange {
                             MessageDock(theme: theme, viewModel: viewModel, placement: .overGrid)
                                 .frame(width: railWidth.width)
                         }

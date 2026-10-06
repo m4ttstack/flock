@@ -72,4 +72,15 @@ final class WorkspaceIdentityStoreTests: XCTestCase {
         XCTAssertEqual(WorkspaceIdentityStore.key(for: WorkspaceID(rawValue: "w2"), sections: sections), WorkspaceIdentityStore.boardKey)
         XCTAssertNil(WorkspaceIdentityStore.key(for: WorkspaceID(rawValue: "w3"), sections: sections))
     }
+
+    func testKeysInRailOrderNameTheBoardOnceAndSkipHerds() {
+        let model = MissionFixture.model([
+            .init(label: "Responses", tabs: [.init(label: "r", panes: [.init(status: .idle)])]),
+            .init(label: "acme", tabs: [.init(label: "a", panes: [.init(status: .idle)])]),
+            .init(label: "Reviews", tabs: [.init(label: "v", panes: [.init(status: .idle)])]),
+            .init(label: "herd: sweep", tabs: [.init(label: "w", panes: [.init(status: .idle)])]),
+        ])
+        let sections = RailSections(model: model, board: BoardWorkspaceNames(reviews: "Reviews", responds: "Responses", doctors: "Doctors"))
+        XCTAssertEqual(WorkspaceIdentityStore.keys(in: sections), ["w2", WorkspaceIdentityStore.boardKey])
+    }
 }

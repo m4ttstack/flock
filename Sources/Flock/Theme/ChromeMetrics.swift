@@ -814,6 +814,9 @@ enum ChromeMetrics {
         static let toggleCornerRadius: CGFloat = 6
         static let toggleSegmentPadding: CGFloat = 12
         static let laneMoveDuration: Double = 0.2
+        /// How far sideways a lane lets a moving card draw: past any lane
+        /// it could be crossing from.
+        static let crossLaneReach: CGFloat = 10_000
     }
 
     enum Grid {

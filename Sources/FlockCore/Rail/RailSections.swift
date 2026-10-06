@@ -24,6 +24,11 @@ public struct RailSections: Equatable, Sendable {
         herdSummary = herdRail.summary
     }
 
+    /// Every workspace in the order the rail draws its sections, folded or not.
+    public var railOrder: [WorkspaceID] {
+        workspaces.map(\.workspaceID) + board.map(\.workspaceID) + herds.map(\.workspaceID)
+    }
+
     /// One row of the rail as the keyboard walks it.
     public struct Row: Equatable, Sendable {
         public let workspaceID: WorkspaceID

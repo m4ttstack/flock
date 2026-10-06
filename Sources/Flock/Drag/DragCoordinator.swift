@@ -314,16 +314,20 @@ final class DragCoordinator {
     /// Selects what a fired dwell uncovers. Synchronous and run before the
     /// grid opens or closes, so no frame draws the window between the two.
     @ObservationIgnored private let reveal: @MainActor (DropTarget) -> Void
+    /// Run as the grid opens, before any frame of it draws.
+    @ObservationIgnored private let gridOpened: @MainActor () -> Void
 
     init(
         toasts: ToastCenter,
         rearrangeMode: RearrangeMode,
         commit: @escaping DragCommit,
-        reveal: @escaping @MainActor (DropTarget) -> Void
+        reveal: @escaping @MainActor (DropTarget) -> Void,
+        gridOpened: @escaping @MainActor () -> Void = {}
     ) {
         self.toasts = toasts
         self.rearrangeMode = rearrangeMode
         self.reveal = reveal
+        self.gridOpened = gridOpened
         let outcomes = self.outcomes
         let stripOrder = self.stripOrder
         let springLoads = self.springLoads
@@ -1190,6 +1194,7 @@ final class DragCoordinator {
             pendingReveal = nil
         }
         if isGridShown != grid.isShown {
+            if grid.isShown { gridOpened() }
             isGridShown = grid.isShown
         }
         stripOrder.isGridShown = grid.isShown

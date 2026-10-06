@@ -17,6 +17,9 @@ struct MissionControlView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isFocused: Bool
     @State private var showsDormant = false
+    /// One space for every lane, so a card whose lane changes is the same
+    /// view moving rather than one fading out and another in.
+    @Namespace private var laneSpace
 
     private typealias M = ChromeMetrics.MissionControl
 
@@ -25,18 +28,10 @@ struct MissionControlView: View {
         // model's clock, so ages and timelines agree with the history.
         TimelineView(.periodic(from: .now, by: 60)) { _ in
             let now = viewModel.currentTime
-            if let model = viewModel.model {
-                let sections = RailSections(model: model, board: boardNames.names, herdProgress: herdProgress.progress)
-                let board = MissionBoard(
-                    model: model, sections: sections, toasts: viewModel.attentionToasts,
-                    history: viewModel.statusHistory, cutoff: cutoff.active.seconds, now: now
-                )
+            if let (board, sections) = makeBoard(now: now) {
                 lanes(board, sections: sections, now: now)
-                    .onAppear {
-                        if mode.missionSelection == nil {
-                            mode.missionSelection = MissionSelection.move(nil, .down, in: board.columns)
-                        }
-                    }
+                    .onAppear { resolveSelection(in: board) }
+                    .onChange(of: board.columns) { resolveSelection(in: board) }
             }
         }
         .padding(.horizontal, M.canvasPadding)
@@ -53,10 +48,23 @@ struct MissionControlView: View {
         .onKeyPress(.leftArrow) { move(.left) }
         .onKeyPress(.rightArrow) { move(.right) }
         .onKeyPress(.return) { activateSelection() }
-        .onAppear {
-            isFocused = true
-            viewModel.repoBranches.invalidate()
-        }
+        .onAppear { isFocused = true }
+    }
+
+    /// The one place the board is built, for drawing and for the keys alike.
+    private func makeBoard(now: Date) -> (MissionBoard, RailSections)? {
+        guard let model = viewModel.model else { return nil }
+        let sections = RailSections(model: model, board: boardNames, herdProgress: herdProgress)
+        let board = MissionBoard(
+            model: model, sections: sections, toasts: viewModel.attentionToasts,
+            history: viewModel.statusHistory, cutoff: cutoff.active.seconds, now: now
+        )
+        return (board, sections)
+    }
+
+    private func resolveSelection(in board: MissionBoard) {
+        let resolved = MissionSelection.resolve(mode.missionSelection, in: board.columns)
+        if resolved != mode.missionSelection { mode.missionSelection = resolved }
     }
 
     private func lanes(_ board: MissionBoard, sections: RailSections, now: Date) -> some View {
@@ -83,6 +91,15 @@ struct MissionControlView: View {
                 if !board.dormant.isEmpty { dormantFold(board.dormant) }
             }
         }
+        // Every lane's ground in one layer behind all lanes' cards: drawn per
+        // lane, a later lane's ground would cover a card crossing leftwards.
+        .background {
+            HStack(spacing: M.laneGap) {
+                ForEach(0..<3, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: M.laneCornerRadius).fill(theme.pane)
+                }
+            }
+        }
         .animation(reduceMotion ? nil : .easeOut(duration: M.laneMoveDuration), value: board)
     }
 
@@ -106,6 +123,11 @@ struct MissionControlView: View {
                 }
                 .scrollIndicators(.never)
                 .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+                // Clipped top and bottom only: a card moving to another lane
+                // is drawn by the lane it lands in, and has to stay visible
+                // as it crosses from its old lane.
+                .scrollClipDisabled()
+                .mask { Rectangle().padding(.horizontal, -M.crossLaneReach) }
                 .onAppear { if let selected = mode.missionSelection { reader.scrollTo(selected) } }
                 .onChange(of: mode.missionSelection) { _, selected in
                     if let selected { withAnimation { reader.scrollTo(selected) } }
@@ -115,7 +137,6 @@ struct MissionControlView: View {
         }
         .padding(M.lanePadding - M.selectionInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: M.laneCornerRadius))
     }
 
     private func groupLabel(_ name: String) -> some View {
@@ -135,6 +156,7 @@ struct MissionControlView: View {
             isSelected: mode.missionSelection == card.paneID, isCooling: cooling,
             activate: { open(card.paneID) }
         )
+        .matchedGeometryEffect(id: card.paneID, in: laneSpace)
         .id(card.paneID)
     }
 
@@ -188,18 +210,27 @@ struct MissionControlView: View {
     }
 
     private func move(_ direction: MissionSelection.Direction) -> KeyPress.Result {
-        guard let model = viewModel.model else { return .ignored }
-        let board = MissionBoard(
-            model: model, sections: RailSections(model: model, board: boardNames.names, herdProgress: herdProgress.progress),
-            toasts: viewModel.attentionToasts, history: viewModel.statusHistory,
-            cutoff: cutoff.active.seconds, now: viewModel.currentTime
-        )
-        mode.missionSelection = MissionSelection.move(mode.missionSelection, direction, in: board.columns)
+        guard let (board, _) = makeBoard(now: viewModel.currentTime) else { return .ignored }
+        let current = MissionSelection.resolve(mode.missionSelection, in: board.columns)
+        guard current != nil else { return .ignored }
+        // A selection that had gone stale lands on the first card rather than
+        // moving away from it.
+        mode.missionSelection = current == mode.missionSelection
+            ? MissionSelection.move(current, direction, in: board.columns)
+            : current
         return .handled
     }
 
+    /// Opens the selected card only while it is drawn; a stale selection is
+    /// replaced by the first card, which Return then opens.
     private func activateSelection() -> KeyPress.Result {
-        guard let pane = mode.missionSelection else { return .ignored }
+        guard let (board, _) = makeBoard(now: viewModel.currentTime),
+              let pane = MissionSelection.resolve(mode.missionSelection, in: board.columns)
+        else { return .ignored }
+        guard pane == mode.missionSelection else {
+            mode.missionSelection = pane
+            return .handled
+        }
         open(pane)
         return .handled
     }
@@ -207,5 +238,14 @@ struct MissionControlView: View {
     private func open(_ pane: PaneID) {
         mode.missionSelection = pane
         JumpNavigator(viewModel: viewModel, drag: drag, mode: mode).open(pane: pane)
+    }
+}
+
+extension RailSections {
+    /// The rail's sections as the app's stores hold them, for every view that
+    /// orders or keys workspaces the way the rail does.
+    @MainActor
+    init(model: SessionModel, board: BoardStore, herdProgress: HerdProgressStore) {
+        self.init(model: model, board: board.names, herdProgress: herdProgress.progress)
     }
 }

@@ -44,7 +44,7 @@ struct AllWorkspacesGrid: View {
             Rectangle()
                 .fill(theme.rule)
                 .frame(height: ChromeMetrics.ruleWidth)
-            if mode.active == .missionControl {
+            if shownMode == .missionControl {
                 MissionControlView(theme: theme, viewModel: viewModel)
             } else {
                 arrangeGrid
@@ -52,15 +52,18 @@ struct AllWorkspacesGrid: View {
         }
         .boundedBackground(theme.chrome)
         .onAppear {
+            mode.opened(dragInFlight: drag.activeSubject != nil)
             refreshIdentities()
             drag.setGridOrder(publishedOrder)
         }
         .onChange(of: itemOrder) { drag.setGridOrder(publishedOrder) }
-        .onChange(of: mode.active) { drag.setGridOrder(publishedOrder) }
+        .onChange(of: shownMode) { drag.setGridOrder(publishedOrder) }
     }
 
+    private var shownMode: AllWorkspacesMode { mode.shown(dragInFlight: drag.activeSubject != nil) }
+
     /// Mission control is never a drop target, so it publishes no items.
-    private var publishedOrder: [GridItemID] { mode.active == .arrange ? itemOrder : [] }
+    private var publishedOrder: [GridItemID] { shownMode == .arrange ? itemOrder : [] }
 
     private var arrangeGrid: some View {
         ScrollView(.vertical) {
@@ -109,7 +112,7 @@ struct AllWorkspacesGrid: View {
                 .font(ChromeType.gridCount)
                 .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
-            Text(mode.active == .missionControl ? "⌘J oldest · ⇧⌘J back · esc" : "esc to return")
+            Text(shownMode == .missionControl ? "⌘J oldest · ⇧⌘J back · esc" : "esc to return")
                 .font(ChromeType.gridHint)
                 .foregroundStyle(theme.textLabel)
         }
@@ -121,7 +124,7 @@ struct AllWorkspacesGrid: View {
     private var modeToggle: some View {
         HStack(spacing: 2) {
             ForEach(AllWorkspacesMode.allCases, id: \.self) { option in
-                let on = mode.active == option
+                let on = shownMode == option
                 Button { mode.select(option) } label: {
                     Text(option.title)
                         .font(ChromeType.modeToggle(selected: on))
@@ -143,14 +146,9 @@ struct AllWorkspacesGrid: View {
         .background(theme.tabRest, in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius))
     }
 
-    /// Keyed in rail order, so a first sighting takes hues in the order the
-    /// rail lists workspaces.
     private func refreshIdentities() {
         guard let model = viewModel.model, !model.workspaces.isEmpty else { return }
-        let sections = RailSections(model: model, board: boardNames.names, herdProgress: herdProgress.progress)
-        let railOrder = sections.workspaces.map(\.workspaceID) + sections.board.map(\.workspaceID)
-            + sections.herds.map(\.workspaceID)
-        let keys = railOrder.compactMap { WorkspaceIdentityStore.key(for: $0, sections: sections) }
+        let keys = WorkspaceIdentityStore.keys(in: RailSections(model: model, board: boardNames, herdProgress: herdProgress))
         identity.keepOnly(Set(keys))
         identity.assign(keys)
     }

@@ -32,8 +32,24 @@ public final class AllWorkspacesModeStore {
         active = userDefaults.string(forKey: Self.defaultsKey).flatMap(AllWorkspacesMode.init(rawValue:)) ?? .missionControl
     }
 
+    /// Set for an open that began mid-drag: the drop surface is always
+    /// Arrange, and the view stays there after the drop until the person picks
+    /// a mode. Never remembered.
+    public private(set) var heldInArrange = false
+
     public func select(_ mode: AllWorkspacesMode) {
+        heldInArrange = false
         active = mode
         userDefaults.set(mode.rawValue, forKey: Self.defaultsKey)
+    }
+
+    public func opened(dragInFlight: Bool) {
+        heldInArrange = dragInFlight
+    }
+
+    /// The mode drawn now, which a live drag forces to Arrange whatever is
+    /// remembered.
+    public func shown(dragInFlight: Bool) -> AllWorkspacesMode {
+        dragInFlight || heldInArrange ? .arrange : active
     }
 }

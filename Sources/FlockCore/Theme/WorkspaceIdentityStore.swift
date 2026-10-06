@@ -33,6 +33,13 @@ public final class WorkspaceIdentityStore {
         return workspace.rawValue
     }
 
+    /// Every key the rail shows, in rail order, so a first sighting takes hues
+    /// in the order the rail lists workspaces.
+    public static func keys(in sections: RailSections) -> [String] {
+        var seen = Set<String>()
+        return sections.railOrder.compactMap { key(for: $0, sections: sections) }.filter { seen.insert($0).inserted }
+    }
+
     public func index(for key: String) -> Int? {
         overrides[key] ?? assigned[key]
     }

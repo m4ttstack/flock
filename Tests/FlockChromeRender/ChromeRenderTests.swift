@@ -1902,6 +1902,62 @@ final class ChromeRenderTests: XCTestCase {
         try await renderMissionControl(themed: "tokyo-night-day", into: "mission-light.png")
     }
 
+    /// A selection left on a pane that is no longer a card (dormant, or
+    /// closed) is replaced by the first card when mission control opens, so
+    /// the ring and Return always agree on a card that is drawn.
+    func testMissionControlReplacesAStaleSelectionWithTheFirstCard() async throws {
+        var model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        model.panes[GridFixture.buildPane]?.agentStatus = .blocked
+        harness.viewModel.update(model: model, connection: .live)
+        harness.modeStore.select(.missionControl)
+        harness.modeStore.missionSelection = PaneID(rawValue: "w9:p9")
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+        XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane, "the closed pane's id was kept")
+        window.close()
+    }
+
+    /// Opened mid-drag, the view is the drop surface, which is always Arrange,
+    /// whatever mode is remembered; the remembered mode is left alone.
+    func testOpenedMidDragTheViewDrawsArrangeAndRemembersMissionControl() async throws {
+        let harness = try await Harness(theme: .tokyoNight, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        harness.modeStore.select(.missionControl)
+        MissionCardFrames.shared.frames = [:]
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.claudePane),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: CGSize(width: 200, height: 120), isCompact: true),
+            at: CGPoint(x: 600, y: 300)
+        )
+        harness.drag.toggleGrid()
+        await settle(window)
+        XCTAssertFalse(try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails).isEmpty, "Arrange's thumbnails are the drop surface")
+        XCTAssertTrue(MissionCardFrames.shared.frames.isEmpty, "no mission-control card was drawn")
+        XCTAssertEqual(harness.modeStore.active, .missionControl)
+        window.close()
+    }
+
+    /// Repo and branch are re-read per open: the hook runs as the grid opens,
+    /// before the view is shown, and not as it closes.
+    func testOpeningTheGridRunsItsOpenHookBeforeItIsShown() {
+        var coordinator: DragCoordinator?
+        var shownAtHook: [Bool] = []
+        let drag = DragCoordinator(
+            toasts: ToastCenter(), rearrangeMode: RearrangeMode(),
+            commit: { _, _ in fatalError("never drops") }, reveal: { _ in },
+            gridOpened: { shownAtHook.append(coordinator?.isGridShown ?? true) }
+        )
+        coordinator = drag
+        drag.toggleGrid()
+        drag.toggleGrid()
+        drag.openGrid()
+        XCTAssertEqual(shownAtHook, [false, false])
+    }
+
     private func renderMissionControl(themed id: String, into file: String) async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })

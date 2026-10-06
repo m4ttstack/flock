@@ -41,9 +41,7 @@ public struct MissionBoard: Equatable, Sendable {
         model: SessionModel, sections: RailSections, toasts: AttentionToastStack,
         history: PaneStatusHistory, cutoff: TimeInterval, now: Date
     ) {
-        let railOrder = sections.workspaces.map(\.workspaceID) + sections.board.map(\.workspaceID)
-            + sections.herds.map(\.workspaceID)
-        let rank = Dictionary(railOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let rank = Dictionary(sections.railOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         var names: [WorkspaceID: String] = Dictionary(model.workspaces.map { ($0.workspaceID, $0.label) }, uniquingKeysWith: { first, _ in first })
         for herd in sections.herds {
             names[herd.workspaceID] = "\(herd.name) · herd \(herd.done)/\(herd.total)"
@@ -108,6 +106,13 @@ public struct MissionBoard: Equatable, Sendable {
 
 public enum MissionSelection {
     public enum Direction: Sendable { case up, down, left, right }
+
+    /// The selection while a drawn card holds it, else the first drawn card:
+    /// a pane gone dormant or closed is never the selection. Nil with no card.
+    public static func resolve(_ selection: PaneID?, in columns: [[PaneID]]) -> PaneID? {
+        if let selection, columns.contains(where: { $0.contains(selection) }) { return selection }
+        return columns.first { !$0.isEmpty }?.first
+    }
 
     /// Up and down stay in a lane; left and right go to the nearest row of the
     /// next lane that has cards. With nothing selected, the first card.
