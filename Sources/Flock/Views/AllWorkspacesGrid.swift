@@ -408,7 +408,7 @@ private struct WorkspaceIsland: View {
             alignment: .leading
         )
         .frame(maxHeight: .infinity, alignment: .top)
-        .background((identity ?? theme.textLabel).opacity(ChromeMetrics.Grid.islandTint), in: shape)
+        .background(theme.identityTint(identity), in: shape)
         .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.islandCornerRadius) }
         .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
@@ -430,9 +430,10 @@ private struct WorkspaceIsland: View {
 
     private func header(tabCount: Int) -> some View {
         HStack(spacing: ChromeMetrics.Grid.islandHeaderSpacing) {
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.identitySquareRadius)
-                .fill(identity ?? theme.textLabel)
-                .frame(width: ChromeMetrics.Grid.identitySquare, height: ChromeMetrics.Grid.identitySquare)
+            IdentitySquare(
+                theme: theme, identity: identity,
+                size: ChromeMetrics.Grid.identitySquare, cornerRadius: ChromeMetrics.Grid.identitySquareRadius
+            )
             Text(workspace.label)
                 .font(ChromeType.gridCardName)
                 .foregroundStyle(theme.textStrong)

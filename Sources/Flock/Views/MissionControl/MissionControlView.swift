@@ -68,10 +68,7 @@ struct MissionControlView: View {
                 EmptyView()
             }
             lane(title: "WORKING", status: .working, count: board.working.reduce(0) { $0 + $1.cards.count }) {
-                ForEach(board.working) { group in
-                    groupLabel(group.name)
-                    ForEach(group.cards) { card($0, sections: sections, now: now, showsWorkspace: false, cooling: false) }
-                }
+                ForEach(board.working) { workingGroup($0, sections: sections, now: now) }
             } footer: {
                 EmptyView()
             }
@@ -129,12 +126,25 @@ struct MissionControlView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func groupLabel(_ name: String) -> some View {
-        HStack(spacing: 8) {
-            Text(name).font(ChromeType.missionGroupLabel).foregroundStyle(theme.textLabel)
-            Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
+    /// A workspace's Working cards on its identity tint, as its Arrange
+    /// island wears it.
+    private func workingGroup(_ group: MissionGroup, sections: RailSections, now: Date) -> some View {
+        let identity = identityColor(group.workspaceID, sections: sections)
+        return VStack(alignment: .leading, spacing: M.cardGap) {
+            HStack(spacing: M.groupLabelSpacing) {
+                IdentitySquare(
+                    theme: theme, identity: identity, size: M.groupIdentitySquare, cornerRadius: M.groupIdentitySquareRadius
+                )
+                Text(group.name)
+                    .font(ChromeType.missionGroupName)
+                    .foregroundStyle(theme.identityInk(identity))
+                    .lineLimit(1)
+            }
+            ForEach(group.cards) { card($0, sections: sections, now: now, showsWorkspace: false, cooling: false) }
         }
-        .padding(.top, M.groupLabelTopPadding)
+        .padding(M.groupPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.identityTint(identity), in: RoundedRectangle(cornerRadius: M.groupCornerRadius))
     }
 
     private func card(_ card: MissionCard, sections: RailSections, now: Date, showsWorkspace: Bool, cooling: Bool) -> some View {

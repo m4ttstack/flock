@@ -135,6 +135,7 @@ enum ChromeType {
     static let missionCardTitle = inter(14.5, .medium)
     static let missionCardMono = mono(11)
     static let missionGroupLabel = inter(11.5, .medium)
+    static let missionGroupName = inter(11.5, .semibold)
     static let missionEmpty = inter(12.5)
     static func modeToggle(selected: Bool) -> Font { inter(12, selected ? .medium : .regular) }
     static let focusedPlace = inter(12.5, .medium)

@@ -2220,6 +2220,7 @@ final class ChromeRenderTests: XCTestCase {
         clock.date = launch.addingTimeInterval(45 * 60)
         harness.modeStore.select(.missionControl)
         MissionCardFrames.shared.frames = [:]
+        MissionCardFrames.shared.identitySquares = [:]
         let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
@@ -2240,6 +2241,28 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(
             hex(image, CGPoint(x: card.minX - ringMiddle, y: card.midY)), theme.palette.accent.hex,
             "\(id): the selection ring sits outside the blocked outline"
+        )
+
+        let scratch = UserDefaults(suiteName: "flock-identity-\(UUID().uuidString)")!
+        let (board, sections) = try XCTUnwrap(MissionBoard.make(
+            viewModel: harness.viewModel, board: harness.board, herdProgress: HerdProgressStore(sources: .unanswered),
+            cutoff: DormantCutoffStore(userDefaults: scratch), now: harness.viewModel.currentTime
+        ))
+        let firstWorking = try XCTUnwrap(board.working.first?.cards.first, "the premise: Working holds a group")
+        let working = try XCTUnwrap(harness.missionCardFrame(of: firstWorking.paneID))
+        XCTAssertNotEqual(
+            hex(image, CGPoint(x: working.minX - ChromeMetrics.MissionControl.groupPadding / 2, y: working.midY)),
+            theme.palette.chromeRoles.pane.hex,
+            "\(id): a Working group sits on its identity tint, not the lane's ground"
+        )
+        let expected = WorkspaceIdentityStore(userDefaults: scratch)
+        expected.assign(WorkspaceIdentityStore.keys(in: sections))
+        let key = try XCTUnwrap(WorkspaceIdentityStore.key(for: GridFixture.herdr, sections: sections))
+        let index = try XCTUnwrap(expected.index(for: key))
+        let square = try XCTUnwrap(MissionCardFrames.shared.identitySquares[GridFixture.buildPane], "the Needs-you card draws a square")
+        XCTAssertEqual(
+            hex(image, CGPoint(x: square.midX, y: square.midY)), IdentityPalette.colors(for: theme.palette)[index].hex,
+            "\(id): a Needs-you card leads with its workspace's identity square"
         )
         window.close()
     }

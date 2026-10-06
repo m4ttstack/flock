@@ -111,11 +111,9 @@ struct FocusedPaneView: View {
     private func place(_ card: MissionCard, sections: RailSections, now: Date) -> some View {
         let color = MissionBoard.identityColor(card.workspaceID, sections: sections, identity: identity, theme: theme)
         return HStack(spacing: G.headerSpacing) {
-            RoundedRectangle(cornerRadius: G.focusedIdentityCornerRadius)
-                .fill(color ?? theme.textLabel)
-                .frame(width: G.focusedIdentitySize, height: G.focusedIdentitySize)
+            IdentitySquare(theme: theme, identity: color, size: G.focusedIdentitySize, cornerRadius: G.focusedIdentityCornerRadius)
             HStack(spacing: 5) {
-                Text(card.workspaceName).foregroundStyle(color ?? theme.textLabel)
+                Text(card.workspaceName).foregroundStyle(theme.identityInk(color))
                 Text("›").foregroundStyle(theme.textLabel)
                 Text(card.tabTitle).foregroundStyle(theme.textStrong)
             }

@@ -6,6 +6,7 @@ import SwiftUI
 final class MissionCardFrames {
     static let shared = MissionCardFrames()
     var frames: [PaneID: CGRect] = [:]
+    var identitySquares: [PaneID: CGRect] = [:]
 }
 
 struct MissionCardView: View {
@@ -59,10 +60,20 @@ struct MissionCardView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: M.cardLineSpacing) {
             HStack(spacing: 8) {
-                StatusDot(status: card.status, theme: theme, size: M.cardDot)
+                HStack(spacing: M.cardIdentitySpacing) {
+                    if showsWorkspace {
+                        IdentitySquare(
+                            theme: theme, identity: identity, size: M.cardIdentitySquare, cornerRadius: M.cardIdentitySquareRadius
+                        )
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                            MissionCardFrames.shared.identitySquares[card.paneID] = $0
+                        }
+                    }
+                    StatusDot(status: card.status, theme: theme, size: M.cardDot)
+                }
                 HStack(spacing: 4) {
                     if showsWorkspace {
-                        Text(card.workspaceName).foregroundStyle(identity ?? theme.textLabel)
+                        Text(card.workspaceName).foregroundStyle(theme.identityInk(identity))
                         Text("›").foregroundStyle(theme.textLabel)
                     }
                     Text(card.tabTitle).foregroundStyle(theme.textLabel)
