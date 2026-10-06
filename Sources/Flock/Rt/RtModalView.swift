@@ -115,7 +115,9 @@ struct RtModalView: View {
     }
 
     private func close() {
-        Task { await viewModel.rt.closeModal() }
+        // Only the focused view's modal is mounted while Overview shows a pane.
+        let focusingLinked = viewModel.paneShownInOverview == nil
+        Task { await viewModel.rt.closeModal(focusingLinked: focusingLinked) }
     }
 
     private func back() {

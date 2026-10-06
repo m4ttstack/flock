@@ -315,7 +315,7 @@ public final class SessionViewModel {
                 guard let pane = model.panes[paneID],
                       let was = previous.panes[paneID]?.agentStatus,
                       let kind = AttentionToastStack.kind(from: was, to: pane.agentStatus),
-                      paneID != resolvedFocusedPaneID,
+                      paneID != resolvedFocusedPaneID, paneID != paneShownInOverview,
                       !HerdWorkspace.isHerdPane(pane, in: model)
                 else { continue }
                 attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt))
@@ -395,6 +395,10 @@ public final class SessionViewModel {
         attentionToasts.dismiss(pane: pane)
         return true
     }
+
+    /// The pane Overview's focused view is showing. Watched there as the
+    /// main window's focused pane is watched, so it raises no card.
+    public var paneShownInOverview: PaneID?
 
     /// The card the jump key takes next when every card is drawn.
     public var oldestAttentionPane: PaneID? { attentionToasts.toasts.last?.paneID }

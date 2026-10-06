@@ -2086,6 +2086,24 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A focused pane that herdr stops reporting leaves the view on
+    /// Overview's lanes, never on an empty canvas.
+    func testAFocusedPaneThatClosesReturnsToOverview() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore).open(pane: GridFixture.buildPane)
+        await settle(window)
+        XCTAssertEqual(harness.viewModel.paneShownInOverview, GridFixture.buildPane, "the view model does not know the shown pane")
+        var model = try XCTUnwrap(harness.viewModel.model)
+        model.panes[GridFixture.buildPane] = nil
+        harness.viewModel.update(model: model, connection: .live)
+        await settle(window)
+        XCTAssertNil(harness.drag.gridFocusedPane, "the closed pane is still focused")
+        XCTAssertTrue(harness.drag.isGridShown, "the view closed")
+        XCTAssertEqual(harness.modeStore.shown(dragInFlight: false), .missionControl)
+        XCTAssertNil(harness.viewModel.paneShownInOverview, "the view model still watches the closed pane")
+        window.close()
+    }
+
     /// The focused view opens over a terminal holding the keyboard. Esc and
     /// the arrows reach the window's first responder untouched: Overview's
     /// key monitor is not installed, and Esc does not close the view.

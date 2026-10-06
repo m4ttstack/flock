@@ -267,14 +267,15 @@ public final class RtCoordinator {
     /// A plain close, with nothing else claiming the modal next: herdr's
     /// focus goes to the pane the item belongs to, which the rt button's
     /// click never moved to, before the item is disposed of by `dispose`'s
-    /// rules.
-    public func closeModal() async {
+    /// rules. `focusingLinked` false leaves herdr's focus alone, for a modal
+    /// opened from Overview's focused view.
+    public func closeModal(focusingLinked: Bool = true) async {
         guard let current = modal else { return }
         modal = nil
         guard let item = items[current.itemID] else { return }
         // Before the shutdown, which waits out its confirm delay: focus moves
         // with the close, not a second after it.
-        await focusLinked(item.linked)
+        if focusingLinked { await focusLinked(item.linked) }
         if current.serviceTabID != nil { await closeAttachTabs(of: item) }
         await dispose(current.itemID)
     }

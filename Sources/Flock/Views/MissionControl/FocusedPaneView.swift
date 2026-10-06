@@ -30,6 +30,21 @@ struct FocusedPaneView: View {
             PaneCanvas(theme: theme, viewModel: viewModel, layout: layout, solo: pane)
                 .overlay { RtModalView(theme: theme, viewModel: viewModel) }
         }
+        .onChange(of: pane, initial: true) { previous, _ in
+            if previous != pane { closeRtModal() }
+            viewModel.paneShownInOverview = pane
+        }
+        .onDisappear {
+            if viewModel.paneShownInOverview == pane { viewModel.paneShownInOverview = nil }
+            closeRtModal()
+        }
+    }
+
+    /// A modal left open here would otherwise pop up over the main window
+    /// the next time it mounts its own.
+    private func closeRtModal() {
+        guard viewModel.rt.modal != nil else { return }
+        Task { await viewModel.rt.closeModal(focusingLinked: false) }
     }
 
     private var layout: LayoutSnapshot? {
@@ -58,7 +73,7 @@ struct FocusedPaneView: View {
                 }
                 separator
             }
-            Text("⌘J next  ·  ⇧⌘J overview")
+            Text("⌘J next · ⇧⌘J overview")
                 .font(ChromeType.gridHint)
                 .foregroundStyle(theme.textLabel)
         }

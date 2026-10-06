@@ -208,6 +208,29 @@ final class RtCoordinatorTests: XCTestCase {
         XCTAssertTrue(rt.items.isEmpty)
     }
 
+    /// Overview's focused view closes its modal without moving herdr's focus;
+    /// a plain close moves it to the linked pane.
+    func testAClosingThatLeavesFocusAloneSendsNoFocus() async throws {
+        for focusing in [true, false] {
+            let world = FakeRtWorld()
+            world.script("command rt nav", .init(busyPolls: 1000, status: "0"))
+            let rt = makeCoordinator(world)
+            await rt.open(.nav, from: world.fixture.linkedPane)
+            rt.update(model: world.model())
+            let before = world.calls("pane.focus").count + world.calls("tab.focus").count
+
+            await rt.closeModal(focusingLinked: focusing)
+
+            let focusCalls = world.calls("pane.focus").count + world.calls("tab.focus").count - before
+            XCTAssertNil(rt.modal)
+            if focusing {
+                XCTAssertGreaterThan(focusCalls, 0, "a plain close left herdr's focus where it was")
+            } else {
+                XCTAssertEqual(focusCalls, 0, "the close moved herdr's focus")
+            }
+        }
+    }
+
     func testClosingARunningRunKeepsItCountedOnTheButton() async throws {
         let world = FakeRtWorld()
         world.script("command rt run", .init(busyPolls: 1000, status: "0"))

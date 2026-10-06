@@ -74,6 +74,25 @@ final class MissionJumpTests: XCTestCase {
         XCTAssertFalse(viewModel.focusInOverview(pane: PaneID(rawValue: "gone")))
     }
 
+    /// The pane in Overview's focused view is being watched, as the main
+    /// window's focused pane is: it raises no card while it is shown.
+    func testThePaneShownInOverviewRaisesNoCardUntilItIsLeft() {
+        let clock = Clock()
+        let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        let pane = PaneID(rawValue: "w2:t1:p1")
+        viewModel.update(model: model([.working]), connection: .live)
+        viewModel.paneShownInOverview = pane
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: model([.blocked]), connection: .live)
+        XCTAssertNil(viewModel.attentionToasts.toast(pane: pane), "the watched pane raised a card")
+        viewModel.paneShownInOverview = nil
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: model([.working]), connection: .live)
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: model([.blocked]), connection: .live)
+        XCTAssertNotNil(viewModel.attentionToasts.toast(pane: pane), "a pane no longer shown raised no card")
+    }
+
     func testAClosedOriginOffersNoWayBack() async {
         let viewModel = SessionViewModel(client: RecordingClient())
         viewModel.update(model: model([.working, .idle]), connection: .live)
