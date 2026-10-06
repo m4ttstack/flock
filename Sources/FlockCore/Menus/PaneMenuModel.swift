@@ -63,6 +63,14 @@ public struct PaneMenuEntry: Equatable, Sendable {
 /// app whenever it is listening, Option always opens this menu), so there is
 /// no per-pane mode for a row to flip.
 public enum PaneMenuModel {
+    /// `solo` is a pane shown alone, away from its tab: only the rows that
+    /// neither change the tab around it nor move herdr's focus.
+    public static func entries(for pane: PaneID, model: SessionModel, focusedPane: PaneID?, solo: Bool) -> [PaneMenuEntry] {
+        let all = entries(for: pane, model: model, focusedPane: focusedPane)
+        guard solo else { return all }
+        return all.filter { [.renamePane, .clearPaneName, .closePane].contains($0.action) }
+    }
+
     public static func entries(for pane: PaneID, model: SessionModel, focusedPane: PaneID?) -> [PaneMenuEntry] {
         var entries: [PaneMenuEntry] = [PaneMenuEntry(
             label: "Rename Pane", action: .renamePane, accessibilityIdentifier: "flock.pane.menu.rename"

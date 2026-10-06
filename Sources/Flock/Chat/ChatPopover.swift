@@ -66,8 +66,9 @@ struct ChatPopover: View {
     /// Peek's own jump affordance: the pane id its `jump` call resolves,
     /// handed back so the caller can focus it FROM FLOCK'S OWN MODEL. A
     /// no-op default keeps every existing call site (render tests included)
-    /// compiling; only the real pane chrome supplies the real one.
-    let onJump: (PaneID) -> Void
+    /// compiling; only the real pane chrome supplies the real one. Nil hides
+    /// the jump (see `ChatPeekView`).
+    let onJump: ((PaneID) -> Void)?
 
     @Binding private var isPresented: Bool
     @State private var route: Route = .status
@@ -98,7 +99,7 @@ struct ChatPopover: View {
         theme: Theme, status: ChatStatus?, statusError: String? = nil, isPresented: Binding<Bool>,
         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onOpenViewer: @escaping () -> Void,
         viewerDisabledReason: String? = nil, onRetry: @escaping () -> Void = {}, initialFeature: ChatPopoverFeature? = nil,
-        onJump: @escaping (PaneID) -> Void = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil
+        onJump: ((PaneID) -> Void)? = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil
     ) {
         self.theme = theme
         self.status = status

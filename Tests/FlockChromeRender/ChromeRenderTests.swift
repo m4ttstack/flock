@@ -3021,7 +3021,8 @@ final class ChromeRenderTests: XCTestCase {
     /// with no canvas-coloured gutter anywhere along it and no mauve zoom
     /// badge in its legend. Only `w1:p1`'s program holds the mouse, so its lit
     /// mouse badge in the legend names the pane drawn and shows the legend
-    /// controls survive solo. Nothing is published to the drag coordinator.
+    /// controls survive solo. No drag grip is drawn, and nothing is published
+    /// to the drag coordinator.
     /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
     func testASoloCanvasDrawsOnePaneAcrossTheWholeCanvasWithoutAZoomBadge() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -3031,7 +3032,7 @@ final class ChromeRenderTests: XCTestCase {
             var model = try Fixture.model(zoomed: true)
             model.panes[solo]?.terminalID = TerminalID(rawValue: "term_p1")
             let harness = try await Harness(theme: theme, model: model, mouseHolders: [solo])
-            let window = harness.makeSoloCanvasWindow(size: Self.windowSize, solo: solo)
+            let window = harness.makeCanvasWindow(size: Self.windowSize, solo: solo)
             await settle(window)
             let image = try snapshot(window)
             if let directory {
@@ -3070,8 +3071,30 @@ final class ChromeRenderTests: XCTestCase {
             )
             XCTAssertNil(firstPoint(in: legend, matching: theme.palette.mauve.hex, of: image), "\(scheme): the solo pane wears a zoom badge")
             XCTAssertTrue(harness.drag.canvas.paneFrames.isEmpty, "\(scheme): the solo canvas published frames for drop hit-testing")
+
+            // The same canvas without solo holds `w1:p2` open over the same
+            // box, grip and all, so the grip's spot is known to be inked there.
+            let tiled = harness.makeCanvasWindow(size: Self.windowSize, solo: nil)
+            await settle(tiled)
+            let tiledImage = try snapshot(tiled)
+            let gripSpot = CGRect(x: midX - 15, y: legend.minY, width: 30, height: legend.height)
+            XCTAssertNotNil(
+                firstPointDiffering(in: gripSpot, from: roles.pane.hex, of: tiledImage),
+                "\(scheme): the canvas without solo draws no grip there, so the check below proves nothing"
+            )
+            XCTAssertNil(firstPointDiffering(in: gripSpot, from: roles.pane.hex, of: image), "\(scheme): the solo pane draws a drag grip")
+            tiled.close()
             window.close()
         }
+    }
+
+    private func firstPointDiffering(in rect: CGRect, from target: String, of image: NSBitmapImageRep) -> CGPoint? {
+        for y in stride(from: rect.minY, to: rect.maxY, by: 0.5) {
+            for x in stride(from: rect.minX, to: rect.maxX, by: 0.5) where hex(image, CGPoint(x: x, y: y)) != target {
+                return CGPoint(x: x, y: y)
+            }
+        }
+        return nil
     }
 
     /// The three places the one inline rename editor opens, and the zoom
@@ -4020,9 +4043,8 @@ private struct Harness {
         return host(root, size: size)
     }
 
-    /// The main window's own canvas alone, showing one pane of the selected
-    /// tab in solo mode.
-    func makeSoloCanvasWindow(size: CGSize, solo: PaneID) -> NSWindow {
+    /// The main window's own canvas alone, for the selected tab.
+    func makeCanvasWindow(size: CGSize, solo: PaneID?) -> NSWindow {
         host(
             PaneCanvas(theme: themeStore.active, viewModel: viewModel, layout: viewModel.selectedLayout, solo: solo),
             size: size

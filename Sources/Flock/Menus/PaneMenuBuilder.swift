@@ -9,9 +9,9 @@ import FlockCore
 /// submenu for a tab or workspace that has since gone away.
 @MainActor
 enum PaneMenuBuilder {
-    static func menu(for paneID: PaneID, viewModel: SessionViewModel) -> NSMenu? {
+    static func menu(for paneID: PaneID, viewModel: SessionViewModel, solo: Bool = false) -> NSMenu? {
         guard let model = viewModel.model else { return nil }
-        let entries = PaneMenuModel.entries(for: paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID)
+        let entries = PaneMenuModel.entries(for: paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: solo)
         let target = PaneMenuActionTarget(paneID: paneID, viewModel: viewModel)
         let menu = PaneContextMenu(actionTarget: target)
         for entry in entries {

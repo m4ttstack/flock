@@ -80,6 +80,19 @@ final class PaneMenuModelTests: XCTestCase {
         XCTAssertEqual(entries[1].action, .swapWithFocused(PaneID(rawValue: "w1:p2")))
     }
 
+    /// A pane shown alone keeps only the rows that leave its tab and herdr's
+    /// focus alone: no swap, split, zoom or move.
+    func testASoloPaneOffersOnlyRenameClearNameAndClose() {
+        let pane = PaneID(rawValue: "w1:p4")
+        let focused = PaneID(rawValue: "w1:p1")
+        let full = PaneMenuModel.entries(for: pane, model: canonicalFixture(), focusedPane: focused, solo: false)
+        let solo = PaneMenuModel.entries(for: pane, model: canonicalFixture(), focusedPane: focused, solo: true)
+
+        XCTAssertTrue(full.map(\.label).contains("Swap with Focused Pane"), "the fixture offers no swap, so the solo check below proves less")
+        XCTAssertEqual(full, PaneMenuModel.entries(for: pane, model: canonicalFixture(), focusedPane: focused))
+        XCTAssertEqual(solo.map(\.label), ["Rename Pane", "Clear Pane Name", "Close Pane"])
+    }
+
     // MARK: - Rename / Clear name / Zoom (the herdr rows)
 
     func testRenamePaneLeadsEveryMenuAndCarriesItsOwnAction() {

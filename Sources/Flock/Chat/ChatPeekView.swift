@@ -12,7 +12,9 @@ struct ChatPeekView: View {
     let theme: Theme
     let onBack: () -> Void
     let onClose: () -> Void
-    let onJump: (PaneID) -> Void
+    /// Nil where the host view offers no navigation: the rows lose their
+    /// jump mark and do nothing when clicked.
+    let onJump: ((PaneID) -> Void)?
 
     @Environment(ChatStore.self) private var chatStore
     @State private var peek: ChatPeek?
@@ -22,7 +24,7 @@ struct ChatPeekView: View {
     /// production call sites never pass it, and `.task` below overwrites it
     /// with the real fetch regardless.
     init(
-        theme: Theme, onBack: @escaping () -> Void, onClose: @escaping () -> Void, onJump: @escaping (PaneID) -> Void,
+        theme: Theme, onBack: @escaping () -> Void, onClose: @escaping () -> Void, onJump: ((PaneID) -> Void)?,
         previewPeek: ChatPeek? = nil
     ) {
         self.theme = theme
@@ -84,11 +86,13 @@ struct ChatPeekView: View {
                 }
                 Spacer(minLength: 0)
                 if hasUnread { unreadPill(buddy.unread) }
-                Image(systemName: "arrow.turn.up.right")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(theme.overlay0)
-                    .frame(width: ChromeMetrics.ChatPeek.PaneRow.jumpIconSize.width, height: ChromeMetrics.ChatPeek.PaneRow.jumpIconSize.height)
+                if onJump != nil {
+                    Image(systemName: "arrow.turn.up.right")
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(theme.overlay0)
+                        .frame(width: ChromeMetrics.ChatPeek.PaneRow.jumpIconSize.width, height: ChromeMetrics.ChatPeek.PaneRow.jumpIconSize.height)
+                }
             }
             .padding(.vertical, ChromeMetrics.ChatPeek.PaneRow.verticalPadding)
             .padding(.horizontal, ChromeMetrics.ChatPeek.PaneRow.horizontalPadding)
@@ -96,6 +100,7 @@ struct ChatPeekView: View {
             .background(hasUnread ? Color(theme.palette.activeRowBg) : Color.clear)
         }
         .buttonStyle(.plain)
+        .allowsHitTesting(onJump != nil)
     }
 
     func roomRow(_ room: ChatPeekRoom, isFirst: Bool) -> some View {
@@ -146,7 +151,7 @@ struct ChatPeekView: View {
     private func jump(to buddy: ChatBuddy) {
         Task {
             guard let result = await chatStore.jump(handle: buddy.handle) else { return }
-            onJump(PaneID(rawValue: result.paneID))
+            onJump?(PaneID(rawValue: result.paneID))
         }
     }
 }

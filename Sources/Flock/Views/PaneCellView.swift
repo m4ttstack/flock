@@ -228,14 +228,14 @@ struct PaneCellView: View {
             .overlay(alignment: .topLeading) { title }
             .overlay(alignment: .topTrailing) { legendControls }
             // Last, so a long title running under it never takes its press.
-            .overlay(alignment: .top) { grip }
+            .overlay(alignment: .top) { if role == .canvas { grip } }
             // While rearranging a drag starts from ANY point on the pane,
             // gutters and sub-cell remainder included, which no subview of the
             // cell covers. Arming this as well as the body's own AppKit path
             // cannot start two drags: both call `beginIfIdle` and
             // `DragGestureMachine` starts a drag from `.idle` only.
             .contentShape(Rectangle())
-            .simultaneousGesture(paneDrag, including: rearrangeMode.active && !isRenaming ? .all : .subviews)
+            .simultaneousGesture(paneDrag, including: role == .canvas && rearrangeMode.active && !isRenaming ? .all : .subviews)
         // One task per pane identity, never keyed on the grid or focus: the
         // pane gets exactly one surface for its whole visible life, created
         // here on first visibility. Every box change resizes the surface
@@ -303,6 +303,7 @@ struct PaneCellView: View {
     /// The AppKit half: the body reports the PRESS point in its own top-left
     /// space, and this is the single place that becomes a drag-space point.
     private func handleBodyDragBegan(_ point: CGPoint) {
+        guard role == .canvas else { return }
         drag.beginIfIdle(
             .pane(pane.paneID), ghost: paneGhost,
             at: CGPoint(x: bodyFrame.minX + point.x, y: bodyFrame.minY + point.y)
@@ -314,7 +315,7 @@ struct PaneCellView: View {
     /// two can never drift.
     private var paneMenuEntries: [PaneMenuEntry] {
         guard let model = viewModel.model else { return [] }
-        return PaneMenuModel.entries(for: pane.paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID)
+        return PaneMenuModel.entries(for: pane.paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: role == .solo)
     }
 
     /// The bordered terminal box. The content is pinned to exactly the
@@ -561,7 +562,7 @@ struct PaneCellView: View {
             viewerDisabledReason: chatStore.viewerDisabledReason,
             onRetry: { Task { await chatStore.refreshStatus(for: pane.paneID) } },
             initialFeature: pendingPopoverFeature,
-            onJump: { paneID in Task { await viewModel.focusFromChat(pane: paneID) } }
+            onJump: role == .canvas ? { paneID in Task { await viewModel.focusFromChat(pane: paneID) } } : nil
         )
         // A fresh fetch on every open, on top of the launch/availability
         // fetch above: a popover left closed for a while must not show a
@@ -799,7 +800,7 @@ struct PaneCellView: View {
                     // otherwise take the keystrokes.
                     editorIsOpen: editorIsOpen,
                     onPrimaryClick: { focusInHerdr() },
-                    menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel) },
+                    menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel, solo: role == .solo) },
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }
