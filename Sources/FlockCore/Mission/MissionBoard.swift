@@ -32,6 +32,14 @@ public struct MissionBoard: Equatable, Sendable {
     public let dormant: [MissionCard]
     public let dormantWorkspaces: Set<WorkspaceID>
 
+    /// The workspaces Arrange folds to chips. Mission control judges panes,
+    /// but Arrange never folds the workspace the user is in: a shell-only
+    /// one never changes status, so it passes the cutoff while in use.
+    public func arrangeDormantWorkspaces(focused: WorkspaceID?) -> Set<WorkspaceID> {
+        guard let focused else { return dormantWorkspaces }
+        return dormantWorkspaces.subtracting([focused])
+    }
+
     /// The drawn lanes, top to bottom, for the keyboard.
     public var columns: [[PaneID]] {
         [needsYou.map(\.paneID), working.flatMap(\.cards).map(\.paneID), coolingDown.map(\.paneID)]
@@ -105,7 +113,7 @@ public struct MissionBoard: Equatable, Sendable {
 }
 
 public enum MissionSelection {
-    public enum Direction: Sendable { case up, down, left, right }
+    public enum Direction: Equatable, Sendable { case up, down, left, right }
 
     /// The selection while a drawn card holds it, else the first drawn card:
     /// a pane gone dormant or closed is never the selection. Nil with no card.
@@ -132,6 +140,30 @@ public enum MissionSelection {
                 next += step
             }
             return selection
+        }
+    }
+}
+
+/// The keys mission control takes while it is shown, whatever holds the
+/// window's first responder.
+public enum MissionKey {
+    public enum Decision: Equatable, Sendable {
+        case move(MissionSelection.Direction)
+        case open
+        case pass
+    }
+
+    /// A modified key is someone else's: a menu shortcut, or a selection
+    /// gesture this view does not have.
+    public static func decide(keyCode: UInt16, command: Bool, control: Bool, option: Bool, shift: Bool) -> Decision {
+        guard !command, !control, !option, !shift else { return .pass }
+        switch keyCode {
+        case 126: return .move(.up)
+        case 125: return .move(.down)
+        case 123: return .move(.left)
+        case 124: return .move(.right)
+        case 36, 76: return .open
+        default: return .pass
         }
     }
 }

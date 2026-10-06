@@ -1915,6 +1915,28 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// Mission control opens over a terminal that holds the window's first
+    /// responder, and a SwiftUI focus request is dropped while an AppKit view
+    /// holds it (`FirstResponderClaim`). Arrows and Return still move and open
+    /// the selection, and never reach the shell.
+    func testMissionControlTakesArrowsFromATerminalHoldingTheKeyboard() async throws {
+        let harness = try await Harness(theme: .tokyoNight, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        harness.modeStore.select(.missionControl)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        let terminal = KeyHog(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        window.contentView?.addSubview(terminal)
+        XCTAssertTrue(window.makeFirstResponder(terminal), "the premise: the stand-in terminal holds the keyboard")
+        harness.drag.toggleGrid()
+        await settle(window)
+        let first = try XCTUnwrap(harness.modeStore.missionSelection, "the premise: a card is selected")
+        pressKey(window, keyCode: 125, character: NSDownArrowFunctionKey)
+        await settle(window)
+        XCTAssertNotEqual(harness.modeStore.missionSelection, first, "the arrow moved the selection")
+        XCTAssertEqual(terminal.keys, 0, "no key reached the terminal")
+        window.close()
+    }
+
     /// Opened mid-drag, the view is the drop surface, which is always Arrange,
     /// whatever mode is remembered; the remembered mode is left alone.
     func testOpenedMidDragTheViewDrawsArrangeAndRemembersMissionControl() async throws {
@@ -3886,6 +3908,29 @@ private struct Harness {
         window.contentView = NSHostingView(rootView: root)
         window.contentView?.layoutSubtreeIfNeeded()
         return window
+    }
+}
+
+/// Stands in for a pane's terminal: an AppKit view that takes the keyboard
+/// and counts every key that reaches it.
+private final class KeyHog: NSView {
+    var keys = 0
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with event: NSEvent) { keys += 1 }
+}
+
+extension ChromeRenderTests {
+    /// Through the application, where local monitors see an event before any
+    /// window or menu does.
+    fileprivate func pressKey(_ window: NSWindow, keyCode: UInt16, character: Int) {
+        guard let scalar = UnicodeScalar(UInt32(character)) else { return }
+        let text = String(Character(scalar))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.numericPad, .function],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: keyCode
+        ) else { return }
+        NSApplication.shared.sendEvent(event)
     }
 }
 

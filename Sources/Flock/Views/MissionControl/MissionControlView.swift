@@ -1,3 +1,4 @@
+import AppKit
 import FlockCore
 import SwiftUI
 
@@ -15,7 +16,6 @@ struct MissionControlView: View {
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @FocusState private var isFocused: Bool
     @State private var showsDormant = false
     /// One space for every lane, so a card whose lane changes is the same
     /// view moving rather than one fading out and another in.
@@ -38,17 +38,13 @@ struct MissionControlView: View {
         .padding(.vertical, M.canvasVerticalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.canvas)
-        .focusable()
-        .focused($isFocused)
-        .focusEffectDisabled()
-        // Outside `focusable`: key presses reach the focused view and its
-        // ancestors, never a child of it.
-        .onKeyPress(.upArrow) { move(.up) }
-        .onKeyPress(.downArrow) { move(.down) }
-        .onKeyPress(.leftArrow) { move(.left) }
-        .onKeyPress(.rightArrow) { move(.right) }
-        .onKeyPress(.return) { activateSelection() }
-        .onAppear { isFocused = true }
+        .background(MissionKeyMonitor { decision in
+            switch decision {
+            case .move(let direction): move(direction)
+            case .open: activateSelection()
+            case .pass: break
+            }
+        })
     }
 
     /// The one place the board is built, for drawing and for the keys alike.
@@ -199,35 +195,77 @@ struct MissionControlView: View {
         MissionBoard.identityColor(workspace, sections: sections, identity: identity, theme: theme)
     }
 
-    private func move(_ direction: MissionSelection.Direction) -> KeyPress.Result {
-        guard let (board, _) = makeBoard(now: viewModel.currentTime) else { return .ignored }
+    private func move(_ direction: MissionSelection.Direction) {
+        guard let (board, _) = makeBoard(now: viewModel.currentTime) else { return }
         let current = MissionSelection.resolve(mode.missionSelection, in: board.columns)
-        guard current != nil else { return .ignored }
+        guard current != nil else { return }
         // A selection that had gone stale lands on the first card rather than
         // moving away from it.
         mode.missionSelection = current == mode.missionSelection
             ? MissionSelection.move(current, direction, in: board.columns)
             : current
-        return .handled
     }
 
     /// Opens the selected card only while it is drawn; a stale selection is
     /// replaced by the first card, which Return then opens.
-    private func activateSelection() -> KeyPress.Result {
+    private func activateSelection() {
         guard let (board, _) = makeBoard(now: viewModel.currentTime),
               let pane = MissionSelection.resolve(mode.missionSelection, in: board.columns)
-        else { return .ignored }
+        else { return }
         guard pane == mode.missionSelection else {
             mode.missionSelection = pane
-            return .handled
+            return
         }
         open(pane)
-        return .handled
     }
 
     private func open(_ pane: PaneID) {
         mode.missionSelection = pane
         JumpNavigator(viewModel: viewModel, drag: drag, mode: mode).open(pane: pane)
+    }
+}
+
+/// Takes the arrows and Return while mission control is shown, before the
+/// window's first responder sees them. A SwiftUI focus request is dropped
+/// while an AppKit view holds first responder (`FirstResponderClaim`), and
+/// mission control opens over a terminal that does: keyed on focus, the
+/// arrows would reach the shell.
+private struct MissionKeyMonitor: NSViewRepresentable {
+    let onDecision: (MissionKey.Decision) -> Void
+
+    func makeNSView(context: Context) -> MonitorView { MonitorView() }
+
+    func updateNSView(_ view: MonitorView, context: Context) {
+        view.onDecision = onDecision
+    }
+
+    final class MonitorView: NSView {
+        var onDecision: (MissionKey.Decision) -> Void = { _ in }
+        nonisolated(unsafe) private var monitor: Any?
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard let window else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.window === window else { return event }
+                let flags = event.modifierFlags
+                let decision = MissionKey.decide(
+                    keyCode: event.keyCode, command: flags.contains(.command), control: flags.contains(.control),
+                    option: flags.contains(.option), shift: flags.contains(.shift)
+                )
+                guard decision != .pass else { return event }
+                self.onDecision(decision)
+                return nil
+            }
+        }
     }
 }
 

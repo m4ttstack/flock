@@ -94,6 +94,20 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(b.dormantWorkspaces, [WorkspaceID(rawValue: "w1")])
     }
 
+    /// A shell-only workspace never changes status, so it passes the cutoff
+    /// while the user works in it; Arrange still draws it as an island.
+    func testArrangeNeverFoldsTheWorkspaceYouAreIn() {
+        let model = MissionFixture.model([
+            W(label: "shells", tabs: [T(label: "a", panes: [P(status: .unknown, title: "zsh")])]),
+            W(label: "quiet", tabs: [T(label: "b", panes: [P(status: .idle)])]),
+        ])
+        let b = board(model)
+        let shells = WorkspaceID(rawValue: "w1")
+        XCTAssertEqual(b.dormantWorkspaces, Set([shells, WorkspaceID(rawValue: "w2")]), "the premise: both are dormant")
+        XCTAssertEqual(b.arrangeDormantWorkspaces(focused: shells), [WorkspaceID(rawValue: "w2")])
+        XCTAssertEqual(b.arrangeDormantWorkspaces(focused: nil), b.dormantWorkspaces)
+    }
+
     func testCardsCarryTitleFolderAndTab() {
         let model = MissionFixture.model([W(label: "acme", tabs: [T(label: "api", panes: [P(status: .working, title: "Fix refunds", cwd: "/tmp/acme")])])])
         let card = board(model).working[0].cards[0]
@@ -136,5 +150,21 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(MissionAge.text(18 * 60), "18m")
         XCTAssertEqual(MissionAge.text(64 * 60), "1h 4m")
         XCTAssertEqual(MissionAge.text(3 * 3600), "3h")
+    }
+
+    func testMissionControlTakesBareArrowsAndReturnAndLeavesShortcutsAlone() {
+        func decide(_ code: UInt16, command: Bool = false, shift: Bool = false) -> MissionKey.Decision {
+            MissionKey.decide(keyCode: code, command: command, control: false, option: false, shift: shift)
+        }
+        XCTAssertEqual(decide(126), .move(.up))
+        XCTAssertEqual(decide(125), .move(.down))
+        XCTAssertEqual(decide(123), .move(.left))
+        XCTAssertEqual(decide(124), .move(.right))
+        XCTAssertEqual(decide(36), .open)
+        XCTAssertEqual(decide(76), .open)
+        XCTAssertEqual(decide(38), .pass, "J")
+        XCTAssertEqual(decide(125, command: true), .pass)
+        XCTAssertEqual(decide(125, shift: true), .pass)
+        XCTAssertEqual(decide(53), .pass, "Esc closes the grid elsewhere")
     }
 }

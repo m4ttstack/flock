@@ -31,34 +31,35 @@ struct AllWorkspacesGrid: View {
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
     var body: some View {
+        // Built once per pass and only for Arrange: it reads the board, the
+        // rail sections and the fit, and a drag re-runs this at pointer rate.
+        let arrange = shownMode == .arrange ? self.arrange : nil
+        // Mission control is never a drop target, so it publishes no items.
+        let order = arrange.map(itemOrder) ?? []
         VStack(spacing: 0) {
             header
             Rectangle()
                 .fill(theme.rule)
                 .frame(height: ChromeMetrics.ruleWidth)
-            if shownMode == .missionControl {
-                MissionControlView(theme: theme, viewModel: viewModel)
+            if let arrange {
+                arrangeGrid(arrange)
             } else {
-                arrangeGrid
+                MissionControlView(theme: theme, viewModel: viewModel)
             }
         }
         .boundedBackground(theme.chrome)
         .onAppear {
             mode.opened(dragInFlight: drag.activeSubject != nil)
             refreshIdentities()
-            drag.setGridOrder(publishedOrder)
+            drag.setGridOrder(order)
         }
-        .onChange(of: itemOrder) { drag.setGridOrder(publishedOrder) }
-        .onChange(of: shownMode) { drag.setGridOrder(publishedOrder) }
+        .onChange(of: order) { drag.setGridOrder(order) }
+        .onChange(of: workspaces.map(\.workspaceID)) { refreshIdentities() }
     }
 
     private var shownMode: AllWorkspacesMode { mode.shown(dragInFlight: drag.activeSubject != nil) }
 
-    /// Mission control is never a drop target, so it publishes no items.
-    private var publishedOrder: [GridItemID] { shownMode == .arrange ? itemOrder : [] }
-
-    private var arrangeGrid: some View {
-        let arrange = self.arrange
+    private func arrangeGrid(_ arrange: Arrangement) -> some View {
         let fit = arrange.fit
         let metrics = ChromeMetrics.Grid.islands
         return ScrollView(.vertical) {
@@ -190,7 +191,8 @@ struct AllWorkspacesGrid: View {
         let ranked = sections?.railOrder ?? []
         let ordered = ranked.compactMap { id in workspaces.first { $0.workspaceID == id } }
             + workspaces.filter { !ranked.contains($0.workspaceID) }
-        let dormant = (made?.0.dormantWorkspaces ?? []).subtracting(openedDormant).subtracting(sprungDormant)
+        let dormant = (made?.0.arrangeDormantWorkspaces(focused: model?.focusedWorkspaceID) ?? [])
+            .subtracting(openedDormant).subtracting(sprungDormant)
         let islands = ordered.filter { !dormant.contains($0.workspaceID) }.map {
             IslandLayout.Island(id: $0.workspaceID, tabs: model?.tabs[$0.workspaceID]?.count ?? 1)
         }
@@ -238,8 +240,7 @@ struct AllWorkspacesGrid: View {
     /// into a list and drops the frame of an item no longer shown. `.newTab`
     /// names the rect the created tab lands in, whichever cell is drawing it.
     /// A chip is a card with no cells: a drop on it lands in a new tab.
-    private var itemOrder: [GridItemID] {
-        let arrange = self.arrange
+    private func itemOrder(_ arrange: Arrangement) -> [GridItemID] {
         let chips = arrange.chips.map { GridItemID.card($0.workspaceID) }
         let drawn = arrange.fit.rows.joined().filter { id in workspaces.contains { $0.workspaceID == id } }
         return drawn.flatMap { id -> [GridItemID] in
