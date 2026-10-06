@@ -137,8 +137,8 @@ outline. The workspace you came from adds a 1.5pt outline in its identity
 colour. Islands sit 28pt apart; inside one, tabs sit 8pt apart, so the gap
 between workspaces is always clearly wider than the gap within one.
 
-**Island header.** Identity square (14pt, radius 4), the workspace name at
-18pt semibold (emoji included), its status dot, and the tab count at the
+**Island header.** Identity square (10pt, radius 3), the workspace name at
+14pt semibold (emoji included), its status dot, and the tab count at the
 right.
 
 **Thumbnails.** No outline. A thumbnail is a `pane`-filled block; its handle
@@ -154,8 +154,8 @@ fit. Board's islands share the board's colour and herds share one neutral
 colour.
 
 **Fit to window.** One thumbnail width is chosen for the whole view: the
-largest, from 120pt up to 320pt, at which every island fits the window
-without scrolling (height follows at a fixed ratio). Below 120pt the view
+largest, from 120pt up to 200pt, at which every island fits the window
+without scrolling (height follows at a fixed, short ratio of 0.55). Below 120pt the view
 scrolls instead of shrinking further. The size is decided when the view
 opens and when the window resizes, never during a drag, so a drop target
 never moves under the pointer.
@@ -254,7 +254,7 @@ FlockCore unit tests:
 - `HEAD` parsing for a branch, a detached head and a missing file;
 - the dormant cutoff store's default and persistence;
 - the fit-to-window size: largest width that fits, the 120pt floor, the
-  320pt cap, and no change while a drag is live;
+  200pt cap, and no change while a drag is live;
 - island packing in rail order, and dormant workspaces moving to chips;
 - identity assignment: stable across a rename, overrides kept, stale ids
   dropped, and no palette hue near a status hue in any builtin theme.

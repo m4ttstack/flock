@@ -11,9 +11,9 @@ public enum IslandLayout {
         /// Top padding, the header row and the gap under it.
         public var headerHeight: CGFloat = 46
         public var bottomPadding: CGFloat = 16
-        public var aspect: CGFloat = 0.72
+        public var aspect: CGFloat = 0.55
         public var minimumWidth: CGFloat = 120
-        public var maximumWidth: CGFloat = 320
+        public var maximumWidth: CGFloat = 200
         public var step: CGFloat = 2
         /// The dormant strip and the gap above it.
         public var dormantStripHeight: CGFloat = 44

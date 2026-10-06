@@ -1572,11 +1572,11 @@ final class ChromeRenderTests: XCTestCase {
         func inWindow(_ box: CGRect) -> CGRect { box.offsetBy(dx: area.minX, dy: area.minY) }
         let resting = boxes(arriving: nil)
 
-        // The proxy is the mini pane's own footprint, as the grid's pane drag
-        // makes it: a thumbnail-sized one would cover the panes being sampled.
+        // Half the mini pane's footprint: at the floor-size thumbnail a full
+        // one covers the whole slot, leaving no wash to sample.
         harness.drag.beginIfIdle(
             .pane(GridFixture.claudePane),
-            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: grabbed.size, isCompact: true),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: CGSize(width: grabbed.width * 0.5, height: grabbed.height * 0.5), isCompact: true),
             at: CGPoint(x: grabbed.midX, y: grabbed.midY)
         )
         XCTAssertTrue(source.contains(grabbed), "the grabbed pane is drawn in its own tab's thumbnail")

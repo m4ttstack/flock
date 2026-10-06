@@ -123,7 +123,7 @@ enum ChromeType {
     static let gridTitle = inter(14, .medium)
     static let gridCount = inter(11.5)
     static let gridHint = mono(11.5)
-    static let gridCardName = inter(18, .semibold)
+    static let gridCardName = inter(14, .semibold)
     static let gridCardMeta = inter(12)
     static func gridTabLabel(selected: Bool) -> Font { inter(12, selected ? .semibold : .medium) }
     static let gridMiniPaneTitle = inter(11.5)

@@ -25,7 +25,7 @@
 - Status hues: working yellow, blocked red, done teal, idle green, unknown overlay0 (`StatusDot`). Identity hues never sit within 25 degrees of these.
 - Dormant cutoff choices: 15, 30 (default), 60, 120 minutes. History window: 60 minutes.
 - Keys: ⌘J Open Oldest Notification, ⇧⌘J Jump Back, ⇧⌘U Clear Notifications, ⇧⌘R All Workspaces.
-- Thumbnail width in Arrange: 120pt floor, 320pt cap, chosen per window, never changed during a drag.
+- Thumbnail width in Arrange: 120pt floor, 200pt cap, chosen per window, never changed during a drag.
 
 ## Review Focus
 

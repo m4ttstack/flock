@@ -8,16 +8,16 @@ final class IslandLayoutTests: XCTestCase {
 
     func testAFewSmallWorkspacesGetTheCap() {
         let fit = IslandLayout.fit(islands([1, 2]), in: CGSize(width: 1700, height: 1000), hasDormantStrip: false)
-        XCTAssertEqual(fit.thumbnailWidth, 320)
+        XCTAssertEqual(fit.thumbnailWidth, IslandLayout.Metrics().maximumWidth)
         XCTAssertFalse(fit.scrolls)
     }
 
     func testTheLargestWidthThatFitsIsChosen() {
         let metrics = IslandLayout.Metrics()
-        let size = CGSize(width: 1750, height: 980)
+        let size = CGSize(width: 1400, height: 700)
         let fit = IslandLayout.fit(islands([3, 2, 1, 1, 3, 5, 1, 1, 2, 1, 1, 1]), in: size, hasDormantStrip: true)
         XCTAssertFalse(fit.scrolls)
-        XCTAssertLessThan(fit.thumbnailWidth, 320)
+        XCTAssertLessThan(fit.thumbnailWidth, metrics.maximumWidth)
         let bigger = IslandLayout.fit(islands([3, 2, 1, 1, 3, 5, 1, 1, 2, 1, 1, 1]), in: size, hasDormantStrip: true, metrics: {
             var m = metrics; m.minimumWidth = fit.thumbnailWidth + metrics.step; return m
         }())
