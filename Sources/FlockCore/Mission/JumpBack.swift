@@ -1,5 +1,3 @@
-import Foundation
-
 public enum JumpPlace: Equatable, Sendable {
     case missionControl
     case pane(PaneID)

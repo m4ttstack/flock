@@ -41,6 +41,22 @@ final class PaneStatusHistoryTests: XCTestCase {
         history.observe(MissionFixture.single([.working]), at: later)
         XCTAssertEqual(history.lastChange(of: pane), t0.addingTimeInterval(10))
         XCTAssertEqual(history.segments(of: pane, at: later).map(\.status), [.working])
+        XCTAssertEqual(
+            history.transitions[pane],
+            [PaneStatusHistory.Transition(status: .working, at: t0.addingTimeInterval(10))]
+        )
+    }
+
+    func testTrimmingKeepsEntriesNewerThanTheWindowStart() {
+        var history = PaneStatusHistory()
+        history.observe(MissionFixture.single([.idle]), at: t0)
+        history.observe(MissionFixture.single([.working]), at: t0.addingTimeInterval(10))
+        let later = t0.addingTimeInterval(2 * 3600)
+        let recent = later.addingTimeInterval(-600)
+        history.observe(MissionFixture.single([.blocked]), at: recent)
+        history.observe(MissionFixture.single([.blocked]), at: later)
+        XCTAssertEqual(history.transitions[pane]?.map(\.status), [.working, .blocked])
+        XCTAssertEqual(history.transitions[pane]?.last?.at, recent)
     }
 
     func testSegmentsCoverTheLastHourWithTheUnrecordedStartLeftEmpty() {
