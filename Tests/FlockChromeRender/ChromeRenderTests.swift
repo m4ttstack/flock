@@ -2058,8 +2058,8 @@ final class ChromeRenderTests: XCTestCase {
         let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
         navigator.open(pane: GridFixture.buildPane)
         await settle(window)
-        XCTAssertEqual(navigator.backTarget, .missionControl, "Jump Back is disabled in the focused view")
-        navigator.back()
+        XCTAssertTrue(navigator.isFocusedInOverview, "Back to Overview is disabled in the focused view")
+        navigator.backToOverview()
         await settle(window)
         XCTAssertNil(harness.drag.gridFocusedPane)
         XCTAssertTrue(harness.drag.isGridShown)
@@ -2087,6 +2087,33 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
         XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane, "the jump key with no card left changed the view")
         XCTAssertTrue(harness.drag.isGridShown)
+        window.close()
+    }
+
+    /// Open Next Card swaps in the card the Next chip names, the oldest other
+    /// than the shown pane's; with the queue clear it does nothing, and it is
+    /// off outside the focused view.
+    func testNextInTheFocusedViewOpensTheCardTheChipNames() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        XCTAssertNil(navigator.nextCard, "Open Next Card is on outside the focused view")
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        XCTAssertEqual(navigator.nextCard, PaneID(rawValue: "w2:p1"))
+        navigator.openNext()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, PaneID(rawValue: "w2:p1"))
+        navigator.openNext()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane)
+        XCTAssertNil(navigator.nextCard, "the premise: the queue is clear")
+        navigator.openNext()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane, "Open Next Card with the queue clear changed the view")
+        if let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap({ $0.isEmpty ? nil : $0 }) {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("focused-queue-clear.png"))
+        }
         window.close()
     }
 
@@ -2154,7 +2181,7 @@ final class ChromeRenderTests: XCTestCase {
         showRtRun(harness.viewModel, linked: "term_src")
         await settle(window)
         XCTAssertEqual(hex(try snapshot(window), backdrop), bare, "another pane's modal is drawn over the shown one")
-        navigator.back()
+        navigator.backToOverview()
         await settle(window)
         await rt.settle()
         XCTAssertEqual(rt.modal?.itemID, "run-term_src", "leaving the focused view closed another pane's modal")
@@ -2164,7 +2191,7 @@ final class ChromeRenderTests: XCTestCase {
         showRtRun(harness.viewModel, linked: "term_build")
         await settle(window)
         XCTAssertNotEqual(hex(try snapshot(window), backdrop), bare, "the shown pane's own modal is not drawn")
-        navigator.back()
+        navigator.backToOverview()
         await settle(window)
         await rt.settle()
         XCTAssertNil(rt.modal, "back left the shown pane's modal up")
@@ -2314,10 +2341,11 @@ final class ChromeRenderTests: XCTestCase {
             theme.palette.chromeRoles.pane.hex,
             "\(id): a Working group sits on its identity tint, not the lane's ground"
         )
-        // Inside the card's top padding, clear of its text and its outline.
+        // Below the card, inside its group's padding, clear of the selection ring.
         XCTAssertNotEqual(
-            hex(image, CGPoint(x: card.maxX - 10, y: card.minY + 5)), theme.palette.chromeRoles.chrome.hex,
-            "\(id): a Needs-you card sits on its workspace's identity wash"
+            hex(image, CGPoint(x: card.midX, y: card.maxY + ChromeMetrics.MissionControl.groupPadding - 2)),
+            theme.palette.chromeRoles.pane.hex,
+            "\(id): a Needs-you card sits in its workspace's group, not on the lane's ground"
         )
         window.close()
     }

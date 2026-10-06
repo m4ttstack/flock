@@ -59,21 +59,21 @@ struct MissionControlView: View {
 
     private func lanes(_ board: MissionBoard, sections: RailSections, now: Date) -> some View {
         HStack(alignment: .top, spacing: M.laneGap) {
-            lane(title: "NEEDS YOU", status: .blocked, count: board.needsYou.count) {
+            lane(title: "NEEDS YOU", status: .blocked, count: board.needsYou.reduce(0) { $0 + $1.cards.count }) {
                 if board.needsYou.isEmpty {
                     Text("Nothing needs you").font(ChromeType.missionEmpty).foregroundStyle(theme.textLabel)
                 }
-                ForEach(board.needsYou) { card($0, sections: sections, now: now, showsWorkspace: true, cooling: false) }
+                ForEach(board.needsYou) { group($0, sections: sections, now: now, cooling: false) }
             } footer: {
                 EmptyView()
             }
             lane(title: "WORKING", status: .working, count: board.working.reduce(0) { $0 + $1.cards.count }) {
-                ForEach(board.working) { workingGroup($0, sections: sections, now: now) }
+                ForEach(board.working) { group($0, sections: sections, now: now, cooling: false) }
             } footer: {
                 EmptyView()
             }
-            lane(title: "COOLING DOWN", status: .idle, count: board.coolingDown.count) {
-                ForEach(board.coolingDown) { card($0, sections: sections, now: now, showsWorkspace: true, cooling: true) }
+            lane(title: "COOLING DOWN", status: .idle, count: board.coolingGroups.reduce(0) { $0 + $1.cards.count }) {
+                ForEach(board.coolingGroups) { group($0, sections: sections, now: now, cooling: true) }
             } footer: {
                 if !board.dormant.isEmpty { dormantFold(board.dormant) }
             }
@@ -126,9 +126,9 @@ struct MissionControlView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// A workspace's Working cards on its identity tint, as its Arrange
+    /// A workspace's cards in one lane on its identity tint, as its Arrange
     /// island wears it.
-    private func workingGroup(_ group: MissionGroup, sections: RailSections, now: Date) -> some View {
+    private func group(_ group: MissionGroup, sections: RailSections, now: Date, cooling: Bool) -> some View {
         let identity = identityColor(group.workspaceID, sections: sections)
         return VStack(alignment: .leading, spacing: M.cardGap) {
             HStack(spacing: M.groupLabelSpacing) {
@@ -141,17 +141,16 @@ struct MissionControlView: View {
                     .lineLimit(1)
             }
             .contextMenu { IdentityColourMenu(theme: theme, key: WorkspaceIdentityStore.key(for: group.workspaceID, sections: sections)) }
-            ForEach(group.cards) { card($0, sections: sections, now: now, showsWorkspace: false, cooling: false) }
+            ForEach(group.cards) { card($0, sections: sections, now: now, cooling: cooling) }
         }
         .padding(M.groupPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.identityTint(identity), in: RoundedRectangle(cornerRadius: M.groupCornerRadius))
     }
 
-    private func card(_ card: MissionCard, sections: RailSections, now: Date, showsWorkspace: Bool, cooling: Bool) -> some View {
+    private func card(_ card: MissionCard, sections: RailSections, now: Date, cooling: Bool) -> some View {
         MissionCardView(
-            theme: theme, card: card, showsWorkspace: showsWorkspace,
-            identity: identityColor(card.workspaceID, sections: sections),
+            theme: theme, card: card,
             repoBranch: viewModel.repoBranches.repoBranch(for: card.folder),
             segments: viewModel.statusHistory.segments(of: card.paneID, at: now), now: now,
             isSelected: mode.missionSelection == card.paneID, isCooling: cooling,

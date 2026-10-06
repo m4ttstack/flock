@@ -18,7 +18,6 @@ struct PaletteContext {
     var programHasMouse = false
     var hasSelectedWorkspace = false
     var hasNotifications = false
-    var canJumpBack = false
     var viewTab: ViewTab = .workspaces
 }
 
@@ -115,7 +114,6 @@ enum PaletteCatalog {
             .map { (.view, ViewCommand.show($0)) }
         commands += [(.view, .rearrangeMode), (.view, .allWorkspaces)]
         if context.hasNotifications { commands += [(.view, .openOldestNotification), (.view, .clearNotifications)] }
-        if context.canJumpBack { commands.append((.view, .jumpBack)) }
         if context.hasSelectedWorkspace { commands += [(.tab, .newTab), (.tab, .closeTab)] }
         commands.append((.workspace, .newWorkspace))
         if context.hasSelectedWorkspace { commands.append((.workspace, .closeWorkspace)) }

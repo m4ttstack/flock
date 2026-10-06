@@ -48,20 +48,20 @@ final class MissionBoardTests: XCTestCase {
         toasts.raise(toast("w1:t1:p1", .needsInput, raised: 600))
         toasts.raise(toast("w1:t1:p2", .finished, raised: 60))
         let b = board(model, toasts: toasts)
-        XCTAssertEqual(b.needsYou.map(\.paneID.rawValue), ["w1:t1:p1", "w1:t1:p2"])
-        XCTAssertEqual(b.needsYou.first?.since, now.addingTimeInterval(-600))
+        XCTAssertEqual(b.needsYou.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p1", "w1:t1:p2"])
+        XCTAssertEqual(b.needsYou.first?.cards.first?.since, now.addingTimeInterval(-600))
         XCTAssertEqual(b.working.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p3"])
     }
 
     func testABlockedPaneWhoseCardWasClearedCoolsDownInstead() {
         let b = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 120])
         XCTAssertTrue(b.needsYou.isEmpty)
-        XCTAssertEqual(b.coolingDown.map(\.paneID.rawValue), ["w1:t1:p1"])
+        XCTAssertEqual(b.coolingGroups.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p1"])
     }
 
     func testThePaneAtTheCutoffStillCoolsAndOnePastItIsDormant() {
         let b = board(MissionFixture.single([.idle, .idle]), changedAgo: ["w1:t1:p1": 30 * 60, "w1:t1:p2": 30 * 60 + 1])
-        XCTAssertEqual(b.coolingDown.map(\.paneID.rawValue), ["w1:t1:p1"])
+        XCTAssertEqual(b.coolingGroups.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p1"])
         XCTAssertEqual(b.dormant.map(\.paneID.rawValue), ["w1:t1:p2"])
     }
 
@@ -73,7 +73,42 @@ final class MissionBoardTests: XCTestCase {
 
     func testCoolingDownIsMostRecentChangeFirst() {
         let b = board(MissionFixture.single([.idle, .done]), changedAgo: ["w1:t1:p1": 600, "w1:t1:p2": 60])
-        XCTAssertEqual(b.coolingDown.map(\.paneID.rawValue), ["w1:t1:p2", "w1:t1:p1"])
+        XCTAssertEqual(b.coolingGroups.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p2", "w1:t1:p1"])
+    }
+
+    func testNeedsYouGroupsByWorkspaceWithTheOldestCardOnTop() {
+        let model = MissionFixture.model([
+            W(label: "acme", tabs: [T(label: "a", panes: [P(status: .blocked), P(status: .done)])]),
+            W(label: "flock", tabs: [T(label: "b", panes: [P(status: .blocked), P(status: .blocked)])]),
+        ])
+        var toasts = AttentionToastStack()
+        toasts.raise(toast("w2:t1:p1", .needsInput, raised: 900))
+        toasts.raise(toast("w1:t1:p1", .needsInput, raised: 600))
+        toasts.raise(toast("w2:t1:p2", .needsInput, raised: 300))
+        toasts.raise(toast("w1:t1:p2", .finished, raised: 60))
+        let b = board(model, toasts: toasts)
+        XCTAssertEqual(b.needsYou.map(\.name), ["flock", "acme"], "the group holding the oldest card leads")
+        XCTAssertEqual(b.needsYou.map { $0.cards.map(\.paneID.rawValue) }, [["w2:t1:p1", "w2:t1:p2"], ["w1:t1:p1", "w1:t1:p2"]])
+        XCTAssertEqual(b.columns[0].first?.rawValue, "w2:t1:p1", "the top card is the oldest of all")
+        XCTAssertEqual(b.columns[0].map(\.rawValue), ["w2:t1:p1", "w2:t1:p2", "w1:t1:p1", "w1:t1:p2"], "the keys walk the drawn order")
+    }
+
+    func testCoolingDownGroupsByWorkspaceMostRecentChangeFirst() {
+        let model = MissionFixture.model([
+            W(label: "acme", tabs: [T(label: "a", panes: [P(status: .idle), P(status: .done)])]),
+            W(label: "flock", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .idle)])]),
+            W(label: "board", tabs: [T(label: "c", panes: [P(status: .blocked)])]),
+        ])
+        let b = board(model, changedAgo: [
+            "w1:t1:p1": 900, "w1:t1:p2": 300,
+            "w2:t1:p1": 60, "w2:t1:p2": 1200,
+            "w3:t1:p1": 600,
+        ])
+        XCTAssertEqual(b.coolingGroups.map(\.name), ["flock", "acme", "board"])
+        XCTAssertEqual(b.coolingGroups.map { $0.cards.map(\.paneID.rawValue) }, [
+            ["w2:t1:p1", "w2:t1:p2"], ["w1:t1:p2", "w1:t1:p1"], ["w3:t1:p1"],
+        ])
+        XCTAssertEqual(b.columns[2].map(\.rawValue), ["w2:t1:p1", "w2:t1:p2", "w1:t1:p2", "w1:t1:p1", "w3:t1:p1"], "the keys walk the drawn order")
     }
 
     func testWorkingFollowsRailOrderAndGroupsByWorkspace() {
@@ -154,9 +189,9 @@ final class MissionBoardTests: XCTestCase {
         var toasts = AttentionToastStack()
         toasts.raise(toast("w1:t1:p1", .needsInput, raised: 600))
         let b = board(model, toasts: toasts, changedAgo: ["w1:t1:p3": 120])
-        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p1")), b.needsYou.first)
+        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p1")), b.needsYou.first?.cards.first)
         XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p2")), b.working.first?.cards.first)
-        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p3")), b.coolingDown.first)
+        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p3")), b.coolingGroups.first?.cards.first)
         XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p4")), b.dormant.first)
         XCTAssertNil(b.card(PaneID(rawValue: "w9:t1:p1")))
     }
@@ -181,7 +216,7 @@ final class MissionBoardTests: XCTestCase {
     }
 
     func testStateTextIsTheStatusAndHowLongItHasHeld() {
-        let card = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 12 * 60]).coolingDown[0]
+        let card = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 12 * 60]).coolingGroups[0].cards[0]
         XCTAssertEqual(card.stateText(at: now), "blocked 12m")
         let unrecorded = MissionCard(
             paneID: card.paneID, workspaceID: card.workspaceID, tabID: card.tabID, workspaceName: "", tabTitle: "",

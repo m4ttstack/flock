@@ -27,7 +27,6 @@ enum ChromeType {
     static let windowTitle = inter(11.5, .medium)
     static let connectionNotice = inter(11.5)
     static func viewTab(selected: Bool) -> Font { inter(12.5, selected ? .medium : .regular) }
-    static let viewTabKeys = mono(11)
     static let devTag = inter(8.5, .bold)
     static let devTagTracking: CGFloat = 0.8
     static let restartLabel = inter(11, .medium)
@@ -141,6 +140,10 @@ enum ChromeType {
     static let missionEmpty = inter(12.5)
     static let focusedBack = inter(12, .medium)
     static let focusedPlace = inter(12.5, .medium)
+    static let focusedNextLabel = inter(10, .semibold)
+    static let focusedNextLabelTracking: CGFloat = 1
+    static let focusedNextPlace = inter(12)
+    static let focusedKey = mono(10.5)
 
     static let hoverCardTitle = inter(14, .medium)
     static let hoverCardDetail = inter(11.5)

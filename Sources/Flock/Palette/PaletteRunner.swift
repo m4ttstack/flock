@@ -25,9 +25,7 @@ extension PaletteContext {
             rightClickMode: viewModel.focusedPaneRightClickMode,
             programHasMouse: focused.flatMap { viewModel.ghosttySurface(for: $0) }?.programHasMouse ?? false,
             hasSelectedWorkspace: viewModel.selectedWorkspaceID != nil,
-            hasNotifications: !viewModel.attentionToasts.isEmpty,
-            // The palette is drawn only over the canvas, never over the grid.
-            canJumpBack: viewModel.jumpBackTarget(from: focused.map(JumpPlace.pane)) != nil
+            hasNotifications: !viewModel.attentionToasts.isEmpty
         )
     }
 }
@@ -82,8 +80,10 @@ struct PaletteRunner {
             case .allWorkspaces: dragCoordinator.toggleGrid()
             case .openOldestNotification:
                 JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).openOldest()
-            case .jumpBack:
-                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).back()
+            case .backToOverview:
+                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).backToOverview()
+            case .openNextCard:
+                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).openNext()
             case .clearNotifications: viewModel.clearAttentionToasts()
             case .commandPalette: break
             }

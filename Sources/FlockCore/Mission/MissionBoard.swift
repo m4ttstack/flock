@@ -46,9 +46,13 @@ public struct MissionGroup: Equatable, Sendable, Identifiable {
 /// Every pane in the lane its state puts it in. Needs you is the attention
 /// stack itself, so the dock and the lane can never disagree.
 public struct MissionBoard: Equatable, Sendable {
-    public let needsYou: [MissionCard]
+    /// By workspace, the group holding the oldest card first and each
+    /// group's cards oldest first, so the top card is the oldest of all.
+    public let needsYou: [MissionGroup]
     public let working: [MissionGroup]
-    public let coolingDown: [MissionCard]
+    /// By workspace, the group with the most recent change first and each
+    /// group's cards most recent first.
+    public let coolingGroups: [MissionGroup]
     public let dormant: [MissionCard]
     public let dormantWorkspaces: Set<WorkspaceID>
 
@@ -62,12 +66,29 @@ public struct MissionBoard: Equatable, Sendable {
 
     /// The pane's card in whichever lane holds it, dormant included.
     public func card(_ pane: PaneID) -> MissionCard? {
-        (needsYou + working.flatMap(\.cards) + coolingDown + dormant).first { $0.paneID == pane }
+        (needsYou.flatMap(\.cards) + working.flatMap(\.cards) + coolingGroups.flatMap(\.cards) + dormant).first { $0.paneID == pane }
     }
 
     /// The drawn lanes, top to bottom, for the keyboard.
     public var columns: [[PaneID]] {
-        [needsYou.map(\.paneID), working.flatMap(\.cards).map(\.paneID), coolingDown.map(\.paneID)]
+        [needsYou.flatMap(\.cards).map(\.paneID), working.flatMap(\.cards).map(\.paneID), coolingGroups.flatMap(\.cards).map(\.paneID)]
+    }
+
+    /// One group per workspace, in the order each workspace's first card
+    /// appears, each keeping its cards in the order given.
+    static func grouped(_ cards: [MissionCard]) -> [MissionGroup] {
+        var groups: [MissionGroup] = []
+        var index: [WorkspaceID: Int] = [:]
+        for card in cards {
+            if let at = index[card.workspaceID] {
+                let group = groups[at]
+                groups[at] = MissionGroup(workspaceID: group.workspaceID, name: group.name, cards: group.cards + [card])
+            } else {
+                index[card.workspaceID] = groups.count
+                groups.append(MissionGroup(workspaceID: card.workspaceID, name: card.workspaceName, cards: [card]))
+            }
+        }
+        return groups
     }
 
     /// The pane's card as the board draws it, without building the board:
@@ -108,9 +129,9 @@ public struct MissionBoard: Equatable, Sendable {
         }
 
         let toasted = Set(toasts.toasts.map(\.paneID))
-        needsYou = toasts.toasts.reversed().compactMap { toast in
+        needsYou = Self.grouped(toasts.toasts.reversed().compactMap { toast in
             model.panes[toast.paneID].map { card($0, status: toast.status, since: toast.raisedAt) }
-        }
+        })
 
         var working: [PaneRecord] = []
         var cooling: [(PaneRecord, Date?)] = []
@@ -135,9 +156,9 @@ public struct MissionBoard: Equatable, Sendable {
             }
         }
         self.working = groups
-        coolingDown = cooling
+        coolingGroups = Self.grouped(cooling
             .sorted { ($0.1 ?? .distantPast, $1.0.paneID.rawValue) > ($1.1 ?? .distantPast, $0.0.paneID.rawValue) }
-            .map { card($0.0, status: $0.0.agentStatus, since: $0.1) }
+            .map { card($0.0, status: $0.0.agentStatus, since: $0.1) })
         self.dormant = dormant.sorted { railKey($0) < railKey($1) }
             .map { card($0, status: $0.agentStatus, since: history.lastChange(of: $0.paneID)) }
 

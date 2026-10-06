@@ -570,10 +570,16 @@ struct FlockApp: App {
                     .keyboardShortcut(ViewCommand.openOldestNotification.shortcut)
                     .disabled(viewModel.attentionToasts.isEmpty)
                     .accessibilityIdentifier(ViewCommand.openOldestNotification.accessibilityIdentifier)
-                Button(ViewCommand.jumpBack.title) { navigator.back() }
-                    .keyboardShortcut(ViewCommand.jumpBack.shortcut)
-                    .disabled(navigator.backTarget == nil)
-                    .accessibilityIdentifier(ViewCommand.jumpBack.accessibilityIdentifier)
+                // Only while a pane is focused in Overview, where the
+                // terminal keeps Esc and these are the way out and onward.
+                Button(ViewCommand.backToOverview.title) { navigator.backToOverview() }
+                    .keyboardShortcut(ViewCommand.backToOverview.shortcut)
+                    .disabled(!navigator.isFocusedInOverview)
+                    .accessibilityIdentifier(ViewCommand.backToOverview.accessibilityIdentifier)
+                Button(ViewCommand.openNextCard.title) { navigator.openNext() }
+                    .keyboardShortcut(ViewCommand.openNextCard.shortcut)
+                    .disabled(navigator.nextCard == nil)
+                    .accessibilityIdentifier(ViewCommand.openNextCard.accessibilityIdentifier)
                 // The only way to clear a "needs input" toast without
                 // answering the pane or dismissing each one by hand.
                 Button(ViewCommand.clearNotifications.title) { viewModel.clearAttentionToasts() }

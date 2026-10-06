@@ -11,10 +11,6 @@ final class MissionCardFrames {
 struct MissionCardView: View {
     let theme: Theme
     let card: MissionCard
-    /// False in Working, where the group label above already names the
-    /// workspace and the top line is the tab alone.
-    let showsWorkspace: Bool
-    let identity: Color?
     let repoBranch: RepoBranch
     let segments: [PaneStatusHistory.Segment]
     let now: Date
@@ -56,8 +52,7 @@ struct MissionCardView: View {
 
     private var shape: AnyShape { AnyShape(RoundedRectangle(cornerRadius: M.cardCornerRadius)) }
 
-    /// Working's group already carries the workspace's wash.
-    private var restFill: Color { showsWorkspace ? theme.identityGround(identity) : theme.chrome }
+    private var restFill: Color { theme.chrome }
 
     @ViewBuilder
     private var surface: some View {
@@ -82,33 +77,9 @@ struct MissionCardView: View {
         VStack(alignment: .leading, spacing: M.cardLineSpacing) {
             HStack(spacing: 8) {
                 StatusDot(status: card.status, theme: theme, size: M.cardDot)
-                HStack(spacing: 4) {
-                    if showsWorkspace {
-                        Text(card.workspaceName).foregroundStyle(theme.identityInk(identity))
-                        Text("›").foregroundStyle(theme.textLabel)
-                    }
-                    Text(card.tabTitle).foregroundStyle(theme.textLabel)
-                }
+                title
                 Spacer(minLength: 8)
-                Text(card.stateText(at: now))
-                    .font(ChromeType.missionCardMono)
-                    .foregroundStyle(theme.agentStatusMarkColor(card.status))
-            }
-            .font(ChromeType.missionCardMeta)
-            .lineLimit(1)
-            if let rename {
-                InlineRenameField(
-                    theme: theme, font: ChromeType.missionCardTitle, initialText: rename.initialText,
-                    accessibilityIdentifier: "flock.mission.rename.\(card.paneID.rawValue)",
-                    onCommit: rename.commit, onCancel: rename.cancel
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text(card.title)
-                    .font(ChromeType.missionCardTitle)
-                    .foregroundStyle(theme.textStrong)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                stateText
             }
             HStack(spacing: 12) {
                 Text(repoBranch.text)
@@ -126,6 +97,32 @@ struct MissionCardView: View {
         .padding(.vertical, M.cardVerticalPadding)
         .padding(.horizontal, M.cardHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var stateText: some View {
+        Text(card.stateText(at: now))
+            .font(ChromeType.missionCardMono)
+            .foregroundStyle(theme.agentStatusMarkColor(card.status))
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    @ViewBuilder
+    private var title: some View {
+        if let rename {
+            InlineRenameField(
+                theme: theme, font: ChromeType.missionCardTitle, initialText: rename.initialText,
+                accessibilityIdentifier: "flock.mission.rename.\(card.paneID.rawValue)",
+                onCommit: rename.commit, onCancel: rename.cancel
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(card.title)
+                .font(ChromeType.missionCardTitle)
+                .foregroundStyle(theme.textStrong)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var outline: Color {

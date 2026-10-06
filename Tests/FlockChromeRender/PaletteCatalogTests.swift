@@ -11,9 +11,13 @@ final class PaletteCatalogTests: XCTestCase {
         PaletteCatalog.entries(in: context).map(\.command.id)
     }
 
-    func testJumpBackIsOfferedOnlyWhenThereIsSomewhereToGo() {
-        XCTAssertFalse(ids(PaletteContext()).contains("view.jumpback"))
-        XCTAssertTrue(ids(PaletteContext(canJumpBack: true)).contains("view.jumpback"))
+    /// The palette never opens over the grid, so it offers nothing that
+    /// works only in the focused view.
+    func testTheFocusedViewsKeysAreNotOffered() {
+        let listed = ids(PaletteContext(hasNotifications: true))
+        XCTAssertFalse(listed.contains("view.backtooverview"))
+        XCTAssertFalse(listed.contains("view.opennextcard"))
+        XCTAssertFalse(listed.contains("view.jumpback"))
     }
 
     func testTheOtherViewsAreListedWithTheirKeys() {

@@ -139,7 +139,7 @@ struct AllWorkspacesGrid: View {
                 .font(ChromeType.gridCount)
                 .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
-            Text(shownMode == .missionControl ? "⌘J oldest · ⇧⌘J back · esc" : "esc to return")
+            Text(shownMode == .missionControl ? "⌘J oldest · esc" : "esc to return")
                 .font(ChromeType.gridHint)
                 .foregroundStyle(theme.textLabel)
         }

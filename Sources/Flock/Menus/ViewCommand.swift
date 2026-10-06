@@ -6,7 +6,8 @@ import SwiftUI
 enum ViewCommand: String, CaseIterable {
     case newTab, newWorkspace, closeTab, closeWorkspace
     case showWorkspaces, showOverview, showArrange
-    case rearrangeMode, allWorkspaces, openOldestNotification, jumpBack, clearNotifications, commandPalette
+    case rearrangeMode, allWorkspaces, openOldestNotification, clearNotifications, commandPalette
+    case backToOverview, openNextCard
 
     var title: String {
         switch self {
@@ -18,7 +19,8 @@ enum ViewCommand: String, CaseIterable {
         case .rearrangeMode: "Rearrange Mode"
         case .allWorkspaces: "All Workspaces"
         case .openOldestNotification: "Open Oldest Notification"
-        case .jumpBack: "Jump Back"
+        case .backToOverview: "Back to Overview"
+        case .openNextCard: "Open Next Card"
         case .clearNotifications: "Clear Notifications"
         case .commandPalette: "Command Palette…"
         }
@@ -32,7 +34,9 @@ enum ViewCommand: String, CaseIterable {
         case .showWorkspaces, .showOverview, .showArrange: KeyEquivalent(viewTab?.digit ?? "0")
         case .rearrangeMode: KeyEquivalent(ArrangeShortcut.rearrangeMode.key)
         case .allWorkspaces: KeyEquivalent(ArrangeShortcut.allWorkspaces.key)
-        case .openOldestNotification, .jumpBack: "j"
+        case .openOldestNotification: "j"
+        case .backToOverview: "["
+        case .openNextCard: "]"
         case .clearNotifications: "u"
         case .commandPalette: "k"
         }
@@ -40,8 +44,8 @@ enum ViewCommand: String, CaseIterable {
 
     var modifiers: EventModifiers {
         switch self {
-        case .newTab, .openOldestNotification, .commandPalette: .command
-        case .newWorkspace, .closeTab, .clearNotifications, .jumpBack: [.command, .shift]
+        case .newTab, .openOldestNotification, .commandPalette, .backToOverview, .openNextCard: .command
+        case .newWorkspace, .closeTab, .clearNotifications: [.command, .shift]
         case .closeWorkspace: [.command, .option, .shift]
         case .showWorkspaces, .showOverview, .showArrange: [.command, .option]
         case .rearrangeMode: ArrangeShortcut.rearrangeMode.modifiers
@@ -80,7 +84,8 @@ enum ViewCommand: String, CaseIterable {
         case .rearrangeMode: "flock.view.rearrangeMode"
         case .allWorkspaces: "flock.view.allWorkspaces"
         case .openOldestNotification: "flock.view.openOldestNotification"
-        case .jumpBack: "flock.view.jumpBack"
+        case .backToOverview: "flock.view.backToOverview"
+        case .openNextCard: "flock.view.openNextCard"
         case .clearNotifications: "flock.view.clearNotifications"
         case .commandPalette: "flock.view.commandPalette"
         }

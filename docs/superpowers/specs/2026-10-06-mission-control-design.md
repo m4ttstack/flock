@@ -66,8 +66,8 @@ Mattstack viewer's.
   tab-strip fill, an accent glyph, strong text and a 2pt accent underline;
   the others are dim, with the grid controls' hover and press. "flock" and
   the dev tag stay centred and hide before they would overlap the tabs;
-  the right side keeps the restart pill and connection notice, and shows
-  `⌥⌘1 ⌥⌘2 ⌥⌘3`.
+  the right side keeps the restart pill and connection notice. The tabs'
+  keys are in the View menu and each tab's tooltip, not drawn in the bar.
 - The tabs replace the Overview | Arrange toggle in the grid header. The
   header keeps the workspace count and the key hints.
 - **Keys**: ⌥⌘1 Workspaces, ⌥⌘2 Overview, ⌥⌘3 Arrange, in the View menu and
@@ -90,13 +90,17 @@ dormant appears in exactly one lane, decided in this order:
 
 1. **Needs you**: the pane has a card in the attention stack. The lane IS the
    stack: same cards, same raising, coalescing, lifetime and withdrawal rules,
-   so the dock and the lane can never disagree. Ordered oldest first.
+   so the dock and the lane can never disagree. Grouped by workspace: the
+   group holding the oldest card comes first, and inside a group the oldest
+   card comes first, so the top card is still the oldest of all.
 2. **Working**: the pane's status is `working`. Ordered by rail order
    (workspaces, then board, then herds), then by tab and pane order inside a
    workspace. A small workspace label sits above the first card of each
    workspace, so a workspace's agents stay together.
 3. **Cooling down**: anything else whose last status change is within the
-   dormant cutoff. Most recent change first. Cards draw at reduced opacity.
+   dormant cutoff. Grouped by workspace as Working is; the group with the
+   most recent change comes first, and inside a group the most recent change
+   comes first. Cards draw at reduced opacity.
 4. **Dormant**: anything else. Not drawn as cards. The foot of Cooling down
    holds one line, "N dormant", that expands in place to a compact list (dot,
    workspace › tab, title) and collapses again. A dormant pane moves to its
@@ -110,13 +114,12 @@ Needs you lane reads "Nothing needs you".
 
 ### A card
 
-Top line: status dot, `workspace › tab` (a herd's workspace reads `auth
-sweep · herd 2/4`), and at the right the state and its age in the terminal
-face, `working 18m`, in the status hue. The workspace name draws in the
-workspace's identity colour (see Identity colour). In Working the workspace label above
-the group already names it, so the top line there is the tab alone.
+Every card sits in its workspace's group, whose label names the workspace
+(a herd's reads `auth sweep · herd 2/4`), so a card has two lines.
 
-Title: the pane's `displayTitle`, wrapped to at most two lines.
+Top line: status dot, the pane's `displayTitle` on one line, and at the
+right the state and its age in the terminal face, `working 18m`, in the
+status hue.
 
 Bottom line: `repo @ branch` in the terminal face, and at the right a
 timeline of the last 60 minutes: working, blocked and done as solid
@@ -128,13 +131,11 @@ A blocked card carries a 1.5pt outline in the blocked hue.
 **Identity grouping** (board `05c · Overview · identity groups`). Overview
 wears Arrange's colours so the two read as one place:
 
-- In Working, each workspace's cards sit in a group on its identity tint,
-  the same colour and strength as its Arrange island (radius 10, 10pt
+- In every lane, each workspace's cards sit in a group on its identity
+  tint, the same colour and strength as its Arrange island (radius 10, 10pt
   padding, 10pt between cards). The group label is the identity square and
-  the workspace name in its identity colour; no rule.
-- In Needs you and Cooling down, a card's top line leads with the identity
-  square, then the status dot, then the workspace name in its identity
-  colour and `› tab` in the label colour.
+  the workspace name in its identity colour; no rule. Cards keep the
+  `chrome` ground.
 - Status keeps its own colours: dots, ages, the blocked outline and the
   timeline stay in status hues, and identity never fills a card.
 - A herd's group and name draw in the neutral label grey, as in Arrange.
@@ -154,25 +155,28 @@ minute, not continuously.
 - **Clicking a card**, or Return on the selected card, opens that pane in
   the focused view (below). A Needs-you card is dismissed by opening it,
   exactly as a dock card is by a jump.
-- **⇧⌘J, Jump Back** (new, View menu and palette): returns to where the last
-  jump started. A jump is ⌘J, a dock card click, or a mission-control card
-  activation. Its origin is mission control when the jump left from there
-  (reopened with the same card selected and scrolled into view), otherwise the pane
-  that was focused. Jump Back records where it left from as the new origin,
-  so pressing it again goes forward: it toggles between two places. One
-  level only. Disabled when there is no origin or the origin pane has closed.
+- There is no Jump Back: Overview's tab and the focused view's back button
+  are the ways back, and ⇧⌘J is unbound.
 - **⇧⌘U, Clear Notifications** moves here from ⇧⌘J.
 - **Arrows** move a selection ring between cards (up and down inside a lane,
   left and right across lanes, keeping the nearest row). The first open
   selects the top card of the first non-empty lane. **Esc** closes the view.
 
-The header's right side shows the keys: `⌘J oldest · ⇧⌘J back · esc`.
+The header's right side shows the keys: `⌘J oldest · esc`.
+
+**The main window's focused pane.** herdr's focused pane raises no card while
+the main window's canvas shows it: the user is looking at it. While Overview
+or Arrange covers the canvas it is not being watched, so it raises cards like
+any other pane, and opening the grid raises the card it held back if it is
+blocked or done and has none. The pane shown in Overview's focused view
+raises none whatever the grid does.
 
 ### Focused pane
 
-Board `11 · Overview · Focused pane`. Opening a card from Overview shows
-that one pane, live, inside the All Workspaces view, with going back to
-Overview as the only way to navigate. A jump from Overview no longer lands
+Boards `11 · Overview · Focused pane` and `14 · Focused pane · Next in the
+queue`. Opening a card from Overview shows that one pane, live, inside the
+All Workspaces view, with back to Overview and on to the next card as the
+only ways to navigate. A jump from Overview no longer lands
 in the main window, which had no visible way back.
 
 **Opening.** A card click or Return, and ⌘J while Overview is shown (the
@@ -182,11 +186,14 @@ oldest card), open the pane here. A Needs-you card is dismissed on opening.
 **What it draws.**
 
 - A header the grid header's height:
-  - left: a "‹ Overview" button, then the identity square, `workspace ›
+  - left: a "‹ Overview ⌘[" button, then the identity square, `workspace ›
     tab` (workspace in its identity colour), the status dot and the state
     with its age (`blocked 12m`) in the status hue;
-  - right: "N more need you" while other Needs-you cards remain, then
-    `⌘J next · ⇧⌘J overview`.
+  - right: a Next chip naming the oldest other Needs-you card: `NEXT`, its
+    status dot, its workspace in its identity colour, its tab, its state
+    and age in the status hue, `+N` when more than that one wait, a rule
+    and `⌘]`. Clicking it opens that card here. With no other card it
+    reads "Queue clear", dim, and does nothing.
 - Below it, the pane exactly as the main window's canvas draws it,
   filling the space: its terminal, title and status chip, and its
   top-right legend controls (mouse badge, chat button, rt button). Typing
@@ -198,10 +205,12 @@ oldest card), open the pane here. A Needs-you card is dismissed on opening.
 
 **Keys.**
 
-- ⇧⌘J or "‹ Overview" returns to Overview with this pane's card selected
-  and scrolled into view.
-- ⌘J swaps in the next oldest Needs-you card, staying in the focused view;
-  disabled when none remain.
+- ⌘[ (Back to Overview) or "‹ Overview" returns to Overview with this
+  pane's card selected and scrolled into view.
+- ⌘] (Open Next Card) or the Next chip swaps in the card the chip names,
+  staying in the focused view; ⌘J does the same. Both menu items are
+  enabled only while a pane is focused here; the palette never opens over
+  the grid, so it does not list them.
 - Esc and every other key go to the terminal; nothing here navigates on
   Esc.
 
@@ -349,10 +358,12 @@ FlockCore unit tests:
   entry kept, age and segment answers under an injected clock;
 - lane assignment and its precedence, including a cleared blocked card and a
   pane at the cutoff's edge;
-- lane ordering: oldest-first Needs you, rail-ordered Working with label
-  breaks, most-recent-first Cooling down;
-- Jump Back's origin rules: set by each jump kind, toggling, disabled on a
-  closed origin;
+- lane ordering: Needs you grouped by workspace with the oldest card on
+  top, rail-ordered Working with label breaks, Cooling down grouped by workspace most recent first, and the
+  keyboard's columns walking the drawn order;
+- the main window's focused pane: no card while the canvas shows it, a card
+  while the grid covers it, the held-back card raised as the grid opens,
+  and none for the pane in Overview's focused view;
 - `HEAD` parsing for a branch, a detached head and a missing file;
 - the dormant cutoff store's default and persistence;
 - the fit-to-window size: largest width that fits, the 120pt floor, the
@@ -360,8 +371,8 @@ FlockCore unit tests:
 - island packing in rail order, and dormant workspaces moving to chips;
 - identity assignment: stable across a rename, overrides kept, stale ids
   dropped, and no palette hue near a status hue in any builtin theme;
-- the focused pane: opening from a card or ⌘J, ⌘J swapping to the next
-  oldest card and disabling when none remain, back selecting the card, a
+- the focused pane: opening from a card or ⌘J, ⌘J and ⌘] swapping to the
+  next oldest card and doing nothing when none remain, back selecting the card, a
   closed pane returning to Overview, and no herdr focus call on any of them.
 
 FlockChromeRender tests render mission control and Arrange with fixture data in a dark

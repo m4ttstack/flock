@@ -1,9 +1,8 @@
 import FlockCore
 
-/// Where a jump starts and how Jump Back returns, shared by the View menu,
-/// the palette, the dock and mission control so every route records the
-/// same origin. In Overview a card opens in the focused view instead, which
-/// moves nothing in herdr and records no jump.
+/// How every route opens a card or a pane: the View menu, the palette, the
+/// dock and mission control. In Overview a card opens in the focused view
+/// instead, which moves nothing in herdr.
 @MainActor
 struct JumpNavigator {
     let viewModel: SessionViewModel
@@ -16,25 +15,18 @@ struct JumpNavigator {
 
     var isFocusedInOverview: Bool { isInMissionControl && drag.gridFocusedPane != nil }
 
-    var currentPlace: JumpPlace? {
-        if isInMissionControl { return .missionControl }
-        return viewModel.resolvedFocusedPaneID.map(JumpPlace.pane)
-    }
-
     func openOldest() {
         if isInMissionControl {
             if let pane = viewModel.oldestAttentionPane { focus(pane) }
             return
         }
-        let from = currentPlace
         drag.closeGrid()
-        Task { await viewModel.jumpToOldestDisplayedAttentionToast(from: from) }
+        Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
     }
 
     func open(toast pane: PaneID) {
-        let from = currentPlace
         drag.closeGrid()
-        Task { await viewModel.jumpToAttentionToast(pane: pane, from: from) }
+        Task { await viewModel.jumpToAttentionToast(pane: pane) }
     }
 
     func open(pane: PaneID) {
@@ -45,25 +37,20 @@ struct JumpNavigator {
         }
     }
 
-    var backTarget: JumpPlace? {
-        isFocusedInOverview ? .missionControl : viewModel.jumpBackTarget(from: currentPlace)
+    /// The card the focused view's Next chip names, nil outside it.
+    var nextCard: PaneID? {
+        guard isFocusedInOverview else { return nil }
+        return viewModel.attentionToasts.oldest(excluding: drag.gridFocusedPane)?.paneID
     }
 
-    func back() {
-        if isFocusedInOverview {
-            drag.unfocusGridPane()
-            return
-        }
-        guard let target = backTarget else { return }
-        let from = currentPlace
-        switch target {
-        case .missionControl:
-            viewModel.recordJump(from: from, to: .missionControl)
-            mode.select(.missionControl)
-            drag.openGrid()
-        case .pane(let pane):
-            jump(to: pane)
-        }
+    func openNext() {
+        guard let pane = nextCard else { return }
+        focus(pane)
+    }
+
+    func backToOverview() {
+        guard isFocusedInOverview else { return }
+        drag.unfocusGridPane()
     }
 
     private func focus(_ pane: PaneID) {
@@ -73,8 +60,7 @@ struct JumpNavigator {
     }
 
     private func jump(to pane: PaneID) {
-        let from = currentPlace
         drag.closeGrid()
-        Task { await viewModel.jumpToPane(pane, from: from) }
+        Task { await viewModel.jumpToPane(pane) }
     }
 }

@@ -33,14 +33,13 @@ final class MissionJumpTests: XCTestCase {
         XCTAssertEqual(viewModel.statusHistory.lastChange(of: PaneID(rawValue: "w2:t1:p1")), clock.now)
     }
 
-    func testJumpingToAPaneFocusesItAndRemembersTheOrigin() async {
+    func testJumpingToAPaneFocusesIt() async {
         let client = RecordingClient()
         let viewModel = SessionViewModel(client: client)
         viewModel.update(model: model([.working]), connection: .live)
-        await viewModel.jumpToPane(PaneID(rawValue: "w2:t1:p1"), from: .missionControl)
+        await viewModel.jumpToPane(PaneID(rawValue: "w2:t1:p1"))
         let calls = await client.calls
         XCTAssertEqual(calls, ["tab.focus", "pane.focus"])
-        XCTAssertEqual(viewModel.jumpBackTarget(from: .pane(PaneID(rawValue: "w2:t1:p1"))), .missionControl)
     }
 
     func testOverviewsOldestCardIsTheOldestOfAllNotTheOldestTheDockDraws() {
@@ -53,6 +52,23 @@ final class MissionJumpTests: XCTestCase {
         clock.now = clock.now.addingTimeInterval(10)
         viewModel.update(model: model([.blocked, .blocked]), connection: .live)
         XCTAssertEqual(viewModel.oldestAttentionPane, PaneID(rawValue: "w2:t1:p1"))
+    }
+
+    func testTheNextCardIsTheOldestOtherThanTheShownPane() {
+        let clock = Clock()
+        let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        viewModel.update(model: model([.working, .working, .working]), connection: .live)
+        for count in 1...3 {
+            clock.now = clock.now.addingTimeInterval(10)
+            viewModel.update(model: model(Array(repeating: .blocked, count: count) + Array(repeating: .working, count: 3 - count)), connection: .live)
+        }
+        let stack = viewModel.attentionToasts
+        let first = PaneID(rawValue: "w2:t1:p1"), second = PaneID(rawValue: "w2:t1:p2")
+        XCTAssertEqual(stack.oldest(excluding: nil)?.paneID, first)
+        XCTAssertEqual(stack.oldest(excluding: first)?.paneID, second)
+        XCTAssertEqual(stack.count(excluding: first), 2)
+        XCTAssertEqual(stack.count(excluding: PaneID(rawValue: "w1:t1:p1")), 3)
+        XCTAssertNil(AttentionToastStack().oldest(excluding: first))
     }
 
     func testFocusingInOverviewDismissesTheCardAndNeverMovesHerdr() async {
@@ -91,25 +107,76 @@ final class MissionJumpTests: XCTestCase {
         XCTAssertNotNil(viewModel.attentionToasts.toast(pane: pane), "a pane no longer shown raised no card")
     }
 
-    func testAClosedOriginOffersNoWayBack() async {
-        let viewModel = SessionViewModel(client: RecordingClient())
-        viewModel.update(model: model([.working, .idle]), connection: .live)
-        await viewModel.jumpToPane(PaneID(rawValue: "w2:t1:p1"), from: .pane(PaneID(rawValue: "w2:t1:p2")))
-        viewModel.update(model: model([.working]), connection: .live)
-        XCTAssertNil(viewModel.jumpBackTarget(from: .pane(PaneID(rawValue: "w2:t1:p1"))))
+    private func focusedModel(_ status: AgentStatus) -> SessionModel {
+        MissionFixture.model([
+            .init(label: "home", tabs: [.init(label: "main", panes: [.init(status: .idle)])]),
+            .init(label: "acme", tabs: [.init(label: "api", panes: [.init(status: status)])]),
+        ], focusedPane: "w2:t1:p1")
     }
 
-    /// Jump A to B, click back to A by hand: Jump Back is off rather than a
-    /// jump from A to A that records A and then does nothing for good.
-    func testJumpBackIsOffWhereItWouldLand() async {
-        let viewModel = SessionViewModel(client: RecordingClient())
-        viewModel.update(model: model([.working, .idle]), connection: .live)
-        let a = PaneID(rawValue: "w2:t1:p2")
-        let b = PaneID(rawValue: "w2:t1:p1")
-        await viewModel.jumpToPane(b, from: .pane(a))
-        XCTAssertEqual(viewModel.jumpBackTarget(from: .pane(b)), .pane(a))
-        XCTAssertNil(viewModel.jumpBackTarget(from: .pane(a)), "already at the origin")
-        await viewModel.jumpToPane(a, from: .pane(a))
-        XCTAssertEqual(viewModel.jumpBackTarget(from: .pane(b)), .pane(a), "a jump to where it started records nothing")
+    /// The main window's focused pane is watched only while its canvas is on
+    /// screen.
+    func testTheFocusedPaneRaisesNoCardWhileTheMainCanvasIsShown() {
+        let clock = Clock()
+        let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        viewModel.update(model: focusedModel(.working), connection: .live)
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: focusedModel(.blocked), connection: .live)
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+    }
+
+    func testTheFocusedPaneRaisesACardWhileTheGridCoversTheCanvas() {
+        let clock = Clock()
+        let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        viewModel.update(model: focusedModel(.working), connection: .live)
+        viewModel.isMainCanvasCovered = true
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: focusedModel(.blocked), connection: .live)
+        XCTAssertEqual(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:t1:p1"))?.kind, .needsInput)
+    }
+
+    func testOpeningTheGridRaisesTheCardTheFocusedPaneHeldBack() {
+        let clock = Clock()
+        let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        viewModel.update(model: focusedModel(.working), connection: .live)
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: focusedModel(.blocked), connection: .live)
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty)
+        clock.now = clock.now.addingTimeInterval(30)
+        viewModel.isMainCanvasCovered = true
+        let toast = viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:t1:p1"))
+        XCTAssertEqual(toast?.kind, .needsInput)
+        XCTAssertEqual(toast?.raisedAt, clock.now)
+        viewModel.isMainCanvasCovered = false
+        viewModel.sweepAttentionToasts()
+        XCTAssertNotNil(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:t1:p1")), "a look is not an answer")
+    }
+
+    func testOpeningTheGridRaisesADoneFocusedPaneButNotAnIdleOne() {
+        let clock = Clock()
+        let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        viewModel.update(model: focusedModel(.done), connection: .live)
+        viewModel.isMainCanvasCovered = true
+        XCTAssertEqual(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:t1:p1"))?.kind, .finished)
+
+        let quiet = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        quiet.update(model: focusedModel(.idle), connection: .live)
+        quiet.isMainCanvasCovered = true
+        XCTAssertTrue(quiet.attentionToasts.isEmpty)
+    }
+
+    /// Overview's focused view watches its pane whatever the grid does.
+    func testThePaneShownInOverviewStaysSuppressedWhileTheGridIsUp() {
+        let clock = Clock()
+        let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        let pane = PaneID(rawValue: "w2:t1:p1")
+        viewModel.update(model: focusedModel(.blocked), connection: .live)
+        viewModel.paneShownInOverview = pane
+        viewModel.isMainCanvasCovered = true
+        XCTAssertTrue(viewModel.attentionToasts.isEmpty, "opening the grid raised the shown pane")
+        viewModel.update(model: focusedModel(.working), connection: .live)
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: focusedModel(.blocked), connection: .live)
+        XCTAssertNil(viewModel.attentionToasts.toast(pane: pane))
     }
 }

@@ -109,6 +109,9 @@ struct MainWindow: View {
         .onChange(of: dragCoordinator.isGridShown) { _, shown in
             if shown { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
         }
+        .onChange(of: dragCoordinator.isGridShown, initial: true) { _, shown in
+            viewModel.isMainCanvasCovered = shown
+        }
         // Here, where it runs once whichever view draws the stack: the dock,
         // or mission control's Needs you lane, which has no dock. It runs for
         // as long as anything is in the stack, not just while a finished
@@ -283,8 +286,6 @@ struct TitleBar: View {
                     RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
                 }
                 connectionNotice
-                ViewTabKeyHints(theme: theme)
-                    .padding(.leading, ChromeMetrics.TitleBar.keyHintSpacing - ChromeMetrics.TitleBar.noticeSpacing)
             }
             .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
             .fixedSize()

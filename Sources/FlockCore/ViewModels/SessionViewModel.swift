@@ -46,7 +46,6 @@ public final class SessionViewModel {
         }
     }
     public private(set) var statusHistory = PaneStatusHistory()
-    public private(set) var jumpBack = JumpBack()
     public let repoBranches: RepoBranchCache
 
     /// Written from inside view bodies, which must not invalidate the views
@@ -316,7 +315,7 @@ public final class SessionViewModel {
                 guard let pane = model.panes[paneID],
                       let was = previous.panes[paneID]?.agentStatus,
                       let kind = AttentionToastStack.kind(from: was, to: pane.agentStatus),
-                      paneID != resolvedFocusedPaneID, paneID != paneShownInOverview,
+                      paneID != watchedFocusedPaneID, paneID != paneShownInOverview,
                       !HerdWorkspace.isHerdPane(pane, in: model)
                 else { continue }
                 attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt))
@@ -347,7 +346,7 @@ public final class SessionViewModel {
             }
             let cleared = pane.agentStatus != toast.announcedStatus
                 && now.timeIntervalSince(toast.raisedAt) >= AttentionToastStack.coalescingWindow
-            let seen = toast.kind == .finished && toast.paneID == resolvedFocusedPaneID
+            let seen = toast.kind == .finished && toast.paneID == watchedFocusedPaneID
             if cleared || seen || HerdWorkspace.isHerdPane(pane, in: model) {
                 attentionToasts.dismiss(pane: toast.paneID)
             }
@@ -401,6 +400,35 @@ public final class SessionViewModel {
     /// main window's focused pane is watched, so it raises no card.
     public var paneShownInOverview: PaneID?
 
+    /// Set while Overview or Arrange covers the main window's canvas. Its
+    /// focused pane is only watched while the canvas is on screen, so opening
+    /// the grid raises the card that pane held back.
+    public var isMainCanvasCovered = false {
+        didSet {
+            if isMainCanvasCovered, !oldValue { raiseHeldBackFocusedCard() }
+        }
+    }
+
+    /// herdr's focused pane while the main window shows it, else nil.
+    private var watchedFocusedPaneID: PaneID? {
+        isMainCanvasCovered ? nil : resolvedFocusedPaneID
+    }
+
+    private func raiseHeldBackFocusedCard() {
+        guard notificationLifetime() != .never, let model,
+              let paneID = resolvedFocusedPaneID, paneID != paneShownInOverview,
+              attentionToasts.toast(pane: paneID) == nil,
+              let pane = model.panes[paneID], !HerdWorkspace.isHerdPane(pane, in: model)
+        else { return }
+        let kind: AttentionToast.Kind
+        switch pane.agentStatus {
+        case .blocked: kind = .needsInput
+        case .done: kind = .finished
+        default: return
+        }
+        attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: now()))
+    }
+
     /// The card the jump key takes next when every card is drawn.
     public var oldestAttentionPane: PaneID? { attentionToasts.toasts.last?.paneID }
 
@@ -416,38 +444,27 @@ public final class SessionViewModel {
     /// The injected clock, so mission control's ages and history agree.
     public var currentTime: Date { now() }
 
-    public func jumpToOldestDisplayedAttentionToast(from origin: JumpPlace?) async {
+    public func jumpToOldestDisplayedAttentionToast() async {
         guard let toast = attentionToasts.oldestVisible(limit: attentionCardLimit) else { return }
-        await jumpToAttentionToast(pane: toast.paneID, from: origin)
+        await jumpToAttentionToast(pane: toast.paneID)
     }
 
     /// Focuses the tab and pane by explicit id, never the workspace:
     /// `tab.focus` moves herdr's workspace along with it, while a separate
     /// `workspace.focus` lands on that workspace's remembered tab first, and
     /// herdr's echo of it shows the wrong tab before the target arrives.
-    public func jumpToAttentionToast(pane: PaneID, from origin: JumpPlace?) async {
+    public func jumpToAttentionToast(pane: PaneID) async {
         guard let toast = attentionToasts.toast(pane: pane) else { return }
-        recordJump(from: origin, to: .pane(pane))
         attentionToasts.dismiss(pane: pane)
         await jumpToHerdr(tab: toast.tabID)
         await jumpToHerdr(pane: toast.paneID)
     }
 
-    public func jumpToPane(_ pane: PaneID, from origin: JumpPlace?) async {
+    public func jumpToPane(_ pane: PaneID) async {
         guard let record = model?.panes[pane] else { return }
-        recordJump(from: origin, to: .pane(pane))
         attentionToasts.dismiss(pane: pane)
         await jumpToHerdr(tab: record.tabID)
         await jumpToHerdr(pane: pane)
-    }
-
-    public func jumpBackTarget(from current: JumpPlace?) -> JumpPlace? {
-        jumpBack.target(livePanes: Set(model?.panes.keys ?? [:].keys), current: current)
-    }
-
-    public func recordJump(from origin: JumpPlace?, to destination: JumpPlace) {
-        guard let origin else { return }
-        jumpBack.jumped(from: origin, to: destination)
     }
 
     /// Closes the editor when herdr no longer carries what it is open on. A

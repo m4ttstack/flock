@@ -71,20 +71,3 @@ struct ViewTabButton: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
-
-/// `⌥⌘1 ⌥⌘2 ⌥⌘3`, the tabs' keys, at the bar's right.
-struct ViewTabKeyHints: View {
-    let theme: Theme
-
-    var body: some View {
-        HStack(spacing: ChromeMetrics.TitleBar.keyHintSpacing) {
-            ForEach(ViewTab.allCases, id: \.self) { tab in
-                let command = ViewCommand.show(tab)
-                Text(ShortcutLabel.text(key: command.key, modifiers: command.modifiers))
-            }
-        }
-        .font(ChromeType.viewTabKeys)
-        .foregroundStyle(theme.textLabel)
-        .fixedSize()
-    }
-}

@@ -144,7 +144,7 @@ final class GridControlHoverRenderTests: XCTestCase {
                     workspaceName: "acme", tabTitle: "api", title: "Refactor the request pipeline",
                     status: status, since: now.addingTimeInterval(-300), folder: "/tmp/acme"
                 ),
-                showsWorkspace: true, identity: nil, repoBranch: RepoBranch(repo: "acme", branch: "main"),
+                repoBranch: RepoBranch(repo: "acme", branch: "main"),
                 segments: [], now: now, isSelected: false, isCooling: false, forced: Self.states[index].1,
                 rename: renaming ? PaneRename(initialText: "Refactor the request pipeline", commit: { _ in }, cancel: {}) : nil,
                 activate: {}

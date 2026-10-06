@@ -48,7 +48,6 @@ enum ChromeMetrics {
         /// The least clearance the centred title keeps from either end's
         /// content before it hides.
         static let titleClearance: CGFloat = 16
-        static let keyHintSpacing: CGFloat = 10
     }
 
     enum Banner {
@@ -814,8 +813,8 @@ enum ChromeMetrics {
         static let timelineMinimumWidth: CGFloat = 60
         static let timelineHeight: CGFloat = 5
         static let timelineIdleHeight: CGFloat = 2
-        /// A Working group: the lane's cards for one workspace on its
-        /// identity tint, at Arrange's island strength.
+        /// A lane's group: its cards for one workspace on its identity tint,
+        /// at Arrange's island strength.
         static let groupCornerRadius: CGFloat = 10
         static let groupPadding: CGFloat = 10
         static let groupIdentitySquare: CGFloat = 10
@@ -825,6 +824,10 @@ enum ChromeMetrics {
         static let backHeight: CGFloat = 26
         static let backCornerRadius: CGFloat = 6
         static let backHorizontalPadding: CGFloat = 12
+        /// The focused view's Next chip, as tall as the back button.
+        static let nextHorizontalPadding: CGFloat = 10
+        static let nextSpacing: CGFloat = 6
+        static let nextMaxTitleWidth: CGFloat = 320
         static let dormantRowCornerRadius: CGFloat = 3
         /// Room around a dormant row's text for its hover block. Taken out of
         /// the fold's own padding and its row gap, so the rows sit where they

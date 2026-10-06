@@ -11,13 +11,6 @@ extension Theme {
     func identityTint(_ identity: Color?) -> Color {
         identityInk(identity).opacity(ChromeMetrics.Grid.islandTint)
     }
-
-    /// A card's own ground carrying its workspace's wash: the tint mixed into
-    /// `chrome` rather than laid over it, since the card has a ground of its
-    /// own for hover and press to lift.
-    func identityGround(_ identity: Color?) -> Color {
-        chrome.mix(with: identityInk(identity), by: ChromeMetrics.Grid.islandTint)
-    }
 }
 
 /// A workspace's right-click Colour menu: the eight identity hues and

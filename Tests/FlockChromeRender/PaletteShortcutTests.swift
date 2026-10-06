@@ -15,12 +15,12 @@ final class PaletteShortcutTests: XCTestCase {
         XCTAssertEqual(ShortcutLabel.text(key: ViewCommand.commandPalette.key, modifiers: ViewCommand.commandPalette.modifiers), "⌘K")
     }
 
-    func testTheJKeysGoThereAndBackAndClearMovesToU() {
+    func testJOpensTheOldestBracketsLeaveAndAdvanceTheFocusedViewAndClearIsU() {
         XCTAssertEqual(ViewCommand.openOldestNotification.key, "j")
         XCTAssertEqual(ViewCommand.openOldestNotification.modifiers, .command)
-        XCTAssertEqual(ViewCommand.jumpBack.key, "j")
-        XCTAssertEqual(ViewCommand.jumpBack.modifiers, [.command, .shift])
-        XCTAssertEqual(ViewCommand.jumpBack.title, "Jump Back")
+        XCTAssertFalse(ViewCommand.allCases.contains { $0.key == "j" && $0.modifiers == [.command, .shift] }, "Jump Back is retired")
+        XCTAssertEqual(ShortcutLabel.text(key: ViewCommand.backToOverview.key, modifiers: ViewCommand.backToOverview.modifiers), "⌘[")
+        XCTAssertEqual(ShortcutLabel.text(key: ViewCommand.openNextCard.key, modifiers: ViewCommand.openNextCard.modifiers), "⌘]")
         XCTAssertEqual(ViewCommand.clearNotifications.key, "u")
         XCTAssertEqual(ViewCommand.clearNotifications.modifiers, [.command, .shift])
     }
