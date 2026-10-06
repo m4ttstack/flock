@@ -547,7 +547,7 @@ private struct TabThumbnail: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isOverThumbnail = false
     @State private var hoveredPane: PaneID?
-    @State private var pressed: ThumbnailPart?
+    @GestureState private var pressed: ThumbnailPart?
 
     private var hovered: ThumbnailPart? {
         if let hoveredPane { return .pane(hoveredPane) }
@@ -583,13 +583,6 @@ private struct TabThumbnail: View {
         }
         .contentShape(Rectangle())
         .fadingHover($isOverThumbnail)
-        // Alongside the tap and the drags, never instead of them: it only
-        // records which part the press began on.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in if pressed == nil { pressed = hovered ?? .tab } }
-                .onEnded { _ in pressed = nil }
-        )
         // The handle and the padding around the mini panes mean the whole
         // tab; a mini pane's own tap is a descendant's and answers first.
         .onTapGesture { clicked(pane: nil) }
@@ -614,7 +607,7 @@ private struct TabThumbnail: View {
         // On the whole thumbnail, mini panes included, so a press anywhere a
         // mini pane does not cover drags the tab. A mini pane's own gesture
         // is a descendant's, so it takes the press where it sits.
-        .gesture(tabDrag)
+        .gesture(tabDrag.simultaneously(with: press))
         // Last, so everything above moves together and the frame the card
         // publishes from outside this view is the layout frame an offset
         // cannot touch. This is the strip's own shape (`TabBlock`).
@@ -668,6 +661,15 @@ private struct TabThumbnail: View {
         .onHover { hovering in
             GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
         }
+    }
+
+    /// Which part a press began on. Paired with each drag at that drag's
+    /// own level: nested inside the tab's drag it would claim every press and
+    /// the tab could never be picked up. Gesture state, so a press a tap or a
+    /// drag takes over still clears.
+    private var press: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($pressed) { _, state, _ in if state == nil { state = hovered ?? .tab } }
     }
 
     private var tabDrag: some Gesture {
@@ -799,7 +801,7 @@ private struct TabThumbnail: View {
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
                         .onTapGesture { clicked(pane: pane.paneID) }
-                        .gesture(paneDrag(pane, box: placed.frame))
+                        .gesture(paneDrag(pane, box: placed.frame).simultaneously(with: press))
                         .onHover { hovering in
                             GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
                             withAnimation(GridControlFade.animation(reduceMotion: reduceMotion)) {
