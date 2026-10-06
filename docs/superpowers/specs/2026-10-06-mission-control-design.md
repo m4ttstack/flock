@@ -296,9 +296,11 @@ this work.
 
 ### Identity colour
 
-A palette of eight hues per theme, chosen so none sits within 25 degrees of
-hue of a status colour (working, blocked, done, idle) and each keeps 3:1
-against the canvas for the identity square. Flock assigns the next unused hue
+A palette of eight hues per theme spread around the whole wheel, 45 degrees
+apart (assigned in an order that puts the first four 90 degrees apart), so
+no two read as near-repeats. They are softer than the status colours (HSL
+saturation 0.5) so a workspace's wash or name never reads as an agent's
+status, and each keeps 3:1 against the canvas. Flock assigns the next unused hue
 to a workspace the first time it sees it, keyed by workspace id so a rename
 keeps the colour, and stores the assignment in UserDefaults. An island
 header's right-click menu in Arrange gets Colour, which lists the eight hues

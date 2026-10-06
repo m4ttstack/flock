@@ -1,24 +1,25 @@
 import Foundation
 
-/// Eight hues that tell workspaces apart, derived per theme. None sits within
-/// `statusClearance` degrees of a status hue, because colour in flock already
-/// means agent status, and each clears `minimumContrast` on the canvas so the
+/// Eight hues that tell workspaces apart, derived per theme: the whole wheel
+/// at 45 degree steps, so no two are near-repeats. Softer than the status
+/// colours (`saturation`), so a workspace's wash or name never reads as an
+/// agent's status, and each clears `minimumContrast` on the canvas so the
 /// identity square reads as a mark.
 public enum IdentityPalette {
     public static let count = 8
-    public static let statusClearance = 25.0
     public static let minimumContrast = 3.0
+    public static let saturation = 0.5
+
+    /// In the order workspaces are assigned them: each next hue as far as it
+    /// can be from those before it, so the first four sit 90 degrees apart.
+    static let hues: [Double] = [195, 15, 105, 285, 240, 60, 150, 330]
 
     public static func colors(for palette: ThemePalette) -> [RGB] {
-        let statusHues = [palette.yellow, palette.red, palette.teal, palette.green].map(hue(of:))
-        let allowed = stride(from: 0.0, to: 360.0, by: 5.0).filter { candidate in
-            statusHues.allSatisfy { distance(candidate, $0) >= statusClearance }
-        }
         let accent = HSL(palette.accent)
         let darkens = ChromeRoles.isLight(panelBg: palette.panelBg)
-        return pick(allowed, awayFrom: statusHues).map { hue in
+        return hues.map { hue in
             legible(
-                HSL(hue: hue, saturation: max(accent.saturation, 0.55), lightness: accent.lightness),
+                HSL(hue: hue, saturation: saturation, lightness: accent.lightness),
                 on: palette.chromeRoles.canvas, darkening: darkens
             )
         }
@@ -26,30 +27,11 @@ public enum IdentityPalette {
 
     public static func hue(of rgb: RGB) -> Double { HSL(rgb).hue }
 
+    public static func saturation(of rgb: RGB) -> Double { HSL(rgb).saturation }
+
     public static func distance(_ a: Double, _ b: Double) -> Double {
         let d = abs(a - b).truncatingRemainder(dividingBy: 360)
         return min(d, 360 - d)
-    }
-
-    /// Greedy farthest-point order: the first hue sits furthest from any
-    /// status hue and each next one furthest from those already picked, so
-    /// the leading hues, which the first workspaces wear, are already apart.
-    private static func pick(_ hues: [Double], awayFrom status: [Double]) -> [Double] {
-        func nearest(_ hue: Double, _ others: [Double]) -> Double {
-            others.map { distance(hue, $0) }.min() ?? 360
-        }
-        var picked: [Double] = []
-        var remaining = hues
-        while picked.count < count, !remaining.isEmpty {
-            let best = remaining.max { a, b in
-                let keyA = (nearest(a, picked), nearest(a, status), -a)
-                let keyB = (nearest(b, picked), nearest(b, status), -b)
-                return keyA < keyB
-            }!
-            picked.append(best)
-            remaining.removeAll { $0 == best }
-        }
-        return picked
     }
 
     private static func legible(_ start: HSL, on ground: RGB, darkening: Bool) -> RGB {
