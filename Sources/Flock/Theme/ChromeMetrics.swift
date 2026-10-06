@@ -844,7 +844,7 @@ enum ChromeMetrics {
         static let minimumThumbnailWidth: CGFloat = 120
         /// What a thumbnail is drawn at before the view has measured itself.
         static let thumbnailWidth: CGFloat = minimumThumbnailWidth
-        static let thumbnailHeight: CGFloat = 66
+        static let thumbnailHeight: CGFloat = 74
         static let islandCornerRadius: CGFloat = 14
         static let islandTint: Double = 0.10
         static let islandCurrentOutline: CGFloat = 1.5
@@ -853,7 +853,7 @@ enum ChromeMetrics {
         static let islandHeaderHeight: CGFloat = 20
         static let islandHeaderGap: CGFloat = 12
         static let islandHeaderSpacing: CGFloat = 10
-        static let identitySquare: CGFloat = 10
+        static let identitySquare: CGFloat = 12
         static let identitySquareRadius: CGFloat = 3
         static let selectedHandleTint: Double = 0.25
         static let dormantChipHeight: CGFloat = 26

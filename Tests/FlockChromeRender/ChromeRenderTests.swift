@@ -1648,11 +1648,16 @@ final class ChromeRenderTests: XCTestCase {
         func inWindow(_ box: CGRect) -> CGRect { box.offsetBy(dx: area.minX, dy: area.minY) }
         let resting = boxes(arriving: nil)
 
-        // Half the mini pane's footprint: at the floor-size thumbnail a full
-        // one covers the whole slot, leaving no wash to sample.
+        // A proxy too small to cover anything: at the floor-size thumbnail
+        // a pane proxy's minimum size and shadow cover most of the slot,
+        // leaving no wash to sample. A miniature is drawn at exactly its
+        // footprint, which is what lets this one be 6pt.
         harness.drag.beginIfIdle(
             .pane(GridFixture.claudePane),
-            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: CGSize(width: grabbed.width * 0.5, height: grabbed.height * 0.5), isCompact: true),
+            ghost: DragCoordinator.Ghost(
+                title: "claude", symbol: "macwindow", originSize: CGSize(width: 6, height: 6), isCompact: true,
+                tabMiniature: .init(title: "claude", status: .working, isFocusedTab: false, panes: [])
+            ),
             at: CGPoint(x: grabbed.midX, y: grabbed.midY)
         )
         XCTAssertTrue(source.contains(grabbed), "the grabbed pane is drawn in its own tab's thumbnail")
@@ -1687,8 +1692,7 @@ final class ChromeRenderTests: XCTestCase {
             let untouched = inWindow(try XCTUnwrap(landing.first { $0.pane == right.pane }).frame)
             // Sampled along the bottom of each box, clear of a mini pane's
             // own title row. The flatness pair sits either side of the slot's
-            // middle on one line, so the proxy's edge and shadow, which reach
-            // this far down a floor-size thumbnail, fall on both alike.
+            // middle on one line.
             XCTAssertLessThanOrEqual(
                 channelDistance(
                     hex(image, CGPoint(x: slot.midX - 4, y: slot.maxY - 4)), hex(image, CGPoint(x: slot.midX + 4, y: slot.maxY - 4))
