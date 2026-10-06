@@ -253,6 +253,10 @@ struct FlockApp: App {
         JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesModeStore)
     }
 
+    private var viewTabs: ViewTabNavigator {
+        ViewTabNavigator(drag: dragCoordinator, mode: allWorkspacesModeStore)
+    }
+
     private var notRunningCopy: NoHerdrScreen.Copy {
         let copy = NoHerdrScreen.notRunning
         guard let herdrStartFailure else { return copy }
@@ -521,6 +525,21 @@ struct FlockApp: App {
                 )
                 OptionAsAltMenu(store: optionAsAltStore)
                 ScrollSpeedMenu(store: scrollSpeedStore)
+                Divider()
+                ForEach(ViewTab.allCases, id: \.self) { tab in
+                    let command = ViewCommand.show(tab)
+                    Button {
+                        viewTabs.choose(tab)
+                    } label: {
+                        if viewTabs.selected == tab {
+                            Label(command.title, systemImage: "checkmark")
+                        } else {
+                            Text(command.title)
+                        }
+                    }
+                    .keyboardShortcut(command.shortcut)
+                    .accessibilityIdentifier(command.accessibilityIdentifier)
+                }
                 Divider()
                 // The only key into rearrange mode, and the same switch this
                 // item's checkmark reflects.

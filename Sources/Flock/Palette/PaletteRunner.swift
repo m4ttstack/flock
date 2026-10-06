@@ -75,6 +75,9 @@ struct PaletteRunner {
             case .closeWorkspace:
                 guard let workspace = viewModel.selectedWorkspaceID else { return }
                 Task { await viewModel.closeWorkspace(workspace) }
+            case .showWorkspaces, .showOverview, .showArrange:
+                guard let tab = command.viewTab else { return }
+                ViewTabNavigator(drag: dragCoordinator, mode: modeStore).choose(tab)
             case .rearrangeMode: rearrangeMode.toggle()
             case .allWorkspaces: dragCoordinator.toggleGrid()
             case .openOldestNotification:

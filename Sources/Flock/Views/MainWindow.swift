@@ -73,10 +73,10 @@ struct MainWindow: View {
             }
         }
         .background(theme.chrome)
-        // Over the content rather than above it in the stack: the system title
-        // bar's safe area is taller than this bar, and the tab strip's
-        // `NSScrollView` stretches up to the window's top edge through it.
-        // Stacked, that scroll view sits over the bar and takes its clicks.
+        // Over the content rather than above it in the stack: the tab strip's
+        // `NSScrollView` stretches up through the system title bar's safe
+        // area to the window's top edge. Stacked, that scroll view sits over
+        // the bar and takes its clicks.
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
@@ -221,14 +221,28 @@ struct MainWindow: View {
     }
 }
 
-private struct TitleBar: View {
+struct TitleBar: View {
     let theme: Theme
     let sessionLabel: String
     let connectionState: ConnectionState
     let isDevBuild: Bool
+    /// Per tab, for renders.
+    var forcedTabs: [ViewTab: ControlInteraction] = [:]
 
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
+
+    @State private var barWidth: CGFloat = 0
+    @State private var titleWidth: CGFloat = 0
+    @State private var tabsMaxX: CGFloat = 0
+    @State private var trailingWidth: CGFloat = 0
+
+    private var showsTitle: Bool {
+        TitleBarFit.showsTitle(
+            barWidth: barWidth, titleWidth: titleWidth, leadingEdge: tabsMaxX, trailingWidth: trailingWidth,
+            gap: ChromeMetrics.TitleBar.titleClearance
+        )
+    }
 
     var body: some View {
         HStack(spacing: ChromeMetrics.TitleBar.devTagSpacing) {
@@ -239,20 +253,42 @@ private struct TitleBar: View {
                 DevTag(theme: theme)
             }
         }
+        .fixedSize()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { titleWidth = $0 }
+        // Hidden rather than removed, so its width is still measured.
+        .opacity(showsTitle ? 1 : 0)
+        .accessibilityHidden(!showsTitle)
         .padding(.top, ChromeMetrics.TitleBar.titleTopInset)
         .frame(maxWidth: .infinity)
         .frame(height: ChromeMetrics.TitleBar.height)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barWidth = $0 }
         .overlay { TitleBarMouseArea() }
-        // Over the mouse area, which would otherwise take the restart click
-        // for a title-bar drag.
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth).allowsHitTesting(false)
+        }
+        // Over the mouse area, which would otherwise take the tabs' and the
+        // restart pill's clicks for a title-bar drag.
+        .overlay(alignment: .bottomLeading) {
+            ViewTabBar(theme: theme, forced: forcedTabs)
+                .frame(height: ChromeMetrics.TitleBar.height - ChromeMetrics.TitleBar.tabTopInset)
+                .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
+                .fixedSize(horizontal: true, vertical: false)
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .local).width } action: {
+                    tabsMaxX = $0
+                }
+        }
         .overlay(alignment: .trailing) {
             HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
                 if let devBuild, devBuild.newerBuildReady {
                     RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
                 }
                 connectionNotice
+                ViewTabKeyHints(theme: theme)
+                    .padding(.leading, ChromeMetrics.TitleBar.keyHintSpacing - ChromeMetrics.TitleBar.noticeSpacing)
             }
             .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
+            .fixedSize()
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { trailingWidth = $0 }
         }
         .background(theme.chrome)
     }

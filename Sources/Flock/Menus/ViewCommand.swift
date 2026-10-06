@@ -1,9 +1,11 @@
+import FlockCore
 import SwiftUI
 
 /// The File and View menus' one-step items, each with its title and
 /// shortcut, read by the menu bar and the palette alike.
 enum ViewCommand: String, CaseIterable {
     case newTab, newWorkspace, closeTab, closeWorkspace
+    case showWorkspaces, showOverview, showArrange
     case rearrangeMode, allWorkspaces, openOldestNotification, jumpBack, clearNotifications, commandPalette
 
     var title: String {
@@ -12,6 +14,7 @@ enum ViewCommand: String, CaseIterable {
         case .newWorkspace: "New Workspace"
         case .closeTab: "Close Tab"
         case .closeWorkspace: "Close Workspace"
+        case .showWorkspaces, .showOverview, .showArrange: viewTab?.title ?? ""
         case .rearrangeMode: "Rearrange Mode"
         case .allWorkspaces: "All Workspaces"
         case .openOldestNotification: "Open Oldest Notification"
@@ -26,6 +29,7 @@ enum ViewCommand: String, CaseIterable {
         case .newTab: "t"
         case .newWorkspace: "n"
         case .closeTab, .closeWorkspace: "w"
+        case .showWorkspaces, .showOverview, .showArrange: KeyEquivalent(viewTab?.digit ?? "0")
         case .rearrangeMode: KeyEquivalent(ArrangeShortcut.rearrangeMode.key)
         case .allWorkspaces: KeyEquivalent(ArrangeShortcut.allWorkspaces.key)
         case .openOldestNotification, .jumpBack: "j"
@@ -39,8 +43,26 @@ enum ViewCommand: String, CaseIterable {
         case .newTab, .openOldestNotification, .commandPalette: .command
         case .newWorkspace, .closeTab, .clearNotifications, .jumpBack: [.command, .shift]
         case .closeWorkspace: [.command, .option, .shift]
+        case .showWorkspaces, .showOverview, .showArrange: [.command, .option]
         case .rearrangeMode: ArrangeShortcut.rearrangeMode.modifiers
         case .allWorkspaces: ArrangeShortcut.allWorkspaces.modifiers
+        }
+    }
+
+    var viewTab: ViewTab? {
+        switch self {
+        case .showWorkspaces: .workspaces
+        case .showOverview: .overview
+        case .showArrange: .arrange
+        default: nil
+        }
+    }
+
+    static func show(_ tab: ViewTab) -> ViewCommand {
+        switch tab {
+        case .workspaces: .showWorkspaces
+        case .overview: .showOverview
+        case .arrange: .showArrange
         }
     }
 
@@ -52,6 +74,9 @@ enum ViewCommand: String, CaseIterable {
         case .newWorkspace: "flock.file.newWorkspace"
         case .closeTab: "flock.file.closeTab"
         case .closeWorkspace: "flock.file.closeWorkspace"
+        case .showWorkspaces: "flock.view.showWorkspaces"
+        case .showOverview: "flock.view.showOverview"
+        case .showArrange: "flock.view.showArrange"
         case .rearrangeMode: "flock.view.rearrangeMode"
         case .allWorkspaces: "flock.view.allWorkspaces"
         case .openOldestNotification: "flock.view.openOldestNotification"

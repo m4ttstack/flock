@@ -938,7 +938,7 @@ final class PaneDragTests: XCTestCase {
 
     @MainActor
     private func openGrid(_ app: XCUIApplication, ids: SeedIDs) {
-        clickElement(app, "flock.rail.allWorkspaces")
+        clickElement(app, "flock.titleBar.tab.arrange")
         // The list of everything on screen, not just the verdict: a thumbnail
         // that never appeared can mean the grid did not open (the rail and
         // strip would still be listed) or that the card it sits in swallowed

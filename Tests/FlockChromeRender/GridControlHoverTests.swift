@@ -85,8 +85,8 @@ final class GridControlAppearanceTests: XCTestCase {
     }
 }
 
-/// A mission card (plain and blocked), a dormant chip, a dormant row and the
-/// mode toggle at rest, hovered and pressed, in a dark and a light theme.
+/// A mission card (plain and blocked), a dormant chip, a dormant row and two
+/// title bar view tabs at rest, hovered and pressed, in a dark and a light theme.
 /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
 @MainActor
 final class GridControlHoverRenderTests: XCTestCase {
@@ -159,15 +159,16 @@ final class GridControlHoverRenderTests: XCTestCase {
                     card(.blocked, index)
                     HStack(spacing: 12) {
                         DormantChipButton(theme: theme, status: .idle, label: "acme-docs", forced: interaction, action: {})
-                        HStack(spacing: 2) {
-                            ModeToggleSegment(theme: theme, title: "Overview", isOn: true, forced: interaction, action: {})
-                            ModeToggleSegment(theme: theme, title: "Arrange", isOn: false, forced: interaction, action: {})
+                        HStack(spacing: ChromeMetrics.TitleBar.tabGap) {
+                            ViewTabButton(theme: theme, tab: .overview, isSelected: true, forced: interaction, action: {})
+                            ViewTabButton(theme: theme, tab: .arrange, isSelected: false, forced: interaction, action: {})
                         }
-                        .padding(2)
-                        .background(theme.tabRest, in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius))
+                        .frame(height: ChromeMetrics.TitleBar.height - ChromeMetrics.TitleBar.tabTopInset)
+                        .fixedSize()
+                        .background(theme.chrome)
                     }
                     GridControlButton(
-                        theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius)),
+                        theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.dormantRowCornerRadius)),
                         restForeground: theme.textLabel, forced: interaction, action: {}
                     ) {
                         HStack(spacing: 8) {

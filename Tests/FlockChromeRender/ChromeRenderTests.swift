@@ -12,6 +12,8 @@ import XCTest
 final class ChromeRenderTests: XCTestCase {
     nonisolated static let defaultsSuite = "dev.mattstack.flock.chrome-render"
     private static let windowSize = CGSize(width: 900, height: 560)
+    /// Fixed sample points below the title bar are measured down from it.
+    private static let bar = ChromeMetrics.TitleBar.height
     /// The grid's own window. A thumbnail is one fixed width now, so how many
     /// slots a card row holds is the window's answer: 900pt holds three and
     /// every card fixture below is written around the four a 1200pt window
@@ -937,24 +939,26 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The system title bar is taller than the chrome's, so the top of the tab
-    /// strip lies inside it. A press there must stay with the strip: some view
-    /// of ours at that point opts out of moving the window. The chrome title
-    /// bar drags and double-clicks through `TitleBarMouseView`, so every point
-    /// on it must reach that view.
-    func testTabStripTopInsideTheSystemTitleBarDoesNotMoveTheWindow() async throws {
+    /// The system title bar's height is the system's, not the chrome's, so
+    /// whatever of ours lies inside it must say for itself whether a press
+    /// moves the window. The top of the tab strip and the view tabs opt out;
+    /// the rest of the chrome title bar drags and double-clicks through
+    /// `TitleBarMouseView`, so every other point on it must reach that view.
+    func testPressesInsideTheSystemTitleBarReachTheirOwnChrome() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
-        let systemTitleBarHeight = window.frame.height - window.contentLayoutRect.maxY
         let stripTop = ChromeMetrics.TitleBar.height
-        XCTAssertGreaterThan(systemTitleBarHeight, stripTop + 1, "the system title bar no longer reaches the tab strip, so this test exercises nothing")
-
         let stripTopEdge = CGPoint(x: 260, y: stripTop + 1)
         XCTAssertTrue(contentViews(at: stripTopEdge, in: window).contains { !$0.mouseDownCanMoveWindow })
-        for titlePoint in [CGPoint(x: 450, y: 10), CGPoint(x: 250, y: 10), CGPoint(x: 800, y: 3)] {
+        for titlePoint in [CGPoint(x: 450, y: 10), CGPoint(x: 600, y: 30), CGPoint(x: 800, y: 3)] {
             XCTAssertTrue(contentViews(at: titlePoint, in: window).contains { $0 is TitleBarMouseView }, "\(titlePoint)")
         }
+        // A view tab inside the system title bar's height still takes its
+        // own press rather than moving the window.
+        let tabPoint = CGPoint(x: ChromeMetrics.TitleBar.tabsLeadingInset + 20, y: 12)
+        XCTAssertTrue(contentViews(at: tabPoint, in: window).contains { !$0.mouseDownCanMoveWindow }, "\(tabPoint)")
+        XCTAssertFalse(isInsideScrollView(hitView(at: tabPoint, in: window)), "\(tabPoint) lands in the strip's scroll view")
         window.close()
     }
 
@@ -1068,9 +1072,9 @@ final class ChromeRenderTests: XCTestCase {
 
         // The strip is the only thing that differs between the two: the rail,
         // the canvas and the title bar are untouched by a strip scroll.
-        XCTAssertEqual(hex(start, CGPoint(x: 100, y: 74)), hex(end, CGPoint(x: 100, y: 74)), "the rail")
+        XCTAssertEqual(hex(start, CGPoint(x: 100, y: Self.bar + 48)), hex(end, CGPoint(x: 100, y: Self.bar + 48)), "the rail")
         XCTAssertEqual(hex(start, CGPoint(x: 700, y: 400)), hex(end, CGPoint(x: 700, y: 400)), "the canvas")
-        XCTAssertNotEqual(hex(start, CGPoint(x: 210, y: 40)), hex(end, CGPoint(x: 210, y: 40)), "the strip's leading edge")
+        XCTAssertNotEqual(hex(start, CGPoint(x: 210, y: Self.bar + 14)), hex(end, CGPoint(x: 210, y: Self.bar + 14)), "the strip's leading edge")
         window.close()
     }
 
@@ -3018,9 +3022,9 @@ final class ChromeRenderTests: XCTestCase {
         let roles = theme.palette.chromeRoles
         let samples: [(String, CGPoint, RGB)] = [
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
-            ("chrome/header", CGPoint(x: 450, y: 28), roles.chrome),
-            ("rule/header", CGPoint(x: 450, y: 62.25), roles.rule),
-            ("canvas/margin", CGPoint(x: 5, y: 120), roles.canvas),
+            ("chrome/header", CGPoint(x: 450, y: Self.bar + 2), roles.chrome),
+            ("rule/header", CGPoint(x: 450, y: Self.bar + 36.25), roles.rule),
+            ("canvas/margin", CGPoint(x: 5, y: Self.bar + 94), roles.canvas),
         ]
         for (name, point, expected) in samples {
             XCTAssertEqual(hex(image, point), expected.hex, "\(theme.id) \(name) at \(point)")
@@ -3131,22 +3135,22 @@ final class ChromeRenderTests: XCTestCase {
         let roles = theme.palette.chromeRoles
         let palette = theme.palette
         let samples: [(String, CGPoint, RGB)] = [
-            ("status/selectedRing", CGPoint(x: 21, y: 74), palette.green),
-            ("status/selectedHollow", CGPoint(x: 24, y: 74), roles.selection),
-            ("status/blocked", CGPoint(x: 24, y: 102), palette.red),
-            ("status/working", CGPoint(x: 24, y: 130), palette.yellow),
-            ("status/done", CGPoint(x: 24, y: 158), palette.teal),
-            ("status/idleRing", CGPoint(x: 21, y: 186), palette.green),
-            ("status/idleHollow", CGPoint(x: 24, y: 186), roles.chrome),
+            ("status/selectedRing", CGPoint(x: 21, y: Self.bar + 48), palette.green),
+            ("status/selectedHollow", CGPoint(x: 24, y: Self.bar + 48), roles.selection),
+            ("status/blocked", CGPoint(x: 24, y: Self.bar + 76), palette.red),
+            ("status/working", CGPoint(x: 24, y: Self.bar + 104), palette.yellow),
+            ("status/done", CGPoint(x: 24, y: Self.bar + 132), palette.teal),
+            ("status/idleRing", CGPoint(x: 21, y: Self.bar + 160), palette.green),
+            ("status/idleHollow", CGPoint(x: 24, y: Self.bar + 160), roles.chrome),
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
-            ("chrome/strip", CGPoint(x: 700, y: 30), roles.chrome),
+            ("chrome/strip", CGPoint(x: 700, y: Self.bar + 4), roles.chrome),
             ("chrome/rail", CGPoint(x: 75, y: 400), roles.chrome),
             ("rule/rail", CGPoint(x: 192.25, y: 400), roles.rule),
-            ("selection/row", CGPoint(x: 100, y: 64), roles.selection),
-            ("tabRest", CGPoint(x: 253, y: 40), roles.tabRest),
-            ("selection/tab", CGPoint(x: 459, y: 40), roles.selection),
-            ("accent/underline", CGPoint(x: 459, y: 61.25), roles.accent),
-            ("rule/strip", CGPoint(x: 700, y: 62.25), roles.rule),
+            ("selection/row", CGPoint(x: 100, y: Self.bar + 38), roles.selection),
+            ("tabRest", CGPoint(x: 253, y: Self.bar + 14), roles.tabRest),
+            ("selection/tab", CGPoint(x: 459, y: Self.bar + 14), roles.selection),
+            ("accent/underline", CGPoint(x: 459, y: Self.bar + 35.25), roles.accent),
+            ("rule/strip", CGPoint(x: 700, y: Self.bar + 36.25), roles.rule),
             ("canvas/margin", CGPoint(x: 196, y: 400), roles.canvas),
             ("paneBorder", CGPoint(x: 199.25, y: 400), roles.paneBorder),
             ("pane", CGPoint(x: 300, y: 400), roles.pane),
@@ -3349,8 +3353,8 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         // The selected tab's own midpoint, the selected rail row's, and a
         // point inside the focused pane -- the three sampled in `assertSamples`.
-        let tabPoint = CGPoint(x: 459, y: 40)
-        let railPoint = CGPoint(x: 100, y: 64)
+        let tabPoint = CGPoint(x: 459, y: Self.bar + 14)
+        let railPoint = CGPoint(x: 100, y: Self.bar + 38)
         let panePoint = CGPoint(x: 700, y: 400)
 
         /// Renders `model` with `open` applied, against the same window at
@@ -3413,7 +3417,7 @@ final class ChromeRenderTests: XCTestCase {
         // check is that mauve appears inside the focused pane's legend when
         // the tab is zoomed and nowhere in that band when it is not -- an
         // assertion that cannot pass unless the badge actually painted.
-        let legend = CGRect(x: 552, y: 66, width: 342, height: 26)
+        let legend = CGRect(x: 552, y: Self.bar + 40, width: 342, height: 26)
         let mauve = Theme.tokyoNight.palette.mauve.hex
         let resting = try await Harness(theme: .tokyoNight, model: try Fixture.model())
         let restingWindow = resting.makeWindow(size: Self.windowSize)
@@ -4283,6 +4287,20 @@ private struct Harness {
         return host(root, size: size)
     }
 
+    /// The title bar alone, at a width the main window's minimum never allows.
+    func makeTitleBarWindow(width: CGFloat, isDevBuild: Bool) -> NSWindow {
+        host(
+            VStack(spacing: 0) {
+                TitleBar(theme: themeStore.active, sessionLabel: "render", connectionState: .live, isDevBuild: isDevBuild)
+                Spacer(minLength: 0)
+            }
+            .background(themeStore.active.chrome)
+            .ignoresSafeArea(edges: .top)
+            .background(TitlebarConfigurator(windowBg: themeStore.active.chrome)),
+            size: CGSize(width: width, height: 120)
+        )
+    }
+
     /// The main window's own canvas alone, for the selected tab.
     func makeCanvasWindow(size: CGSize, solo: PaneID?) -> NSWindow {
         host(
@@ -4710,5 +4728,107 @@ private enum Fixture {
         ]
         let data = try JSONSerialization.data(withJSONObject: snapshot)
         return SessionModel(snapshot: try JSONDecoder().decode(SessionSnapshot.self, from: data))
+    }
+}
+
+extension ChromeRenderTests {
+    /// The title bar's view tabs in each selected state, chosen through the
+    /// same navigator the menu and the palette use, in a dark and a light
+    /// theme. Workspaces keeps the rail, whose heading no longer carries a
+    /// grid button. PNGs are written only when `FLOCK_CHROME_RENDER_DIR` is set.
+    func testViewTabsSelectEachViewAndUnderlineOnlyTheSelectedTab() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            let window = harness.makeWindow(size: Self.gridWindowSize, isDevBuild: true)
+            await settle(window)
+            assertButtonsCentered(in: window)
+            let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+            let buttonsEnd = zoom.convert(zoom.bounds, to: nil).maxX
+            let navigator = ViewTabNavigator(drag: harness.drag, mode: harness.modeStore)
+            var underlineStarts: [CGFloat] = []
+            for tab in ViewTab.allCases {
+                navigator.choose(tab)
+                await settle(window)
+                XCTAssertEqual(navigator.selected, tab, "\(scheme)")
+                XCTAssertEqual(harness.drag.isGridShown, tab != .workspaces, "\(scheme): \(tab)")
+                if let gridMode = tab.gridMode { XCTAssertEqual(harness.modeStore.active, gridMode) }
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("title-tabs-\(tab.rawValue)-\(scheme)-\(id).png"))
+                }
+                let runs = accentRuns(in: image, width: Self.gridWindowSize.width, theme: theme)
+                XCTAssertEqual(runs.count, 1, "\(scheme) \(tab): one underline, under the selected tab only: \(runs)")
+                let run = try XCTUnwrap(runs.first)
+                XCTAssertGreaterThan(run.upperBound - run.lowerBound, 40, "\(scheme) \(tab)")
+                XCTAssertGreaterThan(run.lowerBound, buttonsEnd, "\(scheme) \(tab): the tabs run under the window buttons")
+                underlineStarts.append(run.lowerBound)
+            }
+            XCTAssertEqual(underlineStarts, underlineStarts.sorted(), "\(scheme): the underline does not follow tab order")
+            XCTAssertEqual(Set(underlineStarts).count, 3, "\(scheme)")
+            window.close()
+        }
+    }
+
+    /// A focused pane is Overview's: its tab stays selected, choosing it again
+    /// keeps the pane, and choosing Arrange leaves it.
+    func testAFocusedPaneKeepsOverviewSelectedUntilArrangeIsChosen() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        let navigator = ViewTabNavigator(drag: harness.drag, mode: harness.modeStore)
+        let pane = try XCTUnwrap(Fixture.canvasPanes.first)
+        navigator.choose(.overview)
+        harness.drag.focusGridPane(pane)
+        XCTAssertEqual(navigator.selected, .overview)
+        navigator.choose(.overview)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane)
+        navigator.choose(.arrange)
+        XCTAssertNil(harness.drag.gridFocusedPane)
+        XCTAssertEqual(navigator.selected, .arrange)
+        navigator.choose(.workspaces)
+        XCTAssertFalse(harness.drag.isGridShown)
+    }
+
+    /// Below the main window's minimum, "flock" and its DEV tag hide rather
+    /// than run into the tabs. Rendered at a width where they still fit too.
+    func testTheTitleHidesBeforeItWouldOverlapTheTabs() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            for (width, shows) in [(CGFloat(640), false), (CGFloat(900), true)] {
+                let window = harness.makeTitleBarWindow(width: width, isDevBuild: true)
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("title-bar-\(Int(width))-\(scheme)-\(id).png"))
+                }
+                let centre = CGRect(x: width / 2 - 50, y: 0, width: 100, height: ChromeMetrics.TitleBar.height)
+                XCTAssertEqual(count(theme.palette.yellow.hex, in: centre, of: image) > 0, shows, "\(scheme) at \(width)")
+                window.close()
+            }
+        }
+    }
+
+    /// Runs of the accent along the title bar's last row, in window points.
+    private func accentRuns(in image: NSBitmapImageRep, width: CGFloat, theme: Theme) -> [ClosedRange<CGFloat>] {
+        let accent = theme.palette.chromeRoles.accent.hex
+        let y = ChromeMetrics.TitleBar.height - 1
+        var runs: [ClosedRange<CGFloat>] = []
+        var start: CGFloat?
+        var last: CGFloat = 0
+        for x in stride(from: CGFloat(0), to: width, by: 1) {
+            if hex(image, CGPoint(x: x, y: y)) == accent {
+                if start == nil { start = x }
+                last = x
+            } else if let begun = start {
+                runs.append(begun...last)
+                start = nil
+            }
+        }
+        if let begun = start { runs.append(begun...last) }
+        return runs
     }
 }

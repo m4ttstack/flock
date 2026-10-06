@@ -79,16 +79,16 @@ struct FocusedPaneView: View {
     }
 
     private var backButton: some View {
-        let shape = AnyShape(RoundedRectangle(cornerRadius: M.toggleCornerRadius))
+        let shape = AnyShape(RoundedRectangle(cornerRadius: M.backCornerRadius))
         return GridControlButton(theme: theme, shape: shape, restFill: theme.tabRest, restForeground: theme.textStrong) {
             navigator.back()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.left").font(.system(size: 9, weight: .semibold))
-                Text("Overview").font(ChromeType.modeToggle(selected: true))
+                Text("Overview").font(ChromeType.focusedBack)
             }
-            .padding(.horizontal, M.toggleSegmentPadding)
-            .frame(height: M.toggleHeight)
+            .padding(.horizontal, M.backHorizontalPadding)
+            .frame(height: M.backHeight)
         }
         .overlay(shape.stroke(theme.rule, lineWidth: ChromeMetrics.ruleWidth).allowsHitTesting(false))
         .pointerStyle(.link)

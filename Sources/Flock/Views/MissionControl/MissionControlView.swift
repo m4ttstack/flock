@@ -178,7 +178,7 @@ struct MissionControlView: View {
     }
 
     private func dormantFold(_ dormant: [MissionCard]) -> some View {
-        let rowShape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius))
+        let rowShape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.dormantRowCornerRadius))
         return VStack(alignment: .leading, spacing: 0) {
             GridControlButton(theme: theme, shape: rowShape, restForeground: theme.textLabel) {
                 showsDormant.toggle()

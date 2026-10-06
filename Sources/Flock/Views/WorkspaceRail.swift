@@ -35,10 +35,6 @@ struct WorkspaceRail: View {
                     .tracking(ChromeType.railHeadingTracking)
                     .foregroundStyle(theme.textLabel)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    // Centered on the heading text and overlaid, so the
-                    // button's box can never move the heading or the rows
-                    // under it however large it grows.
-                    .overlay(alignment: .trailing) { AllWorkspacesButton(theme: theme) }
                     .padding(.top, ChromeMetrics.Rail.verticalPadding)
                     .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
                 // Only the rows scroll. The gap below the heading is scroll
@@ -293,64 +289,6 @@ struct WorkspaceRail: View {
                     at: value.startLocation
                 )
             }
-    }
-}
-
-/// The way into the All Workspaces grid that does not need the menu. The way
-/// back is Esc: the grid covers this rail while it is shown.
-struct AllWorkspacesButton: View {
-    let theme: Theme
-
-    @Environment(DragCoordinator.self) private var drag
-    @State private var isHovering = false
-
-    var body: some View {
-        Button {
-            drag.toggleGrid()
-        } label: {
-            Self.glyph
-        }
-        .buttonStyle(HeadingButtonStyle(theme: theme, isHovering: isHovering))
-        .onHover { isHovering = $0 }
-        .help("All workspaces")
-        .accessibilityIdentifier("flock.rail.allWorkspaces")
-    }
-
-    /// Drawn at an explicit square size rather than as a font glyph: a
-    /// glyph's layout box carries the font's descent, so centering the box
-    /// sits the drawn grid low in the block behind it.
-    static var glyph: some View {
-        Image(systemName: "square.grid.2x2")
-            .resizable()
-            .fontWeight(.medium)
-            .scaledToFit()
-            .frame(width: ChromeMetrics.Rail.headingSymbolSize, height: ChromeMetrics.Rail.headingSymbolSize)
-    }
-}
-
-/// The selected-tab block behind the glyph, appearing on hover and taking a
-/// wash of accent while the press is held.
-struct HeadingButtonStyle: ButtonStyle {
-    let theme: Theme
-    let isHovering: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        let lit = isHovering || configuration.isPressed
-        return configuration.label
-            .foregroundStyle(lit ? theme.textStrong : theme.textLabel)
-            .frame(width: ChromeMetrics.Rail.headingButtonSize, height: ChromeMetrics.Rail.headingButtonSize)
-            .background(
-                RoundedRectangle(cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius)
-                    .fill(theme.selection)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ChromeMetrics.Rail.headingButtonCornerRadius)
-                            .fill(theme.accent)
-                            .opacity(configuration.isPressed ? ChromeMetrics.Rail.headingButtonPressedAccent : 0)
-                    )
-                    .opacity(lit ? 1 : 0)
-            )
-            .contentShape(Rectangle())
-            .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: lit)
     }
 }
 

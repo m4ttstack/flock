@@ -5,18 +5,18 @@ import SwiftUI
 extension View {
     /// A fill confined to this view's own frame. The shape-style `.background`
     /// extends into safe areas, and everything within the system title bar's
-    /// height (taller than `ChromeMetrics.TitleBar.height`) sits inside the top
-    /// safe area, so that fill would paint up over the title bar.
+    /// height sits inside the top safe area, so that fill could paint up over
+    /// the title bar.
     func boundedBackground<S: ShapeStyle>(_ style: S) -> some View {
         background(style, ignoresSafeAreaEdges: [])
     }
 }
 
-/// Takes the view's area out of the window's drag region. The system title bar
-/// is taller than `ChromeMetrics.TitleBar.height`, so the top of the tab strip
-/// sits inside it, and a hosting view reports `mouseDownCanMoveWindow` true:
-/// without an opt-out there, a press at the top of the strip moves the window
-/// instead of reaching the strip. It never takes a hit itself, so every press
+/// Takes the view's area out of the window's drag region. The system title
+/// bar's height is the system's, not `ChromeMetrics.TitleBar.height`, so a
+/// control near the top of the window can sit inside it, and a hosting view
+/// reports `mouseDownCanMoveWindow` true: without an opt-out there, a press on
+/// that control moves the window instead of reaching it. It never takes a hit itself, so every press
 /// still lands on the SwiftUI content above it.
 struct WindowDragExclusion: NSViewRepresentable {
     func makeNSView(context: Context) -> NonDraggableView { NonDraggableView() }
@@ -202,7 +202,7 @@ enum FlockWindow {
 }
 
 /// Keeps the standard window buttons vertically centered in a title bar
-/// shorter than the system's. AppKit lays the buttons out again on its own
+/// whose height is not the system's. AppKit lays the buttons out again on its own
 /// schedule (a resize, a key change, leaving full screen), so each button's
 /// own frame change is observed and corrected synchronously, before the pass
 /// draws, as well as the window events that precede a relayout. AppKit can

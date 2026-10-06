@@ -135,7 +135,6 @@ struct AllWorkspacesGrid: View {
 
     private var header: some View {
         HStack(spacing: ChromeMetrics.Grid.headerSpacing) {
-            modeToggle
             Text(workspaces.count == 1 ? "1 workspace" : "\(workspaces.count) workspaces")
                 .font(ChromeType.gridCount)
                 .foregroundStyle(theme.textLabel)
@@ -147,22 +146,6 @@ struct AllWorkspacesGrid: View {
         .padding(.horizontal, ChromeMetrics.Grid.headerHorizontalPadding)
         .frame(height: ChromeMetrics.Grid.headerHeight)
         .background(WindowDragExclusion())
-    }
-
-    private var modeToggle: some View {
-        HStack(spacing: 2) {
-            ForEach(AllWorkspacesMode.allCases, id: \.self) { option in
-                ModeToggleSegment(theme: theme, title: option.title, isOn: shownMode == option) { mode.select(option) }
-                    .accessibilityIdentifier("flock.grid.mode.\(option.rawValue)")
-                    .accessibilityAddTraits(shownMode == option ? .isSelected : [])
-            }
-        }
-        .padding(2)
-        .background(theme.tabRest, in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius)
-                .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
-        )
     }
 
     private func refreshIdentities() {
@@ -1010,30 +993,6 @@ struct DormantChipButton: View {
             }
             .padding(.horizontal, 10)
             .frame(height: ChromeMetrics.Grid.dormantChipHeight)
-        }
-    }
-}
-
-/// One half of the Mission control | Arrange toggle.
-struct ModeToggleSegment: View {
-    let theme: Theme
-    let title: String
-    let isOn: Bool
-    var forced: ControlInteraction?
-    let action: () -> Void
-
-    var body: some View {
-        GridControlButton(
-            theme: theme,
-            shape: AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius - 2)),
-            restFill: isOn ? theme.paneBorder : .clear,
-            restForeground: isOn ? theme.textStrong : theme.textDim,
-            forced: forced, action: action
-        ) {
-            Text(title)
-                .font(ChromeType.modeToggle(selected: isOn))
-                .padding(.horizontal, ChromeMetrics.MissionControl.toggleSegmentPadding)
-                .frame(height: ChromeMetrics.MissionControl.toggleHeight - 4)
         }
     }
 }

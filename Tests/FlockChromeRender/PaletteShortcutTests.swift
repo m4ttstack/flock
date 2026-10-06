@@ -25,6 +25,17 @@ final class PaletteShortcutTests: XCTestCase {
         XCTAssertEqual(ViewCommand.clearNotifications.modifiers, [.command, .shift])
     }
 
+    func testOptionCommandDigitsPickTheViewsInTabOrder() {
+        let labels = ViewTab.allCases.map { tab in
+            let command = ViewCommand.show(tab)
+            XCTAssertEqual(command.viewTab, tab)
+            XCTAssertEqual(command.title, tab.title)
+            return ShortcutLabel.text(key: command.key, modifiers: command.modifiers)
+        }
+        XCTAssertEqual(labels, ["⌥⌘1", "⌥⌘2", "⌥⌘3"])
+        XCTAssertEqual(ShortcutLabel.text(key: ViewCommand.allWorkspaces.key, modifiers: ViewCommand.allWorkspaces.modifiers), "⇧⌘R")
+    }
+
     /// Every menu-bar shortcut flock sets, from every list, is distinct.
     func testNoTwoMenuShortcutsCollide() {
         var labels = ViewCommand.allCases.map { ShortcutLabel.text(key: $0.key, modifiers: $0.modifiers) }

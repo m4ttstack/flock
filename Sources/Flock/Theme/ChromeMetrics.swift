@@ -20,7 +20,7 @@ enum ChromeMetrics {
     static let statusUnknownRatio: CGFloat = 0.5
 
     enum TitleBar {
-        static let height: CGFloat = 26
+        static let height: CGFloat = 36
         static let noticeSpacing: CGFloat = 6
         static let noticeDot: CGFloat = 6
         static let noticeTrailingPadding: CGFloat = 13
@@ -33,6 +33,22 @@ enum ChromeMetrics {
         static let restartGlyphSpacing: CGFloat = 4
         static let restartHorizontalPadding: CGFloat = 8
         static let restartVerticalPadding: CGFloat = 2.5
+        /// Clears the standard window buttons, which sit at the bar's
+        /// leading edge.
+        static let tabsLeadingInset: CGFloat = 86
+        static let tabGap: CGFloat = 2
+        /// A tab runs from this far below the bar's top to its bottom edge,
+        /// where its underline sits.
+        static let tabTopInset: CGFloat = 5
+        static let tabHorizontalPadding: CGFloat = 11
+        static let tabGlyphSize: CGFloat = 12
+        static let tabGlyphGap: CGFloat = 7
+        static let tabCornerRadius: CGFloat = 5
+        static let tabUnderline: CGFloat = 2
+        /// The least clearance the centred title keeps from either end's
+        /// content before it hides.
+        static let titleClearance: CGFloat = 16
+        static let keyHintSpacing: CGFloat = 10
     }
 
     enum Banner {
@@ -56,17 +72,6 @@ enum ChromeMetrics {
         /// The heading's bottom to the first row's top: the heading gap with a
         /// row gap either side of it.
         static let headingToFirstRow: CGFloat = rowGap + headingGap + rowGap
-        /// The "All workspaces" button's hit box, overlaid on the heading row
-        /// so its size never moves the heading or the rows below it. Taller
-        /// than the heading text: the overflow is absorbed by the padding
-        /// above and the gap below.
-        static let headingButtonSize: CGFloat = 22
-        /// The grid glyph's drawn square inside that block.
-        static let headingSymbolSize: CGFloat = 13
-        static let headingButtonCornerRadius: CGFloat = 3
-        /// How much accent a held press blends over the selection fill, so
-        /// pressed reads a step deeper than hover.
-        static let headingButtonPressedAccent: Double = 0.2
     }
 
     enum WorkspaceRow {
@@ -816,9 +821,11 @@ enum ChromeMetrics {
         static let groupIdentitySquare: CGFloat = 10
         static let groupIdentitySquareRadius: CGFloat = 3
         static let groupLabelSpacing: CGFloat = 7
-        static let toggleHeight: CGFloat = 26
-        static let toggleCornerRadius: CGFloat = 6
-        static let toggleSegmentPadding: CGFloat = 12
+        /// The focused view's way back to Overview.
+        static let backHeight: CGFloat = 26
+        static let backCornerRadius: CGFloat = 6
+        static let backHorizontalPadding: CGFloat = 12
+        static let dormantRowCornerRadius: CGFloat = 3
         /// Room around a dormant row's text for its hover block. Taken out of
         /// the fold's own padding and its row gap, so the rows sit where they
         /// did before the block existed.
