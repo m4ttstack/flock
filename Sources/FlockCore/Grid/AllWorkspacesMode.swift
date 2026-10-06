@@ -7,7 +7,7 @@ public enum AllWorkspacesMode: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .missionControl: "Mission control"
+        case .missionControl: "Overview"
         case .arrange: "Arrange"
         }
     }

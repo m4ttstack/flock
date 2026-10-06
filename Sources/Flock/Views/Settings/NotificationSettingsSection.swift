@@ -26,7 +26,7 @@ struct NotificationSettingsSection: View {
                 }
             } label: {
                 Text("Dormant after")
-                Text("Mission control folds away a pane whose status has not changed for this long.")
+                Text("Overview folds away a pane whose status has not changed for this long.")
             }
             .accessibilityIdentifier("flock.settings.dormantCutoff")
         }

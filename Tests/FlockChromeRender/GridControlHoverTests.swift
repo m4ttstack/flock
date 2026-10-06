@@ -158,7 +158,7 @@ final class GridControlHoverRenderTests: XCTestCase {
                     HStack(spacing: 12) {
                         DormantChipButton(theme: theme, status: .idle, label: "acme-docs", forced: interaction, action: {})
                         HStack(spacing: 2) {
-                            ModeToggleSegment(theme: theme, title: "Mission control", isOn: true, forced: interaction, action: {})
+                            ModeToggleSegment(theme: theme, title: "Overview", isOn: true, forced: interaction, action: {})
                             ModeToggleSegment(theme: theme, title: "Arrange", isOn: false, forced: interaction, action: {})
                         }
                         .padding(2)

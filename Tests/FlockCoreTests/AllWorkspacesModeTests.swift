@@ -40,6 +40,6 @@ final class AllWorkspacesModeTests: XCTestCase {
     }
 
     func testTitles() {
-        XCTAssertEqual(AllWorkspacesMode.allCases.map(\.title), ["Mission control", "Arrange"])
+        XCTAssertEqual(AllWorkspacesMode.allCases.map(\.title), ["Overview", "Arrange"])
     }
 }

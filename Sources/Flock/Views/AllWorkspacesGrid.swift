@@ -148,6 +148,10 @@ struct AllWorkspacesGrid: View {
         }
         .padding(2)
         .background(theme.tabRest, in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius)
+                .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
+        )
     }
 
     private func refreshIdentities() {
@@ -1045,8 +1049,8 @@ struct ModeToggleSegment: View {
         GridControlButton(
             theme: theme,
             shape: AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.toggleCornerRadius - 2)),
-            restFill: isOn ? theme.selection : .clear,
-            restForeground: isOn ? theme.textStrong : theme.textLabel,
+            restFill: isOn ? theme.paneBorder : .clear,
+            restForeground: isOn ? theme.textStrong : theme.textDim,
             forced: forced, action: action
         ) {
             Text(title)

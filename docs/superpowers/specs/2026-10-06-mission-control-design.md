@@ -48,7 +48,7 @@ Mission control reads these; it replaces none of them.
 ### Modes
 
 The All Workspaces view gets a segmented control at the left of its header:
-**Mission control | Arrange**. The view remembers the mode last used across launches, and ⇧⌘R opens it in that mode.
+**Overview | Arrange** (Overview is mission control; the code keeps that name). The view remembers the mode last used across launches, and ⇧⌘R opens it in that mode.
 
 Mission control has no drag sources and is never a drop target: a drag starts
 only in Arrange or the main window, so the drop surface is always Arrange.
