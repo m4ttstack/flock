@@ -304,24 +304,61 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertTrue(state.isShown)
     }
 
+    func testAPaneIsFocusedOnlyWhileTheGridIsShown() {
+        var grid = AllWorkspacesGridState()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        XCTAssertNil(grid.focused, "nothing to focus inside a closed view")
+        grid.open()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        XCTAssertEqual(grid.focused, PaneID(rawValue: "p1"))
+        grid.unfocus()
+        XCTAssertNil(grid.focused)
+    }
+
+    func testClosingTheViewForgetsTheFocusedPane() {
+        var grid = AllWorkspacesGridState()
+        grid.open()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        grid.close()
+        grid.open()
+        XCTAssertNil(grid.focused, "reopening shows Overview's lanes")
+    }
+
+    func testAFocusedPaneThatClosesReturnsToOverview() {
+        var grid = AllWorkspacesGridState()
+        grid.open()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        grid.reconcile(livePanes: [PaneID(rawValue: "p1"), PaneID(rawValue: "p2")])
+        XCTAssertEqual(grid.focused, PaneID(rawValue: "p1"))
+        grid.reconcile(livePanes: [PaneID(rawValue: "p2")])
+        XCTAssertNil(grid.focused)
+        XCTAssertTrue(grid.isShown, "the view stays open on Overview")
+    }
+
+    func testEscBelongsToTheTerminalWhileAPaneIsFocused() {
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridFocusesPane: true, railTakesEscape: false), .focusedView)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridFocusesPane: false, railTakesEscape: false), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: true, gridFocusesPane: true, railTakesEscape: false), .drag)
+    }
+
     // MARK: - Esc
 
     func testALiveDragAlwaysOwnsEsc() {
         for grid in [false, true] {
             for rail in [false, true] {
-                XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: grid, railTakesEscape: rail), .drag)
+                XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: grid, gridFocusesPane: false, railTakesEscape: rail), .drag)
             }
         }
     }
 
     func testAnIdleEscClosesAShownGridBeforeTheRailSelectionSeesIt() {
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, railTakesEscape: true), .grid)
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, railTakesEscape: false), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridFocusesPane: false, railTakesEscape: true), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridFocusesPane: false, railTakesEscape: false), .grid)
     }
 
     func testWithNoGridEscIsTheRailsOrTheTerminals() {
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, railTakesEscape: true), .railSelection)
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, railTakesEscape: false), .focusedView)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, gridFocusesPane: false, railTakesEscape: true), .railSelection)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, gridFocusesPane: false, railTakesEscape: false), .focusedView)
     }
 
     // MARK: - last line requests

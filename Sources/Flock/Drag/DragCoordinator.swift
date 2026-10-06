@@ -1122,7 +1122,8 @@ final class DragCoordinator {
             return event
         }
         let route = EscapeRoute.route(
-            dragIdle: machine.state == .idle, gridShown: grid.isShown, railTakesEscape: workspaceSelection.takesEscape
+            dragIdle: machine.state == .idle, gridShown: grid.isShown, gridFocusesPane: grid.focused != nil,
+            railTakesEscape: workspaceSelection.takesEscape
         )
         switch route {
         case .drag, .focusedView:

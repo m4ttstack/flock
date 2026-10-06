@@ -133,8 +133,26 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
     /// until something closes it, so it can be read, scrolled past and copied
     /// from at leisure.
     public private(set) var preview: PaneID?
+    /// The pane Overview has opened in its focused view. Belongs to this
+    /// opening of the view: a closed view forgets it.
+    public private(set) var focused: PaneID?
 
     public init() {}
+
+    public mutating func focus(pane: PaneID) {
+        guard isShown else { return }
+        focused = pane
+    }
+
+    public mutating func unfocus() {
+        focused = nil
+    }
+
+    /// A focused pane that herdr no longer reports leaves the view on
+    /// Overview rather than on an empty canvas.
+    public mutating func reconcile(livePanes: Set<PaneID>) {
+        if let focused, !livePanes.contains(focused) { self.focused = nil }
+    }
 
     public mutating func open() {
         isShown = true
@@ -144,6 +162,7 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
     public mutating func close() {
         isShown = false
         preview = nil
+        focused = nil
     }
 
     public mutating func toggle() {
@@ -194,12 +213,13 @@ public enum EscapeRoute: Equatable, Sendable {
     case railSelection
     case focusedView
 
-    /// A live drag owns Esc as its cancel. The grid covers the rail, so it
-    /// outranks the rail's selection, and what is left reaches the focused
-    /// terminal.
-    public static func route(dragIdle: Bool, gridShown: Bool, railTakesEscape: Bool) -> EscapeRoute {
+    /// A live drag owns Esc as its cancel. A pane focused inside the grid is
+    /// a live terminal, and Esc is its key. Otherwise the grid covers the
+    /// rail, so it outranks the rail's selection, and what is left reaches
+    /// the focused terminal.
+    public static func route(dragIdle: Bool, gridShown: Bool, gridFocusesPane: Bool, railTakesEscape: Bool) -> EscapeRoute {
         guard dragIdle else { return .drag }
-        if gridShown { return .grid }
+        if gridShown { return gridFocusesPane ? .focusedView : .grid }
         return railTakesEscape ? .railSelection : .focusedView
     }
 }

@@ -387,6 +387,18 @@ public final class SessionViewModel {
         attentionToasts.dismiss(pane: pane)
     }
 
+    /// Overview's focused view: the card is dismissed as a jump would, but
+    /// herdr's focus stays where the main window left it.
+    @discardableResult
+    public func focusInOverview(pane: PaneID) -> Bool {
+        guard model?.panes[pane] != nil else { return false }
+        attentionToasts.dismiss(pane: pane)
+        return true
+    }
+
+    /// The card the jump key takes next when every card is drawn.
+    public var oldestAttentionPane: PaneID? { attentionToasts.toasts.last?.paneID }
+
     public func clearAttentionToasts() {
         attentionToasts.clear()
     }

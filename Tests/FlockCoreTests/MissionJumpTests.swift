@@ -57,6 +57,23 @@ final class MissionJumpTests: XCTestCase {
         XCTAssertNotNil(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:t1:p2")))
     }
 
+    func testFocusingInOverviewDismissesTheCardAndNeverMovesHerdr() async {
+        let clock = Clock()
+        let client = RecordingClient()
+        let viewModel = SessionViewModel(client: client, now: { clock.now })
+        viewModel.update(model: model([.working]), connection: .live)
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: model([.blocked]), connection: .live)
+        let pane = PaneID(rawValue: "w2:t1:p1")
+        XCTAssertEqual(viewModel.oldestAttentionPane, pane)
+        XCTAssertTrue(viewModel.focusInOverview(pane: pane))
+        XCTAssertNil(viewModel.attentionToasts.toast(pane: pane))
+        XCTAssertNil(viewModel.oldestAttentionPane)
+        let calls = await client.calls
+        XCTAssertEqual(calls, [], "focusing in Overview sends herdr nothing")
+        XCTAssertFalse(viewModel.focusInOverview(pane: PaneID(rawValue: "gone")))
+    }
+
     func testAClosedOriginOffersNoWayBack() async {
         let viewModel = SessionViewModel(client: RecordingClient())
         viewModel.update(model: model([.working, .idle]), connection: .live)
