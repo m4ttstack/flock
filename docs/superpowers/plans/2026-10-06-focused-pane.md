@@ -218,11 +218,11 @@ Behaviour of `solo`:
 
 In `PaneCellView`, read `@Environment(\.paneCellRole) private var role`. Every place that calls `viewModel.jumpToHerdr(pane:)` (the title click's `.select`, the surface's `onPrimaryClick`, and the third call site; grep `jumpToHerdr(pane` in the file) skips the herdr call when `role == .solo`. A solo cell's title click and surface click still give its terminal the keyboard (it is already `isFocused`). Keep the legend controls (mouse badge, chat button, rt button) exactly as they are. Do not add other behaviour switches.
 
-- [ ] **Step 1: Write the failing render test** — render a `PaneCanvas(theme:viewModel:layout:solo:)` for a two-pane fixture tab (use the harness that renders the canvas today) with `solo` set to the second pane, in tokyo-night and tokyo-night-day, writing `focused-canvas-dark.png` / `focused-canvas-light.png` under `FLOCK_GRID_RENDER_DIR`. Assert: the canvas publishes one cell frame (the solo pane's) filling the canvas within a cell's rounding, and no zoom badge element (`flock.canvas.zoom` style identifier; grep the file for how zoom badge tests find it).
+- [ ] **Step 1: Write the failing render test** : render a `PaneCanvas(theme:viewModel:layout:solo:)` for a two-pane fixture tab (use the harness that renders the canvas today) with `solo` set to the second pane, in tokyo-night and tokyo-night-day, writing `focused-canvas-dark.png` / `focused-canvas-light.png` under `FLOCK_GRID_RENDER_DIR`. Assert: the canvas publishes one cell frame (the solo pane's) filling the canvas within a cell's rounding, and no zoom badge element (`flock.canvas.zoom` style identifier; grep the file for how zoom badge tests find it).
 - [ ] **Step 2: Run to see it fail** (`solo` is not a parameter).
 - [ ] **Step 3: Implement** as described.
 - [ ] **Step 4: Run it, and the existing canvas and zoom render tests** (`-only-testing:FlockChromeRender/ChromeRenderTests`). Look at both PNGs: the pane fills the canvas, its legend shows its controls top right, no badge.
-- [ ] **Step 5: Commit** — `"pane canvas: a solo mode that shows one pane and leaves herdr's focus alone"`.
+- [ ] **Step 5: Commit** : `"pane canvas: a solo mode that shows one pane and leaves herdr's focus alone"`.
 
 ### Task 3: The focused view, wired into Overview
 
@@ -259,7 +259,7 @@ Rules (the spec's "Focused pane"):
 - [ ] **Step 2: Run to see them fail.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** `-only-testing:FlockChromeRender/ChromeRenderTests` plus `PaletteShortcutTests` and `PaletteCatalogTests`. Render with `TEST_RUNNER_FLOCK_GRID_RENDER_DIR` and look at `focused-dark.png` and `focused-light.png` next to board 11 (`build/boards/` has no export of board 11; ask the controller for one if needed). Check: the back button reads as the one way out; the identity square and name; the state and age in the status hue; the pane's legend controls at its top right; no tab strip, rail or dock.
-- [ ] **Step 5: Commit** — `"overview: open a card as a focused pane, with Overview the only way out"`.
+- [ ] **Step 5: Commit** : `"overview: open a card as a focused pane, with Overview the only way out"`.
 
 ### Task 4: Overview identity groups
 
@@ -278,7 +278,7 @@ Per the spec's "Identity grouping" and board 05c:
 - [ ] **Step 2: Run to see it fail.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** `testMissionControlRendersInDarkAndLight` and the hover render tests; look at `mission-dark.png` and `mission-light.png` next to board 05c; the tints should read as Arrange's islands, quiet in light.
-- [ ] **Step 5: Commit** — `"overview: workspace groups and cards wear Arrange's identity colours"`.
+- [ ] **Step 5: Commit** : `"overview: workspace groups and cards wear Arrange's identity colours"`.
 
 ### Task 5: Hand off
 
