@@ -37,14 +37,18 @@ struct AllWorkspacesGrid: View {
         // Mission control is never a drop target, so it publishes no items.
         let order = arrange.map(itemOrder) ?? []
         VStack(spacing: 0) {
-            header
-            Rectangle()
-                .fill(theme.rule)
-                .frame(height: ChromeMetrics.ruleWidth)
-            if let arrange {
-                arrangeGrid(arrange)
+            if arrange == nil, let focused = drag.gridFocusedPane {
+                FocusedPaneView(theme: theme, viewModel: viewModel, pane: focused)
             } else {
-                MissionControlView(theme: theme, viewModel: viewModel)
+                header
+                Rectangle()
+                    .fill(theme.rule)
+                    .frame(height: ChromeMetrics.ruleWidth)
+                if let arrange {
+                    arrangeGrid(arrange)
+                } else {
+                    MissionControlView(theme: theme, viewModel: viewModel)
+                }
             }
         }
         .boundedBackground(theme.chrome)
@@ -55,7 +59,14 @@ struct AllWorkspacesGrid: View {
         }
         .onChange(of: order) { drag.setGridOrder(order) }
         .onChange(of: workspaces.map(\.workspaceID)) { refreshIdentities() }
+        .onChange(of: livePanes) { _, live in
+            // A nil model is a gap in the connection, not every pane closing.
+            guard let live else { return }
+            drag.updateGrid { $0.reconcile(livePanes: live) }
+        }
     }
+
+    private var livePanes: Set<PaneID>? { viewModel.model.map { Set($0.panes.keys) } }
 
     private var shownMode: AllWorkspacesMode { mode.shown(dragInFlight: drag.activeSubject != nil) }
 

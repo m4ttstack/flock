@@ -14,6 +14,12 @@ public struct MissionCard: Equatable, Sendable, Identifiable {
     /// When the pane entered `status`, or when its attention card was raised.
     public let since: Date?
     public let folder: String
+
+    /// The status, with how long it has held when that is known: `blocked 12m`.
+    public func stateText(at now: Date) -> String {
+        guard let since else { return status.rawValue }
+        return "\(status.rawValue) \(MissionAge.text(now.timeIntervalSince(since)))"
+    }
 }
 
 public struct MissionGroup: Equatable, Sendable, Identifiable {
@@ -38,6 +44,11 @@ public struct MissionBoard: Equatable, Sendable {
     public func arrangeDormantWorkspaces(focused: WorkspaceID?) -> Set<WorkspaceID> {
         guard let focused else { return dormantWorkspaces }
         return dormantWorkspaces.subtracting([focused])
+    }
+
+    /// The pane's card in whichever lane holds it, dormant included.
+    public func card(_ pane: PaneID) -> MissionCard? {
+        (needsYou + working.flatMap(\.cards) + coolingDown + dormant).first { $0.paneID == pane }
     }
 
     /// The drawn lanes, top to bottom, for the keyboard.

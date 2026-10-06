@@ -68,7 +68,7 @@ struct MissionCardView: View {
                     Text(card.tabTitle).foregroundStyle(theme.textLabel)
                 }
                 Spacer(minLength: 8)
-                Text(ageText)
+                Text(card.stateText(at: now))
                     .font(ChromeType.missionCardMono)
                     .foregroundStyle(theme.agentStatusMarkColor(card.status))
             }
@@ -95,12 +95,6 @@ struct MissionCardView: View {
         .padding(.vertical, M.cardVerticalPadding)
         .padding(.horizontal, M.cardHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var ageText: String {
-        let word = card.status.rawValue
-        guard let since = card.since else { return word }
-        return "\(word) \(MissionAge.text(now.timeIntervalSince(since)))"
     }
 
     private var outline: Color {

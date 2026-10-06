@@ -2017,6 +2017,127 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A card opened from Overview shows its pane in the focused view, in a
+    /// dark and a light theme. The view stays up, the card leaves the stack,
+    /// and herdr's focus is never asked to move.
+    func testFocusedPaneRendersInDarkAndLight() async throws {
+        for (id, file) in [("tokyo-night", "focused-dark.png"), ("tokyo-night-day", "focused-light.png")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let client = MethodRecordingClient()
+            let (harness, window) = try await focusedOverview(theme: theme, client: client)
+            JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore).open(pane: GridFixture.buildPane)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap({ $0.isEmpty ? nil : $0 }) {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
+            }
+            XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.buildPane, "\(id): the card opened in the focused view")
+            XCTAssertTrue(harness.drag.isGridShown, "\(id): opening a card closed the view")
+            XCTAssertNil(harness.viewModel.attentionToasts.toast(pane: GridFixture.buildPane), "\(id): the opened card is still in the stack")
+            let header = CGRect(
+                x: 0, y: ChromeMetrics.TitleBar.height, width: Self.gridWindowSize.width / 2, height: ChromeMetrics.Grid.headerHeight
+            )
+            XCTAssertNotNil(firstPoint(in: header, matching: theme.palette.red.hex, of: image), "\(id): no blocked hue in the header")
+            let methods = await client.methods
+            for focusing in ["tab.focus", "pane.focus", "workspace.focus"] {
+                XCTAssertFalse(methods.contains(focusing), "\(id): opening the card sent \(focusing)")
+            }
+            window.close()
+        }
+    }
+
+    /// Back from the focused view is Overview's lanes, with the card that was
+    /// open selected.
+    func testBackFromTheFocusedPaneSelectsItsCard() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        XCTAssertEqual(navigator.backTarget, .missionControl, "Jump Back is disabled in the focused view")
+        navigator.back()
+        await settle(window)
+        XCTAssertNil(harness.drag.gridFocusedPane)
+        XCTAssertTrue(harness.drag.isGridShown)
+        XCTAssertEqual(harness.modeStore.shown(dragInFlight: false), .missionControl)
+        XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane)
+        window.close()
+    }
+
+    /// The jump key in the focused view swaps in the next oldest card, and
+    /// with none left it leaves the view as it is.
+    func testJInTheFocusedViewOpensTheNextCard() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        XCTAssertEqual(harness.viewModel.oldestAttentionPane, PaneID(rawValue: "w2:p1"), "the premise: the oldest card")
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        navigator.openOldest()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, PaneID(rawValue: "w2:p1"))
+        navigator.openOldest()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane)
+        XCTAssertNil(harness.viewModel.oldestAttentionPane, "the premise: no card left")
+        navigator.openOldest()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane, "the jump key with no card left changed the view")
+        XCTAssertTrue(harness.drag.isGridShown)
+        window.close()
+    }
+
+    /// The focused view opens over a terminal holding the keyboard. Esc and
+    /// the arrows reach the window's first responder untouched: Overview's
+    /// key monitor is not installed, and Esc does not close the view.
+    func testEscInTheFocusedViewReachesTheTerminal() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        let terminal = KeyHog(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        window.contentView?.addSubview(terminal)
+        JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore).open(pane: GridFixture.buildPane)
+        await settle(window)
+        // Key, so the application hands it the keys its monitors pass on.
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(window.makeFirstResponder(terminal), "the premise: the stand-in terminal holds the keyboard")
+        pressKey(window, keyCode: 53, character: 0x1B)
+        await settle(window)
+        pressKey(window, keyCode: 125, character: NSDownArrowFunctionKey)
+        await settle(window)
+        XCTAssertEqual(terminal.keys, 2, "a key did not reach the terminal")
+        XCTAssertTrue(harness.drag.isGridShown, "Esc closed the view")
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.buildPane, "Esc left the focused view")
+        XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane, "the arrow moved Overview's selection")
+        window.close()
+    }
+
+    /// Overview shown with three Needs-you cards, oldest first: `w2:p1`
+    /// finished, the build pane blocked, the src pane finished.
+    private func focusedOverview(theme: Theme, client: MethodRecordingClient) async throws -> (Harness, NSWindow) {
+        var model = try GridFixture.model()
+        let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
+        let harness = try await Harness(theme: theme, model: model, client: client, attaching: [], now: { clock.date })
+        let steps: [(minute: Double, pane: PaneID, status: AgentStatus)] = [
+            (5, GridFixture.glancePane, .working),
+            (10, GridFixture.buildPane, .working),
+            (20, PaneID(rawValue: "w2:p1"), .working),
+            (25, PaneID(rawValue: "w2:p1"), .done),
+            (33, GridFixture.buildPane, .blocked),
+            (40, GridFixture.srcPane, .done),
+        ]
+        let launch = clock.date
+        for step in steps {
+            clock.date = launch.addingTimeInterval(step.minute * 60)
+            model.panes[step.pane]?.agentStatus = step.status
+            harness.viewModel.update(model: model, connection: .live)
+        }
+        clock.date = launch.addingTimeInterval(45 * 60)
+        harness.modeStore.select(.missionControl)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+        return (harness, window)
+    }
+
     /// Opened mid-drag, the view is the drop surface, which is always Arrange,
     /// whatever mode is remembered; the remembered mode is left alone.
     func testOpenedMidDragTheViewDrawsArrangeAndRemembersMissionControl() async throws {
@@ -4207,6 +4328,16 @@ private struct GridFixtureClient: HerdrCommandClient {
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         guard method == "pane.read" else { throw OfflineHerdrClient.Offline() }
         return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": Self.screen]]])
+    }
+}
+
+/// `GridFixtureClient`, keeping every method it is asked for.
+private actor MethodRecordingClient: HerdrCommandClient {
+    private(set) var methods: [String] = []
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        methods.append(method)
+        return try await GridFixtureClient().requestRaw(method, params)
     }
 }
 

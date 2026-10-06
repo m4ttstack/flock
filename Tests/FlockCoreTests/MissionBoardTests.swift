@@ -145,6 +145,28 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertNil(MissionSelection.resolve(gone, in: [[], [], []]), "no drawn card, nothing to select or open")
     }
 
+    func testCardFindsAPaneInWhicheverLaneHoldsIt() {
+        let model = MissionFixture.single([.blocked, .working, .idle, .idle])
+        var toasts = AttentionToastStack()
+        toasts.raise(toast("w1:t1:p1", .needsInput, raised: 600))
+        let b = board(model, toasts: toasts, changedAgo: ["w1:t1:p3": 120])
+        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p1")), b.needsYou.first)
+        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p2")), b.working.first?.cards.first)
+        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p3")), b.coolingDown.first)
+        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p4")), b.dormant.first)
+        XCTAssertNil(b.card(PaneID(rawValue: "w9:t1:p1")))
+    }
+
+    func testStateTextIsTheStatusAndHowLongItHasHeld() {
+        let card = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 12 * 60]).coolingDown[0]
+        XCTAssertEqual(card.stateText(at: now), "blocked 12m")
+        let unrecorded = MissionCard(
+            paneID: card.paneID, workspaceID: card.workspaceID, tabID: card.tabID, workspaceName: "", tabTitle: "",
+            title: "", status: .working, since: nil, folder: ""
+        )
+        XCTAssertEqual(unrecorded.stateText(at: now), "working")
+    }
+
     func testAgeText() {
         XCTAssertEqual(MissionAge.text(20), "<1m")
         XCTAssertEqual(MissionAge.text(18 * 60), "18m")

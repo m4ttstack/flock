@@ -831,6 +831,9 @@ enum ChromeMetrics {
         static let headerHeight: CGFloat = 36
         static let headerHorizontalPadding: CGFloat = 13
         static let headerSpacing: CGFloat = 8
+        static let headerSeparatorHeight: CGFloat = 14
+        static let focusedIdentitySize: CGFloat = 12
+        static let focusedIdentityCornerRadius: CGFloat = 3
         /// Around the islands. `IslandLayout.fit` is handed the viewport
         /// less this on each side.
         static let canvasPadding: CGFloat = 28

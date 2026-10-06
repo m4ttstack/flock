@@ -309,6 +309,7 @@ final class DragCoordinator {
     @ObservationIgnored private(set) var grid = AllWorkspacesGridState()
     private(set) var isGridShown = false
     private(set) var gridPreview: PaneID?
+    private(set) var gridFocusedPane: PaneID?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
     /// Selects what a fired dwell uncovers. Synchronous and run before the
@@ -1201,6 +1202,9 @@ final class DragCoordinator {
         stripOrder.isGridShown = grid.isShown
         if gridPreview != grid.preview {
             gridPreview = grid.preview
+        }
+        if gridFocusedPane != grid.focused {
+            gridFocusedPane = grid.focused
         }
         syncSelectionMonitor()
         return result

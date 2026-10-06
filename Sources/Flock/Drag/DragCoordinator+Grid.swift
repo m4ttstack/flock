@@ -16,6 +16,14 @@ extension DragCoordinator {
         updateGrid { $0.close() }
     }
 
+    func focusGridPane(_ pane: PaneID) {
+        updateGrid { $0.focus(pane: pane) }
+    }
+
+    func unfocusGridPane() {
+        updateGrid { $0.unfocus() }
+    }
+
     func showGridPreview(pane: PaneID) {
         updateGrid { $0.showPreview(pane: pane) }
     }
