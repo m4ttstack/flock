@@ -22,6 +22,20 @@ public struct MissionCard: Equatable, Sendable, Identifiable {
     }
 }
 
+extension MissionCard {
+    /// `names` is `MissionBoard.workspaceNames`, built once per board.
+    init(_ pane: PaneRecord, status: AgentStatus, since: Date?, model: SessionModel, names: [WorkspaceID: String]) {
+        let tab = model.tabs[pane.workspaceID]?.first { $0.tabID == pane.tabID }
+        self.init(
+            paneID: pane.paneID, workspaceID: pane.workspaceID, tabID: pane.tabID,
+            workspaceName: names[pane.workspaceID] ?? pane.workspaceID.rawValue,
+            tabTitle: tab.map { TabTitle.resolve($0, in: model).text } ?? pane.tabID.rawValue,
+            title: pane.displayTitle, status: status, since: since,
+            folder: pane.foregroundCwd ?? pane.cwd
+        )
+    }
+}
+
 public struct MissionGroup: Equatable, Sendable, Identifiable {
     public var id: WorkspaceID { workspaceID }
     public let workspaceID: WorkspaceID
@@ -56,25 +70,36 @@ public struct MissionBoard: Equatable, Sendable {
         [needsYou.map(\.paneID), working.flatMap(\.cards).map(\.paneID), coolingDown.map(\.paneID)]
     }
 
+    /// The pane's card as the board draws it, without building the board:
+    /// which lane holds a card never changes how the card reads.
+    public static func card(
+        _ pane: PaneID, model: SessionModel, sections: RailSections, toasts: AttentionToastStack, history: PaneStatusHistory
+    ) -> MissionCard? {
+        guard let record = model.panes[pane] else { return nil }
+        let names = workspaceNames(model: model, sections: sections)
+        if let toast = toasts.toast(pane: pane) {
+            return MissionCard(record, status: toast.status, since: toast.raisedAt, model: model, names: names)
+        }
+        return MissionCard(record, status: record.agentStatus, since: history.lastChange(of: pane), model: model, names: names)
+    }
+
+    static func workspaceNames(model: SessionModel, sections: RailSections) -> [WorkspaceID: String] {
+        var names: [WorkspaceID: String] = Dictionary(model.workspaces.map { ($0.workspaceID, $0.label) }, uniquingKeysWith: { first, _ in first })
+        for herd in sections.herds {
+            names[herd.workspaceID] = "\(herd.name) · herd \(herd.done)/\(herd.total)"
+        }
+        return names
+    }
+
     public init(
         model: SessionModel, sections: RailSections, toasts: AttentionToastStack,
         history: PaneStatusHistory, cutoff: TimeInterval, now: Date
     ) {
         let rank = Dictionary(sections.railOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        var names: [WorkspaceID: String] = Dictionary(model.workspaces.map { ($0.workspaceID, $0.label) }, uniquingKeysWith: { first, _ in first })
-        for herd in sections.herds {
-            names[herd.workspaceID] = "\(herd.name) · herd \(herd.done)/\(herd.total)"
-        }
+        let names = Self.workspaceNames(model: model, sections: sections)
 
         func card(_ pane: PaneRecord, status: AgentStatus, since: Date?) -> MissionCard {
-            let tab = model.tabs[pane.workspaceID]?.first { $0.tabID == pane.tabID }
-            return MissionCard(
-                paneID: pane.paneID, workspaceID: pane.workspaceID, tabID: pane.tabID,
-                workspaceName: names[pane.workspaceID] ?? pane.workspaceID.rawValue,
-                tabTitle: tab.map { TabTitle.resolve($0, in: model).text } ?? pane.tabID.rawValue,
-                title: pane.displayTitle, status: status, since: since,
-                folder: pane.foregroundCwd ?? pane.cwd
-            )
+            MissionCard(pane, status: status, since: since, model: model, names: names)
         }
 
         func railKey(_ pane: PaneRecord) -> (Int, Int, String) {

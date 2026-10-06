@@ -170,7 +170,7 @@ final class GridControlHoverRenderTests: XCTestCase {
                     ) {
                         HStack(spacing: 8) {
                             Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                            Text("3 dormant").font(ChromeType.missionGroupLabel)
+                            Text("3 dormant").font(ChromeType.missionDormantRow)
                             Spacer(minLength: 0)
                         }
                         .padding(.vertical, ChromeMetrics.MissionControl.dormantRowVerticalPadding)

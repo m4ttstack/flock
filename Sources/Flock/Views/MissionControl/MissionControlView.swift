@@ -169,7 +169,7 @@ struct MissionControlView: View {
                 HStack(spacing: 8) {
                     Image(systemName: showsDormant ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
-                    Text("\(dormant.count) dormant").font(ChromeType.missionGroupLabel)
+                    Text("\(dormant.count) dormant").font(ChromeType.missionDormantRow)
                     Spacer(minLength: 0)
                 }
                 .padding(.vertical, M.dormantRowVerticalPadding)
@@ -302,6 +302,20 @@ extension MissionBoard {
             history: viewModel.statusHistory, cutoff: cutoff.active.seconds, now: now
         )
         return (missionBoard, sections)
+    }
+
+    /// One pane's card as `make`'s board draws it, with the sections its
+    /// identity colour is read from.
+    @MainActor
+    static func card(
+        _ pane: PaneID, viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore
+    ) -> (card: MissionCard, sections: RailSections)? {
+        guard let model = viewModel.model else { return nil }
+        let sections = RailSections(model: model, board: board, herdProgress: herdProgress)
+        let card = MissionBoard.card(
+            pane, model: model, sections: sections, toasts: viewModel.attentionToasts, history: viewModel.statusHistory
+        )
+        return card.map { ($0, sections) }
     }
 
     /// The identity colour a mission card or an Arrange island wears; nil for

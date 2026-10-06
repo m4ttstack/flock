@@ -2849,4 +2849,65 @@ final class SessionViewModelTests: XCTestCase {
         await rt.closeModal()
         XCTAssertEqual(viewModel.canvasFocusedPaneID, RtFixture.linkedPaneID)
     }
+
+    private static let otherPaneID = PaneID(rawValue: "w1:p2")
+
+    /// The linked pane and a second pane in its tab, each able to hold a
+    /// glitter modal open until it is closed.
+    @MainActor
+    private func soloWorld() -> (FakeRtWorld, RtCoordinator, SessionViewModel) {
+        let world = FakeRtWorld()
+        world.seed(pane: "w1:p2", tab: "w1:t1", workspace: "w1", terminal: "term_a2")
+        world.script("command rt glitter", .init(busyPolls: 100_000, status: "0"))
+        world.script("command rt glitter", .init(busyPolls: 100_000, status: "0"))
+        let rt = makeCoordinator(world)
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), rt: rt)
+        viewModel.update(model: world.model(), connection: .live)
+        return (world, rt, viewModel)
+    }
+
+    /// A solo canvas draws only a modal opened from its own pane, and yields
+    /// that pane's keyboard only to that modal; the main canvas yields to any.
+    @MainActor
+    func testASoloCanvasYieldsTheKeyboardOnlyToItsOwnPanesModal() async throws {
+        let (world, rt, viewModel) = soloWorld()
+        let shown = RtFixture.linkedPaneID
+        XCTAssertEqual(viewModel.canvasFocus(solo: shown), shown)
+
+        await rt.open(.glitter, from: try XCTUnwrap(world.model().panes[Self.otherPaneID]))
+        XCTAssertFalse(viewModel.rtModalIsOver(solo: shown), "a modal from another pane is drawn over the shown one")
+        XCTAssertEqual(viewModel.canvasFocus(solo: shown), shown, "a modal from another pane took the keyboard")
+        XCTAssertTrue(viewModel.rtModalIsOver(solo: nil))
+        XCTAssertNil(viewModel.canvasFocusedPaneID)
+
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        XCTAssertTrue(viewModel.rtModalIsOver(solo: shown))
+        XCTAssertNil(viewModel.canvasFocus(solo: shown), "the shown pane kept the keyboard from its own modal")
+        rt.watches.values.forEach { $0.cancel() }
+    }
+
+    /// Overview stops showing a pane and clears the mark straight after; the
+    /// close it started still leaves herdr's focus alone.
+    @MainActor
+    func testLeavingAShownPaneClosesOnlyItsOwnModalAndLeavesFocusAlone() async throws {
+        let (world, rt, viewModel) = soloWorld()
+        let shown = RtFixture.linkedPaneID
+        viewModel.paneShownInOverview = shown
+        XCTAssertTrue(rt.leavesFocusAlone())
+
+        await rt.open(.glitter, from: try XCTUnwrap(world.model().panes[Self.otherPaneID]))
+        viewModel.closeRtModal(over: shown)
+        await rt.settle()
+        XCTAssertEqual(rt.modal?.itemID, "tok1", "the other pane's modal was closed")
+
+        await rt.open(.glitter, from: world.fixture.linkedPane)
+        viewModel.closeRtModal(over: shown)
+        viewModel.paneShownInOverview = nil
+        await rt.settle()
+        XCTAssertNil(rt.modal)
+        XCTAssertNil(rt.items["tok2"], "the shown pane's glitter was not shut down")
+        XCTAssertTrue(world.calls("pane.focus").isEmpty, "closing from Overview moved herdr's focus")
+        XCTAssertFalse(rt.leavesFocusAlone())
+        rt.watches.values.forEach { $0.cancel() }
+    }
 }

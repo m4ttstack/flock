@@ -190,6 +190,7 @@ public final class SessionViewModel {
         if let attentionToastArchive, notificationLifetime() != .never {
             attentionToasts = attentionToastArchive.load()
         }
+        self.rt.leavesFocusAlone = { [weak self] in self?.paneShownInOverview != nil }
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -420,12 +421,6 @@ public final class SessionViewModel {
         await jumpToAttentionToast(pane: toast.paneID, from: origin)
     }
 
-    /// Mission control draws every card, so its oldest is the stack's.
-    public func jumpToOldestAttentionToast(from origin: JumpPlace?) async {
-        guard let toast = attentionToasts.toasts.last else { return }
-        await jumpToAttentionToast(pane: toast.paneID, from: origin)
-    }
-
     /// Focuses the tab and pane by explicit id, never the workspace:
     /// `tab.focus` moves herdr's workspace along with it, while a separate
     /// `workspace.focus` lands on that workspace's remembered tab first, and
@@ -532,10 +527,30 @@ public final class SessionViewModel {
         optimisticFocusedPaneID ?? model?.focusedPaneID
     }
 
-    /// The pane the canvas draws as focused and lets take the keyboard: none
-    /// while the rt modal is up, since the modal's own surface has it.
-    public var canvasFocusedPaneID: PaneID? {
-        rt.modal == nil ? resolvedFocusedPaneID : nil
+    /// The pane the main canvas draws as focused and lets take the keyboard.
+    public var canvasFocusedPaneID: PaneID? { canvasFocus(solo: nil) }
+
+    /// The pane a canvas draws as focused and lets take the keyboard: the
+    /// main canvas's resolved focus, or a solo canvas's one pane. None while
+    /// the rt modal is drawn over that canvas, since its own surface has it.
+    public func canvasFocus(solo: PaneID?) -> PaneID? {
+        rtModalIsOver(solo: solo) ? nil : solo ?? resolvedFocusedPaneID
+    }
+
+    /// Whether the rt modal is drawn over a canvas: the main canvas draws any,
+    /// a solo canvas only one opened from its own pane.
+    public func rtModalIsOver(solo: PaneID?) -> Bool {
+        guard let solo else { return rt.modal != nil }
+        guard let linked = rt.modalItem?.linked else { return false }
+        return model?.panes[solo]?.terminalID == linked
+    }
+
+    /// Closes the rt modal drawn over `solo`'s canvas, if there is one.
+    /// Whether herdr's focus moves is settled before this returns, so the
+    /// caller may stop showing the pane straight after.
+    public func closeRtModal(over solo: PaneID) {
+        guard rtModalIsOver(solo: solo), let rest = rt.takeModalDown() else { return }
+        rt.background(rest)
     }
 
     public var canvasFocusedPaneIsZoomed: Bool {

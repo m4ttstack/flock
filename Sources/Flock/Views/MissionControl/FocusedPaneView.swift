@@ -11,7 +11,6 @@ struct FocusedPaneView: View {
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(AllWorkspacesModeStore.self) private var mode
-    @Environment(DormantCutoffStore.self) private var cutoff
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
@@ -28,23 +27,18 @@ struct FocusedPaneView: View {
                 .fill(theme.rule)
                 .frame(height: ChromeMetrics.ruleWidth)
             PaneCanvas(theme: theme, viewModel: viewModel, layout: layout, solo: pane)
-                .overlay { RtModalView(theme: theme, viewModel: viewModel) }
+                .overlay { RtModalView(theme: theme, viewModel: viewModel, solo: pane) }
         }
+        // The pane's own modal goes with it: left open, it would pop up over
+        // the main window the next time that mounts its own.
         .onChange(of: pane, initial: true) { previous, _ in
-            if previous != pane { closeRtModal() }
+            if previous != pane { viewModel.closeRtModal(over: previous) }
             viewModel.paneShownInOverview = pane
         }
         .onDisappear {
+            viewModel.closeRtModal(over: pane)
             if viewModel.paneShownInOverview == pane { viewModel.paneShownInOverview = nil }
-            closeRtModal()
         }
-    }
-
-    /// A modal left open here would otherwise pop up over the main window
-    /// the next time it mounts its own.
-    private func closeRtModal() {
-        guard viewModel.rt.modal != nil else { return }
-        Task { await viewModel.rt.closeModal(focusingLinked: false) }
     }
 
     private var layout: LayoutSnapshot? {
@@ -56,13 +50,12 @@ struct FocusedPaneView: View {
     }
 
     private func header(now: Date) -> some View {
-        let board = MissionBoard.make(viewModel: viewModel, board: boardNames, herdProgress: herdProgress, cutoff: cutoff, now: now)
-        let card = board?.0.card(pane)
+        let shown = MissionBoard.card(pane, viewModel: viewModel, board: boardNames, herdProgress: herdProgress)
         let others = viewModel.attentionToasts.toasts.filter { $0.paneID != pane }.count
         return HStack(spacing: G.headerSpacing) {
             backButton
             separator
-            if let board, let card { place(card, sections: board.1, now: now) }
+            if let shown { place(shown.card, sections: shown.sections, now: now) }
             Spacer(minLength: 0)
             if others > 0 {
                 HStack(spacing: 6) {

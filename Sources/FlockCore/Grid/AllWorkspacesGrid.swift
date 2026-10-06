@@ -194,9 +194,12 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         }
     }
 
-    /// A drag carries the pointer away from whatever the card was about.
+    /// A drag carries the pointer away from whatever the card was about. The
+    /// focused view holds nothing to drag, so a drag means that view is gone
+    /// and its pane stops claiming Esc for its terminal.
     public mutating func dragBegan() {
         preview = nil
+        focused = nil
     }
 
     /// Never while a drag is in flight, when the card would cover the

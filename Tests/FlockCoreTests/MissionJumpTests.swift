@@ -43,7 +43,7 @@ final class MissionJumpTests: XCTestCase {
         XCTAssertEqual(viewModel.jumpBackTarget(from: .pane(PaneID(rawValue: "w2:t1:p1"))), .missionControl)
     }
 
-    func testInMissionControlTheKeyOpensTheOldestCardOfAllNotTheOldestTheDockDraws() async {
+    func testOverviewsOldestCardIsTheOldestOfAllNotTheOldestTheDockDraws() {
         let clock = Clock()
         let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
         viewModel.attentionCardLimit = 1
@@ -52,9 +52,7 @@ final class MissionJumpTests: XCTestCase {
         viewModel.update(model: model([.blocked, .working]), connection: .live)
         clock.now = clock.now.addingTimeInterval(10)
         viewModel.update(model: model([.blocked, .blocked]), connection: .live)
-        await viewModel.jumpToOldestAttentionToast(from: .missionControl)
-        XCTAssertNil(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:t1:p1")), "the oldest card was taken")
-        XCTAssertNotNil(viewModel.attentionToasts.toast(pane: PaneID(rawValue: "w2:t1:p2")))
+        XCTAssertEqual(viewModel.oldestAttentionPane, PaneID(rawValue: "w2:t1:p1"))
     }
 
     func testFocusingInOverviewDismissesTheCardAndNeverMovesHerdr() async {

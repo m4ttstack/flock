@@ -76,10 +76,10 @@ public struct RtHerdr: Sendable {
         _ = try await client.requestRaw("pane.focus", ["pane_id": .string(pane.rawValue)])
     }
 
-    public func split(_ pane: PaneID, cwd: String) async throws {
+    public func split(_ pane: PaneID, cwd: String, focus: Bool) async throws {
         _ = try await client.requestRaw("pane.split", [
             "target_pane_id": .string(pane.rawValue), "direction": .string("right"),
-            "cwd": .string(cwd), "focus": .bool(true),
+            "cwd": .string(cwd), "focus": .bool(focus),
         ])
     }
 

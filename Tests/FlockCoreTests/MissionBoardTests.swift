@@ -11,6 +11,13 @@ final class MissionBoardTests: XCTestCase {
         _ model: SessionModel, toasts: AttentionToastStack = AttentionToastStack(),
         changedAgo: [String: TimeInterval] = [:], board names: BoardWorkspaceNames? = nil
     ) -> MissionBoard {
+        MissionBoard(
+            model: model, sections: RailSections(model: model, board: names), toasts: toasts,
+            history: history(model, changedAgo: changedAgo), cutoff: 30 * 60, now: now
+        )
+    }
+
+    private func history(_ model: SessionModel, changedAgo: [String: TimeInterval]) -> PaneStatusHistory {
         var history = PaneStatusHistory()
         // Every pane first seen two hours ago, then any listed pane changed
         // to its current status `changedAgo` seconds before now.
@@ -23,10 +30,7 @@ final class MissionBoardTests: XCTestCase {
             quiet = step
             history.observe(step, at: now.addingTimeInterval(-ago))
         }
-        return MissionBoard(
-            model: model, sections: RailSections(model: model, board: names), toasts: toasts,
-            history: history, cutoff: 30 * 60, now: now
-        )
+        return history
     }
 
     private func toast(_ pane: String, _ kind: AttentionToast.Kind, raised: TimeInterval) -> AttentionToast {
@@ -155,6 +159,25 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p3")), b.coolingDown.first)
         XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p4")), b.dormant.first)
         XCTAssertNil(b.card(PaneID(rawValue: "w9:t1:p1")))
+    }
+
+    func testOnePanesCardIsTheCardTheBoardDrawsForIt() {
+        let model = MissionFixture.model([
+            W(label: "acme", tabs: [T(label: "api", panes: [P(status: .blocked), P(status: .working), P(status: .idle), P(status: .idle)])]),
+            W(label: "herd: auth-sweep", tabs: [T(label: "worker 1", panes: [P(status: .working)])]),
+        ])
+        var toasts = AttentionToastStack()
+        toasts.raise(toast("w1:t1:p1", .needsInput, raised: 600))
+        let changedAgo = ["w1:t1:p3": 120.0]
+        let sections = RailSections(model: model, board: nil)
+        let b = board(model, toasts: toasts, changedAgo: changedAgo)
+        let history = history(model, changedAgo: changedAgo)
+        for pane in model.panes.keys {
+            let card = MissionBoard.card(pane, model: model, sections: sections, toasts: toasts, history: history)
+            XCTAssertNotNil(card, pane.rawValue)
+            XCTAssertEqual(card, b.card(pane), pane.rawValue)
+        }
+        XCTAssertNil(MissionBoard.card(PaneID(rawValue: "w9:t1:p1"), model: model, sections: sections, toasts: toasts, history: history))
     }
 
     func testStateTextIsTheStatusAndHowLongItHasHeld() {

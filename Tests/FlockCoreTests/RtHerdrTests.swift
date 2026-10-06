@@ -87,16 +87,18 @@ final class RtHerdrTests: XCTestCase {
         XCTAssertEqual(state?.shellName, "zsh")
     }
 
-    func testASplitOpensRightAtTheFolderAndTakesFocus() async throws {
-        let client = RecordingRtClient()
-        try await RtHerdr(client: client).split(PaneID(rawValue: "w1:p1"), cwd: "/src/acme/web")
+    func testASplitOpensRightAtTheFolderAndTakesFocusOnlyWhenAsked() async throws {
+        for focus in [true, false] {
+            let client = RecordingRtClient()
+            try await RtHerdr(client: client).split(PaneID(rawValue: "w1:p1"), cwd: "/src/acme/web", focus: focus)
 
-        let calls = await client.calls
-        let call = try XCTUnwrap(calls.first)
-        XCTAssertEqual(call.method, "pane.split")
-        XCTAssertEqual(string(call.params["target_pane_id"]), "w1:p1")
-        XCTAssertEqual(string(call.params["direction"]), "right")
-        XCTAssertEqual(string(call.params["cwd"]), "/src/acme/web")
-        XCTAssertEqual(bool(call.params["focus"]), true)
+            let calls = await client.calls
+            let call = try XCTUnwrap(calls.first)
+            XCTAssertEqual(call.method, "pane.split")
+            XCTAssertEqual(string(call.params["target_pane_id"]), "w1:p1")
+            XCTAssertEqual(string(call.params["direction"]), "right")
+            XCTAssertEqual(string(call.params["cwd"]), "/src/acme/web")
+            XCTAssertEqual(bool(call.params["focus"]), focus)
+        }
     }
 }

@@ -2127,6 +2127,62 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A modal left open from another pane is neither drawn over the focused
+    /// view nor closed by leaving it. The shown pane's own modal is drawn
+    /// (its backdrop dims the canvas above the box) and back closes it,
+    /// without asking herdr to move its focus.
+    func testTheFocusedViewDrawsAndClosesOnlyItsOwnPanesRtModal() async throws {
+        let client = MethodRecordingClient()
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: client)
+        let rt = harness.viewModel.rt
+        var model = try XCTUnwrap(harness.viewModel.model)
+        model.panes[GridFixture.buildPane]?.terminalID = TerminalID(rawValue: "term_build")
+        model.panes[GridFixture.srcPane]?.terminalID = TerminalID(rawValue: "term_src")
+        harness.viewModel.update(model: model, connection: .live)
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        let backdrop = CGPoint(
+            x: Self.gridWindowSize.width / 2, y: ChromeMetrics.TitleBar.height + ChromeMetrics.Grid.headerHeight + 12
+        )
+        let bare = hex(try snapshot(window), backdrop)
+
+        showRtRun(harness.viewModel, linked: "term_src")
+        await settle(window)
+        XCTAssertEqual(hex(try snapshot(window), backdrop), bare, "another pane's modal is drawn over the shown one")
+        navigator.back()
+        await settle(window)
+        await rt.settle()
+        XCTAssertEqual(rt.modal?.itemID, "run-term_src", "leaving the focused view closed another pane's modal")
+
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        showRtRun(harness.viewModel, linked: "term_build")
+        await settle(window)
+        XCTAssertNotEqual(hex(try snapshot(window), backdrop), bare, "the shown pane's own modal is not drawn")
+        navigator.back()
+        await settle(window)
+        await rt.settle()
+        XCTAssertNil(rt.modal, "back left the shown pane's modal up")
+        let methods = await client.methods
+        for focusing in ["tab.focus", "pane.focus", "workspace.focus"] {
+            XCTAssertFalse(methods.contains(focusing), "the focused view sent \(focusing)")
+        }
+        window.close()
+    }
+
+    /// An rt run shown in the modal, linked to the pane holding `terminal`.
+    private func showRtRun(_ viewModel: SessionViewModel, linked terminal: String) {
+        let item = RtItem(
+            id: "run-\(terminal)", kind: .run, linked: TerminalID(rawValue: terminal),
+            workspaceID: WorkspaceID(rawValue: "rt"), tabID: TabID(rawValue: "rt:\(terminal)"),
+            firstPaneID: PaneID(rawValue: "rt:p-\(terminal)"), title: "rt run", folder: "/tmp",
+            isRunning: true, started: true, strip: nil
+        )
+        viewModel.rt.items[item.id] = item
+        viewModel.rt.modal = RtModal(itemID: item.id, tabID: item.tabID, serviceTabID: nil)
+    }
+
     /// Overview shown with three Needs-you cards, oldest first: `w2:p1`
     /// finished, the build pane blocked, the src pane finished.
     private func focusedOverview(theme: Theme, client: MethodRecordingClient) async throws -> (Harness, NSWindow) {
@@ -3248,6 +3304,33 @@ final class ChromeRenderTests: XCTestCase {
             tiled.close()
             window.close()
         }
+    }
+
+    /// The solo pane gives the keyboard up to an rt modal opened from it, as
+    /// the main canvas does to any modal: its box loses the accent border.
+    /// A modal from another pane, never drawn over it, leaves it focused.
+    func testASoloPaneYieldsTheKeyboardOnlyToItsOwnRtModal() async throws {
+        let solo = PaneID(rawValue: "w1:p1")
+        var model = try Fixture.model(zoomed: true)
+        model.panes[solo]?.terminalID = TerminalID(rawValue: "term_p1")
+        let harness = try await Harness(theme: .tokyoNight, model: model)
+        let accent = Theme.tokyoNight.palette.chromeRoles.accent.hex
+        let rowY = Self.windowSize.height / 2
+        func holdsKeyboard() async throws -> Bool {
+            let window = harness.makeCanvasWindow(size: Self.windowSize, solo: solo)
+            await settle(window)
+            let image = try snapshot(window)
+            window.close()
+            return stride(from: CGFloat(0), to: Self.windowSize.width, by: 0.5).contains { hex(image, CGPoint(x: $0, y: rowY)) == accent }
+        }
+        let premise = try await holdsKeyboard()
+        XCTAssertTrue(premise, "the premise: the solo pane holds the keyboard")
+        showRtRun(harness.viewModel, linked: "term_other")
+        let underForeign = try await holdsKeyboard()
+        XCTAssertTrue(underForeign, "another pane's modal took the solo pane's keyboard")
+        showRtRun(harness.viewModel, linked: "term_p1")
+        let underOwn = try await holdsKeyboard()
+        XCTAssertFalse(underOwn, "the solo pane kept the keyboard from its own modal")
     }
 
     private func firstPointDiffering(in rect: CGRect, from target: String, of image: NSBitmapImageRep) -> CGPoint? {

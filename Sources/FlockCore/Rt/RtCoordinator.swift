@@ -69,6 +69,9 @@ public final class RtCoordinator {
     /// arriving before the first item exists (`runner(linkedTo:)` sees
     /// nothing yet) is turned away rather than starting a second workspace.
     @ObservationIgnored var openingRunners: Set<TerminalID> = []
+    /// Whether herdr's focus must stay where it is: no close, ending or cd
+    /// moves it to the linked pane, and a cd's split opens unfocused.
+    @ObservationIgnored public var leavesFocusAlone: @MainActor () -> Bool = { false }
 
     public init(
         client: any HerdrCommandClient,
@@ -267,20 +270,33 @@ public final class RtCoordinator {
     /// A plain close, with nothing else claiming the modal next: herdr's
     /// focus goes to the pane the item belongs to, which the rt button's
     /// click never moved to, before the item is disposed of by `dispose`'s
-    /// rules. `focusingLinked` false leaves herdr's focus alone, for a modal
-    /// opened from Overview's focused view.
-    public func closeModal(focusingLinked: Bool = true) async {
-        guard let current = modal else { return }
+    /// rules.
+    public func closeModal() async {
+        await takeModalDown()?()
+    }
+
+    /// `closeModal` in two parts: the modal goes and `leavesFocusAlone` is
+    /// read now, and the rest of the close is handed back to run.
+    func takeModalDown() -> (@MainActor () async -> Void)? {
+        guard let current = modal else { return nil }
         modal = nil
-        guard let item = items[current.itemID] else { return }
-        // Before the shutdown, which waits out its confirm delay: focus moves
-        // with the close, not a second after it.
-        if focusingLinked { await focusLinked(item.linked) }
-        if current.serviceTabID != nil { await closeAttachTabs(of: item) }
-        await dispose(current.itemID)
+        guard let item = items[current.itemID] else { return nil }
+        let focusing = !leavesFocusAlone()
+        return { [self] in
+            // Before the shutdown, which waits out its confirm delay: focus
+            // moves with the close, not a second after it.
+            if focusing { await focus(linked: item.linked) }
+            if current.serviceTabID != nil { await closeAttachTabs(of: item) }
+            await dispose(current.itemID)
+        }
     }
 
     func focusLinked(_ terminal: TerminalID) async {
+        guard !leavesFocusAlone() else { return }
+        await focus(linked: terminal)
+    }
+
+    private func focus(linked terminal: TerminalID) async {
         guard let model, let pane = pane(for: terminal, in: model) else { return }
         try? await herdr.focus(pane.paneID)
     }
@@ -414,23 +430,24 @@ public final class RtCoordinator {
     /// A linked pane at its prompt takes the `cd` and the focus, and a Claude
     /// Code pane takes its own `/cd`; any other busy pane (another agent, or
     /// one herdr cannot say) is split at the folder instead, and the split
-    /// takes the focus.
+    /// takes the focus. None of them takes it while `leavesFocusAlone`.
     ///
     /// Claude gets ctrl+s first: it stashes a half-typed draft, which would
     /// otherwise prefix the `/cd` and be sent as a prompt, and restores it
     /// once the `/cd` is submitted. On an empty input it does nothing.
     func cd(linkedTo terminal: TerminalID, into path: String) async {
         guard let model, let pane = pane(for: terminal, in: model) else { return }
+        let focusing = !leavesFocusAlone()
         do {
             if await herdr.paneState(pane.paneID)?.busy == false {
                 try await herdr.type(RtCommandLine.cd(path), into: pane.paneID)
-                try await herdr.focus(pane.paneID)
+                if focusing { try await herdr.focus(pane.paneID) }
             } else if pane.agent == ChatButtonModel.claudeAgent {
                 try await herdr.sendKeys(["ctrl+s"], to: pane.paneID)
                 try await herdr.type(RtCommandLine.claudeCd(path), into: pane.paneID)
-                try await herdr.focus(pane.paneID)
+                if focusing { try await herdr.focus(pane.paneID) }
             } else {
-                try await herdr.split(pane.paneID, cwd: path)
+                try await herdr.split(pane.paneID, cwd: path, focus: focusing)
             }
         } catch {
             notice("cd here failed: \(RtHerdr.describe(error))")

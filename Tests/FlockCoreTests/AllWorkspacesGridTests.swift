@@ -304,6 +304,15 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertTrue(state.isShown)
     }
 
+    func testADragBeginningLeavesTheFocusedPane() {
+        var grid = AllWorkspacesGridState()
+        grid.open()
+        grid.focus(pane: p1)
+        grid.dragBegan()
+        XCTAssertNil(grid.focused)
+        XCTAssertTrue(grid.isShown)
+    }
+
     func testAPaneIsFocusedOnlyWhileTheGridIsShown() {
         var grid = AllWorkspacesGridState()
         grid.focus(pane: PaneID(rawValue: "p1"))
