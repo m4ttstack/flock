@@ -25,7 +25,8 @@ extension PaletteContext {
             rightClickMode: viewModel.focusedPaneRightClickMode,
             programHasMouse: focused.flatMap { viewModel.ghosttySurface(for: $0) }?.programHasMouse ?? false,
             hasSelectedWorkspace: viewModel.selectedWorkspaceID != nil,
-            hasNotifications: !viewModel.attentionToasts.isEmpty
+            hasNotifications: !viewModel.attentionToasts.isEmpty,
+            canJumpBack: viewModel.jumpBackTarget != nil
         )
     }
 }
@@ -37,6 +38,7 @@ struct PaletteRunner {
     let chatStore: ChatStore
     let rearrangeMode: RearrangeMode
     let dragCoordinator: DragCoordinator
+    let modeStore: AllWorkspacesModeStore
 
     func run(_ action: PaletteAction) {
         switch action {
@@ -74,7 +76,10 @@ struct PaletteRunner {
                 Task { await viewModel.closeWorkspace(workspace) }
             case .rearrangeMode: rearrangeMode.toggle()
             case .allWorkspaces: dragCoordinator.toggleGrid()
-            case .openOldestNotification: Task { await viewModel.jumpToOldestDisplayedAttentionToast(from: nil) }
+            case .openOldestNotification:
+                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).openOldest()
+            case .jumpBack:
+                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).back()
             case .clearNotifications: viewModel.clearAttentionToasts()
             case .commandPalette: break
             }

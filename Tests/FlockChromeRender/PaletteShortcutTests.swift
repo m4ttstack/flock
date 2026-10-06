@@ -11,14 +11,18 @@ final class PaletteShortcutTests: XCTestCase {
         XCTAssertEqual(ShortcutLabel.text(key: .f2, modifiers: []), "F2")
     }
 
-    func testThePaletteTakesCommandKAndNotificationsPairOnJ() {
+    func testThePaletteTakesCommandK() {
         XCTAssertEqual(ShortcutLabel.text(key: ViewCommand.commandPalette.key, modifiers: ViewCommand.commandPalette.modifiers), "⌘K")
-        XCTAssertEqual(
-            ShortcutLabel.text(key: ViewCommand.openOldestNotification.key, modifiers: ViewCommand.openOldestNotification.modifiers), "⌘J"
-        )
-        XCTAssertEqual(
-            ShortcutLabel.text(key: ViewCommand.clearNotifications.key, modifiers: ViewCommand.clearNotifications.modifiers), "⇧⌘J"
-        )
+    }
+
+    func testTheJKeysGoThereAndBackAndClearMovesToU() {
+        XCTAssertEqual(ViewCommand.openOldestNotification.key, "j")
+        XCTAssertEqual(ViewCommand.openOldestNotification.modifiers, .command)
+        XCTAssertEqual(ViewCommand.jumpBack.key, "j")
+        XCTAssertEqual(ViewCommand.jumpBack.modifiers, [.command, .shift])
+        XCTAssertEqual(ViewCommand.jumpBack.title, "Jump Back")
+        XCTAssertEqual(ViewCommand.clearNotifications.key, "u")
+        XCTAssertEqual(ViewCommand.clearNotifications.modifiers, [.command, .shift])
     }
 
     /// Every menu-bar shortcut flock sets, from every list, is distinct.

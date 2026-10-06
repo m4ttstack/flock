@@ -8,6 +8,10 @@ extension DragCoordinator {
         updateGrid { $0.toggle() }
     }
 
+    func openGrid() {
+        updateGrid { $0.open() }
+    }
+
     func closeGrid() {
         updateGrid { $0.close() }
     }

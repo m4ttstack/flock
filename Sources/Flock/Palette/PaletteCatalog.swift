@@ -18,6 +18,7 @@ struct PaletteContext {
     var programHasMouse = false
     var hasSelectedWorkspace = false
     var hasNotifications = false
+    var canJumpBack = false
 }
 
 enum PaletteAction {
@@ -110,6 +111,7 @@ enum PaletteCatalog {
         let shortcut = { (command: ViewCommand) in ShortcutLabel.text(key: command.key, modifiers: command.modifiers) }
         var commands: [(PaletteNamespace, ViewCommand)] = [(.view, .rearrangeMode), (.view, .allWorkspaces)]
         if context.hasNotifications { commands += [(.view, .openOldestNotification), (.view, .clearNotifications)] }
+        if context.canJumpBack { commands.append((.view, .jumpBack)) }
         if context.hasSelectedWorkspace { commands += [(.tab, .newTab), (.tab, .closeTab)] }
         commands.append((.workspace, .newWorkspace))
         if context.hasSelectedWorkspace { commands.append((.workspace, .closeWorkspace)) }

@@ -4,7 +4,7 @@ import SwiftUI
 /// shortcut, read by the menu bar and the palette alike.
 enum ViewCommand: String, CaseIterable {
     case newTab, newWorkspace, closeTab, closeWorkspace
-    case rearrangeMode, allWorkspaces, openOldestNotification, clearNotifications, commandPalette
+    case rearrangeMode, allWorkspaces, openOldestNotification, jumpBack, clearNotifications, commandPalette
 
     var title: String {
         switch self {
@@ -15,6 +15,7 @@ enum ViewCommand: String, CaseIterable {
         case .rearrangeMode: "Rearrange Mode"
         case .allWorkspaces: "All Workspaces"
         case .openOldestNotification: "Open Oldest Notification"
+        case .jumpBack: "Jump Back"
         case .clearNotifications: "Clear Notifications"
         case .commandPalette: "Command Palette…"
         }
@@ -27,7 +28,8 @@ enum ViewCommand: String, CaseIterable {
         case .closeTab, .closeWorkspace: "w"
         case .rearrangeMode: KeyEquivalent(ArrangeShortcut.rearrangeMode.key)
         case .allWorkspaces: KeyEquivalent(ArrangeShortcut.allWorkspaces.key)
-        case .openOldestNotification, .clearNotifications: "j"
+        case .openOldestNotification, .jumpBack: "j"
+        case .clearNotifications: "u"
         case .commandPalette: "k"
         }
     }
@@ -35,7 +37,7 @@ enum ViewCommand: String, CaseIterable {
     var modifiers: EventModifiers {
         switch self {
         case .newTab, .openOldestNotification, .commandPalette: .command
-        case .newWorkspace, .closeTab, .clearNotifications: [.command, .shift]
+        case .newWorkspace, .closeTab, .clearNotifications, .jumpBack: [.command, .shift]
         case .closeWorkspace: [.command, .option, .shift]
         case .rearrangeMode: ArrangeShortcut.rearrangeMode.modifiers
         case .allWorkspaces: ArrangeShortcut.allWorkspaces.modifiers
@@ -53,6 +55,7 @@ enum ViewCommand: String, CaseIterable {
         case .rearrangeMode: "flock.view.rearrangeMode"
         case .allWorkspaces: "flock.view.allWorkspaces"
         case .openOldestNotification: "flock.view.openOldestNotification"
+        case .jumpBack: "flock.view.jumpBack"
         case .clearNotifications: "flock.view.clearNotifications"
         case .commandPalette: "flock.view.commandPalette"
         }

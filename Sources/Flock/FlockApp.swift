@@ -57,6 +57,9 @@ struct FlockApp: App {
     @State private var rtModalTextSizeStore = RtModalTextSizeStore()
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
+    @State private var allWorkspacesModeStore: AllWorkspacesModeStore
+    @State private var dormantCutoffStore: DormantCutoffStore
+    @State private var workspaceIdentityStore: WorkspaceIdentityStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
     @State private var startingFolderStore: StartingFolderStore
     @State private var scrollSpeedStore = ScrollSpeedStore()
@@ -141,6 +144,9 @@ struct FlockApp: App {
         _scrollSpeedStore = State(initialValue: scrollSpeedStore)
         let notificationLifetimeStore = NotificationLifetimeStore()
         _notificationLifetimeStore = State(initialValue: notificationLifetimeStore)
+        _allWorkspacesModeStore = State(initialValue: AllWorkspacesModeStore())
+        _dormantCutoffStore = State(initialValue: DormantCutoffStore())
+        _workspaceIdentityStore = State(initialValue: WorkspaceIdentityStore())
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
@@ -240,6 +246,10 @@ struct FlockApp: App {
         self.socketPath = socketPath
     }
 
+    private var navigator: JumpNavigator {
+        JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesModeStore)
+    }
+
     private var notRunningCopy: NoHerdrScreen.Copy {
         let copy = NoHerdrScreen.notRunning
         guard let herdrStartFailure else { return copy }
@@ -302,6 +312,9 @@ struct FlockApp: App {
                 .environment(undoJournal)
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)
+                .environment(allWorkspacesModeStore)
+                .environment(dormantCutoffStore)
+                .environment(workspaceIdentityStore)
                 .environment(dividerDragCoordinator)
                 .environment(commandPalette)
                 .environment(paletteRecents)
@@ -531,12 +544,14 @@ struct FlockApp: App {
                 .keyboardShortcut(ViewCommand.allWorkspaces.shortcut)
                 .accessibilityIdentifier(ViewCommand.allWorkspaces.accessibilityIdentifier)
                 Divider()
-                Button(ViewCommand.openOldestNotification.title) {
-                    Task { await viewModel.jumpToOldestDisplayedAttentionToast(from: nil) }
-                }
-                .keyboardShortcut(ViewCommand.openOldestNotification.shortcut)
-                .disabled(viewModel.attentionToasts.isEmpty)
-                .accessibilityIdentifier(ViewCommand.openOldestNotification.accessibilityIdentifier)
+                Button(ViewCommand.openOldestNotification.title) { navigator.openOldest() }
+                    .keyboardShortcut(ViewCommand.openOldestNotification.shortcut)
+                    .disabled(viewModel.attentionToasts.isEmpty)
+                    .accessibilityIdentifier(ViewCommand.openOldestNotification.accessibilityIdentifier)
+                Button(ViewCommand.jumpBack.title) { navigator.back() }
+                    .keyboardShortcut(ViewCommand.jumpBack.shortcut)
+                    .disabled(viewModel.jumpBackTarget == nil)
+                    .accessibilityIdentifier(ViewCommand.jumpBack.accessibilityIdentifier)
                 // The only way to clear a "needs input" toast without
                 // answering the pane or dismissing each one by hand.
                 Button(ViewCommand.clearNotifications.title) { viewModel.clearAttentionToasts() }

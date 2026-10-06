@@ -3679,6 +3679,7 @@ private struct Harness {
         size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil,
         herdrMousePatchStore: HerdrMousePatchStore? = nil
     ) -> NSWindow {
+        let modeDefaults = UserDefaults(suiteName: "flock-mission-\(UUID().uuidString)")!
         // The default resolves to no herdr, so the patch banner stays off and
         // every render assertion here measures the same chrome on any machine.
         let root = MainWindow(
@@ -3700,6 +3701,9 @@ private struct Harness {
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)
+            .environment(AllWorkspacesModeStore(userDefaults: modeDefaults))
+            .environment(DormantCutoffStore(userDefaults: modeDefaults))
+            .environment(WorkspaceIdentityStore(userDefaults: modeDefaults))
             .environment(dividerDrag)
             .environment(chatStore)
             .environment(optionAsAlt)

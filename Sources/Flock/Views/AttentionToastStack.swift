@@ -62,6 +62,8 @@ private struct AttentionToastCard: View {
     let toast: AttentionToast
     let viewModel: SessionViewModel
     let isFloating: Bool
+    @Environment(DragCoordinator.self) private var drag
+    @Environment(AllWorkspacesModeStore.self) private var mode
 
     @State private var isHovering = false
 
@@ -112,7 +114,7 @@ private struct AttentionToastCard: View {
         .onTapGesture {
             guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
             NSApp.activate()
-            Task { await viewModel.jumpToAttentionToast(pane: toast.paneID, from: nil) }
+            JumpNavigator(viewModel: viewModel, drag: drag, mode: mode).open(toast: toast.paneID)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(toast.accessibilityIdentifier)
