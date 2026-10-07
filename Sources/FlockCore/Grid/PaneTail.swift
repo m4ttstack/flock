@@ -34,8 +34,11 @@ public enum PaneTailPolicy {
     /// that prompt, and `outputRows` drops them, so a read of exactly what the
     /// card draws would arrive with a cardful of furniture and nothing under
     /// it. The gap is wider than the tallest frame the trim will take, so even
-    /// a fully trimmed screen carries a whole card of output.
-    public static let readLines = 36
+    /// a fully trimmed screen carries a whole card of output. It is also taller
+    /// than any window's screen: a full-screen TUI draws at the top and leaves
+    /// blank rows down to a footer, so a read of the screen's foot would carry
+    /// the blanks and the footer and none of the TUI.
+    public static let readLines = 200
 
     /// The tallest bottom strip `outputRows` will read as an agent's prompt.
     ///
@@ -66,7 +69,8 @@ public enum PaneTailPolicy {
         let output = trimmingBlankEnds(outputRows(of: screen))
         // A screen whose every row is the prompt keeps its untrimmed rows: a
         // blank card is the one outcome worse than a card full of furniture.
-        return PaneTail(lines: Array((output.isEmpty ? screen : output).suffix(max(0, limit))))
+        let shown = collapsingBlankRuns(output.isEmpty ? screen : output)
+        return PaneTail(lines: Array(shown.suffix(max(0, limit))))
     }
 
     /// The rows of a visible screen that are output, which is every row above
@@ -113,6 +117,16 @@ public enum PaneTailPolicy {
     private static func isPromptField(_ line: String) -> Bool {
         guard let first = line.first(where: { !$0.isWhitespace }) else { return false }
         return first == "❯" || first == "›"
+    }
+
+    /// A run of blank rows is a TUI's empty space, not output, and spent on
+    /// the card it pushes the TUI itself off the top. One blank keeps the gap.
+    private static func collapsingBlankRuns(_ rows: [String]) -> [String] {
+        var kept: [String] = []
+        for row in rows where !(row.isEmpty && kept.last?.isEmpty == true) {
+            kept.append(row)
+        }
+        return kept
     }
 
     private static func trimmingBlankEnds(_ rows: [String]) -> [String] {

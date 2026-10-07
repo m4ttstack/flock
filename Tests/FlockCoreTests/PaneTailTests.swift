@@ -22,6 +22,15 @@ final class PaneTailTests: XCTestCase {
         XCTAssertEqual(PaneTailPolicy.make(from: "one\n\ntwo").lines, ["one", "", "two"])
     }
 
+    /// A full-screen TUI draws its list at the top and its key hints at the
+    /// foot, with blank rows between; the card keeps the list.
+    func testARunOfBlankRowsCollapsesToOneSoATUIsTopStaysOnTheCard() {
+        let list = (1...8).map { "account \($0)" }
+        let screen = ["watching all accounts", ""] + list + Array(repeating: "", count: 30) + ["Confirm  s Switch  esc Back"]
+        let tail = PaneTailPolicy.make(from: screen.joined(separator: "\n"), limit: 12)
+        XCTAssertEqual(tail.lines, ["watching all accounts", ""] + list + ["", "Confirm  s Switch  esc Back"])
+    }
+
     /// Trailing spaces are the terminal padding a row out, never something the
     /// user asked to copy.
     func testTrailingSpacesAreCutFromEveryLine() {
