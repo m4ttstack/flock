@@ -444,11 +444,14 @@ public final class SessionViewModel {
     /// Showing it focuses it in herdr, since herdr clears `done` only for a
     /// pane it has focused. Only while the main canvas is covered, where the
     /// move draws nothing.
+    ///
+    /// Leaving a pane raises the card it held back while it was shown, so a
+    /// pane that blocked while being watched still lands in Needs you.
     public var paneShownInOverview: PaneID? {
         didSet {
-            guard let pane = paneShownInOverview, pane != oldValue, isMainCanvasCovered,
-                  let record = model?.panes[pane]
-            else { return }
+            guard paneShownInOverview != oldValue else { return }
+            if let left = oldValue { raiseHeldBackCard(for: left) }
+            guard let pane = paneShownInOverview, isMainCanvasCovered, let record = model?.panes[pane] else { return }
             overviewMovedFocus = true
             queueHerdrFocus(tab: record.tabID, pane: pane)
         }
@@ -539,8 +542,15 @@ public final class SessionViewModel {
     }
 
     private func raiseHeldBackFocusedCard() {
+        guard let paneID = resolvedFocusedPaneID else { return }
+        raiseHeldBackCard(for: paneID)
+    }
+
+    /// A card for a pane that blocked or finished while it was watched, once
+    /// it no longer is.
+    private func raiseHeldBackCard(for paneID: PaneID) {
         guard notificationLifetime() != .never, let model,
-              let paneID = resolvedFocusedPaneID, paneID != paneShownInOverview,
+              paneID != paneShownInOverview, paneID != watchedFocusedPaneID,
               attentionToasts.toast(pane: paneID) == nil,
               let pane = model.panes[paneID], !HerdWorkspace.isHerdPane(pane, in: model)
         else { return }

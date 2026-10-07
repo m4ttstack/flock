@@ -112,6 +112,22 @@ final class MissionJumpTests: XCTestCase {
         XCTAssertNotNil(viewModel.attentionToasts.toast(pane: pane), "a pane no longer shown raised no card")
     }
 
+    /// A pane that blocked while shown raises its card as soon as it is left,
+    /// so going back to the lanes finds it in Needs you, not At rest.
+    func testLeavingAShownPaneThatBlockedRaisesItsCard() {
+        let clock = Clock()
+        let viewModel = SessionViewModel(client: RecordingClient(), now: { clock.now })
+        let pane = PaneID(rawValue: "w2:t1:p1")
+        viewModel.update(model: model([.working]), connection: .live)
+        viewModel.isMainCanvasCovered = true
+        viewModel.paneShownInOverview = pane
+        clock.now = clock.now.addingTimeInterval(10)
+        viewModel.update(model: model([.blocked]), connection: .live)
+        XCTAssertNil(viewModel.attentionToasts.toast(pane: pane))
+        viewModel.paneShownInOverview = nil
+        XCTAssertEqual(viewModel.attentionToasts.toast(pane: pane)?.kind, .needsInput)
+    }
+
     private func focusedModel(_ status: AgentStatus) -> SessionModel {
         MissionFixture.model([
             .init(label: "home", tabs: [.init(label: "main", panes: [.init(status: .idle)])]),
