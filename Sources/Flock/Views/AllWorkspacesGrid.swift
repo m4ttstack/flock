@@ -130,9 +130,6 @@ struct AllWorkspacesGrid: View {
                 .font(ChromeType.gridCount)
                 .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
-            Text(shownMode == .missionControl ? "⌘J oldest · esc" : "esc to return")
-                .font(ChromeType.gridHint)
-                .foregroundStyle(theme.textLabel)
         }
         .padding(.horizontal, ChromeMetrics.Grid.headerHorizontalPadding)
         .frame(height: ChromeMetrics.Grid.headerHeight)
