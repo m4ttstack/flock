@@ -502,4 +502,24 @@ final class DropResolverTests: XCTestCase {
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 5), dragging: .pane(PaneID(rawValue: "w5:p1")), surfaces: surfaces), .workspaceThumbnail(WorkspaceID(rawValue: "w1")))
         XCTAssertNil(resolveDropTarget(at: CGPoint(x: 10, y: 35), dragging: .pane(PaneID(rawValue: "w5:p1")), surfaces: surfaces), "an empty pin holds no panes")
     }
+
+    func testOnlyALivePinCanBeDraggedOutAmongTheWorkspaces() throws {
+        let pins = [
+            PinItemFrame(id: PinID(rawValue: "p1"), workspace: WorkspaceID(rawValue: "w9"), frame: CGRect(x: 0, y: 0, width: 200, height: 28)),
+            PinItemFrame(id: PinID(rawValue: "p2"), workspace: nil, frame: CGRect(x: 0, y: 30, width: 200, height: 28)),
+        ]
+        let rail = [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 100, width: 200, height: 28))]
+        let surfaces = DropSurfaces(
+            canvas: try canvas(), stripWorkspace: WorkspaceID(rawValue: "w1"), tabFrames: [], workspaceFrames: rail,
+            railFrame: CGRect(x: 0, y: 0, width: 200, height: 300),
+            newTabZone: nil, newWorkspaceZone: nil, pinnedFrames: pins, pinnedFrame: CGRect(x: 0, y: 0, width: 200, height: 60)
+        )
+        let below = CGPoint(x: 10, y: 120)
+        XCTAssertEqual(resolveDropTarget(at: below, dragging: .pin(PinID(rawValue: "p1")), surfaces: surfaces), .workspaceRail(insertIndex: 1))
+        XCTAssertNil(resolveDropTarget(at: below, dragging: .pin(PinID(rawValue: "p2")), surfaces: surfaces))
+        XCTAssertEqual(
+            dropTargetRect(for: .workspaceThumbnail(WorkspaceID(rawValue: "w9")), surfaces: surfaces), pins[0].frame,
+            "a pane over a live pin lands on its row"
+        )
+    }
 }

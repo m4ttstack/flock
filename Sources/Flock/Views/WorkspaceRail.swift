@@ -2,9 +2,9 @@ import AppKit
 import FlockCore
 import SwiftUI
 
-/// The workspace sidebar: a heading over one row per workspace, with a rule on
-/// its trailing edge and the message dock at its foot. Read-only mirror,
-/// selection/jump, and the workspace end of the drag layer.
+/// The workspace sidebar: PINNED over WORKSPACES, each a heading over its
+/// rows, with a rule on its trailing edge and the message dock at its foot.
+/// Read-only mirror, selection/jump, and the workspace end of the drag layer.
 struct WorkspaceRail: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -17,7 +17,14 @@ struct WorkspaceRail: View {
     @Environment(WorkspaceIdentityStore.self) private var identity
     @State private var scrollPosition = ScrollPosition()
     @State private var symbolPickerRow: WorkspaceID?
+    @State private var symbolPickerPin: PinID?
+    @State private var renamingPin: PinID?
     @State private var railHeight: CGFloat?
+
+    private struct PinnedSlot: Equatable {
+        let id: PinID
+        let workspace: WorkspaceID?
+    }
 
     private var sections: RailSections? {
         viewModel.railSections(board: board.names, herdProgress: herdProgress.progress)
@@ -28,71 +35,38 @@ struct WorkspaceRail: View {
     /// The rows this rail lists, drags and reorders. Board's workspaces and
     /// herds are not among them: they sit in their own sections below.
     private var workspaces: [WorkspaceRecord] { sections?.workspaces ?? [] }
+    private var pinnedSlots: [PinnedSlot] {
+        sections?.pinned.map { PinnedSlot(id: $0.pin.id, workspace: $0.record?.workspaceID) } ?? []
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("WORKSPACES")
-                    .font(ChromeType.railHeading)
-                    .tracking(ChromeType.railHeadingTracking)
-                    .foregroundStyle(theme.textLabel)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, ChromeMetrics.Rail.verticalPadding)
-                    .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
-                // Only the rows scroll. The gap below the heading is scroll
-                // content, so rows scroll up to the heading's edge, and the
-                // horizontal padding is too, so the viewport keeps the rail's
-                // full width for the insertion bar.
+                // The headings are scroll content, so PINNED and WORKSPACES
+                // scroll alike, and so is the horizontal padding, so the
+                // viewport keeps the rail's full width for the insertion bar.
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
+                        if let sections, !sections.pinned.isEmpty {
+                            pinnedSection(sections)
+                                .padding(.bottom, drag.pinnedGrowth)
+                            workspacesHeading
+                                .padding(.top, ChromeMetrics.RailSection.sectionGap)
+                        } else {
+                            workspacesHeading
+                        }
                         ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
-                            let isRenaming = viewModel.renameTarget == .workspace(workspace.workspaceID)
-                            WorkspaceRow(
-                                theme: theme,
-                                workspace: workspace,
-                                paneCount: viewModel.paneCount(for: workspace.workspaceID),
-                                isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
-                                isRenaming: isRenaming,
-                                markKey: workspace.workspaceID.rawValue,
-                                pickingSymbol: pickerBinding(workspace.workspaceID),
-                                renameText: viewModel.renameText(for: .workspace(workspace.workspaceID)),
-                                onCommitRename: { text in
-                                    Task { await viewModel.commitRename(text, for: .workspace(workspace.workspaceID)) }
-                                },
-                                onCancelRename: { viewModel.cancelRename() },
-                                showsFill: drag.showsWorkspaceFill(
-                                    workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.selectedWorkspaceID
-                                ),
+                            workspaceRow(
+                                workspace, markKey: workspace.workspaceID.rawValue,
                                 displacement: drag.workspaceDisplacement(at: index),
-                                isGhosted: drag.isDragging(workspace: workspace.workspaceID)
+                                isGhosted: drag.isDragging(workspace: workspace.workspaceID),
+                                joinsSelection: true,
+                                reportFrame: { drag.setWorkspaceFrame($0, for: workspace.workspaceID) },
+                                gesture: rowDrag(workspace)
                             )
-                            // Outside the row, which offsets its own content: the
-                            // frame published here is the row's resting place,
-                            // which is what the insertion index is measured
-                            // against.
-                            .reportsFrame(in: DragSpace.railContent) { drag.setWorkspaceFrame($0, for: workspace.workspaceID) }
-                            // A container, so the identifier below names the
-                            // whole row and the controls inside it keep their
-                            // own. Without it SwiftUI folds the row into its
-                            // name text: the row reads as a label a third of
-                            // its width, and its rename editor is not
-                            // reachable at all.
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("flock.rail.workspace.\(workspace.workspaceID.rawValue)")
-                            // ONE tap gesture, which is what keeps a plain
-                            // click instant: a `count: 2` sibling for the
-                            // rename would make this one wait out the
-                            // system's double-click interval before it
-                            // could fire at all (`ChromeRowClick`).
-                            .onTapGesture { handleClick(on: workspace.workspaceID) }
-                            // Disarmed while this row is being renamed: a press
-                            // inside the field must reach the text, not start a
-                            // drag.
-                            .simultaneousGesture(rowDrag(workspace), including: isRenaming ? .subviews : .all)
-                            .workspaceMenu(
-                                viewModel: viewModel, workspace: workspace.workspaceID, key: workspace.workspaceID.rawValue,
-                                changeSymbol: { symbolPickerRow = workspace.workspaceID }
-                            )
+                        }
+                        if drag.workspacesGrowth > 0 {
+                            Color.clear.frame(height: drag.workspacesGrowth - ChromeMetrics.Rail.rowGap)
                         }
                         if let sections, !sections.board.isEmpty {
                             BoardSection(
@@ -123,8 +97,9 @@ struct WorkspaceRail: View {
                         // the design never drew.
                         newWorkspaceZone
                     }
-                    .padding(.top, ChromeMetrics.Rail.headingToFirstRow)
-                    .padding(.bottom, ChromeMetrics.Rail.verticalPadding)
+                    .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: drag.pinnedGrowth)
+                    .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: drag.workspacesGrowth)
+                    .padding(.vertical, ChromeMetrics.Rail.verticalPadding)
                     .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
                     .frame(width: railWidth.width, alignment: .leading)
                     // Gives the row stack a concrete height to allocate
@@ -172,10 +147,18 @@ struct WorkspaceRail: View {
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { railHeight = $0 }
         .onAppear {
             drag.setWorkspaceOrder(workspaces.map(\.workspaceID))
+            setPinnedOrder(pinnedSlots)
             if let sections { identity.refresh(sections) }
         }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in
             drag.setWorkspaceOrder(ids)
+            if let sections { identity.refresh(sections) }
+        }
+        .onChange(of: pinnedSlots) { _, slots in
+            setPinnedOrder(slots)
+            if let renamingPin, !slots.contains(PinnedSlot(id: renamingPin, workspace: nil)) {
+                self.renamingPin = nil
+            }
             if let sections { identity.refresh(sections) }
         }
         // Keyed on the herds shown, so a herd arriving is asked about at
@@ -193,14 +176,133 @@ struct WorkspaceRail: View {
         }
     }
 
+    /// Its bottom padding and the stack's row gap together make
+    /// `headingToFirstRow`.
+    private func railHeading(_ title: String) -> some View {
+        Text(title)
+            .font(ChromeType.railHeading)
+            .tracking(ChromeType.railHeadingTracking)
+            .foregroundStyle(theme.textLabel)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, ChromeMetrics.Rail.headingToFirstRow - ChromeMetrics.Rail.rowGap)
+    }
+
+    private var workspacesHeading: some View {
+        railHeading("WORKSPACES")
+            .reportsFrame(in: DragSpace.railContent) { drag.setWorkspacesHeading($0) }
+    }
+
+    /// Its region is reported whole, heading included, so a drop on the
+    /// heading or between rows still lands in PINNED.
+    private func pinnedSection(_ sections: RailSections) -> some View {
+        VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
+            railHeading("PINNED")
+            ForEach(Array(sections.pinned.enumerated()), id: \.element.pin.id) { index, row in
+                pinnedRow(row, index: index)
+            }
+        }
+        .reportsFrame(in: DragSpace.railContent) { drag.setPinnedRegion($0) }
+    }
+
+    @ViewBuilder
+    private func pinnedRow(_ row: RailSections.PinnedRow, index: Int) -> some View {
+        let report: (CGRect) -> Void = { drag.setPinFrame($0, for: row.pin.id, workspace: row.record?.workspaceID) }
+        if let workspace = row.record {
+            workspaceRow(
+                workspace, markKey: row.pin.identityKey,
+                displacement: drag.pinDisplacement(at: index),
+                isGhosted: drag.isDragging(pin: row.pin.id),
+                joinsSelection: false,
+                reportFrame: report,
+                gesture: pinDrag(row.pin)
+            )
+        } else {
+            emptyPinRow(row.pin, index: index, reportFrame: report)
+        }
+    }
+
+    private func workspaceRow<G: Gesture>(
+        _ workspace: WorkspaceRecord, markKey: String, displacement: CGFloat, isGhosted: Bool, joinsSelection: Bool,
+        reportFrame: @escaping (CGRect) -> Void, gesture: G
+    ) -> some View {
+        let isRenaming = viewModel.renameTarget == .workspace(workspace.workspaceID)
+        return WorkspaceRow(
+            theme: theme,
+            workspace: workspace,
+            paneCount: viewModel.paneCount(for: workspace.workspaceID),
+            isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
+            isRenaming: isRenaming,
+            markKey: markKey,
+            pickingSymbol: pickerBinding(workspace.workspaceID),
+            renameText: viewModel.renameText(for: .workspace(workspace.workspaceID)),
+            onCommitRename: { text in
+                Task { await viewModel.commitRename(text, for: .workspace(workspace.workspaceID)) }
+            },
+            onCancelRename: { viewModel.cancelRename() },
+            showsFill: drag.showsWorkspaceFill(
+                workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.selectedWorkspaceID
+            ),
+            displacement: displacement,
+            isGhosted: isGhosted
+        )
+        // Outside the row, which offsets its own content: the frame published
+        // here is the row's resting place, which is what the insertion index
+        // is measured against.
+        .reportsFrame(in: DragSpace.railContent, reportFrame)
+        // A container, so the identifier below names the whole row and the
+        // controls inside it keep their own. Without it SwiftUI folds the row
+        // into its name text: the row reads as a label a third of its width,
+        // and its rename editor is not reachable at all.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("flock.rail.workspace.\(workspace.workspaceID.rawValue)")
+        // ONE tap gesture, which is what keeps a plain click instant: a
+        // `count: 2` sibling for the rename would make this one wait out the
+        // system's double-click interval before it could fire at all
+        // (`ChromeRowClick`).
+        .onTapGesture { handleClick(on: workspace.workspaceID, joinsSelection: joinsSelection) }
+        // Disarmed while this row is being renamed: a press inside the field
+        // must reach the text, not start a drag.
+        .simultaneousGesture(gesture, including: isRenaming ? .subviews : .all)
+        .workspaceMenu(
+            viewModel: viewModel, workspace: workspace.workspaceID, key: markKey,
+            changeSymbol: { symbolPickerRow = workspace.workspaceID }
+        )
+    }
+
+    private func emptyPinRow(_ pin: PinnedWorkspace, index: Int, reportFrame: @escaping (CGRect) -> Void) -> some View {
+        let isRenaming = renamingPin == pin.id
+        return EmptyPinRow(
+            theme: theme,
+            pin: pin,
+            isRenaming: isRenaming,
+            pickingSymbol: pinPickerBinding(pin.id),
+            onCommitRename: { text in
+                viewModel.renamePin(pin.id, to: text)
+                renamingPin = nil
+            },
+            onCancelRename: { renamingPin = nil },
+            displacement: drag.pinDisplacement(at: index),
+            isGhosted: drag.isDragging(pin: pin.id)
+        )
+        .reportsFrame(in: DragSpace.railContent, reportFrame)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("flock.rail.pin.\(pin.id.rawValue)")
+        .onTapGesture { handleEmptyPinClick(pin.id) }
+        .simultaneousGesture(pinDrag(pin), including: isRenaming ? .subviews : .all)
+        .emptyPinMenu(
+            viewModel: viewModel, pin: pin, beginRename: { renamingPin = pin.id }, changeSymbol: { symbolPickerPin = pin.id }
+        )
+    }
+
     /// Selection on the first click, the rename editor on the second. A row
     /// the user double-clicks is therefore selected on the way into the
     /// editor, which is the price of never holding a plain click back to find
-    /// out whether a second one is coming.
-    private func handleClick(on workspace: WorkspaceID) {
+    /// out whether a second one is coming. A pinned row joins no Cmd+click
+    /// selection: that selection is dragged as a block within WORKSPACES.
+    private func handleClick(on workspace: WorkspaceID, joinsSelection: Bool = true) {
         switch NSEvent.chromeRowClick(NSApp.currentEvent) {
         case .select:
-            let commandHeld = NSEvent.modifierFlags.contains(.command)
+            let commandHeld = joinsSelection && NSEvent.modifierFlags.contains(.command)
             if drag.clickWorkspace(workspace, commandHeld: commandHeld, current: viewModel.selectedWorkspaceID) {
                 onSelect(workspace)
             }
@@ -209,6 +311,26 @@ struct WorkspaceRail: View {
         case .ignore:
             break
         }
+    }
+
+    /// Reopens on the first click and renames on the second, by the rule
+    /// `handleClick` follows.
+    private func handleEmptyPinClick(_ pin: PinID) {
+        switch NSEvent.chromeRowClick(NSApp.currentEvent) {
+        case .select:
+            Task { await viewModel.reopen(pin) }
+        case .beginRename:
+            renamingPin = pin
+        case .ignore:
+            break
+        }
+    }
+
+    private func setPinnedOrder(_ slots: [PinnedSlot]) {
+        drag.setPinnedOrder(
+            slots.map(\.id),
+            workspaces: Dictionary(uniqueKeysWithValues: slots.compactMap { slot in slot.workspace.map { (slot.id, $0) } })
+        )
     }
 
     /// A Board or herd row selects and does nothing else: its label is
@@ -281,6 +403,15 @@ struct WorkspaceRail: View {
         )
     }
 
+    private func pinPickerBinding(_ pin: PinID) -> Binding<Bool> {
+        Binding(
+            get: { symbolPickerPin == pin },
+            set: { open in
+                if open { symbolPickerPin = pin } else if symbolPickerPin == pin { symbolPickerPin = nil }
+            }
+        )
+    }
+
     /// Starts the drag and nothing else: `DragCoordinator` drives it from
     /// there, off window-level monitors, so no per-row latch can be left
     /// behind by a rail that is rebuilt mid-drag.
@@ -295,6 +426,21 @@ struct WorkspaceRail: View {
                         title: title,
                         symbol: "square.grid.2x2",
                         originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero
+                    ),
+                    at: value.startLocation
+                )
+            }
+    }
+
+    private func pinDrag(_ pin: PinnedWorkspace) -> some Gesture {
+        DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
+            .onChanged { value in
+                drag.beginIfIdle(
+                    drag.pinDragSubject(pin.id),
+                    ghost: DragCoordinator.Ghost(
+                        title: pin.name,
+                        symbol: "square.grid.2x2",
+                        originSize: drag.pinFrames.first { $0.id == pin.id }?.frame.size ?? .zero
                     ),
                     at: value.startLocation
                 )
@@ -352,6 +498,46 @@ struct WorkspaceRow: View {
             }
         }
         .modifier(RailRowChrome(theme: theme, showsFill: showsFill))
+        .opacity(isGhosted ? DragVisuals.originOpacity : 1)
+        .offset(y: displacement)
+        .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
+        .animation(.easeOut(duration: 0.12), value: isGhosted)
+    }
+}
+
+/// A pin with nothing open: a blank where the status dot sits, since the dot
+/// only ever means status and nothing runs here, then the symbol and name
+/// dimmed, and no count.
+struct EmptyPinRow: View {
+    let theme: Theme
+    let pin: PinnedWorkspace
+    var isRenaming = false
+    var pickingSymbol: Binding<Bool>?
+    var onCommitRename: (String) -> Void = { _ in }
+    var onCancelRename: () -> Void = {}
+    var displacement: CGFloat = 0
+    var isGhosted = false
+
+    var body: some View {
+        HStack(spacing: ChromeMetrics.WorkspaceRow.spacing) {
+            Color.clear.frame(width: ChromeMetrics.WorkspaceRow.statusDot, height: ChromeMetrics.WorkspaceRow.statusDot)
+            WorkspaceMark(theme: theme, key: pin.identityKey, size: ChromeMetrics.WorkspaceRow.mark, picking: pickingSymbol)
+                .opacity(ChromeMetrics.WorkspaceRow.emptyPinMarkOpacity)
+            if isRenaming {
+                InlineRenameField(
+                    theme: theme, font: ChromeType.workspaceName(selected: false), initialText: pin.name,
+                    accessibilityIdentifier: "flock.rail.pin.rename.\(pin.id.rawValue)",
+                    onCommit: onCommitRename, onCancel: onCancelRename
+                )
+            } else {
+                Text(pin.name)
+                    .font(ChromeType.workspaceName(selected: false))
+                    .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+        }
+        .modifier(RailRowChrome(theme: theme, showsFill: false))
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(y: displacement)
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)

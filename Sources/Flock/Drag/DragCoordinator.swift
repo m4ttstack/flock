@@ -204,7 +204,7 @@ final class DragCoordinator {
 
     var newWorkspaceZone: CGRect? {
         guard let railFrame else { return nil }
-        return DropZones.below(in: railFrame, itemsEndingAt: workspaceFrames.last?.frame.maxY)
+        return DropZones.below(in: railFrame, itemsEndingAt: workspaceFrames.last?.frame.maxY ?? pinnedFrame?.maxY)
     }
 
     /// The strip's and the rail's scroll views, which is where their items are
@@ -220,6 +220,13 @@ final class DragCoordinator {
     /// scroll content's own space, so a scroll moves them without a report.
     private var tabItems = ScrolledItemFrames<TabID>()
     private var workspaceItems = ScrolledItemFrames<WorkspaceID>()
+    /// PINNED's rows, in the same content space as the workspace rows.
+    private var pinItems = ScrolledItemFrames<PinID>()
+    private var pinWorkspaces: [PinID: WorkspaceID] = [:]
+    /// The PINNED section's whole region, heading and gaps included, in the
+    /// rail's content space.
+    private var pinnedRegion: CGRect?
+    private var workspacesHeading: CGRect?
     private var gridItems = ScrolledItemFrames<GridItemID>()
     /// Each drawn thumbnail's resting mini panes, in that thumbnail's own
     /// space. Held per tab rather than as frames of their own: the boxes only
@@ -229,6 +236,7 @@ final class DragCoordinator {
 
     var tabOrder: [TabID] { tabItems.order }
     var workspaceOrder: [WorkspaceID] { workspaceItems.order }
+    var pinnedOrder: [PinID] { pinItems.order }
 
     /// Set by the strip and the rail; each scrolls its own list to an offset.
     @ObservationIgnored var stripScroller: ((CGFloat) -> Void)?
@@ -390,6 +398,23 @@ final class DragCoordinator {
         workspaceItems.onScreen.map { WorkspaceItemFrame(id: $0.id, frame: $0.frame) }
     }
 
+    /// An empty pin carries no workspace, so no pane or tab can land on it.
+    var pinFrames: [PinItemFrame] {
+        pinItems.onScreen.map { PinItemFrame(id: $0.id, workspace: pinWorkspaces[$0.id], frame: $0.frame) }
+    }
+
+    /// As wide as the rail's viewport, so a drop in the rows' side padding
+    /// still lands in PINNED, and clipped to it, so a section scrolled out of
+    /// view takes no drop at all.
+    var pinnedFrame: CGRect? {
+        guard !pinItems.order.isEmpty, let pinnedRegion else { return nil }
+        let placed = pinnedRegion.offsetBy(dx: pinItems.contentOrigin.x, dy: pinItems.contentOrigin.y)
+        guard let railViewport else { return placed }
+        let visible = CGRect(x: railViewport.minX, y: placed.minY, width: railViewport.width, height: placed.height)
+            .intersection(railViewport)
+        return visible.isNull ? CGRect(x: railViewport.minX, y: railViewport.minY, width: railViewport.width, height: 0) : visible
+    }
+
     /// A tab that has left the strip can never report the frame its queued
     /// reveal is waiting for, so the reveal dies with it rather than sitting
     /// in the field until some later tab of the same id inherits it.
@@ -424,9 +449,39 @@ final class DragCoordinator {
         retryPendingReveal()
     }
 
+    /// Frozen through a reorder in either rail list: rows carried between
+    /// PINNED and WORKSPACES make room in the list they arrive in, which moves
+    /// everything below it.
     func setWorkspaceFrame(_ frame: CGRect, for id: WorkspaceID) {
-        guard !isReorderingWorkspaces else { return }
+        guard !isReorderingRail else { return }
         writeIfChanged(\.workspaceItems) { $0.setContentFrame(frame, for: id) }
+    }
+
+    func setWorkspacesHeading(_ frame: CGRect) {
+        guard !isReorderingRail, workspacesHeading != frame else { return }
+        workspacesHeading = frame
+    }
+
+    /// `workspaces` names each linked pin's workspace; a pin missing from it
+    /// is empty.
+    func setPinnedOrder(_ order: [PinID], workspaces: [PinID: WorkspaceID] = [:]) {
+        writeIfChanged(\.pinItems) { $0.setOrder(order) }
+        if pinWorkspaces != workspaces {
+            pinWorkspaces = workspaces
+        }
+    }
+
+    func setPinFrame(_ frame: CGRect, for id: PinID, workspace: WorkspaceID?) {
+        if pinWorkspaces[id] != workspace {
+            pinWorkspaces[id] = workspace
+        }
+        guard !isReorderingRail else { return }
+        writeIfChanged(\.pinItems) { $0.setContentFrame(frame, for: id) }
+    }
+
+    func setPinnedRegion(_ frame: CGRect) {
+        guard !isReorderingRail, pinnedRegion != frame else { return }
+        pinnedRegion = frame
     }
 
     func setStripContentOrigin(_ origin: CGPoint) {
@@ -435,6 +490,7 @@ final class DragCoordinator {
 
     func setRailContentOrigin(_ origin: CGPoint) {
         writeIfChanged(\.workspaceItems) { $0.setContentOrigin(origin) }
+        writeIfChanged(\.pinItems) { $0.setContentOrigin(origin) }
     }
 
     func setStripScroll(offset: CGFloat, maximumOffset: CGFloat) {
@@ -471,9 +527,11 @@ final class DragCoordinator {
         return false
     }
 
-    private var isReorderingWorkspaces: Bool {
-        if case .workspaceRail? = target { return true }
-        return false
+    private var isReorderingRail: Bool {
+        switch target {
+        case .workspaceRail?, .pinnedRail?: true
+        default: false
+        }
     }
 
     var surfaces: DropSurfaces? {
@@ -489,7 +547,9 @@ final class DragCoordinator {
             railViewport: railViewport,
             newTabZone: newTabZone,
             newWorkspaceZone: newWorkspaceZone,
-            grid: gridSurfaces
+            grid: gridSurfaces,
+            pinnedFrames: pinFrames,
+            pinnedFrame: pinnedFrame
         )
     }
 
@@ -1065,6 +1125,11 @@ final class DragCoordinator {
         workspaceSelection.dragSubject(pressing: id, order: workspaceOrder)
     }
 
+    /// A pinned row is dragged alone: the Cmd+click selection is WORKSPACES'.
+    func pinDragSubject(_ id: PinID) -> DragSubject {
+        .pin(id)
+    }
+
     private func finishWorkspaceSelection() {
         updateSelection { $0.dragFinished() }
     }
@@ -1234,6 +1299,8 @@ final class DragCoordinator {
         }
     }
 
+    func isDragging(pin: PinID) -> Bool { activeSubject == .pin(pin) }
+
     var insertionMark: InsertionMark? {
         // A reorder inside the grid is marked by the card opening the slot
         // itself; the strip the bar would be placed in is unmounted, and its
@@ -1247,14 +1314,30 @@ final class DragCoordinator {
             )
             return InsertionMark(bar: bar, dot: InsertionBarGeometry.endDot(for: bar, axis: .vertical))
         case .workspaceRail(let insertIndex):
-            guard let container = railViewport ?? railFrame else { return nil }
+            guard let container = workspaceRailContainer else { return nil }
             let bar = InsertionBarGeometry.bar(
                 atInsertIndex: insertIndex, items: workspaceFrames.map(\.frame), container: container, axis: .horizontal
+            )
+            return InsertionMark(bar: bar, dot: InsertionBarGeometry.endDot(for: bar, axis: .horizontal))
+        case .pinnedRail(let insertIndex):
+            guard let container = pinnedFrame ?? railViewport ?? railFrame else { return nil }
+            let bar = InsertionBarGeometry.bar(
+                atInsertIndex: insertIndex, items: pinFrames.map(\.frame), container: container, axis: .horizontal
             )
             return InsertionMark(bar: bar, dot: InsertionBarGeometry.endDot(for: bar, axis: .horizontal))
         default:
             return nil
         }
+    }
+
+    /// Starts where WORKSPACES' first row does, so an empty WORKSPACES under
+    /// PINNED marks its first slot rather than the top of the rail.
+    private var workspaceRailContainer: CGRect? {
+        guard let viewport = railViewport ?? railFrame else { return nil }
+        guard let workspacesHeading else { return viewport }
+        let headingBottom = workspacesHeading.maxY + workspaceItems.contentOrigin.y
+        let top = max(viewport.minY, headingBottom + ChromeMetrics.Rail.rowGap - InsertionBarGeometry.assumedGap)
+        return CGRect(x: viewport.minX, y: top, width: viewport.width, height: max(0, viewport.maxY - top))
     }
 
     /// The outline over a whole-item target: a tab, a workspace row, or a
@@ -1337,8 +1420,42 @@ final class DragCoordinator {
         return ReshuffleOffset.displacement(
             forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex,
             extent: draggingIndex.map { ReshuffleOffset.advance(ofItemAt: $0, items: items, axis: .horizontal) }
-                ?? ReshuffleOffset.defaultExtent
+                ?? arrivingExtent(items: items)
         )
+    }
+
+    func pinDisplacement(at index: Int) -> CGFloat {
+        guard case .pinnedRail(let insertIndex)? = target else { return 0 }
+        let items = pinFrames.map(\.frame)
+        let draggingIndex = draggingPinIndex
+        return ReshuffleOffset.displacement(
+            forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex,
+            extent: draggingIndex.map { ReshuffleOffset.advance(ofItemAt: $0, items: items, axis: .horizontal) }
+                ?? arrivingExtent(items: items)
+        )
+    }
+
+    /// The room PINNED makes below its last row for rows carried in from
+    /// WORKSPACES, so the pins it pushes down never draw over WORKSPACES'
+    /// heading.
+    var pinnedGrowth: CGFloat {
+        guard case .pinnedRail? = target else { return 0 }
+        if case .pin? = activeSubject { return 0 }
+        return arrivingExtent(items: pinFrames.map(\.frame))
+    }
+
+    /// The same room in WORKSPACES for a pin carried out of PINNED.
+    var workspacesGrowth: CGFloat {
+        guard case .workspaceRail? = target, case .pin? = activeSubject else { return 0 }
+        return arrivingExtent(items: workspaceFrames.map(\.frame))
+    }
+
+    /// What rows carried in from the rail's other list open: one row's pitch
+    /// for each, every rail row sharing one pitch.
+    private func arrivingExtent(items: [CGRect]) -> CGFloat {
+        let rows = if case .workspaces(let block)? = activeSubject { block.count } else { 1 }
+        let pitchFrom = items.isEmpty ? pinFrames.map(\.frame) : items
+        return ReshuffleOffset.advance(ofItemAt: 0, items: pitchFrom, axis: .horizontal) * CGFloat(rows)
     }
 
     private var draggingTabIndex: Int? {
@@ -1349,5 +1466,10 @@ final class DragCoordinator {
     private var draggingWorkspaceIndex: Int? {
         guard case .workspace(let id)? = activeSubject else { return nil }
         return workspaceFrames.firstIndex { $0.id == id }
+    }
+
+    private var draggingPinIndex: Int? {
+        guard case .pin(let id)? = activeSubject else { return nil }
+        return pinFrames.firstIndex { $0.id == id }
     }
 }

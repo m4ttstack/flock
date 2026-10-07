@@ -365,6 +365,9 @@ private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: Dro
               let hit = surfaces.workspaceFrames.first(where: { $0.frame.contains(point) })
         else { return nil }
         return .workspaceThumbnail(hit.id)
+    case .pin(let id) where surfaces.pinnedFrames.contains(where: { $0.id == id && $0.workspace == nil }):
+        // An empty pin has nothing in herdr to move.
+        return nil
     case .workspace, .workspaces, .pin:
         let centers = surfaces.workspaceFrames.map(\.frame.midY)
         let y = clamp(point.y, to: surfaces.railViewport.map { ($0.minY, $0.maxY) })

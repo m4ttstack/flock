@@ -232,6 +232,7 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
             return grid.cards.first { $0.id == workspace }?.frame
         }
         return surfaces.workspaceFrames.first { $0.id == workspace }?.frame
+            ?? surfaces.pinnedFrames.first { $0.workspace == workspace }?.frame
     case .newTab:
         return surfaces.newTabZone
     case .newWorkspace:
