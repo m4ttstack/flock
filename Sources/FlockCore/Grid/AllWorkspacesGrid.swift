@@ -198,14 +198,14 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         selected = nil
     }
 
-    /// Esc puts a selection down first, then a zoom, and the grid only once
-    /// neither is up, so each Esc undoes one step and never throws away the
-    /// grid behind it.
+    /// A zoom is left in one Esc, selection kept. Outside a zoom Esc puts a
+    /// selection down first and the grid only once none is up, so each Esc
+    /// undoes one step and never throws away the grid behind it.
     public mutating func escape() {
-        if selected != nil {
-            selected = nil
-        } else if zoomed != nil {
+        if zoomed != nil {
             zoomed = nil
+        } else if selected != nil {
+            selected = nil
         } else {
             close()
         }

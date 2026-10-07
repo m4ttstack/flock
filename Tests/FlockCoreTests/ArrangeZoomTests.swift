@@ -13,14 +13,27 @@ final class ArrangeZoomTests: XCTestCase {
         XCTAssertEqual(state.zoomed, workspace)
     }
 
-    func testEscTakesTheSelectionThenTheZoomThenArrange() {
+    func testEscLeavesAZoomInOnePressKeepingTheSelection() {
         var state = AllWorkspacesGridState()
         state.open()
         state.zoom(into: workspace)
-        state.select(pane: PaneID(rawValue: "w1:p1"))
+        let pane = PaneID(rawValue: "w1:p1")
+        state.select(pane: pane)
+        state.escape()
+        XCTAssertNil(state.zoomed)
+        XCTAssertEqual(state.selected, pane)
+        XCTAssertTrue(state.isShown)
         state.escape()
         XCTAssertNil(state.selected)
-        XCTAssertEqual(state.zoomed, workspace)
+        XCTAssertTrue(state.isShown)
+        state.escape()
+        XCTAssertFalse(state.isShown)
+    }
+
+    func testEscTakesTheZoomThenArrangeWithNothingSelected() {
+        var state = AllWorkspacesGridState()
+        state.open()
+        state.zoom(into: workspace)
         state.escape()
         XCTAssertNil(state.zoomed)
         XCTAssertTrue(state.isShown)
