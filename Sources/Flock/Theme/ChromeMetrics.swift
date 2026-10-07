@@ -859,6 +859,8 @@ enum ChromeMetrics {
         static let nextHorizontalPadding: CGFloat = 10
         static let nextSpacing: CGFloat = 6
         static let nextMaxTitleWidth: CGFloat = 320
+        static let queueClearHeight: CGFloat = 22
+        static let queueClearWash: Double = 0.14
         /// At rest's time section labels: the label, then a hairline rule to
         /// the lane's edge.
         static let restLabelSpacing: CGFloat = 8

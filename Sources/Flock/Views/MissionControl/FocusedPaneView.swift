@@ -90,14 +90,7 @@ struct FocusedPaneView: View {
             .fixedSize(horizontal: true, vertical: false)
             .accessibilityIdentifier("flock.focused.next")
         } else {
-            Text("Queue clear")
-                .font(ChromeType.focusedNextPlace)
-                .foregroundStyle(theme.textLabel)
-                .padding(.horizontal, M.nextHorizontalPadding)
-                .frame(height: M.backHeight)
-                .overlay(chipShape.stroke(theme.rule, lineWidth: ChromeMetrics.ruleWidth))
-                .fixedSize()
-                .accessibilityIdentifier("flock.focused.queueClear")
+            QueueClearBadge(theme: theme)
         }
     }
 
@@ -198,5 +191,26 @@ struct FocusedPlace: View {
         }
         .font(ChromeType.focusedPlace)
         .lineLimit(1)
+    }
+}
+
+/// Nothing is waiting: a success badge in the idle green, where the Next chip
+/// would be.
+struct QueueClearBadge: View {
+    let theme: Theme
+
+    private typealias M = ChromeMetrics.MissionControl
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+            Text("Queue clear").font(ChromeType.focusedNextPlace)
+        }
+        .foregroundStyle(theme.green)
+        .padding(.horizontal, M.nextHorizontalPadding)
+        .frame(height: M.queueClearHeight)
+        .background(theme.green.opacity(M.queueClearWash), in: Capsule())
+        .fixedSize()
+        .accessibilityIdentifier("flock.focused.queueClear")
     }
 }

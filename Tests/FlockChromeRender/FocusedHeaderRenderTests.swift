@@ -3,8 +3,8 @@ import AppKit
 import SwiftUI
 import XCTest
 
-/// The focused pane's header left of the Next chip: the back button at rest
-/// and hovered, then the place and state, in a dark and a light theme. PNGs
+/// The focused pane's header: the back button at rest and hovered, the place,
+/// and the Queue clear badge, in a dark and a light theme. PNGs
 /// are written only when `FLOCK_GRID_RENDER_DIR` is set.
 @MainActor
 final class FocusedHeaderRenderTests: XCTestCase {
@@ -63,6 +63,7 @@ final class FocusedHeaderRenderTests: XCTestCase {
             FocusedBackButton(theme: theme, forced: forced) {}
             FocusedPlace(theme: theme, card: card, markKey: "w1")
             Spacer(minLength: 0)
+            QueueClearBadge(theme: theme)
         }
         .padding(.horizontal, ChromeMetrics.Grid.headerHorizontalPadding)
         .frame(height: ChromeMetrics.Grid.focusedHeaderHeight)
