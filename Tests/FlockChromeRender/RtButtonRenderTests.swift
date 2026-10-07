@@ -132,7 +132,10 @@ final class RtButtonRenderTests: XCTestCase {
             XCTAssertEqual(hex(image, at: point(0.5, 100)), palette.surface1.hex, "\(label): the outer stroke")
             XCTAssertEqual(hex(image, at: point(150, 40.5)), palette.surface0.hex, "\(label): the header rule")
             XCTAssertEqual(hex(image, at: point(16, 15)), Self.plum, "\(label): the header badge")
-            XCTAssertEqual(hex(image, at: point(180, 50)), palette.selectionBg.hex, "\(label): the hovered row's fill")
+            XCTAssertLessThanOrEqual(
+                hexChannelDistance(hex(image, at: point(180, 50)), palette.panelBg.underHoverWash(theme).hex), 1,
+                "\(label): the hovered row wears the hover wash"
+            )
             XCTAssertEqual(hex(image, at: point(180, 81)), palette.panelBg.hex, "\(label): a row not hovered has no fill")
             XCTAssertEqual(hex(image, at: point(180, 239)), palette.activeRowBg.hex, "\(label): the running item's fill")
             XCTAssertEqual(hex(image, at: point(180, 270)), palette.panelBg.hex, "\(label): a finished item has no fill")
@@ -178,9 +181,9 @@ final class RtButtonRenderTests: XCTestCase {
             let fills = [Color(theme.palette.surface0), Color(theme.palette.selectionBg)]
             let row = HStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius)
                         .fill(fills[index / 2])
-                        .overlay { if index % 2 == 1 { HoverWashFill(theme: theme, cornerRadius: 4) } }
+                        .overlay { if index % 2 == 1 { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.RtButton.cornerRadius) } }
                         .frame(width: chip.width, height: chip.height)
                 }
             }
@@ -227,7 +230,7 @@ final class RtButtonRenderTests: XCTestCase {
         let control = CGSize(width: 31, height: PaneChrome.titleRowHeight)
         let view = HStack {
             Spacer()
-            RoundedRectangle(cornerRadius: 4).fill(Color(theme.palette.surface0))
+            RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius).fill(Color(theme.palette.surface0))
                 .frame(width: control.width, height: control.height)
                 .modifier(TipBelow(isShown: true, text: "Right-clicks go to the program", shortcut: "⌥⌘M"))
         }

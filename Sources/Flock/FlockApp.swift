@@ -57,6 +57,10 @@ struct FlockApp: App {
     @State private var rtModalTextSizeStore = RtModalTextSizeStore()
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
+    @State private var allWorkspacesModeStore: AllWorkspacesModeStore
+    @State private var missionBottomLineStore = MissionBottomLineStore()
+    @State private var oneTitleStore: OneTitleStore
+    @State private var workspaceIdentityStore: WorkspaceIdentityStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
     @State private var startingFolderStore: StartingFolderStore
     @State private var scrollSpeedStore = ScrollSpeedStore()
@@ -141,6 +145,9 @@ struct FlockApp: App {
         _scrollSpeedStore = State(initialValue: scrollSpeedStore)
         let notificationLifetimeStore = NotificationLifetimeStore()
         _notificationLifetimeStore = State(initialValue: notificationLifetimeStore)
+        _allWorkspacesModeStore = State(initialValue: AllWorkspacesModeStore())
+        let workspaceIdentityStore = WorkspaceIdentityStore()
+        _workspaceIdentityStore = State(initialValue: workspaceIdentityStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
@@ -186,6 +193,8 @@ struct FlockApp: App {
         }
         let startingFolderStore = StartingFolderStore()
         _startingFolderStore = State(initialValue: startingFolderStore)
+        let oneTitleStore = OneTitleStore()
+        _oneTitleStore = State(initialValue: oneTitleStore)
         // One client, two roles: `HerdrClient` conforms to both
         // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
         // command verbs and the layout-export coordinator share the same
@@ -205,9 +214,13 @@ struct FlockApp: App {
             noticeSink: { message in toastCenter.show(message, kind: .info) },
             notificationLifetime: { notificationLifetimeStore.active },
             attentionToastArchive: AttentionToastArchive(),
+            paneLastChangeArchive: PaneLastChangeArchive(),
+            oneTitle: { oneTitleStore.active },
             startingFolder: { startingFolderStore.choice(for: $0) },
             rightClickDefaults: .standard,
-            completedTabDefaults: .standard
+            completedTabDefaults: .standard,
+            pinnedWorkspaceDefaults: .standard,
+            identity: workspaceIdentityStore
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
@@ -228,9 +241,16 @@ struct FlockApp: App {
                 switch target {
                 case .tabThumbnail(let id): viewModel.select(tab: id)
                 case .workspaceThumbnail(let id): viewModel.select(workspace: id)
-                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail: break
+                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail, .pinnedRail: break
                 }
-            }
+            },
+            // Repo and branch are read again each time the view opens.
+            gridOpened: {
+                viewModel.repoBranches.invalidate()
+                viewModel.isMainCanvasCovered = true
+            },
+            gridClosed: { viewModel.isMainCanvasCovered = false },
+            gridHoldsEscape: { viewModel.renameTarget != nil || viewModel.paneShownInOverview != nil }
         ))
         let dividerDragSession = DividerDragSession(
             commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }
@@ -238,6 +258,20 @@ struct FlockApp: App {
         _dividerDragCoordinator = State(initialValue: DividerDragCoordinator(session: dividerDragSession))
         sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
         self.socketPath = socketPath
+    }
+
+    private var navigator: JumpNavigator {
+        JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesModeStore)
+    }
+
+    /// A new pane's launcher is up, so ⌘1 and on launch into it rather than
+    /// switching views.
+    private var launcherOffered: Bool {
+        LauncherSlots.target(on: viewModel).map { viewModel.isPristineLauncherPane($0) } ?? false
+    }
+
+    private var viewTabs: ViewTabNavigator {
+        ViewTabNavigator(drag: dragCoordinator, mode: allWorkspacesModeStore)
     }
 
     private var notRunningCopy: NoHerdrScreen.Copy {
@@ -302,6 +336,9 @@ struct FlockApp: App {
                 .environment(undoJournal)
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)
+                .environment(allWorkspacesModeStore)
+                .environment(missionBottomLineStore)
+                .environment(workspaceIdentityStore)
                 .environment(dividerDragCoordinator)
                 .environment(commandPalette)
                 .environment(paletteRecents)
@@ -377,7 +414,9 @@ struct FlockApp: App {
                         Button(LauncherSlots.title(for: entry)) {
                             Task { await LauncherSlots.launchInFocusedPane(entry, on: viewModel) }
                         }
-                        .keyboardShortcut(LauncherSlots.key(at: index), modifiers: .command)
+                        // ⌘1 and on are the views' keys except while a new
+                        // pane is offering the launcher.
+                        .keyboardShortcut(launcherOffered ? KeyboardShortcut(LauncherSlots.key(at: index), modifiers: .command) : nil)
                         .disabled(!canLaunch)
                         .accessibilityIdentifier("flock.pane.launch.\(entry.id)")
                     }
@@ -451,10 +490,8 @@ struct FlockApp: App {
                 .accessibilityIdentifier(ViewCommand.closeWorkspace.accessibilityIdentifier)
             }
             CommandGroup(before: .windowArrangement) {
-                let railRows = viewModel.model.map {
-                    RailSections(model: $0, board: boardStore.names, herdProgress: herdProgressStore.progress)
-                        .navigationOrder { sectionCollapseStore.isCollapsed($0) }
-                } ?? []
+                let railRows = viewModel.railSections(board: boardStore.names, herdProgress: herdProgressStore.progress)
+                    .map { $0.navigationOrder { sectionCollapseStore.isCollapsed($0) } } ?? []
                 let tabs = viewModel.tabsForSelectedWorkspace
                 ForEach(StepCommand.allCases, id: \.self) { command in
                     let tab = command.isTab ? viewModel.neighborTab(step: command.step) : nil
@@ -506,6 +543,21 @@ struct FlockApp: App {
                 OptionAsAltMenu(store: optionAsAltStore)
                 ScrollSpeedMenu(store: scrollSpeedStore)
                 Divider()
+                ForEach(ViewTab.allCases, id: \.self) { tab in
+                    let command = ViewCommand.show(tab)
+                    Button {
+                        viewTabs.choose(tab)
+                    } label: {
+                        if viewTabs.selected == tab {
+                            Label(command.title, systemImage: "checkmark")
+                        } else {
+                            Text(command.title)
+                        }
+                    }
+                    .keyboardShortcut(launcherOffered ? nil : command.shortcut)
+                    .accessibilityIdentifier(command.accessibilityIdentifier)
+                }
+                Divider()
                 // The only key into rearrange mode, and the same switch this
                 // item's checkmark reflects.
                 Button {
@@ -531,12 +583,20 @@ struct FlockApp: App {
                 .keyboardShortcut(ViewCommand.allWorkspaces.shortcut)
                 .accessibilityIdentifier(ViewCommand.allWorkspaces.accessibilityIdentifier)
                 Divider()
-                Button(ViewCommand.openOldestNotification.title) {
-                    Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
-                }
-                .keyboardShortcut(ViewCommand.openOldestNotification.shortcut)
-                .disabled(viewModel.attentionToasts.isEmpty)
-                .accessibilityIdentifier(ViewCommand.openOldestNotification.accessibilityIdentifier)
+                Button(ViewCommand.openOldestNotification.title) { navigator.openOldest() }
+                    .keyboardShortcut(ViewCommand.openOldestNotification.shortcut)
+                    .disabled(viewModel.attentionToasts.isEmpty)
+                    .accessibilityIdentifier(ViewCommand.openOldestNotification.accessibilityIdentifier)
+                // Only while a pane is focused in Overview, where the
+                // terminal keeps Esc and these are the way out and onward.
+                Button(ViewCommand.backToOverview.title) { navigator.backToOverview() }
+                    .keyboardShortcut(ViewCommand.backToOverview.shortcut)
+                    .disabled(!navigator.isFocusedInOverview)
+                    .accessibilityIdentifier(ViewCommand.backToOverview.accessibilityIdentifier)
+                Button(ViewCommand.openNextCard.title) { navigator.openNext() }
+                    .keyboardShortcut(ViewCommand.openNextCard.shortcut)
+                    .disabled(navigator.nextCard == nil)
+                    .accessibilityIdentifier(ViewCommand.openNextCard.accessibilityIdentifier)
                 // The only way to clear a "needs input" toast without
                 // answering the pane or dismissing each one by hand.
                 Button(ViewCommand.clearNotifications.title) { viewModel.clearAttentionToasts() }
@@ -577,6 +637,8 @@ struct FlockApp: App {
             FlockSettingsView(
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
+                missionBottomLineStore: missionBottomLineStore,
+                oneTitleStore: oneTitleStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,

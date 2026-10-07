@@ -13,6 +13,7 @@ struct CommandPaletteView: View {
     @Environment(ChatStore.self) private var chatStore
     @Environment(RearrangeMode.self) private var rearrangeMode
     @Environment(DragCoordinator.self) private var dragCoordinator
+    @Environment(AllWorkspacesModeStore.self) private var modeStore
     @FocusState private var searchFocused: Bool
 
     var rtInstalled = RtAvailability.installed
@@ -210,7 +211,7 @@ struct CommandPaletteView: View {
         guard rows.indices.contains(index), let entry = entries.first(where: { $0.command.id == rows[index].command.id }) else { return }
         state.close()
         recents.record(entry.command.id)
-        PaletteRunner(viewModel: viewModel, chatStore: chatStore, rearrangeMode: rearrangeMode, dragCoordinator: dragCoordinator)
+        PaletteRunner(viewModel: viewModel, chatStore: chatStore, rearrangeMode: rearrangeMode, dragCoordinator: dragCoordinator, modeStore: modeStore)
             .run(entry.action)
     }
 }

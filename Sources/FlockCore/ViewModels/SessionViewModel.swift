@@ -34,24 +34,46 @@ public final class SessionViewModel {
     /// Each canvas pane's right-click mode (see `RightClickDisposition`).
     public let rightClicks: RightClickModeStore
     public let completedTabs: TabCompletionStore
+    /// The workspaces kept as places; they outlive herdr's.
+    public let pins: PinnedWorkspaceStore
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
-    /// The grid hover card's tails, one per pane it has opened on.
+    /// Arrange's tails, one per pane a tile has read.
     public private(set) var paneTails: [PaneID: PaneTail] = [:]
+    /// `BackgroundWork.reason` for each eligible pane whose footer counts
+    /// work. Read through `ShownStatus.of`, which ignores an entry once its
+    /// pane has left eligibility.
+    public private(set) var backgroundWork: [PaneID: String] = [:]
     public private(set) var attentionToasts = AttentionToastStack() {
         didSet {
             if attentionToasts != oldValue { attentionToastArchive?.save(attentionToasts) }
         }
     }
+    public private(set) var statusHistory = PaneStatusHistory() {
+        didSet {
+            let changes = statusHistory.lastChanges
+            if changes != oldValue.lastChanges { paneLastChangeArchive?.save(changes) }
+        }
+    }
+    public let repoBranches: RepoBranchCache
 
     /// Written from inside view bodies, which must not invalidate the views
     /// reading it; `lastLines` is what they observe.
     @ObservationIgnored private var lastLineRequests = LastLineRequests()
     /// The panes with a tail read in flight, for the same reason and read the
-    /// same way: `paneTails` is what the card observes.
+    /// same way: `paneTails` is what the tiles observe.
     @ObservationIgnored private var tailReads: Set<PaneID> = []
+    /// Set by a herdr that cannot parse the ansi read format or answers it with
+    /// something that is not a read. Any other failure, a transport error, a
+    /// timeout or an unrelated server error, says nothing about what herdr
+    /// supports.
+    @ObservationIgnored private var ansiReadRefused = false
+    @ObservationIgnored private var backgroundWorkPanes: Set<PaneID> = []
+    @ObservationIgnored private var backgroundWorkReads: Set<PaneID> = []
+    @ObservationIgnored private var backgroundWorkTimer: Task<Void, Never>?
+    @ObservationIgnored private let backgroundWorkInterval: Duration
     // One chained task per pane: every attach/park/teardown request for a
     // pane waits for whatever request came immediately before it (for that
     // SAME pane only; other panes are unaffected) before touching
@@ -135,13 +157,22 @@ public final class SessionViewModel {
     /// attention stack's coalescing window without sleeping.
     @ObservationIgnored private let now: @MainActor () -> Date
     /// Read at every raise and sweep, so a change in Settings lands at the
-    /// dock's next sweep without anything pushing it here.
+    /// window's next sweep without anything pushing it here.
     @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
     @ObservationIgnored private let attentionToastArchive: AttentionToastArchive?
+    @ObservationIgnored private let paneLastChangeArchive: PaneLastChangeArchive?
+    /// The archive's records, until the first snapshot with panes has dated
+    /// the panes it reports.
+    @ObservationIgnored private var lastChangeSeeds: [PaneID: PaneStatusHistory.Transition] = [:]
+    /// Settings > Titles, read at each use; a view reading it observes the store.
+    @ObservationIgnored private let oneTitleSetting: @MainActor () -> Bool
     @ObservationIgnored private let navigationPollInterval: Duration
     /// Read at each create, so a change in Settings lands on the next one.
     @ObservationIgnored private let startingFolder: @MainActor (NewTerminalKind) -> StartingFolderChoice
     @ObservationIgnored private let homeDirectory: String
+    @ObservationIgnored private let identity: WorkspaceIdentityStore?
+    @ObservationIgnored private let folderExists: @Sendable (String) -> Bool
+    @ObservationIgnored private var reopening: Set<PinID> = []
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
     @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
@@ -158,13 +189,21 @@ public final class SessionViewModel {
         now: @escaping @MainActor () -> Date = { Date() },
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
         attentionToastArchive: AttentionToastArchive? = nil,
+        paneLastChangeArchive: PaneLastChangeArchive? = nil,
+        oneTitle: @escaping @MainActor () -> Bool = { false },
         navigationPollInterval: Duration = .milliseconds(300),
+        backgroundWorkInterval: Duration = BackgroundWork.readInterval,
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
         homeDirectory: String = NSHomeDirectory(),
         rt: RtCoordinator? = nil,
         rightClickDefaults: UserDefaults? = nil,
-        completedTabDefaults: UserDefaults? = nil
+        completedTabDefaults: UserDefaults? = nil,
+        repoBranches: RepoBranchCache = RepoBranchCache(),
+        pinnedWorkspaceDefaults: UserDefaults? = nil,
+        identity: WorkspaceIdentityStore? = nil,
+        folderExists: @escaping @Sendable (String) -> Bool = SessionViewModel.directoryExists
     ) {
+        self.repoBranches = repoBranches
         self.client = client
         self.ghosttyFactory = ghosttyFactory
         self.layoutExportCoordinator = layoutExportClient.map { LayoutExportCoordinator(client: $0) }
@@ -176,15 +215,23 @@ public final class SessionViewModel {
         self.now = now
         self.notificationLifetime = notificationLifetime
         self.attentionToastArchive = attentionToastArchive
+        self.paneLastChangeArchive = paneLastChangeArchive
+        self.lastChangeSeeds = paneLastChangeArchive?.load() ?? [:]
+        self.oneTitleSetting = oneTitle
         self.navigationPollInterval = navigationPollInterval
+        self.backgroundWorkInterval = backgroundWorkInterval
         self.startingFolder = startingFolder
         self.homeDirectory = homeDirectory
         self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
         self.rightClicks = RightClickModeStore(userDefaults: rightClickDefaults)
         self.completedTabs = TabCompletionStore(userDefaults: completedTabDefaults)
+        self.pins = PinnedWorkspaceStore(userDefaults: pinnedWorkspaceDefaults)
+        self.identity = identity
+        self.folderExists = folderExists
         if let attentionToastArchive, notificationLifetime() != .never {
             attentionToasts = attentionToastArchive.load()
         }
+        self.rt.leavesFocusAlone = { [weak self] in self?.paneShownInOverview != nil }
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -215,6 +262,14 @@ public final class SessionViewModel {
         let previousFocusedTabID = self.model?.focusedTabID
         let previousModel = self.model
         self.model = model
+        if let model {
+            // Assigned only on a real change: the setter notifies every
+            // observer, and most updates change no pane's status.
+            var history = statusHistory
+            history.observe(model, at: now(), seeds: lastChangeSeeds)
+            if !model.panes.isEmpty { lastChangeSeeds = [:] }
+            if history != statusHistory { statusHistory = history }
+        }
         connectionState = connection
         if selectedWorkspaceID == nil {
             selectedWorkspaceID = model?.focusedWorkspaceID
@@ -235,11 +290,15 @@ public final class SessionViewModel {
         refreshLayoutExports()
         reconcileClosedPanes()
         reconcileAgentStatusFeeds()
+        reconcileBackgroundWork(connection: connection)
         reconcileAttentionToasts(previous: previousModel)
         rt.update(model: fullModel)
         if connection == .live, let fullModel {
             rightClicks.keepOnly(Set(fullModel.panes.values.compactMap(\.terminalID)))
             completedTabs.keepOnly(Set(fullModel.tabs.values.flatMap { $0.map(\.tabID) }))
+            if let model {
+                pins.reconcile(with: model, reopening: reopening) { RailSections.isRailRow(label: $0.label, board: nil) }
+            }
         }
     }
 
@@ -302,11 +361,18 @@ public final class SessionViewModel {
             for paneID in model.panes.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
                 guard let pane = model.panes[paneID],
                       let was = previous.panes[paneID]?.agentStatus,
-                      let kind = AttentionToastStack.kind(from: was, to: pane.agentStatus),
-                      paneID != resolvedFocusedPaneID,
+                      was != pane.agentStatus
+                else { continue }
+                shownCardsHeldBack.remove(paneID)
+                guard let kind = AttentionToastStack.kind(from: was, to: pane.agentStatus),
                       !HerdWorkspace.isHerdPane(pane, in: model)
                 else { continue }
-                attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt))
+                if paneID == paneShownInOverview {
+                    shownCardsHeldBack.insert(paneID)
+                    continue
+                }
+                guard paneID != watchedFocusedPaneID else { continue }
+                attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt, oneTitle: oneTitle))
             }
         }
         withdrawSettledAttentionToasts(model: model, at: raisedAt)
@@ -334,16 +400,20 @@ public final class SessionViewModel {
             }
             let cleared = pane.agentStatus != toast.announcedStatus
                 && now.timeIntervalSince(toast.raisedAt) >= AttentionToastStack.coalescingWindow
-            let seen = toast.kind == .finished && toast.paneID == resolvedFocusedPaneID
+            let seen = toast.kind == .finished && toast.paneID == watchedFocusedPaneID
             if cleared || seen || HerdWorkspace.isHerdPane(pane, in: model) {
                 attentionToasts.dismiss(pane: toast.paneID)
             }
         }
     }
 
+    /// Set by the dock while the pointer is over its cards: the window's
+    /// ticker skips the sweep, which is what hover-pauses-auto-dismiss means.
+    @ObservationIgnored public var isAttentionStackHovered = false
+
     /// Drops every finished toast past the Settings lifetime, then re-runs the
-    /// withdrawal pass. The stack's own ticker calls this; a hovered stack
-    /// stops calling it, which is what hover-pauses-auto-dismiss means.
+    /// withdrawal pass. The window's ticker calls this while any toast exists,
+    /// whether the dock or mission control's Needs you lane is drawing it.
     ///
     /// The second half is not a tidy-up: "no longer blocked" only withdraws a
     /// toast once it is older than the coalescing window, and the snapshot
@@ -371,6 +441,147 @@ public final class SessionViewModel {
         attentionToasts.dismiss(pane: pane)
     }
 
+    /// Overview's focused view: the card is dismissed as a jump would. herdr's
+    /// focus follows once the view shows the pane (`paneShownInOverview`).
+    @discardableResult
+    public func focusInOverview(pane: PaneID) -> Bool {
+        guard model?.panes[pane] != nil else { return false }
+        attentionToasts.dismiss(pane: pane)
+        return true
+    }
+
+    /// The pane Overview's focused view is showing. Watched there as the
+    /// main window's focused pane is watched, so it raises no card.
+    ///
+    /// Showing it focuses it in herdr, since herdr clears `done` only for a
+    /// pane it has focused. Only while the main canvas is covered, where the
+    /// move draws nothing.
+    ///
+    /// Leaving a pane raises the card it held back while it was shown, so a
+    /// pane that blocked while being watched still lands in Needs you. A card
+    /// dismissed by opening the pane stays dismissed.
+    public var paneShownInOverview: PaneID? {
+        didSet {
+            guard paneShownInOverview != oldValue else { return }
+            if let left = oldValue, shownCardsHeldBack.remove(left) != nil { raiseHeldBackCard(for: left) }
+            guard let pane = paneShownInOverview, isMainCanvasCovered, let record = model?.panes[pane] else { return }
+            overviewMovedFocus = true
+            queueHerdrFocus(tab: record.tabID, pane: pane)
+        }
+    }
+
+    /// Set while Overview or Arrange covers the main window's canvas. Its
+    /// focused pane is only watched while the canvas is on screen, so opening
+    /// the grid raises the card that pane held back.
+    ///
+    /// Covering records herdr's focused pane; uncovering gives it back if
+    /// Overview moved herdr's focus meanwhile. Set synchronously with the
+    /// grid's own flip, so the canvas's first frame already selects that
+    /// pane's tab.
+    public var isMainCanvasCovered = false {
+        didSet {
+            guard isMainCanvasCovered != oldValue else { return }
+            if isMainCanvasCovered {
+                workspacesFocus = resolvedFocusedPaneID
+                overviewMovedFocus = false
+                raiseHeldBackFocusedCard()
+            } else {
+                giveBackWorkspacesFocus()
+            }
+        }
+    }
+
+    /// herdr's focused pane when the main canvas was last covered.
+    @ObservationIgnored private var workspacesFocus: PaneID?
+    /// Panes that blocked or finished while shown in Overview, until left or
+    /// until their status moves on.
+    @ObservationIgnored private var shownCardsHeldBack: Set<PaneID> = []
+    @ObservationIgnored private var overviewMovedFocus = false
+    /// The pane being given back, until its `pane.focus` is sent.
+    @ObservationIgnored private var restoringFocus: PaneID?
+    /// Overview's focus moves and the give-back, one after another, so the
+    /// give-back always lands last.
+    @ObservationIgnored private(set) var herdrFocusQueue: Task<Void, Never>?
+    @ObservationIgnored private var herdrFocusGeneration = 0
+
+    /// For a route that leaves the grid for a pane of its own choosing: the
+    /// canvas lands there instead of on the pane it was left on. Called
+    /// before the grid closes, since closing gives the focus back at once.
+    public func forgetWorkspacesFocus() {
+        workspacesFocus = nil
+        overviewMovedFocus = false
+        herdrFocusGeneration += 1
+        if let restoringFocus, optimisticFocusedPaneID == restoringFocus {
+            optimisticFocusedPaneID = nil
+        }
+        restoringFocus = nil
+    }
+
+    /// A recorded pane herdr no longer reports leaves the focus where
+    /// Overview put it.
+    private func giveBackWorkspacesFocus() {
+        let pane = workspacesFocus
+        let moved = overviewMovedFocus
+        workspacesFocus = nil
+        overviewMovedFocus = false
+        guard moved, let pane, let record = model?.panes[pane] else { return }
+        select(tab: record.tabID)
+        optimisticFocusedPaneID = pane
+        restoringFocus = pane
+        queueHerdrFocus(tab: record.tabID, pane: pane)
+    }
+
+    /// Sends no selection of its own: herdr's echo moves it, and the
+    /// give-back has already set it.
+    private func queueHerdrFocus(tab: TabID, pane: PaneID) {
+        let previous = herdrFocusQueue
+        let generation = herdrFocusGeneration
+        herdrFocusQueue = Task { [weak self] in
+            await previous?.value
+            guard let self, self.herdrFocusGeneration == generation else { return }
+            await self.send("tab.focus", ["tab_id": .string(tab.rawValue)])
+            guard self.herdrFocusGeneration == generation else { return }
+            do {
+                _ = try await self.client.requestRaw("pane.focus", ["pane_id": .string(pane.rawValue)])
+            } catch {
+                if self.optimisticFocusedPaneID == pane, self.restoringFocus == pane {
+                    self.optimisticFocusedPaneID = nil
+                }
+            }
+            if self.restoringFocus == pane { self.restoringFocus = nil }
+        }
+    }
+
+    /// herdr's focused pane while the main window shows it, else nil.
+    private var watchedFocusedPaneID: PaneID? {
+        isMainCanvasCovered ? nil : resolvedFocusedPaneID
+    }
+
+    private func raiseHeldBackFocusedCard() {
+        guard let paneID = resolvedFocusedPaneID else { return }
+        raiseHeldBackCard(for: paneID)
+    }
+
+    /// A card for a pane that blocked or finished while it was watched, once
+    /// it no longer is.
+    private func raiseHeldBackCard(for paneID: PaneID) {
+        guard notificationLifetime() != .never, let model,
+              paneID != paneShownInOverview, paneID != watchedFocusedPaneID,
+              attentionToasts.toast(pane: paneID) == nil,
+              let pane = model.panes[paneID], !HerdWorkspace.isHerdPane(pane, in: model)
+        else { return }
+        let kind: AttentionToast.Kind
+        switch pane.agentStatus {
+        case .blocked: kind = .needsInput
+        case .done: kind = .finished
+        default: return
+        }
+        attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: now(), oneTitle: oneTitle))
+    }
+
+    /// The card the jump key takes next when every card is drawn.
+    public var oldestAttentionPane: PaneID? { attentionToasts.toasts.last?.paneID }
+
     public func clearAttentionToasts() {
         attentionToasts.clear()
     }
@@ -379,6 +590,9 @@ public final class SessionViewModel {
     /// dock can measure. Reported back so a menu command can tell the cards on
     /// screen from the ones under the "+N more" pill.
     public var attentionCardLimit = AttentionToastStack.minimumVisible
+
+    /// The injected clock, so mission control's ages and history agree.
+    public var currentTime: Date { now() }
 
     public func jumpToOldestDisplayedAttentionToast() async {
         guard let toast = attentionToasts.oldestVisible(limit: attentionCardLimit) else { return }
@@ -394,6 +608,13 @@ public final class SessionViewModel {
         attentionToasts.dismiss(pane: pane)
         await jumpToHerdr(tab: toast.tabID)
         await jumpToHerdr(pane: toast.paneID)
+    }
+
+    public func jumpToPane(_ pane: PaneID) async {
+        guard let record = model?.panes[pane] else { return }
+        attentionToasts.dismiss(pane: pane)
+        await jumpToHerdr(tab: record.tabID)
+        await jumpToHerdr(pane: pane)
     }
 
     /// Closes the editor when herdr no longer carries what it is open on. A
@@ -473,10 +694,30 @@ public final class SessionViewModel {
         optimisticFocusedPaneID ?? model?.focusedPaneID
     }
 
-    /// The pane the canvas draws as focused and lets take the keyboard: none
-    /// while the rt modal is up, since the modal's own surface has it.
-    public var canvasFocusedPaneID: PaneID? {
-        rt.modal == nil ? resolvedFocusedPaneID : nil
+    /// The pane the main canvas draws as focused and lets take the keyboard.
+    public var canvasFocusedPaneID: PaneID? { canvasFocus(solo: nil) }
+
+    /// The pane a canvas draws as focused and lets take the keyboard: the
+    /// main canvas's resolved focus, or a solo canvas's one pane. None while
+    /// the rt modal is drawn over that canvas, since its own surface has it.
+    public func canvasFocus(solo: PaneID?) -> PaneID? {
+        rtModalIsOver(solo: solo) ? nil : solo ?? resolvedFocusedPaneID
+    }
+
+    /// Whether the rt modal is drawn over a canvas: the main canvas draws any,
+    /// a solo canvas only one opened from its own pane.
+    public func rtModalIsOver(solo: PaneID?) -> Bool {
+        guard let solo else { return rt.modal != nil }
+        guard let linked = rt.modalItem?.linked else { return false }
+        return model?.panes[solo]?.terminalID == linked
+    }
+
+    /// Closes the rt modal drawn over `solo`'s canvas, if there is one.
+    /// Whether herdr's focus moves is settled before this returns, so the
+    /// caller may stop showing the pane straight after.
+    public func closeRtModal(over solo: PaneID) {
+        guard rtModalIsOver(solo: solo), let rest = rt.takeModalDown() else { return }
+        rt.background(rest)
     }
 
     public var canvasFocusedPaneIsZoomed: Bool {
@@ -538,12 +779,16 @@ public final class SessionViewModel {
         await jumpToHerdr(pane: record.paneID)
     }
 
+    /// Every `jumpToHerdr` is a place the person chose, so each ends any
+    /// give-back of the focus Workspaces was left with.
     public func jumpToHerdr(workspace id: WorkspaceID) async {
+        forgetWorkspacesFocus()
         select(workspace: id)
         await send("workspace.focus", ["workspace_id": .string(id.rawValue)])
     }
 
     public func jumpToHerdr(tab id: TabID) async {
+        forgetWorkspacesFocus()
         select(tab: id)
         await send("tab.focus", ["tab_id": .string(id.rawValue)])
     }
@@ -555,6 +800,7 @@ public final class SessionViewModel {
     /// the model's truth -- but only if a later click hasn't already
     /// superseded it (the `== id` guard).
     public func jumpToHerdr(pane id: PaneID) async {
+        forgetWorkspacesFocus()
         optimisticFocusedPaneID = id
         do {
             _ = try await client.requestRaw("pane.focus", ["pane_id": .string(id.rawValue)])
@@ -593,42 +839,131 @@ public final class SessionViewModel {
         }
     }
 
-    /// The cached tail for the pane the grid's hover card is showing, reading
-    /// it once when the card first asks. Keyed by pane alone, never by
+    /// Reads `pane`'s tail into `paneTails`. Keyed by pane alone, never by
     /// `revision`: a pane that prints changes nothing herdr reports about
-    /// itself, so a revision-keyed tail would sit there while its pane ran.
-    /// `refreshPaneTail` is what keeps it current for as long as the card is
-    /// up.
-    public func paneTail(for pane: PaneID) -> PaneTail? {
-        if paneTails[pane] == nil {
-            readTail(for: pane)
-        }
-        return paneTails[pane]
-    }
-
-    /// One tick of the open card's own cadence.
+    /// itself, so a revision-keyed tail would sit there while its pane ran,
+    /// and only reading again on a cadence (`TileTailCadence`) keeps it
+    /// current.
     public func refreshPaneTail(for pane: PaneID) {
         readTail(for: pane)
     }
 
     /// One read at a time per pane: a tick that arrives while the last read is
     /// still out leaves it to land rather than adding a second. The answer is
-    /// kept whether or not the card is still open, so re-hovering a pane shows
-    /// its last tail at once and refreshes behind it.
+    /// kept after its tile goes, so a tile drawn again shows its last tail at
+    /// once and refreshes behind it.
     private func readTail(for pane: PaneID) {
         guard tailReads.insert(pane).inserted else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let plain: [String: JSONValue] = [
+                "pane_id": .string(pane.rawValue),
+                "source": .string("visible"),
+                "lines": .int(PaneTailPolicy.readLines),
+            ]
+            var text: String?
+            if !self.ansiReadRefused {
+                var ansi = plain
+                ansi["format"] = .string("ansi")
+                do {
+                    text = Self.extractReadText(try await self.client.requestRaw("pane.read", ansi))
+                    if text == nil { self.ansiReadRefused = true }
+                } catch let HerdrClientError.server(code, message) {
+                    if Self.refusesAnsiFormat(code: code, message: message) { self.ansiReadRefused = true }
+                } catch {}
+            }
+            // A herdr without the ansi format still answers a plain read.
+            if text == nil {
+                text = (try? await self.client.requestRaw("pane.read", plain)).flatMap(Self.extractReadText)
+            }
+            self.tailReads.remove(pane)
+            guard let text else { return }
+            // Every tile on Arrange's canvas observes this map, so a read
+            // that changed nothing must not write it.
+            let tail = PaneTailPolicy.make(from: text)
+            if self.paneTails[pane] != tail { self.paneTails[pane] = tail }
+        }
+    }
+
+    /// herdr answers a request it cannot parse with `invalid_request` and the
+    /// serde error, which names the unknown `ansi` variant or `format` field.
+    static func refusesAnsiFormat(code: String, message: String) -> Bool {
+        code == "invalid_request" && (message.contains("`ansi`") || message.contains("`format`"))
+    }
+
+    // MARK: - background work
+
+    /// Reads each eligible pane on arrival and then on one shared cadence,
+    /// and forgets a pane the moment it leaves eligibility. Nothing is read
+    /// while the connection is down.
+    private func reconcileBackgroundWork(connection: ConnectionState) {
+        let eligible: Set<PaneID> = connection == .live
+            ? Set(model?.panes.values.filter(BackgroundWork.isEligible).map(\.paneID) ?? [])
+            : []
+        let arrived = eligible.subtracting(backgroundWorkPanes)
+        backgroundWorkPanes = eligible
+        if backgroundWork.keys.contains(where: { !eligible.contains($0) }) {
+            backgroundWork = backgroundWork.filter { eligible.contains($0.key) }
+        }
+        for pane in arrived.sorted(by: { $0.rawValue < $1.rawValue }) {
+            readBackgroundWork(pane)
+        }
+        if eligible.isEmpty {
+            backgroundWorkTimer?.cancel()
+            backgroundWorkTimer = nil
+        } else if backgroundWorkTimer == nil {
+            let interval = backgroundWorkInterval
+            backgroundWorkTimer = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: interval)
+                    guard !Task.isCancelled, let self else { return }
+                    for pane in self.backgroundWorkPanes.sorted(by: { $0.rawValue < $1.rawValue }) {
+                        self.readBackgroundWork(pane)
+                    }
+                }
+            }
+        }
+    }
+
+    /// One read in flight per pane. A read that fails keeps the last answer:
+    /// it is no evidence either way, and the next tick reads again.
+    private func readBackgroundWork(_ pane: PaneID) {
+        guard backgroundWorkReads.insert(pane).inserted else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             let params: [String: JSONValue] = [
                 "pane_id": .string(pane.rawValue),
                 "source": .string("visible"),
-                "lines": .int(PaneTailPolicy.readLines),
+                "format": .string("text"),
             ]
             let data = try? await self.client.requestRaw("pane.read", params)
-            self.tailReads.remove(pane)
-            guard let data, let text = Self.extractReadText(data) else { return }
-            self.paneTails[pane] = PaneTailPolicy.make(from: text)
+            self.backgroundWorkReads.remove(pane)
+            guard self.backgroundWorkPanes.contains(pane), let data, let text = Self.extractReadText(data) else { return }
+            let reason = BackgroundWork.reason(in: text)
+            if self.backgroundWork[pane] != reason { self.backgroundWork[pane] = reason }
         }
+    }
+
+    /// The status a pane's mark draws.
+    public func shownStatus(of pane: PaneRecord) -> ShownStatus {
+        ShownStatus.of(pane, backgroundWork: backgroundWork)
+    }
+
+    public func shownStatus(of workspace: WorkspaceRecord) -> ShownStatus {
+        guard !backgroundWork.isEmpty else { return ShownStatus(workspace.agentStatus) }
+        return ShownStatus.aggregate(
+            herdr: workspace.agentStatus,
+            panes: model?.panes.values.filter { $0.workspaceID == workspace.workspaceID } ?? [],
+            backgroundWork: backgroundWork
+        )
+    }
+
+    public func shownStatus(of tab: TabRecord) -> ShownStatus {
+        guard !backgroundWork.isEmpty else { return ShownStatus(tab.agentStatus) }
+        return ShownStatus.aggregate(
+            herdr: tab.agentStatus, panes: model?.panes.values.filter { $0.tabID == tab.tabID } ?? [],
+            backgroundWork: backgroundWork
+        )
     }
 
     /// `pane.read`'s payload sits under its own wrapper key, as every herdr
@@ -1064,7 +1399,13 @@ public final class SessionViewModel {
     /// always did.
     private func close(_ subject: CloseSubject) async {
         if let model {
-            let consequence = CloseConsequence.of(subject, model: model)
+            var consequence = CloseConsequence.of(subject, model: model)
+            // A pinned workspace outlives its last tab, so closing it costs no place.
+            if case .closesWorkspace = consequence,
+               let workspace = CloseConsequence.workspace(of: subject, in: model),
+               pins.pin(linkedTo: workspace) != nil {
+                consequence = .subjectOnly
+            }
             let busy = BusyPanes(closing: subject, consequence: consequence, model: model)
             if let confirmation = consequence.confirmation(closing: subject, busy: busy) {
                 pendingClose = confirmation
@@ -1193,11 +1534,20 @@ public final class SessionViewModel {
     /// is counted without.
     @discardableResult
     public func perform(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames? = nil) async -> DragOutcome {
+        if let outcome = await performPinDrop(subject: subject, target: target, board: board) { return outcome }
+        return await performPlanned(subject: subject, target: target, board: board, pinned: nil)
+    }
+
+    /// `pinned` nil reads the live pins at plan time; a caller that is about to
+    /// change them passes the set the rail was drawn with.
+    private func performPlanned(
+        subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames?, pinned: Set<WorkspaceID>?
+    ) async -> DragOutcome {
         guard planExecutor != nil else { return .notAttempted }
         guard let undoJournal else {
             guard let model = fullModel, let planExecutor else { return .notAttempted }
             return await Self.perform(
-                subject: subject, target: target, model: model, board: board, executor: planExecutor, notify: noticeSink,
+                subject: subject, target: target, model: model, board: board, pinned: pinned ?? pinnedWorkspaces, executor: planExecutor, notify: noticeSink,
                 record: { _ in }, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
@@ -1210,19 +1560,82 @@ public final class SessionViewModel {
         await undoJournal.runExclusively { [weak self] in
             guard let self, let model = self.fullModel, let planExecutor = self.planExecutor else { return }
             outcome = await Self.perform(
-                subject: subject, target: target, model: model, board: board, executor: planExecutor, notify: self.noticeSink,
+                subject: subject, target: target, model: model, board: board, pinned: pinned ?? self.pinnedWorkspaces, executor: planExecutor, notify: self.noticeSink,
                 record: undoJournal.record, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
         return outcome
     }
 
+    private var pinnedWorkspaces: Set<WorkspaceID> { Set(pins.pins.compactMap(\.workspace)) }
+
+    /// Pin drops are flock's own bookkeeping, so they never reach the planner,
+    /// except a live pin dropped among WORKSPACES, which also moves it in herdr.
+    private func performPinDrop(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames?) async -> DragOutcome? {
+        switch (subject, target) {
+        case let (.workspace(workspace), .pinnedRail(index)):
+            if let existing = pins.pin(linkedTo: workspace) {
+                let before = pins.pins.map(\.id)
+                movePin(existing.id, toInsertIndex: index)
+                return pins.pins.map(\.id) == before ? .noOp : .committed
+            }
+            pin(workspace: workspace, at: index)
+            return pins.pin(linkedTo: workspace) == nil ? .noOp : .committed
+        case let (.workspaces(block), .pinnedRail(index)):
+            var position = index
+            var changed = false
+            for workspace in block {
+                if let existing = pins.pin(linkedTo: workspace) {
+                    let before = pins.pins.map(\.id)
+                    movePin(existing.id, toInsertIndex: position)
+                    changed = changed || pins.pins.map(\.id) != before
+                    position += 1
+                } else {
+                    pin(workspace: workspace, at: position)
+                    if pins.pin(linkedTo: workspace) != nil {
+                        changed = true
+                        position += 1
+                    }
+                }
+            }
+            return changed ? .committed : .noOp
+        case let (.pin(id), .pinnedRail(index)):
+            let before = pins.pins.map(\.id)
+            movePin(id, toInsertIndex: index)
+            return pins.pins.map(\.id) == before ? .noOp : .committed
+        case let (.pin(id), .workspaceRail(index)):
+            guard let workspace = pins.pin(id)?.workspace else { return .noOp }
+            // herdr lands a move at either neighbouring slot where it already is,
+            // so the planner sends a move that changes nothing; skip it.
+            if let model = fullModel, let position = model.workspaces.firstIndex(where: { $0.workspaceID == workspace }) {
+                let slot = RailSections.modelInsertIndex(
+                    forRailIndex: index, in: model, board: board, pinned: pinnedWorkspaces
+                )
+                if slot == position || slot == position + 1 {
+                    unpin(id)
+                    return .committed
+                }
+            }
+            let outcome = await performPlanned(
+                subject: .workspace(workspace), target: .workspaceRail(insertIndex: index), board: board,
+                pinned: pinnedWorkspaces
+            )
+            guard outcome == .committed || outcome == .noOp else { return outcome }
+            unpin(id)
+            return .committed
+        case (.pin, _), (_, .pinnedRail):
+            return .noOp
+        default:
+            return nil
+        }
+    }
+
     private static func perform(
         subject: DragSubject, target: DropTarget, model: SessionModel, board: BoardWorkspaceNames?,
-        executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void,
+        pinned: Set<WorkspaceID>, executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void,
         follow: @MainActor (PaneID) async -> Void
     ) async -> DragOutcome {
-        switch plan(dragging: subject, onto: target, model: model, board: board) {
+        switch plan(dragging: subject, onto: target, model: model, board: board, pinned: pinned) {
         case .failure(.noOp):
             return .noOp
         case .failure(.invalidCombination):
@@ -1265,7 +1678,8 @@ public final class SessionViewModel {
     /// at all (`RenameEditor.isOnScreen`).
     public var renameEditorIsOnScreen: Bool {
         RenameEditor.isOnScreen(
-            renameTarget, selectedWorkspace: selectedWorkspaceID, selectedTab: selectedTabID, model: model
+            renameTarget, selectedWorkspace: selectedWorkspaceID, selectedTab: selectedTabID, model: model,
+            soloPane: paneShownInOverview
         )
     }
 
@@ -1293,8 +1707,19 @@ public final class SessionViewModel {
 
     public private(set) var pendingGroupClose: PendingGroupClose?
 
+    /// Whether a pane alone in its tab is named by the tab (`PaneNaming`).
+    public var oneTitle: Bool { oneTitleSetting() }
+
+    /// Opens the editor on what `target` really renames: a pane with no title
+    /// of its own opens it on its tab.
     public func beginRename(_ target: RenameTarget) {
-        renameTarget = target
+        renameTarget = renameTarget(for: target)
+    }
+
+    /// What a rename opened on `target` names, which is what its editor is
+    /// open on while one is.
+    public func renameTarget(for target: RenameTarget) -> RenameTarget {
+        PaneNaming.renameTarget(target, model: model, oneTitle: oneTitle)
     }
 
     /// What the rename key opens on right now, or `nil` when nothing is
@@ -1302,7 +1727,8 @@ public final class SessionViewModel {
     /// what to open.
     public var renameShortcutTarget: RenameTarget? {
         RenameShortcut.target(
-            focusedPane: resolvedFocusedPaneID, selectedTab: selectedTabID, selectedWorkspace: selectedWorkspaceID
+            focusedPane: resolvedFocusedPaneID, selectedTab: selectedTabID, selectedWorkspace: selectedWorkspaceID,
+            model: model, oneTitle: oneTitle
         )
     }
 
@@ -1326,6 +1752,14 @@ public final class SessionViewModel {
     /// `RenameEditor` refuses (blank once trimmed, unchanged, or a target the
     /// model no longer carries) closes the editor and issues nothing.
     public func commitRename(_ text: String, for target: RenameTarget) async {
+        if case .workspace(let workspace) = target, let pin = pins.pin(linkedTo: workspace) {
+            let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if pins.isNameTaken(name, except: pin.id) {
+                noticeSink("A pinned workspace is already called \"\(name)\".")
+                cancelRename()
+                return
+            }
+        }
         if renameTarget == target {
             renameTarget = nil
         }
@@ -1338,7 +1772,9 @@ public final class SessionViewModel {
     /// so a pane without is a no-op rather than a wire call herdr would
     /// answer with no change.
     public func clearPaneName(_ pane: PaneID) async {
-        guard model?.panes[pane]?.label != nil else { return }
+        guard let model, let record = model.panes[pane], record.label != nil,
+              PaneNaming.titleTab(of: record, model: model, oneTitle: oneTitle) == nil
+        else { return }
         await run(OpPlan(ops: [.renamePane(pane, nil)], label: "Clear pane name"))
     }
 
@@ -1357,6 +1793,51 @@ public final class SessionViewModel {
     /// group included.
     public func closeWorkspace(_ workspace: WorkspaceID) async {
         await closeWorkspace(workspace, closeGroup: false)
+    }
+
+    public func railSections(board: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:]) -> RailSections? {
+        model.map { RailSections(model: $0, board: board, herdProgress: herdProgress, pins: pins.pins) }
+    }
+
+    public func pin(workspace: WorkspaceID, at index: Int? = nil) {
+        guard pins.pin(linkedTo: workspace) == nil, let model,
+              let record = model.workspaces.first(where: { $0.workspaceID == workspace }) else { return }
+        guard !pins.isNameTaken(record.label, except: nil) else {
+            noticeSink("A pinned workspace is already called \"\(record.label)\".")
+            return
+        }
+        let folder = PinFolders.firstPane(of: workspace, in: model) ?? homeDirectory
+        guard let pin = pins.add(workspace: workspace, name: record.label, folder: folder, at: index) else { return }
+        identity?.rekey(from: workspace.rawValue, to: pin.identityKey)
+    }
+
+    public func unpin(_ id: PinID) {
+        guard let pin = pins.pin(id), let workspace = pin.workspace else { return }
+        pins.remove(id)
+        identity?.rekey(from: pin.identityKey, to: workspace.rawValue)
+    }
+
+    public func removePin(_ id: PinID) {
+        guard let pin = pins.pin(id), !isOpen(pin) else { return }
+        pins.remove(id)
+    }
+
+    public func movePin(_ id: PinID, toInsertIndex index: Int) {
+        pins.move(id, toInsertIndex: index)
+    }
+
+    public func setPinFolder(_ id: PinID, to folder: String) {
+        pins.setFolder(id, to: folder)
+    }
+
+    /// An empty pin's rename: nothing in herdr carries its name.
+    public func renamePin(_ id: PinID, to text: String) {
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let pin = pins.pin(id), !isOpen(pin) else { return }
+        guard pins.rename(id, to: name) else {
+            noticeSink("A pinned workspace is already called \"\(name)\".")
+            return
+        }
     }
 
     /// Re-asks for `workspace` with its group included. The id is a
@@ -1450,16 +1931,51 @@ public final class SessionViewModel {
     /// echo. A response this cannot read leaves the selection where it was,
     /// which is what every create did before: herdr's own focus echo is then
     /// the only thing that moves it.
-    private func create(_ method: String, _ params: [String: JSONValue], label: String) async {
+    @discardableResult
+    private func create(_ method: String, _ params: [String: JSONValue], label: String) async -> CreatedTab? {
         do {
             let data = try await client.requestRaw(method, params)
-            guard let created = Self.extractCreatedTab(data) else { return }
+            guard let created = Self.extractCreatedTab(data) else { return nil }
             selectedWorkspaceID = created.workspaceID
             selectedTabID = created.tabID
             landIn(pane: created.rootPaneID)
+            return created
         } catch {
             noticeSink("\(label) failed: \(Self.describe(error))")
+            return nil
         }
+    }
+
+    public nonisolated static func directoryExists(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// A fresh shell in the pin's folder, renamed to the pin and linked to it by
+    /// the id the create returns, never by name.
+    public func reopen(_ id: PinID) async {
+        guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return }
+        reopening.insert(id)
+        defer { reopening.remove(id) }
+        let folderIsThere = folderExists(pin.folder)
+        let params: [String: JSONValue] = [
+            "focus": .bool(true), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
+        ]
+        guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)") else { return }
+        // Read again past the await: a rename made while the create was out wins.
+        guard let name = pins.pin(id)?.name else { return }
+        pins.link(id, to: created.workspaceID)
+        await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, name)], label: "Rename workspace"), recordsUndo: false)
+        if !folderIsThere {
+            noticeSink("\"\(name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another.")
+        }
+    }
+
+    /// Whether the pin's workspace is one herdr reports, which is when the rail
+    /// draws it as a live row. Every other pin is drawn empty and acts empty.
+    public func isOpen(_ pin: PinnedWorkspace) -> Bool {
+        guard let workspace = pin.workspace else { return false }
+        return model?.workspaces.contains { $0.workspaceID == workspace } ?? false
     }
 
     private static func describe(_ error: Error) -> String {
@@ -1650,7 +2166,7 @@ extension DropTarget {
         case .paneEdge(let target, _), .paneInterior(let target):
             guard let from = model.panes[pane]?.tabID, let into = model.panes[target]?.tabID else { return false }
             return from != into
-        case .tabStrip, .workspaceRail:
+        case .tabStrip, .workspaceRail, .pinnedRail:
             return false
         }
     }

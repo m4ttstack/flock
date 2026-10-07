@@ -63,12 +63,28 @@ public struct PaneMenuEntry: Equatable, Sendable {
 /// app whenever it is listening, Option always opens this menu), so there is
 /// no per-pane mode for a row to flip.
 public enum PaneMenuModel {
-    public static func entries(for pane: PaneID, model: SessionModel, focusedPane: PaneID?) -> [PaneMenuEntry] {
+    /// `solo` is a pane shown alone, away from its tab: only the rows that
+    /// neither change the tab around it nor move herdr's focus.
+    public static func entries(
+        for pane: PaneID, model: SessionModel, focusedPane: PaneID?, solo: Bool, oneTitle: Bool = false
+    ) -> [PaneMenuEntry] {
+        let all = entries(for: pane, model: model, focusedPane: focusedPane, oneTitle: oneTitle)
+        guard solo else { return all }
+        return all.filter { [.renamePane, .clearPaneName, .closePane].contains($0.action) }
+    }
+
+    /// With `oneTitle` on, Rename Pane renames a one-pane tab
+    /// (`PaneNaming.renameTarget`), and Clear Pane Name is left out there: it
+    /// would clear a label nothing draws.
+    public static func entries(
+        for pane: PaneID, model: SessionModel, focusedPane: PaneID?, oneTitle: Bool = false
+    ) -> [PaneMenuEntry] {
         var entries: [PaneMenuEntry] = [PaneMenuEntry(
             label: "Rename Pane", action: .renamePane, accessibilityIdentifier: "flock.pane.menu.rename"
         )]
 
-        if model.panes[pane]?.label != nil {
+        if let record = model.panes[pane], record.label != nil,
+           PaneNaming.titleTab(of: record, model: model, oneTitle: oneTitle) == nil {
             entries.append(PaneMenuEntry(
                 label: "Clear Pane Name", action: .clearPaneName, accessibilityIdentifier: "flock.pane.menu.clearName"
             ))

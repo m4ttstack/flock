@@ -37,6 +37,7 @@ struct PaletteRunner {
     let chatStore: ChatStore
     let rearrangeMode: RearrangeMode
     let dragCoordinator: DragCoordinator
+    let modeStore: AllWorkspacesModeStore
 
     func run(_ action: PaletteAction) {
         switch action {
@@ -72,9 +73,17 @@ struct PaletteRunner {
             case .closeWorkspace:
                 guard let workspace = viewModel.selectedWorkspaceID else { return }
                 Task { await viewModel.closeWorkspace(workspace) }
+            case .showWorkspaces, .showOverview, .showArrange:
+                guard let tab = command.viewTab else { return }
+                ViewTabNavigator(drag: dragCoordinator, mode: modeStore).choose(tab)
             case .rearrangeMode: rearrangeMode.toggle()
             case .allWorkspaces: dragCoordinator.toggleGrid()
-            case .openOldestNotification: Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
+            case .openOldestNotification:
+                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).openOldest()
+            case .backToOverview:
+                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).backToOverview()
+            case .openNextCard:
+                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).openNext()
             case .clearNotifications: viewModel.clearAttentionToasts()
             case .commandPalette: break
             }

@@ -763,6 +763,7 @@ final class GesturePlannerTests: XCTestCase {
         case .newTab: "newTab"
         case .newWorkspace: "newWorkspace"
         case .workspaceRail: "workspaceRail"
+        case .pinnedRail: "pinnedRail"
         }
     }
 

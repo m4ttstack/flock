@@ -310,7 +310,7 @@ final class PaneDragTests: XCTestCase {
         let trace = dragElement(
             app,
             fromID: gridTab(ids.tabA), grabbing: Self.firstMiniPaneOfTwo,
-            toID: gridTab(ids.tabB), aiming: .fraction(x: 0.5, y: Self.miniPaneEdgeY)
+            toID: gridTab(ids.tabB), aiming: .belowTop(x: 0.5, points: Self.miniPaneEdgeDepth)
         )
 
         let after = try session.settledLayout(inTab: ids.tabB, holding: [ids.p1, ids.p3], "\(trace)")
@@ -781,34 +781,34 @@ final class PaneDragTests: XCTestCase {
 
     // MARK: - Fixtures for the gestures above
 
-    /// A thumbnail is 120 wide by 101 tall (`ChromeMetrics.Grid.thumbnailWidth`
-    /// and `thumbnailHeight`), with a 15pt tab handle across its top
+    /// Arrange fits one thumbnail size per window, from 120 by 86 up to 320
+    /// by 230 (`IslandLayout`), with a 24pt tab handle across its top
     /// (`tabStripHeight`) and 4pt of padding (`thumbnailPadding`) around the
-    /// pane area below it. So the mini panes run from about y=19 to y=97 of
-    /// the box, and 0.6 of its height sits inside them, clear of both the
-    /// handle above and the edge bands the drop resolver reads.
+    /// pane area below it. So the mini panes run from y=28 to 4pt short of the
+    /// bottom, and 0.6 of the height sits inside them at every size, clear of
+    /// both the handle above and the edge bands the drop resolver reads.
     private static let miniPaneY: CGFloat = 0.6
 
     /// How far below a thumbnail's top a point lands in the mini pane's own
-    /// TOP band. Swept offscreen against the real grid at hundredths of the
-    /// thumbnail: the band runs from 19pt to 34.6pt of the 101pt thumbnail,
-    /// with the tab's handle strip and the padding under it above that and the
-    /// pane's interior below. This aims at 26.3pt, 7.3pt clear of the handle
-    /// and 8.3pt clear of the interior, and both of those neighbours split
-    /// right rather than down, so a slip either way fails a stacked assertion
-    /// rather than passing one.
-    private static let miniPaneEdgeY: CGFloat = 0.26
+    /// TOP band, in points since the handle above it does not scale. The band
+    /// runs from 28pt to 38.8pt of the smallest thumbnail and to 67.6pt of the
+    /// largest, with the handle and the padding under it above and the pane's
+    /// interior below. This aims at 33pt, 5pt clear of the handle and 5.8pt
+    /// clear of the interior at the smallest size, and both of those
+    /// neighbours split right rather than down, so a slip either way fails a
+    /// stacked assertion rather than passing one.
+    private static let miniPaneEdgeDepth: CGFloat = 33
 
     /// How far inside a thumbnail's left or right side a point still lands in
-    /// the mini pane there AND inside that pane's own edge band. On the 120pt
-    /// thumbnail that band runs from 4pt to 26.4pt: below it is
-    /// `thumbnailPadding`, which is the tab's own handle and splits beside the
-    /// tab's focused pane rather than composing anything, and above it is the
-    /// pane's interior. Aimed at the middle of that range rather than at
-    /// either end: both neighbours still land the pane in the right tab beside
-    /// the right pane, so a point that slips into one reads here as the
-    /// composition itself having failed.
-    private static let miniPaneEdgeX: CGFloat = 0.12
+    /// the mini pane there AND inside that pane's own edge band. That band
+    /// runs from 0.033 to 0.123 of the smallest thumbnail's width and from
+    /// 0.0125 to 0.109 of the largest's: outside it is `thumbnailPadding`,
+    /// which is the tab's own handle and splits beside the tab's focused pane
+    /// rather than composing anything, and inside it is the pane's interior.
+    /// Aimed inside the range every size shares: both neighbours still land
+    /// the pane in the right tab beside the right pane, so a point that slips
+    /// into one reads here as the composition itself having failed.
+    private static let miniPaneEdgeX: CGFloat = 0.07
 
     /// The seed's `tabA` splits right, so its thumbnail draws two mini panes
     /// side by side: the first (`p1`) covers the left half, the second (`p2`)
@@ -938,7 +938,7 @@ final class PaneDragTests: XCTestCase {
 
     @MainActor
     private func openGrid(_ app: XCUIApplication, ids: SeedIDs) {
-        clickElement(app, "flock.rail.allWorkspaces")
+        clickElement(app, "flock.titleBar.tab.arrange")
         // The list of everything on screen, not just the verdict: a thumbnail
         // that never appeared can mean the grid did not open (the rail and
         // strip would still be listed) or that the card it sits in swallowed

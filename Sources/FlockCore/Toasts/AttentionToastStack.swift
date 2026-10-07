@@ -34,6 +34,17 @@ public struct AttentionToastStack: Equatable, Codable, Sendable {
         toasts.first { $0.paneID == pane }
     }
 
+    /// The oldest card of every one, not just those the dock draws, other
+    /// than `pane`'s: what Overview's focused view opens next.
+    public func oldest(excluding pane: PaneID?) -> AttentionToast? {
+        toasts.last { $0.paneID != pane }
+    }
+
+    /// How many cards wait other than `pane`'s.
+    public func count(excluding pane: PaneID?) -> Int {
+        toasts.count { $0.paneID != pane }
+    }
+
     /// The two transitions the Interactions sheet raises a toast for, and
     /// nothing else. `nil` means stay quiet.
     public static func kind(from previous: AgentStatus, to current: AgentStatus) -> AttentionToast.Kind? {

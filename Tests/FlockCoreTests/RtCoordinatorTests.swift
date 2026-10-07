@@ -208,6 +208,72 @@ final class RtCoordinatorTests: XCTestCase {
         XCTAssertTrue(rt.items.isEmpty)
     }
 
+    /// herdr focus calls, counting a split that takes the focus with it.
+    private func focusMoves(_ world: FakeRtWorld) -> Int {
+        world.calls("pane.focus").count + world.calls("tab.focus").count
+            + world.calls("pane.split").filter { if case .bool(true) = $0["focus"] { true } else { false } }.count
+    }
+
+    /// Overview's focused view leaves herdr's focus where it is; anywhere
+    /// else rt hands it to the linked pane.
+    func testAClosingLeavesFocusAloneOnlyWhenAskedTo() async throws {
+        for alone in [false, true] {
+            let world = FakeRtWorld()
+            world.script("command rt nav", .init(busyPolls: 1000, status: "0"))
+            let rt = makeCoordinator(world)
+            rt.leavesFocusAlone = { alone }
+            await rt.open(.nav, from: world.fixture.linkedPane)
+            rt.update(model: world.model())
+
+            await rt.closeModal()
+
+            XCTAssertNil(rt.modal)
+            XCTAssertEqual(focusMoves(world) > 0, !alone, "leaving focus alone: \(alone)")
+        }
+    }
+
+    func testAShownCommandEndingLeavesFocusAloneOnlyWhenAskedTo() async throws {
+        for (kind, line) in [(RtKind.glitter, "command rt glitter"), (.runner, "command rt runner")] {
+            for alone in [false, true] {
+                let world = FakeRtWorld()
+                world.script(line, .init(busyPolls: 1, status: "0"))
+                let rt = makeCoordinator(world)
+                rt.leavesFocusAlone = { alone }
+                rt.update(model: world.model())
+
+                await rt.open(kind, from: world.fixture.linkedPane)
+                try await finishWatch(rt, "tok1")
+
+                XCTAssertTrue(rt.items.isEmpty, "\(kind) still open")
+                XCTAssertEqual(focusMoves(world) > 0, !alone, "\(kind) leaving focus alone: \(alone)")
+            }
+        }
+    }
+
+    /// An idle pane, a busy Claude pane and a busy pane that is split.
+    func testCdHereLeavesFocusAloneOnlyWhenAskedTo() async throws {
+        for agent in [nil, "claude", "codex"] as [String?] {
+            for alone in [false, true] {
+                let world = FakeRtWorld()
+                if let agent {
+                    world.busyPanes = ["w1:p1"]
+                    world.runAgent(agent)
+                }
+                world.script("command rt nav", .init(busyPolls: 1, status: "0", out: "/src/acme/web\n"))
+                let rt = makeCoordinator(world)
+                rt.leavesFocusAlone = { alone }
+                rt.update(model: world.model())
+
+                await rt.open(.nav, from: world.fixture.linkedPane)
+                try await finishWatch(rt, "tok1")
+
+                let label = "\(agent ?? "idle") leaving focus alone: \(alone)"
+                XCTAssertEqual(world.typed(into: "w1:p1").count + world.calls("pane.split").count, 1, label)
+                XCTAssertEqual(focusMoves(world) > 0, !alone, label)
+            }
+        }
+    }
+
     func testClosingARunningRunKeepsItCountedOnTheButton() async throws {
         let world = FakeRtWorld()
         world.script("command rt run", .init(busyPolls: 1000, status: "0"))

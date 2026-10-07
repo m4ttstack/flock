@@ -1,4 +1,3 @@
-import CoreGraphics
 import FlockCore
 
 /// The All Workspaces grid's side of the coordinator. Every decision lives in
@@ -8,28 +7,42 @@ extension DragCoordinator {
         updateGrid { $0.toggle() }
     }
 
+    func openGrid() {
+        updateGrid { $0.open() }
+    }
+
     func closeGrid() {
         updateGrid { $0.close() }
     }
 
-    func showGridPreview(pane: PaneID) {
-        updateGrid { $0.showPreview(pane: pane) }
+    func focusGridPane(_ pane: PaneID) {
+        updateGrid { $0.focus(pane: pane) }
     }
 
-    func dismissGridPreview() {
-        updateGrid { $0.dismissPreview() }
+    func unfocusGridPane() {
+        updateGrid { $0.unfocus() }
     }
 
-    /// The previewed pane's box on screen, in the drag space. Read live rather
-    /// than captured when the card opened: the grid scrolls under a still
-    /// card.
-    func gridPaneFrame(of pane: PaneID) -> CGRect? {
-        surfaces?.grid?.miniPaneFrame(of: pane)
+    func zoomGrid(into workspace: WorkspaceID) {
+        updateGrid { $0.zoom(into: workspace) }
     }
 
-    /// Held back for as long as a ghost is on screen, settle included.
-    var gridPreviewCard: PaneID? {
-        guard gridPreview != nil else { return nil }
-        return grid.previewCard(dragInFlight: activeSubject != nil)
+    func unzoomGrid() {
+        updateGrid { $0.unzoom() }
+    }
+
+    func selectGridPane(_ pane: PaneID) {
+        updateGrid { $0.select(pane: pane) }
+    }
+
+    func deselectGridPane() {
+        updateGrid { $0.deselect() }
+    }
+
+    /// The selected mini pane, held back for as long as a ghost is on
+    /// screen, settle included: its outline would mark a pane the drop is
+    /// not about.
+    var gridSelection: PaneID? {
+        activeSubject == nil ? gridSelectedPane : nil
     }
 }

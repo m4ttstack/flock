@@ -266,7 +266,7 @@ final class GridGeometryTests: XCTestCase {
         XCTAssertEqual(sideBySide.focusedPane, p1, "nothing marked at all")
     }
 
-    // MARK: - hover card content
+    // MARK: - fixture
 
     private func model(title: String? = "claude", label: String? = "agent-1") -> SessionModel {
         func pane(_ id: String, status: String, title: String?, label: String?, cwd: String) -> [String: Any] {
@@ -316,108 +316,13 @@ final class GridGeometryTests: XCTestCase {
         return SessionModel(snapshot: try! JSONDecoder().decode(SessionSnapshot.self, from: data))
     }
 
-    private func content(_ pane: PaneID, model: SessionModel? = nil, exported: ExportedLayoutDescription? = nil, home: String = "/Users/matt") -> PaneHoverCardContent? {
-        PaneHoverCardContent.make(pane: pane, model: model ?? self.model(), exported: exported, homeDirectory: home)
-    }
-
-    func testTheCardSaysTitleStatusPositionAndAbbreviatedCwd() throws {
-        let content = try XCTUnwrap(content(p2))
-        XCTAssertEqual(content.title, "agent-1")
-        XCTAssertEqual(content.status, .working)
-        XCTAssertEqual(content.statusWord, "working")
-        XCTAssertEqual(content.position, "agents · pane 2 of 3")
-        XCTAssertEqual(content.cwd, "~/Documents/GitHub/repo-tools")
-    }
-
     func testAnEmptyTerminalTitleFallsBackToTheLabel() throws {
-        XCTAssertEqual(try XCTUnwrap(content(p2, model: model(title: ""))).title, "agent-1")
-        XCTAssertEqual(try XCTUnwrap(content(p2, model: model(title: nil))).title, "agent-1")
-        XCTAssertEqual(try XCTUnwrap(content(p2, model: model(title: nil, label: nil))).title, "shell")
-    }
-
-    func testPanesAreCountedInTheOrderTheThumbnailDrawsThem() throws {
-        XCTAssertEqual(try XCTUnwrap(content(p1, home: "/")).position, "agents · pane 1 of 3")
-        XCTAssertEqual(try XCTUnwrap(content(p3, home: "/")).position, "agents · pane 3 of 3")
-    }
-
-    /// The export puts p3 across the top, where the snapshot's rects put it
-    /// at the bottom. The thumbnail draws the export, so p3 is pane 1.
-    func testACachedExportThatReshapesTheTabRenumbersItsPanes() throws {
-        let reshaped = ExportedLayoutDescription(
-            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"), zoomed: false, focusedPaneID: p1,
-            root: .split(
-                direction: .down, ratio: 0.5,
-                first: .pane(ExportedLayoutPane(paneID: p3)),
-                second: .split(direction: .right, ratio: 0.5, first: .pane(ExportedLayoutPane(paneID: p1)), second: .pane(ExportedLayoutPane(paneID: p2)))
-            )
-        )
-        XCTAssertEqual(try XCTUnwrap(content(p3, exported: reshaped)).position, "agents · pane 1 of 3")
-        XCTAssertEqual(try XCTUnwrap(content(p2, exported: reshaped)).position, "agents · pane 3 of 3")
-    }
-
-    func testAPaneTheModelNoLongerHasHasNoCard() {
-        XCTAssertNil(content(PaneID(rawValue: "w1:p9")))
-    }
-
-    func testOnlyTheHomeDirectoryItselfBecomesATilde() {
-        XCTAssertEqual(PaneHoverCardContent.abbreviatingHome("/Users/matt", home: "/Users/matt"), "~")
-        XCTAssertEqual(PaneHoverCardContent.abbreviatingHome("/Users/matt/src", home: "/Users/matt/"), "~/src")
-        XCTAssertEqual(PaneHoverCardContent.abbreviatingHome("/Users/mattx/src", home: "/Users/matt"), "/Users/mattx/src")
-        XCTAssertEqual(PaneHoverCardContent.abbreviatingHome("/tmp", home: "/"), "/tmp")
-    }
-
-    // MARK: - hover card placement
-
-    private let container = CGRect(x: 0, y: 0, width: 400, height: 300)
-    private let card = CGSize(width: 200, height: 80)
-    private let gap: CGFloat = 8
-
-    private func origin(_ pane: CGRect, container: CGRect? = nil) -> CGPoint {
-        HoverCardPlacement.origin(pane: pane, card: card, container: container ?? self.container, gap: gap)
-    }
-
-    func testTheCardSitsBesideItsPaneTopsAligned() {
-        XCTAssertEqual(origin(CGRect(x: 20, y: 40, width: 60, height: 30)), CGPoint(x: 88, y: 40))
-    }
-
-    func testNearTheTrailingEdgeTheCardFlipsToThePanesOtherSide() {
-        XCTAssertEqual(origin(CGRect(x: 300, y: 40, width: 60, height: 30)), CGPoint(x: 92, y: 40))
-    }
-
-    func testNearTheBottomTheCardRisesToStayInTheGrid() {
-        XCTAssertEqual(origin(CGRect(x: 20, y: 260, width: 60, height: 30)), CGPoint(x: 88, y: 220))
-    }
-
-    /// The whole point of anchoring: the card is beside the pane it describes,
-    /// so the pane's own title is never under it and the pointer can leave the
-    /// pane and arrive on the card. True at every pane position of a grid wide
-    /// enough to hold the card beside a pane on one side or the other, which
-    /// the window's own 900pt minimum guarantees.
-    func testTheCardNeverCoversItsOwnPaneAndNeverLeavesTheContainer() {
-        let grid = CGRect(x: 0, y: 0, width: 700, height: 300)
-        for x in stride(from: 0.0, through: 640.0, by: 20.0) {
-            for y in stride(from: 0.0, through: 270.0, by: 15.0) {
-                let pane = CGRect(x: x, y: y, width: 60, height: 30)
-                let frame = CGRect(origin: origin(pane, container: grid), size: card)
-                XCTAssertTrue(grid.contains(frame), "\(pane) -> \(frame)")
-                XCTAssertFalse(frame.intersects(pane), "\(pane) -> \(frame)")
-            }
+        func name(_ model: SessionModel) throws -> String {
+            PaneNaming.name(pane: try XCTUnwrap(model.panes[p2]), model: model, oneTitle: false)
         }
-    }
-
-    /// Only a container too narrow to hold the card beside the pane at all can
-    /// force an overlap, and even then the card stays inside the grid.
-    func testAContainerSmallerThanTheCardPinsItToTheLeadingTopCorner() {
-        let tiny = CGRect(x: 10, y: 10, width: 100, height: 50)
-        XCTAssertEqual(origin(CGRect(x: 30, y: 20, width: 20, height: 10), container: tiny), CGPoint(x: 10, y: 10))
-    }
-
-    /// A pane with room on neither side takes whichever side has more of it,
-    /// which is the side the card is least clipped on.
-    func testAPaneWithRoomOnNeitherSideTakesTheWiderSide() {
-        let narrow = CGRect(x: 0, y: 0, width: 300, height: 300)
-        XCTAssertEqual(HoverCardPlacement.origin(pane: CGRect(x: 180, y: 0, width: 60, height: 30), card: card, container: narrow, gap: gap), CGPoint(x: 0, y: 0))
-        XCTAssertEqual(HoverCardPlacement.origin(pane: CGRect(x: 60, y: 0, width: 60, height: 30), card: card, container: narrow, gap: gap), CGPoint(x: 100, y: 0))
+        XCTAssertEqual(try name(model(title: "")), "agent-1")
+        XCTAssertEqual(try name(model(title: nil)), "agent-1")
+        XCTAssertEqual(try name(model(title: nil, label: nil)), "shell")
     }
 
     // MARK: - grid drop resolution

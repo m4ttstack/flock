@@ -7,6 +7,13 @@ import Foundation
 /// workspaces by label and rt names each herd's, so neither may be renamed
 /// or moved from the rail.
 public struct RailSections: Equatable, Sendable {
+    public struct PinnedRow: Equatable, Sendable {
+        public let pin: PinnedWorkspace
+        /// The linked workspace, nil for an empty pin.
+        public let record: WorkspaceRecord?
+    }
+
+    public let pinned: [PinnedRow]
     public let workspaces: [WorkspaceRecord]
     /// In role order, then herdr's order within a role.
     public let board: [WorkspaceRecord]
@@ -14,14 +21,28 @@ public struct RailSections: Equatable, Sendable {
     public let herdSummary: HerdRail.Summary?
 
     /// Board is drawn from what `HerdRail` leaves, so a label that names both
-    /// a herd and a board role is the herd's.
-    public init(model: SessionModel, board names: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:]) {
+    /// a herd and a board role is the herd's. A workspace linked to a pin
+    /// shows in PINNED alone.
+    public init(
+        model: SessionModel, board names: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:],
+        pins: [PinnedWorkspace] = []
+    ) {
         let herdRail = HerdRail(model: model, progress: herdProgress)
         let labels = names?.labels ?? []
-        workspaces = herdRail.workspaces.filter { !labels.contains($0.label) }
-        board = labels.flatMap { label in herdRail.workspaces.filter { $0.label == label } }
-        herds = herdRail.herds
-        herdSummary = herdRail.summary
+        var records: [WorkspaceID: WorkspaceRecord] = [:]
+        for record in model.workspaces where records[record.workspaceID] == nil { records[record.workspaceID] = record }
+        pinned = pins.map { PinnedRow(pin: $0, record: $0.workspace.flatMap { records[$0] }) }
+        let linked = Set(pinned.compactMap { $0.record?.workspaceID })
+        workspaces = herdRail.workspaces.filter { !labels.contains($0.label) && !linked.contains($0.workspaceID) }
+        board = labels.flatMap { label in herdRail.workspaces.filter { $0.label == label && !linked.contains($0.workspaceID) } }
+        herds = herdRail.herds.filter { !linked.contains($0.workspaceID) }
+        herdSummary = HerdRail.summary(of: herds)
+    }
+
+    /// Every workspace in the order the rail draws its sections, folded or not.
+    public var railOrder: [WorkspaceID] {
+        pinned.compactMap { $0.record?.workspaceID }
+            + workspaces.map(\.workspaceID) + board.map(\.workspaceID) + herds.map(\.workspaceID)
     }
 
     /// One row of the rail as the keyboard walks it.
@@ -33,7 +54,8 @@ public struct RailSections: Equatable, Sendable {
     /// The rows top to bottom as the rail draws them, so a folded section's
     /// rows are skipped the way the eye skips them.
     public func navigationOrder(isCollapsed: (RailSection) -> Bool) -> [Row] {
-        var rows = workspaces.map { Row(workspaceID: $0.workspaceID, title: $0.label) }
+        var rows = pinned.compactMap { row in row.record.map { Row(workspaceID: $0.workspaceID, title: row.pin.name) } }
+        rows += workspaces.map { Row(workspaceID: $0.workspaceID, title: $0.label) }
         if !isCollapsed(.board) { rows += board.map { Row(workspaceID: $0.workspaceID, title: $0.label) } }
         if !isCollapsed(.herds) { rows += herds.map { Row(workspaceID: $0.workspaceID, title: $0.name) } }
         return rows
@@ -60,9 +82,14 @@ public struct RailSections: Equatable, Sendable {
     /// `workspace.move` takes an index into its full list, Board's workspaces
     /// and herds included. A slot before the rail's `railIndex`th row lands
     /// before that same workspace; a slot past the last row lands just after
-    /// the last one.
-    public static func modelInsertIndex(forRailIndex railIndex: Int, in model: SessionModel, board: BoardWorkspaceNames?) -> Int {
-        let railIndices = model.workspaces.indices.filter { isRailRow(label: model.workspaces[$0].label, board: board) }
+    /// the last one. Pinned workspaces sit in PINNED, outside the rows this
+    /// index counts.
+    public static func modelInsertIndex(
+        forRailIndex railIndex: Int, in model: SessionModel, board: BoardWorkspaceNames?, pinned: Set<WorkspaceID> = []
+    ) -> Int {
+        let railIndices = model.workspaces.indices.filter {
+            isRailRow(label: model.workspaces[$0].label, board: board) && !pinned.contains(model.workspaces[$0].workspaceID)
+        }
         if railIndex < railIndices.count {
             return railIndices[max(railIndex, 0)]
         }

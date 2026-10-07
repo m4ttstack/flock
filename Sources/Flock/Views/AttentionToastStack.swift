@@ -15,8 +15,6 @@ struct AttentionToastStackView: View {
     let onCardHeight: (CGFloat) -> Void
     let onPillHeight: (CGFloat) -> Void
 
-    @State private var isHovering = false
-
     private var stack: AttentionToastStack { viewModel.attentionToasts }
 
     var body: some View {
@@ -35,20 +33,8 @@ struct AttentionToastStackView: View {
             .animation(.easeOut(duration: 0.15), value: stack.visible(limit: cardLimit).map(\.id))
             // The whole stack, not one card: cards vanishing out from under a
             // pointer that is reading them is what the pause exists to stop.
-            .onHover { isHovering = $0 }
-            // Runs for as long as anything is on screen, not just while a
-            // finished toast is counting down: the sweep is also what notices
-            // that a "needs input" toast's coalescing grace has expired, and
-            // that toast has no clock of its own. Bound to this branch of the
-            // `if`, so an empty stack costs nothing.
-            .task {
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: ChromeMetrics.AttentionToast.sweepInterval)
-                    if Task.isCancelled { return }
-                    guard !isHovering else { continue }
-                    viewModel.sweepAttentionToasts()
-                }
-            }
+            .onHover { viewModel.isAttentionStackHovered = $0 }
+            .onDisappear { viewModel.isAttentionStackHovered = false }
         }
     }
 }
@@ -62,6 +48,8 @@ private struct AttentionToastCard: View {
     let toast: AttentionToast
     let viewModel: SessionViewModel
     let isFloating: Bool
+    @Environment(DragCoordinator.self) private var drag
+    @Environment(AllWorkspacesModeStore.self) private var mode
 
     @State private var isHovering = false
 
@@ -112,7 +100,7 @@ private struct AttentionToastCard: View {
         .onTapGesture {
             guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
             NSApp.activate()
-            Task { await viewModel.jumpToAttentionToast(pane: toast.paneID) }
+            JumpNavigator(viewModel: viewModel, drag: drag, mode: mode).open(toast: toast.paneID)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(toast.accessibilityIdentifier)

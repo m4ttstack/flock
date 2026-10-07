@@ -18,6 +18,7 @@ struct PaletteContext {
     var programHasMouse = false
     var hasSelectedWorkspace = false
     var hasNotifications = false
+    var viewTab: ViewTab = .workspaces
 }
 
 enum PaletteAction {
@@ -108,7 +109,10 @@ enum PaletteCatalog {
 
     private static func view(_ context: PaletteContext) -> [PaletteEntry] {
         let shortcut = { (command: ViewCommand) in ShortcutLabel.text(key: command.key, modifiers: command.modifiers) }
-        var commands: [(PaletteNamespace, ViewCommand)] = [(.view, .rearrangeMode), (.view, .allWorkspaces)]
+        var commands: [(PaletteNamespace, ViewCommand)] = ViewTab.allCases
+            .filter { $0 != context.viewTab }
+            .map { (.view, ViewCommand.show($0)) }
+        commands += [(.view, .rearrangeMode), (.view, .allWorkspaces)]
         if context.hasNotifications { commands += [(.view, .openOldestNotification), (.view, .clearNotifications)] }
         if context.hasSelectedWorkspace { commands += [(.tab, .newTab), (.tab, .closeTab)] }
         commands.append((.workspace, .newWorkspace))

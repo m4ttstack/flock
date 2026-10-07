@@ -4,10 +4,12 @@ import SwiftUI
 /// The rt item on screen, over the tab area: a backdrop that dims it and
 /// closes the modal on a click, and centred on it a box holding the item's
 /// one pane under flock's title row, with the strip below once its command
-/// has ended. Draws nothing while no item is shown.
+/// has ended. Draws nothing while no item is shown over its canvas.
 struct RtModalView: View {
     let theme: Theme
     let viewModel: SessionViewModel
+    /// The pane a solo canvas under the modal shows; nil over the main canvas.
+    var solo: PaneID? = nil
 
     @Environment(RtModalTextSizeStore.self) private var textSizeStore
     @Environment(RtModalSizeStore.self) private var modalSizeStore
@@ -17,7 +19,7 @@ struct RtModalView: View {
     private typealias Metrics = ChromeMetrics.RtModal
 
     var body: some View {
-        if let modal = viewModel.rt.modal, let item = viewModel.rt.modalItem {
+        if viewModel.rtModalIsOver(solo: solo), let modal = viewModel.rt.modal, let item = viewModel.rt.modalItem {
             GeometryReader { proxy in
                 let scale = displayScale > 0 ? displayScale : 2
                 let frame = Self.boxFrame(

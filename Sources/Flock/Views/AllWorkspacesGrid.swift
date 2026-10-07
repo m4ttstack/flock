@@ -2,7 +2,7 @@ import AppKit
 import FlockCore
 import SwiftUI
 
-/// Every workspace at once, one card each, its tabs drawn as their split
+/// Every workspace at once, one island each, its tabs drawn as their split
 /// layouts in miniature. It stands in for the rail, strip and canvas while
 /// shown. Thumbnails come from the layout snapshots and cached exports only:
 /// the grid never attaches a pane, since attaching sizes the real one.
@@ -11,113 +11,337 @@ struct AllWorkspacesGrid: View {
     let viewModel: SessionViewModel
 
     @Environment(DragCoordinator.self) private var drag
+    @Environment(AllWorkspacesModeStore.self) private var mode
+    @Environment(WorkspaceIdentityStore.self) private var identity
+    @Environment(BoardStore.self) private var boardNames
+    @Environment(HerdProgressStore.self) private var herdProgress
     @State private var scrollPosition = ScrollPosition()
-    /// The width the scroll content is laid out in, measured rather than
-    /// assumed: it is what decides how many slots a card row holds. Taken
-    /// OUTSIDE the grid's own padding, which is why `rowWidth` takes that
-    /// padding off again.
-    @State private var contentWidth: CGFloat = 0
+    /// The fit on screen. Written only while no drag is live, so the fit a
+    /// drag starts with is the one it keeps (`IslandFitHold`).
+    @State private var hold = IslandFitHold()
+    /// The space the islands can use: the scroll view less the canvas
+    /// padding on each side.
+    @State private var viewport: CGSize = .zero
+    /// The zoomed island's fit, held through a drag like the grid's.
+    @State private var zoomHold = IslandFitHold()
+    /// The zoomed island's place in the grid, in the scroll view's space.
+    @State private var zoomSource: CGRect?
+    /// The workspace the last zoom was into, kept until a zoom out has
+    /// finished shrinking back over its grid island.
+    @State private var zoomReturning: WorkspaceID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.arrangeZoomPreviewProgress) private var zoomPreviewProgress
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
-    /// Decided once for the whole grid and handed to every card, so the cells
-    /// a card draws and the ids the grid publishes for them cannot be laid
-    /// out against different counts.
-    private var slotsPerRow: Int {
-        GridCardLayout.tabsPerRow(
-            rowWidth: GridCardLayout.rowWidth(
-                gridWidth: contentWidth, canvasPadding: ChromeMetrics.Grid.canvasPadding,
-                cardGap: ChromeMetrics.Grid.cardGap, cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
-            ),
-            width: ChromeMetrics.Grid.thumbnailWidth,
-            gap: ChromeMetrics.Grid.tabGap
-        )
-    }
-
     var body: some View {
+        // Built once per pass and only for Arrange: it reads the board, the
+        // rail sections and the fit, and a drag re-runs this at pointer rate.
+        let arrange = shownMode == .arrange ? self.arrange : nil
+        // Mission control is never a drop target, so it publishes no items.
+        let order = arrange.map { itemOrder($0.fit) } ?? []
+        let zoomedOrder = arrange?.zoomFit.map(itemOrder) ?? []
         VStack(spacing: 0) {
-            header
-            Rectangle()
-                .fill(theme.rule)
-                .frame(height: ChromeMetrics.ruleWidth)
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardGap) {
-                    ForEach(Array(GridCardLayout.cardRows(workspaces).enumerated()), id: \.offset) { _, row in
-                        HStack(alignment: .top, spacing: ChromeMetrics.Grid.cardGap) {
-                            ForEach(row, id: \.workspaceID) { workspace in
-                                WorkspaceCard(
-                                    theme: theme, viewModel: viewModel, workspace: workspace, slotsPerRow: slotsPerRow
-                                )
-                            }
-                            if row.count < GridCardLayout.columns {
-                                Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
-                            }
-                        }
-                        // Cards sharing a row share the taller one's height.
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
+            if arrange == nil, let focused = drag.gridFocusedPane {
+                FocusedPaneView(theme: theme, viewModel: viewModel, pane: focused)
+            } else {
+                header
+                Rectangle()
+                    .fill(theme.rule)
+                    .frame(height: ChromeMetrics.ruleWidth)
+                if let arrange {
+                    arrangeGrid(arrange)
+                } else {
+                    MissionControlView(theme: theme, viewModel: viewModel)
                 }
-                .padding(ChromeMetrics.Grid.canvasPadding)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .coordinateSpace(.named(DragSpace.gridContent))
-                .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             }
-            .scrollIndicators(.never)
-            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-            .scrollPosition($scrollPosition)
-            .reportsScrollExtent(.vertical) { drag.setGridScroll(offset: $0, maximumOffset: $1) }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .boundedBackground(theme.canvas)
-            // A click anywhere a thumbnail does not claim puts the preview
-            // away. Applied before the overlay, so a click on the card itself
-            // never reaches it.
-            .contentShape(Rectangle())
-            .onTapGesture { drag.dismissGridPreview() }
-            .overlay(alignment: .topLeading) { GridPreviewCard(theme: theme, viewModel: viewModel) }
-            .reportsDragFrame { drag.gridViewport = $0 }
-            .onAppear { drag.gridScroller = { y in scrollPosition.scrollTo(y: y) } }
         }
         .boundedBackground(theme.chrome)
-        .onAppear { drag.setGridOrder(itemOrder) }
-        .onChange(of: itemOrder) { _, order in drag.setGridOrder(order) }
+        .onAppear {
+            mode.opened(dragInFlight: drag.activeSubject != nil)
+            refreshIdentities()
+            drag.setGridOrder(order)
+            drag.setGridOrder(zoomedOrder, layer: .zoomed)
+        }
+        .onChange(of: order) { drag.setGridOrder(order) }
+        .onChange(of: zoomedOrder) { drag.setGridOrder(zoomedOrder, layer: .zoomed) }
+        .onChange(of: workspaces.map(\.workspaceID)) { _, ids in
+            refreshIdentities()
+            if let zoomed = drag.gridZoomed, !ids.contains(zoomed) { drag.unzoomGrid() }
+        }
+        // A zoom belongs to this visit to Arrange.
+        .onChange(of: shownMode) { _, shown in
+            if shown != .arrange { drag.unzoomGrid() }
+        }
+        // Initial too: a remembered focused pane may have closed while the
+        // view was away.
+        .onChange(of: livePanes, initial: true) { _, live in
+            // A nil model is a gap in the connection, not every pane closing.
+            guard let live else { return }
+            drag.updateGrid { $0.reconcile(livePanes: live) }
+        }
+    }
+
+    private var livePanes: Set<PaneID>? { viewModel.model.map { Set($0.panes.keys) } }
+
+    private var shownMode: AllWorkspacesMode { mode.shown(dragInFlight: drag.activeSubject != nil) }
+
+    private func arrangeGrid(_ arrange: Arrangement) -> some View {
+        ScrollView(.vertical) {
+            canvas(arrange)
+                .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
+                .padding(ChromeMetrics.Grid.canvasPadding)
+                // A minimum of zero, or the rows laid out for the last viewport
+                // hold the scroll view (and so the measured viewport) at least
+                // that wide, and narrowing the window never refits.
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
+        }
+        .onGeometryChange(for: CGSize.self) { proxy in
+            CGSize(
+                width: max(0, proxy.size.width - 2 * ChromeMetrics.Grid.canvasPadding),
+                height: max(0, proxy.size.height - 2 * ChromeMetrics.Grid.canvasPadding)
+            )
+        } action: { viewport = $0 }
+        .onChange(of: arrange.inputs, initial: true) { holdFit(arrange.inputs) }
+        .onChange(of: drag.activeSubject == nil) { _, idle in
+            guard idle else { return }
+            holdFit(self.arrange.inputs)
+        }
+        .background { ArrangeKeyMonitor(space: spacePressed, open: openSelection) }
+        .task(id: arrange.zoomed) {
+            if let zoomed = arrange.zoomed {
+                zoomReturning = zoomed
+                return
+            }
+            try? await Task.sleep(for: .seconds(ArrangeZoomMotion.duration(reduceMotion: reduceMotion)))
+            guard !Task.isCancelled else { return }
+            zoomReturning = nil
+        }
+        .scrollIndicators(.never)
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .scrollPosition($scrollPosition)
+        .reportsScrollExtent(.vertical) { drag.setGridScroll(offset: $0, maximumOffset: $1) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .boundedBackground(theme.canvas)
+        // A click anywhere a thumbnail does not claim puts the selection
+        // down.
+        .contentShape(Rectangle())
+        .onTapGesture { drag.deselectGridPane() }
+        .reportsDragFrame { drag.gridViewport = $0 }
+        .onAppear { drag.gridScroller = { y in scrollPosition.scrollTo(y: y) } }
+    }
+
+    /// Every island, with the zoomed one in front of them while there is
+    /// one. The grid stays built behind a zoom, and nothing it is handed
+    /// changes when a zoom starts or ends, so zooming out brings back islands
+    /// that are already laid out rather than building them all in the frame
+    /// the key or click waits on. Behind, it takes no clicks, its tiles read
+    /// nothing (`ArrangeTileBody`), and its frames are kept apart from the
+    /// zoomed island's (`ArrangeLayer`), so a drop reads the zoomed island's
+    /// alone.
+    ///
+    /// Each layer is its own content space, named INSIDE the transform that
+    /// carries it: a frame measured against it never sees the zoom's scale
+    /// or offset, so the transition moves drawn layers and writes no item
+    /// frames while it runs, and the content origin is the stack's, which
+    /// nothing transforms.
+    @ViewBuilder
+    private func canvas(_ arrange: Arrangement) -> some View {
+        let zoomed = arrange.zoomed.flatMap { id in workspaces.first { $0.workspaceID == id } }
+        let isZoomed = zoomed != nil && arrange.zoomFit != nil
+        let preview = isZoomed ? zoomPreviewProgress : nil
+        ArrangeCanvasLayout(isZoomed: isZoomed) {
+            islandRows(arrange)
+                .coordinateSpace(.named(DragSpace.gridContent))
+                .modifier(ArrangeRecede(progress: preview ?? (isZoomed ? 1 : 0), travels: !reduceMotion))
+                .allowsHitTesting(!isZoomed)
+                .accessibilityHidden(isZoomed)
+            if let zoomed, let zoomFit = arrange.zoomFit {
+                if let preview {
+                    zoomedIsland(zoomed, fit: zoomFit, arrange: arrange)
+                        .coordinateSpace(.named(DragSpace.gridContent))
+                        .modifier(ArrangeZoomFrame(source: zoomSource ?? zoomTarget, target: zoomTarget, progress: preview))
+                } else {
+                    zoomedIsland(zoomed, fit: zoomFit, arrange: arrange)
+                        .arrangeZoomStill(reduceMotion: reduceMotion)
+                        .coordinateSpace(.named(DragSpace.gridContent))
+                        .transition(ArrangeZoomMotion.zoomed(from: zoomSource, to: zoomTarget, reduceMotion: reduceMotion))
+                }
+            }
+        }
+        .animation(ArrangeZoomMotion.animation(reduceMotion: reduceMotion), value: arrange.zoomed)
+    }
+
+    private func islandRows(_ arrange: Arrangement) -> some View {
+        let fit = arrange.fit
+        let metrics = ChromeMetrics.Grid.islands
+        return VStack(alignment: .leading, spacing: metrics.islandGap) {
+            ForEach(fit.rows, id: \.self) { row in
+                HStack(alignment: .top, spacing: metrics.islandGap) {
+                    ForEach(row, id: \.self) { id in
+                        if let workspace = workspaces.first(where: { $0.workspaceID == id }) {
+                            WorkspaceIsland(
+                                theme: theme, viewModel: viewModel, workspace: workspace,
+                                slotsPerRow: fit.tabsPerRow[id] ?? 1,
+                                identityKey: arrange.sections.flatMap { WorkspaceIdentityStore.key(for: id, sections: $0) },
+                                zoom: IslandZoom(isZoomed: false) { zoom(into: id) }
+                            )
+                            // Under the zoomed island while it grows out of
+                            // this place and shrinks back into it: the
+                            // zoom's scale draws its corners smaller than
+                            // these, so both showing reads as two outlines.
+                            .opacity(id == (arrange.zoomed ?? zoomReturning) ? 0 : 1)
+                        }
+                    }
+                }
+                // Islands sharing a row share the taller one's height.
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
+        .environment(\.arrangeTiles, ArrangeTileContext(interval: TileTailCadence.grid))
+    }
+
+    private func zoomedIsland(_ workspace: WorkspaceRecord, fit: IslandLayout.Fit, arrange: Arrangement) -> some View {
+        let id = workspace.workspaceID
+        return WorkspaceIsland(
+            theme: theme, viewModel: viewModel, workspace: workspace,
+            slotsPerRow: fit.tabsPerRow[id] ?? 1,
+            identityKey: arrange.sections.flatMap { WorkspaceIdentityStore.key(for: id, sections: $0) },
+            zoom: IslandZoom(isZoomed: true) { drag.unzoomGrid() }
+        )
+        .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
+        .environment(\.arrangeTiles, ArrangeTileContext(interval: TileTailCadence.zoomed, isZoomed: true))
+    }
+
+    /// The zoomed island's place: the whole canvas inside its padding, in the
+    /// scroll view's own space, which a zoom scrolls back to the top of.
+    private var zoomTarget: CGRect {
+        CGRect(origin: CGPoint(x: ChromeMetrics.Grid.canvasPadding, y: ChromeMetrics.Grid.canvasPadding), size: viewport)
+    }
+
+    /// Where the island is in the grid, read once as the zoom starts: the
+    /// zoom grows out of it and shrinks back into it.
+    private func zoom(into id: WorkspaceID) {
+        guard drag.activeSubject == nil else { return }
+        if let card = drag.gridItemFrame(for: .card(id)), let scroller = drag.gridViewport {
+            zoomSource = card.offsetBy(dx: -scroller.minX, dy: -scroller.minY)
+        }
+        // Read before the island grows, so its tiles open on output rather
+        // than filling in as the zoom lands.
+        let panes = viewModel.model?.panes.values.filter { $0.workspaceID == id } ?? []
+        for pane in panes where viewModel.paneTails[pane.paneID] == nil {
+            viewModel.refreshPaneTail(for: pane.paneID)
+        }
+        drag.deselectGridPane()
+        scrollPosition.scrollTo(y: 0)
+        drag.zoomGrid(into: id)
+    }
+
+    /// Space zooms into the current workspace, the outlined island, and
+    /// back out. Never while a name is being typed or a drag is live.
+    private func spacePressed() -> Bool {
+        guard drag.activeSubject == nil, viewModel.renameTarget == nil else { return false }
+        if drag.gridZoomed != nil {
+            drag.unzoomGrid()
+            return true
+        }
+        guard let id = viewModel.model?.focusedWorkspaceID, workspaces.contains(where: { $0.workspaceID == id }) else { return false }
+        zoom(into: id)
+        return true
+    }
+
+    /// Return opens the selected mini pane in Workspaces. Never while a name
+    /// is being typed, whose Return commits it, or while a drag is live.
+    private func openSelection() -> Bool {
+        guard drag.activeSubject == nil, viewModel.renameTarget == nil,
+              let pane = drag.gridSelection, let tab = viewModel.model?.panes[pane]?.tabID
+        else { return false }
+        ArrangeOpen.open(tab: tab, pane: pane, viewModel: viewModel, drag: drag)
+        return true
     }
 
     private var header: some View {
         HStack(spacing: ChromeMetrics.Grid.headerSpacing) {
-            Text("All workspaces")
-                .font(ChromeType.gridTitle)
-                .foregroundStyle(theme.textStrong)
             Text(workspaces.count == 1 ? "1 workspace" : "\(workspaces.count) workspaces")
                 .font(ChromeType.gridCount)
                 .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
-            Text("esc to return")
-                .font(ChromeType.gridHint)
-                .foregroundStyle(theme.textLabel)
         }
         .padding(.horizontal, ChromeMetrics.Grid.headerHorizontalPadding)
         .frame(height: ChromeMetrics.Grid.headerHeight)
         .background(WindowDragExclusion())
     }
 
+    private func refreshIdentities() {
+        guard viewModel.model?.workspaces.isEmpty == false,
+              let sections = viewModel.railSections(board: boardNames.names, herdProgress: herdProgress.progress)
+        else { return }
+        identity.refresh(sections)
+    }
+
+    /// What Arrange draws: every workspace's island as the fit lays it out.
+    private struct Arrangement {
+        struct Inputs: Equatable {
+            let islands: [IslandLayout.Island]
+            let viewport: CGSize
+            let zoomed: WorkspaceID?
+        }
+
+        let sections: RailSections?
+        let inputs: Inputs
+        let fit: IslandLayout.Fit
+        /// Set only while that workspace is still there to draw.
+        let zoomed: WorkspaceID?
+        let zoomFit: IslandLayout.Fit?
+    }
+
+    private var arrange: Arrangement {
+        let model = viewModel.model
+        let sections = viewModel.railSections(board: boardNames.names, herdProgress: herdProgress.progress)
+        let ranked = sections?.railOrder ?? []
+        let ordered = ranked.compactMap { id in workspaces.first { $0.workspaceID == id } }
+            + workspaces.filter { !ranked.contains($0.workspaceID) }
+        let islands = ordered.map {
+            IslandLayout.Island(id: $0.workspaceID, tabs: model?.tabs[$0.workspaceID]?.count ?? 1)
+        }
+        let zoomed = drag.gridZoomed.flatMap { id in islands.first { $0.id == id } }
+        let inputs = Arrangement.Inputs(islands: islands, viewport: viewport, zoomed: zoomed?.id)
+        let dragging = drag.activeSubject != nil
+        // Copies, so `body` never writes state; `holdFit` keeps the stored ones.
+        var held = hold
+        let fit = held.update(islands, in: viewport, dragging: dragging, metrics: ChromeMetrics.Grid.islands)
+        var heldZoom = zoomHold
+        let zoomFit = zoomed.map { heldZoom.update(zoomed: $0, in: viewport, dragging: dragging, metrics: ChromeMetrics.Grid.islands) }
+        return Arrangement(sections: sections, inputs: inputs, fit: fit, zoomed: zoomed?.id, zoomFit: zoomFit)
+    }
+
+    private func holdFit(_ inputs: Arrangement.Inputs) {
+        guard drag.activeSubject == nil else { return }
+        _ = hold.update(inputs.islands, in: inputs.viewport, dragging: false, metrics: ChromeMetrics.Grid.islands)
+        if let zoomed = inputs.zoomed, let island = inputs.islands.first(where: { $0.id == zoomed }) {
+            _ = zoomHold.update(zoomed: island, in: inputs.viewport, dragging: false, metrics: ChromeMetrics.Grid.islands)
+        }
+    }
+
     /// The items a drop can hit, in grid order: what turns their frames back
     /// into a list and drops the frame of an item no longer shown. `.newTab`
     /// names the rect the created tab lands in, whichever cell is drawing it.
-    private var itemOrder: [GridItemID] {
-        workspaces.flatMap { workspace in
-            let tabs = (viewModel.model?.tabs[workspace.workspaceID] ?? []).map(\.tabID)
-            let preview = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model)
-            let cells = preview.cells(of: tabs, perRow: slotsPerRow)
+    private func itemOrder(_ fit: IslandLayout.Fit) -> [GridItemID] {
+        let drawn = fit.rows.joined().filter { id in workspaces.contains { $0.workspaceID == id } }
+        return drawn.flatMap { id -> [GridItemID] in
+            let tabs = (viewModel.model?.tabs[id] ?? []).map(\.tabID)
+            let preview = CardDropPreview(workspace: id, drag: drag, model: viewModel.model)
+            let cells = preview.cells(of: tabs, perRow: fit.tabsPerRow[id] ?? 1)
             // The created tab's id is published once, wherever its slot turns
             // out to be: the card hangs the reporter on that cell rather than
             // on the placeholder, which is drawn somewhere else whenever the
             // drop also empties one of this card's tabs.
-            return [.card(workspace.workspaceID)]
-                + (preview.takesTheDrop ? [.newTab(workspace.workspaceID)] : [])
+            return [.card(id)]
+                + (preview.takesTheDrop ? [.newTab(id)] : [])
                 + cells.compactMap { cell -> GridItemID? in
                     switch cell {
-                    case .tab(let id): .tab(id)
+                    case .tab(let tab): .tab(tab)
                     case .newTab: nil
                     }
                 }
@@ -203,23 +427,43 @@ private struct CardReorderPreview {
     }
 }
 
-private struct WorkspaceCard: View {
+/// An island's way into a zoom, or out of the one it is in.
+private struct IslandZoom {
+    let isZoomed: Bool
+    let toggle: () -> Void
+}
+
+private struct WorkspaceIsland: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let workspace: WorkspaceRecord
-    /// The grid's own slot count, so every card in a row divides its width
-    /// the same way and the ids the grid publishes match the cells drawn.
+    /// The fit's slot count for this island, so the cells it draws and the
+    /// ids the grid publishes for them are laid out against one count.
     let slotsPerRow: Int
+    /// Nil for a herd, which takes no symbol of its own.
+    let identityKey: String?
+    let zoom: IslandZoom
 
     @Environment(DragCoordinator.self) private var drag
+    @Environment(\.gridThumbnailSize) private var thumbnailSize
+    @Environment(BoardStore.self) private var boardNames
+    @Environment(WorkspaceIdentityStore.self) private var identityStore
+    @State private var isPickingSymbol = false
+    @State private var isHovering = false
+
+    private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
+
+    private var layer: ArrangeLayer { zoom.isZoomed ? .zoomed : .grid }
 
     var body: some View {
         let tabs = viewModel.model?.tabs[workspace.workspaceID] ?? []
         let rows = GridCardLayout.rows(preview.cells(of: tabs.map(\.tabID), perRow: slotsPerRow), perRow: slotsPerRow)
-        // Read once per card rather than per cell: only the card a reorder is
-        // over, and only while that reorder commits, has any to report.
+        // Read once per island rather than per cell: only the island a
+        // reorder is over, and only while that reorder commits, has any.
         let displacements = reorder.displacements
-        VStack(alignment: .leading, spacing: ChromeMetrics.Grid.cardSpacing) {
+        let metrics = ChromeMetrics.Grid.islands
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.container)
+        VStack(alignment: .leading, spacing: 0) {
             header(tabCount: tabs.count)
             VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabGap) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
@@ -240,56 +484,90 @@ private struct WorkspaceCard: View {
                             self.cell(
                                 cell, at: rowIndex * slotsPerRow + column, tabs: tabs, displacements: displacements
                             )
-                            .frame(width: ChromeMetrics.Grid.thumbnailWidth)
+                            .frame(width: thumbnailSize.width)
                         }
                     }
                 }
             }
         }
-        .padding(.vertical, ChromeMetrics.Grid.cardVerticalPadding)
-        .padding(.horizontal, ChromeMetrics.Grid.cardHorizontalPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.cardCornerRadius))
-        .overlay {
-            DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.cardCornerRadius)
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.cardCornerRadius)
-                .strokeBorder(isTargeted(tabs) ? theme.accent : theme.paneBorder, lineWidth: ChromeMetrics.ruleWidth)
+        .padding(.top, ChromeMetrics.Grid.islandTopPadding)
+        .padding(.bottom, metrics.bottomPadding)
+        .padding(.horizontal, metrics.horizontalPadding)
+        // The fit's own width, so a long name truncates rather than widening
+        // the island past what the fit measured.
+        .frame(
+            width: IslandLayout.width(tabs: tabs.count, perRow: slotsPerRow, thumbnail: thumbnailSize.width, metrics: metrics),
+            alignment: .leading
         )
+        .frame(maxHeight: .infinity, alignment: .top)
+        .workspaceGround(theme, in: shape)
+        .fadingHover($isHovering)
+        .workspaceMenu(
+            viewModel: viewModel, workspace: workspace.workspaceID, key: identityKey,
+            changeSymbol: WorkspaceMark.drawsSymbol(key: identityKey, logo: boardNames.logo, in: identityStore)
+                ? { isPickingSymbol = true } : nil
+        )
+        .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeRadius.container) }
+        .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.selectionOutlineWidth))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
-        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
-        // A container, not one combined element: a card really does hold the
-        // tab thumbnails, each of which is its own tile. Undeclared, SwiftUI
-        // folds the whole card into its text leaves and stamps this identifier
-        // on every one of them, which both loses the card's own box and
-        // overwrites the identifier each thumbnail carries. Left unnamed for
-        // the same reason the pane cell is.
+        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID), layer: layer) }
+        // A container, not one combined element: an island really does hold
+        // the tab thumbnails, each of which is its own tile. Undeclared,
+        // SwiftUI folds the whole island into its text leaves and stamps this
+        // identifier on every one of them, which both loses the island's own
+        // box and overwrites the identifier each thumbnail carries.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("flock.grid.workspace.\(workspace.workspaceID.rawValue)")
     }
 
-    /// herdr's focused workspace carries the rail's accent bar; the header
-    /// keeps the row height either way so cards in a row line up.
+    private func outline(_ tabs: [TabRecord]) -> Color {
+        if isTargeted(tabs) { return theme.accent }
+        return isFocusedWorkspace ? theme.textLabel : .clear
+    }
+
     private func header(tabCount: Int) -> some View {
-        HStack(spacing: ChromeMetrics.Grid.cardHeaderSpacing) {
-            if workspace.workspaceID == viewModel.model?.focusedWorkspaceID {
-                RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.indicatorSize.width / 2)
-                    .fill(theme.accent)
-                    .frame(width: ChromeMetrics.WorkspaceRow.indicatorSize.width, height: ChromeMetrics.WorkspaceRow.indicatorSize.height)
+        HStack(spacing: ChromeMetrics.Grid.islandHeaderSpacing) {
+            WorkspaceMark(theme: theme, key: identityKey, size: ChromeMetrics.Grid.workspaceMark, picking: $isPickingSymbol)
+            if viewModel.renameTarget == .workspace(workspace.workspaceID) {
+                InlineRenameField(
+                    theme: theme, font: ChromeType.gridCardName,
+                    initialText: viewModel.renameText(for: .workspace(workspace.workspaceID)),
+                    accessibilityIdentifier: "flock.grid.rename.\(workspace.workspaceID.rawValue)",
+                    onCommit: { text in
+                        Task { await viewModel.commitRename(text, for: .workspace(workspace.workspaceID)) }
+                    },
+                    onCancel: { viewModel.cancelRename() }
+                )
+            } else {
+                Text(workspace.label)
+                    .font(ChromeType.gridCardName)
+                    .foregroundStyle(theme.textStrong)
+                    .lineLimit(1)
             }
-            Text(workspace.label)
-                .font(ChromeType.gridCardName)
-                .foregroundStyle(theme.textStrong)
-                .lineLimit(1)
+            StatusDot(shown: viewModel.shownStatus(of: workspace), theme: theme, size: ChromeMetrics.Grid.cardStatusDot + 2)
+            Spacer(minLength: 0)
             Text(tabCount == 1 ? "1 tab" : "\(tabCount) tabs")
                 .font(ChromeType.gridCardMeta)
                 .foregroundStyle(theme.textLabel)
                 .lineLimit(1)
-            Spacer(minLength: 0)
-            StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.Grid.cardStatusDot)
+                .fixedSize()
+            // Held in the row while hidden, so hovering never moves the count.
+            ArrangeZoomControl(theme: theme, isZoomed: zoom.isZoomed, workspace: workspace.workspaceID, action: zoom.toggle)
+                .opacity(zoom.isZoomed || (isHovering && drag.activeSubject == nil) ? 1 : 0)
+                .allowsHitTesting(zoom.isZoomed || isHovering)
         }
-        .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
+        .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
+        .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
+        .contentShape(Rectangle())
+        // ONE tap gesture reading the click count: a `count: 2` tap here
+        // would hold every click inside the header, the zoom control's
+        // included, for the double-click interval (`ChromeRowClick`).
+        .onTapGesture {
+            guard NSEvent.isPrimaryDoubleClick(NSApp.currentEvent), drag.activeSubject == nil,
+                  viewModel.renameTarget == nil
+            else { return }
+            zoom.toggle()
+        }
     }
 
     /// One cell, plus the reporter for the slot a committed drop lands in
@@ -304,7 +582,7 @@ private struct WorkspaceCard: View {
             .background {
                 if index == landingSlot(tabs) {
                     Color.clear.reportsFrame(in: DragSpace.gridContent) {
-                        drag.setGridItemFrame($0, for: .newTab(workspace.workspaceID))
+                        drag.setGridItemFrame($0, for: .newTab(workspace.workspaceID), layer: layer)
                     }
                 }
             }
@@ -332,7 +610,7 @@ private struct WorkspaceCard: View {
                 // its resting place; the coordinator's freeze while a reorder
                 // is live is what actually guarantees that, since the
                 // insertion index is counted against resting cells.
-                .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(id)) }
+                .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(id), layer: layer) }
             }
         case .newTab:
             NewTabPlaceholder(theme: theme, workspace: workspace.workspaceID)
@@ -377,6 +655,22 @@ private struct TabThumbnail: View {
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.gridThumbnailSize) private var thumbnailSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.arrangeTiles) private var tiles
+    @Environment(\.dropReflowPreviewProgress) private var reflowHeld
+    @State private var isOverThumbnail = false
+    @State private var hoveredPane: PaneID?
+    @GestureState private var pressed: ThumbnailPart?
+
+    private var hovered: ThumbnailPart? {
+        if let hoveredPane { return .pane(hoveredPane) }
+        return isOverThumbnail ? .tab : nil
+    }
+
+    private func interaction(of part: ThumbnailPart) -> ControlInteraction {
+        ThumbnailPart.interaction(of: part, hovered: hovered, pressed: pressed, dragInFlight: drag.activeSubject != nil)
+    }
 
     private var tabTitle: String {
         viewModel.model.map { TabTitle.resolve(tab, in: $0).text } ?? tab.label
@@ -389,11 +683,20 @@ private struct TabThumbnail: View {
                 miniPanes(size: proxy.size)
             }
         }
-        .frame(height: ChromeMetrics.Grid.thumbnailHeight)
-        .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .frame(height: thumbnailSize.height)
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeRadius.surface))
+        .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.surface))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
+        .overlay {
+            RoundedRectangle(cornerRadius: ChromeRadius.surface)
+                .strokeBorder(
+                    ThumbnailPart.thumbnailOutline(theme: theme, tab: interaction(of: .tab)),
+                    lineWidth: ChromeMetrics.ruleWidth
+                )
+                .allowsHitTesting(false)
+        }
         .contentShape(Rectangle())
+        .fadingHover($isOverThumbnail)
         // The handle and the padding around the mini panes mean the whole
         // tab; a mini pane's own tap is a descendant's and answers first.
         .onTapGesture { clicked(pane: nil) }
@@ -418,7 +721,7 @@ private struct TabThumbnail: View {
         // On the whole thumbnail, mini panes included, so a press anywhere a
         // mini pane does not cover drags the tab. A mini pane's own gesture
         // is a descendant's, so it takes the press where it sits.
-        .gesture(tabDrag)
+        .gesture(tabDrag.simultaneously(with: press))
         // Last, so everything above moves together and the frame the card
         // publishes from outside this view is the layout frame an offset
         // cannot touch. This is the strip's own shape (`TabBlock`).
@@ -426,7 +729,7 @@ private struct TabThumbnail: View {
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)
     }
 
-    /// A click previews, a double-click goes there. Read off the event's own
+    /// A click selects, a double-click goes there. Read off the event's own
     /// click count rather than a second, two-tap gesture: that one holds every
     /// single click back for the double-click interval before it answers.
     ///
@@ -437,12 +740,12 @@ private struct TabThumbnail: View {
         guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
         if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
             show(pane: pane)
-        } else if let previewed = pane ?? tabsOwnPane {
-            drag.showGridPreview(pane: previewed)
+        } else if let selected = pane ?? tabsOwnPane {
+            drag.selectGridPane(selected)
         }
     }
 
-    /// The pane a click on the tab's handle previews: the one herdr has
+    /// The pane a click on the tab's handle selects: the one herdr has
     /// focused in it, or its first when that is not known.
     private var tabsOwnPane: PaneID? {
         let model = viewModel.model
@@ -455,22 +758,39 @@ private struct TabThumbnail: View {
     /// was named. Selected before the grid closes, so the window never draws
     /// the previously selected tab in between.
     private func show(pane: PaneID? = nil) {
-        viewModel.select(tab: tab.tabID)
-        drag.closeGrid()
-        Task {
-            await viewModel.jumpToHerdr(tab: tab.tabID)
-            if let pane { await viewModel.jumpToHerdr(pane: pane) }
-        }
+        ArrangeOpen.open(tab: tab.tabID, pane: pane, viewModel: viewModel, drag: drag)
     }
 
     private var titleStrip: some View {
         TabHandleStrip(
-            theme: theme, title: tabTitle, status: tab.agentStatus,
-            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID
+            theme: theme, title: tabTitle, status: tab.agentStatus, isBackground: viewModel.shownStatus(of: tab).isBackground,
+            isFocusedTab: tab.tabID == viewModel.model?.focusedTabID,
+            interaction: interaction(of: .tab),
+            isActive: isActiveTab
         )
         .onHover { hovering in
             GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
         }
+    }
+
+    /// The selected pane's tab when the selection is in this workspace,
+    /// else the tab herdr has active in it. Off while a drag is live, when
+    /// the drop wash is the only thing a thumbnail shows.
+    private var isActiveTab: Bool {
+        guard drag.activeSubject == nil, let model = viewModel.model else { return false }
+        if let selected = drag.gridSelection.flatMap({ model.panes[$0] }), selected.workspaceID == tab.workspaceID {
+            return selected.tabID == tab.tabID
+        }
+        return model.workspaces.first { $0.workspaceID == tab.workspaceID }?.activeTabID == tab.tabID
+    }
+
+    /// Which part a press began on. Paired with each drag at that drag's
+    /// own level: nested inside the tab's drag it would claim every press and
+    /// the tab could never be picked up. Gesture state, so a press a tap or a
+    /// drag takes over still clears.
+    private var press: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($pressed) { _, state, _ in if state == nil { state = hovered ?? .tab } }
     }
 
     private var tabDrag: some Gesture {
@@ -501,7 +821,7 @@ private struct TabThumbnail: View {
         )
         let panes = paneBoxes(size: paneArea.size).compactMap { placed -> DragCoordinator.Ghost.TabMiniature.Pane? in
             guard let pane = model?.panes[placed.pane] else { return nil }
-            return .init(title: pane.displayTitle, status: pane.agentStatus, box: placed.frame)
+            return .init(title: shownTitle(pane), status: pane.agentStatus, box: placed.frame)
         }
         return DragCoordinator.Ghost.TabMiniature(
             title: tabTitle, status: tab.agentStatus,
@@ -542,12 +862,19 @@ private struct TabThumbnail: View {
                 drag.beginIfIdle(
                     .pane(pane.paneID),
                     ghost: DragCoordinator.Ghost(
-                        title: pane.displayTitle, symbol: "macwindow", originSize: box.size, isCompact: true
+                        title: viewModel.model.map { PaneNaming.name(pane: pane, model: $0, oneTitle: viewModel.oneTitle) }
+                            ?? pane.displayTitle,
+                        symbol: "macwindow", originSize: box.size, isCompact: true
                     ),
                     at: value.startLocation,
                     home: home(box: inThumbnail)
                 )
             }
+    }
+
+    private func shownTitle(_ pane: PaneRecord) -> String? {
+        guard let model = viewModel.model else { return pane.displayTitle }
+        return PaneNaming.shownTitle(pane: pane, model: model, oneTitle: viewModel.oneTitle)
     }
 
     /// This tab's mini panes inside a pane area of `size`. Shared with the
@@ -578,36 +905,54 @@ private struct TabThumbnail: View {
     /// leaves behind, so the panes make room where it will really go and the
     /// slot it takes is drawn in the canvas's own preview language: the wash
     /// alone, a second coat over the one the targeted thumbnail already
-    /// carries.
+    /// carries. The panes and the slot change under ONE animation, keyed on
+    /// the whole reflow, so the slot opens by exactly what the panes give up.
     private func miniPanes(size: CGSize) -> some View {
         let model = viewModel.model
         let arriving = arrival
         let boxes = paneBoxes(size: size, arriving: arriving)
         let resting = arriving == nil ? boxes : paneBoxes(size: size)
+        let preview = DropReflow(boxes: boxes, resting: resting, arriving: arriving)
+        let reflow = reflowHeld.map {
+            DropReflow.held(from: DropReflow(boxes: resting, resting: resting, arriving: nil), to: preview, progress: $0)
+        } ?? preview
         return ZStack(alignment: .topLeading) {
-            ForEach(boxes, id: \.pane) { placed in
-                if placed.pane == arriving?.pane {
-                    RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
-                        .fill(theme.accent.opacity(DragVisuals.dropWashOpacity))
-                        .frame(width: placed.frame.width, height: placed.frame.height)
-                        .offset(x: placed.frame.minX, y: placed.frame.minY)
-                        .allowsHitTesting(false)
-                } else if let pane = model?.panes[placed.pane] {
+            ForEach(reflow.panes, id: \.pane) { placed in
+                if let pane = model?.panes[placed.pane] {
                     MiniPane(
-                        theme: theme, title: pane.displayTitle, status: pane.agentStatus,
-                        isPreviewed: drag.gridPreviewCard == pane.paneID
+                        theme: theme, title: shownTitle(pane), status: pane.agentStatus,
+                        backgroundWork: viewModel.shownStatus(of: pane).backgroundWork,
+                        isSelected: drag.gridSelection == pane.paneID,
+                        isActive: drag.gridSelection == pane.paneID && drag.activeSubject == nil,
+                        interaction: interaction(of: .pane(pane.paneID)),
+                        detail: tileBody(pane, box: placed.frame.size)
                     )
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
+                        .overlay(alignment: .top) { renameEditor(for: pane.paneID) }
                         .onTapGesture { clicked(pane: pane.paneID) }
-                        .gesture(paneDrag(pane, box: placed.frame))
-                        .onHover { GridCursor.hover($0, dragInFlight: drag.holdsGrabCursor) }
-                        .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: placed.frame)
+                        .gesture(
+                            paneDrag(pane, box: placed.frame).simultaneously(with: press),
+                            including: renaming(pane.paneID) ? .subviews : .all
+                        )
+                        .contextMenu { paneMenu(pane.paneID) }
+                        .onHover { hovering in
+                            GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
+                            withAnimation(GridControlFade.animation(reduceMotion: reduceMotion)) {
+                                if hovering { hoveredPane = pane.paneID } else if hoveredPane == pane.paneID { hoveredPane = nil }
+                            }
+                        }
                 }
+            }
+            if let slot = reflow.slot {
+                DropReflowSlot(theme: theme, frame: slot.frame)
+                    .id(slot.key)
+                    .transition(DropReflowSlot.transition(slot))
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .animation(DropReflowMotion.animation, value: reflow)
         // Published as data rather than as reported frames: a drop resolves
         // against where the mini panes REST, and every frame drawn here is
         // already the preview's answer to that resolution.
@@ -615,92 +960,225 @@ private struct TabThumbnail: View {
         .onChange(of: resting) { _, boxes in publish(boxes) }
     }
 
+    /// A mini pane's own menu. The tail is read when an item is chosen,
+    /// never while the menu is built: built in `body`, it would redraw every
+    /// thumbnail on every read.
+    @ViewBuilder
+    private func paneMenu(_ pane: PaneID) -> some View {
+        Button("Rename Pane") { viewModel.beginRename(.pane(pane)) }
+            .accessibilityIdentifier("flock.grid.pane.rename")
+        Button("Copy Output") {
+            guard let text = PaneOutputCopy.text(of: viewModel.paneTails[pane]) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+        .accessibilityIdentifier("flock.grid.pane.copyOutput")
+        Divider()
+        Button("Close Pane") { Task { await viewModel.closePane(pane) } }
+            .accessibilityIdentifier("flock.grid.pane.close")
+    }
+
+    /// What a rename opened on `pane` edits: the pane, or the tab standing for
+    /// it when the pane has no title of its own.
+    private func renaming(_ pane: PaneID) -> Bool {
+        viewModel.renameTarget != nil && viewModel.renameTarget == viewModel.renameTarget(for: .pane(pane))
+    }
+
+    /// The editor sits over the top of the tile, which a tile has no label
+    /// row to host in.
+    @ViewBuilder
+    private func renameEditor(for pane: PaneID) -> some View {
+        if renaming(pane) {
+            let target = viewModel.renameTarget(for: .pane(pane))
+            InlineRenameField(
+                theme: theme, font: ChromeType.gridMiniPaneTitle, initialText: viewModel.renameText(for: target),
+                accessibilityIdentifier: "flock.grid.rename.\(pane.rawValue)",
+                onCommit: { text in Task { await viewModel.commitRename(text, for: target) } },
+                onCancel: { viewModel.cancelRename() }
+            )
+            .padding(ChromeMetrics.Grid.miniPaneHorizontalPadding)
+        }
+    }
+
+    /// Nil for a box too small to read, which keeps the status word.
+    private func tileBody(_ pane: PaneRecord, box: CGSize) -> AnyView? {
+        let detail = TileDetail.of(box: box)
+        guard detail >= .tail else { return nil }
+        return AnyView(ArrangeTileBody(
+            theme: theme, viewModel: viewModel, pane: pane, title: shownTitle(pane),
+            shown: viewModel.shownStatus(of: pane), detail: detail
+        ))
+    }
+
     /// The boxes a drop inside this thumbnail is hit-tested against, in the
     /// thumbnail's own space: the strip above the pane area is what separates
     /// the two, and a point it covers is the tab's own handle.
     private func publish(_ boxes: [MiniPaneLayout.Placed]) {
         drag.setGridMiniPanes(
-            MiniPaneLayout.boxesInThumbnail(boxes, stripHeight: ChromeMetrics.Grid.tabStripHeight), for: tab.tabID
+            MiniPaneLayout.boxesInThumbnail(boxes, stripHeight: ChromeMetrics.Grid.tabStripHeight), for: tab.tabID,
+            layer: tiles.isZoomed ? .zoomed : .grid
         )
     }
 }
 
-/// A tab's handle: a band across the top of its thumbnail carrying the title
-/// and status dot. Shared with the drag proxy, which draws a whole tab as a
-/// miniature of its own thumbnail and has to use the same roles.
-///
-/// Filled with `paneBorder` rather than a lighter step: the thumbnail's body
-/// is `canvas`, and the roles between the two (`tabRest`, `rule`) land within
-/// about 1.1:1 of it in every builtin theme, which reads as the same surface.
-/// `paneBorder` is the nearest role that separates (1.49:1 at worst, on
-/// Catppuccin Latte) and it is already the role a box edge takes, so a solid
-/// band of it reads as structure.
-///
-/// The title is `textStrong` whether or not the tab is focused. `textDim` on
-/// this band falls under 4.5:1 in three of the seventeen builtin themes
-/// (nord, one-dark, dracula), and no role that separates from the body keeps
-/// it above AA everywhere; `textStrong` clears at 5.07:1 at worst. Focus is
-/// carried by the accent bar at the leading edge, which is the rail's own
-/// mark for its focused workspace, and by the weight
-/// `ChromeType.gridTabLabel(selected:)` sets; the status dot encodes agent
-/// status and nothing else. The bar's slot is present on every strip, clear
-/// where there is nothing to mark, so titles stay aligned across a card.
+/// A tab's handle: the top of its thumbnail carrying the title and status
+/// dot. Shared with the drag proxy, which draws a whole tab as a miniature of
+/// its own thumbnail and has to use the same roles. No fill of its own: its
+/// state is a wash over it (`GridStateWash`), and the tab you came from is
+/// underlined as the tab strip underlines a selected tab.
 struct TabHandleStrip: View {
     let theme: Theme
     let title: String
     let status: AgentStatus
+    var isBackground = false
     let isFocusedTab: Bool
+    var interaction: ControlInteraction = .rest
+    /// The tab Arrange treats as current in its workspace.
+    var isActive = false
 
     var body: some View {
+        let appearance = GridControlAppearance.resolve(
+            theme: theme, restForeground: isFocusedTab ? theme.textStrong : theme.textDim,
+            isHovering: interaction.isHovering, isPressed: interaction.isPressed
+        )
         HStack(spacing: ChromeMetrics.Grid.tabStripSpacing) {
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.tabStripIndicatorSize.width / 2)
-                .fill(isFocusedTab ? theme.accent : .clear)
-                .frame(
-                    width: ChromeMetrics.Grid.tabStripIndicatorSize.width,
-                    height: ChromeMetrics.Grid.tabStripIndicatorSize.height
-                )
             Text(title)
                 .font(ChromeType.gridTabLabel(selected: isFocusedTab))
-                .foregroundStyle(theme.tabStripTitle)
+                .foregroundStyle(appearance.foreground)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
+            StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot, isBackground: isBackground)
         }
         .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: ChromeMetrics.Grid.tabStripHeight)
-        .background(theme.tabStripFill)
+        .overlay(GridStateWash(theme: theme, shape: AnyShape(Rectangle()), interaction: interaction, isActive: isActive))
+        .overlay(alignment: .bottom) {
+            if isFocusedTab {
+                Rectangle().fill(theme.accent).frame(height: ChromeMetrics.Grid.currentTabUnderline).allowsHitTesting(false)
+            }
+        }
     }
 }
 
-/// A pane in miniature: its title and status dot, nothing else. Takes the two
-/// values rather than a `PaneRecord` so the drag proxy, which carries a
+/// A pane in miniature: its status word and title, nothing else. Takes the
+/// two values rather than a `PaneRecord` so the drag proxy, which carries a
 /// snapshot of what was picked up, can draw the same box.
+///
+/// A hairline at rest keeps a split tab's panes apart on the thumbnail's
+/// shared ground; blocked and selected are the only strong outlines inside an
+/// island, so they are found at a glance.
 struct MiniPane: View {
     let theme: Theme
-    let title: String
+    /// nil draws the status word alone: the tab's title above stands for it.
+    let title: String?
     let status: AgentStatus
-    /// Its preview card is the one open, so the card's pane is findable.
-    var isPreviewed = false
+    var backgroundWork: String? = nil
+    /// The pane Arrange has selected, which Return opens.
+    var isSelected = false
+    /// The selected wash, when it differs from `isSelected`: a live drag's
+    /// drop wash is the only accent wash a thumbnail shows.
+    var isActive: Bool? = nil
+    var interaction: ControlInteraction = .rest
+    /// Drawn in place of the status word and title: the pane's own output,
+    /// for a box large enough to read it (`ArrangeTileBody`).
+    var detail: AnyView? = nil
 
     var body: some View {
-        HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
-            StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.miniPaneStatusDot)
-            Text(title)
-                .font(ChromeType.gridMiniPaneTitle)
-                .foregroundStyle(theme.textStrong)
-                .lineLimit(1)
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.control)
+        // A narrow box gives up title lines before the status word; one too
+        // short for the status word over the title, as a stacked split at the
+        // 120pt floor is, keeps the dot and the title on one line rather than
+        // clipping the title away.
+        Group {
+            if let detail {
+                detail
+            } else {
+                ViewThatFits(in: .vertical) {
+                    stacked(titleLines: title == nil ? 0 : 3)
+                    stacked(titleLines: title == nil ? 0 : 1)
+                    HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
+                        dot
+                        if title == nil { statusWord } else { titleText.lineLimit(1) }
+                    }
+                    .padding(.vertical, ChromeMetrics.Grid.thumbnailPadding)
+                    .padding(.horizontal, ChromeMetrics.Grid.miniPaneTitleSpacing + ChromeMetrics.Grid.thumbnailPadding)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The terminal's own ground in every state: a screen read draws on
+        // what the pane itself draws on, and an app's painted background
+        // must keep blending into it. Status and state are washes over the
+        // whole tile, painted runs included.
+        .background(theme.pane, in: shape)
+        .clipShape(shape)
+        .overlay {
+            if let wash = statusWash { shape.fill(wash).opacity(ChromeMetrics.Grid.statusWashOpacity).allowsHitTesting(false) }
+        }
+        .overlay(GridStateWash(theme: theme, shape: AnyShape(shape), interaction: interaction, isActive: isActive ?? isSelected))
+        .overlay(
+            shape.strokeBorder(
+                ThumbnailPart.paneOutline(theme: theme, status: status, isSelected: isSelected, pane: interaction),
+                lineWidth: outlineWidth
+            )
+        )
+        .contentShape(Rectangle())
+    }
+
+    private var shown: ShownStatus { ShownStatus(status, backgroundWork: backgroundWork) }
+
+    private var statusWash: Color? {
+        guard !shown.isBackground, shown.status == .done || shown.status == .blocked else { return nil }
+        return theme.agentStatusMarkColor(shown.status)
+    }
+
+    /// The blocked and previewed outlines are the island's alarms; a hover
+    /// ring is a lighter mark so it never reads as one.
+    private var outlineWidth: CGFloat {
+        if isSelected { return ChromeMetrics.selectionOutlineWidth }
+        return status == .blocked ? ChromeMetrics.Grid.miniPaneBlockedOutline : ChromeMetrics.ruleWidth
+    }
+
+    private func stacked(titleLines: Int) -> some View {
+        VStack(alignment: .leading, spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
+            HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
+                dot
+                statusWord
+            }
+            if titleLines > 0 { titleText.lineLimit(titleLines) }
         }
         .padding(.vertical, ChromeMetrics.Grid.miniPaneVerticalPadding)
         .padding(.horizontal, ChromeMetrics.Grid.miniPaneHorizontalPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius))
-        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
-                .strokeBorder(isPreviewed ? theme.accent : theme.paneBorder, lineWidth: ChromeMetrics.ruleWidth)
-        )
-        .contentShape(Rectangle())
+    }
+
+    /// The reason alone for background work: a mini pane is too narrow for
+    /// anything longer, and its mark already says background.
+    private var statusWord: some View {
+        Text(backgroundWork ?? status.rawValue)
+            .font(ChromeType.gridMiniPaneStatus)
+            .foregroundStyle(backgroundWork != nil ? theme.backgroundWorkColor : status == .blocked ? theme.red : theme.textLabel)
+            .lineLimit(1)
+    }
+
+    private var dot: some View {
+        StatusDot(shown: ShownStatus(status, backgroundWork: backgroundWork), theme: theme, size: ChromeMetrics.Grid.miniPaneStatusDot)
+    }
+
+    private var titleText: Text {
+        Text(title ?? "").font(ChromeType.gridMiniPaneTitle).foregroundStyle(theme.textStrong)
+    }
+}
+
+private struct GridThumbnailSizeKey: EnvironmentKey {
+    static let defaultValue = CGSize(width: ChromeMetrics.Grid.thumbnailWidth, height: ChromeMetrics.Grid.thumbnailHeight)
+}
+
+extension EnvironmentValues {
+    /// Arrange's one thumbnail size, chosen per window by `IslandLayout.fit`.
+    var gridThumbnailSize: CGSize {
+        get { self[GridThumbnailSizeKey.self] }
+        set { self[GridThumbnailSizeKey.self] = newValue }
     }
 }
 
@@ -711,7 +1189,7 @@ struct MiniPane: View {
 ///
 /// The wash alone, never a stroke, which is how the canvas previews a drop;
 /// the strip band takes a second coat of it so the tab's own handle shape
-/// still reads inside an otherwise empty slot. Over `canvas`, which is the
+/// still reads inside an otherwise empty slot. Over `pane`, which is the
 /// ground a real thumbnail's own wash lands on, so a slot standing in for a
 /// tab and a thumbnail taking a drop are the same drawing over the same
 /// ground.
@@ -719,15 +1197,14 @@ private struct NewTabPlaceholder: View {
     let theme: Theme
     let workspace: WorkspaceID
 
+    @Environment(\.gridThumbnailSize) private var thumbnailSize
+
     var body: some View {
         VStack(spacing: 0) {
             Text("new tab")
                 .font(ChromeType.gridTabLabel(selected: false))
                 .foregroundStyle(theme.textDim)
                 .lineLimit(1)
-                // Past the slot a real strip keeps for its focus bar, so the
-                // placeholder's title lines up with the titles beside it.
-                .padding(.leading, ChromeMetrics.Grid.tabStripIndicatorSize.width + ChromeMetrics.Grid.tabStripSpacing)
                 .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: ChromeMetrics.Grid.tabStripHeight)
@@ -735,10 +1212,10 @@ private struct NewTabPlaceholder: View {
             Color.clear
         }
         .frame(maxWidth: .infinity)
-        .frame(height: ChromeMetrics.Grid.thumbnailHeight)
-        .background(theme.accent.opacity(DragVisuals.dropWashOpacity), in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .background(theme.canvas, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .frame(height: thumbnailSize.height)
+        .background(theme.accent.opacity(DragVisuals.dropWashOpacity), in: RoundedRectangle(cornerRadius: ChromeRadius.surface))
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeRadius.surface))
+        .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.surface))
         .accessibilityIdentifier("flock.grid.newTab.\(workspace.rawValue)")
         .allowsHitTesting(false)
     }
@@ -758,7 +1235,7 @@ private enum GridCursor {
 private struct DropWash: View {
     let theme: Theme
     let isTargeted: Bool
-    var cornerRadius: CGFloat = ChromeMetrics.Grid.thumbnailCornerRadius
+    var cornerRadius: CGFloat = ChromeRadius.surface
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius)
@@ -766,337 +1243,5 @@ private struct DropWash: View {
             .opacity(isTargeted ? 1 : 0)
             .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted)
             .allowsHitTesting(false)
-    }
-}
-
-/// Drawn over the grid's scroll view rather than inside a card, so it is
-/// never clipped by the card or the row below it.
-private struct GridPreviewCard: View {
-    let theme: Theme
-    let viewModel: SessionViewModel
-
-    @Environment(DragCoordinator.self) private var drag
-    @State private var size = CGSize(width: ChromeMetrics.HoverCard.width, height: ChromeMetrics.HoverCard.estimatedHeight)
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            if drag.gridPreviewCard != nil {
-                scrim.transition(.opacity)
-            }
-            card
-        }
-        .animation(.easeOut(duration: ChromeMetrics.HoverCard.openDuration), value: drag.gridPreviewCard)
-    }
-
-    /// Takes no clicks: the grid behind stays live, so a click on another
-    /// pane moves the card and a click on empty space puts it away.
-    private var scrim: some View {
-        let isLight = ChromeRoles.isLight(panelBg: theme.palette.panelBg)
-        return Color.black
-            .opacity(isLight ? ChromeMetrics.HoverCard.lightScrimOpacity : ChromeMetrics.HoverCard.darkScrimOpacity)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private var card: some View {
-        if let previewed = drag.gridPreviewCard,
-           let viewport = drag.gridViewport,
-           let box = drag.gridPaneFrame(of: previewed),
-           let model = viewModel.model,
-           let pane = model.panes[previewed],
-           let content = PaneHoverCardContent.make(
-               pane: previewed, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory()
-           ) {
-            let paneBox = box.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
-            let origin = HoverCardPlacement.origin(
-                pane: paneBox, card: size, container: CGRect(origin: .zero, size: viewport.size),
-                gap: ChromeMetrics.HoverCard.paneGap
-            )
-            PaneHoverCardView(
-                theme: theme, content: content, tail: viewModel.paneTail(for: previewed),
-                open: { openPane(previewed, tab: pane.tabID) },
-                close: { drag.dismissGridPreview() }
-            )
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-            .shadow(
-                color: .black.opacity(ChromeMetrics.HoverCard.shadowOpacity),
-                radius: ChromeMetrics.HoverCard.shadowRadius, y: ChromeMetrics.HoverCard.shadowY
-            )
-            // A card moving to another pane is a new card, so it grows out of
-            // that pane rather than sliding across the grid from the last one.
-            .id(previewed)
-            .transition(
-                .scale(scale: ChromeMetrics.HoverCard.openScale, anchor: Self.anchor(toward: paneBox, from: origin, card: size))
-                    .combined(with: .opacity)
-            )
-            .offset(x: origin.x, y: origin.y)
-            // The card is not draggable, so the open hand the pane under the
-            // pointer set has no meaning over it.
-            .onHover { if $0 { GridCursor.hover(false, dragInFlight: drag.holdsGrabCursor) } }
-            // The card's own cadence, and the whole of what keeps a running
-            // pane's tail current: nothing herdr reports about a pane changes
-            // when it prints, so there is no event to follow. Cancelled with
-            // the card, so no pane is read once its card has gone.
-            .task(id: previewed) {
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: PaneTailPolicy.refreshInterval)
-                    guard !Task.isCancelled else { return }
-                    viewModel.refreshPaneTail(for: previewed)
-                }
-            }
-        }
-    }
-
-    private func openPane(_ pane: PaneID, tab: TabID) {
-        viewModel.select(tab: tab)
-        drag.closeGrid()
-        Task {
-            await viewModel.jumpToHerdr(tab: tab)
-            await viewModel.jumpToHerdr(pane: pane)
-        }
-    }
-
-    /// The point of the card nearest the pane it describes, so the card grows
-    /// out of that pane.
-    private static func anchor(toward pane: CGRect, from origin: CGPoint, card: CGSize) -> UnitPoint {
-        guard card.width > 0, card.height > 0 else { return .center }
-        return UnitPoint(
-            x: min(max((pane.midX - origin.x) / card.width, 0), 1),
-            y: min(max((pane.midY - origin.y) / card.height, 0), 1)
-        )
-    }
-}
-
-private struct PaneHoverCardView: View {
-    let theme: Theme
-    let content: PaneHoverCardContent
-    let tail: PaneTail?
-    let open: () -> Void
-    let close: () -> Void
-
-    @State private var tailHeight: CGFloat = 0
-    @State private var tailScroll = ScrollPosition(edge: .bottom)
-    @State private var followsTail = true
-    @State private var tailAtEnd = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            bar
-            VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.spacing) {
-                HStack(spacing: ChromeMetrics.HoverCard.titleSpacing) {
-                    Text(content.position)
-                        .font(ChromeType.hoverCardDetail)
-                        .foregroundStyle(theme.textLabel)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(content.statusWord)
-                        .font(ChromeType.hoverCardDetail)
-                        .foregroundStyle(theme.agentStatusColor(content.status) ?? theme.textLabel)
-                }
-                Text(content.cwd)
-                    .font(ChromeType.hoverCardDetail)
-                    .foregroundStyle(theme.textDim)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                // Until the read lands there is no output to set apart, so the
-                // rule waits for it too, and a pane with nothing on screen is
-                // offered no copy of it.
-                if let tail, let copy = PaneHoverCardCopy.text(of: tail) {
-                    Rectangle()
-                        .fill(theme.rule)
-                        .frame(height: ChromeMetrics.ruleWidth)
-                    tailLines(tail)
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        HoverCardCopyButton(theme: theme, text: copy)
-                    }
-                }
-            }
-            .padding(.vertical, ChromeMetrics.HoverCard.verticalPadding)
-            .padding(.horizontal, ChromeMetrics.HoverCard.horizontalPadding)
-        }
-        .frame(width: ChromeMetrics.HoverCard.width, alignment: .leading)
-        .background(theme.chrome)
-        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.cornerRadius)
-                .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
-        )
-        // A container, not one combined element: the card holds controls, and
-        // combining would fold them into the card's own text and leave nothing
-        // to press.
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("flock.grid.hoverCard")
-    }
-
-    /// The card's handle, in the roles a thumbnail's own handle strip uses, so
-    /// the card reads as that pane's window rather than a tooltip.
-    private var bar: some View {
-        HStack(spacing: ChromeMetrics.HoverCard.barSpacing) {
-            StatusDot(status: content.status, theme: theme, size: ChromeMetrics.HoverCard.statusDot)
-            Text(content.title)
-                .font(ChromeType.hoverCardTitle)
-                .foregroundStyle(theme.tabStripTitle)
-                .lineLimit(1)
-            Spacer(minLength: ChromeMetrics.HoverCard.titleSpacing)
-            HoverCardBarButton(
-                theme: theme, symbol: "arrow.up.forward.square", label: "Open pane",
-                identifier: "flock.grid.hoverCard.open", action: open
-            )
-            HoverCardBarButton(
-                theme: theme, symbol: "xmark", label: nil,
-                identifier: "flock.grid.hoverCard.close", action: close
-            )
-            .accessibilityLabel("Close preview")
-        }
-        .padding(.leading, ChromeMetrics.HoverCard.horizontalPadding)
-        .padding(.trailing, ChromeMetrics.HoverCard.barTrailingPadding)
-        .frame(height: ChromeMetrics.HoverCard.barHeight)
-        .frame(maxWidth: .infinity)
-        .background(theme.tabStripFill)
-    }
-
-    /// The pane's own last lines, in the terminal face, wrapped rather than
-    /// clipped: a pane is usually wider than the card. Wrapping makes the
-    /// output's height depend on its line lengths, so it scrolls past a cap
-    /// and opens on its newest lines, as the terminal itself would.
-    private func tailLines(_ tail: PaneTail) -> some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.tailLineSpacing) {
-                ForEach(Array(tail.lines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(ChromeType.hoverCardTail)
-                        .foregroundStyle(theme.textDim)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tailHeight = $0 }
-        }
-        .scrollIndicators(.automatic)
-        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-        .scrollPosition($tailScroll)
-        // Wrapped lines settle their height a pass after the first layout,
-        // which leaves an anchor taken then short of the end, and a scroll to
-        // the bottom edge lands a few points short of it too. So the end is
-        // computed from the scroll view's own geometry and followed only
-        // while the reader is at it, so new output never yanks them away from
-        // what they scrolled to.
-        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height - $0.containerSize.height } action: { _, end in
-            guard followsTail else { return }
-            // Snapped, never animated: the card's own open animation would
-            // otherwise carry the scroll, leaving it short while it runs.
-            var snap = Transaction()
-            snap.disablesAnimations = true
-            withTransaction(snap) { tailScroll.scrollTo(y: max(0, end)) }
-        }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 1
-        } action: { _, atEnd in
-            tailAtEnd = atEnd
-        }
-        // Only the reader's own scroll decides whether the tail is followed:
-        // content growing under a scroll that already ran also leaves the view
-        // short of the end for a moment, and that is not the reader leaving it.
-        .onScrollPhaseChange { old, new in
-            if new == .interacting {
-                followsTail = false
-            } else if new == .idle, old == .interacting || old == .decelerating {
-                followsTail = tailAtEnd
-            }
-        }
-        // Sized to the output up to the cap, so a short tail leaves no gap
-        // above the copy action.
-        .frame(height: min(tailHeight, ChromeMetrics.HoverCard.tailMaxHeight))
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("flock.grid.hoverCard.tail")
-    }
-}
-
-/// A control in the card's bar: a symbol, and a word when the symbol alone
-/// would not say what it does.
-private struct HoverCardBarButton: View {
-    let theme: Theme
-    let symbol: String
-    let label: String?
-    let identifier: String
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: ChromeMetrics.HoverCard.copySpacing) {
-                Image(systemName: symbol)
-                    .font(ChromeType.hoverCardCopySymbol)
-                if let label {
-                    Text(label)
-                        .font(ChromeType.hoverCardCopy)
-                }
-            }
-            .foregroundStyle(theme.tabStripTitle.opacity(isHovering ? 1 : ChromeMetrics.HoverCard.barControlRestOpacity))
-            .padding(.horizontal, ChromeMetrics.HoverCard.copyHorizontalPadding)
-            .padding(.vertical, ChromeMetrics.HoverCard.copyVerticalPadding)
-            .background(
-                RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.copyCornerRadius)
-                    .fill(theme.chrome)
-                    .opacity(isHovering ? 1 : 0)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityIdentifier(identifier)
-    }
-}
-
-/// Puts the tail the card is showing on the pasteboard, and says so where the
-/// pointer already is. It confirms in place rather than through the window's
-/// toast: the grid covers the window, and a whisper somewhere else is a
-/// confirmation for a copy nobody watched.
-private struct HoverCardCopyButton: View {
-    let theme: Theme
-    let text: String
-
-    @State private var isHovering = false
-    @State private var confirming = false
-
-    var body: some View {
-        Button {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-            confirming = true
-        } label: {
-            HStack(spacing: ChromeMetrics.HoverCard.copySpacing) {
-                Image(systemName: confirming ? "checkmark" : "doc.on.doc")
-                    .font(ChromeType.hoverCardCopySymbol)
-                Text(confirming ? PaneHoverCardCopy.confirmation : PaneHoverCardCopy.label)
-                    .font(ChromeType.hoverCardCopy)
-            }
-            .foregroundStyle(foreground)
-            .padding(.horizontal, ChromeMetrics.HoverCard.copyHorizontalPadding)
-            .padding(.vertical, ChromeMetrics.HoverCard.copyVerticalPadding)
-            .background(
-                RoundedRectangle(cornerRadius: ChromeMetrics.HoverCard.copyCornerRadius)
-                    .fill(theme.selection)
-                    .opacity(isHovering ? 1 : 0)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityIdentifier("flock.grid.hoverCard.copy")
-        .task(id: confirming) {
-            guard confirming else { return }
-            try? await Task.sleep(for: PaneHoverCardCopy.confirmationDuration)
-            guard !Task.isCancelled else { return }
-            confirming = false
-        }
-    }
-
-    private var foreground: Color {
-        if confirming { return theme.green }
-        return isHovering ? theme.textStrong : theme.textLabel
     }
 }

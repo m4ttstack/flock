@@ -22,6 +22,15 @@ final class PaneTailTests: XCTestCase {
         XCTAssertEqual(PaneTailPolicy.make(from: "one\n\ntwo").lines, ["one", "", "two"])
     }
 
+    /// A full-screen TUI draws its list at the top and its key hints at the
+    /// foot, with blank rows between; the card keeps the list.
+    func testARunOfBlankRowsCollapsesToOneSoATUIsTopStaysOnTheCard() {
+        let list = (1...8).map { "account \($0)" }
+        let screen = ["watching all accounts", ""] + list + Array(repeating: "", count: 30) + ["Confirm  s Switch  esc Back"]
+        let tail = PaneTailPolicy.make(from: screen.joined(separator: "\n"), limit: 12)
+        XCTAssertEqual(tail.lines, ["watching all accounts", ""] + list + ["", "Confirm  s Switch  esc Back"])
+    }
+
     /// Trailing spaces are the terminal padding a row out, never something the
     /// user asked to copy.
     func testTrailingSpacesAreCutFromEveryLine() {
@@ -41,29 +50,26 @@ final class PaneTailTests: XCTestCase {
         XCTAssertEqual(tail.lines.last, "20")
     }
 
-    /// What the copy button puts on the pasteboard is what the card shows,
-    /// line for line.
-    func testTheCopiedTextIsTheLinesTheCardShows() {
+    /// What Copy Output puts on the pasteboard is the tail as read, line for
+    /// line.
+    func testTheCopiedTextIsTheLinesAsRead() {
         XCTAssertEqual(PaneTailPolicy.make(from: "one\ntwo\n").text, "one\ntwo")
         XCTAssertEqual(PaneTail(lines: []).text, "")
-        XCTAssertEqual(PaneHoverCardCopy.text(of: PaneTailPolicy.make(from: "one\ntwo\n")), "one\ntwo")
+        XCTAssertEqual(PaneOutputCopy.text(of: PaneTailPolicy.make(from: "one\ntwo\n")), "one\ntwo")
     }
 
-    /// A card with nothing read yet, or a pane with a blank screen, offers no
-    /// copy at all: a control that puts an empty string on the pasteboard is
-    /// worse than no control.
+    /// A pane with nothing read yet, or a blank screen, offers no copy at
+    /// all.
     func testAnEmptyTailOffersNothingToCopy() {
-        XCTAssertNil(PaneHoverCardCopy.text(of: nil))
-        XCTAssertNil(PaneHoverCardCopy.text(of: PaneTail(lines: [])))
-        XCTAssertNil(PaneHoverCardCopy.text(of: PaneTailPolicy.make(from: "\n \n")))
+        XCTAssertNil(PaneOutputCopy.text(of: nil))
+        XCTAssertNil(PaneOutputCopy.text(of: PaneTail(lines: [])))
+        XCTAssertNil(PaneOutputCopy.text(of: PaneTailPolicy.make(from: "\n \n")))
     }
 
-    /// One pane's card is one read a second and no more, and the card's tail
-    /// stays short enough to fit the grid at the window's minimum height.
-    func testTheTailFitsTheGridAndRefreshesSlowly() {
+    /// A tail is a screenful of output, not a scrollback.
+    func testATailKeepsAShortRunOfLines() {
         XCTAssertGreaterThan(PaneTailPolicy.lines, 1)
         XCTAssertLessThanOrEqual(PaneTailPolicy.lines, 20)
-        XCTAssertGreaterThanOrEqual(PaneTailPolicy.refreshInterval, .milliseconds(500))
     }
 
     /// The trim spends rows, so the read has to carry more than the card draws
@@ -203,11 +209,13 @@ private struct TailAsk: Decodable, Equatable {
     let paneID: String
     let source: String
     let lines: Int
+    let format: String
 
     enum CodingKeys: String, CodingKey {
         case paneID = "pane_id"
         case source
         case lines
+        case format
     }
 }
 
@@ -230,6 +238,54 @@ private actor TailReadClient: HerdrCommandClient {
     }
 }
 
+/// A herdr that predates the ansi read format: it refuses the format, or
+/// answers it with something that is not a read.
+private actor PlainOnlyReadClient: HerdrCommandClient {
+    enum AnsiAnswer { case refused, unreadable, otherServerError }
+
+    private(set) var formats: [String?] = []
+    private let screen: String
+    private let ansiAnswer: AnsiAnswer
+
+    init(screen: String, ansiAnswer: AnsiAnswer) {
+        self.screen = screen
+        self.ansiAnswer = ansiAnswer
+    }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.read" else { return Data("{}".utf8) }
+        let format: String? = if case let .string(value) = params["format"] { value } else { nil }
+        formats.append(format)
+        guard format == nil else {
+            switch ansiAnswer {
+            case .refused:
+                throw HerdrClientError.server(
+                    code: "invalid_request", message: "invalid request: unknown variant `ansi`, expected `text`"
+                )
+            case .otherServerError: throw HerdrClientError.server(code: "pane_not_found", message: "pane w1:p1 not found")
+            case .unreadable: return Data(#"{"result":{"type":"ok"}}"#.utf8)
+            }
+        }
+        return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": screen]]])
+    }
+}
+
+/// The first read, an ansi one, fails on the wire; every later read answers.
+private actor FlakyAnsiReadClient: HerdrCommandClient {
+    private(set) var formats: [String?] = []
+    private let screen: String
+
+    init(screen: String) { self.screen = screen }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.read" else { return Data("{}".utf8) }
+        let format: String? = if case let .string(value) = params["format"] { value } else { nil }
+        formats.append(format)
+        if formats.count == 1 { throw HerdrClientError.transport("connection reset") }
+        return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": screen]]])
+    }
+}
+
 @MainActor
 final class PaneTailReadTests: XCTestCase {
     private let pane = PaneID(rawValue: "w1:p1")
@@ -245,25 +301,100 @@ final class PaneTailReadTests: XCTestCase {
         throw NeverRead()
     }
 
-    func testTheCardAsksForTheVisibleTailOfTheOnePaneItIsShowing() async throws {
+    func testARefreshAsksForTheVisibleTailOfItsPane() async throws {
         let client = TailReadClient(screen: "one\ntwo\n")
         let viewModel = SessionViewModel(client: client)
-        XCTAssertNil(viewModel.paneTail(for: pane), "nothing is cached, so the first ask is the read")
+        viewModel.refreshPaneTail(for: pane)
+        XCTAssertNil(viewModel.paneTails[pane], "nothing is cached until the read lands")
         let landed = try await tail(viewModel)
         XCTAssertEqual(landed.lines, ["one", "two"])
         let asks = await client.asks
-        XCTAssertEqual(asks, [TailAsk(paneID: pane.rawValue, source: "visible", lines: PaneTailPolicy.readLines)])
+        XCTAssertEqual(asks, [TailAsk(paneID: pane.rawValue, source: "visible", lines: PaneTailPolicy.readLines, format: "ansi")])
     }
 
-    /// Every render of the card asks for the tail, and the card's cadence asks
-    /// again on top of that. One read at a time is what keeps that from piling
+    func testAnOlderHerdrThatRefusesTheAnsiFormatStillShowsAPlainTail() async throws {
+        for answer in [PlainOnlyReadClient.AnsiAnswer.refused, .unreadable] {
+            let client = PlainOnlyReadClient(screen: "one\ntwo\n", ansiAnswer: answer)
+            let viewModel = SessionViewModel(client: client)
+            viewModel.refreshPaneTail(for: pane)
+            let landed = try await tail(viewModel)
+            XCTAssertEqual(landed.lines, ["one", "two"], "\(answer)")
+            let formats = await client.formats
+            XCTAssertEqual(formats, ["ansi", nil], "\(answer): one ansi read, then one plain retry")
+        }
+    }
+
+    func testAfterARefusalLaterReadsSendOnlyThePlainRequest() async throws {
+        for answer in [PlainOnlyReadClient.AnsiAnswer.refused, .unreadable] {
+            let client = PlainOnlyReadClient(screen: "one\ntwo\n", ansiAnswer: answer)
+            let viewModel = SessionViewModel(client: client)
+            viewModel.refreshPaneTail(for: pane)
+            _ = try await tail(viewModel)
+            viewModel.refreshPaneTail(for: pane)
+            var formats = await client.formats
+            var attempts = 0
+            while formats.count < 3, attempts < 200 {
+                try await Task.sleep(for: .milliseconds(5))
+                formats = await client.formats
+                attempts += 1
+            }
+            XCTAssertEqual(formats, ["ansi", nil, nil], "\(answer): the second read skips the ansi request")
+        }
+    }
+
+    func testAnUnrelatedServerErrorRetriesPlainButKeepsAskingForAnsi() async throws {
+        let client = PlainOnlyReadClient(screen: "one\ntwo\n", ansiAnswer: .otherServerError)
+        let viewModel = SessionViewModel(client: client)
+        viewModel.refreshPaneTail(for: pane)
+        let landed = try await tail(viewModel)
+        XCTAssertEqual(landed.lines, ["one", "two"])
+        viewModel.refreshPaneTail(for: pane)
+        var formats = await client.formats
+        var attempts = 0
+        while formats.count < 3, attempts < 200 {
+            try await Task.sleep(for: .milliseconds(5))
+            formats = await client.formats
+            attempts += 1
+        }
+        XCTAssertEqual(formats.prefix(3), ["ansi", nil, "ansi"], "the next read asks for ansi again")
+    }
+
+    func testOnlyAnUnparseableFormatCountsAsARefusal() {
+        XCTAssertTrue(SessionViewModel.refusesAnsiFormat(
+            code: "invalid_request", message: "invalid request: unknown variant `ansi`, expected `text`"
+        ))
+        XCTAssertTrue(SessionViewModel.refusesAnsiFormat(
+            code: "invalid_request", message: "invalid request: unknown field `format`, expected one of `pane_id`"
+        ))
+        XCTAssertFalse(SessionViewModel.refusesAnsiFormat(code: "invalid_request", message: "invalid request: missing field `pane_id`"))
+        XCTAssertFalse(SessionViewModel.refusesAnsiFormat(code: "pane_not_found", message: "unknown variant `ansi`"))
+    }
+
+    func testATransportErrorDoesNotMarkTheAnsiFormatRefused() async throws {
+        let client = FlakyAnsiReadClient(screen: "one\ntwo\n")
+        let viewModel = SessionViewModel(client: client)
+        viewModel.refreshPaneTail(for: pane)
+        _ = try await tail(viewModel)
+        viewModel.refreshPaneTail(for: pane)
+        var formats = await client.formats
+        var attempts = 0
+        while formats.count < 3, attempts < 200 {
+            try await Task.sleep(for: .milliseconds(5))
+            formats = await client.formats
+            attempts += 1
+        }
+        XCTAssertEqual(formats, ["ansi", nil, "ansi"], "the next read tries ansi again and it lands")
+    }
+
+    /// A pane drawn twice, in the grid and in a zoom, is asked for by both
+    /// tiles' cadences. One read at a time is what keeps that from piling
     /// requests on a pane that is slow to answer.
     func testAsksWhileAReadIsStillOutAddNoSecondRead() async throws {
         let client = TailReadClient(screen: "x")
         let viewModel = SessionViewModel(client: client)
-        _ = viewModel.paneTail(for: pane)
         viewModel.refreshPaneTail(for: pane)
-        _ = viewModel.paneTail(for: pane)
+        viewModel.refreshPaneTail(for: pane)
+        viewModel.refreshPaneTail(for: pane)
         let landed = try await tail(viewModel)
         XCTAssertEqual(landed.lines, ["x"])
         let asks = await client.asks
@@ -272,11 +403,11 @@ final class PaneTailReadTests: XCTestCase {
 
     /// The cached tail is never the answer to a refresh: a pane that is
     /// printing changes nothing the model reports, so only reading again can
-    /// tell the card anything new.
+    /// tell a tile anything new.
     func testARefreshReadsAgainOnceTheLastReadHasLanded() async throws {
         let client = TailReadClient(screen: "x")
         let viewModel = SessionViewModel(client: client)
-        _ = viewModel.paneTail(for: pane)
+        viewModel.refreshPaneTail(for: pane)
         _ = try await tail(viewModel)
         viewModel.refreshPaneTail(for: pane)
         var asks = await client.asks

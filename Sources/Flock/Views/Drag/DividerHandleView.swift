@@ -127,7 +127,7 @@ struct DividerHandleView: View {
             .foregroundStyle(theme.textStrong)
             .padding(.horizontal, ChromeMetrics.RatioLabel.horizontalPadding)
             .padding(.vertical, ChromeMetrics.RatioLabel.verticalPadding)
-            .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.chrome))
+            .background(RoundedRectangle(cornerRadius: ChromeRadius.control).fill(theme.chrome))
             .fixedSize()
     }
 }

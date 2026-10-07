@@ -26,6 +26,8 @@ enum ChromeType {
 
     static let windowTitle = inter(11.5, .medium)
     static let connectionNotice = inter(11.5)
+    static func viewTab(selected: Bool) -> Font { inter(12.5, selected ? .medium : .regular) }
+    static let viewTabBadge = inter(10.5, .semibold)
     static let devTag = inter(8.5, .bold)
     static let devTagTracking: CGFloat = 0.8
     static let restartLabel = inter(11, .medium)
@@ -37,7 +39,8 @@ enum ChromeType {
     static let railHeading = inter(10, .semibold)
     static let railHeadingTracking: CGFloat = 1.28
     static func workspaceName(selected: Bool) -> Font { inter(14, selected ? .medium : .regular) }
-    static let workspaceCount = inter(11.5)
+    /// Tabular figures, so counts line up in the rail's trailing column.
+    static let workspaceCount = inter(11.5).monospacedDigit()
     static let railSectionChevron = Font.system(size: 8, weight: .bold)
 
     static let tabLabelSize: CGFloat = 14
@@ -122,15 +125,35 @@ enum ChromeType {
 
     static let gridTitle = inter(14, .medium)
     static let gridCount = inter(11.5)
-    static let gridHint = mono(11.5)
-    static let gridCardName = inter(14, .medium)
-    static let gridCardMeta = inter(11.5)
-    static func gridTabLabel(selected: Bool) -> Font { inter(11.5, selected ? .medium : .regular) }
-    static let gridMiniPaneTitle = inter(8.5, .medium)
+    static let gridCardName = inter(16, .semibold)
+    static let gridCardMeta = inter(12)
+    static func gridTabLabel(selected: Bool) -> Font { inter(12, selected ? .semibold : .medium) }
+    static let gridMiniPaneTitle = inter(11.5)
+    static let gridMiniPaneStatus = mono(10)
+
+    static let missionLaneTitle = inter(10.5, .semibold)
+    static let missionRestSection = inter(9.5, .semibold)
+    static let missionLaneCount = inter(12)
+    static let missionCardMeta = inter(11.5)
+    static let missionCardTitle = inter(14.5, .medium)
+    static let missionCardDetail = inter(12)
+    static let missionCardMono = mono(11)
+    static let missionGroupName = inter(11.5, .semibold)
+    static let missionEmpty = inter(12.5)
+    static let focusedBack = inter(12, .medium)
+    static let focusedPlace = inter(12.5, .medium)
+    static let focusedNextLabel = inter(10, .semibold)
+    static let focusedNextLabelTracking: CGFloat = 1
+    static let focusedNextPlace = inter(12)
+    static let focusedKey = mono(10.5)
 
     static let hoverCardTitle = inter(14, .medium)
     static let hoverCardDetail = inter(11.5)
-    static let hoverCardTail = mono(11.5)
+    /// The tail is set at the size its widest row fits the card at, between
+    /// these two; below the smallest, a row's end is clipped.
+    static let hoverCardTailMaxSize: CGFloat = 11.5
+    static let hoverCardTailMinSize: CGFloat = 7
+    static func hoverCardTail(size: CGFloat) -> Font { mono(size) }
     static let hoverCardCopy = inter(11)
     static let hoverCardCopySymbol = Font.system(size: 9.5, weight: .medium)
 

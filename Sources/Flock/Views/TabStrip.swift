@@ -152,7 +152,8 @@ struct TabStrip: View {
             onCancelRename: { viewModel.cancelRename() },
             onClose: { Task { await viewModel.closeTab(tab.tabID) } },
             displacement: drag.tabDisplacement(at: index),
-            isGhosted: drag.isDragging(tab: tab.tabID)
+            isGhosted: drag.isDragging(tab: tab.tabID),
+            isBackground: viewModel.shownStatus(of: tab).isBackground
         )
         // Outside the tab, which offsets its own content: an
         // offset leaves the layout frame alone, so what is
@@ -292,6 +293,7 @@ private struct TabBlock: View {
     var displacement: CGFloat = 0
     /// The tab this drag started from, left in place and faded.
     var isGhosted = false
+    var isBackground = false
 
     /// One place, two controls. The close stands where the dot stands rather
     /// than over it, and the slot keeps the width of the wider of them, so a
@@ -299,7 +301,7 @@ private struct TabBlock: View {
     /// back over the title.
     private var trailingSlot: some View {
         ZStack {
-            StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot)
+            StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot, isBackground: isBackground)
                 .opacity(showsClose ? 0 : 1)
             HoverCloseButton(
                 theme: theme, isRevealed: showsClose, help: "Close tab",
@@ -368,6 +370,8 @@ private struct TabBlock: View {
         // flight must not resize the tab under the field, nor slide the tabs
         // after it along the strip with every keystroke.
         .frame(width: TabSizing.width(of: title, isComplete: isComplete, isSelected: isSelected), height: ChromeMetrics.Tab.height)
+        // Rounded on top only: the bottom edge meets the pane below.
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: ChromeRadius.surface, topTrailingRadius: ChromeRadius.surface))
         .shadow(color: .black.opacity(isLifted ? 0.35 : 0), radius: 4)
         .animation(.easeOut(duration: 0.12), value: isLifted)
         .contentShape(Rectangle())
@@ -396,7 +400,7 @@ private struct NewTabAffordanceButton: View {
     @State private var isHovering: Bool
 
     var body: some View {
-        Rectangle()
+        UnevenRoundedRectangle(topLeadingRadius: ChromeRadius.surface, topTrailingRadius: ChromeRadius.surface)
             .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
             .overlay(
                 Image(systemName: ChromeType.newTabSymbolName)

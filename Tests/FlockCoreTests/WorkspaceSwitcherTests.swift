@@ -50,6 +50,32 @@ final class WorkspaceSwitcherTests: XCTestCase {
             activeTabID: TabID(rawValue: "\(id):t1"), agentStatus: .idle)
     }
 
+    func testPinsLeadTheCandidatesAndAnEmptyPinHasASwitcherID() {
+        let live = PinnedWorkspace(id: PinID(rawValue: "p1"), name: "web", folder: "/web", workspace: WorkspaceID(rawValue: "w2"), syncedLabel: "web", confirmed: true)
+        let empty = PinnedWorkspace(id: PinID(rawValue: "p2"), name: "notes", folder: "/notes", workspace: nil, syncedLabel: nil, confirmed: false)
+        let workspaces = [record("w1", "acme"), record("w2", "web")]
+        let ids = WorkspaceSwitcher.candidates(workspaces, current: nil, pins: [live, empty])
+        XCTAssertEqual(ids.map(\.rawValue), ["w2", "pin:p2", "w1"])
+        XCTAssertEqual(PinID(switcherID: ids[1]), PinID(rawValue: "p2"))
+        XCTAssertNil(PinID(switcherID: ids[0]))
+    }
+
+    /// A pin linked to a workspace herdr does not report is drawn empty, so
+    /// it is offered empty; every candidate is then a record or a pin, and
+    /// each has a row.
+    func testAPinLinkedToAnUnreportedWorkspaceIsOfferedEmpty() {
+        let stale = PinnedWorkspace(id: PinID(rawValue: "p1"), name: "web", folder: "/web", workspace: WorkspaceID(rawValue: "w9"), syncedLabel: nil, confirmed: false)
+        let workspaces = [record("w1", "acme")]
+        let ids = WorkspaceSwitcher.candidates(workspaces, current: WorkspaceID(rawValue: "w1"), pins: [stale])
+        XCTAssertEqual(ids.map(\.rawValue), ["pin:p1", "w1"])
+
+        let switcher = makeSwitcher()
+        switcher.note(WorkspaceID(rawValue: "w9"))
+        XCTAssertTrue(switcher.begin(workspaces: ids, current: WorkspaceID(rawValue: "w1")))
+        XCTAssertEqual(switcher.order.map(\.rawValue), ["w1", "pin:p1"])
+        XCTAssertEqual(switcher.selected, stale.switcherID)
+    }
+
     func testAHerdIsNeverOnOffer() {
         let switcher = makeSwitcher()
         for name in ["h", "b"] { switcher.note(WorkspaceID(rawValue: name)) }

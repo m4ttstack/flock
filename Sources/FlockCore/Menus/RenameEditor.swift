@@ -47,15 +47,21 @@ public enum RenameEditor {
     ///
     /// The rail draws every workspace there is, so a workspace's own editor is
     /// on screen for as long as its target exists.
+    ///
+    /// `soloPane` is the pane Overview's focused view shows, whose title row
+    /// draws the editor for it and, when it has no title of its own, for its tab.
     public static func isOnScreen(
-        _ target: RenameTarget?, selectedWorkspace: WorkspaceID?, selectedTab: TabID?, model: SessionModel?
+        _ target: RenameTarget?, selectedWorkspace: WorkspaceID?, selectedTab: TabID?, model: SessionModel?,
+        soloPane: PaneID? = nil
     ) -> Bool {
         guard let target, let model, target.exists(in: model) else { return false }
         switch target {
         case .pane(let pane):
+            if pane == soloPane { return true }
             guard let selectedTab else { return false }
             return model.panes[pane]?.tabID == selectedTab
         case .tab(let tab):
+            if let soloPane, model.panes[soloPane]?.tabID == tab { return true }
             guard let selectedWorkspace else { return false }
             return tabRecord(tab, model: model)?.workspaceID == selectedWorkspace
         case .workspace:

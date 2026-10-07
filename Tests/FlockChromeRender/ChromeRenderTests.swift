@@ -12,6 +12,8 @@ import XCTest
 final class ChromeRenderTests: XCTestCase {
     nonisolated static let defaultsSuite = "dev.mattstack.flock.chrome-render"
     private static let windowSize = CGSize(width: 900, height: 560)
+    /// Fixed sample points below the title bar are measured down from it.
+    private static let bar = ChromeMetrics.TitleBar.height
     /// The grid's own window. A thumbnail is one fixed width now, so how many
     /// slots a card row holds is the window's answer: 900pt holds three and
     /// every card fixture below is written around the four a 1200pt window
@@ -664,7 +666,10 @@ final class ChromeRenderTests: XCTestCase {
         // anchored to, which the legend row above it already says, so the
         // band's own ground is what belongs there now.
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 343, y: 63)), theme.palette.panelBg.hex, "signed-out status band, trailing end")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 165)), theme.palette.selectionBg.hex, "signed-out selected feature row fill")
+        XCTAssertLessThanOrEqual(
+            hexChannelDistance(hex(signedOutImage, CGPoint(x: 200, y: 165)), theme.palette.panelBg.underHoverWash(theme).hex), 1,
+            "signed-out hovered feature row wears the hover wash"
+        )
         var bestIconDistance = Int.max
         for y in stride(from: CGFloat(159), through: 171, by: 0.5) {
             bestIconDistance = min(bestIconDistance, minChannelDistance(signedOutImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
@@ -695,7 +700,10 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 108.5)), theme.palette.surface0.hex, "signed-in status band rule")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 343, y: 63)), theme.palette.panelBg.hex, "signed-in status band, trailing end")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 17, y: 87)), theme.palette.activeRowBg.hex, "signed-in room chip fill")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 188)), theme.palette.selectionBg.hex, "signed-in selected feature row fill")
+        XCTAssertLessThanOrEqual(
+            hexChannelDistance(hex(signedInImage, CGPoint(x: 200, y: 188)), theme.palette.panelBg.underHoverWash(theme).hex), 1,
+            "signed-in hovered feature row wears the hover wash"
+        )
         var bestSignedInIconDistance = Int.max
         for y in stride(from: CGFloat(182), through: 194, by: 0.5) {
             bestSignedInIconDistance = min(bestSignedInIconDistance, minChannelDistance(signedInImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
@@ -741,6 +749,14 @@ final class ChromeRenderTests: XCTestCase {
             "chevron.left",
         ] {
             XCTAssertNotNil(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil), symbolName)
+        }
+    }
+
+    /// Every workspace symbol: a typo'd name resolves to nothing, silently,
+    /// and the mark would draw blank.
+    func testEveryWorkspaceSymbolResolves() {
+        for symbol in WorkspaceSymbols.all {
+            XCTAssertNotNil(NSImage(systemSymbolName: symbol.name, accessibilityDescription: nil), symbol.name)
         }
     }
 
@@ -937,34 +953,37 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The system title bar is taller than the chrome's, so the top of the tab
-    /// strip lies inside it. A press there must stay with the strip: some view
-    /// of ours at that point opts out of moving the window. The chrome title
-    /// bar drags and double-clicks through `TitleBarMouseView`, so every point
-    /// on it must reach that view.
-    func testTabStripTopInsideTheSystemTitleBarDoesNotMoveTheWindow() async throws {
+    /// The system title bar's height is the system's, not the chrome's, so
+    /// whatever of ours lies inside it must say for itself whether a press
+    /// moves the window. The top of the tab strip and the view tabs opt out;
+    /// the rest of the chrome title bar drags and double-clicks through
+    /// `TitleBarMouseView`, so every other point on it must reach that view.
+    func testPressesInsideTheSystemTitleBarReachTheirOwnChrome() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
-        let systemTitleBarHeight = window.frame.height - window.contentLayoutRect.maxY
         let stripTop = ChromeMetrics.TitleBar.height
-        XCTAssertGreaterThan(systemTitleBarHeight, stripTop + 1, "the system title bar no longer reaches the tab strip, so this test exercises nothing")
-
         let stripTopEdge = CGPoint(x: 260, y: stripTop + 1)
         XCTAssertTrue(contentViews(at: stripTopEdge, in: window).contains { !$0.mouseDownCanMoveWindow })
-        for titlePoint in [CGPoint(x: 450, y: 10), CGPoint(x: 250, y: 10), CGPoint(x: 800, y: 3)] {
+        for titlePoint in [CGPoint(x: 450, y: 10), CGPoint(x: 600, y: 30), CGPoint(x: 800, y: 3)] {
             XCTAssertTrue(contentViews(at: titlePoint, in: window).contains { $0 is TitleBarMouseView }, "\(titlePoint)")
         }
+        // A view tab inside the system title bar's height still takes its
+        // own press rather than moving the window.
+        let tabPoint = CGPoint(x: ChromeMetrics.TitleBar.tabsLeadingInset + 20, y: 12)
+        XCTAssertTrue(contentViews(at: tabPoint, in: window).contains { !$0.mouseDownCanMoveWindow }, "\(tabPoint)")
+        XCTAssertFalse(isInsideScrollView(hitView(at: tabPoint, in: window)), "\(tabPoint) lands in the strip's scroll view")
         window.close()
     }
 
-    /// The All Workspaces grid from fixture layouts, with a pane's preview card
-    /// open. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set; the
-    /// samples and the no-attach check always run.
+    /// The All Workspaces grid from fixture layouts, with a mini pane
+    /// selected. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set;
+    /// the samples and the no-attach check always run.
     func testAllWorkspacesGridRendersFromLayoutsWithoutAttachingAPane() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        harness.modeStore.select(.arrange)
         let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         let shownByTheCanvas = Set(model.panes.keys.filter { harness.viewModel.ghosttySurface(for: $0) != nil })
@@ -981,63 +1000,125 @@ final class ChromeRenderTests: XCTestCase {
         let claude = try XCTUnwrap(boxes.first { $0.pane == GridFixture.claudePane })
         let rest = try snapshot(window)
         assertGridSamples(rest, theme: .tokyoNight)
-        harness.drag.showGridPreview(pane: claude.pane)
+        harness.drag.selectGridPane(claude.pane)
         await settle(window)
-        // The card is placed against this box, so a card drawn anywhere else
-        // means the grid published a box the layout does not agree with.
-        let anchor = try XCTUnwrap(harness.drag.gridPaneFrame(of: claude.pane))
+        // The selection outline is drawn against this box, so an outline drawn
+        // anywhere else means the grid published a box the layout does not
+        // agree with.
+        let anchor = try XCTUnwrap(harness.drag.surfaces?.grid?.miniPaneFrame(of: claude.pane))
         XCTAssertEqual(anchor.minX, panes.minX + claude.frame.minX, accuracy: 0.5)
         XCTAssertEqual(anchor.minY, panes.minY + claude.frame.minY, accuracy: 0.5)
-        // The tail end to end, through the real decode: a card that opened and
-        // read nothing is what this render exists to catch.
-        let tail = try XCTUnwrap(harness.viewModel.paneTails[claude.pane], "the card opened without reading its pane")
+        // The tail end to end, through the real decode, on a tile big enough
+        // to read (the claude mini pane is below `TileDetail.tail`): a tile
+        // that drew and read nothing is what this render exists to catch.
+        let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
         XCTAssertEqual(tail.lines.count, PaneTailPolicy.lines)
         XCTAssertEqual(tail.lines.last, "Editing lib/daemon.ts")
-        let previewing = try snapshot(window)
+        let selected = try snapshot(window)
         if let directory {
-            try XCTUnwrap(previewing.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-preview.png"))
+            try XCTUnwrap(selected.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-selected.png"))
         }
         for pane in model.panes.keys where !shownByTheCanvas.contains(pane) {
             XCTAssertNil(harness.viewModel.ghosttySurface(for: pane), "the grid attached \(pane.rawValue)")
         }
-        // The grid's own canvas margin, well clear of the card: dimmed while
-        // the card is up, and only slightly.
-        let margin = CGPoint(x: 5, y: 120)
-        let dimming = channelDistance(hex(previewing, margin), hex(rest, margin))
-        XCTAssertGreaterThan(dimming, 0, "nothing dims the grid behind the card")
-        XCTAssertLessThan(dimming, 16, "the dim is heavy enough to hide the grid")
+        XCTAssertEqual(
+            hex(selected, CGPoint(x: anchor.midX, y: anchor.minY + 0.5)), Theme.tokyoNight.palette.accent.hex,
+            "the selected pane carries no accent outline"
+        )
         window.close()
     }
 
-    /// The preview card in a light theme, where its chrome ground sits over a
-    /// light canvas. A click on another pane moves it, and Esc puts it away
-    /// without closing the grid behind it.
-    func testThePreviewCardRendersInALightThemeAndEscPutsItAwayFirst() async throws {
+    /// Selection in a light theme: a click on another pane moves it, Return
+    /// opens it in Workspaces, and Esc puts it down without closing the grid.
+    func testASelectionMovesOpensAndEscPutsItAwayFirstInALightTheme() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })
         let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        harness.modeStore.select(.arrange)
         let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
 
-        harness.drag.showGridPreview(pane: GridFixture.buildPane)
-        harness.drag.showGridPreview(pane: GridFixture.claudePane)
+        harness.drag.selectGridPane(GridFixture.buildPane)
+        harness.drag.selectGridPane(GridFixture.claudePane)
         await settle(window)
-        XCTAssertEqual(harness.drag.gridPreviewCard, GridFixture.claudePane, "the last click's pane")
-        XCTAssertNotNil(harness.viewModel.paneTails[GridFixture.claudePane], "the card opened without reading its pane")
+        XCTAssertEqual(harness.drag.gridSelection, GridFixture.claudePane, "the last click's pane")
+        XCTAssertNotNil(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
+        let image = try snapshot(window)
         if let directory {
-            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-preview-latte.png"))
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-selected-latte.png"))
         }
+        let box = try XCTUnwrap(harness.drag.surfaces?.grid?.miniPaneFrame(of: GridFixture.claudePane))
+        XCTAssertEqual(
+            hex(image, CGPoint(x: box.midX, y: box.minY + 0.5)), theme.palette.accent.hex,
+            "the selected pane carries no accent outline"
+        )
 
         harness.drag.updateGrid { $0.escape() }
-        XCTAssertNil(harness.drag.gridPreviewCard)
-        XCTAssertTrue(harness.drag.isGridShown, "Esc took the grid down with the card")
+        XCTAssertNil(harness.drag.gridSelection)
+        XCTAssertTrue(harness.drag.isGridShown, "Esc took the grid down with the selection")
         harness.drag.updateGrid { $0.escape() }
         XCTAssertFalse(harness.drag.isGridShown)
         window.close()
+    }
+
+    /// A full-screen TUI wider than its tile, read in herdr's ANSI format: the
+    /// tile keeps the colours it was sent, and Copy Output hands back the
+    /// plain text. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
+    func testAnArrangeTileDrawsAStyledTUIInItsOwnColours() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let latte = try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })
+        for (theme, name) in [(Theme.tokyoNight, "grid-tile-ansi.png"), (latte, "grid-tile-ansi-latte.png")] {
+            let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: AnsiTUIClient(), attaching: [])
+            harness.modeStore.select(.arrange)
+            let window = harness.makeWindow(size: Self.gridWindowSize)
+            await settle(window)
+            harness.drag.toggleGrid()
+            await settle(window)
+            await settle(window)
+
+            let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
+            XCTAssertEqual(tail.rows.map(\.columns).max(), AnsiTUIClient.columns)
+            XCTAssertEqual(tail.lines.first, " acme switch · 5 accounts")
+            XCTAssertFalse(tail.text.unicodeScalars.contains { $0.value == 0x1B }, "an escape reached the copied text")
+            let copied = try XCTUnwrap(PaneOutputCopy.text(of: tail), "Copy Output found nothing to copy")
+            XCTAssertEqual(copied, tail.text)
+            XCTAssertTrue(copied.contains("acme-main"))
+
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(name))
+            }
+            // A tile shows the tail's last rows, which here end on the lowest
+            // account, whose usage bar is a 24-bit colour: styled text
+            // reaches the tile in the colour herdr sent.
+            let bar = GhosttyThemeColor(red: 180, green: 120, blue: 255)
+            XCTAssertGreaterThan(longestRun(of: bar, in: image), 0, "\(theme.id): no usage bar in the tile")
+            window.close()
+        }
+    }
+
+    /// The longest horizontal run of pixels within `washDither` of `color`,
+    /// in device pixels.
+    private func longestRun(of color: GhosttyThemeColor, in image: NSBitmapImageRep) -> Int {
+        guard let data = image.bitmapData else { return 0 }
+        let step = image.bitsPerPixel / 8
+        let target = [Int(color.red), Int(color.green), Int(color.blue)]
+        var longest = 0
+        for y in 0..<image.pixelsHigh {
+            var run = 0
+            for x in 0..<image.pixelsWide {
+                let offset = y * image.bytesPerRow + x * step
+                let matches = (0..<3).allSatisfy { abs(Int(data[offset + $0]) - target[$0]) <= Self.washDither }
+                run = matches ? run + 1 : 0
+                longest = max(longest, run)
+            }
+        }
+        return longest
     }
 
     /// The strip's overflow hint, which no other render reaches: the fixture
@@ -1068,9 +1149,9 @@ final class ChromeRenderTests: XCTestCase {
 
         // The strip is the only thing that differs between the two: the rail,
         // the canvas and the title bar are untouched by a strip scroll.
-        XCTAssertEqual(hex(start, CGPoint(x: 100, y: 74)), hex(end, CGPoint(x: 100, y: 74)), "the rail")
+        XCTAssertEqual(hex(start, CGPoint(x: 100, y: Self.bar + 48)), hex(end, CGPoint(x: 100, y: Self.bar + 48)), "the rail")
         XCTAssertEqual(hex(start, CGPoint(x: 700, y: 400)), hex(end, CGPoint(x: 700, y: 400)), "the canvas")
-        XCTAssertNotEqual(hex(start, CGPoint(x: 210, y: 40)), hex(end, CGPoint(x: 210, y: 40)), "the strip's leading edge")
+        XCTAssertNotEqual(hex(start, CGPoint(x: 210, y: Self.bar + 14)), hex(end, CGPoint(x: 210, y: Self.bar + 14)), "the strip's leading edge")
         window.close()
     }
 
@@ -1247,10 +1328,7 @@ final class ChromeRenderTests: XCTestCase {
         // The card's header row: inside the card, and no thumbnail covers it,
         // which is what makes it the card's own empty space.
         let card = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
-        harness.drag.move(to: CGPoint(
-            x: card.midX,
-            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
-        ))
+        harness.drag.move(to: Self.headerGround(of: card))
         XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.mattstackApps))
         await settle(window)
         let overCard = try snapshot(window)
@@ -1264,8 +1342,8 @@ final class ChromeRenderTests: XCTestCase {
 
     /// A tab dragged over its own card: the card opens the slot the drop will
     /// land it in, on the strip's rule, and the cells it passes come back the
-    /// other way. Read through the focus bar, which is drawn in one strip
-    /// only: where it sits is where that tab is.
+    /// other way. Read through the focused tab's underline, which is drawn
+    /// in one strip only: where it sits is where that tab is.
     func testACardOpensTheSlotATabReorderWillLandIn() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
@@ -1282,8 +1360,8 @@ final class ChromeRenderTests: XCTestCase {
         let cardFrame = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
 
         let atRest = try snapshot(window)
-        XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.accent.hex, "the focused tab's own bar")
-        XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: second)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex, "and no other")
+        XCTAssertNotEqual(hex(atRest, Self.focusBarPoint(of: first)), Self.bareHandle, "the focused tab's own handle underline")
+        XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: second)), Self.bareHandle, "and no other")
 
         harness.drag.beginIfIdle(
             .tab(GridFixture.agentsTab),
@@ -1310,11 +1388,11 @@ final class ChromeRenderTests: XCTestCase {
 
         let mid = try snapshot(window)
         XCTAssertEqual(
-            hex(mid, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            hex(mid, Self.focusBarPoint(of: first)), Self.bareHandle,
             "the first slot still holds the focused tab, so nothing slid"
         )
         XCTAssertNotEqual(
-            hex(mid, Self.focusBarPoint(of: second)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            hex(mid, Self.focusBarPoint(of: second)), Self.bareHandle,
             "the dragged tab did not slide into the slot it is about to take"
         )
         if let directory {
@@ -1347,17 +1425,18 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(cells.map(\.id), [GridFixture.srcTab, GridFixture.buildTab, GridFixture.issuesTab])
         let slots = cells.map(\.frame)
 
-        // From another workspace: the card keeps its three tabs and the
-        // created one takes the next slot.
+        // From another workspace: the island keeps its three tabs and the
+        // created one takes the next slot, which opens a row, since an
+        // island is exactly as wide as its own tabs.
         try await assertNewTabSlot(
             of: GridFixture.herdr, dragging: GridFixture.claudePane, harness: harness, window: window,
-            follows: slots[2], render: nil, directory: nil
+            opensRowUnder: slots, render: nil, directory: nil
         )
-        // From a multi-pane tab of this very card: the same slot, since the
+        // From a multi-pane tab of this very island: the same slot, since the
         // tab the pane leaves keeps its other panes.
         try await assertNewTabSlot(
             of: GridFixture.herdr, dragging: GridFixture.buildPane, harness: harness, window: window,
-            follows: slots[2], render: nil, directory: nil
+            opensRowUnder: slots, render: nil, directory: nil
         )
         // From the only pane of a tab of this card: that tab goes with the
         // drop, and it STAYS DRAWN in its own slot until then, so the
@@ -1392,7 +1471,8 @@ final class ChromeRenderTests: XCTestCase {
     /// `lands`.
     private func assertNewTabSlot(
         of workspace: WorkspaceID, dragging pane: PaneID, harness: Harness, window: NSWindow,
-        follows previous: CGRect? = nil, lands: CGRect? = nil, render: String?, directory: String?
+        follows previous: CGRect? = nil, opensRowUnder row: [CGRect]? = nil, lands: CGRect? = nil,
+        render: String?, directory: String?
     ) async throws {
         harness.drag.beginIfIdle(
             .pane(pane), ghost: DragCoordinator.Ghost(title: "pane", symbol: "macwindow", originSize: CGSize(width: 40, height: 40), isCompact: true),
@@ -1404,6 +1484,9 @@ final class ChromeRenderTests: XCTestCase {
         )
         if let previous {
             assertSlotFollows(slot, previous, "\(pane.rawValue): the card's last tab")
+        }
+        if let row {
+            assertSlotOpensRow(slot, under: row, "\(pane.rawValue): the island's full row")
         }
         if let lands {
             XCTAssertEqual(slot.minX, lands.minX, accuracy: 0.5, "\(pane.rawValue)")
@@ -1437,11 +1520,12 @@ final class ChromeRenderTests: XCTestCase {
         let card = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
         let cells = try XCTUnwrap(harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.repoTools }?.tabs)
         let first = cells[0].frame
-        // The card's own border, on the edge furthest from the proxy: accent
-        // while the card takes a drop, `paneBorder` otherwise.
-        let border = CGPoint(x: card.maxX - ChromeMetrics.ruleWidth / 4, y: card.midY)
+        // The island's own outline, on the edge furthest from the proxy:
+        // accent while it takes a drop, the label grey otherwise (it is the
+        // focused workspace's island).
+        let border = CGPoint(x: card.maxX - ChromeMetrics.selectionOutlineWidth / 2, y: card.midY)
         let atRest = try snapshot(window)
-        XCTAssertEqual(hex(atRest, border), Theme.tokyoNight.palette.chromeRoles.paneBorder.hex)
+        XCTAssertNotEqual(hex(atRest, border), Theme.tokyoNight.palette.chromeRoles.accent.hex)
 
         harness.drag.beginIfIdle(
             .tab(GridFixture.agentsTab),
@@ -1469,102 +1553,137 @@ final class ChromeRenderTests: XCTestCase {
         // origin) and slot 2 still carries no bar at all.
         let mid = try snapshot(window)
         XCTAssertNotEqual(
-            hex(mid, Self.focusBarPoint(of: first)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            hex(mid, Self.focusBarPoint(of: first)), Self.bareHandle,
             "the focused tab left the slot it still holds"
         )
         XCTAssertEqual(
-            hex(mid, Self.focusBarPoint(of: cells[1].frame)), Theme.tokyoNight.palette.chromeRoles.tabStripFill.hex,
+            hex(mid, Self.focusBarPoint(of: cells[1].frame)), Self.bareHandle,
             "a cell slid for a drop that moves nothing"
         )
         window.close()
     }
 
-    /// A thumbnail is the same size at every window and the row holds as many
-    /// as fit. Driven at five window widths through the real view, so the
-    /// arithmetic that derives the slot count cannot drift from the width the
-    /// cards are actually given.
-    func testAThumbnailIsTheSameWidthAtEveryWindowAndTheRowHoldsWhatFits() async throws {
+    /// Every thumbnail in a window is one size, chosen per window: from the
+    /// 120pt floor up as the window allows, never shrinking as it widens.
+    /// Driven through the real view at four widths, so the fit cannot drift
+    /// from the width the islands are actually given: no island's cells run
+    /// past its own padding, and no island runs past the canvas padding.
+    func testThumbnailsTakeOneSizePerWindowAndNoIslandOverruns() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
-
-        /// The cells one card draws in its first row, read off the frames the
-        /// view published.
-        func firstRow(of harness: Harness, workspace: WorkspaceID, prefix: String) throws -> [CGRect] {
-            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
-            let card = try XCTUnwrap(grid.cards.first { $0.id == workspace }?.frame)
-            let cells = grid.thumbnails.filter { $0.id.rawValue.hasPrefix(prefix) }.map(\.frame)
-            let top = try XCTUnwrap(cells.map(\.minY).min())
-            XCTAssertTrue(cells.allSatisfy { card.contains($0.origin) }, "a cell outside its own card")
-            return cells.filter { $0.minY == top }.sorted { $0.minX < $1.minX }
-        }
-
-        var drawn: [CGFloat: [CGRect]] = [:]
-        // 900 is the narrowest the app allows (`MainWindow` sets that
-        // minimum), so it is the narrow case as well as the design one. 1090
-        // is a width whose row is a few points short of a fifth slot: it is
-        // rendered like the rest but it is here for the overrun check, since
-        // that is where an over-generous slot count shows up as real points.
-        // 2000 is the very wide case, which spends its width on more slots.
-        let rendered: Set<CGFloat> = [Self.windowSize.width, 1200, 1600, 2000]
-        for width in [Self.windowSize.width, 1090, 1200, 1600, 2000] as [CGFloat] {
+        let height: CGFloat = 1000
+        var widths: [CGFloat] = []
+        // 900 is the narrowest the app allows (`MainWindow` sets that minimum).
+        for width in [Self.windowSize.width, 1200, 1600, 2000] as [CGFloat] {
             let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
-            let window = harness.makeWindow(size: CGSize(width: width, height: Self.windowSize.height))
+            let window = harness.makeWindow(size: CGSize(width: width, height: height))
             await settle(window)
             harness.drag.toggleGrid()
             await settle(window)
-            // The nine-tab card, which fills its first row at every width here.
-            let row = try firstRow(of: harness, workspace: GridFixture.repoTools, prefix: "w1:")
-            drawn[width] = row
-            for cell in row {
-                XCTAssertEqual(
-                    cell.width, ChromeMetrics.Grid.thumbnailWidth, accuracy: 0.5,
-                    "\(width): a cell is not the one thumbnail width"
+            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
+            let sizes = Set(grid.thumbnails.map { "\(($0.frame.width * 2).rounded())x\(($0.frame.height * 2).rounded())" })
+            XCTAssertEqual(sizes.count, 1, "\(width): thumbnails of more than one size: \(sizes)")
+            let thumbnail = try XCTUnwrap(grid.thumbnails.first?.frame)
+            XCTAssertGreaterThanOrEqual(thumbnail.width, ChromeMetrics.Grid.minimumThumbnailWidth - 0.5, "\(width)")
+            XCTAssertLessThanOrEqual(thumbnail.width, ChromeMetrics.Grid.islands.maximumWidth + 0.5, "\(width)")
+            for island in grid.cardTabs {
+                let frame = try XCTUnwrap(grid.cards.first { $0.id == island.workspace }?.frame)
+                for cell in island.tabs {
+                    XCTAssertLessThanOrEqual(
+                        cell.frame.maxX, frame.maxX - ChromeMetrics.Grid.islands.horizontalPadding + 0.5,
+                        "\(width): \(island.workspace.rawValue)'s row ran past its island"
+                    )
+                }
+                XCTAssertLessThanOrEqual(
+                    frame.maxX, width - ChromeMetrics.Grid.canvasPadding + 0.5,
+                    "\(width): \(island.workspace.rawValue) ran past the canvas"
                 )
             }
-            // One slot too many costs real points: the cells run past their
-            // card's padding, and the cards then run past the grid's. Both
-            // ends are checked, since SwiftUI spends the overrun on whichever
-            // has slack. This is what pins the derived slot count against the
-            // width a row is actually given.
-            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
-            let card = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.repoTools }?.frame)
-            XCTAssertLessThanOrEqual(
-                try XCTUnwrap(row.last).maxX, card.maxX - ChromeMetrics.Grid.cardHorizontalPadding + 0.5,
-                "\(width): the row ran past its card"
-            )
-            // And the derivation itself, against the card the view really laid
-            // out. The overrun check above is what pins the derived slot COUNT
-            // against real frames; this pins the width that count is derived
-            // from. It reads the viewport rather than the `contentWidth` the
-            // app measures, which are the same number for a grid that only
-            // scrolls vertically and hides its indicators.
-            XCTAssertEqual(
-                GridCardLayout.rowWidth(
-                    gridWidth: grid.viewport.width, canvasPadding: ChromeMetrics.Grid.canvasPadding,
-                    cardGap: ChromeMetrics.Grid.cardGap, cardPadding: ChromeMetrics.Grid.cardHorizontalPadding
-                ),
-                card.width - ChromeMetrics.Grid.cardHorizontalPadding * 2, accuracy: 0.5,
-                "\(width): the derived row width is not the width a card gives its row"
-            )
-            if let directory, rendered.contains(width) {
+            widths.append(thumbnail.width)
+            if let directory {
                 try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-rest-\(Int(width)).png"))
             }
             window.close()
         }
+        XCTAssertEqual(widths, widths.sorted(), "a wider window shrank its thumbnails: \(widths)")
+        XCTAssertGreaterThan(try XCTUnwrap(widths.last), ChromeMetrics.Grid.minimumThumbnailWidth, "a very wide window left its width unused")
+    }
 
-        let design = try XCTUnwrap(drawn[Self.windowSize.width])
-        let middle = try XCTUnwrap(drawn[1200])
-        let wide = try XCTUnwrap(drawn[1600])
-        let veryWide = try XCTUnwrap(drawn[2000])
-        XCTAssertEqual(design.count, 3, "the narrowest window the app allows lost its shape")
-        XCTAssertEqual(middle.count, 4)
-        XCTAssertEqual(wide.count, 5)
-        XCTAssertEqual(veryWide.count, 7, "a very wide window left its width unused")
-        XCTAssertEqual(
-            Set(drawn.values.flatMap { $0 }.map { ($0.width * 100).rounded() }).count, 1,
-            "a thumbnail changed size between windows"
+    /// One open Arrange view refits as its window resizes: narrower rewraps
+    /// the islands inside the new edge, wider gives the larger fit back, and
+    /// a resize under a live drag waits for the drag to end.
+    func testArrangeRefitsWhenTheWindowResizesButNotMidDrag() async throws {
+        try await resizeArrange(themed: "tokyo-night", renderSuffix: "dark")
+        try await resizeArrange(themed: "catppuccin-latte", renderSuffix: "light")
+    }
+
+    private func resizeArrange(themed id: String, renderSuffix: String) async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+        let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        let wide = CGSize(width: 2000, height: 1000)
+        let narrow = CGSize(width: Self.windowSize.width, height: 1000)
+        let window = harness.makeWindow(size: wide)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        func measure(_ label: String, width: CGFloat) throws -> (thumbnail: CGFloat, rows: Int) {
+            let grid = try XCTUnwrap(harness.drag.surfaces?.grid, label)
+            let thumbnail = try XCTUnwrap(grid.thumbnails.first?.frame.width, label)
+            let cards = grid.cards.map(\.frame)
+            for card in cards {
+                XCTAssertLessThanOrEqual(card.maxX, width - ChromeMetrics.Grid.canvasPadding + 0.5, "\(label): an island ran past the window")
+            }
+            let rows = Set(cards.map { ($0.minY * 2).rounded() }).count
+            return (thumbnail, rows)
+        }
+
+        let opened = try measure("wide", width: wide.width)
+        window.setContentSize(narrow)
+        await settle(window)
+        let shrunk = try measure("narrowed", width: narrow.width)
+        if let directory {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-resized-narrow-\(renderSuffix).png"))
+        }
+        XCTAssertGreaterThan(shrunk.rows, opened.rows, "narrowing the window did not rewrap the islands")
+        window.setContentSize(wide)
+        await settle(window)
+        let regrown = try measure("widened", width: wide.width)
+        XCTAssertEqual(regrown.thumbnail, opened.thumbnail, accuracy: 0.5, "widening again did not give the larger fit back")
+        XCTAssertEqual(regrown.rows, opened.rows)
+        if let directory {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-resized-wide-\(renderSuffix).png"))
+        }
+
+        let grabbed = try XCTUnwrap(harness.drag.surfaces?.grid?.miniPaneFrame(of: GridFixture.claudePane))
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.claudePane),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: grabbed.size, isCompact: true),
+            at: CGPoint(x: grabbed.midX, y: grabbed.midY)
         )
+        await settle(window)
+        window.setContentSize(CGSize(width: 1400, height: 1000))
+        await settle(window)
+        let frozen = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first?.frame.width)
+        XCTAssertEqual(frozen, regrown.thumbnail, accuracy: 0.5, "the fit changed under a live drag")
+        harness.drag.move(to: CGPoint(x: 5, y: 120))
+        XCTAssertNil(harness.drag.target, "released where nothing resolves, so nothing commits")
+        harness.drag.release()
+        for _ in 0..<40 where harness.drag.activeSubject != nil {
+            await settle(window)
+        }
+        XCTAssertNil(harness.drag.activeSubject, "the drag never ended")
+        await settle(window)
+        let released = try measure("after the drag", width: 1400)
+        XCTAssertTrue(
+            released.thumbnail != regrown.thumbnail || released.rows != regrown.rows,
+            "the resize made during the drag was never applied: \(released) vs \(regrown)"
+        )
+        window.close()
     }
 
     /// A pane aimed INSIDE another tab's thumbnail: the mini pane under the
@@ -1610,11 +1729,16 @@ final class ChromeRenderTests: XCTestCase {
         func inWindow(_ box: CGRect) -> CGRect { box.offsetBy(dx: area.minX, dy: area.minY) }
         let resting = boxes(arriving: nil)
 
-        // The proxy is the mini pane's own footprint, as the grid's pane drag
-        // makes it: a thumbnail-sized one would cover the panes being sampled.
+        // A proxy too small to cover anything: at the floor-size thumbnail
+        // a pane proxy's minimum size and shadow cover most of the slot,
+        // leaving no wash to sample. A miniature is drawn at exactly its
+        // footprint, which is what lets this one be 6pt.
         harness.drag.beginIfIdle(
             .pane(GridFixture.claudePane),
-            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: grabbed.size, isCompact: true),
+            ghost: DragCoordinator.Ghost(
+                title: "claude", symbol: "macwindow", originSize: CGSize(width: 6, height: 6), isCompact: true,
+                tabMiniature: .init(title: "claude", status: .working, isFocusedTab: false, panes: [])
+            ),
             at: CGPoint(x: grabbed.midX, y: grabbed.midY)
         )
         XCTAssertTrue(source.contains(grabbed), "the grabbed pane is drawn in its own tab's thumbnail")
@@ -1647,11 +1771,12 @@ final class ChromeRenderTests: XCTestCase {
             }
             let slot = inWindow(opened)
             let untouched = inWindow(try XCTUnwrap(landing.first { $0.pane == right.pane }).frame)
-            // Sampled at the bottom of each box, clear of the proxy the
-            // pointer carries and of a mini pane's own title row.
+            // Sampled along the bottom of each box, clear of a mini pane's
+            // own title row. The flatness pair sits either side of the slot's
+            // middle on one line.
             XCTAssertLessThanOrEqual(
                 channelDistance(
-                    hex(image, CGPoint(x: slot.midX, y: slot.maxY - 10)), hex(image, CGPoint(x: slot.midX, y: slot.maxY - 4))
+                    hex(image, CGPoint(x: slot.midX - 4, y: slot.maxY - 4)), hex(image, CGPoint(x: slot.midX + 4, y: slot.maxY - 4))
                 ),
                 Self.washDither, "the slot the arriving pane takes is not one wash", line: line
             )
@@ -1743,10 +1868,12 @@ final class ChromeRenderTests: XCTestCase {
 
         let opened = inWindow(landed)
         let untouched = inWindow(try XCTUnwrap(landing.first { ![arrival.pane, focused].contains($0.pane) }).frame)
-        // Both samples sit in the bottom of their box, below the proxy and
-        // below a mini pane's own title row.
+        // Every sample sits along the bottom of its box, below a mini pane's
+        // own title row. The flatness pair sits either side of the slot's
+        // middle on one line, so the proxy's shadow, which reaches this far
+        // down a floor-size thumbnail, falls on both alike.
         XCTAssertEqual(
-            hex(image, CGPoint(x: opened.midX, y: opened.maxY - 14)), hex(image, CGPoint(x: opened.midX, y: opened.maxY - 4)),
+            hex(image, CGPoint(x: opened.midX - 4, y: opened.maxY - 4)), hex(image, CGPoint(x: opened.midX + 4, y: opened.maxY - 4)),
             "the slot the arriving pane takes is one flat wash"
         )
         XCTAssertNotEqual(
@@ -1756,14 +1883,18 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The focus bar's own pixel inside a thumbnail's handle strip: the bar
-    /// is drawn at the strip's leading edge, inside its padding.
+    /// A pixel of a thumbnail's handle underline, clear of its title and
+    /// status dot. Only the focused tab underlines its handle, so this pixel
+    /// says where that tab is drawn.
     private static func focusBarPoint(of thumbnail: CGRect) -> CGPoint {
         CGPoint(
-            x: thumbnail.minX + ChromeMetrics.Grid.tabStripHorizontalPadding + ChromeMetrics.Grid.tabStripIndicatorSize.width / 2,
-            y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2
+            x: thumbnail.minX + thumbnail.width * 0.7,
+            y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight - ChromeMetrics.Grid.currentTabUnderline / 2
         )
     }
+
+    /// A handle with no underline: the thumbnail's own `pane` ground.
+    private static let bareHandle = Theme.tokyoNight.palette.chromeRoles.pane.hex
 
     /// The placeholder's frame against the frames of the tabs it follows,
     /// from real reported frames on both sides: the slot after a card's last
@@ -1783,7 +1914,8 @@ final class ChromeRenderTests: XCTestCase {
             return try XCTUnwrap(frames.max { ($0.minY, $0.minX) < ($1.minY, $1.minX) })
         }
         let lastRepoToolsTab = try lastTab(of: GridFixture.repoTools)
-        let lastHerdrTab = try lastTab(of: GridFixture.herdr)
+        let herdrRow = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails
+            .filter { $0.id.rawValue.hasPrefix("\(GridFixture.herdr.rawValue):") }.map(\.frame))
         let fullRow = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails
             .filter { $0.id.rawValue.hasPrefix("\(GridFixture.mattstackApps.rawValue):") }.map(\.frame))
         let fullCard = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
@@ -1795,7 +1927,7 @@ final class ChromeRenderTests: XCTestCase {
             at: CGPoint(x: source.midX, y: source.midY)
         )
 
-        // Nine tabs at four per row end a row with three slots free.
+        // Nine tabs wrap to a second row with slots free beside the ninth.
         try await overEmptySpace(of: GridFixture.repoTools, harness: harness, window: window)
         let repoTools = try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)))
         assertSlotFollows(repoTools, lastRepoToolsTab, "the card's last tab")
@@ -1806,8 +1938,8 @@ final class ChromeRenderTests: XCTestCase {
 
         try await overEmptySpace(of: GridFixture.herdr, harness: harness, window: window)
         XCTAssertNil(harness.drag.gridItemFrame(for: .newTab(GridFixture.repoTools)), "the placeholder left with the card it was over")
-        assertSlotFollows(
-            try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.herdr))), lastHerdrTab, "the card's last tab"
+        assertSlotOpensRow(
+            try XCTUnwrap(harness.drag.gridItemFrame(for: .newTab(GridFixture.herdr))), under: herdrRow, "the island's full row"
         )
 
         // Four tabs fill the row, so the created tab opens a row of its own,
@@ -1856,7 +1988,7 @@ final class ChromeRenderTests: XCTestCase {
         let refusedGround = Self.headerGround(of: other)
         // Clear of the proxy, which hangs from the pointer: the card's own
         // fill at its leading edge, on the same row.
-        let refusedSample = CGPoint(x: other.minX + ChromeMetrics.Grid.cardHorizontalPadding / 2, y: refusedGround.y)
+        let refusedSample = CGPoint(x: other.minX + ChromeMetrics.Grid.islands.horizontalPadding / 2, y: refusedGround.y)
         let refusedAtRest = hex(try snapshot(window), refusedSample)
         let multiPane = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
         harness.drag.beginIfIdle(
@@ -1892,6 +2024,424 @@ final class ChromeRenderTests: XCTestCase {
     func testTheGridRendersInALightThemeAndInTheTightestDarkOne() async throws {
         try await renderGrid(themed: "catppuccin-latte", into: "grid-rest-latte.png")
         try await renderGrid(themed: "nord", into: "grid-rest-nord.png")
+    }
+
+    /// Mission control's lanes in a dark and a light theme. A pane that went
+    /// working to blocked is a Needs-you card wearing the blocked outline,
+    /// and, as the first card of the first lane, the selection ring outside it.
+    func testMissionControlRendersInDarkAndLight() async throws {
+        try await renderMissionControl(themed: "tokyo-night", into: "mission-dark.png")
+        try await renderMissionControl(themed: "tokyo-night-day", into: "mission-light.png")
+    }
+
+    /// A selection left on a pane that is no longer a card (folded away, or
+    /// closed) is replaced by the first card when mission control opens, so
+    /// the ring and Return always agree on a card that is drawn.
+    func testMissionControlReplacesAStaleSelectionWithTheFirstCard() async throws {
+        var model = try GridFixture.model()
+        let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        model.panes[GridFixture.buildPane]?.agentStatus = .blocked
+        harness.viewModel.update(model: model, connection: .live)
+        harness.modeStore.select(.missionControl)
+        harness.modeStore.missionSelection = PaneID(rawValue: "w9:p9")
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+        XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane, "the closed pane's id was kept")
+        window.close()
+    }
+
+    /// Mission control draws no dock, so the stack's sweep cannot live in the
+    /// dock: a finished card under a timed lifetime leaves Needs you on time.
+    func testMissionControlExpiresAFinishedCardWithNoDockOnScreen() async throws {
+        var model = try GridFixture.model()
+        let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
+        let harness = try await Harness(
+            theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [],
+            now: { clock.date }, notificationLifetime: .fiveSeconds
+        )
+        model.panes[GridFixture.glancePane]?.agentStatus = .working
+        harness.viewModel.update(model: model, connection: .live)
+        clock.date = clock.date.addingTimeInterval(60)
+        model.panes[GridFixture.glancePane]?.agentStatus = .done
+        harness.viewModel.update(model: model, connection: .live)
+        XCTAssertNotNil(harness.viewModel.attentionToasts.toast(pane: GridFixture.glancePane), "the premise: a finished card")
+        harness.modeStore.select(.missionControl)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+        clock.date = clock.date.addingTimeInterval(10)
+        await settle(window)
+        await settle(window)
+        XCTAssertNil(harness.viewModel.attentionToasts.toast(pane: GridFixture.glancePane), "the card outlived its lifetime")
+        window.close()
+    }
+
+    /// Mission control opens over a terminal that holds the window's first
+    /// responder, and a SwiftUI focus request is dropped while an AppKit view
+    /// holds it (`FirstResponderClaim`). Arrows and Return still move and open
+    /// the selection, and never reach the shell.
+    func testMissionControlTakesArrowsFromATerminalHoldingTheKeyboard() async throws {
+        let harness = try await Harness(theme: .tokyoNight, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        harness.modeStore.select(.missionControl)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        let terminal = KeyHog(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        window.contentView?.addSubview(terminal)
+        XCTAssertTrue(window.makeFirstResponder(terminal), "the premise: the stand-in terminal holds the keyboard")
+        harness.drag.toggleGrid()
+        await settle(window)
+        let first = try XCTUnwrap(harness.modeStore.missionSelection, "the premise: a card is selected")
+        pressKey(window, keyCode: 125, character: NSDownArrowFunctionKey)
+        await settle(window)
+        XCTAssertNotEqual(harness.modeStore.missionSelection, first, "the arrow moved the selection")
+        XCTAssertEqual(terminal.keys, 0, "no key reached the terminal")
+        window.close()
+    }
+
+    /// A card opened from Overview shows its pane in the focused view, in a
+    /// dark and a light theme. The view stays up, the card leaves the stack,
+    /// and herdr's focus is never asked to move.
+    func testFocusedPaneRendersInDarkAndLight() async throws {
+        for (id, file) in [("tokyo-night", "focused-dark.png"), ("tokyo-night-day", "focused-light.png")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let client = MethodRecordingClient()
+            let (harness, window) = try await focusedOverview(theme: theme, client: client)
+            JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore).open(pane: GridFixture.buildPane)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap({ $0.isEmpty ? nil : $0 }) {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
+            }
+            XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.buildPane, "\(id): the card opened in the focused view")
+            XCTAssertTrue(harness.drag.isGridShown, "\(id): opening a card closed the view")
+            XCTAssertNil(harness.viewModel.attentionToasts.toast(pane: GridFixture.buildPane), "\(id): the opened card is still in the stack")
+            let header = CGRect(
+                x: 0, y: ChromeMetrics.TitleBar.height, width: Self.gridWindowSize.width / 2, height: ChromeMetrics.Grid.headerHeight
+            )
+            XCTAssertNotNil(firstPoint(in: header, matching: theme.palette.red.hex, of: image), "\(id): no blocked hue in the header")
+            let methods = await client.methods
+            for focusing in ["tab.focus", "pane.focus", "workspace.focus"] {
+                XCTAssertFalse(methods.contains(focusing), "\(id): opening the card sent \(focusing)")
+            }
+            window.close()
+        }
+    }
+
+    /// Back from the focused view is Overview's lanes, with the card that was
+    /// open selected.
+    func testBackFromTheFocusedPaneSelectsItsCard() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        XCTAssertTrue(navigator.isFocusedInOverview, "Back to Overview is disabled in the focused view")
+        navigator.backToOverview()
+        await settle(window)
+        XCTAssertNil(harness.drag.gridFocusedPane)
+        XCTAssertTrue(harness.drag.isGridShown)
+        XCTAssertEqual(harness.modeStore.shown(dragInFlight: false), .missionControl)
+        XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane)
+        window.close()
+    }
+
+    /// The jump key in the focused view swaps in the next oldest card, and
+    /// with none left it leaves the view as it is.
+    func testJInTheFocusedViewOpensTheNextCard() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        XCTAssertEqual(harness.viewModel.oldestAttentionPane, PaneID(rawValue: "w2:p1"), "the premise: the oldest card")
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        navigator.openOldest()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, PaneID(rawValue: "w2:p1"))
+        navigator.openOldest()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane)
+        XCTAssertNil(harness.viewModel.oldestAttentionPane, "the premise: no card left")
+        navigator.openOldest()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane, "the jump key with no card left changed the view")
+        XCTAssertTrue(harness.drag.isGridShown)
+        window.close()
+    }
+
+    /// Open Next Card swaps in the card the Next chip names, the oldest other
+    /// than the shown pane's; with the queue clear it does nothing, and it is
+    /// off outside the focused view.
+    func testNextInTheFocusedViewOpensTheCardTheChipNames() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        XCTAssertNil(navigator.nextCard, "Open Next Card is on outside the focused view")
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        XCTAssertEqual(navigator.nextCard, PaneID(rawValue: "w2:p1"))
+        navigator.openNext()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, PaneID(rawValue: "w2:p1"))
+        navigator.openNext()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane)
+        XCTAssertNil(navigator.nextCard, "the premise: the queue is clear")
+        navigator.openNext()
+        await settle(window)
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.srcPane, "Open Next Card with the queue clear changed the view")
+        if let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap({ $0.isEmpty ? nil : $0 }) {
+            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("focused-queue-clear.png"))
+        }
+        window.close()
+    }
+
+    /// A focused pane that herdr stops reporting leaves the view on
+    /// Overview's lanes, never on an empty canvas.
+    func testAFocusedPaneThatClosesReturnsToOverview() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore).open(pane: GridFixture.buildPane)
+        await settle(window)
+        XCTAssertEqual(harness.viewModel.paneShownInOverview, GridFixture.buildPane, "the view model does not know the shown pane")
+        var model = try XCTUnwrap(harness.viewModel.model)
+        model.panes[GridFixture.buildPane] = nil
+        harness.viewModel.update(model: model, connection: .live)
+        await settle(window)
+        XCTAssertNil(harness.drag.gridFocusedPane, "the closed pane is still focused")
+        XCTAssertTrue(harness.drag.isGridShown, "the view closed")
+        XCTAssertEqual(harness.modeStore.shown(dragInFlight: false), .missionControl)
+        XCTAssertNil(harness.viewModel.paneShownInOverview, "the view model still watches the closed pane")
+        window.close()
+    }
+
+    /// The focused view opens over a terminal holding the keyboard. Esc and
+    /// the arrows reach the window's first responder untouched: Overview's
+    /// key monitor is not installed, and Esc does not close the view.
+    func testEscInTheFocusedViewReachesTheTerminal() async throws {
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: MethodRecordingClient())
+        let terminal = KeyHog(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        window.contentView?.addSubview(terminal)
+        JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore).open(pane: GridFixture.buildPane)
+        await settle(window)
+        // Key, so the application hands it the keys its monitors pass on.
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(window.makeFirstResponder(terminal), "the premise: the stand-in terminal holds the keyboard")
+        pressKey(window, keyCode: 53, character: 0x1B)
+        await settle(window)
+        pressKey(window, keyCode: 125, character: NSDownArrowFunctionKey)
+        await settle(window)
+        XCTAssertEqual(terminal.keys, 2, "a key did not reach the terminal")
+        XCTAssertTrue(harness.drag.isGridShown, "Esc closed the view")
+        XCTAssertEqual(harness.drag.gridFocusedPane, GridFixture.buildPane, "Esc left the focused view")
+        XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane, "the arrow moved Overview's selection")
+        window.close()
+    }
+
+    /// A modal left open from another pane is neither drawn over the focused
+    /// view nor closed by leaving it. The shown pane's own modal is drawn
+    /// (its backdrop dims the canvas above the box) and back closes it,
+    /// without asking herdr to move its focus.
+    func testTheFocusedViewDrawsAndClosesOnlyItsOwnPanesRtModal() async throws {
+        let client = MethodRecordingClient()
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: client)
+        let rt = harness.viewModel.rt
+        var model = try XCTUnwrap(harness.viewModel.model)
+        model.panes[GridFixture.buildPane]?.terminalID = TerminalID(rawValue: "term_build")
+        model.panes[GridFixture.srcPane]?.terminalID = TerminalID(rawValue: "term_src")
+        harness.viewModel.update(model: model, connection: .live)
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        let backdrop = CGPoint(
+            x: Self.gridWindowSize.width / 2, y: ChromeMetrics.TitleBar.height + ChromeMetrics.Grid.headerHeight + 12
+        )
+        let bare = hex(try snapshot(window), backdrop)
+
+        showRtRun(harness.viewModel, linked: "term_src")
+        await settle(window)
+        XCTAssertEqual(hex(try snapshot(window), backdrop), bare, "another pane's modal is drawn over the shown one")
+        navigator.backToOverview()
+        await settle(window)
+        await rt.settle()
+        XCTAssertEqual(rt.modal?.itemID, "run-term_src", "leaving the focused view closed another pane's modal")
+
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        showRtRun(harness.viewModel, linked: "term_build")
+        await settle(window)
+        XCTAssertNotEqual(hex(try snapshot(window), backdrop), bare, "the shown pane's own modal is not drawn")
+        navigator.backToOverview()
+        await settle(window)
+        await rt.settle()
+        XCTAssertNil(rt.modal, "back left the shown pane's modal up")
+        let methods = await client.methods
+        for focusing in ["tab.focus", "pane.focus", "workspace.focus"] {
+            XCTAssertFalse(methods.contains(focusing), "the focused view sent \(focusing)")
+        }
+        window.close()
+    }
+
+    /// An rt run shown in the modal, linked to the pane holding `terminal`.
+    private func showRtRun(_ viewModel: SessionViewModel, linked terminal: String) {
+        let item = RtItem(
+            id: "run-\(terminal)", kind: .run, linked: TerminalID(rawValue: terminal),
+            workspaceID: WorkspaceID(rawValue: "rt"), tabID: TabID(rawValue: "rt:\(terminal)"),
+            firstPaneID: PaneID(rawValue: "rt:p-\(terminal)"), title: "rt run", folder: "/tmp",
+            isRunning: true, started: true, strip: nil
+        )
+        viewModel.rt.items[item.id] = item
+        viewModel.rt.modal = RtModal(itemID: item.id, tabID: item.tabID, serviceTabID: nil)
+    }
+
+    /// Overview shown with three Needs-you cards, oldest first: `w2:p1`
+    /// finished, the build pane blocked, the src pane finished.
+    private func focusedOverview(theme: Theme, client: MethodRecordingClient) async throws -> (Harness, NSWindow) {
+        var model = try GridFixture.model()
+        let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
+        let harness = try await Harness(theme: theme, model: model, client: client, attaching: [], now: { clock.date })
+        let steps: [(minute: Double, pane: PaneID, status: AgentStatus)] = [
+            (5, GridFixture.glancePane, .working),
+            (10, GridFixture.buildPane, .working),
+            (20, PaneID(rawValue: "w2:p1"), .working),
+            (25, PaneID(rawValue: "w2:p1"), .done),
+            (33, GridFixture.buildPane, .blocked),
+            (40, GridFixture.srcPane, .done),
+        ]
+        let launch = clock.date
+        for step in steps {
+            clock.date = launch.addingTimeInterval(step.minute * 60)
+            model.panes[step.pane]?.agentStatus = step.status
+            harness.viewModel.update(model: model, connection: .live)
+        }
+        clock.date = launch.addingTimeInterval(45 * 60)
+        harness.modeStore.select(.missionControl)
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+        return (harness, window)
+    }
+
+    /// Opened mid-drag, the view is the drop surface, which is always Arrange,
+    /// whatever mode is remembered; the remembered mode is left alone.
+    func testOpenedMidDragTheViewDrawsArrangeAndRemembersMissionControl() async throws {
+        let harness = try await Harness(theme: .tokyoNight, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        harness.modeStore.select(.missionControl)
+        MissionCardFrames.shared.frames = [:]
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.beginIfIdle(
+            .pane(GridFixture.claudePane),
+            ghost: DragCoordinator.Ghost(title: "claude", symbol: "macwindow", originSize: CGSize(width: 200, height: 120), isCompact: true),
+            at: CGPoint(x: 600, y: 300)
+        )
+        harness.drag.toggleGrid()
+        await settle(window)
+        XCTAssertFalse(try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails).isEmpty, "Arrange's thumbnails are the drop surface")
+        XCTAssertTrue(MissionCardFrames.shared.frames.isEmpty, "no mission-control card was drawn")
+        XCTAssertEqual(harness.modeStore.active, .missionControl)
+        window.close()
+    }
+
+    /// Repo and branch are re-read per open: the hook runs as the grid opens,
+    /// before the view is shown, and not as it closes.
+    func testOpeningTheGridRunsItsOpenHookBeforeItIsShown() {
+        var coordinator: DragCoordinator?
+        var shownAtHook: [Bool] = []
+        let drag = DragCoordinator(
+            toasts: ToastCenter(), rearrangeMode: RearrangeMode(),
+            commit: { _, _ in fatalError("never drops") }, reveal: { _ in },
+            gridOpened: { shownAtHook.append(coordinator?.isGridShown ?? true) }
+        )
+        coordinator = drag
+        drag.toggleGrid()
+        drag.toggleGrid()
+        drag.openGrid()
+        XCTAssertEqual(shownAtHook, [false, false])
+    }
+
+    private func renderMissionControl(themed id: String, into file: String) async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+        var model = try GridFixture.model()
+        let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
+        let harness = try await Harness(
+            theme: theme, model: model, client: GridFixtureClient(), attaching: [], now: { clock.date }, oneTitle: true
+        )
+        // Minutes into the day after launch, and 45 of them have passed: a
+        // pane left alone since launch has no known last change and rests
+        // under Unknown, one changed before the last hour under Earlier
+        // today, and `w2:p1` under Last hour.
+        let steps: [(minute: Double, pane: PaneID, status: AgentStatus)] = [
+            (-150, PaneID(rawValue: "w5:p1"), .done),
+            (5, GridFixture.glancePane, .working),
+            (10, GridFixture.buildPane, .working),
+            (25, PaneID(rawValue: "w2:p1"), .done),
+            (35, GridFixture.buildPane, .blocked),
+            (40, GridFixture.srcPane, .done),
+        ]
+        let day = clock.date.addingTimeInterval(26 * 3600)
+        for step in steps {
+            clock.date = day.addingTimeInterval(step.minute * 60)
+            model.panes[step.pane]?.agentStatus = step.status
+            harness.viewModel.update(model: model, connection: .live)
+        }
+        clock.date = day.addingTimeInterval(45 * 60)
+        harness.modeStore.select(.missionControl)
+        MissionCardFrames.shared.frames = [:]
+        let window = harness.makeWindow(size: Self.gridWindowSize)
+        await settle(window)
+        harness.drag.toggleGrid()
+        await settle(window)
+
+        let image = try snapshot(window)
+        if let directory {
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
+        }
+        let card = try XCTUnwrap(harness.missionCardFrame(of: GridFixture.buildPane), "the blocked pane is a Needs-you card")
+        XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane, "\(id): the first open selects the top card")
+        XCTAssertEqual(
+            hex(image, CGPoint(x: card.minX + ChromeMetrics.selectionOutlineWidth / 2, y: card.midY)), theme.palette.accent.hex,
+            "\(id): the selected card wears the selection outline, over its blocked one"
+        )
+        XCTAssertNotEqual(
+            hex(image, CGPoint(x: card.minX - 1, y: card.midY)), theme.palette.accent.hex,
+            "\(id): the selection outline is drawn inside the card"
+        )
+
+        let (board, _) = try XCTUnwrap(MissionBoard.make(
+            viewModel: harness.viewModel, board: harness.board, herdProgress: HerdProgressStore(sources: .unanswered),
+            opensOlder: false, now: harness.viewModel.currentTime
+        ))
+        let blocked = try XCTUnwrap(
+            board.needsYou.cards.first { $0.status == .blocked && $0.paneID != GridFixture.buildPane },
+            "the premise: a second blocked card"
+        )
+        let blockedCard = try XCTUnwrap(harness.missionCardFrame(of: blocked.paneID))
+        XCTAssertEqual(
+            hex(image, CGPoint(x: blockedCard.minX + 0.75, y: blockedCard.midY)), theme.palette.red.hex,
+            "\(id): a blocked card wears the blocked hue"
+        )
+        XCTAssertGreaterThanOrEqual(board.atRest.count, 2, "\(id): At rest draws its time sections")
+        XCTAssertEqual(board.atRest.first?.age, .lastHour)
+        XCTAssertEqual(board.atRest.last?.age, .unknown, "\(id): panes left alone since launch rest under Unknown")
+        XCTAssertEqual(board.atRest.first?.groups.flatMap(\.cards).map(\.paneID), [PaneID(rawValue: "w2:p1")])
+        let firstWorking = try XCTUnwrap(board.working.first?.cards.first, "the premise: Working holds a group")
+        let working = try XCTUnwrap(harness.missionCardFrame(of: firstWorking.paneID))
+        XCTAssertNotEqual(
+            hex(image, CGPoint(x: working.minX - ChromeMetrics.MissionControl.groupPadding / 2, y: working.midY)),
+            theme.palette.chromeRoles.pane.hex,
+            "\(id): a Working group sits on the neutral wash, not the lane's ground"
+        )
+        // Below the card, inside its group's padding, clear of the selection ring.
+        XCTAssertNotEqual(
+            hex(image, CGPoint(x: card.midX, y: card.maxY + ChromeMetrics.MissionControl.groupPadding - 2)),
+            theme.palette.chromeRoles.pane.hex,
+            "\(id): a Needs-you card sits in its workspace's group, not on the lane's ground"
+        )
+        window.close()
     }
 
     /// The rail's Herds section, expanded and folded, in a dark and a light
@@ -2136,6 +2686,8 @@ final class ChromeRenderTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
         defaults.removeObject(forKey: NotificationLifetimeStore.defaultsKey)
         defaults.removeObject(forKey: RearrangeAfterMoveStore.defaultsKey)
+        defaults.removeObject(forKey: MissionBottomLineStore.defaultsKey)
+        defaults.removeObject(forKey: OneTitleStore.defaultsKey)
         for kind in NewTerminalKind.allCases {
             defaults.removeObject(forKey: StartingFolderStore.defaultsKey(for: kind))
             defaults.removeObject(forKey: StartingFolderStore.customPathKey(for: kind))
@@ -2153,6 +2705,8 @@ final class ChromeRenderTests: XCTestCase {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
+                missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
+                oneTitleStore: OneTitleStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults),
@@ -2198,7 +2752,9 @@ final class ChromeRenderTests: XCTestCase {
         let herdr = herdrDir.appendingPathComponent("herdr").path
         let artifact = herdrDir.appendingPathComponent("herdr-patched").path
         try Data("herdr 0.9.3 terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: artifact))
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "flock-banner-\(UUID().uuidString)"))
+        let bannerSuite = "flock-banner-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: bannerSuite))
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: bannerSuite) }
         let band = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 60)
 
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
@@ -2306,17 +2862,21 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertFalse(unstamped.newerBuildReady)
     }
 
-    /// The grid covers the rail, so the dock floats in the corner the rail
-    /// would hold, at the rail's width. The check is the needs-input card's
-    /// red appearing there against the same grid with nothing to say.
+    /// The grid covers the rail, so Arrange's dock floats in the corner the
+    /// rail would hold, at the rail's width, with flock's notice and none of
+    /// the attention cards, which are Overview's Needs you lane. Read against
+    /// the same grid with nothing to say: the notice's `chrome` ground
+    /// appears there, and the needs-input card's red does not.
     func testOverTheGridTheDockFloatsWhereTheRailWouldBe() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_DOCK_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
         let red = theme.palette.red.hex
+        let ground = theme.palette.chromeRoles.chrome.hex
         let corner = CGRect(
             x: 0, y: Self.gridWindowSize.height - 220, width: RailWidth.default, height: 220
         )
-        var counts: [Int] = []
+        var reds: [Int] = []
+        var grounds: [Int] = []
         for withMessages in [false, true] {
             let harness = withMessages
                 ? try await dockHarness(theme: theme, overflowing: false)
@@ -2325,15 +2885,20 @@ final class ChromeRenderTests: XCTestCase {
             await settle(window)
             harness.drag.toggleGrid()
             await settle(window)
+            XCTAssertEqual(harness.modeStore.shown(dragInFlight: false), .arrange, "the grid opens on Arrange")
             let image = try snapshot(window)
-            counts.append(count(red, in: corner, of: image))
+            reds.append(count(red, in: corner, of: image))
+            grounds.append(count(ground, in: corner, of: image))
             if withMessages, let directory {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("dock-over-grid-dark-tokyo-night.png"))
             }
             window.close()
         }
-        XCTAssertGreaterThan(counts[1], counts[0], "no needs-input red in the grid's bottom-left corner: the dock is not there")
+        XCTAssertGreaterThan(
+            grounds[1], grounds[0] + 2_000, "no notice in the grid's bottom-left corner: the dock is not there"
+        )
+        XCTAssertEqual(reds[1], reds[0], "an attention card floated over Arrange")
     }
 
     /// The least the lists may be left with under the tallest dock, at the
@@ -2408,6 +2973,75 @@ final class ChromeRenderTests: XCTestCase {
         return hits
     }
 
+    /// The main window with Settings > Titles on, over a tab of one pane and
+    /// a tab of two. PNGs go to `FLOCK_CHROME_RENDER_DIR`. Alone, the pane's
+    /// title row keeps its status chip and draws no title: the tab strip's is
+    /// the one title.
+    func testOneTitleHidesTheTitleOfAPaneAloneInItsTab() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            for (name, onePane) in [("one-pane", true), ("two-pane", false)] {
+                let model = try Fixture.model(onePane: onePane)
+                let harness = try await Harness(
+                    theme: theme, model: model,
+                    attaching: onePane ? [PaneID(rawValue: "w1:p2")] : Fixture.canvasPanes, oneTitle: true
+                )
+                let pane = try XCTUnwrap(model.panes[PaneID(rawValue: "w1:p2")])
+                let shown = PaneNaming.shownTitle(pane: pane, model: model, oneTitle: true)
+                XCTAssertEqual(shown == nil, onePane, "\(name): a pane is titled only while it shares its tab")
+                let window = harness.makeWindow(size: Self.windowSize)
+                await settle(window)
+                let image = try snapshot(window)
+                XCTAssertGreaterThan(image.pixelsWide, 0)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("titles-\(name)-\(scheme).png"))
+                }
+                window.close()
+            }
+        }
+    }
+
+    /// Arrange on a roomy window: thumbnails grow past the floor, each island
+    /// is tinted off the canvas, and `glance`, left alone since launch, is an
+    /// island like every other workspace.
+    func testArrangeDrawsTintedIslandsThatFillTheWindow() async throws {
+        for (id, file) in [("tokyo-night", "islands-dark.png"), ("tokyo-night-day", "islands-light.png")] {
+            let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let clock = FixtureClock(Date(timeIntervalSince1970: 1_000_000))
+            let harness = try await Harness(
+                theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [], now: { clock.date },
+                oneTitle: true
+            )
+            clock.date = clock.date.addingTimeInterval(45 * 60)
+            harness.modeStore.select(.arrange)
+            let window = harness.makeWindow(size: Self.islandsWindowSize)
+            await settle(window)
+            harness.drag.toggleGrid()
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
+            }
+            let grid = try XCTUnwrap(harness.drag.surfaces?.grid)
+            let thumbnail = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
+            XCTAssertGreaterThan(thumbnail.width, ChromeMetrics.Grid.minimumThumbnailWidth, "\(id): a roomy window buys bigger thumbnails")
+            let islandGround = hex(image, CGPoint(x: thumbnail.minX - 8, y: thumbnail.midY))
+            XCTAssertNotEqual(islandGround, theme.palette.chromeRoles.canvas.hex, "\(id): the island is tinted, not bare canvas")
+            XCTAssertTrue(grid.thumbnails.contains { $0.id == GridFixture.glanceTab }, "\(id): a quiet workspace still draws its tabs")
+            let quiet = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
+            XCTAssertEqual(
+                hex(image, CGPoint(x: quiet.minX - 8, y: quiet.midY)), islandGround,
+                "\(id): every island sits on the same neutral wash"
+            )
+            window.close()
+        }
+    }
+
+    private static let islandsWindowSize = CGSize(width: 1600, height: 1000)
+
     private func renderGrid(themed id: String, into file: String) async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
@@ -2424,16 +3058,12 @@ final class ChromeRenderTests: XCTestCase {
         }
         assertGridSamples(image, theme: theme)
 
-        // The strip is a band, not the body it sits on: sampled inside a
-        // thumbnail's strip and inside the same thumbnail's ground. The
-        // sample sits in the run between the title and the status dot, clear
-        // of both, since either would be its own colour.
+        // The focused tab's handle has no fill, so it is told by the underline.
         let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
-        let beforeTheDot = ChromeMetrics.Grid.tabStripHorizontalPadding
-            + ChromeMetrics.Grid.labelStatusDot + ChromeMetrics.Grid.tabStripSpacing
-        let strip = hex(image, CGPoint(x: thumbnail.maxX - beforeTheDot, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2))
-        XCTAssertEqual(strip, theme.palette.chromeRoles.tabStripFill.hex, "\(id): the strip carries the role it was given")
-        XCTAssertNotEqual(strip, theme.palette.chromeRoles.canvas.hex, "\(id): and it is not the thumbnail body")
+        let underline = hex(image, CGPoint(
+            x: thumbnail.midX, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight - ChromeMetrics.Grid.currentTabUnderline / 2
+        ))
+        XCTAssertEqual(underline, theme.palette.accent.hex, "\(id): the focused tab's handle is underlined")
         window.close()
     }
 
@@ -2478,10 +3108,7 @@ final class ChromeRenderTests: XCTestCase {
         )
 
         let target = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.mattstackApps }?.frame)
-        harness.drag.move(to: CGPoint(
-            x: target.midX,
-            y: target.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
-        ))
+        harness.drag.move(to: Self.headerGround(of: target))
         XCTAssertEqual(harness.drag.target, .workspaceThumbnail(GridFixture.mattstackApps))
         // This fixture's tabs carry no split tree, so a MULTI-pane tab cannot
         // be migrated and the card it is over is left unlit. That is the
@@ -2527,13 +3154,25 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
     }
 
-    /// A card's own empty space: the middle of its header row, which no
+    /// An island's own empty space: the middle of its header row, which no
     /// thumbnail covers.
     private static func headerGround(of card: CGRect) -> CGPoint {
         CGPoint(
             x: card.midX,
-            y: card.minY + ChromeMetrics.Grid.cardVerticalPadding + ChromeMetrics.WorkspaceRow.contentHeight / 2
+            y: card.minY + ChromeMetrics.Grid.islandTopPadding + ChromeMetrics.Grid.islandHeaderHeight / 2
         )
+    }
+
+    /// The first cell of a new row under a full one: the row's leading edge,
+    /// one `tabGap` below it, the same size as its cells.
+    private func assertSlotOpensRow(_ slot: CGRect, under row: [CGRect], _ label: String) {
+        guard let first = row.min(by: { $0.minX < $1.minX }), let bottom = row.map(\.maxY).max() else {
+            return XCTFail("\(label): no row")
+        }
+        XCTAssertEqual(slot.minX, first.minX, accuracy: 0.5, "the leading edge of \(label)")
+        XCTAssertEqual(slot.minY, bottom + ChromeMetrics.Grid.tabGap, accuracy: 0.5, "the row under \(label)")
+        XCTAssertEqual(slot.width, first.width, accuracy: 0.5, "same width as \(label)")
+        XCTAssertEqual(slot.height, first.height, accuracy: 0.5, "same height as \(label)")
     }
 
     /// Two cells of one row: same top edge and height, one `tabGap` apart.
@@ -2544,19 +3183,15 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(slot.minX, previous.maxX + ChromeMetrics.Grid.tabGap, accuracy: 0.5, "the slot after \(label)")
     }
 
-    /// Points are top-left in the 900x560 window: the title bar, the grid
-    /// header over its rule, the canvas margin, and the first card's border,
-    /// fill and focused accent bar.
+    /// Points are top-left in the window: the title bar, the grid header over
+    /// its rule, and the canvas margin around the islands.
     private func assertGridSamples(_ image: NSBitmapImageRep, theme: Theme) {
         let roles = theme.palette.chromeRoles
         let samples: [(String, CGPoint, RGB)] = [
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
-            ("chrome/header", CGPoint(x: 450, y: 28), roles.chrome),
-            ("rule/header", CGPoint(x: 450, y: 62.25), roles.rule),
-            ("canvas/margin", CGPoint(x: 5, y: 120), roles.canvas),
-            ("paneBorder/card", CGPoint(x: 13.25, y: 150), roles.paneBorder),
-            ("pane/card", CGPoint(x: 18, y: 80), roles.pane),
-            ("accent/focusedBar", CGPoint(x: 27.5, y: 94), roles.accent),
+            ("chrome/header", CGPoint(x: 450, y: Self.bar + 2), roles.chrome),
+            ("rule/header", CGPoint(x: 450, y: Self.bar + ChromeMetrics.Grid.headerHeight + 0.25), roles.rule),
+            ("canvas/margin", CGPoint(x: 5, y: Self.bar + 94), roles.canvas),
         ]
         for (name, point, expected) in samples {
             XCTAssertEqual(hex(image, point), expected.hex, "\(theme.id) \(name) at \(point)")
@@ -2663,26 +3298,29 @@ final class ChromeRenderTests: XCTestCase {
     /// that selection no longer takes the dot: its stroke has to be green,
     /// not the accent, and its middle has to be the row's own selection fill
     /// showing through the ring.
+    /// Inside a tab, clear of its label and its rounded top corners.
+    private static var tabGroundY: CGFloat { bar + ChromeMetrics.Strip.tabTopClearance + 6 }
+
     private func assertSamples(_ image: NSBitmapImageRep, theme: Theme) {
         let roles = theme.palette.chromeRoles
         let palette = theme.palette
         let samples: [(String, CGPoint, RGB)] = [
-            ("status/selectedRing", CGPoint(x: 21, y: 74), palette.green),
-            ("status/selectedHollow", CGPoint(x: 24, y: 74), roles.selection),
-            ("status/blocked", CGPoint(x: 24, y: 102), palette.red),
-            ("status/working", CGPoint(x: 24, y: 130), palette.yellow),
-            ("status/done", CGPoint(x: 24, y: 158), palette.teal),
-            ("status/idleRing", CGPoint(x: 21, y: 186), palette.green),
-            ("status/idleHollow", CGPoint(x: 24, y: 186), roles.chrome),
+            ("status/selectedRing", CGPoint(x: 21, y: Self.bar + 48), palette.green),
+            ("status/selectedHollow", CGPoint(x: 24, y: Self.bar + 48), roles.selection),
+            ("status/blocked", CGPoint(x: 24, y: Self.bar + 76), palette.red),
+            ("status/working", CGPoint(x: 24, y: Self.bar + 104), palette.yellow),
+            ("status/done", CGPoint(x: 24, y: Self.bar + 132), palette.teal),
+            ("status/idleRing", CGPoint(x: 21, y: Self.bar + 160), palette.green),
+            ("status/idleHollow", CGPoint(x: 24, y: Self.bar + 160), roles.chrome),
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
-            ("chrome/strip", CGPoint(x: 700, y: 30), roles.chrome),
+            ("chrome/strip", CGPoint(x: 700, y: Self.bar + 4), roles.chrome),
             ("chrome/rail", CGPoint(x: 75, y: 400), roles.chrome),
             ("rule/rail", CGPoint(x: 192.25, y: 400), roles.rule),
-            ("selection/row", CGPoint(x: 100, y: 64), roles.selection),
-            ("tabRest", CGPoint(x: 253, y: 40), roles.tabRest),
-            ("selection/tab", CGPoint(x: 459, y: 40), roles.selection),
-            ("accent/underline", CGPoint(x: 459, y: 61.25), roles.accent),
-            ("rule/strip", CGPoint(x: 700, y: 62.25), roles.rule),
+            ("selection/row", CGPoint(x: 100, y: Self.bar + 38), roles.selection),
+            ("tabRest", CGPoint(x: 253, y: Self.tabGroundY), roles.tabRest),
+            ("selection/tab", CGPoint(x: 459, y: Self.tabGroundY), roles.selection),
+            ("accent/underline", CGPoint(x: 459, y: Self.bar + ChromeMetrics.Strip.height - 0.75), roles.accent),
+            ("rule/strip", CGPoint(x: 700, y: Self.bar + ChromeMetrics.Strip.height + 0.25), roles.rule),
             ("canvas/margin", CGPoint(x: 196, y: 400), roles.canvas),
             ("paneBorder", CGPoint(x: 199.25, y: 400), roles.paneBorder),
             ("pane", CGPoint(x: 300, y: 400), roles.pane),
@@ -2762,6 +3400,117 @@ final class ChromeRenderTests: XCTestCase {
         restingWindow.close()
     }
 
+    /// The canvas in solo mode shows one pane over the whole canvas, as the
+    /// focused view draws it. The fixture's tab is zoomed on `w1:p2` and its
+    /// canvas focus is `w1:p2` too, so soloing `w1:p1` fails if either the
+    /// layout's own zoom or the main window's focus leaks through: the box
+    /// spanning the row must be `w1:p1`'s and must wear the accent border,
+    /// with no canvas-coloured gutter anywhere along it and no mauve zoom
+    /// badge in its legend. Only `w1:p1`'s program holds the mouse, so its lit
+    /// mouse badge in the legend names the pane drawn and shows the legend
+    /// controls survive solo. No drag grip is drawn, and nothing is published
+    /// to the drag coordinator.
+    /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
+    func testASoloCanvasDrawsOnePaneAcrossTheWholeCanvasWithoutAZoomBadge() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let solo = PaneID(rawValue: "w1:p1")
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            let roles = theme.palette.chromeRoles
+            var model = try Fixture.model(zoomed: true)
+            model.panes[solo]?.terminalID = TerminalID(rawValue: "term_p1")
+            let harness = try await Harness(theme: theme, model: model, mouseHolders: [solo])
+            let window = harness.makeCanvasWindow(size: Self.windowSize, solo: solo)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("focused-canvas-\(scheme).png"))
+            }
+
+            let rowY = Self.windowSize.height / 2
+            var accents: [CGFloat] = []
+            for x in stride(from: CGFloat(0), to: Self.windowSize.width, by: 0.5)
+            where hex(image, CGPoint(x: x, y: rowY)) == roles.accent.hex {
+                accents.append(x)
+            }
+            let first = try XCTUnwrap(accents.first, "\(scheme): no accent border on the row: the solo pane does not hold the keyboard")
+            let last = try XCTUnwrap(accents.last)
+            let slack = ChromeMetrics.Canvas.margin + DividerBand.gutter + 2
+            XCTAssertLessThan(first, slack, "\(scheme): the solo box does not start at the canvas's leading edge")
+            XCTAssertGreaterThan(last, Self.windowSize.width - slack, "\(scheme): the solo box does not reach the canvas's trailing edge")
+            XCTAssertNil(
+                stride(from: first, through: last, by: 0.5).first { hex(image, CGPoint(x: $0, y: rowY)) == roles.canvas.hex },
+                "\(scheme): a gutter is drawn inside the solo box: more than one pane is on the canvas"
+            )
+
+            let midX = Self.windowSize.width / 2
+            let top = try XCTUnwrap(
+                stride(from: CGFloat(0), to: Self.windowSize.height / 4, by: 0.5).first { hex(image, CGPoint(x: midX, y: $0)) == roles.accent.hex },
+                "\(scheme): the solo box has no accent top border"
+            )
+            let legend = CGRect(
+                x: midX, y: top + PaneChrome.verticalPadding,
+                width: last - PaneChrome.horizontalPadding - midX, height: PaneChrome.titleRowHeight
+            )
+            XCTAssertNotNil(
+                firstPoint(in: legend, matching: theme.palette.accent.hex, of: image),
+                "\(scheme): no lit mouse badge in the legend: the pane drawn is not \(solo.rawValue), or its controls are gone"
+            )
+            XCTAssertNil(firstPoint(in: legend, matching: theme.palette.mauve.hex, of: image), "\(scheme): the solo pane wears a zoom badge")
+            XCTAssertTrue(harness.drag.canvas.paneFrames.isEmpty, "\(scheme): the solo canvas published frames for drop hit-testing")
+
+            // The same canvas without solo holds `w1:p2` open over the same
+            // box, grip and all, so the grip's spot is known to be inked there.
+            let tiled = harness.makeCanvasWindow(size: Self.windowSize, solo: nil)
+            await settle(tiled)
+            let tiledImage = try snapshot(tiled)
+            let gripSpot = CGRect(x: midX - 15, y: legend.minY, width: 30, height: legend.height)
+            XCTAssertNotNil(
+                firstPointDiffering(in: gripSpot, from: roles.pane.hex, of: tiledImage),
+                "\(scheme): the canvas without solo draws no grip there, so the check below proves nothing"
+            )
+            XCTAssertNil(firstPointDiffering(in: gripSpot, from: roles.pane.hex, of: image), "\(scheme): the solo pane draws a drag grip")
+            tiled.close()
+            window.close()
+        }
+    }
+
+    /// The solo pane gives the keyboard up to an rt modal opened from it, as
+    /// the main canvas does to any modal: its box loses the accent border.
+    /// A modal from another pane, never drawn over it, leaves it focused.
+    func testASoloPaneYieldsTheKeyboardOnlyToItsOwnRtModal() async throws {
+        let solo = PaneID(rawValue: "w1:p1")
+        var model = try Fixture.model(zoomed: true)
+        model.panes[solo]?.terminalID = TerminalID(rawValue: "term_p1")
+        let harness = try await Harness(theme: .tokyoNight, model: model)
+        let accent = Theme.tokyoNight.palette.chromeRoles.accent.hex
+        let rowY = Self.windowSize.height / 2
+        func holdsKeyboard() async throws -> Bool {
+            let window = harness.makeCanvasWindow(size: Self.windowSize, solo: solo)
+            await settle(window)
+            let image = try snapshot(window)
+            window.close()
+            return stride(from: CGFloat(0), to: Self.windowSize.width, by: 0.5).contains { hex(image, CGPoint(x: $0, y: rowY)) == accent }
+        }
+        let premise = try await holdsKeyboard()
+        XCTAssertTrue(premise, "the premise: the solo pane holds the keyboard")
+        showRtRun(harness.viewModel, linked: "term_other")
+        let underForeign = try await holdsKeyboard()
+        XCTAssertTrue(underForeign, "another pane's modal took the solo pane's keyboard")
+        showRtRun(harness.viewModel, linked: "term_p1")
+        let underOwn = try await holdsKeyboard()
+        XCTAssertFalse(underOwn, "the solo pane kept the keyboard from its own modal")
+    }
+
+    private func firstPointDiffering(in rect: CGRect, from target: String, of image: NSBitmapImageRep) -> CGPoint? {
+        for y in stride(from: rect.minY, to: rect.maxY, by: 0.5) {
+            for x in stride(from: rect.minX, to: rect.maxX, by: 0.5) where hex(image, CGPoint(x: x, y: y)) != target {
+                return CGPoint(x: x, y: y)
+            }
+        }
+        return nil
+    }
+
     /// The three places the one inline rename editor opens, and the zoom
     /// badge. Each is compared against the SAME window at rest: the editor
     /// has to change its own surface and leave the other two alone, which is
@@ -2774,8 +3523,8 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         // The selected tab's own midpoint, the selected rail row's, and a
         // point inside the focused pane -- the three sampled in `assertSamples`.
-        let tabPoint = CGPoint(x: 459, y: 40)
-        let railPoint = CGPoint(x: 100, y: 64)
+        let tabPoint = CGPoint(x: 459, y: Self.tabGroundY)
+        let railPoint = CGPoint(x: 100, y: Self.bar + 38)
         let panePoint = CGPoint(x: 700, y: 400)
 
         /// Renders `model` with `open` applied, against the same window at
@@ -2838,7 +3587,7 @@ final class ChromeRenderTests: XCTestCase {
         // check is that mauve appears inside the focused pane's legend when
         // the tab is zoomed and nowhere in that band when it is not -- an
         // assertion that cannot pass unless the badge actually painted.
-        let legend = CGRect(x: 552, y: 66, width: 342, height: 26)
+        let legend = CGRect(x: 552, y: Self.bar + 40, width: 342, height: 26)
         let mauve = Theme.tokyoNight.palette.mauve.hex
         let resting = try await Harness(theme: .tokyoNight, model: try Fixture.model())
         let restingWindow = resting.makeWindow(size: Self.windowSize)
@@ -3604,6 +4353,11 @@ private struct Harness {
     let tabSwitcher: TabSwitcher
     let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
+    /// Arrange unless a test selects otherwise: every grid render that
+    /// predates mission control measures Arrange.
+    let modeStore: AllWorkspacesModeStore
+
+    @MainActor func missionCardFrame(of pane: PaneID) -> CGRect? { MissionCardFrames.shared.frames[pane] }
 
     init(
         theme: Theme, model: SessionModel? = nil, client: any HerdrCommandClient = OfflineHerdrClient(),
@@ -3622,10 +4376,14 @@ private struct Harness {
         // read the wall clock would flip on a loaded machine that took that
         // long to build and settle two windows.
         now: @escaping @MainActor () -> Date = { Date() },
+        notificationLifetime: NotificationLifetime = .untilSeen,
         // No Board config by default, same as a machine without the board
         // app, so every render that predates the section is unchanged.
         boardSources: BoardSources = .unconfigured,
-        mouseHolders: Set<PaneID> = []
+        mouseHolders: Set<PaneID> = [],
+        // Off by default, so every render that predates Settings > Titles
+        // keeps drawing each pane's own title.
+        oneTitle: Bool = false
     ) async throws {
         ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -3642,10 +4400,13 @@ private struct Harness {
         self.board = board
         toasts = ToastCenter()
         rearrange = RearrangeMode()
+        // The view model is built below; the app wires the same rule.
+        var escapeOwner: SessionViewModel?
         drag = DragCoordinator(
             toasts: toasts, rearrangeMode: rearrange,
             commit: { _, _ in fatalError("a render never drops") },
-            reveal: { _ in }
+            reveal: { _ in },
+            gridHoldsEscape: { escapeOwner.map { $0.renameTarget != nil || $0.paneShownInOverview != nil } ?? false }
         )
         dividerDrag = DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in }))
         optionAsAlt = OptionAsAltStore(userDefaults: defaults)
@@ -3668,7 +4429,18 @@ private struct Harness {
                 chatStore.setUnreadCount(count, for: pane)
             }
         }
-        viewModel = SessionViewModel(client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now)
+        modeStore = AllWorkspacesModeStore(userDefaults: try XCTUnwrap(UserDefaults(suiteName: "flock-mode-\(UUID().uuidString)")))
+        modeStore.select(.arrange)
+        // Fixture folders name real checkouts on a developer's machine; a
+        // render must not read their git files.
+        let repoBranches = RepoBranchCache { folder in
+            RepoBranch(repo: URL(fileURLWithPath: folder).lastPathComponent, branch: "main")
+        }
+        viewModel = SessionViewModel(
+            client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now,
+            notificationLifetime: { notificationLifetime }, oneTitle: { oneTitle }, repoBranches: repoBranches
+        )
+        escapeOwner = viewModel
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)
         for pane in panes {
             _ = await viewModel.attachPane(pane)
@@ -3689,6 +4461,34 @@ private struct Harness {
             isDevBuild: isDevBuild
         )
             .environment(devBuild)
+        return host(root, size: size)
+    }
+
+    /// The title bar alone, at a width the main window's minimum never allows.
+    func makeTitleBarWindow(width: CGFloat, isDevBuild: Bool) -> NSWindow {
+        host(
+            VStack(spacing: 0) {
+                TitleBar(theme: themeStore.active, sessionLabel: "render", connectionState: .live, isDevBuild: isDevBuild)
+                Spacer(minLength: 0)
+            }
+            .background(themeStore.active.chrome)
+            .ignoresSafeArea(edges: .top)
+            .background(TitlebarConfigurator(windowBg: themeStore.active.chrome)),
+            size: CGSize(width: width, height: 120)
+        )
+    }
+
+    /// The main window's own canvas alone, for the selected tab.
+    func makeCanvasWindow(size: CGSize, solo: PaneID?) -> NSWindow {
+        host(
+            PaneCanvas(theme: themeStore.active, viewModel: viewModel, layout: viewModel.selectedLayout, solo: solo),
+            size: size
+        )
+    }
+
+    private func host(_ content: some View, size: CGSize) -> NSWindow {
+        let modeDefaults = UserDefaults(suiteName: "flock-mission-\(UUID().uuidString)")!
+        let root = content
             .environment(themeStore)
             .environment(textSize)
             .environment(rtModalSize)
@@ -3700,6 +4500,9 @@ private struct Harness {
             .environment(toasts)
             .environment(rearrange)
             .environment(drag)
+            .environment(modeStore)
+            .environment(MissionBottomLineStore(userDefaults: modeDefaults))
+            .environment(WorkspaceIdentityStore(userDefaults: modeDefaults))
             .environment(dividerDrag)
             .environment(chatStore)
             .environment(optionAsAlt)
@@ -3718,6 +4521,35 @@ private struct Harness {
         window.contentView?.layoutSubtreeIfNeeded()
         return window
     }
+}
+
+/// Stands in for a pane's terminal: an AppKit view that takes the keyboard
+/// and counts every key that reaches it.
+private final class KeyHog: NSView {
+    var keys = 0
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with event: NSEvent) { keys += 1 }
+}
+
+extension ChromeRenderTests {
+    /// Through the application, where local monitors see an event before any
+    /// window or menu does.
+    fileprivate func pressKey(_ window: NSWindow, keyCode: UInt16, character: Int) {
+        guard let scalar = UnicodeScalar(UInt32(character)) else { return }
+        let text = String(Character(scalar))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.numericPad, .function],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: keyCode
+        ) else { return }
+        NSApplication.shared.sendEvent(event)
+    }
+}
+
+@MainActor
+private final class FixtureClock {
+    var date: Date
+    init(_ date: Date) { self.date = date }
 }
 
 private struct OfflineHerdrClient: HerdrCommandClient {
@@ -3810,6 +4642,75 @@ private struct GridFixtureClient: HerdrCommandClient {
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         guard method == "pane.read" else { throw OfflineHerdrClient.Offline() }
         return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": Self.screen]]])
+    }
+}
+
+/// Answers the card's read with a full-screen account switcher as herdr's
+/// ANSI format carries it: SGR in every form the parser reads, cursor and OSC
+/// escapes it must swallow, `\r\n` row ends, and blank rows down to a footer.
+private struct AnsiTUIClient: HerdrCommandClient {
+    static let columns = 112
+
+    static let screen: String = {
+        let esc = "\u{1B}["
+        func row(_ segments: [(String, String)], right: (String, String)? = nil) -> String {
+            let plain = segments.map(\.0).joined().count
+            var line = segments.map { "\(esc)0m\($0.1)\($0.0)" }.joined()
+            if let right {
+                let gap = max(1, columns - plain - right.0.count)
+                line += "\(esc)0m" + String(repeating: " ", count: gap) + right.1 + right.0
+            }
+            return line + "\(esc)0m"
+        }
+        func bar(filled: Int, fill: String) -> [(String, String)] {
+            [(String(repeating: " ", count: filled), fill), (String(repeating: " ", count: 30 - filled), "\(esc)100m")]
+        }
+        let accounts: [(name: String, plan: String, planStyle: String, used: Int, fill: String, reset: String)] = [
+            ("acme-main", "pro", "\(esc)38;5;208m", 20, "\(esc)42m", "resets 14:05"),
+            ("acme-ops", "team", "\(esc)36m", 7, "\(esc)42m", "resets 09:40"),
+            ("acme-ci", "free", "\(esc)2m", 27, "\(esc)48;5;208m", "resets yesterday 22:15"),
+            ("acme-lab", "pro", "\(esc)38;5;208m", 1, "\(esc)42m", "resets in 3d 01:00"),
+            ("acme-edu", "team", "\(esc)36m", 14, "\(esc)48;2;180;120;255m", "resets 18:30"),
+        ]
+        let header = " acme switch · 5 accounts"
+        var rows = [
+            "\(esc)?25l\(esc)H\u{1B}]0;acme switch\u{07}" + row([(header + String(repeating: " ", count: columns - header.count), "\(esc)1;97;44m")]),
+            "",
+            row([("   ACCOUNT           PLAN    USAGE", "\(esc)1m")], right: ("RESET", "\(esc)1m")),
+        ]
+        for (index, account) in accounts.enumerated() {
+            let selected = index == 1
+            let mark = selected ? "\(esc)7m" : ""
+            var segments: [(String, String)] = [
+                (selected ? " > " : "   ", mark),
+                (account.name.padding(toLength: 18, withPad: " ", startingAt: 0), mark + (selected ? "\(esc)1m" : "")),
+                (account.plan.padding(toLength: 8, withPad: " ", startingAt: 0), account.planStyle),
+            ]
+            segments += bar(filled: account.used, fill: account.fill)
+            segments.append(("  \(account.used * 100 / 30)%", account.used > 24 ? "\(esc)1;31m" : "\(esc)32m"))
+            rows.append(row(segments, right: (account.reset, "\(esc)38:2::130:140:150m")))
+        }
+        rows += Array(repeating: "", count: 24)
+        rows.append(row(
+            [(" ↑↓ move  enter switch  s sort  q quit", "\(esc)2m")],
+            right: ("acme switch 0.4.1 ", "\(esc)3;38;2;255;100;180m")
+        ))
+        return rows.joined(separator: "\r\n") + "\r\n"
+    }()
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.read" else { throw OfflineHerdrClient.Offline() }
+        return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": Self.screen]]])
+    }
+}
+
+/// `GridFixtureClient`, keeping every method it is asked for.
+private actor MethodRecordingClient: HerdrCommandClient {
+    private(set) var methods: [String] = []
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        methods.append(method)
+        return try await GridFixtureClient().requestRaw(method, params)
     }
 }
 
@@ -4012,8 +4913,11 @@ private enum Fixture {
     /// `idle`, the default every existing caller still gets): the one pane a
     /// test can also carry a chat status on, for a fixture with both a status
     /// dot and a chat button on the same legend.
+    /// `onePane` moves `w1:p1` out to the `logs` tab, leaving the selected
+    /// tab holding `w1:p2` alone.
     static func model(
-        zoomed: Bool = false, flockTabLabels: [String]? = nil, focusedPaneAgentStatus: String = "idle"
+        zoomed: Bool = false, flockTabLabels: [String]? = nil, focusedPaneAgentStatus: String = "idle",
+        onePane: Bool = false
     ) throws -> SessionModel {
         let workspaces: [(id: String, label: String, panes: Int, status: String)] = [
             ("w1", "flock", 5, "idle"), ("w2", "repo-tools", 3, "blocked"), ("w3", "board", 2, "working"),
@@ -4035,7 +4939,7 @@ private enum Fixture {
                     "number": tabIndex + 1, "pane_count": 1, "agent_status": "idle",
                 ])
             }
-            let flockTabs = ["w1:t3", "w1:t3", "w1:t1", "w1:t2", "w1:t4"]
+            let flockTabs = [onePane ? "w1:t4" : "w1:t3", "w1:t3", "w1:t1", "w1:t2", "w1:t4"]
             for paneIndex in 0..<workspace.panes {
                 let paneID = "\(workspace.id):p\(paneIndex + 1)"
                 paneRows.append([
@@ -4050,11 +4954,13 @@ private enum Fixture {
         let area: [String: Int] = ["x": 0, "y": 0, "width": 120, "height": 40]
         let layout: [String: Any] = [
             "workspace_id": "w1", "tab_id": "w1:t3", "zoomed": zoomed, "area": area, "focused_pane_id": "w1:p2",
-            "panes": [
-                ["pane_id": "w1:p1", "focused": false, "rect": ["x": 0, "y": 0, "width": 60, "height": 40]],
-                ["pane_id": "w1:p2", "focused": true, "rect": ["x": 60, "y": 0, "width": 60, "height": 40]],
-            ],
-            "splits": [["id": "split_0_root", "direction": "right", "ratio": 0.5, "rect": area]],
+            "panes": onePane
+                ? [["pane_id": "w1:p2", "focused": true, "rect": area]]
+                : [
+                    ["pane_id": "w1:p1", "focused": false, "rect": ["x": 0, "y": 0, "width": 60, "height": 40]],
+                    ["pane_id": "w1:p2", "focused": true, "rect": ["x": 60, "y": 0, "width": 60, "height": 40]],
+                ],
+            "splits": onePane ? [] : [["id": "split_0_root", "direction": "right", "ratio": 0.5, "rect": area]],
         ]
         let snapshot: [String: Any] = [
             "version": "0.8.0", "protocol": 22, "focused_workspace_id": "w1", "focused_tab_id": "w1:t3",
@@ -4063,5 +4969,112 @@ private enum Fixture {
         ]
         let data = try JSONSerialization.data(withJSONObject: snapshot)
         return SessionModel(snapshot: try JSONDecoder().decode(SessionSnapshot.self, from: data))
+    }
+}
+
+extension ChromeRenderTests {
+    /// The title bar's view tabs in each selected state, chosen through the
+    /// same navigator the menu and the palette use, in a dark and a light
+    /// theme. Workspaces keeps the rail, whose heading no longer carries a
+    /// grid button. PNGs are written only when `FLOCK_CHROME_RENDER_DIR` is set.
+    func testViewTabsSelectEachViewAndUnderlineOnlyTheSelectedTab() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            let window = harness.makeWindow(size: Self.gridWindowSize, isDevBuild: true)
+            await settle(window)
+            assertButtonsCentered(in: window)
+            let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+            let buttonsEnd = zoom.convert(zoom.bounds, to: nil).maxX
+            let navigator = ViewTabNavigator(drag: harness.drag, mode: harness.modeStore)
+            var underlineStarts: [CGFloat] = []
+            for tab in ViewTab.allCases {
+                navigator.choose(tab)
+                await settle(window)
+                XCTAssertEqual(navigator.selected, tab, "\(scheme)")
+                XCTAssertEqual(harness.drag.isGridShown, tab != .workspaces, "\(scheme): \(tab)")
+                if let gridMode = tab.gridMode { XCTAssertEqual(harness.modeStore.active, gridMode) }
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("title-tabs-\(tab.rawValue)-\(scheme)-\(id).png"))
+                }
+                let runs = accentRuns(in: image, width: Self.gridWindowSize.width, theme: theme)
+                XCTAssertEqual(runs.count, 1, "\(scheme) \(tab): one underline, under the selected tab only: \(runs)")
+                let run = try XCTUnwrap(runs.first)
+                XCTAssertGreaterThan(run.upperBound - run.lowerBound, 40, "\(scheme) \(tab)")
+                XCTAssertGreaterThan(run.lowerBound, buttonsEnd, "\(scheme) \(tab): the tabs run under the window buttons")
+                underlineStarts.append(run.lowerBound)
+            }
+            XCTAssertEqual(underlineStarts, underlineStarts.sorted(), "\(scheme): the underline does not follow tab order")
+            XCTAssertEqual(Set(underlineStarts).count, 3, "\(scheme)")
+            window.close()
+        }
+    }
+
+    /// A focused pane is Overview's: its tab stays selected, choosing it again
+    /// keeps the pane, and choosing Arrange or Workspaces shows that view
+    /// while Overview keeps the pane to return to.
+    func testAFocusedPaneKeepsOverviewSelectedUntilArrangeIsChosen() async throws {
+        let harness = try await Harness(theme: .tokyoNight)
+        let navigator = ViewTabNavigator(drag: harness.drag, mode: harness.modeStore)
+        let pane = try XCTUnwrap(Fixture.canvasPanes.first)
+        navigator.choose(.overview)
+        harness.drag.focusGridPane(pane)
+        XCTAssertEqual(navigator.selected, .overview)
+        navigator.choose(.overview)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane)
+        navigator.choose(.arrange)
+        XCTAssertEqual(navigator.selected, .arrange)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "Arrange leaves Overview's place alone")
+        navigator.choose(.overview)
+        XCTAssertEqual(navigator.selected, .overview)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "Overview returns to the pane it had open")
+        navigator.choose(.workspaces)
+        XCTAssertFalse(harness.drag.isGridShown)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "closing the grid keeps it too")
+    }
+
+    /// Below the main window's minimum, "flock" and its DEV tag hide rather
+    /// than run into the tabs. Rendered at a width where they still fit too.
+    func testTheTitleHidesBeforeItWouldOverlapTheTabs() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            for (width, shows) in [(CGFloat(640), false), (CGFloat(900), true)] {
+                let window = harness.makeTitleBarWindow(width: width, isDevBuild: true)
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("title-bar-\(Int(width))-\(scheme)-\(id).png"))
+                }
+                let centre = CGRect(x: width / 2 - 50, y: 0, width: 100, height: ChromeMetrics.TitleBar.height)
+                XCTAssertEqual(count(theme.palette.yellow.hex, in: centre, of: image) > 0, shows, "\(scheme) at \(width)")
+                window.close()
+            }
+        }
+    }
+
+    /// Runs of the accent along the title bar's last row, in window points.
+    private func accentRuns(in image: NSBitmapImageRep, width: CGFloat, theme: Theme) -> [ClosedRange<CGFloat>] {
+        let accent = theme.palette.chromeRoles.accent.hex
+        let y = ChromeMetrics.TitleBar.height - 1
+        var runs: [ClosedRange<CGFloat>] = []
+        var start: CGFloat?
+        var last: CGFloat = 0
+        for x in stride(from: CGFloat(0), to: width, by: 1) {
+            if hex(image, CGPoint(x: x, y: y)) == accent {
+                if start == nil { start = x }
+                last = x
+            } else if let begun = start {
+                runs.append(begun...last)
+                start = nil
+            }
+        }
+        if let begun = start { runs.append(begun...last) }
+        return runs
     }
 }

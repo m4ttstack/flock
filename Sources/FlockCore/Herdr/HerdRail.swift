@@ -33,7 +33,9 @@ public struct HerdRail: Equatable, Sendable {
     public let herds: [Herd]
 
     /// `nil` when there are no herds, which hides the section outright.
-    public var summary: Summary? {
+    public var summary: Summary? { Self.summary(of: herds) }
+
+    static func summary(of herds: [Herd]) -> Summary? {
         guard !herds.isEmpty else { return nil }
         let done = herds.filter(\.isFinished).count
         return Summary(running: herds.count - done, done: done, isAnyRunning: herds.contains(where: \.isRunning))

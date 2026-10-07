@@ -11,6 +11,26 @@ final class PaletteCatalogTests: XCTestCase {
         PaletteCatalog.entries(in: context).map(\.command.id)
     }
 
+    /// The palette never opens over the grid, so it offers nothing that
+    /// works only in the focused view.
+    func testTheFocusedViewsKeysAreNotOffered() {
+        let listed = ids(PaletteContext(hasNotifications: true))
+        XCTAssertFalse(listed.contains("view.backtooverview"))
+        XCTAssertFalse(listed.contains("view.opennextcard"))
+        XCTAssertFalse(listed.contains("view.jumpback"))
+    }
+
+    func testTheOtherViewsAreListedWithTheirKeys() {
+        let entries = PaletteCatalog.entries(in: PaletteContext())
+        let shortcut = { (id: String) in entries.first { $0.command.id == id }?.command.shortcut }
+        XCTAssertNil(shortcut("view.workspaces"), "the palette is drawn over Workspaces, so it does not offer it")
+        XCTAssertEqual(shortcut("view.overview"), "⌘2")
+        XCTAssertEqual(shortcut("view.arrange"), "⌘3")
+        let fromArrange = ids(PaletteContext(viewTab: .arrange))
+        XCTAssertTrue(fromArrange.contains("view.workspaces"))
+        XCTAssertFalse(fromArrange.contains("view.arrange"))
+    }
+
     func testAPlainShellPaneListsPaneRtViewAndCreationButNoChatOrMouse() {
         let listed = ids(PaletteContext(
             canvasPane: pane, neighbors: [.right], rtInstalled: true, rtCommands: rtRows, chatRows: chatRows,
@@ -118,7 +138,7 @@ final class PaletteCatalogTests: XCTestCase {
         XCTAssertEqual(shortcut("pane.focuspaneleft"), "⌥⌘←")
         XCTAssertEqual(shortcut("pane.renamepane"), "F2")
         XCTAssertEqual(shortcut("pane.zoompane"), "⇧⌘↩")
-        XCTAssertEqual(shortcut("view.clearnotifications"), "⇧⌘J")
+        XCTAssertEqual(shortcut("view.clearnotifications"), "⇧⌘U")
         XCTAssertFalse(entries.contains { $0.command.id == "view.commandpalette" }, "the palette does not list itself")
     }
 }

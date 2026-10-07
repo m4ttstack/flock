@@ -232,76 +232,111 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     // MARK: - grid state
 
-    func testClosingForgetsTheCard() {
+    func testClosingForgetsTheSelection() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
+        state.select(pane: p1)
         state.close()
         XCTAssertFalse(state.isShown)
-        XCTAssertNil(state.preview)
+        XCTAssertNil(state.selected)
         state.open()
-        XCTAssertNil(state.preview, "a grid opened again starts with no card open")
+        XCTAssertNil(state.selected, "a grid opened again starts with nothing selected")
     }
 
-    // MARK: - preview card
+    // MARK: - selection
 
-    func testAClickOpensThePanesCardAndItStaysOpen() {
+    func testAClickSelectsAPaneAndAnotherMovesTheSelection() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
-        XCTAssertEqual(state.previewCard(dragInFlight: false), p1)
-        state.showPreview(pane: p1)
-        XCTAssertEqual(state.previewCard(dragInFlight: false), p1, "a second click on the same pane leaves it open")
-    }
-
-    func testAClickOnAnotherPaneMovesTheCard() {
-        var state = AllWorkspacesGridState()
-        state.open()
-        state.showPreview(pane: p1)
-        state.showPreview(pane: p2)
-        XCTAssertEqual(state.previewCard(dragInFlight: false), p2)
-    }
-
-    func testDismissingPutsTheCardAwayAndLeavesTheGrid() {
-        var state = AllWorkspacesGridState()
-        state.open()
-        state.showPreview(pane: p1)
-        state.dismissPreview()
-        XCTAssertNil(state.preview)
+        state.select(pane: p1)
+        XCTAssertEqual(state.selected, p1)
+        state.select(pane: p2)
+        XCTAssertEqual(state.selected, p2)
+        state.deselect()
+        XCTAssertNil(state.selected)
         XCTAssertTrue(state.isShown)
     }
 
-    func testNoCardOpensWhileTheGridIsClosed() {
+    func testNothingIsSelectedWhileTheGridIsClosed() {
         var state = AllWorkspacesGridState()
-        state.showPreview(pane: p1)
-        XCTAssertNil(state.preview)
+        state.select(pane: p1)
+        XCTAssertNil(state.selected)
     }
 
-    func testEscPutsTheCardAwayBeforeTheGrid() {
+    func testEscPutsTheSelectionDownBeforeTheGrid() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
+        state.select(pane: p1)
         state.escape()
-        XCTAssertNil(state.preview)
-        XCTAssertTrue(state.isShown, "the first Esc belongs to the card")
+        XCTAssertNil(state.selected)
+        XCTAssertTrue(state.isShown, "the first Esc belongs to the selection")
         state.escape()
         XCTAssertFalse(state.isShown)
     }
 
-    func testTheCardNeverShowsWhileADragIsInFlight() {
+    func testADragBeginningPutsTheSelectionDown() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
-        XCTAssertNil(state.previewCard(dragInFlight: true))
+        state.select(pane: p1)
+        state.dragBegan()
+        XCTAssertNil(state.selected)
+        XCTAssertTrue(state.isShown)
     }
 
-    func testADragBeginningPutsTheCardAway() {
+    func testASelectedPaneThatClosesIsForgotten() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
-        state.dragBegan()
-        XCTAssertNil(state.previewCard(dragInFlight: false))
-        XCTAssertTrue(state.isShown)
+        state.select(pane: p1)
+        state.reconcile(livePanes: [p2])
+        XCTAssertNil(state.selected)
+    }
+
+    func testADragKeepsOverviewsFocusedPane() {
+        var grid = AllWorkspacesGridState()
+        grid.open()
+        grid.focus(pane: p1)
+        grid.dragBegan()
+        XCTAssertEqual(grid.focused, p1, "Arrange's drag leaves Overview's place alone")
+        XCTAssertTrue(grid.isShown)
+    }
+
+    func testAPaneIsFocusedOnlyWhileTheGridIsShown() {
+        var grid = AllWorkspacesGridState()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        XCTAssertNil(grid.focused, "nothing to focus inside a closed view")
+        grid.open()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        XCTAssertEqual(grid.focused, PaneID(rawValue: "p1"))
+        grid.unfocus()
+        XCTAssertNil(grid.focused)
+    }
+
+    func testReopeningTheViewReturnsToTheFocusedPane() {
+        var grid = AllWorkspacesGridState()
+        grid.open()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        grid.close()
+        grid.open()
+        XCTAssertEqual(grid.focused, PaneID(rawValue: "p1"), "Overview remembers its place")
+        grid.unfocus()
+        XCTAssertNil(grid.focused, "only going back leaves it")
+    }
+
+    func testAFocusedPaneThatClosesReturnsToOverview() {
+        var grid = AllWorkspacesGridState()
+        grid.open()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        grid.reconcile(livePanes: [PaneID(rawValue: "p1"), PaneID(rawValue: "p2")])
+        XCTAssertEqual(grid.focused, PaneID(rawValue: "p1"))
+        grid.reconcile(livePanes: [PaneID(rawValue: "p2")])
+        XCTAssertNil(grid.focused)
+        XCTAssertTrue(grid.isShown, "the view stays open on Overview")
+    }
+
+    func testEscBelongsToTheTerminalWhileAPaneIsFocused() {
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: true, railTakesEscape: false), .focusedView)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: false, railTakesEscape: false), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: true, gridYieldsEscape: true, railTakesEscape: false), .drag)
     }
 
     // MARK: - Esc
@@ -309,19 +344,19 @@ final class AllWorkspacesGridTests: XCTestCase {
     func testALiveDragAlwaysOwnsEsc() {
         for grid in [false, true] {
             for rail in [false, true] {
-                XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: grid, railTakesEscape: rail), .drag)
+                XCTAssertEqual(EscapeRoute.route(dragIdle: false, gridShown: grid, gridYieldsEscape: false, railTakesEscape: rail), .drag)
             }
         }
     }
 
     func testAnIdleEscClosesAShownGridBeforeTheRailSelectionSeesIt() {
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, railTakesEscape: true), .grid)
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, railTakesEscape: false), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: false, railTakesEscape: true), .grid)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: true, gridYieldsEscape: false, railTakesEscape: false), .grid)
     }
 
     func testWithNoGridEscIsTheRailsOrTheTerminals() {
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, railTakesEscape: true), .railSelection)
-        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, railTakesEscape: false), .focusedView)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, gridYieldsEscape: false, railTakesEscape: true), .railSelection)
+        XCTAssertEqual(EscapeRoute.route(dragIdle: true, gridShown: false, gridYieldsEscape: false, railTakesEscape: false), .focusedView)
     }
 
     // MARK: - last line requests

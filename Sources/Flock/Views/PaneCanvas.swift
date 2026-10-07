@@ -15,6 +15,9 @@ struct PaneCanvas: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let layout: LayoutSnapshot?
+    /// Shows only this pane, over the whole canvas, in a view that is never a
+    /// drop target and never moves herdr's focus.
+    var solo: PaneID? = nil
 
     @Environment(TerminalTextSizeStore.self) private var terminalTextSizeStore
     @Environment(DragCoordinator.self) private var drag
@@ -45,7 +48,7 @@ struct PaneCanvas: View {
             // began at the window's corner would still leave the surface on a
             // fractional device pixel.
             let grid = CanvasGrid(canvas: proxy.size, phase: proxy.frame(in: .global).origin, displayScale: scale)
-            let composition = layout.map { CanvasComposition.of(layout: $0) } ?? .tiled
+            let composition = solo.map { CanvasComposition.zoomed($0) } ?? layout.map { CanvasComposition.of(layout: $0) } ?? .tiled
             let geometry = resolvedGeometry(grid: grid, composition: composition)
             ZStack(alignment: .topLeading) {
                 if let layout {
@@ -59,9 +62,10 @@ struct PaneCanvas: View {
                                 viewModel: viewModel,
                                 pane: pane,
                                 // The canvas's own focus, which the rt modal
-                                // withholds while it is up so its surface
+                                // drawn over it withholds so its surface
                                 // keeps the keyboard. Otherwise it is the
-                                // view-model's resolved focus, not
+                                // solo pane or the view-model's resolved
+                                // focus, not
                                 // `layout.focusedPaneID` (a `pane.focus` jump
                                 // never touches the layout snapshot, only
                                 // `model.focusedPaneID`) and not
@@ -69,18 +73,19 @@ struct PaneCanvas: View {
                                 // updates once herdr's echo lands, tens of ms
                                 // after the click -- `resolvedFocusedPaneID`
                                 // paints the optimistic prediction instead).
-                                isFocused: pane.paneID == viewModel.canvasFocusedPaneID,
+                                isFocused: pane.paneID == viewModel.canvasFocus(solo: solo),
                                 // The same answer the geometry above was
                                 // built from, so the badge can only ever ride
                                 // the pane that is actually filling the
                                 // canvas.
-                                isZoomed: composition.zoomedPaneID == pane.paneID,
+                                isZoomed: solo == nil && composition.zoomedPaneID == pane.paneID,
                                 lastLine: viewModel.lastLine(for: pane),
                                 grid: PTYSize(cols: fit.cols, rows: fit.rows),
                                 surfaceSize: fit.size,
                                 fontSizePoints: fontSize,
                                 windowIsResizing: isWindowResizing
                             )
+                            .environment(\.paneCellRole, solo == nil ? .canvas : .solo)
                             // Placed by offset rather than `.position`, which
                             // centers on a midpoint and so halves the box size:
                             // this keeps the snapped origin exactly as
@@ -113,11 +118,13 @@ struct PaneCanvas: View {
                         .foregroundStyle(theme.textLabel)
                         .frame(width: proxy.size.width, height: proxy.size.height)
                 }
-                DropzoneOverlay(
-                    theme: theme, layout: layout, exported: layout.flatMap { viewModel.exportedLayout(for: $0.tabID) },
-                    grid: grid, dividerThickness: Self.dividerThickness
-                )
-                if layout != nil {
+                if solo == nil {
+                    DropzoneOverlay(
+                        theme: theme, layout: layout, exported: layout.flatMap { viewModel.exportedLayout(for: $0.tabID) },
+                        grid: grid, dividerThickness: Self.dividerThickness
+                    )
+                }
+                if layout != nil, solo == nil {
                     ForEach(geometry.dividers, id: \.path) { divider in
                         let band = divider.hitBand(thickness: DividerBand.thickness)
                         DividerHandleView(theme: theme, divider: divider, band: band)
@@ -139,7 +146,11 @@ struct PaneCanvas: View {
             // The canvas lays out in its own space and drop hit-testing works
             // in the window's, so the frames are published translated by the
             // canvas's own origin there, once, here.
-            .background { canvasReporter(geometry.offset(by: proxy.frame(in: DragSpace.coordinateSpace).origin)) }
+            .background {
+                if solo == nil {
+                    canvasReporter(geometry.offset(by: proxy.frame(in: DragSpace.coordinateSpace).origin))
+                }
+            }
             .background { WindowLiveResizeReporter { isWindowResizing = $0 } }
         }
         .padding(Self.canvasPadding)

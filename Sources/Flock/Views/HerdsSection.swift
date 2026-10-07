@@ -24,7 +24,8 @@ struct HerdsSection: View {
                 // The section's one mark. Rows carry none: one moving glyph
                 // says "something in here is still going" without a row of
                 // them competing for the eye.
-                HerdMark(theme: theme, size: ChromeMetrics.RailSection.headerMark, isMoving: summary.isAnyRunning)
+                HerdMark(theme: theme, size: ChromeMetrics.RailSection.herdsMark, isMoving: summary.isAnyRunning)
+                    .offset(y: -ChromeMetrics.RailSection.herdsMarkLift)
             } trailing: {
                 // The summary is the only notice a folded section gives, so
                 // it is the last thing a narrow rail gets to cut.
@@ -117,11 +118,11 @@ struct RailRowChrome: ViewModifier {
             .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
             .padding(.vertical, ChromeMetrics.WorkspaceRow.verticalPadding)
             .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
-            .background(
+            .background {
                 RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius)
-                    .fill(showsFill ? theme.selection : Color(theme.palette.surface0))
-                    .opacity(showsFill || isHovering ? 1 : 0)
-            )
+                    .fill(showsFill ? theme.selection : .clear)
+                    .overlay { if isHovering { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius) } }
+            }
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
     }

@@ -54,6 +54,13 @@ public enum CloseConsequence: Equatable, Sendable {
         }
     }
 
+    public static func workspace(of subject: CloseSubject, in model: SessionModel) -> WorkspaceID? {
+        switch subject {
+        case .pane(let pane): model.panes[pane]?.workspaceID
+        case .tab(let tab): workspace(holding: tab, in: model)
+        }
+    }
+
     /// The prompt to raise before closing `subject`, or `nil` when the close
     /// destroys nothing but what it names and interrupts nothing that is
     /// running.

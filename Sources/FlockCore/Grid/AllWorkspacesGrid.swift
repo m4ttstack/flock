@@ -125,25 +125,60 @@ public enum GridCardLayout {
     }
 }
 
-/// The grid's own state: whether it covers the window, and which mini pane's
-/// preview card is open.
+/// The grid's own state: whether it covers the window, and which mini pane
+/// Arrange has selected.
 public struct AllWorkspacesGridState: Equatable, Sendable {
     public private(set) var isShown = false
-    /// The pane whose preview card is open. A click opens it and it stays
-    /// until something closes it, so it can be read, scrolled past and copied
-    /// from at leisure.
-    public private(set) var preview: PaneID?
+    /// The mini pane a click selected: outlined, and what Return opens. It
+    /// stays until something else is selected or it is put down.
+    public private(set) var selected: PaneID?
+    /// The pane Overview has opened in its focused view. Overview's own
+    /// place: it survives the grid closing, Arrange being shown and a drag,
+    /// so returning to Overview returns to it. Only going back, or the pane
+    /// closing, ends it.
+    public private(set) var focused: PaneID?
+    /// The workspace Arrange has zoomed into, its island alone filling the
+    /// canvas. Never kept past the grid closing: Arrange always opens on
+    /// every workspace.
+    public private(set) var zoomed: WorkspaceID?
 
     public init() {}
+
+    public mutating func zoom(into workspace: WorkspaceID) {
+        guard isShown else { return }
+        zoomed = workspace
+    }
+
+    public mutating func unzoom() {
+        zoomed = nil
+    }
+
+    public mutating func focus(pane: PaneID) {
+        guard isShown else { return }
+        focused = pane
+    }
+
+    public mutating func unfocus() {
+        focused = nil
+    }
+
+    /// A focused pane that herdr no longer reports leaves the view on
+    /// Overview rather than on an empty canvas, and a selected one leaves
+    /// nothing for Return to open.
+    public mutating func reconcile(livePanes: Set<PaneID>) {
+        if let focused, !livePanes.contains(focused) { self.focused = nil }
+        if let selected, !livePanes.contains(selected) { self.selected = nil }
+    }
 
     public mutating func open() {
         isShown = true
     }
 
-    /// A grid opened again starts with no card open.
+    /// A grid opened again starts with nothing selected.
     public mutating func close() {
         isShown = false
-        preview = nil
+        selected = nil
+        zoomed = nil
     }
 
     public mutating func toggle() {
@@ -154,36 +189,31 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         }
     }
 
-    /// A click on another pane moves the card to it; a click on the pane
-    /// already shown leaves it open.
-    public mutating func showPreview(pane: PaneID) {
+    public mutating func select(pane: PaneID) {
         guard isShown else { return }
-        preview = pane
+        selected = pane
     }
 
-    public mutating func dismissPreview() {
-        preview = nil
+    public mutating func deselect() {
+        selected = nil
     }
 
-    /// Esc takes the card down first and the grid only once no card is up,
-    /// so dismissing a preview never also throws away the grid behind it.
+    /// A zoom is left in one Esc, selection kept. Outside a zoom Esc puts a
+    /// selection down first and the grid only once none is up, so each Esc
+    /// undoes one step and never throws away the grid behind it.
     public mutating func escape() {
-        if preview != nil {
-            preview = nil
+        if zoomed != nil {
+            zoomed = nil
+        } else if selected != nil {
+            selected = nil
         } else {
             close()
         }
     }
 
-    /// A drag carries the pointer away from whatever the card was about.
+    /// A drag carries the pointer away from whatever was selected.
     public mutating func dragBegan() {
-        preview = nil
-    }
-
-    /// Never while a drag is in flight, when the card would cover the
-    /// thumbnails the drop is aimed at.
-    public func previewCard(dragInFlight: Bool) -> PaneID? {
-        dragInFlight ? nil : preview
+        selected = nil
     }
 }
 
@@ -194,12 +224,14 @@ public enum EscapeRoute: Equatable, Sendable {
     case railSelection
     case focusedView
 
-    /// A live drag owns Esc as its cancel. The grid covers the rail, so it
-    /// outranks the rail's selection, and what is left reaches the focused
-    /// terminal.
-    public static func route(dragIdle: Bool, gridShown: Bool, railTakesEscape: Bool) -> EscapeRoute {
+    /// A live drag owns Esc as its cancel. The grid yields Esc to what is
+    /// inside it when that is a live terminal (a focused pane) or a text
+    /// field (a rename), whose key it is. Otherwise the grid covers the
+    /// rail, so it outranks the rail's selection, and what is left reaches
+    /// the focused terminal.
+    public static func route(dragIdle: Bool, gridShown: Bool, gridYieldsEscape: Bool, railTakesEscape: Bool) -> EscapeRoute {
         guard dragIdle else { return .drag }
-        if gridShown { return .grid }
+        if gridShown { return gridYieldsEscape ? .focusedView : .grid }
         return railTakesEscape ? .railSelection : .focusedView
     }
 }

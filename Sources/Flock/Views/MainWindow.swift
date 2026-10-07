@@ -11,6 +11,7 @@ struct MainWindow: View {
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
+    @Environment(AllWorkspacesModeStore.self) private var allWorkspacesMode
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
@@ -33,12 +34,14 @@ struct MainWindow: View {
             }
             if dragCoordinator.isGridShown {
                 AllWorkspacesGrid(theme: theme, viewModel: viewModel)
-                    // The grid covers the rail and its dock, so the dock
-                    // floats where the rail would be: the one layout with no
-                    // rail to hold it.
+                    // The grid covers the rail and its dock, so Arrange's
+                    // notices float where the rail would be. Overview draws
+                    // none: its Needs you lane holds the cards.
                     .overlay(alignment: .bottomLeading) {
-                        MessageDock(theme: theme, viewModel: viewModel, placement: .overGrid)
-                            .frame(width: railWidth.width)
+                        if allWorkspacesMode.shown(dragInFlight: dragCoordinator.activeSubject != nil) == .arrange {
+                            MessageDock(theme: theme, viewModel: viewModel, placement: .overGrid)
+                                .frame(width: railWidth.width)
+                        }
                     }
             } else {
                 HStack(spacing: 0) {
@@ -60,8 +63,7 @@ struct MainWindow: View {
                         PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
                     }
                     // On the tab area alone, so the rail stays clear and
-                    // undimmed. The grid needs none: the modal opens from a
-                    // pane's rt button, which the grid does not show.
+                    // undimmed. The grid mounts its own over a focused pane.
                     .overlay { RtModalView(theme: theme, viewModel: viewModel) }
                     .overlay { CommandPaletteView(theme: theme, viewModel: viewModel) }
                     .overlay { SwitcherOverlay(theme: theme, viewModel: viewModel) }
@@ -69,14 +71,14 @@ struct MainWindow: View {
             }
         }
         .background(theme.chrome)
-        // Over the content rather than above it in the stack: the system title
-        // bar's safe area is taller than this bar, and the tab strip's
-        // `NSScrollView` stretches up to the window's top edge through it.
-        // Stacked, that scroll view sits over the bar and takes its clicks.
+        // Over the content rather than above it in the stack: the tab strip's
+        // `NSScrollView` stretches up through the system title bar's safe
+        // area to the window's top edge. Stacked, that scroll view sits over
+        // the bar and takes its clicks.
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild
+                isDevBuild: isDevBuild, needsYouCount: viewModel.attentionToasts.toasts.count
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -104,6 +106,21 @@ struct MainWindow: View {
         // Return and Esc the palette would take.
         .onChange(of: dragCoordinator.isGridShown) { _, shown in
             if shown { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
+        }
+        // Here, where it runs once whichever view draws the stack: the dock,
+        // or mission control's Needs you lane, which has no dock. It runs for
+        // as long as anything is in the stack, not just while a finished
+        // toast is counting down: the sweep is also what notices that a
+        // "needs input" toast's coalescing grace has expired, and that toast
+        // has no clock of its own.
+        .task(id: viewModel.attentionToasts.isEmpty) {
+            guard !viewModel.attentionToasts.isEmpty else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: ChromeMetrics.AttentionToast.sweepInterval)
+                if Task.isCancelled { return }
+                guard !viewModel.isAttentionStackHovered else { continue }
+                viewModel.sweepAttentionToasts()
+            }
         }
         .onChange(of: viewModel.renameEditorIsOnScreen) { _, renaming in
             if renaming { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
@@ -202,14 +219,30 @@ struct MainWindow: View {
     }
 }
 
-private struct TitleBar: View {
+struct TitleBar: View {
     let theme: Theme
     let sessionLabel: String
     let connectionState: ConnectionState
     let isDevBuild: Bool
+    /// Overview's tab shows it while Overview is not the view shown.
+    var needsYouCount = 0
+    /// Per tab, for renders.
+    var forcedTabs: [ViewTab: ControlInteraction] = [:]
 
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
+
+    @State private var barWidth: CGFloat = 0
+    @State private var titleWidth: CGFloat = 0
+    @State private var tabsMaxX: CGFloat = 0
+    @State private var trailingWidth: CGFloat = 0
+
+    private var showsTitle: Bool {
+        TitleBarFit.showsTitle(
+            barWidth: barWidth, titleWidth: titleWidth, leadingEdge: tabsMaxX, trailingWidth: trailingWidth,
+            gap: ChromeMetrics.TitleBar.titleClearance
+        )
+    }
 
     var body: some View {
         HStack(spacing: ChromeMetrics.TitleBar.devTagSpacing) {
@@ -220,12 +253,30 @@ private struct TitleBar: View {
                 DevTag(theme: theme)
             }
         }
+        .fixedSize()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { titleWidth = $0 }
+        // Hidden rather than removed, so its width is still measured.
+        .opacity(showsTitle ? 1 : 0)
+        .accessibilityHidden(!showsTitle)
         .padding(.top, ChromeMetrics.TitleBar.titleTopInset)
         .frame(maxWidth: .infinity)
         .frame(height: ChromeMetrics.TitleBar.height)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barWidth = $0 }
         .overlay { TitleBarMouseArea() }
-        // Over the mouse area, which would otherwise take the restart click
-        // for a title-bar drag.
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth).allowsHitTesting(false)
+        }
+        // Over the mouse area, which would otherwise take the tabs' and the
+        // restart pill's clicks for a title-bar drag.
+        .overlay(alignment: .bottomLeading) {
+            ViewTabBar(theme: theme, needsYouCount: needsYouCount, forced: forcedTabs)
+                .frame(height: ChromeMetrics.TitleBar.height)
+                .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
+                .fixedSize(horizontal: true, vertical: false)
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .local).width } action: {
+                    tabsMaxX = $0
+                }
+        }
         .overlay(alignment: .trailing) {
             HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
                 if let devBuild, devBuild.newerBuildReady {
@@ -234,6 +285,8 @@ private struct TitleBar: View {
                 connectionNotice
             }
             .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
+            .fixedSize()
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { trailingWidth = $0 }
         }
         .background(theme.chrome)
     }

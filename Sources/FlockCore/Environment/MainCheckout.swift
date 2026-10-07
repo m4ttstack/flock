@@ -30,12 +30,32 @@ public enum MainCheckout {
               let line = text.split(whereSeparator: \.isNewline).first, line.hasPrefix(prefix)
         else { return nil }
         let gitDir = path(line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces), from: directory)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: gitDir.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return checkout(ofPruned: gitDir)
+        }
         guard let common = try? String(contentsOf: gitDir.appendingPathComponent("commondir"), encoding: .utf8) else {
             return directory.path
         }
         let commonDir = path(common.trimmingCharacters(in: .whitespacesAndNewlines), from: gitDir)
         guard commonDir.lastPathComponent == ".git" else { return nil }
         return commonDir.deletingLastPathComponent().path
+    }
+
+    /// A worktree whose gitdir is gone: git prunes `<repo>/.git/worktrees/<name>`
+    /// when the worktree is removed or moved away (rt moves them to a trash
+    /// folder), and a pane can still sit in what is left. Its main checkout
+    /// is still `<repo>` while that checkout exists; anything else is no
+    /// repository, never the leftover folder itself.
+    private static func checkout(ofPruned gitDir: URL) -> String? {
+        let worktrees = gitDir.deletingLastPathComponent()
+        let dotGit = worktrees.deletingLastPathComponent()
+        guard worktrees.lastPathComponent == "worktrees", dotGit.lastPathComponent == ".git" else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dotGit.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return dotGit.deletingLastPathComponent().path
     }
 
     /// Lexical only: resolving symlinks would hand back `/private/var` for a

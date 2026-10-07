@@ -11,10 +11,13 @@ public enum RenameShortcut {
     /// only thing a double-click on that same surface would have renamed.
     /// `nil` when nothing is selected at all, which leaves the menu item
     /// disabled rather than opening an editor on nothing.
+    ///
+    /// A focused pane with no title of its own (`PaneNaming`) names its tab.
     public static func target(
-        focusedPane: PaneID?, selectedTab: TabID?, selectedWorkspace: WorkspaceID?
+        focusedPane: PaneID?, selectedTab: TabID?, selectedWorkspace: WorkspaceID?,
+        model: SessionModel? = nil, oneTitle: Bool = false
     ) -> RenameTarget? {
-        if let focusedPane { return .pane(focusedPane) }
+        if let focusedPane { return PaneNaming.renameTarget(.pane(focusedPane), model: model, oneTitle: oneTitle) }
         if let selectedTab { return .tab(selectedTab) }
         if let selectedWorkspace { return .workspace(selectedWorkspace) }
         return nil

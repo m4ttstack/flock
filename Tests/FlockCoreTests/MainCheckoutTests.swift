@@ -87,6 +87,22 @@ final class MainCheckoutTests: XCTestCase {
         XCTAssertNil(MainCheckout.resolve(from: plain.path))
     }
 
+    /// rt moves a removed worktree to a trash folder and git prunes its
+    /// gitdir; a pane can still sit in what is left.
+    func testAPrunedWorktreeResolvesToItsRepoNotTheLeftoverFolder() throws {
+        let repo = try dir("acme")
+        _ = try dir("acme/.git/objects")
+        let leftover = try dir("trash/wt-123")
+        try write("gitdir: \(repo.appendingPathComponent(".git/worktrees/wt").path)\n", to: "trash/wt-123/.git")
+        XCTAssertEqual(MainCheckout.resolve(from: leftover.path), repo.path)
+    }
+
+    func testAPrunedWorktreeOfARepoThatIsGoneHasNoMainCheckout() throws {
+        let leftover = try dir("trash/wt-123")
+        try write("gitdir: \(root.appendingPathComponent("gone/.git/worktrees/wt").path)\n", to: "trash/wt-123/.git")
+        XCTAssertNil(MainCheckout.resolve(from: leftover.path))
+    }
+
     func testAnUnreadableGitFileHasNoMainCheckout() throws {
         let odd = try dir("odd")
         try write("not a gitdir line\n", to: "odd/.git")

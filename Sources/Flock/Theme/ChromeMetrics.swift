@@ -11,6 +11,15 @@ import SwiftUI
 /// same scale, and `ChromeType` the text.
 enum ChromeMetrics {
     static let ruleWidth: CGFloat = 1
+    /// The one outline a selected card, tile, mini pane or focused pane
+    /// wears, drawn inside the shape it marks. Also the width of an island's
+    /// current-workspace outline, which marks the same kind of thing.
+    static let selectionOutlineWidth: CGFloat = 1.5
+    /// The band under the title bar in every view: Workspaces' tab strip,
+    /// Overview's and Arrange's header and the focused pane's header, so the
+    /// content below starts at one y in all of them. Tall enough for the
+    /// focused header's 26pt back button and Next chip with room either side.
+    static let headerBandHeight: CGFloat = 40
 
     /// The two resting status shapes, as fractions of whatever size the dot is
     /// asked for rather than fixed points: the same rule has to read at 4pt on
@@ -20,7 +29,7 @@ enum ChromeMetrics {
     static let statusUnknownRatio: CGFloat = 0.5
 
     enum TitleBar {
-        static let height: CGFloat = 26
+        static let height: CGFloat = 36
         static let noticeSpacing: CGFloat = 6
         static let noticeDot: CGFloat = 6
         static let noticeTrailingPadding: CGFloat = 13
@@ -33,6 +42,20 @@ enum ChromeMetrics {
         static let restartGlyphSpacing: CGFloat = 4
         static let restartHorizontalPadding: CGFloat = 8
         static let restartVerticalPadding: CGFloat = 2.5
+        /// Clears the standard window buttons, which sit at the bar's
+        /// leading edge.
+        static let tabsLeadingInset: CGFloat = 86
+        static let tabHorizontalPadding: CGFloat = 14
+        static let badgeHeight: CGFloat = 16
+        static let badgeHorizontalPadding: CGFloat = 5
+        static let badgeFillOpacity: Double = 0.18
+        static let tabGlyphSize: CGFloat = 12
+        static let tabGlyphGap: CGFloat = 7
+        static let tabUnderline: CGFloat = 2
+        /// The least clearance the centred title keeps from either end's
+        /// content before it hides. Small enough that "flock" and the DEV tag
+        /// still fit beside the tabs at the main window's minimum width.
+        static let titleClearance: CGFloat = 8
     }
 
     enum Banner {
@@ -56,17 +79,6 @@ enum ChromeMetrics {
         /// The heading's bottom to the first row's top: the heading gap with a
         /// row gap either side of it.
         static let headingToFirstRow: CGFloat = rowGap + headingGap + rowGap
-        /// The "All workspaces" button's hit box, overlaid on the heading row
-        /// so its size never moves the heading or the rows below it. Taller
-        /// than the heading text: the overflow is absorbed by the padding
-        /// above and the gap below.
-        static let headingButtonSize: CGFloat = 22
-        /// The grid glyph's drawn square inside that block.
-        static let headingSymbolSize: CGFloat = 13
-        static let headingButtonCornerRadius: CGFloat = 3
-        /// How much accent a held press blends over the selection fill, so
-        /// pressed reads a step deeper than hover.
-        static let headingButtonPressedAccent: Double = 0.2
     }
 
     enum WorkspaceRow {
@@ -75,12 +87,17 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 10
         static let spacing: CGFloat = 8
         static let countMinimumGap: CGFloat = 5
-        static let cornerRadius: CGFloat = 3
+        static let mark: CGFloat = 13
+        static let cornerRadius: CGFloat = ChromeRadius.control
         /// A step up from the strip's 6pt dot, which the parity checklist
         /// asks for on the rail and the pane header: this is the one mark a
         /// workspace nobody is looking at has, and it has to survive being
         /// read from across the room rather than from the caret.
         static let statusDot: CGFloat = 8
+        /// An empty pin's symbol and name, over `textLabel`: a step below a
+        /// heading, still read at a glance. Its row's hover and its rename
+        /// field are not dimmed.
+        static let emptyPinOpacity: Double = 0.7
         /// The bar herdr's focused tab is marked with inside a grid
         /// thumbnail. Was the rail's indicator too, until the rail's became a
         /// status dot; the thumbnail keeps it, because there it marks focus
@@ -92,6 +109,11 @@ enum ChromeMetrics {
     enum RailSection {
         /// The header's mark: the ram for Herds, board's own logo for Board.
         static let headerMark: CGFloat = 13
+        /// The ram's trail leaves its ink smaller and lower in its square than a
+        /// symbol's, so it takes a larger square and a lift to match the
+        /// workspace glyphs and centre on the heading.
+        static let herdsMark: CGFloat = 16
+        static let herdsMarkLift: CGFloat = 1.5
         static let headerChevron: CGFloat = 8
         static let headerChevronGap: CGFloat = 4
         /// The heading's own gap, doubled: a section has to read as another
@@ -110,9 +132,11 @@ enum ChromeMetrics {
     }
 
     enum Strip {
-        static let height: CGFloat = 36
+        static let height: CGFloat = headerBandHeight
         static let horizontalPadding: CGFloat = 10
         static let tabGap: CGFloat = 3
+        /// Above a tab, which stands on the strip's rule.
+        static let tabTopClearance: CGFloat = 8
         /// The design sets the protocol readout 1.5pt above the strip's
         /// center; the inset is twice that because the frame centers the
         /// padded label.
@@ -131,7 +155,7 @@ enum ChromeMetrics {
     /// with the bounds it is kept inside; `TabSizing` takes the measurement
     /// that rule is given.
     enum Tab {
-        static let height: CGFloat = 28
+        static let height: CGFloat = Strip.height - Strip.tabTopClearance
         static let horizontalPadding: CGFloat = 12
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6
@@ -161,7 +185,7 @@ enum ChromeMetrics {
     /// padding and its host's row height rather than a box of its own.
     enum Rename {
         static let horizontalPadding: CGFloat = 5
-        static let cornerRadius: CGFloat = 3
+        static let cornerRadius: CGFloat = ChromeRadius.control
         /// Narrow enough for a rail row, wide enough that a two-word name is
         /// not scrolling as it is typed.
         static let minimumWidth: CGFloat = 72
@@ -175,7 +199,7 @@ enum ChromeMetrics {
     /// The hover-reveal close control on a tab and an attention toast.
     enum CloseButton {
         static let size: CGFloat = 18
-        static let cornerRadius: CGFloat = 3
+        static let cornerRadius: CGFloat = ChromeRadius.control
         static let symbol: CGFloat = 11
     }
 
@@ -183,16 +207,16 @@ enum ChromeMetrics {
     enum FindBar {
         static let inset: CGFloat = 8
         static let padding: CGFloat = 6
-        static let cornerRadius: CGFloat = 8
+        static let cornerRadius: CGFloat = ChromeRadius.container
         static let fieldWidth: CGFloat = 180
-        static let fieldCornerRadius: CGFloat = 5
+        static let fieldCornerRadius: CGFloat = ChromeRadius.control
         static let fieldHorizontalPadding: CGFloat = 8
         static let fieldVerticalPadding: CGFloat = 5
         /// Room at the field's trailing edge for the "12/34" count.
         static let countReserve: CGFloat = 46
         static let buttonSpacing: CGFloat = 2
         static let buttonSize: CGFloat = 24
-        static let buttonCornerRadius: CGFloat = 5
+        static let buttonCornerRadius: CGFloat = ChromeRadius.control
         static let shadowRadius: CGFloat = 6
     }
 
@@ -217,7 +241,7 @@ enum ChromeMetrics {
             static let dot: CGFloat = 2.5
             static let dotGap: CGFloat = 2.5
             static let pillSize = CGSize(width: 24, height: 14)
-            static let pillCornerRadius: CGFloat = 4
+            static let pillCornerRadius: CGFloat = ChromeRadius.control
             static let hitWidth: CGFloat = 36
         }
 
@@ -226,7 +250,7 @@ enum ChromeMetrics {
         /// top of it, and the cord rising from the top.
         enum MouseGlyph {
             static let chipSize = CGSize(width: 31, height: 20)
-            static let chipCornerRadius: CGFloat = 4
+            static let chipCornerRadius: CGFloat = ChromeRadius.control
             static let bodyWidth: CGFloat = 10.5
             static let bodyHeight: CGFloat = 12
             static let cornerRadius: CGFloat = 4.75
@@ -248,7 +272,7 @@ enum ChromeMetrics {
         /// behind when it is absent.
         static let signedInHeight: CGFloat = 21
         static let signedOutSize = CGSize(width: 31, height: 20)
-        static let cornerRadius: CGFloat = 4
+        static let cornerRadius: CGFloat = ChromeRadius.control
         static let verticalPadding: CGFloat = 3
         static let horizontalPadding: CGFloat = 9
         static let gap: CGFloat = 7
@@ -273,7 +297,7 @@ enum ChromeMetrics {
         static let width: CGFloat = 360
         static let signedOutHeight: CGFloat = 325
         static let signedInHeight: CGFloat = 348
-        static let cornerRadius: CGFloat = 10
+        static let cornerRadius: CGFloat = ChromeRadius.container
 
         enum Header {
             static let height: CGFloat = 41
@@ -297,7 +321,7 @@ enum ChromeMetrics {
             static let gap: CGFloat = 7
             static let dotSize: CGFloat = 7
             static let roomChipHeight: CGFloat = 16
-            static let roomChipCornerRadius: CGFloat = 4
+            static let roomChipCornerRadius: CGFloat = ChromeRadius.tiny
             static let roomChipVerticalPadding: CGFloat = 2
             static let roomChipHorizontalPadding: CGFloat = 7
             static let roomChipGap: CGFloat = 6
@@ -320,7 +344,7 @@ enum ChromeMetrics {
             static let bandHeight: CGFloat = 124
             static let horizontalInset: CGFloat = 8
             static let rowSize = CGSize(width: 344, height: 31)
-            static let rowCornerRadius: CGFloat = 5
+            static let rowCornerRadius: CGFloat = ChromeRadius.control
             static let rowHorizontalPadding: CGFloat = 8
             static let rowGap: CGFloat = 9
             static let iconSize = CGSize(width: 14, height: 14)
@@ -337,7 +361,7 @@ enum ChromeMetrics {
             static let bottomPadding: CGFloat = 16
             static let leadingPadding: CGFloat = 14
             static let buttonSize = CGSize(width: 332, height: 33)
-            static let cornerRadius: CGFloat = 6
+            static let cornerRadius: CGFloat = ChromeRadius.control
             static let buttonVerticalPadding: CGFloat = 9
             static let buttonHorizontalPadding: CGFloat = 10
             static let contentGap: CGFloat = 7
@@ -360,7 +384,7 @@ enum ChromeMetrics {
         /// is the largest square hit target that fits without growing the
         /// header past its fixed 41pt total.
         static let iconHitSize: CGFloat = height - 2 * verticalPadding
-        static let iconHitCornerRadius: CGFloat = 4
+        static let iconHitCornerRadius: CGFloat = ChromeRadius.control
     }
 
     /// Chat peek: buddies with a jump affordance, then rooms, each carrying
@@ -369,7 +393,7 @@ enum ChromeMetrics {
     enum ChatPeek {
         static let width: CGFloat = 360
         static let height: CGFloat = 326
-        static let cornerRadius: CGFloat = 10
+        static let cornerRadius: CGFloat = ChromeRadius.container
 
         enum Label {
             static let height: CGFloat = 31
@@ -387,7 +411,6 @@ enum ChromeMetrics {
             static let dotSize: CGFloat = 7
             static let stackGap: CGFloat = 1
             static let pillSize = CGSize(width: 19, height: 16)
-            static let pillCornerRadius: CGFloat = 8
             static let pillVerticalPadding: CGFloat = 2
             static let pillHorizontalPadding: CGFloat = 6
             static let jumpIconSize = CGSize(width: 12, height: 12)
@@ -409,7 +432,7 @@ enum ChromeMetrics {
     enum ChatQuickSend {
         static let width: CGFloat = 360
         static let height: CGFloat = 234
-        static let cornerRadius: CGFloat = 10
+        static let cornerRadius: CGFloat = ChromeRadius.container
 
         enum TargetBand {
             /// The single-row height the canvas modelled -- still exactly
@@ -422,7 +445,7 @@ enum ChromeMetrics {
             static let leadingPadding: CGFloat = 14
             static let gap: CGFloat = 7
             static let chipHeight: CGFloat = 21
-            static let chipCornerRadius: CGFloat = 4
+            static let chipCornerRadius: CGFloat = ChromeRadius.tiny
             static let chipVerticalPadding: CGFloat = 4
             static let chipHorizontalPadding: CGFloat = 9
             static let chipGap: CGFloat = 6
@@ -446,12 +469,12 @@ enum ChromeMetrics {
             static let leadingPadding: CGFloat = 14
             static let gap: CGFloat = 9
             static let fieldSize = CGSize(width: 332, height: 74)
-            static let fieldCornerRadius: CGFloat = 6
+            static let fieldCornerRadius: CGFloat = ChromeRadius.control
             static let fieldVerticalPadding: CGFloat = 10
             static let fieldHorizontalPadding: CGFloat = 11
             static let footerHeight: CGFloat = 29
             static let sendButtonSize = CGSize(width: 82, height: 29)
-            static let sendButtonCornerRadius: CGFloat = 6
+            static let sendButtonCornerRadius: CGFloat = ChromeRadius.control
             static let sendButtonVerticalPadding: CGFloat = 7
             static let sendButtonHorizontalPadding: CGFloat = 13
             static let sendButtonGap: CGFloat = 6
@@ -464,7 +487,7 @@ enum ChromeMetrics {
     enum ChatBroadcast {
         static let width: CGFloat = 400
         static let height: CGFloat = 370
-        static let cornerRadius: CGFloat = 10
+        static let cornerRadius: CGFloat = ChromeRadius.container
 
         enum SelectHead {
             static let height: CGFloat = 31
@@ -480,7 +503,7 @@ enum ChromeMetrics {
             static let horizontalPadding: CGFloat = 14
             static let gap: CGFloat = 10
             static let checkboxSize: CGFloat = 15
-            static let checkboxCornerRadius: CGFloat = 3
+            static let checkboxCornerRadius: CGFloat = ChromeRadius.tiny
             static let checkTickSize: CGFloat = 10
             static let dotSize: CGFloat = 7
             static let stackGap: CGFloat = 1
@@ -491,12 +514,12 @@ enum ChromeMetrics {
             static let padding: CGFloat = 14
             static let gap: CGFloat = 9
             static let fieldSize = CGSize(width: 372, height: 64)
-            static let fieldCornerRadius: CGFloat = 6
+            static let fieldCornerRadius: CGFloat = ChromeRadius.control
             static let fieldVerticalPadding: CGFloat = 10
             static let fieldHorizontalPadding: CGFloat = 11
             static let footerHeight: CGFloat = 29
             static let sendButtonSize = CGSize(width: 112, height: 29)
-            static let sendButtonCornerRadius: CGFloat = 6
+            static let sendButtonCornerRadius: CGFloat = ChromeRadius.control
             static let sendButtonVerticalPadding: CGFloat = 7
             static let sendButtonHorizontalPadding: CGFloat = 13
             static let sendButtonGap: CGFloat = 6
@@ -511,23 +534,55 @@ enum ChromeMetrics {
         static let gap: CGFloat = 5
         static let horizontalPadding: CGFloat = 9
         static let verticalPadding: CGFloat = 5
-        static let cornerRadius: CGFloat = 6
+        static let cornerRadius: CGFloat = ChromeRadius.surface
         static let shortcutGap: CGFloat = 8
         static let shortcutOpacity: Double = 0.55
         static let groundWhite: Double = 0.07
     }
 
-    /// The legend controls' hover wash: the theme's text colour at this
-    /// opacity over the hovered target.
+    /// Every hover in the chrome: the theme's text colour at this opacity
+    /// over the hovered target (`HoverWashFill`), or over a control's resting
+    /// fill (`GridControlGround`).
     enum HoverWash {
         static let opacity: Double = 0.1
     }
 
+    /// The workspace symbol picker popover: an Automatic button, then each
+    /// group's symbols in a grid of square cells.
+    enum SymbolPicker {
+        static let columns = 8
+        static let cellSize: CGFloat = 30
+        static let cellGap: CGFloat = 4
+        static let cellCornerRadius: CGFloat = ChromeRadius.control
+        static let glyphSize: CGFloat = 16
+        static let padding: CGFloat = 12
+        static let sectionGap: CGFloat = 12
+        static let labelGap: CGFloat = 6
+        static let labelTracking: CGFloat = 1
+        /// The grid scrolls past this; Automatic stays above it.
+        static let maxGridHeight: CGFloat = 360
+        static let automaticHeight: CGFloat = 28
+        static let automaticHorizontalPadding: CGFloat = 10
+        static let cornerRadius: CGFloat = ChromeRadius.container
+        static let selectedFill: Double = 0.24
+        static let selectedStroke: Double = 0.7
+        /// Eight cells and the gaps between them, plus the padding either side.
+        static let width: CGFloat = CGFloat(columns) * cellSize + CGFloat(columns - 1) * cellGap + 2 * padding
+    }
+
+    /// The ground a clickable workspace mark lifts on: this far past the glyph
+    /// on every side, drawn outside the mark's layout box so the header does
+    /// not move.
+    enum MarkButton {
+        static let padding: CGFloat = 3
+        static let cornerRadius: CGFloat = ChromeRadius.control
+    }
+
     enum RtButton {
         static let badgeSize = CGSize(width: 19, height: 14)
-        static let badgeCornerRadius: CGFloat = 3
+        static let badgeCornerRadius: CGFloat = ChromeRadius.tiny
         static let restSize = CGSize(width: 31, height: 20)
-        static let cornerRadius: CGFloat = 4
+        static let cornerRadius: CGFloat = ChromeRadius.control
         static let activeHeight: CGFloat = 21
         static let horizontalPadding: CGFloat = 8
         static let gap: CGFloat = 6
@@ -541,7 +596,7 @@ enum ChromeMetrics {
     /// no gap between them.
     enum RtPopover {
         static let width: CGFloat = 270
-        static let cornerRadius: CGFloat = 10
+        static let cornerRadius: CGFloat = ChromeRadius.container
 
         /// The 18pt folder chip is a point taller than the 17 the canvas's
         /// 12pt vertical padding leaves inside 41, so the height is fixed and
@@ -552,7 +607,7 @@ enum ChromeMetrics {
             static let gap: CGFloat = 8
             static let badgeSize = CGSize(width: 20, height: 15)
             static let chipHeight: CGFloat = 18
-            static let chipCornerRadius: CGFloat = 4
+            static let chipCornerRadius: CGFloat = ChromeRadius.tiny
             static let chipHorizontalPadding: CGFloat = 8
             static let chipGap: CGFloat = 5
             static let chipGlyphSize: CGFloat = 10
@@ -566,7 +621,7 @@ enum ChromeMetrics {
         /// A command row and a run row alike.
         enum Row {
             static let height: CGFloat = 31
-            static let cornerRadius: CGFloat = 5
+            static let cornerRadius: CGFloat = ChromeRadius.control
             static let horizontalPadding: CGFloat = 8
             static let gap: CGFloat = 9
             static let glyphSize: CGFloat = 14
@@ -601,7 +656,7 @@ enum ChromeMetrics {
             }
         }
 
-        static let cornerRadius: CGFloat = 8
+        static let cornerRadius: CGFloat = ChromeRadius.container
         static let darkBackdropOpacity: Double = 0.45
         static let lightBackdropOpacity: Double = 0.30
         static let shadowOpacity: Double = 0.35
@@ -620,7 +675,7 @@ enum ChromeMetrics {
             /// The close control's box, which is also its hover wash.
             static let closeGlyphSize: CGFloat = 20
             static let buttonBoxSide: CGFloat = 20
-            static let buttonCornerRadius: CGFloat = 4
+            static let buttonCornerRadius: CGFloat = ChromeRadius.control
             static let backHoverPadding: CGFloat = 5
         }
 
@@ -678,7 +733,7 @@ enum ChromeMetrics {
         static let primaryActionTopPadding: CGFloat = 8
         static let actionHeight: CGFloat = 30
         static let actionHorizontalPadding: CGFloat = 16
-        static let actionCornerRadius: CGFloat = 7
+        static let actionCornerRadius: CGFloat = ChromeRadius.control
         /// Bigger than the 40pt SF Symbol it replaced. The mark carries its
         /// trail alongside the ram, so the animal itself is roughly two
         /// thirds of this box rather than all of it.
@@ -782,103 +837,116 @@ enum ChromeMetrics {
         static let borderOpacity: Double = 0.45
     }
 
-    enum Grid {
-        static let headerHeight: CGFloat = 36
-        static let headerHorizontalPadding: CGFloat = 13
-        static let headerSpacing: CGFloat = 8
-        static let canvasPadding: CGFloat = 13
-        /// Between cards, across a row and down the grid.
-        static let cardGap: CGFloat = 13
-        static let cardCornerRadius: CGFloat = 3
-        static let cardVerticalPadding: CGFloat = 10
-        static let cardHorizontalPadding: CGFloat = 13
-        static let cardSpacing: CGFloat = 10
-        static let cardHeaderSpacing: CGFloat = 8
-        static let cardStatusDot: CGFloat = 6
-        /// Between tabs, across a row and down a card.
-        static let tabGap: CGFloat = 10
-        /// The thumbnail carries the tab's own title strip, so it is taller
-        /// than the block alone by exactly what the label row under it used
-        /// to spend: a card's rows are the same height either way.
-        static let thumbnailHeight: CGFloat = 101
-        /// How wide a thumbnail is drawn, at every window size: a miniature
-        /// that stretches with the window stops reading as one, and a card's
-        /// row buys or loses slots instead. Thumbnails and the new-tab
-        /// placeholder both take it.
-        ///
-        /// Wide enough to read as a tab rather than a sliver, which costs the
-        /// narrowest window the app allows (900pt) a slot: it holds three of
-        /// these where it held four of the 93.625pt slot the design draws at
-        /// that width. 93 is the widest that would have kept four, and the
-        /// cost of keeping it is a thumbnail too narrow to read.
-        static let thumbnailWidth: CGFloat = 120
-        /// The tab's handle: a band across the top of its thumbnail, holding
-        /// the title and status dot.
-        static let tabStripHeight: CGFloat = 15
-        static let tabStripHorizontalPadding: CGFloat = 5
-        static let tabStripSpacing: CGFloat = 5
-        /// herdr's focused tab is marked the way the rail marks its focused
-        /// workspace: the same bar, holding the same share of the row it sits
-        /// in.
-        static let tabStripIndicatorSize = CGSize(
-            width: WorkspaceRow.indicatorSize.width,
-            height: (tabStripHeight * WorkspaceRow.indicatorSize.height / WorkspaceRow.contentHeight).rounded()
-        )
-        static let thumbnailCornerRadius: CGFloat = 3
-        static let thumbnailPadding: CGFloat = 4
-        static let miniPaneGap: CGFloat = 4
-        static let miniPaneCornerRadius: CGFloat = 1
-        static let miniPaneVerticalPadding: CGFloat = 4
-        static let miniPaneHorizontalPadding: CGFloat = 5
-        static let miniPaneTitleSpacing: CGFloat = 3
-        static let miniPaneStatusDot: CGFloat = 4
-        static let labelStatusDot: CGFloat = 6
+    enum MissionControl {
+        static let canvasPadding: CGFloat = 24
+        static let canvasVerticalPadding: CGFloat = 20
+        static let laneGap: CGFloat = 16
+        static let lanePadding: CGFloat = 12
+        static let laneCornerRadius: CGFloat = ChromeRadius.container
+        static let laneHeaderSpacing: CGFloat = 8
+        static let laneDot: CGFloat = 9
+        static let cardGap: CGFloat = 10
+        static let cardVerticalPadding: CGFloat = 12
+        static let cardHorizontalPadding: CGFloat = 14
+        static let cardCornerRadius: CGFloat = ChromeRadius.surface
+        static let cardLineSpacing: CGFloat = 7
+        static let cardDot: CGFloat = 7
+        static let blockedOutline: CGFloat = 1.5
+        /// A lane's scroll content sits this far inside the lane's padding,
+        /// and its heading and labels are pulled in to match, so their
+        /// leading edges line up with the groups'.
+        static let laneScrollInset: CGFloat = 3
+        static let coolingOpacity: Double = 0.75
+        static let timelineWidth: CGFloat = 180
+        /// A narrow window's lanes give the timeline up before `repo @
+        /// branch`, down to this.
+        static let timelineMinimumWidth: CGFloat = 60
+        static let timelineHeight: CGFloat = 5
+        static let timelineIdleHeight: CGFloat = 2
+        /// A lane's group: its cards for one workspace on the neutral wash,
+        /// at Arrange's island strength.
+        static let groupCornerRadius: CGFloat = ChromeRadius.container
+        static let groupPadding: CGFloat = 10
+        static let groupMark: CGFloat = 14
+        static let groupLabelSpacing: CGFloat = 7
+        /// The focused view's way back to Overview.
+        static let backHeight: CGFloat = 26
+        static let backCornerRadius: CGFloat = ChromeRadius.control
+        static let backHorizontalPadding: CGFloat = 12
+        static let focusedBackPadding: CGFloat = 8
+        static let focusedBackPullIn: CGFloat = 6
+        /// The focused view's Next chip, as tall as the back button.
+        static let nextHorizontalPadding: CGFloat = 10
+        static let nextSpacing: CGFloat = 6
+        static let nextMaxTitleWidth: CGFloat = 320
+        static let queueClearHeight: CGFloat = 22
+        static let queueClearWash: Double = 0.14
+        /// At rest's time section labels: the label, then a hairline rule to
+        /// the lane's edge.
+        static let restLabelSpacing: CGFloat = 8
+        static let restLabelTracking: CGFloat = 1
+        /// Added above every section but the first, on top of the card gap.
+        static let restSectionGap: CGFloat = 6
+        static let restFirstSectionGap: CGFloat = 4
+        static let restLabelOpacity: Double = 0.75
+        /// Room around the Older disclosure's text for its hover block, taken
+        /// back out of its leading edge so the label lines up with the others.
+        static let restDisclosureCornerRadius: CGFloat = ChromeRadius.control
+        static let restDisclosureVerticalPadding: CGFloat = 3
+        static let restDisclosureHorizontalPadding: CGFloat = 6
+        /// Half the launcher's press accent: over a whole card the launcher's
+        /// own amount read as a selected surface rather than a press.
+        static let cardPressedAccent: Double = 0.1
+        static let laneMoveDuration: Double = 0.2
+        /// How far sideways a lane lets a moving card draw: past any lane
+        /// it could be crossing from.
+        static let crossLaneReach: CGFloat = 10_000
     }
 
-    enum HoverCard {
-        /// Wide enough for about 75 columns of the tail's own face, so most
-        /// terminal lines read whole rather than clipped, and narrow enough to
-        /// sit beside a pane in the narrowest grid the app allows.
-        static let width: CGFloat = 560
-        static let verticalPadding: CGFloat = 10
-        static let horizontalPadding: CGFloat = 13
-        static let spacing: CGFloat = 5
-        static let cornerRadius: CGFloat = 4
-        static let titleSpacing: CGFloat = 6
-        static let statusDot: CGFloat = 6
-        /// Between the pane and the card beside it: wide enough to read as
-        /// two things.
-        static let paneGap: CGFloat = 8
-        /// About twenty lines of the tail's face, so a full tail of short
-        /// lines never scrolls and the card stays shorter than the grid at the
-        /// window's minimum height.
-        static let tailMaxHeight: CGFloat = 300
-        static let barHeight: CGFloat = 30
-        static let barSpacing: CGFloat = 6
-        /// Tighter than the leading edge: the controls carry their own hover
-        /// padding, so their glyphs still line up with the body's text inset.
-        static let barTrailingPadding: CGFloat = 6
-        static let barControlRestOpacity: Double = 0.75
-        static let shadowOpacity: Double = 0.35
-        static let shadowRadius: CGFloat = 18
-        static let shadowY: CGFloat = 10
-        /// Far lighter than a modal's backdrop: the grid behind stays readable
-        /// and clickable, it only stops competing with the card.
-        static let darkScrimOpacity: Double = 0.14
-        static let lightScrimOpacity: Double = 0.08
-        static let openScale: CGFloat = 0.96
-        static let openDuration: Double = 0.16
-        /// The tail's lines sit at the terminal's own rhythm, tighter than the
-        /// card's rows, so a screenful reads as one block of output.
-        static let tailLineSpacing: CGFloat = 1
-        static let copySpacing: CGFloat = 4
-        static let copyHorizontalPadding: CGFloat = 6
-        static let copyVerticalPadding: CGFloat = 3
-        static let copyCornerRadius: CGFloat = 3
-        /// Where placement starts before the card has measured itself once:
-        /// a card with a full tail, since that is what nearly every card
-        /// settles at.
-        static let estimatedHeight: CGFloat = 420
+    enum Grid {
+        static let headerHeight: CGFloat = headerBandHeight
+        static let headerHorizontalPadding: CGFloat = 13
+        static let headerSpacing: CGFloat = 8
+        static let headerSeparatorHeight: CGFloat = 14
+        static let focusedMark: CGFloat = 14
+        /// Between the focused header's back button, place, title and state.
+        static let focusedGroupSpacing: CGFloat = 14
+        static let focusedSlashOpacity: Double = 0.7
+        /// Around the islands. `IslandLayout.fit` is handed the viewport
+        /// less this on each side.
+        static let canvasPadding: CGFloat = 28
+        static let cardStatusDot: CGFloat = 6
+        /// Gaps, island padding and the thumbnail aspect, shared with the fit
+        /// so the islands drawn are the islands it measured.
+        static let islands = IslandLayout.Metrics()
+        static let tabGap = islands.tabGap
+        /// The fit-to-window floor (`IslandLayout.Metrics.minimumWidth`):
+        /// below it Arrange scrolls rather than shrinking further.
+        static let minimumThumbnailWidth: CGFloat = 120
+        /// What a thumbnail is drawn at before the view has measured itself.
+        static let thumbnailWidth: CGFloat = minimumThumbnailWidth
+        static let thumbnailHeight: CGFloat = 74
+        static let islandTint: Double = 0.10
+        /// `IslandLayout.Metrics.headerHeight` is these three summed.
+        static let islandTopPadding: CGFloat = 14
+        static let islandHeaderHeight: CGFloat = 20
+        static let islandHeaderGap: CGFloat = 12
+        static let islandHeaderSpacing: CGFloat = 10
+        static let workspaceMark: CGFloat = 14
+        static let currentTabUnderline: CGFloat = 2
+        /// The tab's handle: a band across the top of its thumbnail, holding
+        /// the title and status dot.
+        static let tabStripHeight: CGFloat = 24
+        static let tabStripHorizontalPadding: CGFloat = 8
+        static let tabStripSpacing: CGFloat = 5
+        static let thumbnailPadding: CGFloat = 4
+        static let miniPaneGap: CGFloat = 4
+        static let miniPaneVerticalPadding: CGFloat = 8
+        static let miniPaneHorizontalPadding: CGFloat = 9
+        static let miniPaneTitleSpacing: CGFloat = 4
+        static let miniPaneStatusDot: CGFloat = 6
+        static let miniPaneBlockedOutline: CGFloat = 1.5
+        static let labelStatusDot: CGFloat = 6
     }
 
     enum Ghost {
@@ -947,7 +1015,7 @@ enum ChromeMetrics {
     enum Palette {
         static let width: CGFloat = 520
         static let minTop: CGFloat = 12
-        static let cornerRadius: CGFloat = 10
+        static let cornerRadius: CGFloat = ChromeRadius.container
         static let shadowRadius: CGFloat = 16
         static let shadowY: CGFloat = 12
         static let shadowOpacity: Double = 0.35
@@ -959,10 +1027,10 @@ enum ChromeMetrics {
         static let rowHeight: CGFloat = 32
         static let rowPadding: CGFloat = 8
         static let rowGap: CGFloat = 10
-        static let rowCornerRadius: CGFloat = 6
+        static let rowCornerRadius: CGFloat = ChromeRadius.control
         /// As wide as the widest namespace word, "workspace".
         static let badgeSize = CGSize(width: 64, height: 18)
-        static let badgeCornerRadius: CGFloat = 4
+        static let badgeCornerRadius: CGFloat = ChromeRadius.tiny
         static let sectionPadding = EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8)
         static let footerHeight: CGFloat = 30
         static let footerGap: CGFloat = 14

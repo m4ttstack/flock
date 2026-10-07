@@ -16,7 +16,7 @@ public enum PaneChrome {
     /// Every rounded shape drawn over or beside a box (drop preview, landing
     /// flash, ghost, toasts) takes this too, so an overlay's corners trace
     /// the box it lands on.
-    public static let cornerRadius: CGFloat = 3
+    public static let cornerRadius: CGFloat = ChromeRadius.surface
 
     /// From the box's top edge down to the first terminal row. This band is
     /// also the pane's at-rest drag handle, so it costs no terminal rows.

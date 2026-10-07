@@ -125,11 +125,7 @@ private struct FindBarButton: View {
                 .font(ChromeType.findSymbol)
                 .foregroundStyle(isHovering ? theme.textStrong : theme.textLabel)
                 .frame(width: ChromeMetrics.FindBar.buttonSize, height: ChromeMetrics.FindBar.buttonSize)
-                .background(
-                    RoundedRectangle(cornerRadius: ChromeMetrics.FindBar.buttonCornerRadius)
-                        .fill(theme.selection)
-                        .opacity(isHovering ? 1 : 0)
-                )
+                .background { if isHovering { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.FindBar.buttonCornerRadius) } }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -35,16 +35,33 @@ extension Theme {
 /// single `StatusDotView`); it fills every state but unknown because it
 /// replaces the herdr TUI, while flock sits beside it and has to read the
 /// same way the TUI next to it does.
+///
+/// A pane herdr calls idle or done that is still running background work
+/// draws `BackgroundMarkView` instead, whatever `status` says.
 struct StatusDot: View {
     let status: AgentStatus
     let theme: Theme
     var size: CGFloat = ChromeMetrics.Tab.statusDot
+    var isBackground = false
+
+    init(status: AgentStatus, theme: Theme, size: CGFloat = ChromeMetrics.Tab.statusDot, isBackground: Bool = false) {
+        self.status = status
+        self.theme = theme
+        self.size = size
+        self.isBackground = isBackground
+    }
+
+    init(shown: ShownStatus, theme: Theme, size: CGFloat = ChromeMetrics.Tab.statusDot) {
+        self.init(status: shown.status, theme: theme, size: size, isBackground: shown.isBackground)
+    }
 
     private var color: Color { theme.agentStatusMarkColor(status) }
 
     var body: some View {
         ZStack {
             switch status {
+            case _ where isBackground:
+                BackgroundMarkView(theme: theme, size: size)
             case .working, .blocked, .done:
                 Circle().fill(color)
             case .idle:
@@ -59,5 +76,27 @@ struct StatusDot: View {
             }
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// A pane busy only in the background: idle's ring, in mauve, so it reads as
+/// neither idle nor working.
+struct BackgroundMarkView: View {
+    let theme: Theme
+    let size: CGFloat
+
+    var body: some View {
+        Circle()
+            .strokeBorder(theme.backgroundWorkColor, lineWidth: size * ChromeMetrics.statusRingStrokeRatio)
+            .frame(width: size, height: size)
+    }
+}
+
+extension Theme {
+    var backgroundWorkColor: Color { mauve }
+
+    /// The colour a status's text and marks take as flock shows it.
+    func shownStatusColor(_ shown: ShownStatus) -> Color {
+        shown.isBackground ? backgroundWorkColor : agentStatusMarkColor(shown.status)
     }
 }

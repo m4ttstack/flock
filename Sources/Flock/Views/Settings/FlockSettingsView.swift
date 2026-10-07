@@ -12,6 +12,8 @@ import SwiftUI
 struct FlockSettingsView: View {
     let herdrMousePatchStore: HerdrMousePatchStore
     let notificationLifetimeStore: NotificationLifetimeStore
+    let missionBottomLineStore: MissionBottomLineStore
+    let oneTitleStore: OneTitleStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
     let startingFolderStore: StartingFolderStore
     let rtModalTextSizeStore: RtModalTextSizeStore
@@ -21,6 +23,8 @@ struct FlockSettingsView: View {
         Form {
             StartingFolderSettingsSection(store: startingFolderStore)
             NotificationSettingsSection(store: notificationLifetimeStore)
+            TitlesSettingsSection(store: oneTitleStore)
+            OverviewSettingsSection(bottomLineStore: missionBottomLineStore)
             RearrangeSettingsSection(store: rearrangeAfterMoveStore)
             RtModalTextSizeSection(store: rtModalTextSizeStore)
             HerdrMousePatchRow(store: herdrMousePatchStore)
