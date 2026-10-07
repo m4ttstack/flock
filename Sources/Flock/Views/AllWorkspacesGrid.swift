@@ -1134,7 +1134,7 @@ struct MiniPane: View {
     }
 
     /// The reason alone for background work: a mini pane is too narrow for
-    /// `working · 1 shell`, and its mark already says working.
+    /// anything longer, and its mark already says background.
     private var statusWord: some View {
         Text(backgroundWork ?? status.rawValue)
             .font(ChromeType.gridMiniPaneStatus)

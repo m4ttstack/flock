@@ -53,9 +53,10 @@ public struct ShownStatus: Equatable, Sendable {
 
     public var isBackground: Bool { backgroundWork != nil }
 
-    /// `working · 1 shell`.
+    /// The status, or for background work its reason alone (`1 shell`):
+    /// "working" is herdr's word for an agent thinking, which this is not.
     public var word: String {
-        backgroundWork.map { "\(status.rawValue) · \($0)" } ?? status.rawValue
+        backgroundWork ?? status.rawValue
     }
 
     /// `backgroundWork` is `SessionViewModel.backgroundWork`. An entry for a

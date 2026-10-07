@@ -122,7 +122,7 @@ final class BackgroundWorkTests: XCTestCase {
         let shown = ShownStatus.of(pane(.idle), backgroundWork: [PaneID(rawValue: "w1:t1:p1"): "1 shell"])
         XCTAssertEqual(shown.status, .working)
         XCTAssertTrue(shown.isBackground)
-        XCTAssertEqual(shown.word, "working · 1 shell")
+        XCTAssertEqual(shown.word, "1 shell")
     }
 
     func testAStaleEntryNeverRelabelsAPaneThatLeftEligibility() {

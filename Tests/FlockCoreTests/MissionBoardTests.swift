@@ -102,7 +102,7 @@ final class MissionBoardTests: XCTestCase {
         let working = b.working.flatMap(\.cards)
         XCTAssertEqual(working.map(\.paneID.rawValue), ["w1:t1:p1", "w1:t1:p2"])
         XCTAssertEqual(working.map(\.status), [.working, .working])
-        XCTAssertEqual(working.map { $0.stateText(at: now) }, ["working · 1 shell · 3m", "working · 2 monitors · 1m"])
+        XCTAssertEqual(working.map { $0.stateText(at: now) }, ["1 shell · 3m", "2 monitors · 1m"])
         XCTAssertEqual(restCards(b), ["w1:t1:p3"])
     }
 

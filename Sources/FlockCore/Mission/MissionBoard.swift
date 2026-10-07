@@ -23,7 +23,7 @@ public struct MissionCard: Equatable, Sendable, Identifiable {
     public var shown: ShownStatus { ShownStatus(status, backgroundWork: backgroundWork) }
 
     /// The status, with how long it has held when that is known: `blocked 12m`,
-    /// or `working · 1 shell · 3m` for background work.
+    /// or `1 shell · 3m` for background work.
     public func stateText(at now: Date) -> String {
         guard let since else { return shown.word }
         let age = MissionAge.text(now.timeIntervalSince(since))
