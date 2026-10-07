@@ -241,7 +241,7 @@ private actor TailReadClient: HerdrCommandClient {
 /// A herdr that predates the ansi read format: it refuses the format, or
 /// answers it with something that is not a read.
 private actor PlainOnlyReadClient: HerdrCommandClient {
-    enum AnsiAnswer { case refused, unreadable }
+    enum AnsiAnswer { case refused, unreadable, otherServerError }
 
     private(set) var formats: [String?] = []
     private let screen: String
@@ -258,7 +258,11 @@ private actor PlainOnlyReadClient: HerdrCommandClient {
         formats.append(format)
         guard format == nil else {
             switch ansiAnswer {
-            case .refused: throw HerdrClientError.server(code: "invalid_params", message: "unknown variant `ansi`")
+            case .refused:
+                throw HerdrClientError.server(
+                    code: "invalid_request", message: "invalid request: unknown variant `ansi`, expected `text`"
+                )
+            case .otherServerError: throw HerdrClientError.server(code: "pane_not_found", message: "pane w1:p1 not found")
             case .unreadable: return Data(#"{"result":{"type":"ok"}}"#.utf8)
             }
         }
@@ -336,6 +340,34 @@ final class PaneTailReadTests: XCTestCase {
             }
             XCTAssertEqual(formats, ["ansi", nil, nil], "\(answer): the second read skips the ansi request")
         }
+    }
+
+    func testAnUnrelatedServerErrorRetriesPlainButKeepsAskingForAnsi() async throws {
+        let client = PlainOnlyReadClient(screen: "one\ntwo\n", ansiAnswer: .otherServerError)
+        let viewModel = SessionViewModel(client: client)
+        viewModel.refreshPaneTail(for: pane)
+        let landed = try await tail(viewModel)
+        XCTAssertEqual(landed.lines, ["one", "two"])
+        viewModel.refreshPaneTail(for: pane)
+        var formats = await client.formats
+        var attempts = 0
+        while formats.count < 3, attempts < 200 {
+            try await Task.sleep(for: .milliseconds(5))
+            formats = await client.formats
+            attempts += 1
+        }
+        XCTAssertEqual(formats.prefix(3), ["ansi", nil, "ansi"], "the next read asks for ansi again")
+    }
+
+    func testOnlyAnUnparseableFormatCountsAsARefusal() {
+        XCTAssertTrue(SessionViewModel.refusesAnsiFormat(
+            code: "invalid_request", message: "invalid request: unknown variant `ansi`, expected `text`"
+        ))
+        XCTAssertTrue(SessionViewModel.refusesAnsiFormat(
+            code: "invalid_request", message: "invalid request: unknown field `format`, expected one of `pane_id`"
+        ))
+        XCTAssertFalse(SessionViewModel.refusesAnsiFormat(code: "invalid_request", message: "invalid request: missing field `pane_id`"))
+        XCTAssertFalse(SessionViewModel.refusesAnsiFormat(code: "pane_not_found", message: "unknown variant `ansi`"))
     }
 
     func testATransportErrorDoesNotMarkTheAnsiFormatRefused() async throws {

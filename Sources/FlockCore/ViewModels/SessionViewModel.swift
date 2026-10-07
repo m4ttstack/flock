@@ -65,9 +65,10 @@ public final class SessionViewModel {
     /// The panes with a tail read in flight, for the same reason and read the
     /// same way: `paneTails` is what the tiles observe.
     @ObservationIgnored private var tailReads: Set<PaneID> = []
-    /// Set by a server's refusal of the ansi read format or an answer that is
-    /// not a read, never by a transport error or timeout: those say nothing
-    /// about what herdr supports.
+    /// Set by a herdr that cannot parse the ansi read format or answers it with
+    /// something that is not a read. Any other failure, a transport error, a
+    /// timeout or an unrelated server error, says nothing about what herdr
+    /// supports.
     @ObservationIgnored private var ansiReadRefused = false
     @ObservationIgnored private var backgroundWorkPanes: Set<PaneID> = []
     @ObservationIgnored private var backgroundWorkReads: Set<PaneID> = []
@@ -867,8 +868,8 @@ public final class SessionViewModel {
                 do {
                     text = Self.extractReadText(try await self.client.requestRaw("pane.read", ansi))
                     if text == nil { self.ansiReadRefused = true }
-                } catch HerdrClientError.server {
-                    self.ansiReadRefused = true
+                } catch let HerdrClientError.server(code, message) {
+                    if Self.refusesAnsiFormat(code: code, message: message) { self.ansiReadRefused = true }
                 } catch {}
             }
             // A herdr without the ansi format still answers a plain read.
@@ -882,6 +883,12 @@ public final class SessionViewModel {
             let tail = PaneTailPolicy.make(from: text)
             if self.paneTails[pane] != tail { self.paneTails[pane] = tail }
         }
+    }
+
+    /// herdr answers a request it cannot parse with `invalid_request` and the
+    /// serde error, which names the unknown `ansi` variant or `format` field.
+    static func refusesAnsiFormat(code: String, message: String) -> Bool {
+        code == "invalid_request" && (message.contains("`ansi`") || message.contains("`format`"))
     }
 
     // MARK: - background work
