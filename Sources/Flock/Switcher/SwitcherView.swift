@@ -20,16 +20,25 @@ struct SwitcherOverlay: View {
                 theme: theme, switcher: workspaces, trigger: .control, accessibilityPrefix: "flock.switcher",
                 heading: "Workspaces",
                 row: { [viewModel] id in
-                    viewModel.model?.workspaces.first { $0.workspaceID == id }.map {
+                    if let pin = PinID(switcherID: id).flatMap({ viewModel.pins.pin($0) }) {
+                        return SwitcherRow(status: .unknown, label: pin.name, count: 0)
+                    }
+                    return viewModel.model?.workspaces.first { $0.workspaceID == id }.map {
                         SwitcherRow(status: $0.agentStatus, label: $0.label, count: viewModel.paneCount(for: id))
                     }
                 },
                 candidates: { [viewModel] in
-                    WorkspaceSwitcher.candidates(viewModel.model?.workspaces ?? [], current: viewModel.selectedWorkspaceID)
+                    WorkspaceSwitcher.candidates(
+                        viewModel.model?.workspaces ?? [], current: viewModel.selectedWorkspaceID, pins: viewModel.pins.pins
+                    )
                 },
                 current: { [viewModel] in viewModel.selectedWorkspaceID },
                 blocked: { [tabs] in busy() || tabs.isActive },
-                go: { [viewModel] id in Task { await viewModel.jumpToHerdr(workspace: id) } }
+                go: { [viewModel] id in
+                    Task {
+                        if let pin = PinID(switcherID: id) { await viewModel.reopen(pin) } else { await viewModel.jumpToHerdr(workspace: id) }
+                    }
+                }
             )
             // Chat's names only where chat runs at all: without herdr-chat or
             // rt the box keeps its narrow width and no row asks after anyone.

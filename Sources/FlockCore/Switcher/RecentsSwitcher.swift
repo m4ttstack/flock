@@ -102,13 +102,20 @@ extension RecentsSwitcher where ID == WorkspaceID {
         begin(items: workspaces, current: current, reverse: reverse)
     }
 
-    /// The workspaces ⌃Tab offers: every one but a herd's, which the rail
-    /// keeps out of its list too. The current one stays even when it is a
-    /// herd, since `begin` reads the first row as where the switch started.
-    public static func candidates(_ workspaces: [WorkspaceRecord], current: WorkspaceID?) -> [WorkspaceID] {
-        workspaces
+    /// The workspaces ⌃Tab offers: the pins first, in the rail's order (an
+    /// empty one under its `switcherID`), then every other workspace but a
+    /// herd's, which the rail keeps out of its list too. The current one stays
+    /// even when it is a herd, since `begin` reads the first row as where the
+    /// switch started.
+    public static func candidates(
+        _ workspaces: [WorkspaceRecord], current: WorkspaceID?, pins: [PinnedWorkspace] = []
+    ) -> [WorkspaceID] {
+        let linked = Set(pins.compactMap(\.workspace))
+        let rest = workspaces
+            .filter { !linked.contains($0.workspaceID) }
             .filter { $0.workspaceID == current || !HerdWorkspace.isHerd(label: $0.label) }
             .map(\.workspaceID)
+        return pins.map { $0.workspace ?? $0.switcherID } + rest
     }
 }
 

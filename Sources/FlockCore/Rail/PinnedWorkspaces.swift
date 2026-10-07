@@ -26,6 +26,19 @@ public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
     public var identityKey: String { "pin:\(id.rawValue)" }
 }
 
+extension PinnedWorkspace {
+    /// The switcher lists by workspace id; an empty pin has none, so it takes
+    /// one herdr never issues.
+    public var switcherID: WorkspaceID { WorkspaceID(rawValue: identityKey) }
+}
+
+extension PinID {
+    public init?(switcherID: WorkspaceID) {
+        guard switcherID.rawValue.hasPrefix("pin:") else { return nil }
+        self.init(rawValue: String(switcherID.rawValue.dropFirst(4)))
+    }
+}
+
 public enum PinNames {
     public static func matches(_ a: String, _ b: String) -> Bool {
         normalized(a) == normalized(b)

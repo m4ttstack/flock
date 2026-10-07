@@ -50,6 +50,16 @@ final class WorkspaceSwitcherTests: XCTestCase {
             activeTabID: TabID(rawValue: "\(id):t1"), agentStatus: .idle)
     }
 
+    func testPinsLeadTheCandidatesAndAnEmptyPinHasASwitcherID() {
+        let live = PinnedWorkspace(id: PinID(rawValue: "p1"), name: "web", folder: "/web", workspace: WorkspaceID(rawValue: "w2"), syncedLabel: "web", confirmed: true)
+        let empty = PinnedWorkspace(id: PinID(rawValue: "p2"), name: "notes", folder: "/notes", workspace: nil, syncedLabel: nil, confirmed: false)
+        let workspaces = [record("w1", "acme"), record("w2", "web")]
+        let ids = WorkspaceSwitcher.candidates(workspaces, current: nil, pins: [live, empty])
+        XCTAssertEqual(ids.map(\.rawValue), ["w2", "pin:p2", "w1"])
+        XCTAssertEqual(PinID(switcherID: ids[1]), PinID(rawValue: "p2"))
+        XCTAssertNil(PinID(switcherID: ids[0]))
+    }
+
     func testAHerdIsNeverOnOffer() {
         let switcher = makeSwitcher()
         for name in ["h", "b"] { switcher.note(WorkspaceID(rawValue: name)) }
