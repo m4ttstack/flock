@@ -44,8 +44,9 @@ enum ChromeMetrics {
         static let tabGlyphGap: CGFloat = 7
         static let tabUnderline: CGFloat = 2
         /// The least clearance the centred title keeps from either end's
-        /// content before it hides.
-        static let titleClearance: CGFloat = 16
+        /// content before it hides. Small enough that "flock" and the DEV tag
+        /// still fit beside the tabs at the main window's minimum width.
+        static let titleClearance: CGFloat = 8
     }
 
     enum Banner {
