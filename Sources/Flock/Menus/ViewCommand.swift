@@ -47,7 +47,7 @@ enum ViewCommand: String, CaseIterable {
         case .newTab, .openOldestNotification, .commandPalette, .backToOverview, .openNextCard: .command
         case .newWorkspace, .closeTab, .clearNotifications: [.command, .shift]
         case .closeWorkspace: [.command, .option, .shift]
-        case .showWorkspaces, .showOverview, .showArrange: [.command, .option]
+        case .showWorkspaces, .showOverview, .showArrange: .command
         case .rearrangeMode: ArrangeShortcut.rearrangeMode.modifiers
         case .allWorkspaces: ArrangeShortcut.allWorkspaces.modifiers
         }

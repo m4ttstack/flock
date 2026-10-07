@@ -24,8 +24,8 @@ final class PaletteCatalogTests: XCTestCase {
         let entries = PaletteCatalog.entries(in: PaletteContext())
         let shortcut = { (id: String) in entries.first { $0.command.id == id }?.command.shortcut }
         XCTAssertNil(shortcut("view.workspaces"), "the palette is drawn over Workspaces, so it does not offer it")
-        XCTAssertEqual(shortcut("view.overview"), "⌥⌘2")
-        XCTAssertEqual(shortcut("view.arrange"), "⌥⌘3")
+        XCTAssertEqual(shortcut("view.overview"), "⌘2")
+        XCTAssertEqual(shortcut("view.arrange"), "⌘3")
         let fromArrange = ids(PaletteContext(viewTab: .arrange))
         XCTAssertTrue(fromArrange.contains("view.workspaces"))
         XCTAssertFalse(fromArrange.contains("view.arrange"))

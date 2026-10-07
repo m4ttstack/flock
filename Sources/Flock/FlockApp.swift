@@ -260,6 +260,12 @@ struct FlockApp: App {
         JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesModeStore)
     }
 
+    /// A new pane's launcher is up, so ⌘1 and on launch into it rather than
+    /// switching views.
+    private var launcherOffered: Bool {
+        LauncherSlots.target(on: viewModel).map { viewModel.isPristineLauncherPane($0) } ?? false
+    }
+
     private var viewTabs: ViewTabNavigator {
         ViewTabNavigator(drag: dragCoordinator, mode: allWorkspacesModeStore)
     }
@@ -404,7 +410,9 @@ struct FlockApp: App {
                         Button(LauncherSlots.title(for: entry)) {
                             Task { await LauncherSlots.launchInFocusedPane(entry, on: viewModel) }
                         }
-                        .keyboardShortcut(LauncherSlots.key(at: index), modifiers: .command)
+                        // ⌘1 and on are the views' keys except while a new
+                        // pane is offering the launcher.
+                        .keyboardShortcut(launcherOffered ? KeyboardShortcut(LauncherSlots.key(at: index), modifiers: .command) : nil)
                         .disabled(!canLaunch)
                         .accessibilityIdentifier("flock.pane.launch.\(entry.id)")
                     }
@@ -542,7 +550,7 @@ struct FlockApp: App {
                             Text(command.title)
                         }
                     }
-                    .keyboardShortcut(command.shortcut)
+                    .keyboardShortcut(launcherOffered ? nil : command.shortcut)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
                 Divider()
