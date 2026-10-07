@@ -841,6 +841,9 @@ enum ChromeMetrics {
         /// Half the launcher's press accent: over a whole card the launcher's
         /// own amount read as a selected surface rather than a press.
         static let cardPressedAccent: Double = 0.1
+        /// Half the controls' hover wash: over a whole card theirs lifts it
+        /// near the group wash's brightness.
+        static let cardHoverLift: Double = 0.05
         static let laneMoveDuration: Double = 0.2
         /// How far sideways a lane lets a moving card draw: past any lane
         /// it could be crossing from.
