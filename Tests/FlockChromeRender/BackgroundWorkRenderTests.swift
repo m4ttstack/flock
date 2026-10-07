@@ -89,9 +89,9 @@ final class BackgroundWorkRenderTests: XCTestCase {
                 .frame(width: 420)
                 VStack(alignment: .leading, spacing: 16) {
                     FocusedPlace(theme: theme, card: cards[0], markKey: "w1")
-                        .frame(height: ChromeMetrics.Grid.focusedHeaderHeight)
+                        .frame(height: ChromeMetrics.Grid.headerHeight)
                     FocusedPlace(theme: theme, card: cards[2], markKey: "w1")
-                        .frame(height: ChromeMetrics.Grid.focusedHeaderHeight)
+                        .frame(height: ChromeMetrics.Grid.headerHeight)
                     thumbnail(theme)
                     HStack(spacing: 10) {
                         StatusDot(status: .working, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)

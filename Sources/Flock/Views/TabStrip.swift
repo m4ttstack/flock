@@ -371,7 +371,7 @@ private struct TabBlock: View {
         // after it along the strip with every keystroke.
         .frame(width: TabSizing.width(of: title, isComplete: isComplete, isSelected: isSelected), height: ChromeMetrics.Tab.height)
         // Rounded on top only: the bottom edge meets the pane below.
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: ChromeRadius.control, topTrailingRadius: ChromeRadius.control))
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: ChromeRadius.surface, topTrailingRadius: ChromeRadius.surface))
         .shadow(color: .black.opacity(isLifted ? 0.35 : 0), radius: 4)
         .animation(.easeOut(duration: 0.12), value: isLifted)
         .contentShape(Rectangle())
@@ -400,7 +400,7 @@ private struct NewTabAffordanceButton: View {
     @State private var isHovering: Bool
 
     var body: some View {
-        UnevenRoundedRectangle(topLeadingRadius: ChromeRadius.control, topTrailingRadius: ChromeRadius.control)
+        UnevenRoundedRectangle(topLeadingRadius: ChromeRadius.surface, topTrailingRadius: ChromeRadius.surface)
             .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
             .overlay(
                 Image(systemName: ChromeType.newTabSymbolName)

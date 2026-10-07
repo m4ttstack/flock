@@ -63,7 +63,7 @@ struct FocusedPaneView: View {
         }
         .lineLimit(1)
         .padding(.horizontal, G.headerHorizontalPadding)
-        .frame(height: G.focusedHeaderHeight)
+        .frame(height: G.headerHeight)
         .background(WindowDragExclusion())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("flock.focused.header")

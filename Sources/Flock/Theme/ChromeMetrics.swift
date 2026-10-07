@@ -15,6 +15,11 @@ enum ChromeMetrics {
     /// wears, drawn inside the shape it marks. Also the width of an island's
     /// current-workspace outline, which marks the same kind of thing.
     static let selectionOutlineWidth: CGFloat = 1.5
+    /// The band under the title bar in every view: Workspaces' tab strip,
+    /// Overview's and Arrange's header and the focused pane's header, so the
+    /// content below starts at one y in all of them. Tall enough for the
+    /// focused header's 26pt back button and Next chip with room either side.
+    static let headerBandHeight: CGFloat = 40
 
     /// The two resting status shapes, as fractions of whatever size the dot is
     /// asked for rather than fixed points: the same rule has to read at 4pt on
@@ -127,9 +132,11 @@ enum ChromeMetrics {
     }
 
     enum Strip {
-        static let height: CGFloat = 36
+        static let height: CGFloat = headerBandHeight
         static let horizontalPadding: CGFloat = 10
         static let tabGap: CGFloat = 3
+        /// Above a tab, which stands on the strip's rule.
+        static let tabTopClearance: CGFloat = 8
         /// The design sets the protocol readout 1.5pt above the strip's
         /// center; the inset is twice that because the frame centers the
         /// padded label.
@@ -148,7 +155,7 @@ enum ChromeMetrics {
     /// with the bounds it is kept inside; `TabSizing` takes the measurement
     /// that rule is given.
     enum Tab {
-        static let height: CGFloat = 28
+        static let height: CGFloat = Strip.height - Strip.tabTopClearance
         static let horizontalPadding: CGFloat = 12
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6
@@ -899,13 +906,11 @@ enum ChromeMetrics {
     }
 
     enum Grid {
-        static let headerHeight: CGFloat = 36
+        static let headerHeight: CGFloat = headerBandHeight
         static let headerHorizontalPadding: CGFloat = 13
         static let headerSpacing: CGFloat = 8
         static let headerSeparatorHeight: CGFloat = 14
         static let focusedMark: CGFloat = 14
-        /// Above a live pane, so a little more room than Arrange's header.
-        static let focusedHeaderHeight: CGFloat = 40
         /// Between the focused header's back button, place, title and state.
         static let focusedGroupSpacing: CGFloat = 14
         static let focusedSlashOpacity: Double = 0.7

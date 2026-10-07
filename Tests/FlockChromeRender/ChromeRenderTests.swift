@@ -3182,7 +3182,7 @@ final class ChromeRenderTests: XCTestCase {
         let samples: [(String, CGPoint, RGB)] = [
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
             ("chrome/header", CGPoint(x: 450, y: Self.bar + 2), roles.chrome),
-            ("rule/header", CGPoint(x: 450, y: Self.bar + 36.25), roles.rule),
+            ("rule/header", CGPoint(x: 450, y: Self.bar + ChromeMetrics.Grid.headerHeight + 0.25), roles.rule),
             ("canvas/margin", CGPoint(x: 5, y: Self.bar + 94), roles.canvas),
         ]
         for (name, point, expected) in samples {
@@ -3290,6 +3290,9 @@ final class ChromeRenderTests: XCTestCase {
     /// that selection no longer takes the dot: its stroke has to be green,
     /// not the accent, and its middle has to be the row's own selection fill
     /// showing through the ring.
+    /// Inside a tab, clear of its label and its rounded top corners.
+    private static var tabGroundY: CGFloat { bar + ChromeMetrics.Strip.tabTopClearance + 6 }
+
     private func assertSamples(_ image: NSBitmapImageRep, theme: Theme) {
         let roles = theme.palette.chromeRoles
         let palette = theme.palette
@@ -3306,10 +3309,10 @@ final class ChromeRenderTests: XCTestCase {
             ("chrome/rail", CGPoint(x: 75, y: 400), roles.chrome),
             ("rule/rail", CGPoint(x: 192.25, y: 400), roles.rule),
             ("selection/row", CGPoint(x: 100, y: Self.bar + 38), roles.selection),
-            ("tabRest", CGPoint(x: 253, y: Self.bar + 14), roles.tabRest),
-            ("selection/tab", CGPoint(x: 459, y: Self.bar + 14), roles.selection),
-            ("accent/underline", CGPoint(x: 459, y: Self.bar + 35.25), roles.accent),
-            ("rule/strip", CGPoint(x: 700, y: Self.bar + 36.25), roles.rule),
+            ("tabRest", CGPoint(x: 253, y: Self.tabGroundY), roles.tabRest),
+            ("selection/tab", CGPoint(x: 459, y: Self.tabGroundY), roles.selection),
+            ("accent/underline", CGPoint(x: 459, y: Self.bar + ChromeMetrics.Strip.height - 0.75), roles.accent),
+            ("rule/strip", CGPoint(x: 700, y: Self.bar + ChromeMetrics.Strip.height + 0.25), roles.rule),
             ("canvas/margin", CGPoint(x: 196, y: 400), roles.canvas),
             ("paneBorder", CGPoint(x: 199.25, y: 400), roles.paneBorder),
             ("pane", CGPoint(x: 300, y: 400), roles.pane),
@@ -3512,7 +3515,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         // The selected tab's own midpoint, the selected rail row's, and a
         // point inside the focused pane -- the three sampled in `assertSamples`.
-        let tabPoint = CGPoint(x: 459, y: Self.bar + 14)
+        let tabPoint = CGPoint(x: 459, y: Self.tabGroundY)
         let railPoint = CGPoint(x: 100, y: Self.bar + 38)
         let panePoint = CGPoint(x: 700, y: 400)
 

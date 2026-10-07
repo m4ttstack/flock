@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class FocusedHeaderRenderTests: XCTestCase {
     private static let scale: CGFloat = 2
-    private static let size = CGSize(width: 560, height: 2 * ChromeMetrics.Grid.focusedHeaderHeight)
+    private static let size = CGSize(width: 560, height: 2 * ChromeMetrics.Grid.headerHeight)
 
     func testTheBackButtonIsQuietUntilHovered() async throws {
         ChromeType.install()
@@ -41,12 +41,12 @@ final class FocusedHeaderRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("focused-header-\(scheme).png"))
             }
-            let rowMid = ChromeMetrics.Grid.focusedHeaderHeight / 2
+            let rowMid = ChromeMetrics.Grid.headerHeight / 2
             let fringe = ChromeMetrics.Grid.headerHorizontalPadding - ChromeMetrics.MissionControl.focusedBackPullIn + 2
             let ground = hex(image, CGPoint(x: 2, y: rowMid))
             XCTAssertEqual(hex(image, CGPoint(x: fringe, y: rowMid)), ground, "\(scheme): a resting back button draws no ground")
             XCTAssertNotEqual(
-                hex(image, CGPoint(x: fringe, y: rowMid + ChromeMetrics.Grid.focusedHeaderHeight)), ground,
+                hex(image, CGPoint(x: fringe, y: rowMid + ChromeMetrics.Grid.headerHeight)), ground,
                 "\(scheme): hover lifts the back button"
             )
         }
@@ -66,7 +66,7 @@ final class FocusedHeaderRenderTests: XCTestCase {
             QueueClearBadge(theme: theme)
         }
         .padding(.horizontal, ChromeMetrics.Grid.headerHorizontalPadding)
-        .frame(height: ChromeMetrics.Grid.focusedHeaderHeight)
+        .frame(height: ChromeMetrics.Grid.headerHeight)
     }
 
     private func sheet(_ theme: Theme) -> some View {
