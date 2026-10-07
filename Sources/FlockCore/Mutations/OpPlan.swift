@@ -11,6 +11,7 @@ public enum DropTarget: Equatable, Sendable {
     case newTab(WorkspaceID)
     case newWorkspace
     case workspaceRail(insertIndex: Int)
+    case pinnedRail(insertIndex: Int)
 }
 
 /// What a drag gesture is carrying.
@@ -20,6 +21,8 @@ public enum DragSubject: Equatable, Sendable {
     case workspace(WorkspaceID)
     /// A rail multi-selection moving as one block, in rail order.
     case workspaces([WorkspaceID])
+    /// A pinned workspace, live or empty, moving within or out of PINNED.
+    case pin(PinID)
 }
 
 /// An ordered list of mutations that realizes one gesture, produced by

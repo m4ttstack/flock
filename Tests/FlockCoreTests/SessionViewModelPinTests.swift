@@ -117,4 +117,33 @@ final class SessionViewModelPinTests: XCTestCase {
         await viewModel.commitRename("ACME", for: .workspace(WorkspaceID(rawValue: "w2")))
         XCTAssertEqual(notices, ["A pinned workspace is already called \"ACME\"."])
     }
+
+
+    func testDroppingAWorkspaceOnPinnedPinsItAndAPinOnWorkspacesUnpinsIt() async {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
+        _ = await viewModel.perform(subject: .workspace(WorkspaceID(rawValue: "w2")), target: .pinnedRail(insertIndex: 0))
+        XCTAssertEqual(viewModel.pins.pins.map(\.name), ["web"])
+        _ = await viewModel.perform(subject: .pin(viewModel.pins.pins[0].id), target: .workspaceRail(insertIndex: 0))
+        XCTAssertEqual(viewModel.pins.pins, [])
+    }
+
+    func testDroppingAPinWithinPinnedReorders() async {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w2"))
+        _ = await viewModel.perform(subject: .pin(viewModel.pins.pins[1].id), target: .pinnedRail(insertIndex: 0))
+        XCTAssertEqual(viewModel.pins.pins.map(\.name), ["web", "acme"])
+    }
+
+    func testAnEmptyPinCannotLeavePinned() async {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: model([]), connection: .live)
+        let outcome = await viewModel.perform(subject: .pin(viewModel.pins.pins[0].id), target: .workspaceRail(insertIndex: 0))
+        XCTAssertEqual(outcome, .noOp)
+        XCTAssertEqual(viewModel.pins.pins.count, 1)
+    }
 }

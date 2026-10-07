@@ -110,6 +110,19 @@ public struct GridDropSurfaces: Equatable, Sendable {
     }
 }
 
+public struct PinItemFrame: Equatable, Sendable {
+    public let id: PinID
+    /// nil for an empty pin, which no pane or tab can land on.
+    public let workspace: WorkspaceID?
+    public let frame: CGRect
+
+    public init(id: PinID, workspace: WorkspaceID?, frame: CGRect) {
+        self.id = id
+        self.workspace = workspace
+        self.frame = frame
+    }
+}
+
 /// Every on-screen surface `resolveDropTarget` can hit-test against for one
 /// frame of a drag gesture.
 ///
@@ -146,6 +159,8 @@ public struct DropSurfaces: Equatable, Sendable {
     public let newTabZone: CGRect?
     public let newWorkspaceZone: CGRect?
     public let grid: GridDropSurfaces?
+    public let pinnedFrames: [PinItemFrame]
+    public let pinnedFrame: CGRect?
 
     public init(
         canvas: CanvasGeometry,
@@ -158,9 +173,13 @@ public struct DropSurfaces: Equatable, Sendable {
         railViewport: CGRect? = nil,
         newTabZone: CGRect?,
         newWorkspaceZone: CGRect?,
-        grid: GridDropSurfaces? = nil
+        grid: GridDropSurfaces? = nil,
+        pinnedFrames: [PinItemFrame] = [],
+        pinnedFrame: CGRect? = nil
     ) {
         self.grid = grid
+        self.pinnedFrames = pinnedFrames
+        self.pinnedFrame = pinnedFrame
         self.canvas = canvas
         self.stripWorkspace = stripWorkspace
         self.tabFrames = tabFrames
@@ -212,6 +231,10 @@ public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces
 
     if let zone = resolveZone(at: point, dragging: dragging, surfaces: surfaces) {
         return zone
+    }
+
+    if let pinnedBounds = surfaces.pinnedFrame ?? unionRect(surfaces.pinnedFrames.map(\.frame)), pinnedBounds.contains(point) {
+        return resolvePinned(at: point, dragging: dragging, surfaces: surfaces)
     }
 
     if let railBounds = surfaces.railFrame ?? unionRect(surfaces.workspaceFrames.map(\.frame)), railBounds.contains(point) {
@@ -286,7 +309,7 @@ private func resolveGrid(at point: CGPoint, dragging: DragSubject, grid: GridDro
         return .tabStrip(
             workspace: hit.id, insertIndex: GridCardLayout.insertIndex(at: point, cells: card.tabs.map(\.frame))
         )
-    case .workspace, .workspaces:
+    case .workspace, .workspaces, .pin:
         return nil
     }
 }
@@ -321,6 +344,20 @@ private func resolveThumbnail(
     return .tabThumbnail(tab)
 }
 
+private func resolvePinned(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
+    switch dragging {
+    case .pane, .tab:
+        guard surfaces.railViewport?.contains(point) ?? true,
+              let workspace = surfaces.pinnedFrames.first(where: { $0.frame.contains(point) })?.workspace
+        else { return nil }
+        return .workspaceThumbnail(workspace)
+    case .workspace, .workspaces, .pin:
+        let centers = surfaces.pinnedFrames.map(\.frame.midY)
+        let y = clamp(point.y, to: surfaces.railViewport.map { ($0.minY, $0.maxY) })
+        return .pinnedRail(insertIndex: insertIndex(of: y, centers: centers))
+    }
+}
+
 private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
     switch dragging {
     case .pane, .tab:
@@ -328,7 +365,7 @@ private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: Dro
               let hit = surfaces.workspaceFrames.first(where: { $0.frame.contains(point) })
         else { return nil }
         return .workspaceThumbnail(hit.id)
-    case .workspace, .workspaces:
+    case .workspace, .workspaces, .pin:
         let centers = surfaces.workspaceFrames.map(\.frame.midY)
         let y = clamp(point.y, to: surfaces.railViewport.map { ($0.minY, $0.maxY) })
         return .workspaceRail(insertIndex: insertIndex(of: y, centers: centers))
@@ -346,7 +383,7 @@ private func resolveStrip(at point: CGPoint, dragging: DragSubject, surfaces: Dr
         let centers = surfaces.tabFrames.map(\.frame.midX)
         let x = clamp(point.x, to: surfaces.stripViewport.map { ($0.minX, $0.maxX) })
         return .tabStrip(workspace: surfaces.stripWorkspace, insertIndex: insertIndex(of: x, centers: centers))
-    case .workspace, .workspaces:
+    case .workspace, .workspaces, .pin:
         return nil
     }
 }

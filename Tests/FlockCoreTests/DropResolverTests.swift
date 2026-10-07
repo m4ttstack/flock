@@ -487,4 +487,19 @@ final class DropResolverTests: XCTestCase {
             .tabThumbnail(TabID(rawValue: "t0"))
         )
     }
+
+    func testAWorkspaceOverPinnedResolvesToAnInsertIndexThere() throws {
+        let pins = [
+            PinItemFrame(id: PinID(rawValue: "p1"), workspace: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 0, width: 200, height: 28)),
+            PinItemFrame(id: PinID(rawValue: "p2"), workspace: nil, frame: CGRect(x: 0, y: 30, width: 200, height: 28)),
+        ]
+        let surfaces = DropSurfaces(
+            canvas: try canvas(), stripWorkspace: WorkspaceID(rawValue: "w1"), tabFrames: [], workspaceFrames: [],
+            newTabZone: nil, newWorkspaceZone: nil, pinnedFrames: pins, pinnedFrame: CGRect(x: 0, y: 0, width: 200, height: 60)
+        )
+        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 40), dragging: .workspace(WorkspaceID(rawValue: "w5")), surfaces: surfaces), .pinnedRail(insertIndex: 1))
+        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 50), dragging: .pin(PinID(rawValue: "p1")), surfaces: surfaces), .pinnedRail(insertIndex: 2))
+        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 5), dragging: .pane(PaneID(rawValue: "w5:p1")), surfaces: surfaces), .workspaceThumbnail(WorkspaceID(rawValue: "w1")))
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 10, y: 35), dragging: .pane(PaneID(rawValue: "w5:p1")), surfaces: surfaces), "an empty pin holds no panes")
+    }
 }

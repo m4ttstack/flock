@@ -1321,11 +1321,12 @@ public final class SessionViewModel {
     /// is counted without.
     @discardableResult
     public func perform(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames? = nil) async -> DragOutcome {
+        if let outcome = await performPinDrop(subject: subject, target: target, board: board) { return outcome }
         guard planExecutor != nil else { return .notAttempted }
         guard let undoJournal else {
             guard let model = fullModel, let planExecutor else { return .notAttempted }
             return await Self.perform(
-                subject: subject, target: target, model: model, board: board, executor: planExecutor, notify: noticeSink,
+                subject: subject, target: target, model: model, board: board, pinned: pinnedWorkspaces, executor: planExecutor, notify: noticeSink,
                 record: { _ in }, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
@@ -1338,19 +1339,45 @@ public final class SessionViewModel {
         await undoJournal.runExclusively { [weak self] in
             guard let self, let model = self.fullModel, let planExecutor = self.planExecutor else { return }
             outcome = await Self.perform(
-                subject: subject, target: target, model: model, board: board, executor: planExecutor, notify: self.noticeSink,
+                subject: subject, target: target, model: model, board: board, pinned: self.pinnedWorkspaces, executor: planExecutor, notify: self.noticeSink,
                 record: undoJournal.record, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
         return outcome
     }
 
+    private var pinnedWorkspaces: Set<WorkspaceID> { Set(pins.pins.compactMap(\.workspace)) }
+
+    /// Pin drops are flock's own bookkeeping, so they never reach the planner,
+    /// except a live pin dropped among WORKSPACES, which also moves it in herdr.
+    private func performPinDrop(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames?) async -> DragOutcome? {
+        switch (subject, target) {
+        case let (.workspace(workspace), .pinnedRail(index)):
+            if let pinned = pins.pin(linkedTo: workspace) { movePin(pinned.id, toInsertIndex: index) } else { pin(workspace: workspace, at: index) }
+            return .committed
+        case let (.workspaces(block), .pinnedRail(index)):
+            for (offset, workspace) in block.enumerated() { pin(workspace: workspace, at: index + offset) }
+            return .committed
+        case let (.pin(id), .pinnedRail(index)):
+            movePin(id, toInsertIndex: index)
+            return .committed
+        case let (.pin(id), .workspaceRail(index)):
+            guard let workspace = pins.pin(id)?.workspace else { return .noOp }
+            unpin(id)
+            return await perform(subject: .workspace(workspace), target: .workspaceRail(insertIndex: index), board: board)
+        case (.pin, _), (_, .pinnedRail):
+            return .noOp
+        default:
+            return nil
+        }
+    }
+
     private static func perform(
         subject: DragSubject, target: DropTarget, model: SessionModel, board: BoardWorkspaceNames?,
-        executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void,
+        pinned: Set<WorkspaceID>, executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void,
         follow: @MainActor (PaneID) async -> Void
     ) async -> DragOutcome {
-        switch plan(dragging: subject, onto: target, model: model, board: board) {
+        switch plan(dragging: subject, onto: target, model: model, board: board, pinned: pinned) {
         case .failure(.noOp):
             return .noOp
         case .failure(.invalidCombination):
@@ -1872,7 +1899,7 @@ extension DropTarget {
         case .paneEdge(let target, _), .paneInterior(let target):
             guard let from = model.panes[pane]?.tabID, let into = model.panes[target]?.tabID else { return false }
             return from != into
-        case .tabStrip, .workspaceRail:
+        case .tabStrip, .workspaceRail, .pinnedRail:
             return false
         }
     }

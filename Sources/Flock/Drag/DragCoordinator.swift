@@ -1268,7 +1268,7 @@ final class DragCoordinator {
         switch target {
         case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
             return dropTargetRect(for: target, surfaces: surfaces)
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail:
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .pinnedRail:
             return nil
         }
     }
