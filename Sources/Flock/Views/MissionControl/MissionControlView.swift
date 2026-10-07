@@ -187,7 +187,9 @@ struct MissionControlView: View {
         let first = group.cards.first?.paneID
         return Binding(
             get: { first != nil && symbolPickerGroup == first },
-            set: { if !$0, symbolPickerGroup == first { symbolPickerGroup = nil } }
+            set: { open in
+                if open { symbolPickerGroup = first } else if symbolPickerGroup == first { symbolPickerGroup = nil }
+            }
         )
     }
 
