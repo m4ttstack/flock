@@ -9,32 +9,16 @@ extension Theme {
     }
 }
 
-/// A workspace's right-click Symbol menu: Automatic, then a submenu per
-/// group. Empty for a herd, which has no key and draws the ram.
-struct WorkspaceSymbolMenu: View {
+/// A workspace's right-click "Symbol…" item, which opens its picker popover.
+/// Empty for a herd, which has no key and draws the ram.
+struct WorkspaceSymbolMenuItem: View {
     let key: String?
-
-    @Environment(WorkspaceIdentityStore.self) private var identityStore
+    let open: () -> Void
 
     var body: some View {
-        if let key {
-            Menu("Symbol") {
-                Button("Automatic") { identityStore.setOverride(nil, for: key) }
-                    .accessibilityIdentifier("flock.identity.symbol.automatic")
-                Divider()
-                ForEach(WorkspaceSymbols.groups, id: \.title) { group in
-                    Menu(group.title) {
-                        ForEach(group.symbols, id: \.name) { symbol in
-                            Button {
-                                identityStore.setOverride(symbol.name, for: key)
-                            } label: {
-                                Label(symbol.title, systemImage: symbol.name)
-                            }
-                            .accessibilityIdentifier("flock.identity.symbol.\(symbol.name)")
-                        }
-                    }
-                }
-            }
+        if key != nil {
+            Button("Symbol\u{2026}", action: open)
+                .accessibilityIdentifier("flock.identity.symbol.menu")
         }
     }
 }

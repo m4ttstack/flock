@@ -4,7 +4,7 @@ import XCTest
 final class WorkspaceSymbolsTests: XCTestCase {
     func testTheSetIsDistinctSymbolsWithTitlesInNamedGroups() {
         let all = WorkspaceSymbols.all
-        XCTAssertTrue((40...60).contains(all.count), "\(all.count)")
+        XCTAssertTrue((100...200).contains(all.count), "\(all.count)")
         XCTAssertFalse(WorkspaceSymbols.groups.contains { $0.title.isEmpty || $0.symbols.isEmpty })
         XCTAssertEqual(Set(all.map(\.name)).count, all.count)
         XCTAssertEqual(Set(all.map(\.title)).count, all.count)

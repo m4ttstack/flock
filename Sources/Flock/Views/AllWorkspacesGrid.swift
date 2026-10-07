@@ -296,6 +296,7 @@ private struct WorkspaceIsland: View {
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.gridThumbnailSize) private var thumbnailSize
+    @State private var isPickingSymbol = false
 
     private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
 
@@ -381,7 +382,8 @@ private struct WorkspaceIsland: View {
         .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
         .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
         .contentShape(Rectangle())
-        .contextMenu { WorkspaceSymbolMenu(key: identityKey) }
+        .contextMenu { WorkspaceSymbolMenuItem(key: identityKey) { isPickingSymbol = true } }
+        .workspaceSymbolPopover(theme: theme, key: identityKey, isPresented: $isPickingSymbol)
     }
 
     /// One cell, plus the reporter for the slot a committed drop lands in

@@ -18,6 +18,13 @@ struct MissionControlView: View {
     /// One space for every lane, so a card whose lane changes is the same
     /// view moving rather than one fading out and another in.
     @Namespace private var laneSpace
+    @State private var symbolPickerTarget: SymbolPickerTarget?
+
+    /// What was right-clicked to open the symbol picker, which anchors to it.
+    private enum SymbolPickerTarget: Equatable {
+        case group(WorkspaceID)
+        case card(PaneID)
+    }
 
     private typealias M = ChromeMetrics.MissionControl
 
@@ -138,7 +145,8 @@ struct MissionControlView: View {
                     .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
             }
-            .contextMenu { WorkspaceSymbolMenu(key: key) }
+            .contextMenu { WorkspaceSymbolMenuItem(key: key) { symbolPickerTarget = .group(group.workspaceID) } }
+            .workspaceSymbolPopover(theme: theme, key: key, isPresented: pickerBinding(.group(group.workspaceID)))
             ForEach(group.cards) { card($0, sections: sections, now: now, cooling: cooling) }
         }
         .padding(M.groupPadding)
@@ -146,8 +154,16 @@ struct MissionControlView: View {
         .background(theme.workspaceWash, in: RoundedRectangle(cornerRadius: M.groupCornerRadius))
     }
 
+    private func pickerBinding(_ target: SymbolPickerTarget) -> Binding<Bool> {
+        Binding(
+            get: { symbolPickerTarget == target },
+            set: { if !$0, symbolPickerTarget == target { symbolPickerTarget = nil } }
+        )
+    }
+
     private func card(_ card: MissionCard, sections: RailSections, now: Date, cooling: Bool) -> some View {
-        MissionCardView(
+        let cardKey = WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections)
+        return MissionCardView(
             theme: theme, card: card,
             place: bottomLine.active.text(viewModel.repoBranches.repoBranch(for: card.folder), workspace: card.workspaceName),
             segments: viewModel.statusHistory.segments(of: card.paneID, at: now), now: now,
@@ -159,11 +175,12 @@ struct MissionControlView: View {
             Button("Rename Pane") { viewModel.beginRename(.pane(card.paneID)) }
                 .accessibilityIdentifier("flock.mission.card.rename")
             Divider()
-            WorkspaceSymbolMenu(key: WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections))
+            WorkspaceSymbolMenuItem(key: cardKey) { symbolPickerTarget = .card(card.paneID) }
             Divider()
             Button("Close Pane") { Task { await viewModel.closePane(card.paneID) } }
                 .accessibilityIdentifier("flock.mission.card.close")
         }
+        .workspaceSymbolPopover(theme: theme, key: cardKey, isPresented: pickerBinding(.card(card.paneID)))
         .matchedGeometryEffect(id: card.paneID, in: laneSpace)
         .id(card.paneID)
     }

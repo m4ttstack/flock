@@ -525,6 +525,29 @@ enum ChromeMetrics {
         static let opacity: Double = 0.1
     }
 
+    /// The workspace symbol picker popover: an Automatic button, then each
+    /// group's symbols in a grid of square cells.
+    enum SymbolPicker {
+        static let columns = 8
+        static let cellSize: CGFloat = 30
+        static let cellGap: CGFloat = 4
+        static let cellCornerRadius: CGFloat = 6
+        static let glyphSize: CGFloat = 16
+        static let padding: CGFloat = 12
+        static let sectionGap: CGFloat = 12
+        static let labelGap: CGFloat = 6
+        static let labelTracking: CGFloat = 1
+        /// The grid scrolls past this; Automatic stays above it.
+        static let maxGridHeight: CGFloat = 360
+        static let automaticHeight: CGFloat = 28
+        static let automaticHorizontalPadding: CGFloat = 10
+        static let cornerRadius: CGFloat = 10
+        static let selectedFill: Double = 0.24
+        static let selectedStroke: Double = 0.7
+        /// Eight cells and the gaps between them, plus the padding either side.
+        static let width: CGFloat = CGFloat(columns) * cellSize + CGFloat(columns - 1) * cellGap + 2 * padding
+    }
+
     enum RtButton {
         static let badgeSize = CGSize(width: 19, height: 14)
         static let badgeCornerRadius: CGFloat = 3

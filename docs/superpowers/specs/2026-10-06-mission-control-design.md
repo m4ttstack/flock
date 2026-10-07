@@ -388,8 +388,11 @@ neutral. Flock assigns the least used symbol to a workspace the first time
 it sees it (the earliest in the set breaking ties, so neighbours do not
 repeat), keyed by workspace id so a rename keeps the symbol, and stores the
 assignment in UserDefaults. The right-click menu on an island header in
-Arrange, a group header or a card in Overview gets Symbol: Automatic, then
-the set with each symbol's name, storing an override the same way.
+Arrange, a group header or a card in Overview gets Symbol..., which opens a
+popover anchored to what was clicked: Automatic pinned above a scrolling
+grid of the set's icons in labelled groups, the current symbol selected and
+each cell's name as its tooltip. A pick stores an override the same way and
+closes the popover.
 Assignments for workspaces herdr no longer reports are dropped whenever the
 view opens.
 
