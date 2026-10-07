@@ -853,6 +853,8 @@ enum ChromeMetrics {
         static let backHeight: CGFloat = 26
         static let backCornerRadius: CGFloat = 6
         static let backHorizontalPadding: CGFloat = 12
+        static let focusedBackPadding: CGFloat = 8
+        static let focusedBackPullIn: CGFloat = 6
         /// The focused view's Next chip, as tall as the back button.
         static let nextHorizontalPadding: CGFloat = 10
         static let nextSpacing: CGFloat = 6
@@ -888,6 +890,8 @@ enum ChromeMetrics {
         static let headerSpacing: CGFloat = 8
         static let headerSeparatorHeight: CGFloat = 14
         static let focusedMark: CGFloat = 14
+        /// Between the focused header's back button, place, title and state.
+        static let focusedGroupSpacing: CGFloat = 14
         /// Around the islands. `IslandLayout.fit` is handed the viewport
         /// less this on each side.
         static let canvasPadding: CGFloat = 28

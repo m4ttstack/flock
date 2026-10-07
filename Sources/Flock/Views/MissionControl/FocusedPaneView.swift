@@ -50,10 +50,15 @@ struct FocusedPaneView: View {
 
     private func header(now: Date) -> some View {
         let shown = MissionBoard.card(pane, viewModel: viewModel, board: boardNames, herdProgress: herdProgress)
-        return HStack(spacing: G.headerSpacing) {
-            backButton
-            separator
-            if let shown { place(shown.card, sections: shown.sections, now: now) }
+        return HStack(spacing: G.focusedGroupSpacing) {
+            FocusedBackButton(theme: theme) { navigator.backToOverview() }
+            if let shown {
+                FocusedPlace(
+                    theme: theme, card: shown.card,
+                    markKey: WorkspaceIdentityStore.key(for: shown.card.workspaceID, sections: shown.sections),
+                    now: now
+                )
+            }
             Spacer(minLength: 0)
             nextChip(now: now)
         }
@@ -66,23 +71,6 @@ struct FocusedPaneView: View {
     }
 
     private var chipShape: AnyShape { AnyShape(RoundedRectangle(cornerRadius: M.backCornerRadius)) }
-
-    private var backButton: some View {
-        GridControlButton(theme: theme, shape: chipShape, restFill: theme.tabRest, restForeground: theme.textStrong) {
-            navigator.backToOverview()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.left").font(.system(size: 9, weight: .semibold))
-                Text("Overview").font(ChromeType.focusedBack)
-                keyHint(.backToOverview)
-            }
-            .padding(.horizontal, M.backHorizontalPadding)
-            .frame(height: M.backHeight)
-        }
-        .overlay(chipShape.stroke(theme.rule, lineWidth: ChromeMetrics.ruleWidth).allowsHitTesting(false))
-        .pointerStyle(.link)
-        .accessibilityIdentifier("flock.focused.back")
-    }
 
     /// The card the Open Next Card key opens: the oldest other than this
     /// pane's, which is the one the jump key opens here too.
@@ -155,37 +143,66 @@ struct FocusedPaneView: View {
             .foregroundStyle(theme.textLabel)
             .fixedSize()
     }
+}
 
-    private var separator: some View {
-        Rectangle()
-            .fill(theme.rule)
-            .frame(width: ChromeMetrics.ruleWidth, height: G.headerSeparatorHeight)
-    }
+/// The way back to Overview: quiet until hovered. Its key lives in the tooltip.
+struct FocusedBackButton: View {
+    let theme: Theme
+    var forced: ControlInteraction?
+    let action: () -> Void
 
-    private func place(_ card: MissionCard, sections: RailSections, now: Date) -> some View {
-        HStack(spacing: G.headerSpacing) {
-            WorkspaceMark(
-                theme: theme, key: WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections),
-                size: G.focusedMark
-            )
+    private typealias M = ChromeMetrics.MissionControl
+
+    var body: some View {
+        GridControlButton(
+            theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: M.backCornerRadius)),
+            restForeground: theme.textDim, forced: forced, action: action
+        ) {
             HStack(spacing: 5) {
-                Text(card.workspaceName).foregroundStyle(theme.textDim)
-                Text("›").foregroundStyle(theme.textLabel)
+                Image(systemName: "chevron.left").font(.system(size: 9, weight: .semibold))
+                Text("Overview").font(ChromeType.focusedBack)
+            }
+            .padding(.horizontal, M.focusedBackPadding)
+            .frame(height: M.backHeight)
+        }
+        // The ground shows only on hover, so at rest the label lines up with
+        // the header's edge.
+        .padding(.leading, -M.focusedBackPullIn)
+        .pointerStyle(.link)
+        .help("Back to Overview \(ShortcutLabel.text(key: ViewCommand.backToOverview.key, modifiers: ViewCommand.backToOverview.modifiers))")
+        .accessibilityIdentifier("flock.focused.back")
+    }
+}
+
+/// Where the focused pane lives and what it is doing: the workspace's mark and
+/// name, the pane's title, and its state in the status colour.
+struct FocusedPlace: View {
+    let theme: Theme
+    let card: MissionCard
+    let markKey: String?
+    let now: Date
+
+    private typealias G = ChromeMetrics.Grid
+
+    var body: some View {
+        HStack(spacing: G.focusedGroupSpacing) {
+            HStack(spacing: G.headerSpacing) {
+                WorkspaceMark(theme: theme, key: markKey, size: G.focusedMark)
+                Text(card.workspaceName).foregroundStyle(theme.textDim).fixedSize()
+            }
+            HStack(spacing: 6) {
                 Text(card.title).foregroundStyle(theme.textStrong)
                 if let detail = card.detail {
                     Text(detail).foregroundStyle(theme.textDim)
                 }
             }
-            .font(ChromeType.focusedPlace)
             .truncationMode(.middle)
-            HStack(spacing: 6) {
-                StatusDot(status: card.status, theme: theme, size: M.cardDot)
-                Text(card.stateText(at: now))
-                    .font(ChromeType.missionCardMono)
-                    .foregroundStyle(theme.agentStatusMarkColor(card.status))
-            }
-            .padding(.leading, 4)
-            .fixedSize()
+            Text(card.stateText(at: now))
+                .font(ChromeType.missionCardMono)
+                .foregroundStyle(theme.agentStatusMarkColor(card.status))
+                .fixedSize()
         }
+        .font(ChromeType.focusedPlace)
+        .lineLimit(1)
     }
 }
