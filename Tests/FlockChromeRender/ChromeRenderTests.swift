@@ -1331,8 +1331,8 @@ final class ChromeRenderTests: XCTestCase {
 
     /// A tab dragged over its own card: the card opens the slot the drop will
     /// land it in, on the strip's rule, and the cells it passes come back the
-    /// other way. Read through the focus bar, which is drawn in one strip
-    /// only: where it sits is where that tab is.
+    /// other way. Read through the focused tab's underline, which is drawn
+    /// in one strip only: where it sits is where that tab is.
     func testACardOpensTheSlotATabReorderWillLandIn() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
@@ -1349,7 +1349,7 @@ final class ChromeRenderTests: XCTestCase {
         let cardFrame = try XCTUnwrap(harness.drag.surfaces?.grid?.cards.first { $0.id == GridFixture.repoTools }?.frame)
 
         let atRest = try snapshot(window)
-        XCTAssertNotEqual(hex(atRest, Self.focusBarPoint(of: first)), Self.bareHandle, "the focused tab's own handle fill")
+        XCTAssertNotEqual(hex(atRest, Self.focusBarPoint(of: first)), Self.bareHandle, "the focused tab's own handle underline")
         XCTAssertEqual(hex(atRest, Self.focusBarPoint(of: second)), Self.bareHandle, "and no other")
 
         harness.drag.beginIfIdle(
@@ -1872,14 +1872,17 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// A pixel of a thumbnail's handle clear of its title and status dot.
-    /// Only the focused workspace's focused tab fills its handle, so this
-    /// pixel says where that tab is drawn.
+    /// A pixel of a thumbnail's handle underline, clear of its title and
+    /// status dot. Only the focused tab underlines its handle, so this pixel
+    /// says where that tab is drawn.
     private static func focusBarPoint(of thumbnail: CGRect) -> CGPoint {
-        CGPoint(x: thumbnail.minX + thumbnail.width * 0.7, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2)
+        CGPoint(
+            x: thumbnail.minX + thumbnail.width * 0.7,
+            y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight - ChromeMetrics.Grid.currentTabUnderline / 2
+        )
     }
 
-    /// A handle with no fill: the thumbnail's own `pane` ground.
+    /// A handle with no underline: the thumbnail's own `pane` ground.
     private static let bareHandle = Theme.tokyoNight.palette.chromeRoles.pane.hex
 
     /// The placeholder's frame against the frames of the tabs it follows,
@@ -2838,17 +2841,21 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertFalse(unstamped.newerBuildReady)
     }
 
-    /// The grid covers the rail, so the dock floats in the corner the rail
-    /// would hold, at the rail's width. The check is the needs-input card's
-    /// red appearing there against the same grid with nothing to say.
+    /// The grid covers the rail, so Arrange's dock floats in the corner the
+    /// rail would hold, at the rail's width, with flock's notice and none of
+    /// the attention cards, which are Overview's Needs you lane. Read against
+    /// the same grid with nothing to say: the notice's `chrome` ground
+    /// appears there, and the needs-input card's red does not.
     func testOverTheGridTheDockFloatsWhereTheRailWouldBe() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_DOCK_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
         let red = theme.palette.red.hex
+        let ground = theme.palette.chromeRoles.chrome.hex
         let corner = CGRect(
             x: 0, y: Self.gridWindowSize.height - 220, width: RailWidth.default, height: 220
         )
-        var counts: [Int] = []
+        var reds: [Int] = []
+        var grounds: [Int] = []
         for withMessages in [false, true] {
             let harness = withMessages
                 ? try await dockHarness(theme: theme, overflowing: false)
@@ -2857,15 +2864,20 @@ final class ChromeRenderTests: XCTestCase {
             await settle(window)
             harness.drag.toggleGrid()
             await settle(window)
+            XCTAssertEqual(harness.modeStore.shown(dragInFlight: false), .arrange, "the grid opens on Arrange")
             let image = try snapshot(window)
-            counts.append(count(red, in: corner, of: image))
+            reds.append(count(red, in: corner, of: image))
+            grounds.append(count(ground, in: corner, of: image))
             if withMessages, let directory {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("dock-over-grid-dark-tokyo-night.png"))
             }
             window.close()
         }
-        XCTAssertGreaterThan(counts[1], counts[0], "no needs-input red in the grid's bottom-left corner: the dock is not there")
+        XCTAssertGreaterThan(
+            grounds[1], grounds[0] + 2_000, "no notice in the grid's bottom-left corner: the dock is not there"
+        )
+        XCTAssertEqual(reds[1], reds[0], "an attention card floated over Arrange")
     }
 
     /// The least the lists may be left with under the tallest dock, at the
@@ -4978,7 +4990,8 @@ extension ChromeRenderTests {
     }
 
     /// A focused pane is Overview's: its tab stays selected, choosing it again
-    /// keeps the pane, and choosing Arrange leaves it.
+    /// keeps the pane, and choosing Arrange or Workspaces shows that view
+    /// while Overview keeps the pane to return to.
     func testAFocusedPaneKeepsOverviewSelectedUntilArrangeIsChosen() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let navigator = ViewTabNavigator(drag: harness.drag, mode: harness.modeStore)
@@ -4989,10 +5002,14 @@ extension ChromeRenderTests {
         navigator.choose(.overview)
         XCTAssertEqual(harness.drag.gridFocusedPane, pane)
         navigator.choose(.arrange)
-        XCTAssertNil(harness.drag.gridFocusedPane)
         XCTAssertEqual(navigator.selected, .arrange)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "Arrange leaves Overview's place alone")
+        navigator.choose(.overview)
+        XCTAssertEqual(navigator.selected, .overview)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "Overview returns to the pane it had open")
         navigator.choose(.workspaces)
         XCTAssertFalse(harness.drag.isGridShown)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "closing the grid keeps it too")
     }
 
     /// Below the main window's minimum, "flock" and its DEV tag hide rather
