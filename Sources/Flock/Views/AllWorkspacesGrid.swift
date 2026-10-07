@@ -1084,6 +1084,9 @@ private struct PaneHoverCardView: View {
     let open: () -> Void
     let close: () -> Void
 
+    /// The card's width is fixed, so its text width is too.
+    private static let tailWidth = ChromeMetrics.HoverCard.width - 2 * ChromeMetrics.HoverCard.horizontalPadding
+
     @State private var tailHeight: CGFloat = 0
     @State private var tailScroll = ScrollPosition(edge: .bottom)
     @State private var followsTail = true
@@ -1166,19 +1169,24 @@ private struct PaneHoverCardView: View {
         .background(theme.tabStripFill)
     }
 
-    /// The pane's own last lines, in the terminal face, wrapped rather than
-    /// clipped: a pane is usually wider than the card. Wrapping makes the
-    /// output's height depend on its line lengths, so it scrolls past a cap
-    /// and opens on its newest lines, as the terminal itself would.
+    /// The pane's own last lines, in the terminal face and the pane's own
+    /// colours, one screen row to one line. A row never wraps: a TUI laid out
+    /// in columns falls apart when its rows reflow, so the whole tail is set
+    /// at the size its widest row fits the card at, and a row still too wide
+    /// at the smallest size loses its end instead. Past a cap the output
+    /// scrolls, and it opens on its newest lines, as the terminal would.
     private func tailLines(_ tail: PaneTail) -> some View {
-        ScrollView(.vertical) {
+        let palette = PaneTailPalette(theme: theme)
+        let width = Self.tailWidth
+        let size = PaneTailRendering.fontSize(columns: tail.rows.map(\.columns).max() ?? 0, width: width)
+        return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: ChromeMetrics.HoverCard.tailLineSpacing) {
-                ForEach(Array(tail.lines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(ChromeType.hoverCardTail)
-                        .foregroundStyle(theme.textDim)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(Array(tail.rows.enumerated()), id: \.offset) { _, row in
+                    Text(PaneTailRendering.attributed(row, size: size, palette: palette))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(width: width, alignment: .leading)
+                        .clipped()
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tailHeight = $0 }
@@ -1186,7 +1194,7 @@ private struct PaneHoverCardView: View {
         .scrollIndicators(.automatic)
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .scrollPosition($tailScroll)
-        // Wrapped lines settle their height a pass after the first layout,
+        // Rows can settle their height a pass after the first layout,
         // which leaves an anchor taken then short of the end, and a scroll to
         // the bottom edge lands a few points short of it too. So the end is
         // computed from the scroll view's own geometry and followed only

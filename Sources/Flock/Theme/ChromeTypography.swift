@@ -149,7 +149,11 @@ enum ChromeType {
 
     static let hoverCardTitle = inter(14, .medium)
     static let hoverCardDetail = inter(11.5)
-    static let hoverCardTail = mono(11.5)
+    /// The tail is set at the size its widest row fits the card at, between
+    /// these two; below the smallest, a row's end is clipped.
+    static let hoverCardTailMaxSize: CGFloat = 11.5
+    static let hoverCardTailMinSize: CGFloat = 7
+    static func hoverCardTail(size: CGFloat) -> Font { mono(size) }
     static let hoverCardCopy = inter(11)
     static let hoverCardCopySymbol = Font.system(size: 9.5, weight: .medium)
 

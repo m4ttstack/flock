@@ -212,11 +212,13 @@ private struct TailAsk: Decodable, Equatable {
     let paneID: String
     let source: String
     let lines: Int
+    let format: String
 
     enum CodingKeys: String, CodingKey {
         case paneID = "pane_id"
         case source
         case lines
+        case format
     }
 }
 
@@ -261,7 +263,7 @@ final class PaneTailReadTests: XCTestCase {
         let landed = try await tail(viewModel)
         XCTAssertEqual(landed.lines, ["one", "two"])
         let asks = await client.asks
-        XCTAssertEqual(asks, [TailAsk(paneID: pane.rawValue, source: "visible", lines: PaneTailPolicy.readLines)])
+        XCTAssertEqual(asks, [TailAsk(paneID: pane.rawValue, source: "visible", lines: PaneTailPolicy.readLines, format: "ansi")])
     }
 
     /// Every render of the card asks for the tail, and the card's cadence asks

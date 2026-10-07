@@ -3,16 +3,22 @@ import Foundation
 /// The tail of a pane's output: what the grid's hover card draws under the
 /// rule, and what its copy button puts on the pasteboard.
 public struct PaneTail: Equatable, Sendable {
-    /// Newest last, as the pane has them on screen.
-    public let lines: [String]
+    /// Newest last, as the pane has them on screen, with the pane's styling.
+    public let rows: [StyledRow]
 
-    public var isEmpty: Bool { lines.isEmpty }
+    /// `rows` as plain text.
+    public var lines: [String] { rows.map(\.text) }
+    public var isEmpty: Bool { rows.isEmpty }
     /// Exactly the lines the card shows, which is what a copy of the card's
     /// output has to be.
     public var text: String { lines.joined(separator: "\n") }
 
+    public init(rows: [StyledRow]) {
+        self.rows = rows
+    }
+
     public init(lines: [String]) {
-        self.lines = lines
+        self.init(rows: lines.map(StyledRow.init(plain:)))
     }
 }
 
@@ -62,15 +68,16 @@ public enum PaneTailPolicy {
     /// blanks dropped so the tail starts at text, per-line trailing spaces cut
     /// so the copied text has no padding in it, the agent's own prompt dropped,
     /// and never more lines than were asked for.
+    ///
+    /// `text` may carry ANSI escapes. Every rule here reads a row's plain
+    /// text, so a styled screen keeps exactly the rows its plain read would.
     public static func make(from text: String, limit: Int = lines) -> PaneTail {
-        let screen = trimmingBlankEnds(
-            text.split(separator: "\n", omittingEmptySubsequences: false).map(trimmingTrailingBlanks)
-        )
-        let output = trimmingBlankEnds(outputRows(of: screen))
+        let screen = trimmingBlankEnds(TerminalStyledText.rows(of: text))
+        let output = trimmingBlankEnds(outputRows(ofStyled: screen))
         // A screen whose every row is the prompt keeps its untrimmed rows: a
         // blank card is the one outcome worse than a card full of furniture.
         let shown = collapsingBlankRuns(output.isEmpty ? screen : output)
-        return PaneTail(lines: Array(shown.suffix(max(0, limit))))
+        return PaneTail(rows: Array(shown.suffix(max(0, limit))))
     }
 
     /// The rows of a visible screen that are output, which is every row above
@@ -90,6 +97,11 @@ public enum PaneTailPolicy {
     /// opened the card for.
     public static func outputRows(of rows: [String]) -> [String] {
         guard let start = inputFrameStart(in: rows) else { return rows }
+        return Array(rows[..<start])
+    }
+
+    private static func outputRows(ofStyled rows: [StyledRow]) -> [StyledRow] {
+        guard let start = inputFrameStart(in: rows.map(\.text)) else { return rows }
         return Array(rows[..<start])
     }
 
@@ -121,32 +133,22 @@ public enum PaneTailPolicy {
 
     /// A run of blank rows is a TUI's empty space, not output, and spent on
     /// the card it pushes the TUI itself off the top. One blank keeps the gap.
-    private static func collapsingBlankRuns(_ rows: [String]) -> [String] {
-        var kept: [String] = []
-        for row in rows where !(row.isEmpty && kept.last?.isEmpty == true) {
+    private static func collapsingBlankRuns(_ rows: [StyledRow]) -> [StyledRow] {
+        var kept: [StyledRow] = []
+        for row in rows where !(row.text.isEmpty && kept.last?.text.isEmpty == true) {
             kept.append(row)
         }
         return kept
     }
 
-    private static func trimmingBlankEnds(_ rows: [String]) -> [String] {
+    private static func trimmingBlankEnds(_ rows: [StyledRow]) -> [StyledRow] {
         var rows = rows
-        while rows.last?.isEmpty == true {
+        while rows.last?.text.isEmpty == true {
             rows.removeLast()
         }
-        while rows.first?.isEmpty == true {
+        while rows.first?.text.isEmpty == true {
             rows.removeFirst()
         }
         return rows
-    }
-
-    private static func trimmingTrailingBlanks(_ line: Substring) -> String {
-        var end = line.endIndex
-        while end > line.startIndex {
-            let previous = line.index(before: end)
-            guard line[previous] == " " || line[previous] == "\t" || line[previous] == "\r" else { break }
-            end = previous
-        }
-        return String(line[line.startIndex..<end])
     }
 }

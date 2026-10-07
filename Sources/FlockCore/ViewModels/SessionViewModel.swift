@@ -745,6 +745,7 @@ public final class SessionViewModel {
                 "pane_id": .string(pane.rawValue),
                 "source": .string("visible"),
                 "lines": .int(PaneTailPolicy.readLines),
+                "format": .string("ansi"),
             ]
             let data = try? await self.client.requestRaw("pane.read", params)
             self.tailReads.remove(pane)

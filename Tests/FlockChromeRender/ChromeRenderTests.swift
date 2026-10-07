@@ -1052,6 +1052,64 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// A full-screen TUI wider than the card, read in herdr's ANSI format: the
+    /// card draws its bars in the theme's own terminal colours and the cube's,
+    /// and sets every row on one line. PNGs are written only when
+    /// `FLOCK_GRID_RENDER_DIR` is set.
+    func testThePreviewCardDrawsAStyledTUIInItsOwnColoursWithoutWrapping() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let latte = try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })
+        for (theme, name) in [(Theme.tokyoNight, "grid-preview-ansi.png"), (latte, "grid-preview-ansi-latte.png")] {
+            let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: AnsiTUIClient(), attaching: [])
+            let window = harness.makeWindow(size: Self.gridWindowSize)
+            await settle(window)
+            harness.drag.toggleGrid()
+            await settle(window)
+            harness.drag.showGridPreview(pane: GridFixture.claudePane)
+            await settle(window)
+
+            let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.claudePane], "the card opened without reading its pane")
+            XCTAssertEqual(tail.rows.map(\.columns).max(), AnsiTUIClient.columns)
+            XCTAssertEqual(tail.lines.first, " acme switch · 5 accounts")
+            XCTAssertFalse(tail.text.unicodeScalars.contains { $0.value == 0x1B }, "an escape reached the copied text")
+
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(name))
+            }
+            let ansi = theme.ghosttyThemeColors().ansi
+            // The header bar spans the card's text width, and the usage bars
+            // are a fifth of it at least, so a run that long is one of them.
+            XCTAssertGreaterThan(longestRun(of: ansi[4], in: image), 400, "\(theme.id): no header bar in the theme's blue")
+            XCTAssertGreaterThan(longestRun(of: ansi[2], in: image), 80, "\(theme.id): no usage bar in the theme's green")
+            XCTAssertGreaterThan(
+                longestRun(of: TerminalPalette.rgb(of: .indexed(208), ansi: ansi), in: image), 80,
+                "\(theme.id): no usage bar in the cube's orange"
+            )
+            window.close()
+        }
+    }
+
+    /// The longest horizontal run of pixels within `washDither` of `color`,
+    /// in device pixels.
+    private func longestRun(of color: GhosttyThemeColor, in image: NSBitmapImageRep) -> Int {
+        guard let data = image.bitmapData else { return 0 }
+        let step = image.bitsPerPixel / 8
+        let target = [Int(color.red), Int(color.green), Int(color.blue)]
+        var longest = 0
+        for y in 0..<image.pixelsHigh {
+            var run = 0
+            for x in 0..<image.pixelsWide {
+                let offset = y * image.bytesPerRow + x * step
+                let matches = (0..<3).allSatisfy { abs(Int(data[offset + $0]) - target[$0]) <= Self.washDither }
+                run = matches ? run + 1 : 0
+                longest = max(longest, run)
+            }
+        }
+        return longest
+    }
+
     /// The strip's overflow hint, which no other render reaches: the fixture
     /// window's four tabs never overflow. repo-tools has nine, so the strip
     /// scrolls and each end of its run hides tabs on exactly one side.
@@ -4544,6 +4602,65 @@ private struct GridFixtureClient: HerdrCommandClient {
         Editing lib/daemon.ts
 
         """
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.read" else { throw OfflineHerdrClient.Offline() }
+        return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": Self.screen]]])
+    }
+}
+
+/// Answers the card's read with a full-screen account switcher as herdr's
+/// ANSI format carries it: SGR in every form the parser reads, cursor and OSC
+/// escapes it must swallow, `\r\n` row ends, and blank rows down to a footer.
+private struct AnsiTUIClient: HerdrCommandClient {
+    static let columns = 112
+
+    static let screen: String = {
+        let esc = "\u{1B}["
+        func row(_ segments: [(String, String)], right: (String, String)? = nil) -> String {
+            let plain = segments.map(\.0).joined().count
+            var line = segments.map { "\(esc)0m\($0.1)\($0.0)" }.joined()
+            if let right {
+                let gap = max(1, columns - plain - right.0.count)
+                line += "\(esc)0m" + String(repeating: " ", count: gap) + right.1 + right.0
+            }
+            return line + "\(esc)0m"
+        }
+        func bar(filled: Int, fill: String) -> [(String, String)] {
+            [(String(repeating: " ", count: filled), fill), (String(repeating: " ", count: 30 - filled), "\(esc)100m")]
+        }
+        let accounts: [(name: String, plan: String, planStyle: String, used: Int, fill: String, reset: String)] = [
+            ("acme-main", "pro", "\(esc)38;5;208m", 20, "\(esc)42m", "resets 14:05"),
+            ("acme-ops", "team", "\(esc)36m", 7, "\(esc)42m", "resets 09:40"),
+            ("acme-ci", "free", "\(esc)2m", 27, "\(esc)48;5;208m", "resets yesterday 22:15"),
+            ("acme-lab", "pro", "\(esc)38;5;208m", 1, "\(esc)42m", "resets in 3d 01:00"),
+            ("acme-edu", "team", "\(esc)36m", 14, "\(esc)48;2;180;120;255m", "resets 18:30"),
+        ]
+        let header = " acme switch · 5 accounts"
+        var rows = [
+            "\(esc)?25l\(esc)H\u{1B}]0;acme switch\u{07}" + row([(header + String(repeating: " ", count: columns - header.count), "\(esc)1;97;44m")]),
+            "",
+            row([("   ACCOUNT           PLAN    USAGE", "\(esc)1m")], right: ("RESET", "\(esc)1m")),
+        ]
+        for (index, account) in accounts.enumerated() {
+            let selected = index == 1
+            let mark = selected ? "\(esc)7m" : ""
+            var segments: [(String, String)] = [
+                (selected ? " > " : "   ", mark),
+                (account.name.padding(toLength: 18, withPad: " ", startingAt: 0), mark + (selected ? "\(esc)1m" : "")),
+                (account.plan.padding(toLength: 8, withPad: " ", startingAt: 0), account.planStyle),
+            ]
+            segments += bar(filled: account.used, fill: account.fill)
+            segments.append(("  \(account.used * 100 / 30)%", account.used > 24 ? "\(esc)1;31m" : "\(esc)32m"))
+            rows.append(row(segments, right: (account.reset, "\(esc)38:2::130:140:150m")))
+        }
+        rows += Array(repeating: "", count: 24)
+        rows.append(row(
+            [(" ↑↓ move  enter switch  s sort  q quit", "\(esc)2m")],
+            right: ("acme switch 0.4.1 ", "\(esc)3;38;2;255;100;180m")
+        ))
+        return rows.joined(separator: "\r\n") + "\r\n"
+    }()
 
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         guard method == "pane.read" else { throw OfflineHerdrClient.Offline() }
