@@ -96,4 +96,25 @@ final class SessionViewModelPinTests: XCTestCase {
         XCTAssertEqual(viewModel.pins.pin(empty.id)?.name, "acme api")
         XCTAssertEqual(notices, ["A pinned workspace is already called \"web\"."])
     }
+
+    func testClosingAPinnedWorkspacesLastTabAsksNothing() async {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
+        await viewModel.closeTab(TabID(rawValue: "w1:t1"))
+        XCTAssertNotNil(viewModel.pendingClose, "an ordinary workspace still asks")
+        viewModel.cancelPendingClose()
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        await viewModel.closeTab(TabID(rawValue: "w1:t1"))
+        XCTAssertNil(viewModel.pendingClose)
+    }
+
+    func testRenamingAPinnedWorkspaceToAnotherPinsNameIsRefused() async {
+        var notices: [String] = []
+        let (viewModel, _) = viewModel(notices: { notices.append($0) })
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w2"))
+        await viewModel.commitRename("ACME", for: .workspace(WorkspaceID(rawValue: "w2")))
+        XCTAssertEqual(notices, ["A pinned workspace is already called \"ACME\"."])
+    }
 }

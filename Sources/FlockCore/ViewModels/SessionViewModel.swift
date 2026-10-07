@@ -1182,7 +1182,13 @@ public final class SessionViewModel {
     /// always did.
     private func close(_ subject: CloseSubject) async {
         if let model {
-            let consequence = CloseConsequence.of(subject, model: model)
+            var consequence = CloseConsequence.of(subject, model: model)
+            // A pinned workspace outlives its last tab, so closing it costs no place.
+            if case .closesWorkspace = consequence,
+               let workspace = CloseConsequence.workspace(of: subject, in: model),
+               pins.pin(linkedTo: workspace) != nil {
+                consequence = .subjectOnly
+            }
             let busy = BusyPanes(closing: subject, consequence: consequence, model: model)
             if let confirmation = consequence.confirmation(closing: subject, busy: busy) {
                 pendingClose = confirmation
@@ -1457,6 +1463,14 @@ public final class SessionViewModel {
     /// `RenameEditor` refuses (blank once trimmed, unchanged, or a target the
     /// model no longer carries) closes the editor and issues nothing.
     public func commitRename(_ text: String, for target: RenameTarget) async {
+        if case .workspace(let workspace) = target, let pin = pins.pin(linkedTo: workspace) {
+            let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if pins.isNameTaken(name, except: pin.id) {
+                noticeSink("A pinned workspace is already called \"\(name)\".")
+                cancelRename()
+                return
+            }
+        }
         if renameTarget == target {
             renameTarget = nil
         }
