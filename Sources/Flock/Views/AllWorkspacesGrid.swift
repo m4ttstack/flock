@@ -893,7 +893,7 @@ struct MiniPane: View {
     private var statusWord: some View {
         Text(backgroundWork ?? status.rawValue)
             .font(ChromeType.gridMiniPaneStatus)
-            .foregroundStyle(status == .blocked ? theme.red : theme.textLabel)
+            .foregroundStyle(backgroundWork != nil ? theme.backgroundWorkColor : status == .blocked ? theme.red : theme.textLabel)
             .lineLimit(1)
     }
 
@@ -1109,7 +1109,7 @@ private struct PaneHoverCardView: View {
                     Spacer(minLength: 0)
                     Text(content.statusWord)
                         .font(ChromeType.hoverCardDetail)
-                        .foregroundStyle(theme.agentStatusColor(content.status) ?? theme.textLabel)
+                        .foregroundStyle(content.shown.isBackground ? theme.backgroundWorkColor : theme.agentStatusColor(content.status) ?? theme.textLabel)
                 }
                 Text(content.cwd)
                     .font(ChromeType.hoverCardDetail)

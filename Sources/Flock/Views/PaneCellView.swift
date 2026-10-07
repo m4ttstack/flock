@@ -707,7 +707,9 @@ struct PaneCellView: View {
     /// ring; unknown (no agent detected) reads as idle, dimmed, rather than
     /// naming a state herdr never reported.
     private var statusChipAppearance: (label: String, color: Color) {
-        switch pane.agentStatus {
+        let shown = ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork)
+        if let reason = shown.backgroundWork { return (reason, theme.backgroundWorkColor) }
+        return switch pane.agentStatus {
         case .idle: ("idle", theme.green)
         case .unknown: ("idle", theme.overlay0)
         default: (pane.agentStatus.rawValue, theme.agentStatusColor(pane.agentStatus) ?? theme.overlay0)
