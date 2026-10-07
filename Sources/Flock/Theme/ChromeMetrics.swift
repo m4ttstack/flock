@@ -11,6 +11,10 @@ import SwiftUI
 /// same scale, and `ChromeType` the text.
 enum ChromeMetrics {
     static let ruleWidth: CGFloat = 1
+    /// The one outline a selected card, tile, mini pane or focused pane
+    /// wears, drawn inside the shape it marks. Also the width of an island's
+    /// current-workspace outline, which marks the same kind of thing.
+    static let selectionOutlineWidth: CGFloat = 1.5
 
     /// The two resting status shapes, as fractions of whatever size the dot is
     /// asked for rather than fixed points: the same rule has to read at 4pt on
@@ -840,11 +844,10 @@ enum ChromeMetrics {
         static let cardLineSpacing: CGFloat = 7
         static let cardDot: CGFloat = 7
         static let blockedOutline: CGFloat = 1.5
-        static let selectionOutline: CGFloat = 2
-        /// The selection ring sits this far outside the card, so a blocked
-        /// card keeps its own outline while selected. A lane's scroll content
-        /// is inset by the same amount, or the scroll view would clip the ring.
-        static let selectionInset: CGFloat = 3
+        /// A lane's scroll content sits this far inside the lane's padding,
+        /// and its heading and labels are pulled in to match, so their
+        /// leading edges line up with the groups'.
+        static let laneScrollInset: CGFloat = 3
         static let coolingOpacity: Double = 0.75
         static let timelineWidth: CGFloat = 180
         /// A narrow window's lanes give the timeline up before `repo @
@@ -921,7 +924,6 @@ enum ChromeMetrics {
         static let thumbnailWidth: CGFloat = minimumThumbnailWidth
         static let thumbnailHeight: CGFloat = 74
         static let islandTint: Double = 0.10
-        static let islandCurrentOutline: CGFloat = 1.5
         /// `IslandLayout.Metrics.headerHeight` is these three summed.
         static let islandTopPadding: CGFloat = 14
         static let islandHeaderHeight: CGFloat = 20

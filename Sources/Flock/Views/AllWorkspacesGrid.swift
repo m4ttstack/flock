@@ -511,7 +511,7 @@ private struct WorkspaceIsland: View {
                 ? { isPickingSymbol = true } : nil
         )
         .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeRadius.container) }
-        .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
+        .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.selectionOutlineWidth))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
         .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID), layer: layer) }
         // A container, not one combined element: an island really does hold
@@ -1120,7 +1120,8 @@ struct MiniPane: View {
     /// The blocked and previewed outlines are the island's alarms; a hover
     /// ring is a lighter mark so it never reads as one.
     private var outlineWidth: CGFloat {
-        isSelected || status == .blocked ? ChromeMetrics.Grid.miniPaneBlockedOutline : ChromeMetrics.ruleWidth
+        if isSelected { return ChromeMetrics.selectionOutlineWidth }
+        return status == .blocked ? ChromeMetrics.Grid.miniPaneBlockedOutline : ChromeMetrics.ruleWidth
     }
 
     private func stacked(titleLines: Int) -> some View {

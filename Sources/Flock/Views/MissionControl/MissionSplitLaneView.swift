@@ -80,7 +80,7 @@ struct SplitLaneBody<Content: View>: View {
             if top.isEmpty && bottom.isEmpty {
                 if let emptyMessage {
                     Text(emptyMessage).font(ChromeType.missionEmpty).foregroundStyle(theme.textLabel)
-                        .padding(M.selectionInset)
+                        .padding(M.laneScrollInset)
                 }
             } else {
                 VStack(alignment: .leading, spacing: M.subgroupGap) {
@@ -101,7 +101,7 @@ struct SplitLaneBody<Content: View>: View {
         let scrollHeight = height.map { max(0, $0 - label - M.subgroupLabelGap) }
         return VStack(alignment: .leading, spacing: M.subgroupLabelGap) {
             LaneSubgroupLabel(theme: theme, title: slot.kind.title, count: slot.cards.count)
-                .padding(.horizontal, M.selectionInset)
+                .padding(.horizontal, M.laneScrollInset)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
                     memory.record($0, in: \.labelHeight, for: slot.kind)
                 }
@@ -118,7 +118,7 @@ struct SplitLaneBody<Content: View>: View {
             guard !slot.isEmpty else { return (0, 0) }
             guard let label = memory.labelHeight[slot.kind], let content = memory.contentHeight[slot.kind] else { return nil }
             let chrome = label + M.subgroupLabelGap
-            let firstCard = memory.firstCardBottom[slot.kind].map { $0 + M.groupPadding + M.selectionInset } ?? content
+            let firstCard = memory.firstCardBottom[slot.kind].map { $0 + M.groupPadding + M.laneScrollInset } ?? content
             return (chrome + content, chrome + min(content, firstCard))
         }
         guard let t = heights(top), let b = heights(bottom) else { return nil }
@@ -146,7 +146,7 @@ private struct SubgroupScroll<Content: View>: View {
         ScrollViewReader { reader in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: M.cardGap) { content() }
-                    .padding(M.selectionInset)
+                    .padding(M.laneScrollInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .coordinateSpace(kind.space)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {

@@ -358,7 +358,7 @@ struct PaneCellView: View {
             }
             .overlay(
                 RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
-                    .strokeBorder(borderColor, lineWidth: 1)
+                    .strokeBorder(borderColor, lineWidth: isFocused ? ChromeMetrics.selectionOutlineWidth : ChromeMetrics.ruleWidth)
             )
             .modifier(PaneHoverLift(fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging))
             .onHover { isHoveringWhileRearranging = $0 }

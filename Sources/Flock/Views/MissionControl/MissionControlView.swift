@@ -119,16 +119,16 @@ struct MissionControlView: View {
     private func lane<Mark: View, Body: View>(
         title: String, count: Int, @ViewBuilder mark: () -> Mark, @ViewBuilder body: () -> Body
     ) -> some View {
-        VStack(alignment: .leading, spacing: M.cardGap - M.selectionInset) {
+        VStack(alignment: .leading, spacing: M.cardGap - M.laneScrollInset) {
             HStack(spacing: M.laneHeaderSpacing) {
                 mark()
                 Text(title).font(ChromeType.missionLaneTitle).tracking(1.28).foregroundStyle(theme.textLabel)
                 Text("\(count)").font(ChromeType.missionLaneCount).foregroundStyle(theme.textLabel)
             }
-            .padding(.horizontal, M.selectionInset)
+            .padding(.horizontal, M.laneScrollInset)
             body()
         }
-        .padding(M.lanePadding - M.selectionInset)
+        .padding(M.lanePadding - M.laneScrollInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -157,7 +157,7 @@ struct MissionControlView: View {
         return ScrollViewReader { reader in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: M.cardGap) { cards }
-                    .padding(M.selectionInset)
+                    .padding(M.laneScrollInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.never)

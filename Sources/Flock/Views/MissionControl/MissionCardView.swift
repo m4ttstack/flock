@@ -39,14 +39,6 @@ struct MissionCardView: View {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
                 MissionCardFrames.shared.frames[card.paneID] = $0
             }
-            .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: M.cardCornerRadius + M.selectionInset)
-                        .strokeBorder(theme.accent, lineWidth: M.selectionOutline)
-                        .padding(-M.selectionInset)
-                        .allowsHitTesting(false)
-                }
-            }
             .fadingHover($isHovering)
             .pointerStyle(.link)
             .accessibilityIdentifier("flock.mission.card.\(card.paneID.rawValue)")
@@ -135,12 +127,16 @@ struct MissionCardView: View {
         }
     }
 
+    /// Selected wins over blocked, as on an Arrange mini pane: the dot and
+    /// the state text still say blocked.
     private var outline: Color {
-        card.status == .blocked ? theme.red : theme.rule
+        if isSelected { return theme.accent }
+        return card.status == .blocked ? theme.red : theme.rule
     }
 
     private var outlineWidth: CGFloat {
-        card.status == .blocked ? M.blockedOutline : ChromeMetrics.ruleWidth
+        if isSelected { return ChromeMetrics.selectionOutlineWidth }
+        return card.status == .blocked ? M.blockedOutline : ChromeMetrics.ruleWidth
     }
 }
 

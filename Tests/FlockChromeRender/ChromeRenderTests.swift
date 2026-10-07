@@ -1517,7 +1517,7 @@ final class ChromeRenderTests: XCTestCase {
         // The island's own outline, on the edge furthest from the proxy:
         // accent while it takes a drop, the label grey otherwise (it is the
         // focused workspace's island).
-        let border = CGPoint(x: card.maxX - ChromeMetrics.Grid.islandCurrentOutline / 2, y: card.midY)
+        let border = CGPoint(x: card.maxX - ChromeMetrics.selectionOutlineWidth / 2, y: card.midY)
         let atRest = try snapshot(window)
         XCTAssertNotEqual(hex(atRest, border), Theme.tokyoNight.palette.chromeRoles.accent.hex)
 
@@ -2395,21 +2395,29 @@ final class ChromeRenderTests: XCTestCase {
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
         }
         let card = try XCTUnwrap(harness.missionCardFrame(of: GridFixture.buildPane), "the blocked pane is a Needs-you card")
-        XCTAssertEqual(
-            hex(image, CGPoint(x: card.minX + 0.75, y: card.midY)), theme.palette.red.hex,
-            "\(id): a blocked card wears the blocked hue"
-        )
         XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane, "\(id): the first open selects the top card")
-        let ringMiddle = ChromeMetrics.MissionControl.selectionInset - ChromeMetrics.MissionControl.selectionOutline / 2
         XCTAssertEqual(
-            hex(image, CGPoint(x: card.minX - ringMiddle, y: card.midY)), theme.palette.accent.hex,
-            "\(id): the selection ring sits outside the blocked outline"
+            hex(image, CGPoint(x: card.minX + ChromeMetrics.selectionOutlineWidth / 2, y: card.midY)), theme.palette.accent.hex,
+            "\(id): the selected card wears the selection outline, over its blocked one"
+        )
+        XCTAssertNotEqual(
+            hex(image, CGPoint(x: card.minX - 1, y: card.midY)), theme.palette.accent.hex,
+            "\(id): the selection outline is drawn inside the card"
         )
 
         let (board, _) = try XCTUnwrap(MissionBoard.make(
             viewModel: harness.viewModel, board: harness.board, herdProgress: HerdProgressStore(sources: .unanswered),
             opensOlder: false, now: harness.viewModel.currentTime
         ))
+        let blocked = try XCTUnwrap(
+            board.needsYou.cards.first { $0.status == .blocked && $0.paneID != GridFixture.buildPane },
+            "the premise: a second blocked card"
+        )
+        let blockedCard = try XCTUnwrap(harness.missionCardFrame(of: blocked.paneID))
+        XCTAssertEqual(
+            hex(image, CGPoint(x: blockedCard.minX + 0.75, y: blockedCard.midY)), theme.palette.red.hex,
+            "\(id): a blocked card wears the blocked hue"
+        )
         XCTAssertGreaterThanOrEqual(board.atRest.count, 2, "\(id): At rest draws its time sections")
         XCTAssertEqual(board.atRest.first?.age, .lastHour)
         XCTAssertEqual(board.atRest.last?.age, .unknown, "\(id): panes left alone since launch rest under Unknown")
