@@ -1954,7 +1954,7 @@ final class ChromeRenderTests: XCTestCase {
         try await renderMissionControl(themed: "tokyo-night-day", into: "mission-light.png")
     }
 
-    /// A selection left on a pane that is no longer a card (dormant, or
+    /// A selection left on a pane that is no longer a card (folded away, or
     /// closed) is replaced by the first card when mission control opens, so
     /// the ring and Return always agree on a card that is drawn.
     func testMissionControlReplacesAStaleSelectionWithTheFirstCard() async throws {
@@ -2289,22 +2289,26 @@ final class ChromeRenderTests: XCTestCase {
         let harness = try await Harness(
             theme: theme, model: model, client: GridFixtureClient(), attaching: [], now: { clock.date }, oneTitle: true
         )
-        // Minutes after launch. Panes left alone since launch are dormant by
-        // the end, past the 30 minute default.
+        // Minutes into the day after launch, and 45 of them have passed: a
+        // pane left alone since launch rests under Yesterday (This week in a
+        // time zone where launch fell two calendar days back), one changed
+        // before the last hour under Earlier today, and `w2:p1` under Last
+        // hour.
         let steps: [(minute: Double, pane: PaneID, status: AgentStatus)] = [
+            (-150, PaneID(rawValue: "w5:p1"), .done),
             (5, GridFixture.glancePane, .working),
             (10, GridFixture.buildPane, .working),
             (25, PaneID(rawValue: "w2:p1"), .done),
             (35, GridFixture.buildPane, .blocked),
             (40, GridFixture.srcPane, .done),
         ]
-        let launch = clock.date
+        let day = clock.date.addingTimeInterval(26 * 3600)
         for step in steps {
-            clock.date = launch.addingTimeInterval(step.minute * 60)
+            clock.date = day.addingTimeInterval(step.minute * 60)
             model.panes[step.pane]?.agentStatus = step.status
             harness.viewModel.update(model: model, connection: .live)
         }
-        clock.date = launch.addingTimeInterval(45 * 60)
+        clock.date = day.addingTimeInterval(45 * 60)
         harness.modeStore.select(.missionControl)
         MissionCardFrames.shared.frames = [:]
         let window = harness.makeWindow(size: Self.gridWindowSize)
@@ -2329,11 +2333,13 @@ final class ChromeRenderTests: XCTestCase {
             "\(id): the selection ring sits outside the blocked outline"
         )
 
-        let scratch = UserDefaults(suiteName: "flock-identity-\(UUID().uuidString)")!
         let (board, _) = try XCTUnwrap(MissionBoard.make(
             viewModel: harness.viewModel, board: harness.board, herdProgress: HerdProgressStore(sources: .unanswered),
-            cutoff: DormantCutoffStore(userDefaults: scratch), now: harness.viewModel.currentTime
+            opensOlder: false, now: harness.viewModel.currentTime
         ))
+        XCTAssertGreaterThanOrEqual(board.atRest.count, 2, "\(id): At rest draws its time sections")
+        XCTAssertEqual(board.atRest.first?.age, .lastHour)
+        XCTAssertEqual(board.atRest.first?.groups.flatMap(\.cards).map(\.paneID), [PaneID(rawValue: "w2:p1")])
         let firstWorking = try XCTUnwrap(board.working.first?.cards.first, "the premise: Working holds a group")
         let working = try XCTUnwrap(harness.missionCardFrame(of: firstWorking.paneID))
         XCTAssertNotEqual(
@@ -2611,7 +2617,6 @@ final class ChromeRenderTests: XCTestCase {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
-                dormantCutoffStore: DormantCutoffStore(userDefaults: defaults),
                 missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
                 oneTitleStore: OneTitleStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
@@ -2869,9 +2874,6 @@ final class ChromeRenderTests: XCTestCase {
         return hits
     }
 
-    /// Arrange on a roomy window: thumbnails grow past the floor, each island
-    /// is tinted off the canvas, and `glance`, left alone past the dormant
-    /// cutoff, is a chip in the strip rather than an island.
     /// The main window with Settings > Titles on, over a tab of one pane and
     /// a tab of two. PNGs go to `FLOCK_CHROME_RENDER_DIR`. Alone, the pane's
     /// title row keeps its status chip and draws no title: the tab strip's is
@@ -2901,6 +2903,9 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// Arrange on a roomy window: thumbnails grow past the floor, each island
+    /// is tinted off the canvas, and `glance`, left alone since launch, is an
+    /// island like every other workspace.
     func testArrangeDrawsTintedIslandsThatFillTheWindow() async throws {
         for (id, file) in [("tokyo-night", "islands-dark.png"), ("tokyo-night-day", "islands-light.png")] {
             let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -2926,9 +2931,7 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertGreaterThan(thumbnail.width, ChromeMetrics.Grid.minimumThumbnailWidth, "\(id): a roomy window buys bigger thumbnails")
             let islandGround = hex(image, CGPoint(x: thumbnail.minX - 8, y: thumbnail.midY))
             XCTAssertNotEqual(islandGround, theme.palette.chromeRoles.canvas.hex, "\(id): the island is tinted, not bare canvas")
-            XCTAssertFalse(grid.thumbnails.contains { $0.id == GridFixture.glanceTab }, "\(id): a dormant workspace draws no thumbnails")
-            let chip = try XCTUnwrap(grid.cards.first { $0.id == GridFixture.glance }?.frame, "\(id): the dormant chip is a drop target")
-            XCTAssertEqual(chip.height, ChromeMetrics.Grid.dormantChipHeight, accuracy: 0.5)
+            XCTAssertTrue(grid.thumbnails.contains { $0.id == GridFixture.glanceTab }, "\(id): a quiet workspace still draws its tabs")
             window.close()
         }
     }
@@ -4393,7 +4396,6 @@ private struct Harness {
             .environment(rearrange)
             .environment(drag)
             .environment(modeStore)
-            .environment(DormantCutoffStore(userDefaults: modeDefaults))
             .environment(MissionBottomLineStore(userDefaults: modeDefaults))
             .environment(WorkspaceIdentityStore(userDefaults: modeDefaults))
             .environment(dividerDrag)

@@ -32,7 +32,7 @@ public enum MissionBottomLine: String, CaseIterable, Sendable {
     }
 }
 
-/// The Settings choice, persisted like `DormantCutoffStore`.
+/// The Settings choice, persisted like `NotificationLifetimeStore`.
 @MainActor
 @Observable
 public final class MissionBottomLineStore {

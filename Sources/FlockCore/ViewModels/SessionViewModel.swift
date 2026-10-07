@@ -45,7 +45,12 @@ public final class SessionViewModel {
             if attentionToasts != oldValue { attentionToastArchive?.save(attentionToasts) }
         }
     }
-    public private(set) var statusHistory = PaneStatusHistory()
+    public private(set) var statusHistory = PaneStatusHistory() {
+        didSet {
+            let changes = statusHistory.lastChanges
+            if changes != oldValue.lastChanges { paneLastChangeArchive?.save(changes) }
+        }
+    }
     public let repoBranches: RepoBranchCache
 
     /// Written from inside view bodies, which must not invalidate the views
@@ -140,6 +145,10 @@ public final class SessionViewModel {
     /// window's next sweep without anything pushing it here.
     @ObservationIgnored private let notificationLifetime: @MainActor () -> NotificationLifetime
     @ObservationIgnored private let attentionToastArchive: AttentionToastArchive?
+    @ObservationIgnored private let paneLastChangeArchive: PaneLastChangeArchive?
+    /// The archive's records, until the first snapshot with panes has dated
+    /// the panes it reports.
+    @ObservationIgnored private var lastChangeSeeds: [PaneID: PaneStatusHistory.Transition] = [:]
     /// Settings > Titles, read at each use; a view reading it observes the store.
     @ObservationIgnored private let oneTitleSetting: @MainActor () -> Bool
     @ObservationIgnored private let navigationPollInterval: Duration
@@ -162,6 +171,7 @@ public final class SessionViewModel {
         now: @escaping @MainActor () -> Date = { Date() },
         notificationLifetime: @escaping @MainActor () -> NotificationLifetime = { .untilSeen },
         attentionToastArchive: AttentionToastArchive? = nil,
+        paneLastChangeArchive: PaneLastChangeArchive? = nil,
         oneTitle: @escaping @MainActor () -> Bool = { false },
         navigationPollInterval: Duration = .milliseconds(300),
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
@@ -183,6 +193,8 @@ public final class SessionViewModel {
         self.now = now
         self.notificationLifetime = notificationLifetime
         self.attentionToastArchive = attentionToastArchive
+        self.paneLastChangeArchive = paneLastChangeArchive
+        self.lastChangeSeeds = paneLastChangeArchive?.load() ?? [:]
         self.oneTitleSetting = oneTitle
         self.navigationPollInterval = navigationPollInterval
         self.startingFolder = startingFolder
@@ -228,7 +240,8 @@ public final class SessionViewModel {
             // Assigned only on a real change: the setter notifies every
             // observer, and most updates change no pane's status.
             var history = statusHistory
-            history.observe(model, at: now())
+            history.observe(model, at: now(), seeds: lastChangeSeeds)
+            if !model.panes.isEmpty { lastChangeSeeds = [:] }
             if history != statusHistory { statusHistory = history }
         }
         connectionState = connection

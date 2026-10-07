@@ -15,7 +15,6 @@ struct AllWorkspacesGrid: View {
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
-    @Environment(DormantCutoffStore.self) private var cutoff
     @State private var scrollPosition = ScrollPosition()
     /// The fit on screen. Written only while no drag is live, so the fit a
     /// drag starts with is the one it keeps (`IslandFitHold`).
@@ -23,9 +22,6 @@ struct AllWorkspacesGrid: View {
     /// The space the islands can use: the scroll view less the canvas
     /// padding on each side.
     @State private var viewport: CGSize = .zero
-    /// Dormant workspaces opened by a click, until the view closes.
-    /// Dormant workspaces sprung open by a dwell, until that drag ends.
-    @State private var sprungDormant: Set<WorkspaceID> = []
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
@@ -94,7 +90,6 @@ struct AllWorkspacesGrid: View {
                     // Islands sharing a row share the taller one's height.
                     .fixedSize(horizontal: false, vertical: true)
                 }
-                if !arrange.chips.isEmpty { dormantStrip(arrange.chips) }
             }
             .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
             .padding(ChromeMetrics.Grid.canvasPadding)
@@ -114,7 +109,6 @@ struct AllWorkspacesGrid: View {
         .onChange(of: arrange.inputs, initial: true) { holdFit(arrange.inputs) }
         .onChange(of: drag.activeSubject == nil) { _, idle in
             guard idle else { return }
-            sprungDormant = []
             holdFit(self.arrange.inputs)
         }
         .scrollIndicators(.never)
@@ -155,81 +149,45 @@ struct AllWorkspacesGrid: View {
         identity.assign(keys)
     }
 
-    /// What Arrange draws: the islands as the fit lays them out, and the
-    /// dormant workspaces left as chips.
+    /// What Arrange draws: every workspace's island as the fit lays it out.
     private struct Arrangement {
         struct Inputs: Equatable {
             let islands: [IslandLayout.Island]
             let viewport: CGSize
-            let hasDormantStrip: Bool
         }
 
         let sections: RailSections?
         let inputs: Inputs
         let fit: IslandLayout.Fit
-        let chips: [WorkspaceRecord]
     }
 
     private var arrange: Arrangement {
         let model = viewModel.model
-        let made = MissionBoard.make(
-            viewModel: viewModel, board: boardNames, herdProgress: herdProgress, cutoff: cutoff, now: viewModel.currentTime
-        )
-        let sections = made?.1
+        let sections = model.map { RailSections(model: $0, board: boardNames, herdProgress: herdProgress) }
         let ranked = sections?.railOrder ?? []
         let ordered = ranked.compactMap { id in workspaces.first { $0.workspaceID == id } }
             + workspaces.filter { !ranked.contains($0.workspaceID) }
-        let dormant = (made?.0.arrangeDormantWorkspaces(focused: model?.focusedWorkspaceID) ?? [])
-            .subtracting(mode.openedDormant).subtracting(sprungDormant)
-        let islands = ordered.filter { !dormant.contains($0.workspaceID) }.map {
+        let islands = ordered.map {
             IslandLayout.Island(id: $0.workspaceID, tabs: model?.tabs[$0.workspaceID]?.count ?? 1)
         }
-        let inputs = Arrangement.Inputs(islands: islands, viewport: viewport, hasDormantStrip: !dormant.isEmpty)
+        let inputs = Arrangement.Inputs(islands: islands, viewport: viewport)
         // A copy, so `body` never writes state; `holdFit` keeps the stored one.
         var held = hold
-        var fit = held.update(
-            islands, in: viewport, hasDormantStrip: inputs.hasDormantStrip, dragging: drag.activeSubject != nil,
-            metrics: ChromeMetrics.Grid.islands
+        let fit = held.update(
+            islands, in: viewport, dragging: drag.activeSubject != nil, metrics: ChromeMetrics.Grid.islands
         )
-        let drawn = Set(fit.rows.joined())
-        fit = fit.appending(islands.filter { !drawn.contains($0.id) }, width: viewport.width, metrics: ChromeMetrics.Grid.islands)
-        let shown = Set(fit.rows.joined())
-        let chips = ordered.filter { dormant.contains($0.workspaceID) && !shown.contains($0.workspaceID) }
-        return Arrangement(sections: sections, inputs: inputs, fit: fit, chips: chips)
+        return Arrangement(sections: sections, inputs: inputs, fit: fit)
     }
 
     private func holdFit(_ inputs: Arrangement.Inputs) {
         guard drag.activeSubject == nil else { return }
-        _ = hold.update(
-            inputs.islands, in: inputs.viewport, hasDormantStrip: inputs.hasDormantStrip, dragging: false,
-            metrics: ChromeMetrics.Grid.islands
-        )
-    }
-
-    private func dormantStrip(_ chips: [WorkspaceRecord]) -> some View {
-        HStack(spacing: ChromeMetrics.Grid.dormantChipSpacing) {
-            Text("DORMANT")
-                .font(ChromeType.missionLaneTitle)
-                .tracking(1.28)
-                .foregroundStyle(theme.textLabel)
-                .padding(.trailing, ChromeMetrics.Grid.dormantChipSpacing)
-            ForEach(chips, id: \.workspaceID) { workspace in
-                DormantChip(theme: theme, viewModel: viewModel, workspace: workspace) {
-                    mode.openedDormant.insert(workspace.workspaceID)
-                } springOpen: {
-                    sprungDormant.insert(workspace.workspaceID)
-                }
-            }
-        }
-        .frame(height: ChromeMetrics.Grid.islands.dormantStripHeight - ChromeMetrics.Grid.islands.islandGap, alignment: .bottom)
+        _ = hold.update(inputs.islands, in: inputs.viewport, dragging: false, metrics: ChromeMetrics.Grid.islands)
     }
 
     /// The items a drop can hit, in grid order: what turns their frames back
     /// into a list and drops the frame of an item no longer shown. `.newTab`
     /// names the rect the created tab lands in, whichever cell is drawing it.
-    /// A chip is a card with no cells: a drop on it lands in a new tab.
     private func itemOrder(_ arrange: Arrangement) -> [GridItemID] {
-        let chips = arrange.chips.map { GridItemID.card($0.workspaceID) }
         let drawn = arrange.fit.rows.joined().filter { id in workspaces.contains { $0.workspaceID == id } }
         return drawn.flatMap { id -> [GridItemID] in
             let tabs = (viewModel.model?.tabs[id] ?? []).map(\.tabID)
@@ -247,7 +205,7 @@ struct AllWorkspacesGrid: View {
                     case .newTab: nil
                     }
                 }
-        } + chips
+        }
     }
 }
 
@@ -941,71 +899,6 @@ extension EnvironmentValues {
     var gridThumbnailSize: CGSize {
         get { self[GridThumbnailSizeKey.self] }
         set { self[GridThumbnailSizeKey.self] = newValue }
-    }
-}
-
-/// A dormant workspace in the strip: a drop target that creates a tab there,
-/// and that springs open as a full island when a drag dwells on it.
-private struct DormantChip: View {
-    let theme: Theme
-    let viewModel: SessionViewModel
-    let workspace: WorkspaceRecord
-    let open: () -> Void
-    let springOpen: () -> Void
-
-    @Environment(DragCoordinator.self) private var drag
-
-    private var isDwelledOn: Bool {
-        drag.activeSubject != nil && drag.target == .workspaceThumbnail(workspace.workspaceID)
-    }
-
-    var body: some View {
-        let takesTheDrop = CardDropPreview(workspace: workspace.workspaceID, drag: drag, model: viewModel.model).takesTheDrop
-        DormantChipButton(
-            theme: theme, status: workspace.agentStatus, label: workspace.label,
-            hoverEnabled: drag.activeSubject == nil, action: open
-        )
-        .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.dormantChipHeight / 2) }
-        .overlay(
-            Capsule()
-                .strokeBorder(takesTheDrop ? theme.accent : .clear, lineWidth: ChromeMetrics.Grid.islandCurrentOutline)
-                .allowsHitTesting(false)
-        )
-        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
-        .task(id: isDwelledOn) {
-            guard isDwelledOn else { return }
-            try? await Task.sleep(for: ChromeMetrics.Grid.dormantDwell)
-            guard !Task.isCancelled, isDwelledOn else { return }
-            springOpen()
-        }
-        .accessibilityIdentifier("flock.grid.dormant.\(workspace.workspaceID.rawValue)")
-    }
-}
-
-/// A dormant chip's face, apart from its drop preview so a render can force
-/// its hover and press.
-struct DormantChipButton: View {
-    let theme: Theme
-    let status: AgentStatus
-    let label: String
-    var hoverEnabled = true
-    var forced: ControlInteraction?
-    let action: () -> Void
-
-    var body: some View {
-        GridControlButton(
-            theme: theme, shape: AnyShape(Capsule()), restFill: theme.chrome, restForeground: theme.textDim,
-            hoverEnabled: hoverEnabled, forced: forced, action: action
-        ) {
-            HStack(spacing: 7) {
-                StatusDot(status: status, theme: theme, size: 8)
-                Text(label)
-                    .font(ChromeType.gridCardMeta)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: ChromeMetrics.Grid.dormantChipHeight)
-        }
     }
 }
 

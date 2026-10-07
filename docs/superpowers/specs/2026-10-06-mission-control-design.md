@@ -92,8 +92,8 @@ Mattstack viewer's.
 
 ### Lanes
 
-Three equal columns, each scrolling on its own. Every pane that is not
-dormant appears in exactly one lane, decided in this order:
+Three equal columns, each scrolling on its own. Every pane appears in
+exactly one lane, decided in this order:
 
 1. **Needs you**: the pane has a card in the attention stack. The lane IS the
    stack: same cards, same raising, coalescing, lifetime and withdrawal rules,
@@ -104,17 +104,32 @@ dormant appears in exactly one lane, decided in this order:
    (workspaces, then board, then herds), then by tab and pane order inside a
    workspace. A small workspace label sits above the first card of each
    workspace, so a workspace's agents stay together.
-3. **At rest**: anything else whose last status change is within the
-   dormant cutoff. Grouped by workspace as Working is; the group with the
-   most recent change comes first, and inside a group the most recent change
-   comes first. Cards draw at reduced opacity.
-4. **Dormant**: anything else. Not drawn as cards. The foot of At rest
-   holds one line, "N dormant", that expands in place to a compact list (dot,
-   workspace › the card's title, its second line dim) and collapses again.
-   A dormant pane moves to its lane the moment its status changes.
+3. **At rest**: anything else, however long it has been quiet. Cards draw
+   at reduced opacity.
+
+At rest is sectioned by the time since each pane's last status change, most
+recent first:
+
+- **Last hour**: under 60 minutes.
+- **Earlier today**: the same calendar day in local time, older than an hour.
+- **Yesterday**: the previous calendar day.
+- **This week**: within the last 7 days.
+- **Older**: anything before that, or a pane with no recorded change.
+
+An empty section is not drawn. Each section starts with a small label in the
+lane-title style (10.5pt semibold, tracked, `textLabel`, uppercase) followed
+by a hairline rule to the lane's edge. Inside a section the cards sit in the
+same tinted workspace groups as the other lanes: the group with the most
+recent change comes first, and inside a group the most recent change comes
+first. A workspace with panes in two sections has a group in each.
+
+Older folds only when it holds more than 8 panes: its label becomes a
+disclosure (chevron, label, count) that starts folded, and its open or
+folded state is kept in `AllWorkspacesModeStore` while the view is closed.
+The lane's count includes a folded section's panes; the keys skip them.
 
 A blocked or done pane whose card was cleared (⇧⌘U, or a "finished" card
-that timed out) is not in Needs you; it falls to At rest, then Dormant.
+that timed out) is not in Needs you; it falls to At rest.
 
 Each lane's header shows its status dot, its name and its count. An empty
 Needs you lane reads "Nothing needs you".
@@ -287,12 +302,8 @@ scrolls instead of shrinking further. The size is decided when the view
 opens and when the window resizes, never during a drag, so a drop target
 never moves under the pointer.
 
-**Dormant workspaces.** A workspace whose panes are all dormant (the
-mission-control rule) shrinks to a chip in a DORMANT strip at the bottom:
-status dot and name. A chip is a drop target: a drop on it creates a tab in
-that workspace, and dwelling on it during a drag springs it open as a full
-island for the rest of that drag. Clicking a chip opens its island until the
-view closes.
+Every workspace is drawn as an island, however long its panes have been
+quiet.
 
 ## Data
 
@@ -301,25 +312,25 @@ view closes.
 A new FlockCore type records, per pane, every status transition with its
 time, as `paneAgentStatusChanged` and snapshots arrive, and drops entries
 older than 60 minutes (keeping the transition that was in force at the
-window's start). It lives in memory only: after a launch timelines start
-empty and fill in. A pane first seen at launch is recorded as having entered
-its current status at launch time.
+window's start). The timelines live in memory, so after a launch they start
+empty and fill in.
+
+Each pane's last change (its status and when it entered it) is kept across
+launches by `PaneLastChangeArchive`, in UserDefaults under
+`flock.paneLastChange`, saved whenever a pane's last change moves and pruned
+to the panes herdr still reports. When the first snapshot after launch shows
+a pane whose recorded status is still its status, the pane is recorded as
+having entered it at the recorded time; any other pane is recorded as having
+entered its current status at launch time. So a pane quiet since yesterday
+still rests under Yesterday after a relaunch.
 
 It answers, for a pane: the current status's age, the timeline segments for
 the last 60 minutes, and the time of the last change. It takes the clock as
 a parameter so tests control time.
 
-### Dormancy
-
-A pane is dormant when it is not in the attention stack, its status is not
-`working`, and its last status change is older than the cutoff. The cutoff is
-a Settings value under Overview, "Dormant after", one of 15, 30
-(default), 60 or 120 minutes, persisted like `NotificationLifetimeStore`.
-
-A shell with no agent never changes status, so it reads dormant once the
-cutoff passes after launch even while a command runs in it. Using
-`PaneForegroundJob` to keep busy shells awake is a follow-up, not part of
-this work.
+A shell with no agent never changes status, so it rests in an older section
+even while a command runs in it. Using `PaneForegroundJob` to tell busy
+shells apart is a follow-up, not part of this work.
 
 ### Titles
 
@@ -399,8 +410,9 @@ and checked before implementation starts.
 - Identity colour in the rail or the tab strip.
 - A separate or torn-off mission-control window.
 - Recent output lines on cards (costs a `pane.read` per pane per refresh).
-- Keeping status history across launches.
-- Keeping busy agentless shells out of Dormant.
+- Keeping the 60-minute timelines across launches (only each pane's last
+  change is kept).
+- Telling busy agentless shells apart from quiet ones.
 
 ## Testing
 
@@ -408,23 +420,29 @@ FlockCore unit tests:
 
 - the status history: recording, trimming at 60 minutes with the in-force
   entry kept, age and segment answers under an injected clock;
+- the last-change archive: a matching status keeps its recorded date, a
+  different one starts at launch, and a pane herdr no longer reports leaves
+  the archive;
 - lane assignment and its precedence, including a cleared blocked card and a
-  pane at the cutoff's edge;
+  pane quiet for weeks;
+- At rest's sections under an injected clock and calendar: 59 against 61
+  minutes, midnight, yesterday, 7 days, the calendar's time zone, and Older
+  folding only past 8 panes;
 - lane ordering: Needs you grouped by workspace with the oldest card on
-  top, rail-ordered Working with label breaks, At rest grouped by workspace most recent first, and the
-  keyboard's columns walking the drawn order;
+  top, rail-ordered Working with label breaks, At rest's sections most
+  recent first with workspace groups most recent first inside each, and the
+  keyboard's columns walking the drawn order, a folded section skipped;
 - the main window's focused pane: no card while the canvas shows it, a card
   while the grid covers it, the held-back card raised as the grid opens,
   and none for the pane in Overview's focused view;
 - `HEAD` parsing for a branch, a detached head and a missing file;
-- the dormant cutoff store's default and persistence;
 - `PaneNaming`: a named and an unnamed one-pane tab, a tab of two, a zoomed
   tab of two, the setting off, a pane moving between tabs, the rename
   target, Clear Pane Name hidden, and dock cards naming the tab;
 - the bottom line's three settings and its store;
 - the fit-to-window size: largest width that fits, the 120pt floor, the
   260pt cap, and no change while a drag is live;
-- island packing in rail order, and dormant workspaces moving to chips;
+- island packing in rail order;
 - identity assignment: stable across a rename, overrides kept, stale ids
   dropped, and no palette hue near a status hue in any builtin theme;
 - the focused pane: opening from a card or ⌘J, ⌘J and ⌘] swapping to the

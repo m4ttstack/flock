@@ -1,10 +1,9 @@
 import FlockCore
 import SwiftUI
 
-/// How Overview's cards read, and when it folds a pane away.
+/// How Overview's cards read.
 struct OverviewSettingsSection: View {
     let bottomLineStore: MissionBottomLineStore
-    let cutoffStore: DormantCutoffStore
 
     var body: some View {
         Section("Overview") {
@@ -17,15 +16,6 @@ struct OverviewSettingsSection: View {
                 Text("Branch drops the repo when it is the workspace's own. Repo and branch always shows both; Hidden shows neither.")
             }
             .accessibilityIdentifier("flock.settings.bottomLine")
-            Picker(selection: Binding(get: { cutoffStore.active }, set: { cutoffStore.select($0) })) {
-                ForEach(DormantCutoff.allCases, id: \.self) { cutoff in
-                    Text(cutoff.displayName).tag(cutoff)
-                }
-            } label: {
-                Text("Dormant after")
-                Text("Overview folds away a pane whose status has not changed for this long.")
-            }
-            .accessibilityIdentifier("flock.settings.dormantCutoff")
         }
     }
 }

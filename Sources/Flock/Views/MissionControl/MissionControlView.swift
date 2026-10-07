@@ -11,7 +11,6 @@ struct MissionControlView: View {
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(AllWorkspacesModeStore.self) private var mode
-    @Environment(DormantCutoffStore.self) private var cutoff
     @Environment(MissionBottomLineStore.self) private var bottomLine
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(BoardStore.self) private var boardNames
@@ -49,7 +48,7 @@ struct MissionControlView: View {
 
     /// The one place the board is built, for drawing and for the keys alike.
     private func makeBoard(now: Date) -> (MissionBoard, RailSections)? {
-        MissionBoard.make(viewModel: viewModel, board: boardNames, herdProgress: herdProgress, cutoff: cutoff, now: now)
+        MissionBoard.make(viewModel: viewModel, board: boardNames, herdProgress: herdProgress, opensOlder: mode.opensOlder, now: now)
     }
 
     private func resolveSelection(in board: MissionBoard) {
@@ -64,18 +63,20 @@ struct MissionControlView: View {
                     Text("Nothing needs you").font(ChromeType.missionEmpty).foregroundStyle(theme.textLabel)
                 }
                 ForEach(board.needsYou) { group($0, sections: sections, now: now, cooling: false) }
-            } footer: {
-                EmptyView()
             }
             lane(title: "WORKING", status: .working, count: board.working.reduce(0) { $0 + $1.cards.count }) {
                 ForEach(board.working) { group($0, sections: sections, now: now, cooling: false) }
-            } footer: {
-                EmptyView()
             }
-            lane(title: "AT REST", status: .idle, count: board.coolingGroups.reduce(0) { $0 + $1.cards.count }) {
-                ForEach(board.coolingGroups) { group($0, sections: sections, now: now, cooling: true) }
-            } footer: {
-                if !board.dormant.isEmpty { dormantFold(board.dormant) }
+            lane(title: "AT REST", status: .idle, count: board.atRestCount) {
+                ForEach(board.atRest) { section in
+                    VStack(alignment: .leading, spacing: M.cardGap) {
+                        RestSectionLabel(theme: theme, section: section) { mode.opensOlder.toggle() }
+                        if !section.isCollapsed {
+                            ForEach(section.groups) { group($0, sections: sections, now: now, cooling: true) }
+                        }
+                    }
+                    .padding(.top, section.id == board.atRest.first?.id ? 0 : M.restSectionGap)
+                }
             }
         }
         // Every lane's ground in one layer behind all lanes' cards: drawn per
@@ -90,9 +91,8 @@ struct MissionControlView: View {
         .animation(reduceMotion ? nil : .easeOut(duration: M.laneMoveDuration), value: board)
     }
 
-    private func lane<Content: View, Footer: View>(
-        title: String, status: AgentStatus, count: Int,
-        @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer
+    private func lane<Content: View>(
+        title: String, status: AgentStatus, count: Int, @ViewBuilder content: () -> Content
     ) -> some View {
         let cards = content()
         return VStack(alignment: .leading, spacing: M.cardGap - M.selectionInset) {
@@ -120,7 +120,6 @@ struct MissionControlView: View {
                     if let selected { withAnimation { reader.scrollTo(selected) } }
                 }
             }
-            footer().padding(.horizontal, M.selectionInset)
         }
         .padding(M.lanePadding - M.selectionInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -179,55 +178,6 @@ struct MissionControlView: View {
         )
     }
 
-    private func dormantFold(_ dormant: [MissionCard]) -> some View {
-        let rowShape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.dormantRowCornerRadius))
-        return VStack(alignment: .leading, spacing: 0) {
-            GridControlButton(theme: theme, shape: rowShape, restForeground: theme.textLabel) {
-                mode.showsDormant.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: mode.showsDormant ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text("\(dormant.count) dormant").font(ChromeType.missionDormantRow)
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, M.dormantRowVerticalPadding)
-                .padding(.horizontal, M.dormantRowHorizontalPadding)
-            }
-            .accessibilityIdentifier("flock.mission.dormant")
-            if mode.showsDormant {
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(dormant) { card in
-                            GridControlButton(theme: theme, shape: rowShape, restForeground: theme.textLabel) {
-                                open(card.paneID)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    StatusDot(status: card.status, theme: theme, size: M.cardDot)
-                                    Text("\(card.workspaceName) › \(card.title)")
-                                    if let detail = card.detail { Text(detail).foregroundStyle(theme.textDim) }
-                                    Spacer(minLength: 0)
-                                }
-                                .font(ChromeType.missionCardMeta)
-                                .lineLimit(1)
-                                .padding(.vertical, M.dormantRowVerticalPadding)
-                                .padding(.horizontal, M.dormantRowHorizontalPadding)
-                            }
-                            .pointerStyle(.link)
-                        }
-                    }
-                }
-                .scrollIndicators(.never)
-                .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-                .frame(maxHeight: 220)
-            }
-        }
-        .padding(.vertical, 10 - M.dormantRowVerticalPadding)
-        .padding(.horizontal, 12 - M.dormantRowHorizontalPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(RoundedRectangle(cornerRadius: M.cardCornerRadius).strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth))
-    }
-
     private func identityColor(_ workspace: WorkspaceID, sections: RailSections) -> Color? {
         MissionBoard.identityColor(workspace, sections: sections, identity: identity, theme: theme)
     }
@@ -259,6 +209,51 @@ struct MissionControlView: View {
     private func open(_ pane: PaneID) {
         mode.missionSelection = pane
         JumpNavigator(viewModel: viewModel, drag: drag, mode: mode).open(pane: pane)
+    }
+}
+
+/// One of At rest's time sections: its label, then a hairline to the lane's
+/// edge. A foldable section's label is the disclosure that folds it.
+struct RestSectionLabel: View {
+    let theme: Theme
+    let section: MissionRestSection
+    var forced: ControlInteraction?
+    let toggle: () -> Void
+
+    private typealias M = ChromeMetrics.MissionControl
+
+    var body: some View {
+        HStack(spacing: M.restLabelSpacing) {
+            if section.isCollapsible {
+                GridControlButton(
+                    theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: M.restDisclosureCornerRadius)),
+                    restForeground: theme.textLabel, forced: forced, action: toggle
+                ) {
+                    HStack(spacing: M.restLabelSpacing) {
+                        Image(systemName: section.isCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                        title
+                        Text("\(section.count)").font(ChromeType.missionLaneTitle)
+                    }
+                    .padding(.vertical, M.restDisclosureVerticalPadding)
+                    .padding(.horizontal, M.restDisclosureHorizontalPadding)
+                }
+                .padding(.vertical, -M.restDisclosureVerticalPadding)
+                .padding(.leading, -M.restDisclosureHorizontalPadding)
+                .accessibilityIdentifier("flock.mission.rest.older")
+            } else {
+                title.foregroundStyle(theme.textLabel)
+            }
+            Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
+        }
+    }
+
+    private var title: some View {
+        Text(section.age.title.uppercased())
+            .font(ChromeType.missionLaneTitle)
+            .tracking(M.restLabelTracking)
+            .lineLimit(1)
+            .fixedSize()
     }
 }
 
@@ -310,18 +305,16 @@ private struct MissionKeyMonitor: NSViewRepresentable {
 }
 
 extension MissionBoard {
-    /// The board as the app's stores hold it, for every view that reads lanes
-    /// or dormancy, so mission control and Arrange agree on both.
+    /// The board as the app's stores hold it, for drawing and for the keys.
     @MainActor
     static func make(
-        viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore,
-        cutoff: DormantCutoffStore, now: Date
+        viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore, opensOlder: Bool, now: Date
     ) -> (MissionBoard, RailSections)? {
         guard let model = viewModel.model else { return nil }
         let sections = RailSections(model: model, board: board, herdProgress: herdProgress)
         let missionBoard = MissionBoard(
             model: model, sections: sections, toasts: viewModel.attentionToasts,
-            history: viewModel.statusHistory, cutoff: cutoff.active.seconds, now: now, oneTitle: viewModel.oneTitle
+            history: viewModel.statusHistory, now: now, opensOlder: opensOlder, oneTitle: viewModel.oneTitle
         )
         return (missionBoard, sections)
     }

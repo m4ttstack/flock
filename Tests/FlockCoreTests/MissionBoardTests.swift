@@ -2,35 +2,41 @@ import XCTest
 @testable import FlockCore
 
 final class MissionBoardTests: XCTestCase {
+    /// 03:33:20 on 24 January 1970, in `utc`.
     private let now = Date(timeIntervalSince1970: 2_000_000)
+    private let utc: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }()
     private typealias W = MissionFixture.Workspace
     private typealias T = MissionFixture.Tab
     private typealias P = MissionFixture.Pane
 
     private func board(
         _ model: SessionModel, toasts: AttentionToastStack = AttentionToastStack(),
-        changedAgo: [String: TimeInterval] = [:], board names: BoardWorkspaceNames? = nil
+        changedAgo: [String: TimeInterval] = [:], board names: BoardWorkspaceNames? = nil, opensOlder: Bool = false
     ) -> MissionBoard {
         MissionBoard(
             model: model, sections: RailSections(model: model, board: names), toasts: toasts,
-            history: history(model, changedAgo: changedAgo), cutoff: 30 * 60, now: now
+            history: history(model, changedAgo: changedAgo), now: now, calendar: utc, opensOlder: opensOlder
         )
     }
 
+    /// Every pane entered its current status two hours ago, or `changedAgo`
+    /// seconds before now when listed.
     private func history(_ model: SessionModel, changedAgo: [String: TimeInterval]) -> PaneStatusHistory {
-        var history = PaneStatusHistory()
-        // Every pane first seen two hours ago, then any listed pane changed
-        // to its current status `changedAgo` seconds before now.
-        var quiet = model
-        for id in changedAgo.keys { quiet.panes[PaneID(rawValue: id)]?.agentStatus = .unknown }
-        history.observe(quiet, at: now.addingTimeInterval(-7200))
-        for (id, ago) in changedAgo.sorted(by: { $0.value > $1.value }) {
-            var step = quiet
-            step.panes[PaneID(rawValue: id)]?.agentStatus = model.panes[PaneID(rawValue: id)]!.agentStatus
-            quiet = step
-            history.observe(step, at: now.addingTimeInterval(-ago))
+        var seeds: [PaneID: PaneStatusHistory.Transition] = [:]
+        for (id, pane) in model.panes {
+            seeds[id] = .init(status: pane.agentStatus, at: now.addingTimeInterval(-(changedAgo[id.rawValue] ?? 7200)))
         }
+        var history = PaneStatusHistory()
+        history.observe(model, at: now, seeds: seeds)
         return history
+    }
+
+    private func restCards(_ board: MissionBoard) -> [String] {
+        board.atRest.flatMap { $0.groups.flatMap(\.cards) }.map(\.paneID.rawValue)
     }
 
     private func toast(_ pane: String, _ kind: AttentionToast.Kind, raised: TimeInterval) -> AttentionToast {
@@ -53,27 +59,118 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(b.working.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p3"])
     }
 
-    func testABlockedPaneWhoseCardWasClearedCoolsDownInstead() {
+    func testABlockedPaneWhoseCardWasClearedIsAtRestInstead() {
         let b = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 120])
         XCTAssertTrue(b.needsYou.isEmpty)
-        XCTAssertEqual(b.coolingGroups.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p1"])
+        XCTAssertEqual(restCards(b), ["w1:t1:p1"])
     }
 
-    func testThePaneAtTheCutoffStillCoolsAndOnePastItIsDormant() {
-        let b = board(MissionFixture.single([.idle, .idle]), changedAgo: ["w1:t1:p1": 30 * 60, "w1:t1:p2": 30 * 60 + 1])
-        XCTAssertEqual(b.coolingGroups.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p1"])
-        XCTAssertEqual(b.dormant.map(\.paneID.rawValue), ["w1:t1:p2"])
+    func testAPaneQuietForWeeksIsStillAtRest() {
+        let b = board(MissionFixture.single([.idle]), changedAgo: ["w1:t1:p1": 30 * 24 * 3600])
+        XCTAssertEqual(b.atRest.map(\.age), [.older])
+        XCTAssertEqual(restCards(b), ["w1:t1:p1"])
+        XCTAssertEqual(b.columns[2].map(\.rawValue), ["w1:t1:p1"])
     }
 
-    func testAWorkingPaneIsNeverDormantHoweverLongItWorks() {
-        let b = board(MissionFixture.single([.working]))
+    func testAWorkingPaneStaysInWorkingHoweverLongItWorks() {
+        let b = board(MissionFixture.single([.working]), changedAgo: ["w1:t1:p1": 30 * 24 * 3600])
         XCTAssertEqual(b.working.flatMap(\.cards).count, 1)
-        XCTAssertTrue(b.dormant.isEmpty)
+        XCTAssertTrue(b.atRest.isEmpty)
     }
 
-    func testCoolingDownIsMostRecentChangeFirst() {
+    func testAtRestIsMostRecentChangeFirst() {
         let b = board(MissionFixture.single([.idle, .done]), changedAgo: ["w1:t1:p1": 600, "w1:t1:p2": 60])
-        XCTAssertEqual(b.coolingGroups.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p2", "w1:t1:p1"])
+        XCTAssertEqual(restCards(b), ["w1:t1:p2", "w1:t1:p1"])
+    }
+
+    func testRestAgeBoundaries() {
+        func at(_ day: Int, _ hour: Int, _ minute: Int = 0, _ second: Int = 0) -> Date {
+            utc.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute, second: second))!
+        }
+        func age(_ since: Date?, now: Date) -> RestAge { RestAge.of(since, now: now, calendar: utc) }
+        let afternoon = at(6, 15)
+        XCTAssertEqual(age(afternoon.addingTimeInterval(-59 * 60), now: afternoon), .lastHour)
+        XCTAssertEqual(age(afternoon.addingTimeInterval(-61 * 60), now: afternoon), .earlierToday)
+        XCTAssertEqual(age(afternoon, now: afternoon), .lastHour)
+
+        let pastMidnight = at(6, 0, 30)
+        XCTAssertEqual(age(at(5, 23, 50), now: pastMidnight), .lastHour, "an hour reaches back across midnight")
+        XCTAssertEqual(age(at(5, 23, 0), now: pastMidnight), .yesterday)
+        XCTAssertEqual(age(at(6, 0), now: at(6, 2)), .earlierToday, "midnight is today")
+        XCTAssertEqual(age(at(5, 23, 59, 59), now: at(6, 2)), .yesterday)
+
+        XCTAssertEqual(age(at(5, 0), now: afternoon), .yesterday, "yesterday's first second")
+        XCTAssertEqual(age(at(4, 23, 59, 59), now: afternoon), .thisWeek)
+
+        XCTAssertEqual(age(afternoon.addingTimeInterval(-7 * 24 * 3600 + 1), now: afternoon), .thisWeek)
+        XCTAssertEqual(age(afternoon.addingTimeInterval(-7 * 24 * 3600), now: afternoon), .older)
+        XCTAssertEqual(age(nil, now: afternoon), .older, "no recorded change")
+    }
+
+    func testRestAgeReadsDaysInTheCalendarsTimeZone() {
+        var chicago = Calendar(identifier: .gregorian)
+        chicago.timeZone = TimeZone(identifier: "America/Chicago")!
+        let now = utc.date(from: DateComponents(year: 2026, month: 10, day: 6, hour: 3))!
+        let since = now.addingTimeInterval(-5 * 3600)
+        XCTAssertEqual(RestAge.of(since, now: now, calendar: utc), .yesterday)
+        XCTAssertEqual(RestAge.of(since, now: now, calendar: chicago), .earlierToday, "both are the evening of the 5th there")
+    }
+
+    func testAtRestSectionsRunMostRecentFirstAndAWorkspaceSplitsAcrossThem() {
+        let model = MissionFixture.model([
+            W(label: "acme", tabs: [T(label: "a", panes: [P(status: .idle), P(status: .idle), P(status: .done)])]),
+            W(label: "flock", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .blocked)])]),
+        ])
+        let b = board(model, changedAgo: [
+            "w1:t1:p1": 30 * 60, "w2:t1:p1": 45 * 60,
+            "w2:t1:p2": 4 * 3600, "w1:t1:p2": 5 * 3600,
+            "w1:t1:p3": 3 * 24 * 3600,
+        ])
+        XCTAssertEqual(b.atRest.map(\.age), [.lastHour, .yesterday, .thisWeek], "an empty section is not drawn")
+        XCTAssertEqual(b.atRest.map { $0.groups.map(\.name) }, [["acme", "flock"], ["flock", "acme"], ["acme"]])
+        XCTAssertEqual(b.atRest.map { $0.groups.map { $0.cards.map(\.paneID.rawValue) } }, [
+            [["w1:t1:p1"], ["w2:t1:p1"]], [["w2:t1:p2"], ["w1:t1:p2"]], [["w1:t1:p3"]],
+        ])
+        XCTAssertEqual(b.atRestCount, 5)
+        XCTAssertEqual(b.columns[2].map(\.rawValue), restCards(b), "the keys walk the drawn order")
+    }
+
+    func testALongOlderSectionFoldsAndItsCardsLeaveTheKeys() {
+        let model = MissionFixture.single(Array(repeating: .idle, count: 10))
+        var changedAgo: [String: TimeInterval] = ["w1:t1:p1": 60]
+        for pane in 2...10 { changedAgo["w1:t1:p\(pane)"] = 10 * 24 * 3600 + Double(pane) }
+        let folded = board(model, changedAgo: changedAgo)
+        let older = try! XCTUnwrap(folded.atRest.last)
+        XCTAssertEqual(older.age, .older)
+        XCTAssertEqual(older.count, 9)
+        XCTAssertTrue(older.isCollapsible)
+        XCTAssertTrue(older.isCollapsed)
+        XCTAssertEqual(folded.columns[2].map(\.rawValue), ["w1:t1:p1"])
+        XCTAssertEqual(folded.atRestCount, 10, "the lane still counts a folded section")
+        XCTAssertNotNil(folded.card(PaneID(rawValue: "w1:t1:p5")), "a folded card is still found")
+
+        let opened = board(model, changedAgo: changedAgo, opensOlder: true)
+        XCTAssertFalse(opened.atRest.last!.isCollapsed)
+        XCTAssertEqual(opened.columns[2].count, 10)
+    }
+
+    func testOlderFoldsOnlyPastEightPanes() {
+        let model = MissionFixture.single(Array(repeating: .idle, count: 8))
+        var changedAgo: [String: TimeInterval] = [:]
+        for pane in 1...8 { changedAgo["w1:t1:p\(pane)"] = 10 * 24 * 3600 + Double(pane) }
+        let b = board(model, changedAgo: changedAgo)
+        XCTAssertFalse(b.atRest[0].isCollapsible)
+        XCTAssertFalse(b.atRest[0].isCollapsed)
+        XCTAssertEqual(b.columns[2].count, 8)
+    }
+
+    func testOnlyOlderEverFolds() {
+        let model = MissionFixture.single(Array(repeating: .idle, count: 12))
+        var changedAgo: [String: TimeInterval] = [:]
+        for pane in 1...12 { changedAgo["w1:t1:p\(pane)"] = 3 * 24 * 3600 + Double(pane) }
+        let b = board(model, changedAgo: changedAgo)
+        XCTAssertEqual(b.atRest.map(\.age), [.thisWeek])
+        XCTAssertFalse(b.atRest[0].isCollapsed)
     }
 
     func testNeedsYouGroupsByWorkspaceWithTheOldestCardOnTop() {
@@ -93,7 +190,7 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(b.columns[0].map(\.rawValue), ["w2:t1:p1", "w2:t1:p2", "w1:t1:p1", "w1:t1:p2"], "the keys walk the drawn order")
     }
 
-    func testCoolingDownGroupsByWorkspaceMostRecentChangeFirst() {
+    func testASectionGroupsByWorkspaceMostRecentChangeFirst() {
         let model = MissionFixture.model([
             W(label: "acme", tabs: [T(label: "a", panes: [P(status: .idle), P(status: .done)])]),
             W(label: "flock", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .idle)])]),
@@ -104,8 +201,9 @@ final class MissionBoardTests: XCTestCase {
             "w2:t1:p1": 60, "w2:t1:p2": 1200,
             "w3:t1:p1": 600,
         ])
-        XCTAssertEqual(b.coolingGroups.map(\.name), ["flock", "acme", "board"])
-        XCTAssertEqual(b.coolingGroups.map { $0.cards.map(\.paneID.rawValue) }, [
+        XCTAssertEqual(b.atRest.map(\.age), [.lastHour])
+        XCTAssertEqual(b.atRest[0].groups.map(\.name), ["flock", "acme", "board"])
+        XCTAssertEqual(b.atRest[0].groups.map { $0.cards.map(\.paneID.rawValue) }, [
             ["w2:t1:p1", "w2:t1:p2"], ["w1:t1:p2", "w1:t1:p1"], ["w3:t1:p1"],
         ])
         XCTAssertEqual(b.columns[2].map(\.rawValue), ["w2:t1:p1", "w2:t1:p2", "w1:t1:p2", "w1:t1:p1", "w3:t1:p1"], "the keys walk the drawn order")
@@ -122,29 +220,6 @@ final class MissionBoardTests: XCTestCase {
         let b = board(model, board: names)
         XCTAssertEqual(b.working.map(\.name), ["repo-tools", "flock", "Responses", "auth-sweep · herd 0/1"])
         XCTAssertEqual(b.working[0].cards.map(\.tabTitle), ["a", "b"])
-    }
-
-    func testAWorkspaceIsDormantOnlyWhenEveryPaneIs() {
-        let model = MissionFixture.model([
-            W(label: "quiet", tabs: [T(label: "a", panes: [P(status: .unknown), P(status: .idle)])]),
-            W(label: "busy", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .working)])]),
-        ])
-        let b = board(model)
-        XCTAssertEqual(b.dormantWorkspaces, [WorkspaceID(rawValue: "w1")])
-    }
-
-    /// A shell-only workspace never changes status, so it passes the cutoff
-    /// while the user works in it; Arrange still draws it as an island.
-    func testArrangeNeverFoldsTheWorkspaceYouAreIn() {
-        let model = MissionFixture.model([
-            W(label: "shells", tabs: [T(label: "a", panes: [P(status: .unknown, title: "zsh")])]),
-            W(label: "quiet", tabs: [T(label: "b", panes: [P(status: .idle)])]),
-        ])
-        let b = board(model)
-        let shells = WorkspaceID(rawValue: "w1")
-        XCTAssertEqual(b.dormantWorkspaces, Set([shells, WorkspaceID(rawValue: "w2")]), "the premise: both are dormant")
-        XCTAssertEqual(b.arrangeDormantWorkspaces(focused: shells), [WorkspaceID(rawValue: "w2")])
-        XCTAssertEqual(b.arrangeDormantWorkspaces(focused: nil), b.dormantWorkspaces)
     }
 
     func testCardsCarryTitleFolderAndTab() {
@@ -179,7 +254,7 @@ final class MissionBoardTests: XCTestCase {
         let a = PaneID(rawValue: "a"), b = PaneID(rawValue: "b"), gone = PaneID(rawValue: "gone")
         let columns = [[], [a], [b]]
         XCTAssertEqual(MissionSelection.resolve(b, in: columns), b)
-        XCTAssertEqual(MissionSelection.resolve(gone, in: columns), a, "a dormant or closed pane is not kept")
+        XCTAssertEqual(MissionSelection.resolve(gone, in: columns), a, "a folded or closed pane is not kept")
         XCTAssertEqual(MissionSelection.resolve(nil, in: columns), a)
         XCTAssertNil(MissionSelection.resolve(gone, in: [[], [], []]), "no drawn card, nothing to select or open")
     }
@@ -191,8 +266,9 @@ final class MissionBoardTests: XCTestCase {
         let b = board(model, toasts: toasts, changedAgo: ["w1:t1:p3": 120])
         XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p1")), b.needsYou.first?.cards.first)
         XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p2")), b.working.first?.cards.first)
-        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p3")), b.coolingGroups.first?.cards.first)
-        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p4")), b.dormant.first)
+        XCTAssertEqual(b.atRest.map(\.age), [.lastHour, .earlierToday], "the premise")
+        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p3")), b.atRest[0].groups.first?.cards.first)
+        XCTAssertEqual(b.card(PaneID(rawValue: "w1:t1:p4")), b.atRest[1].groups.first?.cards.first)
         XCTAssertNil(b.card(PaneID(rawValue: "w9:t1:p1")))
     }
 
@@ -216,7 +292,7 @@ final class MissionBoardTests: XCTestCase {
     }
 
     func testStateTextIsTheStatusAndHowLongItHasHeld() {
-        let card = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 12 * 60]).coolingGroups[0].cards[0]
+        let card = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 12 * 60]).atRest[0].groups[0].cards[0]
         XCTAssertEqual(card.stateText(at: now), "blocked 12m")
         let unrecorded = MissionCard(
             paneID: card.paneID, workspaceID: card.workspaceID, tabID: card.tabID, workspaceName: "", tabTitle: "",

@@ -826,12 +826,17 @@ enum ChromeMetrics {
         static let nextHorizontalPadding: CGFloat = 10
         static let nextSpacing: CGFloat = 6
         static let nextMaxTitleWidth: CGFloat = 320
-        static let dormantRowCornerRadius: CGFloat = 3
-        /// Room around a dormant row's text for its hover block. Taken out of
-        /// the fold's own padding and its row gap, so the rows sit where they
-        /// did before the block existed.
-        static let dormantRowVerticalPadding: CGFloat = 3
-        static let dormantRowHorizontalPadding: CGFloat = 6
+        /// At rest's time section labels: the label, then a hairline rule to
+        /// the lane's edge.
+        static let restLabelSpacing: CGFloat = 8
+        static let restLabelTracking: CGFloat = 1
+        /// Added above every section but the first, on top of the card gap.
+        static let restSectionGap: CGFloat = 6
+        /// Room around the Older disclosure's text for its hover block, taken
+        /// back out of its leading edge so the label lines up with the others.
+        static let restDisclosureCornerRadius: CGFloat = 3
+        static let restDisclosureVerticalPadding: CGFloat = 3
+        static let restDisclosureHorizontalPadding: CGFloat = 6
         /// Half the launcher's press accent: over a whole card the launcher's
         /// own amount read as a selected surface rather than a press.
         static let cardPressedAccent: Double = 0.1
@@ -873,9 +878,6 @@ enum ChromeMetrics {
         static let identitySquare: CGFloat = 12
         static let identitySquareRadius: CGFloat = 3
         static let currentTabUnderline: CGFloat = 2
-        static let dormantChipHeight: CGFloat = 26
-        static let dormantChipSpacing: CGFloat = 8
-        static let dormantDwell: Duration = .milliseconds(500)
         /// The tab's handle: a band across the top of its thumbnail, holding
         /// the title and status dot.
         static let tabStripHeight: CGFloat = 24

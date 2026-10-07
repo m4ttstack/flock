@@ -85,8 +85,8 @@ final class GridControlAppearanceTests: XCTestCase {
     }
 }
 
-/// A mission card (plain and blocked), a dormant chip, a dormant row and two
-/// title bar view tabs at rest, hovered and pressed, in a dark and a light theme.
+/// A mission card (plain and blocked), two title bar view tabs and At rest's
+/// Older disclosure at rest, hovered and pressed, in a dark and a light theme.
 /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
 @MainActor
 final class GridControlHoverRenderTests: XCTestCase {
@@ -157,28 +157,19 @@ final class GridControlHoverRenderTests: XCTestCase {
                 VStack(alignment: .leading, spacing: 20) {
                     card(.working, index)
                     card(.blocked, index)
-                    HStack(spacing: 12) {
-                        DormantChipButton(theme: theme, status: .idle, label: "acme-docs", forced: interaction, action: {})
-                        HStack(spacing: 0) {
-                            ViewTabButton(theme: theme, tab: .overview, isSelected: false, badge: 3, forced: interaction, action: {})
-                            ViewTabButton(theme: theme, tab: .arrange, isSelected: true, forced: interaction, action: {})
-                        }
-                        .frame(height: ChromeMetrics.TitleBar.height)
-                        .fixedSize()
-                        .background(theme.chrome)
+                    HStack(spacing: 0) {
+                        ViewTabButton(theme: theme, tab: .overview, isSelected: false, badge: 3, forced: interaction, action: {})
+                        ViewTabButton(theme: theme, tab: .arrange, isSelected: true, forced: interaction, action: {})
                     }
-                    GridControlButton(
-                        theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.dormantRowCornerRadius)),
-                        restForeground: theme.textLabel, forced: interaction, action: {}
-                    ) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                            Text("3 dormant").font(ChromeType.missionDormantRow)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.vertical, ChromeMetrics.MissionControl.dormantRowVerticalPadding)
-                        .padding(.horizontal, ChromeMetrics.MissionControl.dormantRowHorizontalPadding)
-                    }
+                    .frame(height: ChromeMetrics.TitleBar.height)
+                    .fixedSize()
+                    .background(theme.chrome)
+                    RestSectionLabel(
+                        theme: theme,
+                        section: MissionRestSection(age: .older, groups: [], count: 12, isCollapsible: true, isCollapsed: true),
+                        forced: interaction, toggle: {}
+                    )
+                    .padding(.leading, ChromeMetrics.MissionControl.restDisclosureHorizontalPadding)
                     .frame(width: Self.column - 30)
                     HStack(alignment: .top, spacing: 12) {
                         Self.thumbnail(theme, tab: interaction, pane: .rest)

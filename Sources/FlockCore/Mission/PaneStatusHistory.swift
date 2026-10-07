@@ -1,12 +1,18 @@
 import Foundation
 
-/// Each pane's agent status over the last hour, as flock saw it change. Kept
-/// in memory only: after a launch every pane starts with one entry, its
-/// status at the first snapshot.
+/// Each pane's agent status over the last hour, as flock saw it change. After
+/// a launch every pane starts with one entry, its status at the first
+/// snapshot, dated by its `PaneLastChangeArchive` record when that record
+/// holds the same status.
 public struct PaneStatusHistory: Equatable, Sendable {
-    public struct Transition: Equatable, Sendable {
+    public struct Transition: Equatable, Codable, Sendable {
         public let status: AgentStatus
         public let at: Date
+
+        public init(status: AgentStatus, at: Date) {
+            self.status = status
+            self.at = at
+        }
     }
 
     /// A nil `status` is time before flock first saw the pane.
@@ -52,9 +58,15 @@ public struct PaneStatusHistory: Equatable, Sendable {
 
     public init() {}
 
-    public mutating func observe(_ model: SessionModel, at now: Date) {
+    /// `seeds` date a pane seen for the first time, only while the seed's
+    /// status is still the pane's.
+    public mutating func observe(_ model: SessionModel, at now: Date, seeds: [PaneID: Transition] = [:]) {
         for (paneID, pane) in model.panes where transitions[paneID]?.last?.status != pane.agentStatus {
-            transitions[paneID, default: []].append(Transition(status: pane.agentStatus, at: now))
+            var at = now
+            if transitions[paneID] == nil, let seed = seeds[paneID], seed.status == pane.agentStatus {
+                at = min(seed.at, now)
+            }
+            transitions[paneID, default: []].append(Transition(status: pane.agentStatus, at: at))
         }
         for paneID in Array(transitions.keys) where model.panes[paneID] == nil {
             transitions[paneID] = nil
@@ -74,6 +86,11 @@ public struct PaneStatusHistory: Equatable, Sendable {
 
     public func lastChange(of pane: PaneID) -> Date? {
         transitions[pane]?.last?.at
+    }
+
+    /// Every pane's transition in force now.
+    public var lastChanges: [PaneID: Transition] {
+        transitions.compactMapValues(\.last)
     }
 
     public func age(of pane: PaneID, at now: Date) -> TimeInterval? {

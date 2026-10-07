@@ -48,6 +48,61 @@ public struct MissionGroup: Equatable, Sendable, Identifiable {
     public let cards: [MissionCard]
 }
 
+/// How long ago an At rest pane last changed status, as the lane sections it.
+public enum RestAge: CaseIterable, Sendable {
+    case lastHour
+    case earlierToday
+    case yesterday
+    case thisWeek
+    case older
+
+    public var title: String {
+        switch self {
+        case .lastHour: "Last hour"
+        case .earlierToday: "Earlier today"
+        case .yesterday: "Yesterday"
+        case .thisWeek: "This week"
+        case .older: "Older"
+        }
+    }
+
+    /// Days are calendar days in `calendar`'s time zone. A pane with no
+    /// recorded change is `.older`.
+    public static func of(_ since: Date?, now: Date, calendar: Calendar) -> RestAge {
+        guard let since else { return .older }
+        let age = now.timeIntervalSince(since)
+        if age < 60 * 60 { return .lastHour }
+        let today = calendar.startOfDay(for: now)
+        if since >= today { return .earlierToday }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: today), since >= yesterday { return .yesterday }
+        if age < 7 * 24 * 60 * 60 { return .thisWeek }
+        return .older
+    }
+}
+
+/// One of At rest's time sections. Never empty.
+public struct MissionRestSection: Equatable, Sendable, Identifiable {
+    /// Past this many panes, Older can fold to its label.
+    public static let collapsibleOver = 8
+
+    public var id: RestAge { age }
+    public let age: RestAge
+    /// By workspace, the group with the most recent change first and each
+    /// group's cards most recent first.
+    public let groups: [MissionGroup]
+    public let count: Int
+    public let isCollapsible: Bool
+    public let isCollapsed: Bool
+
+    public init(age: RestAge, groups: [MissionGroup], count: Int, isCollapsible: Bool, isCollapsed: Bool) {
+        self.age = age
+        self.groups = groups
+        self.count = count
+        self.isCollapsible = isCollapsible
+        self.isCollapsed = isCollapsed
+    }
+}
+
 /// Every pane in the lane its state puts it in. Needs you is the attention
 /// stack itself, so the dock and the lane can never disagree.
 public struct MissionBoard: Equatable, Sendable {
@@ -55,28 +110,23 @@ public struct MissionBoard: Equatable, Sendable {
     /// group's cards oldest first, so the top card is the oldest of all.
     public let needsYou: [MissionGroup]
     public let working: [MissionGroup]
-    /// By workspace, the group with the most recent change first and each
-    /// group's cards most recent first.
-    public let coolingGroups: [MissionGroup]
-    public let dormant: [MissionCard]
-    public let dormantWorkspaces: Set<WorkspaceID>
+    /// Most recent section first. A workspace with panes in two sections
+    /// has a group in each.
+    public let atRest: [MissionRestSection]
 
-    /// The workspaces Arrange folds to chips. Mission control judges panes,
-    /// but Arrange never folds the workspace the user is in: a shell-only
-    /// one never changes status, so it passes the cutoff while in use.
-    public func arrangeDormantWorkspaces(focused: WorkspaceID?) -> Set<WorkspaceID> {
-        guard let focused else { return dormantWorkspaces }
-        return dormantWorkspaces.subtracting([focused])
-    }
+    public var atRestCount: Int { atRest.reduce(0) { $0 + $1.count } }
 
-    /// The pane's card in whichever lane holds it, dormant included.
+    /// The pane's card in whichever lane holds it, a folded section included.
     public func card(_ pane: PaneID) -> MissionCard? {
-        (needsYou.flatMap(\.cards) + working.flatMap(\.cards) + coolingGroups.flatMap(\.cards) + dormant).first { $0.paneID == pane }
+        let rest = atRest.flatMap { $0.groups.flatMap(\.cards) }
+        return (needsYou.flatMap(\.cards) + working.flatMap(\.cards) + rest).first { $0.paneID == pane }
     }
 
-    /// The drawn lanes, top to bottom, for the keyboard.
+    /// The drawn lanes, top to bottom, for the keyboard. A folded section's
+    /// cards are not drawn.
     public var columns: [[PaneID]] {
-        [needsYou.flatMap(\.cards).map(\.paneID), working.flatMap(\.cards).map(\.paneID), coolingGroups.flatMap(\.cards).map(\.paneID)]
+        let rest = atRest.filter { !$0.isCollapsed }.flatMap { $0.groups.flatMap(\.cards) }
+        return [needsYou.flatMap(\.cards).map(\.paneID), working.flatMap(\.cards).map(\.paneID), rest.map(\.paneID)]
     }
 
     /// One group per workspace, in the order each workspace's first card
@@ -122,7 +172,8 @@ public struct MissionBoard: Equatable, Sendable {
 
     public init(
         model: SessionModel, sections: RailSections, toasts: AttentionToastStack,
-        history: PaneStatusHistory, cutoff: TimeInterval, now: Date, oneTitle: Bool = false
+        history: PaneStatusHistory, now: Date, calendar: Calendar = .current, opensOlder: Bool = false,
+        oneTitle: Bool = false
     ) {
         let rank = Dictionary(sections.railOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let names = Self.workspaceNames(model: model, sections: sections)
@@ -142,15 +193,12 @@ public struct MissionBoard: Equatable, Sendable {
         })
 
         var working: [PaneRecord] = []
-        var cooling: [(PaneRecord, Date?)] = []
-        var dormant: [PaneRecord] = []
+        var resting: [(PaneRecord, Date?)] = []
         for pane in model.panes.values where !toasted.contains(pane.paneID) {
             if pane.agentStatus == .working {
                 working.append(pane)
-            } else if let age = history.age(of: pane.paneID, at: now), age <= cutoff {
-                cooling.append((pane, history.lastChange(of: pane.paneID)))
             } else {
-                dormant.append(pane)
+                resting.append((pane, history.lastChange(of: pane.paneID)))
             }
         }
 
@@ -164,16 +212,18 @@ public struct MissionBoard: Equatable, Sendable {
             }
         }
         self.working = groups
-        coolingGroups = Self.grouped(cooling
+        let recentFirst = resting
             .sorted { ($0.1 ?? .distantPast, $1.0.paneID.rawValue) > ($1.1 ?? .distantPast, $0.0.paneID.rawValue) }
-            .map { card($0.0, status: $0.0.agentStatus, since: $0.1) })
-        self.dormant = dormant.sorted { railKey($0) < railKey($1) }
-            .map { card($0, status: $0.agentStatus, since: history.lastChange(of: $0.paneID)) }
-
-        let dormantIDs = Set(dormant.map(\.paneID))
-        var byWorkspace: [WorkspaceID: [PaneID]] = [:]
-        for pane in model.panes.values { byWorkspace[pane.workspaceID, default: []].append(pane.paneID) }
-        dormantWorkspaces = Set(byWorkspace.filter { !$0.value.isEmpty && $0.value.allSatisfy(dormantIDs.contains) }.keys)
+            .map { card($0.0, status: $0.0.agentStatus, since: $0.1) }
+        let byAge = Dictionary(grouping: recentFirst) { RestAge.of($0.since, now: now, calendar: calendar) }
+        atRest = RestAge.allCases.compactMap { age in
+            guard let cards = byAge[age] else { return nil }
+            let collapsible = age == .older && cards.count > MissionRestSection.collapsibleOver
+            return MissionRestSection(
+                age: age, groups: Self.grouped(cards), count: cards.count,
+                isCollapsible: collapsible, isCollapsed: collapsible && !opensOlder
+            )
+        }
     }
 }
 
@@ -181,7 +231,7 @@ public enum MissionSelection {
     public enum Direction: Equatable, Sendable { case up, down, left, right }
 
     /// The selection while a drawn card holds it, else the first drawn card:
-    /// a pane gone dormant or closed is never the selection. Nil with no card.
+    /// a pane folded away or closed is never the selection. Nil with no card.
     public static func resolve(_ selection: PaneID?, in columns: [[PaneID]]) -> PaneID? {
         if let selection, columns.contains(where: { $0.contains(selection) }) { return selection }
         return columns.first { !$0.isEmpty }?.first

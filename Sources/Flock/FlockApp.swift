@@ -58,7 +58,6 @@ struct FlockApp: App {
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
     @State private var allWorkspacesModeStore: AllWorkspacesModeStore
-    @State private var dormantCutoffStore: DormantCutoffStore
     @State private var missionBottomLineStore = MissionBottomLineStore()
     @State private var oneTitleStore: OneTitleStore
     @State private var workspaceIdentityStore: WorkspaceIdentityStore
@@ -147,7 +146,6 @@ struct FlockApp: App {
         let notificationLifetimeStore = NotificationLifetimeStore()
         _notificationLifetimeStore = State(initialValue: notificationLifetimeStore)
         _allWorkspacesModeStore = State(initialValue: AllWorkspacesModeStore())
-        _dormantCutoffStore = State(initialValue: DormantCutoffStore())
         _workspaceIdentityStore = State(initialValue: WorkspaceIdentityStore())
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
@@ -215,6 +213,7 @@ struct FlockApp: App {
             noticeSink: { message in toastCenter.show(message, kind: .info) },
             notificationLifetime: { notificationLifetimeStore.active },
             attentionToastArchive: AttentionToastArchive(),
+            paneLastChangeArchive: PaneLastChangeArchive(),
             oneTitle: { oneTitleStore.active },
             startingFolder: { startingFolderStore.choice(for: $0) },
             rightClickDefaults: .standard,
@@ -325,7 +324,6 @@ struct FlockApp: App {
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)
                 .environment(allWorkspacesModeStore)
-                .environment(dormantCutoffStore)
                 .environment(missionBottomLineStore)
                 .environment(workspaceIdentityStore)
                 .environment(dividerDragCoordinator)
@@ -626,7 +624,6 @@ struct FlockApp: App {
             FlockSettingsView(
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
-                dormantCutoffStore: dormantCutoffStore,
                 missionBottomLineStore: missionBottomLineStore,
                 oneTitleStore: oneTitleStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,

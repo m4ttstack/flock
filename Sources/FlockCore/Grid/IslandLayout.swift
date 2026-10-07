@@ -15,8 +15,6 @@ public enum IslandLayout {
         public var minimumWidth: CGFloat = 120
         public var maximumWidth: CGFloat = 260
         public var step: CGFloat = 2
-        /// The dormant strip and the gap above it.
-        public var dormantStripHeight: CGFloat = 44
 
         public init() {}
     }
@@ -37,18 +35,6 @@ public enum IslandLayout {
         public let rows: [[WorkspaceID]]
         public let tabsPerRow: [WorkspaceID: Int]
         public let scrolls: Bool
-
-        /// `islands` laid out below this fit's rows at its own thumbnail
-        /// size, every island already drawn left where it is: the shape a
-        /// dormant island sprung open by a live drag takes.
-        public func appending(_ islands: [Island], width: CGFloat, metrics: Metrics = Metrics()) -> Fit {
-            guard !islands.isEmpty else { return self }
-            let added = IslandLayout.layout(islands, thumbnail: thumbnailWidth, in: width, metrics: metrics)
-            return Fit(
-                thumbnailWidth: thumbnailWidth, thumbnailHeight: thumbnailHeight, rows: rows + added.rows,
-                tabsPerRow: tabsPerRow.merging(added.perRow) { _, new in new }, scrolls: true
-            )
-        }
     }
 
     public static func thumbnailHeight(_ width: CGFloat, metrics: Metrics) -> CGFloat {
@@ -93,12 +79,11 @@ public enum IslandLayout {
         return (rows, perRow, total)
     }
 
-    public static func fit(_ islands: [Island], in size: CGSize, hasDormantStrip: Bool, metrics: Metrics = Metrics()) -> Fit {
-        let available = size.height - (hasDormantStrip ? metrics.dormantStripHeight : 0)
+    public static func fit(_ islands: [Island], in size: CGSize, metrics: Metrics = Metrics()) -> Fit {
         var width = metrics.maximumWidth
         while width >= metrics.minimumWidth {
             let candidate = layout(islands, thumbnail: width, in: size.width, metrics: metrics)
-            if candidate.height <= available {
+            if candidate.height <= size.height {
                 return Fit(
                     thumbnailWidth: width, thumbnailHeight: thumbnailHeight(width, metrics: metrics),
                     rows: candidate.rows, tabsPerRow: candidate.perRow, scrolls: false
@@ -122,11 +107,11 @@ public struct IslandFitHold: Equatable, Sendable {
     public init() {}
 
     public mutating func update(
-        _ islands: [IslandLayout.Island], in size: CGSize, hasDormantStrip: Bool, dragging: Bool,
+        _ islands: [IslandLayout.Island], in size: CGSize, dragging: Bool,
         metrics: IslandLayout.Metrics = IslandLayout.Metrics()
     ) -> IslandLayout.Fit {
         if dragging, let fit { return fit }
-        let next = IslandLayout.fit(islands, in: size, hasDormantStrip: hasDormantStrip, metrics: metrics)
+        let next = IslandLayout.fit(islands, in: size, metrics: metrics)
         fit = next
         return next
     }

@@ -24,11 +24,9 @@ public final class AllWorkspacesModeStore {
     /// The selected Overview card, kept while the view is closed so Overview
     /// reopens on it.
     public var missionSelection: PaneID?
-    /// Dormant workspaces opened from Arrange's chips, kept while the view is
-    /// closed so Arrange reopens as it was left.
-    public var openedDormant: Set<WorkspaceID> = []
-    /// Overview's dormant fold, open or shut as it was left.
-    public var showsDormant = false
+    /// At rest's Older section, open or folded as it was left. Read only
+    /// while Older is long enough to fold.
+    public var opensOlder = false
 
     @ObservationIgnored private let userDefaults: UserDefaults
 

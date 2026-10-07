@@ -76,7 +76,7 @@ public enum PaneNaming {
     }
 }
 
-/// The Settings toggle, persisted like `DormantCutoffStore`. On by default.
+/// The Settings toggle, persisted like `NotificationLifetimeStore`. On by default.
 @MainActor
 @Observable
 public final class OneTitleStore {

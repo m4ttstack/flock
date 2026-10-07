@@ -37,7 +37,6 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
                 .environment(HerdProgressStore(sources: .unanswered))
                 .environment(toasts)
                 .environment(AllWorkspacesModeStore(userDefaults: missionDefaults))
-                .environment(DormantCutoffStore(userDefaults: missionDefaults))
             .environment(MissionBottomLineStore(userDefaults: missionDefaults))
                 .environment(WorkspaceIdentityStore(userDefaults: missionDefaults))
                 .frame(width: Self.size.width, height: Self.size.height)
