@@ -78,6 +78,24 @@ final class MissionLanesRenderTests: XCTestCase {
         }
     }
 
+    /// The heading after the mark stays put as a lane goes from one dot to
+    /// two and back.
+    func testALaneMarkIsTwoDotsWideWhateverItShows() {
+        let theme = Theme.tokyoNight
+        func width(front: ShownStatus?, back: ShownStatus?) -> CGFloat {
+            let mark = LaneMark(
+                theme: theme, front: front, back: back, resting: ShownStatus(.blocked), ground: theme.pane, size: M.laneDot
+            )
+            return NSHostingView(rootView: mark).fittingSize.width
+        }
+        let two = width(front: ShownStatus(.blocked), back: ShownStatus(.done))
+        // Fitting sizes round to the pixel grid.
+        XCTAssertEqual(two, M.laneDot * (1 + M.laneMarkOffset), accuracy: 0.5)
+        XCTAssertEqual(width(front: ShownStatus(.blocked), back: nil), two, accuracy: 0.01)
+        XCTAssertEqual(width(front: nil, back: ShownStatus(.done)), two, accuracy: 0.01)
+        XCTAssertEqual(width(front: nil, back: nil), two, accuracy: 0.01)
+    }
+
     // MARK: - rendering
 
     private func render(

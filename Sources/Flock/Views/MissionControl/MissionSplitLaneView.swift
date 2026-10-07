@@ -230,22 +230,28 @@ struct LaneMark: View {
 
     private typealias M = ChromeMetrics.MissionControl
 
+    /// Two dots' width whether one or two show, so the heading after the
+    /// mark never moves as a subgroup fills or empties.
+    static func width(size: CGFloat) -> CGFloat { size + size * ChromeMetrics.MissionControl.laneMarkOffset }
+
     var body: some View {
-        if let front, let back {
-            let offset = size * M.laneMarkOffset
-            let cutout = size * M.laneMarkCutout
-            ZStack(alignment: .leading) {
-                StatusDot(shown: back, theme: theme, size: size)
-                Circle()
-                    .fill(ground)
-                    .frame(width: size + 2 * cutout, height: size + 2 * cutout)
-                    .offset(x: offset - cutout)
-                StatusDot(shown: front, theme: theme, size: size)
-                    .offset(x: offset)
+        Group {
+            if let front, let back {
+                let offset = size * M.laneMarkOffset
+                let cutout = size * M.laneMarkCutout
+                ZStack(alignment: .leading) {
+                    StatusDot(shown: back, theme: theme, size: size)
+                    Circle()
+                        .fill(ground)
+                        .frame(width: size + 2 * cutout, height: size + 2 * cutout)
+                        .offset(x: offset - cutout)
+                    StatusDot(shown: front, theme: theme, size: size)
+                        .offset(x: offset)
+                }
+            } else {
+                StatusDot(shown: front ?? back ?? resting, theme: theme, size: size)
             }
-            .frame(width: size + offset, height: size, alignment: .leading)
-        } else {
-            StatusDot(shown: front ?? back ?? resting, theme: theme, size: size)
         }
+        .frame(width: Self.width(size: size), height: size, alignment: .leading)
     }
 }

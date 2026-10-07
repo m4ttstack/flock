@@ -87,7 +87,7 @@ struct MissionControlView: View {
                 )
             }
             lane(title: "AT REST", count: board.atRestCount) {
-                StatusDot(status: .idle, theme: theme, size: M.laneDot)
+                LaneMark(theme: theme, front: nil, back: nil, resting: ShownStatus(.idle), ground: theme.pane, size: M.laneDot)
             } body: {
                 restScroll {
                     ForEach(board.atRest) { section in
