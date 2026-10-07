@@ -50,29 +50,26 @@ final class PaneTailTests: XCTestCase {
         XCTAssertEqual(tail.lines.last, "20")
     }
 
-    /// What the copy button puts on the pasteboard is what the card shows,
-    /// line for line.
-    func testTheCopiedTextIsTheLinesTheCardShows() {
+    /// What Copy Output puts on the pasteboard is the tail as read, line for
+    /// line.
+    func testTheCopiedTextIsTheLinesAsRead() {
         XCTAssertEqual(PaneTailPolicy.make(from: "one\ntwo\n").text, "one\ntwo")
         XCTAssertEqual(PaneTail(lines: []).text, "")
-        XCTAssertEqual(PaneHoverCardCopy.text(of: PaneTailPolicy.make(from: "one\ntwo\n")), "one\ntwo")
+        XCTAssertEqual(PaneOutputCopy.text(of: PaneTailPolicy.make(from: "one\ntwo\n")), "one\ntwo")
     }
 
-    /// A card with nothing read yet, or a pane with a blank screen, offers no
-    /// copy at all: a control that puts an empty string on the pasteboard is
-    /// worse than no control.
+    /// A pane with nothing read yet, or a blank screen, offers no copy at
+    /// all.
     func testAnEmptyTailOffersNothingToCopy() {
-        XCTAssertNil(PaneHoverCardCopy.text(of: nil))
-        XCTAssertNil(PaneHoverCardCopy.text(of: PaneTail(lines: [])))
-        XCTAssertNil(PaneHoverCardCopy.text(of: PaneTailPolicy.make(from: "\n \n")))
+        XCTAssertNil(PaneOutputCopy.text(of: nil))
+        XCTAssertNil(PaneOutputCopy.text(of: PaneTail(lines: [])))
+        XCTAssertNil(PaneOutputCopy.text(of: PaneTailPolicy.make(from: "\n \n")))
     }
 
-    /// One pane's card is one read a second and no more, and the card's tail
-    /// stays short enough to fit the grid at the window's minimum height.
-    func testTheTailFitsTheGridAndRefreshesSlowly() {
+    /// A tail is a screenful of output, not a scrollback.
+    func testATailKeepsAShortRunOfLines() {
         XCTAssertGreaterThan(PaneTailPolicy.lines, 1)
         XCTAssertLessThanOrEqual(PaneTailPolicy.lines, 20)
-        XCTAssertGreaterThanOrEqual(PaneTailPolicy.refreshInterval, .milliseconds(500))
     }
 
     /// The trim spends rows, so the read has to carry more than the card draws
@@ -284,10 +281,11 @@ final class PaneTailReadTests: XCTestCase {
         throw NeverRead()
     }
 
-    func testTheCardAsksForTheVisibleTailOfTheOnePaneItIsShowing() async throws {
+    func testARefreshAsksForTheVisibleTailOfItsPane() async throws {
         let client = TailReadClient(screen: "one\ntwo\n")
         let viewModel = SessionViewModel(client: client)
-        XCTAssertNil(viewModel.paneTail(for: pane), "nothing is cached, so the first ask is the read")
+        viewModel.refreshPaneTail(for: pane)
+        XCTAssertNil(viewModel.paneTails[pane], "nothing is cached until the read lands")
         let landed = try await tail(viewModel)
         XCTAssertEqual(landed.lines, ["one", "two"])
         let asks = await client.asks
@@ -298,7 +296,7 @@ final class PaneTailReadTests: XCTestCase {
         for answer in [PlainOnlyReadClient.AnsiAnswer.refused, .unreadable] {
             let client = PlainOnlyReadClient(screen: "one\ntwo\n", ansiAnswer: answer)
             let viewModel = SessionViewModel(client: client)
-            _ = viewModel.paneTail(for: pane)
+            viewModel.refreshPaneTail(for: pane)
             let landed = try await tail(viewModel)
             XCTAssertEqual(landed.lines, ["one", "two"], "\(answer)")
             let formats = await client.formats
@@ -306,15 +304,15 @@ final class PaneTailReadTests: XCTestCase {
         }
     }
 
-    /// Every render of the card asks for the tail, and the card's cadence asks
-    /// again on top of that. One read at a time is what keeps that from piling
+    /// A pane drawn twice, in the grid and in a zoom, is asked for by both
+    /// tiles' cadences. One read at a time is what keeps that from piling
     /// requests on a pane that is slow to answer.
     func testAsksWhileAReadIsStillOutAddNoSecondRead() async throws {
         let client = TailReadClient(screen: "x")
         let viewModel = SessionViewModel(client: client)
-        _ = viewModel.paneTail(for: pane)
         viewModel.refreshPaneTail(for: pane)
-        _ = viewModel.paneTail(for: pane)
+        viewModel.refreshPaneTail(for: pane)
+        viewModel.refreshPaneTail(for: pane)
         let landed = try await tail(viewModel)
         XCTAssertEqual(landed.lines, ["x"])
         let asks = await client.asks
@@ -323,11 +321,11 @@ final class PaneTailReadTests: XCTestCase {
 
     /// The cached tail is never the answer to a refresh: a pane that is
     /// printing changes nothing the model reports, so only reading again can
-    /// tell the card anything new.
+    /// tell a tile anything new.
     func testARefreshReadsAgainOnceTheLastReadHasLanded() async throws {
         let client = TailReadClient(screen: "x")
         let viewModel = SessionViewModel(client: client)
-        _ = viewModel.paneTail(for: pane)
+        viewModel.refreshPaneTail(for: pane)
         _ = try await tail(viewModel)
         viewModel.refreshPaneTail(for: pane)
         var asks = await client.asks

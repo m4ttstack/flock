@@ -166,21 +166,25 @@ struct ArrangeZoomControl: View {
     }
 }
 
-/// Space zooms Arrange into the current workspace and back out, before the
-/// window's first responder sees the key: Arrange opens over a terminal that
-/// may still hold it, and a SwiftUI focus request is dropped while it does.
+/// Space zooms Arrange into the current workspace and back out, and Return
+/// opens the selected mini pane, before the window's first responder sees
+/// the key: Arrange opens over a terminal that may still hold it, and a
+/// SwiftUI focus request is dropped while it does.
 struct ArrangeKeyMonitor: NSViewRepresentable {
-    /// Answers whether the key was taken.
+    /// Each answers whether the key was taken.
     let space: () -> Bool
+    let open: () -> Bool
 
     func makeNSView(context: Context) -> MonitorView { MonitorView() }
 
     func updateNSView(_ view: MonitorView, context: Context) {
         view.space = space
+        view.open = open
     }
 
     final class MonitorView: NSView {
         var space: () -> Bool = { false }
+        var open: () -> Bool = { false }
         nonisolated(unsafe) private var monitor: Any?
 
         deinit {
@@ -195,11 +199,31 @@ struct ArrangeKeyMonitor: NSViewRepresentable {
             monitor = nil
             guard let window else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.window === window, Int(event.keyCode) == kVK_Space,
+                guard let self, event.window === window,
                       event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
                 else { return event }
-                return self.space() ? nil : event
+                switch Int(event.keyCode) {
+                case kVK_Space: return self.space() ? nil : event
+                case kVK_Return, kVK_ANSI_KeypadEnter: return self.open() ? nil : event
+                default: return event
+                }
             }
+        }
+    }
+}
+
+/// Opening a pane from Arrange in Workspaces: a double-click on its mini
+/// pane, or Return on the selected one. The tab is selected before the grid
+/// closes, so the window never draws the previously selected tab in between.
+@MainActor
+enum ArrangeOpen {
+    static func open(tab: TabID, pane: PaneID?, viewModel: SessionViewModel, drag: DragCoordinator) {
+        viewModel.forgetWorkspacesFocus()
+        viewModel.select(tab: tab)
+        drag.closeGrid()
+        Task {
+            await viewModel.jumpToHerdr(tab: tab)
+            if let pane { await viewModel.jumpToHerdr(pane: pane) }
         }
     }
 }

@@ -40,7 +40,7 @@ public final class SessionViewModel {
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
-    /// The grid hover card's tails, one per pane it has opened on.
+    /// Arrange's tails, one per pane a tile has read.
     public private(set) var paneTails: [PaneID: PaneTail] = [:]
     /// `BackgroundWork.reason` for each eligible pane whose footer counts
     /// work. Read through `ShownStatus.of`, which ignores an entry once its
@@ -63,7 +63,7 @@ public final class SessionViewModel {
     /// reading it; `lastLines` is what they observe.
     @ObservationIgnored private var lastLineRequests = LastLineRequests()
     /// The panes with a tail read in flight, for the same reason and read the
-    /// same way: `paneTails` is what the card observes.
+    /// same way: `paneTails` is what the tiles observe.
     @ObservationIgnored private var tailReads: Set<PaneID> = []
     @ObservationIgnored private var backgroundWorkPanes: Set<PaneID> = []
     @ObservationIgnored private var backgroundWorkReads: Set<PaneID> = []
@@ -834,28 +834,19 @@ public final class SessionViewModel {
         }
     }
 
-    /// The cached tail for the pane the grid's hover card is showing, reading
-    /// it once when the card first asks. Keyed by pane alone, never by
+    /// Reads `pane`'s tail into `paneTails`. Keyed by pane alone, never by
     /// `revision`: a pane that prints changes nothing herdr reports about
-    /// itself, so a revision-keyed tail would sit there while its pane ran.
-    /// `refreshPaneTail` is what keeps it current for as long as the card is
-    /// up.
-    public func paneTail(for pane: PaneID) -> PaneTail? {
-        if paneTails[pane] == nil {
-            readTail(for: pane)
-        }
-        return paneTails[pane]
-    }
-
-    /// One tick of the open card's own cadence.
+    /// itself, so a revision-keyed tail would sit there while its pane ran,
+    /// and only reading again on a cadence (`TileTailCadence`) keeps it
+    /// current.
     public func refreshPaneTail(for pane: PaneID) {
         readTail(for: pane)
     }
 
     /// One read at a time per pane: a tick that arrives while the last read is
     /// still out leaves it to land rather than adding a second. The answer is
-    /// kept whether or not the card is still open, so re-hovering a pane shows
-    /// its last tail at once and refreshes behind it.
+    /// kept after its tile goes, so a tile drawn again shows its last tail at
+    /// once and refreshes behind it.
     private func readTail(for pane: PaneID) {
         guard tailReads.insert(pane).inserted else { return }
         Task { @MainActor [weak self] in

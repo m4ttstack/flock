@@ -1,6 +1,15 @@
 import Foundation
 import Observation
 
+extension PaneRecord {
+    /// What flock calls a pane wherever it names one: the name the user gave
+    /// it (herdr's label), then the title its program sets, which Claude Code
+    /// keeps rewriting and so must never hide a name.
+    public var displayTitle: String {
+        [label, terminalTitleStripped].compactMap { $0 }.first { !$0.isEmpty } ?? "shell"
+    }
+}
+
 /// Settings > Titles > "One title for a one-pane tab". While it is on, a pane
 /// alone in its tab has no title of its own anywhere flock names it: the
 /// tab's title (`TabTitle`) is the one title, and renaming the pane renames

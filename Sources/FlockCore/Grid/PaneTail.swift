@@ -1,7 +1,7 @@
 import Foundation
 
-/// The tail of a pane's output: what the grid's hover card draws under the
-/// rule, and what its copy button puts on the pasteboard.
+/// The tail of a pane's output: what an Arrange tile draws, and what a mini
+/// pane's Copy Output puts on the pasteboard.
 public struct PaneTail: Equatable, Sendable {
     /// Newest last, as the pane has them on screen, with the pane's styling.
     public let rows: [StyledRow]
@@ -9,8 +9,7 @@ public struct PaneTail: Equatable, Sendable {
     /// `rows` as plain text.
     public var lines: [String] { rows.map(\.text) }
     public var isEmpty: Bool { rows.isEmpty }
-    /// Exactly the lines the card shows, which is what a copy of the card's
-    /// output has to be.
+    /// The lines as read, which is what a copy of the output has to be.
     public var text: String { lines.joined(separator: "\n") }
 
     public init(rows: [StyledRow]) {
@@ -22,25 +21,23 @@ public struct PaneTail: Equatable, Sendable {
     }
 }
 
-/// How much of a pane the hover card reads, how often, and what it keeps.
+/// How much of a pane Arrange reads and what it keeps.
 ///
 /// The grid never attaches a pane, so `pane.read` is the only way it can show
-/// output at all, and every read costs a round trip to herdr. A card opens
-/// only on a click, so only the pane whose card is up is ever read.
+/// output at all, and every read costs a round trip to herdr
+/// (`TileTailCadence` paces them).
 public enum PaneTailPolicy {
-    /// Lines of output the card draws: enough of a build, a test run or an
-    /// agent's last exchange to follow what happened, while at the card's line
-    /// height it still leaves the card shorter than the grid is tall at the
-    /// window's own minimum height, so a long tail can never push the card off
-    /// screen.
+    /// Lines of output a tail keeps: enough of a build, a test run or an
+    /// agent's last exchange to follow what happened, and no more than the
+    /// tallest zoomed tile shows.
     public static let lines = 20
 
-    /// Rows of the pane's visible screen the card asks for, which is more than
-    /// it draws. A pane sitting at an agent's prompt spends its last rows on
-    /// that prompt, and `outputRows` drops them, so a read of exactly what the
-    /// card draws would arrive with a cardful of furniture and nothing under
-    /// it. The gap is wider than the tallest frame the trim will take, so even
-    /// a fully trimmed screen carries a whole card of output. It is also taller
+    /// Rows of the pane's visible screen a read asks for, which is more than
+    /// a tail keeps. A pane sitting at an agent's prompt spends its last rows
+    /// on that prompt, and `outputRows` drops them, so a read of exactly what
+    /// is kept would arrive with furniture and nothing under it. The gap is
+    /// wider than the tallest frame the trim will take, so even a fully
+    /// trimmed screen carries a whole tail of output. It is also taller
     /// than any window's screen: a full-screen TUI draws at the top and leaves
     /// blank rows down to a footer, so a read of the screen's foot would carry
     /// the blanks and the footer and none of the TUI.
@@ -51,18 +48,10 @@ public enum PaneTailPolicy {
     /// A prompt frame is a strip: two rules around a field of a few rows, with
     /// a status line or two beneath. A taller candidate is something else that
     /// happens to be framed, a picker's own results among them, and taking it
-    /// would hide the output the card exists to show.
+    /// would hide the output the tile exists to show.
     public static let inputFrameRows = 12
 
-    /// How often the card re-reads the pane it is showing. A pane whose output
-    /// is moving while the card is up is the case this exists for: nothing
-    /// herdr reports about a pane changes when it prints, so there is no event
-    /// to follow and a cached tail would simply age on screen. One read a
-    /// second is a full second of stale text at worst, against one request per
-    /// second for exactly one pane.
-    public static let refreshInterval: Duration = .milliseconds(1000)
-
-    /// The lines a `pane.read` answer leaves the card showing: trailing blanks
+    /// The lines a `pane.read` answer leaves a tail holding: trailing blanks
     /// dropped (herdr's visible text ends where the screen's last written row
     /// does, but a shell sitting at a fresh prompt still leaves one), leading
     /// blanks dropped so the tail starts at text, per-line trailing spaces cut
@@ -150,5 +139,16 @@ public enum PaneTailPolicy {
             rows.removeFirst()
         }
         return rows
+    }
+}
+
+/// A mini pane's Copy Output: the tail exactly as it was read, so what lands
+/// on the pasteboard is what the tile shows.
+public enum PaneOutputCopy {
+    /// Nil when there is no output to copy: a menu item that puts an empty
+    /// string on the pasteboard is worse than none.
+    public static func text(of tail: PaneTail?) -> String? {
+        guard let tail, !tail.isEmpty else { return nil }
+        return tail.text
     }
 }

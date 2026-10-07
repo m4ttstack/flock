@@ -232,76 +232,63 @@ final class AllWorkspacesGridTests: XCTestCase {
 
     // MARK: - grid state
 
-    func testClosingForgetsTheCard() {
+    func testClosingForgetsTheSelection() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
+        state.select(pane: p1)
         state.close()
         XCTAssertFalse(state.isShown)
-        XCTAssertNil(state.preview)
+        XCTAssertNil(state.selected)
         state.open()
-        XCTAssertNil(state.preview, "a grid opened again starts with no card open")
+        XCTAssertNil(state.selected, "a grid opened again starts with nothing selected")
     }
 
-    // MARK: - preview card
+    // MARK: - selection
 
-    func testAClickOpensThePanesCardAndItStaysOpen() {
+    func testAClickSelectsAPaneAndAnotherMovesTheSelection() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
-        XCTAssertEqual(state.previewCard(dragInFlight: false), p1)
-        state.showPreview(pane: p1)
-        XCTAssertEqual(state.previewCard(dragInFlight: false), p1, "a second click on the same pane leaves it open")
-    }
-
-    func testAClickOnAnotherPaneMovesTheCard() {
-        var state = AllWorkspacesGridState()
-        state.open()
-        state.showPreview(pane: p1)
-        state.showPreview(pane: p2)
-        XCTAssertEqual(state.previewCard(dragInFlight: false), p2)
-    }
-
-    func testDismissingPutsTheCardAwayAndLeavesTheGrid() {
-        var state = AllWorkspacesGridState()
-        state.open()
-        state.showPreview(pane: p1)
-        state.dismissPreview()
-        XCTAssertNil(state.preview)
+        state.select(pane: p1)
+        XCTAssertEqual(state.selected, p1)
+        state.select(pane: p2)
+        XCTAssertEqual(state.selected, p2)
+        state.deselect()
+        XCTAssertNil(state.selected)
         XCTAssertTrue(state.isShown)
     }
 
-    func testNoCardOpensWhileTheGridIsClosed() {
+    func testNothingIsSelectedWhileTheGridIsClosed() {
         var state = AllWorkspacesGridState()
-        state.showPreview(pane: p1)
-        XCTAssertNil(state.preview)
+        state.select(pane: p1)
+        XCTAssertNil(state.selected)
     }
 
-    func testEscPutsTheCardAwayBeforeTheGrid() {
+    func testEscPutsTheSelectionDownBeforeTheGrid() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
+        state.select(pane: p1)
         state.escape()
-        XCTAssertNil(state.preview)
-        XCTAssertTrue(state.isShown, "the first Esc belongs to the card")
+        XCTAssertNil(state.selected)
+        XCTAssertTrue(state.isShown, "the first Esc belongs to the selection")
         state.escape()
         XCTAssertFalse(state.isShown)
     }
 
-    func testTheCardNeverShowsWhileADragIsInFlight() {
+    func testADragBeginningPutsTheSelectionDown() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
-        XCTAssertNil(state.previewCard(dragInFlight: true))
+        state.select(pane: p1)
+        state.dragBegan()
+        XCTAssertNil(state.selected)
+        XCTAssertTrue(state.isShown)
     }
 
-    func testADragBeginningPutsTheCardAway() {
+    func testASelectedPaneThatClosesIsForgotten() {
         var state = AllWorkspacesGridState()
         state.open()
-        state.showPreview(pane: p1)
-        state.dragBegan()
-        XCTAssertNil(state.previewCard(dragInFlight: false))
-        XCTAssertTrue(state.isShown)
+        state.select(pane: p1)
+        state.reconcile(livePanes: [p2])
+        XCTAssertNil(state.selected)
     }
 
     func testADragKeepsOverviewsFocusedPane() {

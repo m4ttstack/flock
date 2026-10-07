@@ -32,24 +32,32 @@ extension DragCoordinator {
         updateGrid { $0.unzoom() }
     }
 
+    func selectGridPane(_ pane: PaneID) {
+        updateGrid { $0.select(pane: pane) }
+    }
+
+    func deselectGridPane() {
+        updateGrid { $0.deselect() }
+    }
+
+    /// The selected mini pane, held back for as long as a ghost is on
+    /// screen, settle included: its outline would mark a pane the drop is
+    /// not about.
+    var gridSelection: PaneID? {
+        activeSubject == nil ? gridSelectedPane : nil
+    }
+}
+
+/// Only `ChromeRenderTests` calls these, from its tests of the preview card
+/// Arrange no longer has. They go when those tests move to the selection.
+extension DragCoordinator {
     func showGridPreview(pane: PaneID) {
-        updateGrid { $0.showPreview(pane: pane) }
+        selectGridPane(pane)
     }
 
-    func dismissGridPreview() {
-        updateGrid { $0.dismissPreview() }
-    }
+    var gridPreviewCard: PaneID? { gridSelection }
 
-    /// The previewed pane's box on screen, in the drag space. Read live rather
-    /// than captured when the card opened: the grid scrolls under a still
-    /// card.
     func gridPaneFrame(of pane: PaneID) -> CGRect? {
         surfaces?.grid?.miniPaneFrame(of: pane)
-    }
-
-    /// Held back for as long as a ghost is on screen, settle included.
-    var gridPreviewCard: PaneID? {
-        guard gridPreview != nil else { return nil }
-        return grid.previewCard(dragInFlight: activeSubject != nil)
     }
 }

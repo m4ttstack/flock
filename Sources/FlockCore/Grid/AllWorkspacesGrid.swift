@@ -125,14 +125,13 @@ public enum GridCardLayout {
     }
 }
 
-/// The grid's own state: whether it covers the window, and which mini pane's
-/// preview card is open.
+/// The grid's own state: whether it covers the window, and which mini pane
+/// Arrange has selected.
 public struct AllWorkspacesGridState: Equatable, Sendable {
     public private(set) var isShown = false
-    /// The pane whose preview card is open. A click opens it and it stays
-    /// until something closes it, so it can be read, scrolled past and copied
-    /// from at leisure.
-    public private(set) var preview: PaneID?
+    /// The mini pane a click selected: outlined, and what Return opens. It
+    /// stays until something else is selected or it is put down.
+    public private(set) var selected: PaneID?
     /// The pane Overview has opened in its focused view. Overview's own
     /// place: it survives the grid closing, Arrange being shown and a drag,
     /// so returning to Overview returns to it. Only going back, or the pane
@@ -164,19 +163,21 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
     }
 
     /// A focused pane that herdr no longer reports leaves the view on
-    /// Overview rather than on an empty canvas.
+    /// Overview rather than on an empty canvas, and a selected one leaves
+    /// nothing for Return to open.
     public mutating func reconcile(livePanes: Set<PaneID>) {
         if let focused, !livePanes.contains(focused) { self.focused = nil }
+        if let selected, !livePanes.contains(selected) { self.selected = nil }
     }
 
     public mutating func open() {
         isShown = true
     }
 
-    /// A grid opened again starts with no card open.
+    /// A grid opened again starts with nothing selected.
     public mutating func close() {
         isShown = false
-        preview = nil
+        selected = nil
         zoomed = nil
     }
 
@@ -188,23 +189,21 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         }
     }
 
-    /// A click on another pane moves the card to it; a click on the pane
-    /// already shown leaves it open.
-    public mutating func showPreview(pane: PaneID) {
+    public mutating func select(pane: PaneID) {
         guard isShown else { return }
-        preview = pane
+        selected = pane
     }
 
-    public mutating func dismissPreview() {
-        preview = nil
+    public mutating func deselect() {
+        selected = nil
     }
 
-    /// Esc takes the card down first, then a zoom, and the grid only once
+    /// Esc puts a selection down first, then a zoom, and the grid only once
     /// neither is up, so each Esc undoes one step and never throws away the
     /// grid behind it.
     public mutating func escape() {
-        if preview != nil {
-            preview = nil
+        if selected != nil {
+            selected = nil
         } else if zoomed != nil {
             zoomed = nil
         } else {
@@ -212,15 +211,9 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         }
     }
 
-    /// A drag carries the pointer away from whatever the card was about.
+    /// A drag carries the pointer away from whatever was selected.
     public mutating func dragBegan() {
-        preview = nil
-    }
-
-    /// Never while a drag is in flight, when the card would cover the
-    /// thumbnails the drop is aimed at.
-    public func previewCard(dragInFlight: Bool) -> PaneID? {
-        dragInFlight ? nil : preview
+        selected = nil
     }
 }
 

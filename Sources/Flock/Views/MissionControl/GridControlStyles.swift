@@ -140,10 +140,10 @@ enum ThumbnailPart: Equatable {
         tab.isHovering || tab.isPressed ? theme.textDim : .clear
     }
 
-    /// A mini pane's outline. Previewed and blocked keep theirs; hover
-    /// draws one only where neither already does.
-    static func paneOutline(theme: Theme, status: AgentStatus, isPreviewed: Bool, pane: ControlInteraction) -> Color {
-        if isPreviewed { return theme.accent }
+    /// A mini pane's outline. Selected and blocked keep theirs; hover draws
+    /// one only where neither already does.
+    static func paneOutline(theme: Theme, status: AgentStatus, isSelected: Bool, pane: ControlInteraction) -> Color {
+        if isSelected { return theme.accent }
         if status == .blocked { return theme.red }
         return pane.isHovering || pane.isPressed ? theme.textDim : .clear
     }

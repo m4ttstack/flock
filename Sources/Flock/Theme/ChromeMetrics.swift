@@ -948,52 +948,6 @@ enum ChromeMetrics {
         static let labelStatusDot: CGFloat = 6
     }
 
-    enum HoverCard {
-        /// Wide enough for about 75 columns of the tail's own face, so most
-        /// terminal lines read whole rather than clipped, and narrow enough to
-        /// sit beside a pane in the narrowest grid the app allows.
-        static let width: CGFloat = 560
-        static let verticalPadding: CGFloat = 10
-        static let horizontalPadding: CGFloat = 13
-        static let spacing: CGFloat = 5
-        static let cornerRadius: CGFloat = 4
-        static let titleSpacing: CGFloat = 6
-        static let statusDot: CGFloat = 6
-        /// Between the pane and the card beside it: wide enough to read as
-        /// two things.
-        static let paneGap: CGFloat = 8
-        /// About twenty lines of the tail's face, so a full tail of short
-        /// lines never scrolls and the card stays shorter than the grid at the
-        /// window's minimum height.
-        static let tailMaxHeight: CGFloat = 300
-        static let barHeight: CGFloat = 30
-        static let barSpacing: CGFloat = 6
-        /// Tighter than the leading edge: the controls carry their own hover
-        /// padding, so their glyphs still line up with the body's text inset.
-        static let barTrailingPadding: CGFloat = 6
-        static let barControlRestOpacity: Double = 0.75
-        static let shadowOpacity: Double = 0.35
-        static let shadowRadius: CGFloat = 18
-        static let shadowY: CGFloat = 10
-        /// Far lighter than a modal's backdrop: the grid behind stays readable
-        /// and clickable, it only stops competing with the card.
-        static let darkScrimOpacity: Double = 0.14
-        static let lightScrimOpacity: Double = 0.08
-        static let openScale: CGFloat = 0.96
-        static let openDuration: Double = 0.16
-        /// The tail's lines sit at the terminal's own rhythm, tighter than the
-        /// card's rows, so a screenful reads as one block of output.
-        static let tailLineSpacing: CGFloat = 1
-        static let copySpacing: CGFloat = 4
-        static let copyHorizontalPadding: CGFloat = 6
-        static let copyVerticalPadding: CGFloat = 3
-        static let copyCornerRadius: CGFloat = 3
-        /// Where placement starts before the card has measured itself once:
-        /// a card with a full tail, since that is what nearly every card
-        /// settles at.
-        static let estimatedHeight: CGFloat = 420
-    }
-
     enum Ghost {
         static let padding: CGFloat = 10
         static let spacing: CGFloat = 8

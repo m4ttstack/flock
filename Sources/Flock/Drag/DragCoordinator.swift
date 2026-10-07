@@ -326,7 +326,7 @@ final class DragCoordinator {
     /// The All Workspaces grid, written only through `updateGrid`.
     @ObservationIgnored private(set) var grid = AllWorkspacesGridState()
     private(set) var isGridShown = false
-    private(set) var gridPreview: PaneID?
+    private(set) var gridSelectedPane: PaneID?
     private(set) var gridFocusedPane: PaneID?
     private(set) var gridZoomed: WorkspaceID?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
@@ -1305,8 +1305,8 @@ final class DragCoordinator {
             isGridShown = grid.isShown
         }
         stripOrder.isGridShown = grid.isShown
-        if gridPreview != grid.preview {
-            gridPreview = grid.preview
+        if gridSelectedPane != grid.selected {
+            gridSelectedPane = grid.selected
         }
         if gridFocusedPane != grid.focused {
             gridFocusedPane = grid.focused
