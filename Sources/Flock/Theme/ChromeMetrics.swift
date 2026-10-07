@@ -892,6 +892,7 @@ enum ChromeMetrics {
         static let focusedMark: CGFloat = 14
         /// Between the focused header's back button, place, title and state.
         static let focusedGroupSpacing: CGFloat = 14
+        static let focusedSlashOpacity: Double = 0.7
         /// Around the islands. `IslandLayout.fit` is handed the viewport
         /// less this on each side.
         static let canvasPadding: CGFloat = 28

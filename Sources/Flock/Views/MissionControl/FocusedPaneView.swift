@@ -175,7 +175,7 @@ struct FocusedBackButton: View {
 }
 
 /// Where the focused pane lives and what it is doing: the workspace's mark and
-/// name, the pane's title, and its state in the status colour.
+/// name, a slash, the pane's title, and its state in the status colour.
 struct FocusedPlace: View {
     let theme: Theme
     let card: MissionCard
@@ -189,14 +189,15 @@ struct FocusedPlace: View {
             HStack(spacing: G.headerSpacing) {
                 WorkspaceMark(theme: theme, key: markKey, size: G.focusedMark)
                 Text(card.workspaceName).foregroundStyle(theme.textDim).fixedSize()
-            }
-            HStack(spacing: 6) {
-                Text(card.title).foregroundStyle(theme.textStrong)
-                if let detail = card.detail {
-                    Text(detail).foregroundStyle(theme.textDim)
+                Text("/").foregroundStyle(theme.textLabel.opacity(G.focusedSlashOpacity)).fixedSize()
+                HStack(spacing: 6) {
+                    Text(card.title).foregroundStyle(theme.textStrong)
+                    if let detail = card.detail {
+                        Text(detail).foregroundStyle(theme.textDim)
+                    }
                 }
+                .truncationMode(.middle)
             }
-            .truncationMode(.middle)
             Text(card.stateText(at: now))
                 .font(ChromeType.missionCardMono)
                 .foregroundStyle(theme.agentStatusMarkColor(card.status))
