@@ -245,7 +245,11 @@ struct FlockApp: App {
                 }
             },
             // Repo and branch are read again each time the view opens.
-            gridOpened: { viewModel.repoBranches.invalidate() },
+            gridOpened: {
+                viewModel.repoBranches.invalidate()
+                viewModel.isMainCanvasCovered = true
+            },
+            gridClosed: { viewModel.isMainCanvasCovered = false },
             gridHoldsEscape: { viewModel.renameTarget != nil || viewModel.paneShownInOverview != nil }
         ))
         let dividerDragSession = DividerDragSession(

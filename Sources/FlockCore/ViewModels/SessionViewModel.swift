@@ -429,8 +429,8 @@ public final class SessionViewModel {
         attentionToasts.dismiss(pane: pane)
     }
 
-    /// Overview's focused view: the card is dismissed as a jump would, but
-    /// herdr's focus stays where the main window left it.
+    /// Overview's focused view: the card is dismissed as a jump would. herdr's
+    /// focus follows once the view shows the pane (`paneShownInOverview`).
     @discardableResult
     public func focusInOverview(pane: PaneID) -> Bool {
         guard model?.panes[pane] != nil else { return false }
@@ -440,14 +440,96 @@ public final class SessionViewModel {
 
     /// The pane Overview's focused view is showing. Watched there as the
     /// main window's focused pane is watched, so it raises no card.
-    public var paneShownInOverview: PaneID?
+    ///
+    /// Showing it focuses it in herdr, since herdr clears `done` only for a
+    /// pane it has focused. Only while the main canvas is covered, where the
+    /// move draws nothing.
+    public var paneShownInOverview: PaneID? {
+        didSet {
+            guard let pane = paneShownInOverview, pane != oldValue, isMainCanvasCovered,
+                  let record = model?.panes[pane]
+            else { return }
+            overviewMovedFocus = true
+            queueHerdrFocus(tab: record.tabID, pane: pane)
+        }
+    }
 
     /// Set while Overview or Arrange covers the main window's canvas. Its
     /// focused pane is only watched while the canvas is on screen, so opening
     /// the grid raises the card that pane held back.
+    ///
+    /// Covering records herdr's focused pane; uncovering gives it back if
+    /// Overview moved herdr's focus meanwhile. Set synchronously with the
+    /// grid's own flip, so the canvas's first frame already selects that
+    /// pane's tab.
     public var isMainCanvasCovered = false {
         didSet {
-            if isMainCanvasCovered, !oldValue { raiseHeldBackFocusedCard() }
+            guard isMainCanvasCovered != oldValue else { return }
+            if isMainCanvasCovered {
+                workspacesFocus = resolvedFocusedPaneID
+                overviewMovedFocus = false
+                raiseHeldBackFocusedCard()
+            } else {
+                giveBackWorkspacesFocus()
+            }
+        }
+    }
+
+    /// herdr's focused pane when the main canvas was last covered.
+    @ObservationIgnored private var workspacesFocus: PaneID?
+    @ObservationIgnored private var overviewMovedFocus = false
+    /// The pane being given back, until its `pane.focus` is sent.
+    @ObservationIgnored private var restoringFocus: PaneID?
+    /// Overview's focus moves and the give-back, one after another, so the
+    /// give-back always lands last.
+    @ObservationIgnored private(set) var herdrFocusQueue: Task<Void, Never>?
+    @ObservationIgnored private var herdrFocusGeneration = 0
+
+    /// For a route that leaves the grid for a pane of its own choosing: the
+    /// canvas lands there instead of on the pane it was left on. Called
+    /// before the grid closes, since closing gives the focus back at once.
+    public func forgetWorkspacesFocus() {
+        workspacesFocus = nil
+        overviewMovedFocus = false
+        herdrFocusGeneration += 1
+        if let restoringFocus, optimisticFocusedPaneID == restoringFocus {
+            optimisticFocusedPaneID = nil
+        }
+        restoringFocus = nil
+    }
+
+    /// A recorded pane herdr no longer reports leaves the focus where
+    /// Overview put it.
+    private func giveBackWorkspacesFocus() {
+        let pane = workspacesFocus
+        let moved = overviewMovedFocus
+        workspacesFocus = nil
+        overviewMovedFocus = false
+        guard moved, let pane, let record = model?.panes[pane] else { return }
+        select(tab: record.tabID)
+        optimisticFocusedPaneID = pane
+        restoringFocus = pane
+        queueHerdrFocus(tab: record.tabID, pane: pane)
+    }
+
+    /// Sends no selection of its own: herdr's echo moves it, and the
+    /// give-back has already set it.
+    private func queueHerdrFocus(tab: TabID, pane: PaneID) {
+        let previous = herdrFocusQueue
+        let generation = herdrFocusGeneration
+        herdrFocusQueue = Task { [weak self] in
+            await previous?.value
+            guard let self, self.herdrFocusGeneration == generation else { return }
+            await self.send("tab.focus", ["tab_id": .string(tab.rawValue)])
+            guard self.herdrFocusGeneration == generation else { return }
+            do {
+                _ = try await self.client.requestRaw("pane.focus", ["pane_id": .string(pane.rawValue)])
+            } catch {
+                if self.optimisticFocusedPaneID == pane, self.restoringFocus == pane {
+                    self.optimisticFocusedPaneID = nil
+                }
+            }
+            if self.restoringFocus == pane { self.restoringFocus = nil }
         }
     }
 
@@ -671,12 +753,16 @@ public final class SessionViewModel {
         await jumpToHerdr(pane: record.paneID)
     }
 
+    /// Every `jumpToHerdr` is a place the person chose, so each ends any
+    /// give-back of the focus Workspaces was left with.
     public func jumpToHerdr(workspace id: WorkspaceID) async {
+        forgetWorkspacesFocus()
         select(workspace: id)
         await send("workspace.focus", ["workspace_id": .string(id.rawValue)])
     }
 
     public func jumpToHerdr(tab id: TabID) async {
+        forgetWorkspacesFocus()
         select(tab: id)
         await send("tab.focus", ["tab_id": .string(id.rawValue)])
     }
@@ -688,6 +774,7 @@ public final class SessionViewModel {
     /// the model's truth -- but only if a later click hasn't already
     /// superseded it (the `== id` guard).
     public func jumpToHerdr(pane id: PaneID) async {
+        forgetWorkspacesFocus()
         optimisticFocusedPaneID = id
         do {
             _ = try await client.requestRaw("pane.focus", ["pane_id": .string(id.rawValue)])

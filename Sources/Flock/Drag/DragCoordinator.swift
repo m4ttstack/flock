@@ -326,6 +326,8 @@ final class DragCoordinator {
     @ObservationIgnored private let reveal: @MainActor (DropTarget) -> Void
     /// Run as the grid opens, before any frame of it draws.
     @ObservationIgnored private let gridOpened: @MainActor () -> Void
+    /// Run as the grid closes, before any frame of the canvas under it draws.
+    @ObservationIgnored private let gridClosed: @MainActor () -> Void
     /// Something inside the grid owns Esc: a rename field (its cancel) or the
     /// focused view's live terminal while it is on screen.
     @ObservationIgnored private let gridHoldsEscape: @MainActor () -> Bool
@@ -336,12 +338,14 @@ final class DragCoordinator {
         commit: @escaping DragCommit,
         reveal: @escaping @MainActor (DropTarget) -> Void,
         gridOpened: @escaping @MainActor () -> Void = {},
+        gridClosed: @escaping @MainActor () -> Void = {},
         gridHoldsEscape: @escaping @MainActor () -> Bool = { false }
     ) {
         self.toasts = toasts
         self.rearrangeMode = rearrangeMode
         self.reveal = reveal
         self.gridOpened = gridOpened
+        self.gridClosed = gridClosed
         self.gridHoldsEscape = gridHoldsEscape
         let outcomes = self.outcomes
         let stripOrder = self.stripOrder
@@ -1269,7 +1273,7 @@ final class DragCoordinator {
             pendingReveal = nil
         }
         if isGridShown != grid.isShown {
-            if grid.isShown { gridOpened() }
+            if grid.isShown { gridOpened() } else { gridClosed() }
             isGridShown = grid.isShown
         }
         stripOrder.isGridShown = grid.isShown

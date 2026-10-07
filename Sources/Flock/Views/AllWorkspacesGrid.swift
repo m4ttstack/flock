@@ -586,6 +586,7 @@ private struct TabThumbnail: View {
     /// was named. Selected before the grid closes, so the window never draws
     /// the previously selected tab in between.
     private func show(pane: PaneID? = nil) {
+        viewModel.forgetWorkspacesFocus()
         viewModel.select(tab: tab.tabID)
         drag.closeGrid()
         Task {
@@ -1060,6 +1061,7 @@ private struct GridPreviewCard: View {
     }
 
     private func openPane(_ pane: PaneID, tab: TabID) {
+        viewModel.forgetWorkspacesFocus()
         viewModel.select(tab: tab)
         drag.closeGrid()
         Task {
