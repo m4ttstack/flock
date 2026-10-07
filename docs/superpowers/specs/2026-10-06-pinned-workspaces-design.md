@@ -44,7 +44,8 @@ order. Each pin has:
 - `folder`: the home folder a reopen starts in.
 - `workspace`: the herdr workspace id it is linked to, nil when empty.
 
-Unreadable stored data loads as no pins, never a crash.
+Unreadable stored data, or data from a newer version, loads as no pins, never
+a crash, and stays stored until the person changes the pins.
 
 ### Pinning and unpinning
 
@@ -116,7 +117,8 @@ mark resolves it through the pin.
 - A live pinned workspace's row is a normal row (status dot, symbol, name,
   pane count) and appears under PINNED only.
 - An empty pin's row: a blank where the status dot sits, the symbol and name in
-  `textLabel`, no count. Clicking reopens and selects it; a double click
+  `textLabel` a step dimmer (`ChromeMetrics.WorkspaceRow.emptyPinOpacity`),
+  no count. The workspace switcher draws an empty pin's row the same way. Clicking reopens and selects it; a double click
   renames.
 - Dragging within PINNED reorders pins; that order is flock's. Reordering
   under WORKSPACES moves herdr's order, with target positions computed over
@@ -125,9 +127,11 @@ mark resolves it through the pin.
 
 ## Other views
 
-- Anything that follows rail order (Arrange's islands, the workspace switcher,
-  and any shortcut that steps through workspaces) takes PINNED first, then
-  WORKSPACES.
+- Anything that follows rail order (Arrange's islands and any shortcut that
+  steps through workspaces) takes PINNED first, then WORKSPACES.
+- The workspace switcher stays most recent first: a pinned workspace used
+  recently sorts by recency, and empty and unused pins sit after the recents,
+  ahead of workspaces never used.
 - The workspace switcher lists empty pins; choosing one reopens it.
 - Overview: no change but the menu. An empty pin has no panes, so no group.
 - Arrange: an empty pin has no island.
