@@ -765,11 +765,23 @@ private struct TabThumbnail: View {
         TabHandleStrip(
             theme: theme, title: tabTitle, status: tab.agentStatus, isBackground: viewModel.shownStatus(of: tab).isBackground,
             isFocusedTab: tab.tabID == viewModel.model?.focusedTabID,
-            interaction: interaction(of: .tab)
+            interaction: interaction(of: .tab),
+            isActive: isActiveTab
         )
         .onHover { hovering in
             GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
         }
+    }
+
+    /// The selected pane's tab when the selection is in this workspace,
+    /// else the tab herdr has active in it. Off while a drag is live, when
+    /// the drop wash is the only thing a thumbnail shows.
+    private var isActiveTab: Bool {
+        guard drag.activeSubject == nil, let model = viewModel.model else { return false }
+        if let selected = drag.gridSelection.flatMap({ model.panes[$0] }), selected.workspaceID == tab.workspaceID {
+            return selected.tabID == tab.tabID
+        }
+        return model.workspaces.first { $0.workspaceID == tab.workspaceID }?.activeTabID == tab.tabID
     }
 
     /// Which part a press began on. Paired with each drag at that drag's
@@ -1010,8 +1022,9 @@ private struct TabThumbnail: View {
 
 /// A tab's handle: the top of its thumbnail carrying the title and status
 /// dot. Shared with the drag proxy, which draws a whole tab as a miniature of
-/// its own thumbnail and has to use the same roles. No fill; the tab you came
-/// from is underlined as the tab strip underlines a selected tab.
+/// its own thumbnail and has to use the same roles. No fill of its own: its
+/// state is a wash over it (`GridStateWash`), and the tab you came from is
+/// underlined as the tab strip underlines a selected tab.
 struct TabHandleStrip: View {
     let theme: Theme
     let title: String
@@ -1019,6 +1032,8 @@ struct TabHandleStrip: View {
     var isBackground = false
     let isFocusedTab: Bool
     var interaction: ControlInteraction = .rest
+    /// The tab Arrange treats as current in its workspace.
+    var isActive = false
 
     var body: some View {
         let appearance = GridControlAppearance.resolve(
@@ -1036,9 +1051,7 @@ struct TabHandleStrip: View {
         .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: ChromeMetrics.Grid.tabStripHeight)
-        .background(
-            GridControlGround(theme: theme, shape: AnyShape(Rectangle()), restFill: .clear, appearance: appearance)
-        )
+        .overlay(GridStateWash(theme: theme, shape: AnyShape(Rectangle()), interaction: interaction, isActive: isActive))
         .overlay(alignment: .bottom) {
             if isFocusedTab {
                 Rectangle().fill(theme.accent).frame(height: ChromeMetrics.Grid.currentTabUnderline).allowsHitTesting(false)
@@ -1092,11 +1105,12 @@ struct MiniPane: View {
         .background {
             if let wash = statusWash { wash.opacity(ChromeMetrics.Grid.statusWashOpacity) }
         }
-        // The terminal's own ground, held through hover and press: a screen
-        // read draws on what the pane itself draws on, and an app's painted
-        // background must keep blending into it. The ring marks hover.
+        // The terminal's own ground in every state: a screen read draws on
+        // what the pane itself draws on, and an app's painted background
+        // must keep blending into it. State is a wash over the whole tile.
         .background(theme.pane, in: shape)
         .clipShape(shape)
+        .overlay(GridStateWash(theme: theme, shape: AnyShape(shape), interaction: interaction, isActive: isSelected))
         .overlay(
             shape.strokeBorder(
                 ThumbnailPart.paneOutline(theme: theme, status: status, isSelected: isSelected, pane: interaction),

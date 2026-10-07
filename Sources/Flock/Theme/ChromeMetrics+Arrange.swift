@@ -6,6 +6,12 @@ extension ChromeMetrics.Grid {
     /// enough to find it across the canvas without competing with its text.
     static let statusWashOpacity: Double = 0.10
 
+    /// A thumbnail part's state, washed over its whole face: hover takes the
+    /// chrome's one hover wash (`HoverWash.opacity`), a press a stronger coat
+    /// of the same, and the active part a coat of accent under either.
+    static let pressWashOpacity: Double = 0.16
+    static let activeWashOpacity: Double = 0.16
+
     /// Inside a mini pane that draws its tail: tighter than the status
     /// layout's padding, so a small box spends its height on lines.
     static let tileLeadingPadding: CGFloat = 8

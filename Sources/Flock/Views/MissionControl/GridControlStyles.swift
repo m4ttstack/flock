@@ -51,6 +51,29 @@ struct GridControlGround: View {
     }
 }
 
+/// An Arrange thumbnail part's state as washes laid OVER its whole face,
+/// content included, so the ground under it never changes colour and an
+/// app's painted background stays flush with it in every state.
+struct GridStateWash: View {
+    let theme: Theme
+    let shape: AnyShape
+    let interaction: ControlInteraction
+    var isActive = false
+
+    var body: some View {
+        ZStack {
+            shape.fill(theme.accent).opacity(isActive ? ChromeMetrics.Grid.activeWashOpacity : 0)
+            shape.fill(theme.text).opacity(Self.liftOpacity(interaction))
+        }
+        .allowsHitTesting(false)
+    }
+
+    static func liftOpacity(_ interaction: ControlInteraction) -> Double {
+        if interaction.isPressed { return ChromeMetrics.Grid.pressWashOpacity }
+        return interaction.isHovering ? ChromeMetrics.HoverWash.opacity : 0
+    }
+}
+
 /// A label on a `GridControlGround`. The hover fade is driven by the view that
 /// owns `isHovering`; only the press animates here.
 struct GridControlStyle: ButtonStyle {
