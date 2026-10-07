@@ -356,10 +356,17 @@ public final class SessionViewModel {
             for paneID in model.panes.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
                 guard let pane = model.panes[paneID],
                       let was = previous.panes[paneID]?.agentStatus,
-                      let kind = AttentionToastStack.kind(from: was, to: pane.agentStatus),
-                      paneID != watchedFocusedPaneID, paneID != paneShownInOverview,
+                      was != pane.agentStatus
+                else { continue }
+                shownCardsHeldBack.remove(paneID)
+                guard let kind = AttentionToastStack.kind(from: was, to: pane.agentStatus),
                       !HerdWorkspace.isHerdPane(pane, in: model)
                 else { continue }
+                if paneID == paneShownInOverview {
+                    shownCardsHeldBack.insert(paneID)
+                    continue
+                }
+                guard paneID != watchedFocusedPaneID else { continue }
                 attentionToasts.raise(AttentionToast.make(kind: kind, pane: pane, model: model, raisedAt: raisedAt, oneTitle: oneTitle))
             }
         }
@@ -446,11 +453,12 @@ public final class SessionViewModel {
     /// move draws nothing.
     ///
     /// Leaving a pane raises the card it held back while it was shown, so a
-    /// pane that blocked while being watched still lands in Needs you.
+    /// pane that blocked while being watched still lands in Needs you. A card
+    /// dismissed by opening the pane stays dismissed.
     public var paneShownInOverview: PaneID? {
         didSet {
             guard paneShownInOverview != oldValue else { return }
-            if let left = oldValue { raiseHeldBackCard(for: left) }
+            if let left = oldValue, shownCardsHeldBack.remove(left) != nil { raiseHeldBackCard(for: left) }
             guard let pane = paneShownInOverview, isMainCanvasCovered, let record = model?.panes[pane] else { return }
             overviewMovedFocus = true
             queueHerdrFocus(tab: record.tabID, pane: pane)
@@ -480,6 +488,9 @@ public final class SessionViewModel {
 
     /// herdr's focused pane when the main canvas was last covered.
     @ObservationIgnored private var workspacesFocus: PaneID?
+    /// Panes that blocked or finished while shown in Overview, until left or
+    /// until their status moves on.
+    @ObservationIgnored private var shownCardsHeldBack: Set<PaneID> = []
     @ObservationIgnored private var overviewMovedFocus = false
     /// The pane being given back, until its `pane.focus` is sent.
     @ObservationIgnored private var restoringFocus: PaneID?
