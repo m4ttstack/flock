@@ -6,6 +6,16 @@ private actor QuietClient: HerdrCommandClient {
 }
 
 @MainActor
+private final class RecordingExecutor: PlanExecuting {
+    private(set) var plans: [OpPlan] = []
+
+    func execute(_ plan: OpPlan) async -> Result<ExecutedPlan, OpFailure> {
+        plans.append(plan)
+        return .success(ExecutedPlan(plan: plan, inverse: OpPlan(ops: [], label: "Undo")))
+    }
+}
+
+@MainActor
 final class SessionViewModelPinTests: XCTestCase {
     private func model(_ workspaces: [(id: String, label: String)]) -> SessionModel {
         SessionModel(snapshot: SessionSnapshot(
@@ -30,9 +40,9 @@ final class SessionViewModelPinTests: XCTestCase {
         ))
     }
 
-    private func viewModel(notices: @escaping @MainActor (String) -> Void = { _ in }) -> (SessionViewModel, WorkspaceIdentityStore) {
+    private func viewModel(executor: (any PlanExecuting)? = nil, notices: @escaping @MainActor (String) -> Void = { _ in }) -> (SessionViewModel, WorkspaceIdentityStore) {
         let identity = WorkspaceIdentityStore(userDefaults: UserDefaults(suiteName: "flock-pin-vm-\(UUID().uuidString)")!)
-        let viewModel = SessionViewModel(client: QuietClient(), noticeSink: notices, identity: identity)
+        let viewModel = SessionViewModel(client: QuietClient(), planExecutor: executor, noticeSink: notices, identity: identity)
         return (viewModel, identity)
     }
 
@@ -118,9 +128,8 @@ final class SessionViewModelPinTests: XCTestCase {
         XCTAssertEqual(notices, ["A pinned workspace is already called \"ACME\"."])
     }
 
-
     func testDroppingAWorkspaceOnPinnedPinsItAndAPinOnWorkspacesUnpinsIt() async {
-        let (viewModel, _) = viewModel()
+        let (viewModel, _) = viewModel(executor: RecordingExecutor())
         viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
         _ = await viewModel.perform(subject: .workspace(WorkspaceID(rawValue: "w2")), target: .pinnedRail(insertIndex: 0))
         XCTAssertEqual(viewModel.pins.pins.map(\.name), ["web"])
@@ -145,5 +154,43 @@ final class SessionViewModelPinTests: XCTestCase {
         let outcome = await viewModel.perform(subject: .pin(viewModel.pins.pins[0].id), target: .workspaceRail(insertIndex: 0))
         XCTAssertEqual(outcome, .noOp)
         XCTAssertEqual(viewModel.pins.pins.count, 1)
+    }
+
+    func testAPinDroppedAmongWorkspacesIsPlannedAgainstTheRailThatWasDrawn() async {
+        let executor = RecordingExecutor()
+        let (viewModel, _) = viewModel(executor: executor)
+        viewModel.update(model: model([("a", "a"), ("w", "w"), ("b", "b"), ("c", "c")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w"))
+        let outcome = await viewModel.perform(subject: .pin(viewModel.pins.pins[0].id), target: .workspaceRail(insertIndex: 2))
+        XCTAssertEqual(outcome, .committed)
+        XCTAssertEqual(executor.plans.first?.ops, [.moveWorkspace(WorkspaceID(rawValue: "w"), insertIndex: 3)])
+        XCTAssertEqual(viewModel.pins.pins, [])
+    }
+
+    func testAPinStaysWhenItsMoveInHerdrIsNotAttempted() async {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("a", "a"), ("w", "w")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w"))
+        let outcome = await viewModel.perform(subject: .pin(viewModel.pins.pins[0].id), target: .workspaceRail(insertIndex: 0))
+        XCTAssertEqual(outcome, .notAttempted)
+        XCTAssertEqual(viewModel.pins.pins.count, 1)
+    }
+
+    func testABlockDropAdvancesOnlyOverPinsThatLanded() async {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("a", "a"), ("b", "b"), ("c", "c")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "b"))
+        let ids = ["a", "b", "c"].map(WorkspaceID.init(rawValue:))
+        let outcome = await viewModel.perform(subject: .workspaces(ids), target: .pinnedRail(insertIndex: 0))
+        XCTAssertEqual(outcome, .committed)
+        XCTAssertEqual(viewModel.pins.pins.map(\.name), ["a", "b", "c"])
+    }
+
+    func testAPinDropThatChangesNothingIsANoOp() async {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("a", "a")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "a"))
+        let outcome = await viewModel.perform(subject: .pin(viewModel.pins.pins[0].id), target: .pinnedRail(insertIndex: 0))
+        XCTAssertEqual(outcome, .noOp)
     }
 }

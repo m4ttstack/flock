@@ -1322,11 +1322,19 @@ public final class SessionViewModel {
     @discardableResult
     public func perform(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames? = nil) async -> DragOutcome {
         if let outcome = await performPinDrop(subject: subject, target: target, board: board) { return outcome }
+        return await performPlanned(subject: subject, target: target, board: board, pinned: nil)
+    }
+
+    /// `pinned` nil reads the live pins at plan time; a caller that is about to
+    /// change them passes the set the rail was drawn with.
+    private func performPlanned(
+        subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames?, pinned: Set<WorkspaceID>?
+    ) async -> DragOutcome {
         guard planExecutor != nil else { return .notAttempted }
         guard let undoJournal else {
             guard let model = fullModel, let planExecutor else { return .notAttempted }
             return await Self.perform(
-                subject: subject, target: target, model: model, board: board, pinned: pinnedWorkspaces, executor: planExecutor, notify: noticeSink,
+                subject: subject, target: target, model: model, board: board, pinned: pinned ?? pinnedWorkspaces, executor: planExecutor, notify: noticeSink,
                 record: { _ in }, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
@@ -1339,7 +1347,7 @@ public final class SessionViewModel {
         await undoJournal.runExclusively { [weak self] in
             guard let self, let model = self.fullModel, let planExecutor = self.planExecutor else { return }
             outcome = await Self.perform(
-                subject: subject, target: target, model: model, board: board, pinned: self.pinnedWorkspaces, executor: planExecutor, notify: self.noticeSink,
+                subject: subject, target: target, model: model, board: board, pinned: pinned ?? self.pinnedWorkspaces, executor: planExecutor, notify: self.noticeSink,
                 record: undoJournal.record, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
@@ -1353,18 +1361,43 @@ public final class SessionViewModel {
     private func performPinDrop(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames?) async -> DragOutcome? {
         switch (subject, target) {
         case let (.workspace(workspace), .pinnedRail(index)):
-            if let pinned = pins.pin(linkedTo: workspace) { movePin(pinned.id, toInsertIndex: index) } else { pin(workspace: workspace, at: index) }
-            return .committed
+            if let existing = pins.pin(linkedTo: workspace) {
+                let before = pins.pins.map(\.id)
+                movePin(existing.id, toInsertIndex: index)
+                return pins.pins.map(\.id) == before ? .noOp : .committed
+            }
+            pin(workspace: workspace, at: index)
+            return pins.pin(linkedTo: workspace) == nil ? .noOp : .committed
         case let (.workspaces(block), .pinnedRail(index)):
-            for (offset, workspace) in block.enumerated() { pin(workspace: workspace, at: index + offset) }
-            return .committed
+            var position = index
+            var changed = false
+            for workspace in block {
+                if let existing = pins.pin(linkedTo: workspace) {
+                    let before = pins.pins.map(\.id)
+                    movePin(existing.id, toInsertIndex: position)
+                    changed = changed || pins.pins.map(\.id) != before
+                    position += 1
+                } else {
+                    pin(workspace: workspace, at: position)
+                    if pins.pin(linkedTo: workspace) != nil {
+                        changed = true
+                        position += 1
+                    }
+                }
+            }
+            return changed ? .committed : .noOp
         case let (.pin(id), .pinnedRail(index)):
+            let before = pins.pins.map(\.id)
             movePin(id, toInsertIndex: index)
-            return .committed
+            return pins.pins.map(\.id) == before ? .noOp : .committed
         case let (.pin(id), .workspaceRail(index)):
             guard let workspace = pins.pin(id)?.workspace else { return .noOp }
-            unpin(id)
-            return await perform(subject: .workspace(workspace), target: .workspaceRail(insertIndex: index), board: board)
+            let outcome = await performPlanned(
+                subject: .workspace(workspace), target: .workspaceRail(insertIndex: index), board: board,
+                pinned: pinnedWorkspaces
+            )
+            if outcome == .committed { unpin(id) }
+            return outcome
         case (.pin, _), (_, .pinnedRail):
             return .noOp
         default:
