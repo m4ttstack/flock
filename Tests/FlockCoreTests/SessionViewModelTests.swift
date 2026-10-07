@@ -2999,12 +2999,12 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.update(model: gone, connection: .live)
 
         await client.hold()
-        async let first: Void = viewModel.reopen(pin.id)
+        async let first: PaneID? = viewModel.reopen(pin.id)
         let pending = await client.waitUntilPending()
         XCTAssertTrue(pending, "the first reopen's create never went out")
         await viewModel.reopen(pin.id)
         await client.releaseNext()
-        await first
+        _ = await first
 
         let calls = await client.calls
         XCTAssertEqual(calls.map(\.method), ["workspace.create"])
@@ -3045,12 +3045,12 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.update(model: gone, connection: .live)
 
         await client.holdCreates()
-        async let reopened: Void = viewModel.reopen(pin.id)
+        async let reopened: PaneID? = viewModel.reopen(pin.id)
         let pending = await client.waitUntilCreatePending()
         XCTAssertTrue(pending, "the create never went out")
         viewModel.renamePin(pin.id, to: "acme two")
         await client.releaseCreate()
-        await reopened
+        _ = await reopened
 
         XCTAssertEqual(executor.executedPlans.map(\.ops), [[.renameWorkspace(WorkspaceID(rawValue: "w9"), "acme two")]])
         XCTAssertEqual(viewModel.pins.pin(pin.id)?.name, "acme two")

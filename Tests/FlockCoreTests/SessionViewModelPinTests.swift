@@ -5,6 +5,17 @@ private actor QuietClient: HerdrCommandClient {
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data { Data("{}".utf8) }
 }
 
+/// Answers `workspace.create` with a new workspace w3 and records every ask.
+private actor CreatingClient: HerdrCommandClient {
+    private(set) var asks: [(method: String, params: [String: JSONValue])] = []
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        asks.append((method, params))
+        guard method == "workspace.create" else { return Data("{}".utf8) }
+        return Data(#"{"result":{"tab":{"tab_id":"w3:t1","workspace_id":"w3"},"root_pane":{"pane_id":"w3:p1"}}}"#.utf8)
+    }
+}
+
 @MainActor
 private final class RecordingExecutor: PlanExecuting {
     private(set) var plans: [OpPlan] = []
@@ -17,10 +28,12 @@ private final class RecordingExecutor: PlanExecuting {
 
 @MainActor
 final class SessionViewModelPinTests: XCTestCase {
-    private func model(_ workspaces: [(id: String, label: String)]) -> SessionModel {
+    private func model(_ workspaces: [(id: String, label: String)], focused: String? = nil) -> SessionModel {
         SessionModel(snapshot: SessionSnapshot(
             version: "0.9.0", protocolVersion: 22,
-            focusedWorkspaceID: nil, focusedTabID: nil, focusedPaneID: nil,
+            focusedWorkspaceID: focused.map { WorkspaceID(rawValue: $0) },
+            focusedTabID: focused.map { TabID(rawValue: "\($0):t1") },
+            focusedPaneID: focused.map { PaneID(rawValue: "\($0):p1") },
             workspaces: workspaces.enumerated().map { index, item in
                 WorkspaceRecord(
                     workspaceID: WorkspaceID(rawValue: item.id), label: item.label, number: index + 1,
@@ -40,11 +53,16 @@ final class SessionViewModelPinTests: XCTestCase {
         ))
     }
 
-    private func viewModel(executor: (any PlanExecuting)? = nil, notices: @escaping @MainActor (String) -> Void = { _ in }) -> (SessionViewModel, WorkspaceIdentityStore) {
+    private func viewModel(
+        client: any HerdrCommandClient = QuietClient(), executor: (any PlanExecuting)? = nil,
+        notices: @escaping @MainActor (String) -> Void = { _ in }
+    ) -> (SessionViewModel, WorkspaceIdentityStore) {
         let suite = "flock-pin-vm-\(UUID().uuidString)"
         addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
         let identity = WorkspaceIdentityStore(userDefaults: UserDefaults(suiteName: suite)!)
-        let viewModel = SessionViewModel(client: QuietClient(), planExecutor: executor, noticeSink: notices, identity: identity)
+        let viewModel = SessionViewModel(
+            client: client, planExecutor: executor, noticeSink: notices, identity: identity, folderExists: { _ in true }
+        )
         return (viewModel, identity)
     }
 
@@ -82,6 +100,108 @@ final class SessionViewModelPinTests: XCTestCase {
         XCTAssertEqual(viewModel.pins.pins.count, 1, "unpin needs a linked workspace")
         viewModel.removePin(pin.id)
         XCTAssertEqual(viewModel.pins.pins, [])
+    }
+
+    func testPinningAsksWhereThePinOpensAndCancellingKeepsTheFirstPanesFolder() {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        let first = viewModel.pins.pins[0]
+        XCTAssertEqual(viewModel.pinAwaitingFolder, first.id)
+        viewModel.answerPinFolder(first.id, with: nil)
+        XCTAssertNil(viewModel.pinAwaitingFolder)
+        XCTAssertEqual(viewModel.pins.pin(first.id)?.folder, "/acme/acme")
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w2"))
+        let second = viewModel.pins.pins[1]
+        viewModel.answerPinFolder(second.id, with: "/acme/code/web")
+        XCTAssertEqual(viewModel.pins.pin(second.id)?.folder, "/acme/code/web")
+        XCTAssertNil(viewModel.pinAwaitingFolder)
+    }
+
+    // MARK: - an empty pin shown in place of a workspace
+
+    func testClosingTheShownPinnedWorkspaceKeepsItsEmptyPinOnScreen() {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")], focused: "w1"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: model([("w2", "web")], focused: "w2"), connection: .live)
+        XCTAssertEqual(viewModel.shownEmptyPin, viewModel.pins.pins[0].id)
+        XCTAssertNil(viewModel.shownWorkspaceID, "no workspace is shown beside it")
+        XCTAssertNil(viewModel.canvasFocusedPaneID, "no pane takes the keyboard")
+    }
+
+    func testClosingAnUnpinnedOrUnshownWorkspaceMovesOnAsBefore() {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")], focused: "w1"), connection: .live)
+        viewModel.update(model: model([("w2", "web")], focused: "w2"), connection: .live)
+        XCTAssertNil(viewModel.shownEmptyPin)
+        XCTAssertEqual(viewModel.shownWorkspaceID, WorkspaceID(rawValue: "w2"))
+
+        viewModel.update(model: model([("w2", "web"), ("w3", "docs")], focused: "w2"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w3"))
+        viewModel.update(model: model([("w2", "web")], focused: "w2"), connection: .live)
+        XCTAssertNil(viewModel.shownEmptyPin, "a pinned workspace closing behind the shown one moves nothing")
+        XCTAssertEqual(viewModel.shownWorkspaceID, WorkspaceID(rawValue: "w2"))
+    }
+
+    func testShowingAnEmptyPinRunsNothingAndPickingAWorkspaceLeavesIt() async {
+        let client = CreatingClient()
+        let (viewModel, _) = viewModel(client: client)
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")], focused: "w2"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: model([("w2", "web")], focused: "w2"), connection: .live)
+        let pin = viewModel.pins.pins[0].id
+        viewModel.show(emptyPin: pin)
+        XCTAssertEqual(viewModel.shownEmptyPin, pin)
+        let asks = await client.asks
+        XCTAssertTrue(asks.isEmpty, "showing a pin asks herdr for nothing")
+        viewModel.select(workspace: WorkspaceID(rawValue: "w2"))
+        XCTAssertNil(viewModel.shownEmptyPin)
+        XCTAssertEqual(viewModel.shownWorkspaceID, WorkspaceID(rawValue: "w2"))
+    }
+
+    func testAnOpenPinIsNeverShownEmpty() {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme")], focused: "w1"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.show(emptyPin: viewModel.pins.pins[0].id)
+        XCTAssertNil(viewModel.shownEmptyPin)
+    }
+
+    func testStartingTheShownPinOpensItInItsFolderAndShowsTheNewWorkspace() async {
+        let client = CreatingClient()
+        let (viewModel, _) = viewModel(client: client)
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")], focused: "w1"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: model([("w2", "web")], focused: "w2"), connection: .live)
+        let pin = viewModel.pins.pins[0].id
+        let pane = await viewModel.start(emptyPin: pin)
+        XCTAssertEqual(pane, PaneID(rawValue: "w3:p1"))
+        XCTAssertNil(viewModel.shownEmptyPin)
+        XCTAssertEqual(viewModel.shownWorkspaceID, WorkspaceID(rawValue: "w3"))
+        let create = await client.asks.first { $0.method == "workspace.create" }
+        guard case let .string(cwd) = create?.params["cwd"] else { return XCTFail("the create named no folder") }
+        XCTAssertEqual(cwd, "/acme/acme")
+    }
+
+    func testRemovingTheShownPinShowsTheWorkspaceBehindIt() {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")], focused: "w1"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: model([("w2", "web")], focused: "w2"), connection: .live)
+        viewModel.removePin(viewModel.pins.pins[0].id)
+        XCTAssertNil(viewModel.shownEmptyPin)
+        XCTAssertEqual(viewModel.shownWorkspaceID, WorkspaceID(rawValue: "w2"))
+    }
+
+    func testAShownPinThatHerdrReopensShowsItsWorkspace() {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")], focused: "w1"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: model([("w2", "web")], focused: "w2"), connection: .live)
+        viewModel.update(model: model([("w2", "web"), ("w3", "acme")], focused: "w2"), connection: .live)
+        XCTAssertNil(viewModel.shownEmptyPin)
+        XCTAssertEqual(viewModel.shownWorkspaceID, WorkspaceID(rawValue: "w3"))
     }
 
     func testPinningASecondWorkspaceWithAPinnedNameIsRefusedWithANotice() {
