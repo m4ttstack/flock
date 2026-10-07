@@ -81,7 +81,7 @@ public struct StyledRow: Hashable, Sendable {
     /// Terminal cells the row spans: an East Asian wide character takes two.
     public var columns: Int { Self.columns(of: runs.map(\.text)) }
 
-    static func columns(of texts: [String]) -> Int {
+    public static func columns(of texts: [String]) -> Int {
         texts.reduce(0) { total, text in
             total + text.reduce(0) { $0 + cellWidth(of: $1) }
         }

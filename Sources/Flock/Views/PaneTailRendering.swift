@@ -34,7 +34,17 @@ enum PaneTailRendering {
         return advance.width / reference
     }()
 
-    static func attributed(_ row: StyledRow, size: CGFloat, palette: PaneTailPalette) -> AttributedString {
+    /// What a run paints behind its cells, inverse applied.
+    static func background(_ style: TerminalStyle, palette: PaneTailPalette) -> Color? {
+        let background = style.background.map(palette.color)
+        guard style.inverse else { return background }
+        return style.foreground.map(palette.color) ?? palette.foreground
+    }
+
+    /// `paintsBackground` false leaves backgrounds to the caller, which can
+    /// fill a run's whole row height; text's own highlight covers only its
+    /// glyph box and leaves a seam between rows.
+    static func attributed(_ row: StyledRow, size: CGFloat, palette: PaneTailPalette, paintsBackground: Bool = true) -> AttributedString {
         var line = AttributedString()
         for run in row.runs {
             var part = AttributedString(run.text)
@@ -52,7 +62,7 @@ enum PaneTailRendering {
             }
             if style.dim { foreground = foreground.opacity(dimOpacity) }
             part.foregroundColor = style.invisible ? .clear : foreground
-            if let background { part.backgroundColor = background }
+            if paintsBackground, let background { part.backgroundColor = background }
             if style.underline { part.underlineStyle = .single }
             if style.strikethrough { part.strikethroughStyle = .single }
             line += part

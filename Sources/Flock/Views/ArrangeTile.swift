@@ -152,10 +152,12 @@ private struct ArrangeTailLines: View, Equatable {
         let shown = TileTailCadence.shown(count: tail.rows.count, fitting: fitting)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(shown, id: \.self) { index in
-                Text(PaneTailRendering.attributed(tail.rows[index], size: fontSize, palette: palette))
+                let row = tail.rows[index]
+                Text(PaneTailRendering.attributed(row, size: fontSize, palette: palette, paintsBackground: false))
                     .lineLimit(1)
                     .fixedSize()
                     .frame(width: size.width, height: lineHeight, alignment: .leading)
+                    .background(alignment: .leading) { Self.backgrounds(row, cell: fontSize * PaneTailRendering.advancePerPoint, palette: palette) }
                     .clipped()
             }
         }
@@ -163,6 +165,18 @@ private struct ArrangeTailLines: View, Equatable {
         .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// Each run's background across the row's full height, so painted rows
+    /// meet without a seam, as a terminal's cells do.
+    private static func backgrounds(_ row: StyledRow, cell: CGFloat, palette: PaneTailPalette) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(row.runs.enumerated()), id: \.offset) { _, run in
+                Rectangle()
+                    .fill(PaneTailRendering.background(run.style, palette: palette) ?? .clear)
+                    .frame(width: CGFloat(StyledRow.columns(of: [run.text])) * cell)
+            }
+        }
     }
 
     static func fontSize(columns: Int, width: CGFloat, maxSize: CGFloat) -> CGFloat {
