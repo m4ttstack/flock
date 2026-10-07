@@ -14,7 +14,9 @@ struct WorkspaceRail: View {
     @Environment(RailWidthStore.self) private var railWidth
     @Environment(BoardStore.self) private var board
     @Environment(HerdProgressStore.self) private var herdProgress
+    @Environment(WorkspaceIdentityStore.self) private var identity
     @State private var scrollPosition = ScrollPosition()
+    @State private var symbolPickerRow: WorkspaceID?
     @State private var railHeight: CGFloat?
 
     private var sections: RailSections? {
@@ -51,6 +53,8 @@ struct WorkspaceRail: View {
                                 paneCount: viewModel.paneCount(for: workspace.workspaceID),
                                 isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
                                 isRenaming: isRenaming,
+                                markKey: workspace.workspaceID.rawValue,
+                                pickingSymbol: pickerBinding(workspace.workspaceID),
                                 renameText: viewModel.renameText(for: .workspace(workspace.workspaceID)),
                                 onCommitRename: { text in
                                     Task { await viewModel.commitRename(text, for: .workspace(workspace.workspaceID)) }
@@ -85,14 +89,10 @@ struct WorkspaceRail: View {
                             // inside the field must reach the text, not start a
                             // drag.
                             .simultaneousGesture(rowDrag(workspace), including: isRenaming ? .subviews : .all)
-                            .contextMenu {
-                                ForEach(workspaceMenuEntries(for: workspace.workspaceID), id: \.accessibilityIdentifier) { entry in
-                                    Button(entry.label) {
-                                        Task { await entry.action.perform(workspaceID: workspace.workspaceID, on: viewModel) }
-                                    }
-                                    .accessibilityIdentifier(entry.accessibilityIdentifier)
-                                }
-                            }
+                            .workspaceMenu(
+                                viewModel: viewModel, workspace: workspace.workspaceID, key: workspace.workspaceID.rawValue,
+                                changeSymbol: { symbolPickerRow = workspace.workspaceID }
+                            )
                         }
                         if let sections, !sections.board.isEmpty {
                             BoardSection(
@@ -170,8 +170,14 @@ struct WorkspaceRail: View {
         .overlay(alignment: .trailing) { resizeHandle }
         .boundedBackground(theme.chrome)
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { railHeight = $0 }
-        .onAppear { drag.setWorkspaceOrder(workspaces.map(\.workspaceID)) }
-        .onChange(of: workspaces.map(\.workspaceID)) { _, ids in drag.setWorkspaceOrder(ids) }
+        .onAppear {
+            drag.setWorkspaceOrder(workspaces.map(\.workspaceID))
+            if let sections { identity.refresh(sections) }
+        }
+        .onChange(of: workspaces.map(\.workspaceID)) { _, ids in
+            drag.setWorkspaceOrder(ids)
+            if let sections { identity.refresh(sections) }
+        }
         // Keyed on the herds shown, so a herd arriving is asked about at
         // once rather than at the next tick, and a rail with none stops
         // asking.
@@ -266,9 +272,13 @@ struct WorkspaceRail: View {
             }
     }
 
-    private func workspaceMenuEntries(for workspace: WorkspaceID) -> [ChromeMenuEntry<WorkspaceMenuAction>] {
-        guard let model = viewModel.model else { return [] }
-        return WorkspaceMenuModel.entries(for: workspace, model: model)
+    private func pickerBinding(_ workspace: WorkspaceID) -> Binding<Bool> {
+        Binding(
+            get: { symbolPickerRow == workspace },
+            set: { open in
+                if open { symbolPickerRow = workspace } else if symbolPickerRow == workspace { symbolPickerRow = nil }
+            }
+        )
     }
 
     /// Starts the drag and nothing else: `DragCoordinator` drives it from
@@ -298,6 +308,10 @@ struct WorkspaceRow: View {
     let paneCount: Int
     let isSelected: Bool
     var isRenaming = false
+    /// The workspace's symbol key, drawn before the name; nil draws none, as
+    /// for Board's rows, which their section's logo marks.
+    var markKey: String?
+    var pickingSymbol: Binding<Bool>?
     var renameText = ""
     var onCommitRename: (String) -> Void = { _ in }
     var onCancelRename: () -> Void = {}
@@ -317,6 +331,9 @@ struct WorkspaceRow: View {
             // row that swapped its status for an accent was the one row whose
             // agent you could not see.
             StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
+            if let markKey {
+                WorkspaceMark(theme: theme, key: markKey, size: ChromeMetrics.WorkspaceRow.mark, picking: pickingSymbol)
+            }
             if isRenaming {
                 InlineRenameField(
                     theme: theme, font: ChromeType.workspaceName(selected: isSelected), initialText: renameText,

@@ -77,6 +77,7 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 10
         static let spacing: CGFloat = 8
         static let countMinimumGap: CGFloat = 5
+        static let mark: CGFloat = 13
         static let cornerRadius: CGFloat = 3
         /// A step up from the strip's 6pt dot, which the parity checklist
         /// asks for on the rail and the pane header: this is the one mark a

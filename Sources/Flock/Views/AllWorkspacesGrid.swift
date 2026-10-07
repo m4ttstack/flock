@@ -141,9 +141,7 @@ struct AllWorkspacesGrid: View {
 
     private func refreshIdentities() {
         guard let model = viewModel.model, !model.workspaces.isEmpty else { return }
-        let keys = WorkspaceIdentityStore.keys(in: RailSections(model: model, board: boardNames, herdProgress: herdProgress))
-        identity.keepOnly(Set(keys))
-        identity.assign(keys)
+        identity.refresh(RailSections(model: model, board: boardNames, herdProgress: herdProgress))
     }
 
     /// What Arrange draws: every workspace's island as the fit lays it out.

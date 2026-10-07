@@ -410,8 +410,11 @@ it appears in. A pane card's menu is Rename Pane and Close Pane only.
 Assignments for workspaces herdr no longer reports are dropped whenever the
 view opens.
 
-The symbol appears in Arrange and in Overview only. The rail and the tab
-strip stay as they are.
+The symbol appears in Arrange, in Overview and in the rail, where a
+workspace row reads status dot, symbol, name. The rail's symbol is a button
+like the others, and the rail's workspace menu carries Change Symbol... too.
+Every view that draws symbols assigns them to workspaces it meets first. The
+tab strip stays as it is.
 
 ### Repo and branch
 
@@ -438,7 +441,7 @@ and checked before implementation starts.
 
 ## Out of scope
 
-- A workspace symbol in the rail or the tab strip.
+- A workspace symbol in the tab strip.
 - A separate or torn-off mission-control window.
 - Recent output lines on cards (costs a `pane.read` per pane per refresh).
 - Keeping the 60-minute timelines across launches (only each pane's last

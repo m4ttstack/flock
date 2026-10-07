@@ -85,6 +85,15 @@ public final class WorkspaceIdentityStore {
         save()
     }
 
+    /// Drops keys no longer shown and assigns the new ones. Run by every view
+    /// that draws marks, since whichever appears first meets a new workspace.
+    public func refresh(_ sections: RailSections) {
+        let keys = Self.keys(in: sections)
+        guard !keys.isEmpty else { return }
+        keepOnly(Set(keys))
+        assign(keys)
+    }
+
     private func save() {
         let data = try? JSONEncoder().encode(Stored(assigned: assigned, overrides: overrides))
         userDefaults.set(data, forKey: Self.defaultsKey)
