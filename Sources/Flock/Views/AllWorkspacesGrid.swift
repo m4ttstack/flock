@@ -79,9 +79,6 @@ struct AllWorkspacesGrid: View {
                                 WorkspaceIsland(
                                     theme: theme, viewModel: viewModel, workspace: workspace,
                                     slotsPerRow: fit.tabsPerRow[id] ?? 1,
-                                    identity: arrange.sections.flatMap {
-                                        MissionBoard.identityColor(id, sections: $0, identity: identity, theme: theme)
-                                    },
                                     identityKey: arrange.sections.flatMap { WorkspaceIdentityStore.key(for: id, sections: $0) }
                                 )
                             }
@@ -294,8 +291,7 @@ private struct WorkspaceIsland: View {
     /// The fit's slot count for this island, so the cells it draws and the
     /// ids the grid publishes for them are laid out against one count.
     let slotsPerRow: Int
-    let identity: Color?
-    /// Nil for a herd, which takes no colour of its own.
+    /// Nil for a herd, which takes no symbol of its own.
     let identityKey: String?
 
     @Environment(DragCoordinator.self) private var drag
@@ -348,7 +344,7 @@ private struct WorkspaceIsland: View {
             alignment: .leading
         )
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(theme.identityTint(identity), in: shape)
+        .background(theme.workspaceWash, in: shape)
         .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.islandCornerRadius) }
         .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
@@ -364,16 +360,12 @@ private struct WorkspaceIsland: View {
 
     private func outline(_ tabs: [TabRecord]) -> Color {
         if isTargeted(tabs) { return theme.accent }
-        if isFocusedWorkspace, let identity { return identity }
-        return .clear
+        return isFocusedWorkspace ? theme.textLabel : .clear
     }
 
     private func header(tabCount: Int) -> some View {
         HStack(spacing: ChromeMetrics.Grid.islandHeaderSpacing) {
-            WorkspaceMark(
-                theme: theme, key: identityKey, identity: identity,
-                size: ChromeMetrics.Grid.identitySquare, cornerRadius: ChromeMetrics.Grid.identitySquareRadius
-            )
+            WorkspaceMark(theme: theme, key: identityKey, size: ChromeMetrics.Grid.workspaceMark)
             Text(workspace.label)
                 .font(ChromeType.gridCardName)
                 .foregroundStyle(theme.textStrong)
@@ -389,7 +381,7 @@ private struct WorkspaceIsland: View {
         .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
         .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
         .contentShape(Rectangle())
-        .contextMenu { IdentityColourMenu(theme: theme, key: identityKey) }
+        .contextMenu { WorkspaceSymbolMenu(key: identityKey) }
     }
 
     /// One cell, plus the reporter for the slot a committed drop lands in

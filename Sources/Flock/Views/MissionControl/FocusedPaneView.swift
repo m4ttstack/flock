@@ -11,7 +11,6 @@ struct FocusedPaneView: View {
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(AllWorkspacesModeStore.self) private var mode
-    @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
 
@@ -96,7 +95,7 @@ struct FocusedPaneView: View {
             GridControlButton(theme: theme, shape: chipShape, restFill: theme.tabRest, restForeground: theme.textStrong) {
                 navigator.openNext()
             } label: {
-                nextLabel(next.card, sections: next.sections, more: waiting - 1, now: now)
+                nextLabel(next.card, more: waiting - 1, now: now)
             }
             .overlay(chipShape.stroke(theme.rule, lineWidth: ChromeMetrics.ruleWidth).allowsHitTesting(false))
             .pointerStyle(.link)
@@ -115,9 +114,8 @@ struct FocusedPaneView: View {
         }
     }
 
-    private func nextLabel(_ card: MissionCard, sections: RailSections, more: Int, now: Date) -> some View {
-        let color = MissionBoard.identityColor(card.workspaceID, sections: sections, identity: identity, theme: theme)
-        return HStack(spacing: M.nextSpacing) {
+    private func nextLabel(_ card: MissionCard, more: Int, now: Date) -> some View {
+        HStack(spacing: M.nextSpacing) {
             Text("NEXT")
                 .font(ChromeType.focusedNextLabel)
                 .tracking(ChromeType.focusedNextLabelTracking)
@@ -125,7 +123,7 @@ struct FocusedPaneView: View {
             StatusDot(status: card.status, theme: theme, size: M.cardDot)
             Text(card.workspaceName)
                 .font(ChromeType.focusedNextPlace)
-                .foregroundStyle(theme.identityInk(color))
+                .foregroundStyle(theme.textDim)
                 .fixedSize()
             Text(card.title)
                 .font(ChromeType.focusedNextPlace)
@@ -165,14 +163,13 @@ struct FocusedPaneView: View {
     }
 
     private func place(_ card: MissionCard, sections: RailSections, now: Date) -> some View {
-        let color = MissionBoard.identityColor(card.workspaceID, sections: sections, identity: identity, theme: theme)
-        return HStack(spacing: G.headerSpacing) {
+        HStack(spacing: G.headerSpacing) {
             WorkspaceMark(
                 theme: theme, key: WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections),
-                identity: color, size: G.focusedIdentitySize, cornerRadius: G.focusedIdentityCornerRadius
+                size: G.focusedMark
             )
             HStack(spacing: 5) {
-                Text(card.workspaceName).foregroundStyle(theme.identityInk(color))
+                Text(card.workspaceName).foregroundStyle(theme.textDim)
                 Text("›").foregroundStyle(theme.textLabel)
                 Text(card.title).foregroundStyle(theme.textStrong)
                 if let detail = card.detail {

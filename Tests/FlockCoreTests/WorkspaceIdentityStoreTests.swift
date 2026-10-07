@@ -10,55 +10,76 @@ final class WorkspaceIdentityStoreTests: XCTestCase {
         return defaults
     }
 
-    func testNewWorkspacesTakeTheLeastUsedHueInOrder() {
+    private let names = WorkspaceSymbols.all.map(\.name)
+
+    func testNewWorkspacesTakeTheLeastUsedSymbolInOrder() {
         let store = WorkspaceIdentityStore(userDefaults: defaults())
         store.assign(["w1", "w2", "w3"])
-        XCTAssertEqual(["w1", "w2", "w3"].compactMap(store.index(for:)), [0, 1, 2])
+        XCTAssertEqual(["w1", "w2", "w3"].compactMap(store.symbol(for:)), Array(names.prefix(3)))
+    }
+
+    func testNeighboursDoNotRepeatUntilTheSetIsUsedUp() {
+        let store = WorkspaceIdentityStore(userDefaults: defaults())
+        let keys = (0..<names.count).map { "w\($0)" }
+        store.assign(keys)
+        XCTAssertEqual(Set(keys.compactMap(store.symbol(for:))).count, names.count)
+        store.assign(["extra"])
+        XCTAssertEqual(store.symbol(for: "extra"), names[0])
     }
 
     func testAnAssignmentNeverChangesOnceMade() {
         let store = WorkspaceIdentityStore(userDefaults: defaults())
         store.assign(["w2"])
         store.assign(["w1", "w2"])
-        XCTAssertEqual(store.index(for: "w2"), 0)
-        XCTAssertEqual(store.index(for: "w1"), 1)
+        XCTAssertEqual(store.symbol(for: "w2"), names[0])
+        XCTAssertEqual(store.symbol(for: "w1"), names[1])
     }
 
     func testAnOverrideWinsAndSurvivesANewStore() {
         let defaults = defaults()
         let store = WorkspaceIdentityStore(userDefaults: defaults)
         store.assign(["w1"])
-        store.setOverride(5, for: "w1")
-        XCTAssertEqual(WorkspaceIdentityStore(userDefaults: defaults).index(for: "w1"), 5)
+        store.setOverride(names[5], for: "w1")
+        XCTAssertEqual(WorkspaceIdentityStore(userDefaults: defaults).symbol(for: "w1"), names[5])
         store.setOverride(nil, for: "w1")
-        XCTAssertEqual(store.index(for: "w1"), 0)
+        XCTAssertEqual(store.symbol(for: "w1"), names[0])
     }
 
     func testWorkspacesNoLongerReportedAreDroppedButTheBoardKeyStays() {
         let store = WorkspaceIdentityStore(userDefaults: defaults())
         store.assign([WorkspaceIdentityStore.boardKey, "w1", "w2"])
         store.keepOnly(["w2"])
-        XCTAssertNil(store.index(for: "w1"))
-        XCTAssertNotNil(store.index(for: "w2"))
-        XCTAssertNotNil(store.index(for: WorkspaceIdentityStore.boardKey))
+        XCTAssertNil(store.symbol(for: "w1"))
+        XCTAssertNotNil(store.symbol(for: "w2"))
+        XCTAssertNotNil(store.symbol(for: WorkspaceIdentityStore.boardKey))
     }
 
-    func testAssignCountsOverridesWhenChoosingTheLeastUsedHue() {
+    func testAssignCountsOverridesWhenChoosingTheLeastUsedSymbol() {
         let store = WorkspaceIdentityStore(userDefaults: defaults())
         store.assign(["w1"])
-        store.setOverride(1, for: "w1")
+        store.setOverride(names[1], for: "w1")
         store.assign(["w2"])
-        XCTAssertEqual(store.index(for: "w2"), 0)
+        XCTAssertEqual(store.symbol(for: "w2"), names[0])
         store.assign(["w3"])
-        XCTAssertEqual(store.index(for: "w3"), 2)
+        XCTAssertEqual(store.symbol(for: "w3"), names[2])
     }
 
-    func testAnOverrideOutsideThePaletteIsIgnored() {
+    func testAnOverrideOutsideTheSetIsIgnored() {
         let store = WorkspaceIdentityStore(userDefaults: defaults())
         store.assign(["w1"])
-        store.setOverride(IdentityPalette.count, for: "w1")
-        store.setOverride(-1, for: "w1")
-        XCTAssertEqual(store.index(for: "w1"), 0)
+        store.setOverride("checkmark.circle.fill", for: "w1")
+        store.setOverride("", for: "w1")
+        XCTAssertEqual(store.symbol(for: "w1"), names[0])
+    }
+
+    func testAStoredSymbolNoLongerInTheSetIsDroppedOnLoad() {
+        let defaults = defaults()
+        let stored = #"{"assigned":{"w1":"retired.fill","w2":"bolt.fill"},"overrides":{"w3":"retired.fill"}}"#
+        defaults.set(Data(stored.utf8), forKey: WorkspaceIdentityStore.defaultsKey)
+        let store = WorkspaceIdentityStore(userDefaults: defaults)
+        XCTAssertNil(store.symbol(for: "w1"))
+        XCTAssertEqual(store.symbol(for: "w2"), "bolt.fill")
+        XCTAssertNil(store.symbol(for: "w3"))
     }
 
     func testKeysShareTheBoardsAndGiveHerdsNone() {

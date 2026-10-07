@@ -811,12 +811,11 @@ enum ChromeMetrics {
         static let timelineMinimumWidth: CGFloat = 60
         static let timelineHeight: CGFloat = 5
         static let timelineIdleHeight: CGFloat = 2
-        /// A lane's group: its cards for one workspace on its identity tint,
+        /// A lane's group: its cards for one workspace on the neutral wash,
         /// at Arrange's island strength.
         static let groupCornerRadius: CGFloat = 10
         static let groupPadding: CGFloat = 10
-        static let groupIdentitySquare: CGFloat = 10
-        static let groupIdentitySquareRadius: CGFloat = 3
+        static let groupMark: CGFloat = 14
         static let groupLabelSpacing: CGFloat = 7
         /// The focused view's way back to Overview.
         static let backHeight: CGFloat = 26
@@ -853,8 +852,7 @@ enum ChromeMetrics {
         static let headerHorizontalPadding: CGFloat = 13
         static let headerSpacing: CGFloat = 8
         static let headerSeparatorHeight: CGFloat = 14
-        static let focusedIdentitySize: CGFloat = 12
-        static let focusedIdentityCornerRadius: CGFloat = 3
+        static let focusedMark: CGFloat = 14
         /// Around the islands. `IslandLayout.fit` is handed the viewport
         /// less this on each side.
         static let canvasPadding: CGFloat = 28
@@ -877,8 +875,7 @@ enum ChromeMetrics {
         static let islandHeaderHeight: CGFloat = 20
         static let islandHeaderGap: CGFloat = 12
         static let islandHeaderSpacing: CGFloat = 10
-        static let identitySquare: CGFloat = 12
-        static let identitySquareRadius: CGFloat = 3
+        static let workspaceMark: CGFloat = 14
         static let currentTabUnderline: CGFloat = 2
         /// The tab's handle: a band across the top of its thumbnail, holding
         /// the title and status dot.

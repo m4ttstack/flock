@@ -1,30 +1,30 @@
 import Foundation
 import Observation
 
-/// Which identity hue (an index into `IdentityPalette.colors`) each
-/// workspace wears. Keyed by workspace id so a rename keeps the colour.
-/// Board's workspaces share one key; herds have none and draw neutral.
+/// Which symbol (a name from `WorkspaceSymbols.all`) marks each workspace.
+/// Keyed by workspace id so a rename keeps the symbol. Board's workspaces
+/// share one key; herds have none and draw the ram.
 @MainActor
 @Observable
 public final class WorkspaceIdentityStore {
-    public static let defaultsKey = "flock.workspaceIdentity"
+    public static let defaultsKey = "flock.workspaceSymbol"
     public static let boardKey = "section:board"
 
-    public private(set) var assigned: [String: Int]
-    public private(set) var overrides: [String: Int]
+    public private(set) var assigned: [String: String]
+    public private(set) var overrides: [String: String]
 
     @ObservationIgnored private let userDefaults: UserDefaults
 
     private struct Stored: Codable {
-        var assigned: [String: Int]
-        var overrides: [String: Int]
+        var assigned: [String: String]
+        var overrides: [String: String]
     }
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         let stored = userDefaults.data(forKey: Self.defaultsKey).flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
-        assigned = stored?.assigned ?? [:]
-        overrides = stored?.overrides ?? [:]
+        assigned = (stored?.assigned ?? [:]).filter { WorkspaceSymbols.contains($0.value) }
+        overrides = (stored?.overrides ?? [:]).filter { WorkspaceSymbols.contains($0.value) }
     }
 
     public static func key(for workspace: WorkspaceID, sections: RailSections) -> String? {
@@ -33,35 +33,38 @@ public final class WorkspaceIdentityStore {
         return workspace.rawValue
     }
 
-    /// Every key the rail shows, in rail order, so a first sighting takes hues
-    /// in the order the rail lists workspaces.
+    /// Every key the rail shows, in rail order, so a first sighting takes
+    /// symbols in the order the rail lists workspaces.
     public static func keys(in sections: RailSections) -> [String] {
         var seen = Set<String>()
         return sections.railOrder.compactMap { key(for: $0, sections: sections) }.filter { seen.insert($0).inserted }
     }
 
-    public func index(for key: String) -> Int? {
+    public func symbol(for key: String) -> String? {
         overrides[key] ?? assigned[key]
     }
 
-    /// Gives each key without a hue the least used one, lowest index first; overrides count as uses.
+    /// Gives each key without a symbol the least used one, the earliest in
+    /// the set breaking ties; overrides count as uses.
     public func assign(_ keys: [String]) {
         var next = assigned
+        let names = WorkspaceSymbols.all.map(\.name)
         for key in keys where next[key] == nil {
-            var uses = Array(repeating: 0, count: IdentityPalette.count)
-            for key in Set(next.keys).union(overrides.keys) {
-                if let index = overrides[key] ?? next[key], uses.indices.contains(index) { uses[index] += 1 }
+            var uses = Array(repeating: 0, count: names.count)
+            for other in Set(next.keys).union(overrides.keys) {
+                if let name = overrides[other] ?? next[other], let index = names.firstIndex(of: name) { uses[index] += 1 }
             }
-            next[key] = uses.indices.min { (uses[$0], $0) < (uses[$1], $1) } ?? 0
+            let least = uses.indices.min { (uses[$0], $0) < (uses[$1], $1) } ?? 0
+            next[key] = names[least]
         }
         guard next != assigned else { return }
         assigned = next
         save()
     }
 
-    public func setOverride(_ index: Int?, for key: String) {
-        if let index, !(0..<IdentityPalette.count).contains(index) { return }
-        overrides[key] = index
+    public func setOverride(_ name: String?, for key: String) {
+        if let name, !WorkspaceSymbols.contains(name) { return }
+        overrides[key] = name
         save()
     }
 

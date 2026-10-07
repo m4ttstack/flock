@@ -166,16 +166,16 @@ shows its name in either text setting.
 A blocked card carries a 1.5pt outline in the blocked hue.
 
 **Identity grouping** (board `05c · Overview · identity groups`). Overview
-wears Arrange's colours so the two read as one place:
+wears Arrange's neutral wash so the two read as one place:
 
-- In every lane, each workspace's cards sit in a group on its identity
-  tint, the same colour and strength as its Arrange island (radius 10, 10pt
-  padding, 10pt between cards). The group label is the identity square and
-  the workspace name in its identity colour; no rule. Cards keep the
-  `chrome` ground.
+- In every lane, each workspace's cards sit in a group on the neutral
+  workspace wash, the same ground and strength as its Arrange island
+  (radius 10, 10pt padding, 10pt between cards). The group label is the
+  workspace's symbol (14pt, primary text colour) and its name in the label
+  grey; no rule. Cards keep the `chrome` ground.
 - Status keeps its own colours: dots, ages, the blocked outline and the
-  timeline stay in status hues, and identity never fills a card.
-- A herd's group and name draw in the neutral label grey, as in Arrange.
+  timeline stay in status hues, and nothing a workspace wears is a hue.
+- A herd's group wears the same wash and its ram, as in Arrange.
 
 ### Live updates
 
@@ -223,12 +223,12 @@ oldest card), open the pane here. A Needs-you card is dismissed on opening.
 **What it draws.**
 
 - A header the grid header's height:
-  - left: a "‹ Overview ⌘[" button, then the identity square, `workspace ›
-    title` (workspace in its identity colour, the card's title and its
+  - left: a "‹ Overview ⌘[" button, then the workspace's symbol, `workspace ›
+    title` (workspace in the dim text colour, the card's title and its
     second line dim after it), the status dot and the state with its age
     (`blocked 12m`) in the status hue;
   - right: a Next chip naming the oldest other Needs-you card: `NEXT`, its
-    status dot, its workspace in its identity colour, its card's title, its state
+    status dot, its workspace in the dim text colour, its card's title, its state
     and age in the status hue, `+N` when more than that one wait, a rule
     and `⌘]`. Clicking it opens that card here. With no other card it
     reads "Queue clear", dim, and does nothing.
@@ -278,27 +278,26 @@ position, drops on a workspace's empty space create a tab, tab reorder inside
 a workspace, click to preview a pane, double-click to go there, spring-load
 on dwell. What changes is how it draws.
 
-**Islands.** Each workspace is a region filled with its identity colour at
-low strength (about 10 percent over the canvas), corner radius 14, with no
-outline. The workspace you came from adds a 1.5pt outline in its identity
-colour. Islands sit 28pt apart; inside one, tabs sit 8pt apart, so the gap
+**Islands.** Each workspace is a region filled with one neutral wash, the
+label grey at low strength (about 10 percent over the canvas), the same for
+every workspace; corner radius 14, with no outline. The workspace you came
+from adds a 1.5pt outline in the label grey. Islands sit 28pt apart; inside one, tabs sit 8pt apart, so the gap
 between workspaces is always clearly wider than the gap within one.
 
-**Island header.** Identity square (12pt, radius 3), the workspace name at
+**Island header.** The workspace's symbol (14pt, primary text colour), the workspace name at
 16pt semibold (emoji included), its status dot, and the tab count at the
 right.
 
 **Thumbnails.** No outline. A thumbnail is a `pane`-filled block; its handle
 is the tab title and status dot on no fill, except the tab you came from,
-whose handle takes the identity colour at about 25 percent. Mini panes are
+whose handle is underlined as the tab strip underlines a selected tab. Mini panes are
 `tabRest` blocks with the status word and the title wrapped to three lines. A
 blocked mini pane keeps a 1.5pt outline in the blocked hue, the only outline
 inside an island.
 
 **Order.** Islands pack left to right in rail order (workspaces, then
 board's, then herds), wrapping to a new row when the next island would not
-fit. Board's islands share the board's colour and herds share one neutral
-colour.
+fit. Board's islands share the board's logo and herds the ram.
 
 **Fit to window.** One thumbnail width is chosen for the whole view: the
 largest, from 120pt up to 260pt, at which every island fits the window
@@ -378,21 +377,24 @@ leads with the pane's title.
 
 The rule is one FlockCore type, `PaneNaming`, that every surface reads.
 
-### Identity colour
+### Workspace symbol
 
-A palette of eight hues per theme spread around the whole wheel, 45 degrees
-apart (assigned in an order that puts the first four 90 degrees apart), so
-no two read as near-repeats. They are softer than the status colours (HSL
-saturation 0.5) so a workspace's wash or name never reads as an agent's
-status, and each keeps 3:1 against the canvas. Flock assigns the next unused hue
-to a workspace the first time it sees it, keyed by workspace id so a rename
-keeps the colour, and stores the assignment in UserDefaults. An island
-header's right-click menu in Arrange gets Colour, which lists the eight hues
-and stores an override the same way. Assignments for workspaces herdr no longer reports
-are dropped whenever the view opens.
+Colour means status only, so a workspace is told apart by a symbol, never a
+hue. The set is `WorkspaceSymbols`: about twenty filled SF Symbols (leaf,
+bolt, flask, hammer and so on) with no check, exclamation, clock, bell,
+cross or plain disc, the shapes status already uses. The symbol draws at
+14pt in the primary text colour; every workspace's wash is the same
+neutral. Flock assigns the least used symbol to a workspace the first time
+it sees it (the earliest in the set breaking ties, so neighbours do not
+repeat), keyed by workspace id so a rename keeps the symbol, and stores the
+assignment in UserDefaults. The right-click menu on an island header in
+Arrange, a group header or a card in Overview gets Symbol: Automatic, then
+the set with each symbol's name, storing an override the same way.
+Assignments for workspaces herdr no longer reports are dropped whenever the
+view opens.
 
-Identity colour appears in Arrange and on mission-control cards only. The
-rail and the tab strip stay as they are, where colour already means status.
+The symbol appears in Arrange and in Overview only. The rail and the tab
+strip stay as they are.
 
 ### Repo and branch
 
@@ -419,7 +421,7 @@ and checked before implementation starts.
 
 ## Out of scope
 
-- Identity colour in the rail or the tab strip.
+- A workspace symbol in the rail or the tab strip.
 - A separate or torn-off mission-control window.
 - Recent output lines on cards (costs a `pane.read` per pane per refresh).
 - Keeping the 60-minute timelines across launches (only each pane's last

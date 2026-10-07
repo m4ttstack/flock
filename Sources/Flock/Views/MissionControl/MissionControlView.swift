@@ -12,7 +12,6 @@ struct MissionControlView: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(AllWorkspacesModeStore.self) private var mode
     @Environment(MissionBottomLineStore.self) private var bottomLine
-    @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -127,27 +126,24 @@ struct MissionControlView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// A workspace's cards in one lane on its identity tint, as its Arrange
-    /// island wears it.
+    /// A workspace's cards in one lane on the neutral wash its Arrange island
+    /// wears.
     private func group(_ group: MissionGroup, sections: RailSections, now: Date, cooling: Bool) -> some View {
-        let identity = identityColor(group.workspaceID, sections: sections)
+        let key = WorkspaceIdentityStore.key(for: group.workspaceID, sections: sections)
         return VStack(alignment: .leading, spacing: M.cardGap) {
             HStack(spacing: M.groupLabelSpacing) {
-                WorkspaceMark(
-                    theme: theme, key: WorkspaceIdentityStore.key(for: group.workspaceID, sections: sections),
-                    identity: identity, size: M.groupIdentitySquare, cornerRadius: M.groupIdentitySquareRadius
-                )
+                WorkspaceMark(theme: theme, key: key, size: M.groupMark)
                 Text(group.name)
                     .font(ChromeType.missionGroupName)
-                    .foregroundStyle(theme.identityInk(identity))
+                    .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
             }
-            .contextMenu { IdentityColourMenu(theme: theme, key: WorkspaceIdentityStore.key(for: group.workspaceID, sections: sections)) }
+            .contextMenu { WorkspaceSymbolMenu(key: key) }
             ForEach(group.cards) { card($0, sections: sections, now: now, cooling: cooling) }
         }
         .padding(M.groupPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.identityTint(identity), in: RoundedRectangle(cornerRadius: M.groupCornerRadius))
+        .background(theme.workspaceWash, in: RoundedRectangle(cornerRadius: M.groupCornerRadius))
     }
 
     private func card(_ card: MissionCard, sections: RailSections, now: Date, cooling: Bool) -> some View {
@@ -163,7 +159,7 @@ struct MissionControlView: View {
             Button("Rename Pane") { viewModel.beginRename(.pane(card.paneID)) }
                 .accessibilityIdentifier("flock.mission.card.rename")
             Divider()
-            IdentityColourMenu(theme: theme, key: WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections))
+            WorkspaceSymbolMenu(key: WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections))
             Divider()
             Button("Close Pane") { Task { await viewModel.closePane(card.paneID) } }
                 .accessibilityIdentifier("flock.mission.card.close")
@@ -181,10 +177,6 @@ struct MissionControlView: View {
             commit: { text in Task { await viewModel.commitRename(text, for: target) } },
             cancel: { viewModel.cancelRename() }
         )
-    }
-
-    private func identityColor(_ workspace: WorkspaceID, sections: RailSections) -> Color? {
-        MissionBoard.identityColor(workspace, sections: sections, identity: identity, theme: theme)
     }
 
     private func move(_ direction: MissionSelection.Direction) {
@@ -327,7 +319,7 @@ extension MissionBoard {
     }
 
     /// One pane's card as `make`'s board draws it, with the sections its
-    /// identity colour is read from.
+    /// workspace key is read from.
     @MainActor
     static func card(
         _ pane: PaneID, viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore
@@ -339,19 +331,6 @@ extension MissionBoard {
             oneTitle: viewModel.oneTitle
         )
         return card.map { ($0, sections) }
-    }
-
-    /// The identity colour a mission card or an Arrange island wears; nil for
-    /// a herd, which has no identity of its own.
-    @MainActor
-    static func identityColor(
-        _ workspace: WorkspaceID, sections: RailSections, identity: WorkspaceIdentityStore, theme: Theme
-    ) -> Color? {
-        guard let key = WorkspaceIdentityStore.key(for: workspace, sections: sections),
-              let index = identity.index(for: key)
-        else { return nil }
-        let colors = IdentityPalette.colors(for: theme.palette)
-        return colors.indices.contains(index) ? Color(colors[index]) : nil
     }
 }
 

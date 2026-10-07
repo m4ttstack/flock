@@ -746,6 +746,14 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// Every workspace symbol: a typo'd name resolves to nothing, silently,
+    /// and the mark would draw blank.
+    func testEveryWorkspaceSymbolResolves() {
+        for symbol in WorkspaceSymbols.all {
+            XCTAssertNotNil(NSImage(systemSymbolName: symbol.name, accessibilityDescription: nil), symbol.name)
+        }
+    }
+
     /// A plain SwiftUI view's own ideal height, with no window and no
     /// snapshot: what `.frame(height:)` declares is what this reports, so a
     /// band's constant and its actually-laid-out height can never quietly
@@ -1444,8 +1452,8 @@ final class ChromeRenderTests: XCTestCase {
         let cells = try XCTUnwrap(harness.drag.surfaces?.grid?.cardTabs.first { $0.workspace == GridFixture.repoTools }?.tabs)
         let first = cells[0].frame
         // The island's own outline, on the edge furthest from the proxy:
-        // accent while it takes a drop, its identity colour otherwise (it is
-        // the focused workspace's island).
+        // accent while it takes a drop, the label grey otherwise (it is the
+        // focused workspace's island).
         let border = CGPoint(x: card.maxX - ChromeMetrics.Grid.islandCurrentOutline / 2, y: card.midY)
         let atRest = try snapshot(window)
         XCTAssertNotEqual(hex(atRest, border), Theme.tokyoNight.palette.chromeRoles.accent.hex)
@@ -1807,8 +1815,8 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// A pixel of a thumbnail's handle clear of its title and status dot.
-    /// Only the focused workspace's focused tab fills its handle (with its
-    /// identity colour), so this pixel says where that tab is drawn.
+    /// Only the focused workspace's focused tab fills its handle, so this
+    /// pixel says where that tab is drawn.
     private static func focusBarPoint(of thumbnail: CGRect) -> CGPoint {
         CGPoint(x: thumbnail.minX + thumbnail.width * 0.7, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2)
     }
@@ -2345,7 +2353,7 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertNotEqual(
             hex(image, CGPoint(x: working.minX - ChromeMetrics.MissionControl.groupPadding / 2, y: working.midY)),
             theme.palette.chromeRoles.pane.hex,
-            "\(id): a Working group sits on its identity tint, not the lane's ground"
+            "\(id): a Working group sits on the neutral wash, not the lane's ground"
         )
         // Below the card, inside its group's padding, clear of the selection ring.
         XCTAssertNotEqual(
@@ -2932,6 +2940,11 @@ final class ChromeRenderTests: XCTestCase {
             let islandGround = hex(image, CGPoint(x: thumbnail.minX - 8, y: thumbnail.midY))
             XCTAssertNotEqual(islandGround, theme.palette.chromeRoles.canvas.hex, "\(id): the island is tinted, not bare canvas")
             XCTAssertTrue(grid.thumbnails.contains { $0.id == GridFixture.glanceTab }, "\(id): a quiet workspace still draws its tabs")
+            let quiet = try XCTUnwrap(grid.thumbnails.first { $0.id == GridFixture.glanceTab }?.frame)
+            XCTAssertEqual(
+                hex(image, CGPoint(x: quiet.minX - 8, y: quiet.midY)), islandGround,
+                "\(id): every island sits on the same neutral wash"
+            )
             window.close()
         }
     }
@@ -2954,14 +2967,12 @@ final class ChromeRenderTests: XCTestCase {
         }
         assertGridSamples(image, theme: theme)
 
-        // The focused tab's handle takes its island's identity colour, so it
-        // is not the thumbnail body. Sampled in the run between the title and
-        // the status dot, clear of both, since either would be its own colour.
+        // The focused tab's handle has no fill, so it is told by the underline.
         let thumbnail = try XCTUnwrap(harness.drag.surfaces?.grid?.thumbnails.first { $0.id == GridFixture.agentsTab }?.frame)
-        let beforeTheDot = ChromeMetrics.Grid.tabStripHorizontalPadding
-            + ChromeMetrics.Grid.labelStatusDot + ChromeMetrics.Grid.tabStripSpacing
-        let strip = hex(image, CGPoint(x: thumbnail.maxX - beforeTheDot, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight / 2))
-        XCTAssertNotEqual(strip, theme.palette.chromeRoles.pane.hex, "\(id): the focused tab's handle is not the thumbnail body")
+        let underline = hex(image, CGPoint(
+            x: thumbnail.midX, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight - ChromeMetrics.Grid.currentTabUnderline / 2
+        ))
+        XCTAssertEqual(underline, theme.palette.accent.hex, "\(id): the focused tab's handle is underlined")
         window.close()
     }
 
