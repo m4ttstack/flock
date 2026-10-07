@@ -65,6 +65,10 @@ public final class SessionViewModel {
     /// The panes with a tail read in flight, for the same reason and read the
     /// same way: `paneTails` is what the tiles observe.
     @ObservationIgnored private var tailReads: Set<PaneID> = []
+    /// Set by a server's refusal of the ansi read format or an answer that is
+    /// not a read, never by a transport error or timeout: those say nothing
+    /// about what herdr supports.
+    @ObservationIgnored private var ansiReadRefused = false
     @ObservationIgnored private var backgroundWorkPanes: Set<PaneID> = []
     @ObservationIgnored private var backgroundWorkReads: Set<PaneID> = []
     @ObservationIgnored private var backgroundWorkTimer: Task<Void, Never>?
@@ -856,10 +860,18 @@ public final class SessionViewModel {
                 "source": .string("visible"),
                 "lines": .int(PaneTailPolicy.readLines),
             ]
-            var ansi = plain
-            ansi["format"] = .string("ansi")
+            var text: String?
+            if !self.ansiReadRefused {
+                var ansi = plain
+                ansi["format"] = .string("ansi")
+                do {
+                    text = Self.extractReadText(try await self.client.requestRaw("pane.read", ansi))
+                    if text == nil { self.ansiReadRefused = true }
+                } catch HerdrClientError.server {
+                    self.ansiReadRefused = true
+                } catch {}
+            }
             // A herdr without the ansi format still answers a plain read.
-            var text = (try? await self.client.requestRaw("pane.read", ansi)).flatMap(Self.extractReadText)
             if text == nil {
                 text = (try? await self.client.requestRaw("pane.read", plain)).flatMap(Self.extractReadText)
             }

@@ -266,6 +266,22 @@ private actor PlainOnlyReadClient: HerdrCommandClient {
     }
 }
 
+/// The first read, an ansi one, fails on the wire; every later read answers.
+private actor FlakyAnsiReadClient: HerdrCommandClient {
+    private(set) var formats: [String?] = []
+    private let screen: String
+
+    init(screen: String) { self.screen = screen }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.read" else { return Data("{}".utf8) }
+        let format: String? = if case let .string(value) = params["format"] { value } else { nil }
+        formats.append(format)
+        if formats.count == 1 { throw HerdrClientError.transport("connection reset") }
+        return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": screen]]])
+    }
+}
+
 @MainActor
 final class PaneTailReadTests: XCTestCase {
     private let pane = PaneID(rawValue: "w1:p1")
@@ -302,6 +318,40 @@ final class PaneTailReadTests: XCTestCase {
             let formats = await client.formats
             XCTAssertEqual(formats, ["ansi", nil], "\(answer): one ansi read, then one plain retry")
         }
+    }
+
+    func testAfterARefusalLaterReadsSendOnlyThePlainRequest() async throws {
+        for answer in [PlainOnlyReadClient.AnsiAnswer.refused, .unreadable] {
+            let client = PlainOnlyReadClient(screen: "one\ntwo\n", ansiAnswer: answer)
+            let viewModel = SessionViewModel(client: client)
+            viewModel.refreshPaneTail(for: pane)
+            _ = try await tail(viewModel)
+            viewModel.refreshPaneTail(for: pane)
+            var formats = await client.formats
+            var attempts = 0
+            while formats.count < 3, attempts < 200 {
+                try await Task.sleep(for: .milliseconds(5))
+                formats = await client.formats
+                attempts += 1
+            }
+            XCTAssertEqual(formats, ["ansi", nil, nil], "\(answer): the second read skips the ansi request")
+        }
+    }
+
+    func testATransportErrorDoesNotMarkTheAnsiFormatRefused() async throws {
+        let client = FlakyAnsiReadClient(screen: "one\ntwo\n")
+        let viewModel = SessionViewModel(client: client)
+        viewModel.refreshPaneTail(for: pane)
+        _ = try await tail(viewModel)
+        viewModel.refreshPaneTail(for: pane)
+        var formats = await client.formats
+        var attempts = 0
+        while formats.count < 3, attempts < 200 {
+            try await Task.sleep(for: .milliseconds(5))
+            formats = await client.formats
+            attempts += 1
+        }
+        XCTAssertEqual(formats, ["ansi", nil, "ansi"], "the next read tries ansi again and it lands")
     }
 
     /// A pane drawn twice, in the grid and in a zoom, is asked for by both
