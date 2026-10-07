@@ -138,14 +138,16 @@ struct ArrangeZoomControl: View {
     let theme: Theme
     let isZoomed: Bool
     let workspace: WorkspaceID
+    var forced: ControlInteraction?
     let action: () -> Void
-
-    @State private var isHovering = false
 
     private typealias G = ChromeMetrics.Grid
 
     var body: some View {
-        Button(action: action) {
+        GridControlButton(
+            theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: ChromeRadius.control)),
+            restFill: theme.tabRest, restForeground: theme.textStrong, forced: forced, action: action
+        ) {
             HStack(spacing: G.zoomControlSpacing) {
                 Image(systemName: isZoomed ? "xmark" : "arrow.up.left.and.arrow.down.right")
                     .font(ChromeType.arrangeZoomSymbol)
@@ -154,17 +156,9 @@ struct ArrangeZoomControl: View {
                     Text("esc").font(ChromeType.arrangeZoomKey).foregroundStyle(theme.textLabel)
                 }
             }
-            .foregroundStyle(theme.textStrong)
             .padding(.horizontal, G.zoomControlHorizontalPadding)
             .frame(minWidth: G.zoomControlSize, minHeight: G.zoomControlSize)
-            .background(
-                RoundedRectangle(cornerRadius: ChromeRadius.control)
-                    .fill(isHovering ? theme.selection : theme.tabRest)
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
         .help(isZoomed ? "Zoom out (esc)" : "Zoom into this workspace (space)")
         .accessibilityLabel(isZoomed ? "Zoom out" : "Zoom into workspace")
         .accessibilityIdentifier(isZoomed ? "flock.grid.unzoom" : "flock.grid.zoom.\(workspace.rawValue)")
