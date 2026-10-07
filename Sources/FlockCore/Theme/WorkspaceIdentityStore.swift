@@ -28,6 +28,7 @@ public final class WorkspaceIdentityStore {
     }
 
     public static func key(for workspace: WorkspaceID, sections: RailSections) -> String? {
+        if let row = sections.pinned.first(where: { $0.record?.workspaceID == workspace }) { return row.pin.identityKey }
         if sections.herds.contains(where: { $0.workspaceID == workspace }) { return nil }
         if sections.board.contains(where: { $0.workspaceID == workspace }) { return boardKey }
         return workspace.rawValue
@@ -40,11 +41,21 @@ public final class WorkspaceIdentityStore {
         key != nil && key != boardKey
     }
 
-    /// Every key the rail shows, in rail order, so a first sighting takes
-    /// symbols in the order the rail lists workspaces.
+    /// Every pin first, empty ones included, so a closed place keeps its
+    /// symbol; then every other key the rail shows, in rail order.
     public static func keys(in sections: RailSections) -> [String] {
         var seen = Set<String>()
-        return sections.railOrder.compactMap { key(for: $0, sections: sections) }.filter { seen.insert($0).inserted }
+        let pins = sections.pinned.map(\.pin.identityKey)
+        let rest = sections.railOrder.compactMap { key(for: $0, sections: sections) }
+        return (pins + rest).filter { seen.insert($0).inserted }
+    }
+
+    /// Carries a symbol across a pin or unpin.
+    public func rekey(from old: String, to new: String) {
+        guard old != new else { return }
+        if let name = assigned.removeValue(forKey: old) { assigned[new] = name }
+        if let name = overrides.removeValue(forKey: old) { overrides[new] = name }
+        save()
     }
 
     public func symbol(for key: String) -> String? {

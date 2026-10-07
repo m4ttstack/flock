@@ -10,6 +10,39 @@ final class WorkspaceIdentityStoreTests: XCTestCase {
         return defaults
     }
 
+    private func model(_ labels: [String]) -> SessionModel {
+        let workspaces = labels.enumerated().map { index, label in
+            WorkspaceRecord(
+                workspaceID: WorkspaceID(rawValue: "w\(index + 1)"), label: label, number: index + 1,
+                activeTabID: TabID(rawValue: "w\(index + 1):t1"), agentStatus: .idle
+            )
+        }
+        return SessionModel(snapshot: SessionSnapshot(
+            version: "0.9.0", protocolVersion: 22, focusedWorkspaceID: nil, focusedTabID: nil, focusedPaneID: nil,
+            workspaces: workspaces, tabs: [], panes: [], layouts: []
+        ))
+    }
+
+    func testALinkedPinIsKeyedByThePinAndEveryPinKeyIsKept() {
+        let model = model(["acme", "web"])
+        let pins = [
+            PinnedWorkspace(id: PinID(rawValue: "p1"), name: "web", folder: "/web", workspace: WorkspaceID(rawValue: "w2"), syncedLabel: "web", confirmed: true),
+            PinnedWorkspace(id: PinID(rawValue: "p2"), name: "gone", folder: "/gone", workspace: nil, syncedLabel: nil, confirmed: false),
+        ]
+        let sections = RailSections(model: model, board: nil, pins: pins)
+        XCTAssertEqual(WorkspaceIdentityStore.key(for: WorkspaceID(rawValue: "w2"), sections: sections), "pin:p1")
+        XCTAssertEqual(WorkspaceIdentityStore.keys(in: sections), ["pin:p1", "pin:p2", "w1"])
+    }
+
+    func testRekeyMovesTheAssignmentAndTheOverride() {
+        let store = WorkspaceIdentityStore(userDefaults: defaults())
+        store.assign(["w1"])
+        store.setOverride("bird.fill", for: "w1")
+        store.rekey(from: "w1", to: "pin:p1")
+        XCTAssertEqual(store.symbol(for: "pin:p1"), "bird.fill")
+        XCTAssertNil(store.symbol(for: "w1"))
+    }
+
     private let names = WorkspaceSymbols.all.map(\.name)
 
     func testNewWorkspacesTakeTheLeastUsedSymbolInOrder() {

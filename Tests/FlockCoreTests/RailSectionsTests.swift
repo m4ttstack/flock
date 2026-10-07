@@ -23,6 +23,29 @@ private func workspace(_ id: String, _ status: AgentStatus) -> WorkspaceRecord {
 private let board = BoardWorkspaceNames(reviews: "🛹 Reviews", responds: "🛹 Responses", doctors: "🛹 Doctors")
 
 final class RailSectionsTests: XCTestCase {
+    // MARK: - Pins
+
+    func testLinkedPinsLeaveWorkspacesAndLeadTheRailOrder() {
+        let model = model(["acme", "notes", "web"])
+        let pins = [
+            PinnedWorkspace(id: PinID(rawValue: "p1"), name: "web", folder: "/web", workspace: WorkspaceID(rawValue: "w3"), syncedLabel: "web", confirmed: true),
+            PinnedWorkspace(id: PinID(rawValue: "p2"), name: "gone", folder: "/gone", workspace: nil, syncedLabel: nil, confirmed: false),
+        ]
+        let sections = RailSections(model: model, board: nil, pins: pins)
+        XCTAssertEqual(sections.workspaces.map(\.label), ["acme", "notes"])
+        XCTAssertEqual(sections.pinned.map(\.pin.name), ["web", "gone"])
+        XCTAssertEqual(sections.pinned.map { $0.record?.label }, ["web", nil])
+        XCTAssertEqual(sections.railOrder.map(\.rawValue), ["w3", "w1", "w2"])
+        XCTAssertEqual(sections.navigationOrder { _ in false }.map(\.title), ["web", "acme", "notes"])
+    }
+
+    func testModelInsertIndexSkipsPinnedWorkspaces() {
+        let model = model(["acme", "web", "notes"])
+        let pinned: Set<WorkspaceID> = [WorkspaceID(rawValue: "w2")]
+        XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: 1, in: model, board: nil, pinned: pinned), 2)
+        XCTAssertEqual(RailSections.modelInsertIndex(forRailIndex: 2, in: model, board: nil, pinned: pinned), 3)
+    }
+
     // MARK: - The split
 
     func testBoardsWorkspacesLeaveTheRegularListForTheirOwnSection() {

@@ -5,7 +5,8 @@ import Foundation
 /// the only thing that runs `ops` for real. `board` is only read to place a
 /// rail slot, whose rows leave Board's workspaces out.
 public func plan(
-    dragging subject: DragSubject, onto target: DropTarget, model: SessionModel, board: BoardWorkspaceNames? = nil
+    dragging subject: DragSubject, onto target: DropTarget, model: SessionModel, board: BoardWorkspaceNames? = nil,
+    pinned: Set<WorkspaceID> = []
 ) -> Result<OpPlan, PlanError> {
     switch (subject, target) {
     case let (.pane(pane), .paneEdge(t, edge)):
@@ -33,13 +34,13 @@ public func plan(
         return planTabMigration(tab: tab, workspace: workspace, model: model)
 
     // The rail's slot counts only the rows it drags, which leave Board's
-    // workspaces and herds out.
+    // workspaces, herds and pinned workspaces out.
     case let (.workspace(workspace), .workspaceRail(insertIndex)):
-        let modelIndex = RailSections.modelInsertIndex(forRailIndex: insertIndex, in: model, board: board)
+        let modelIndex = RailSections.modelInsertIndex(forRailIndex: insertIndex, in: model, board: board, pinned: pinned)
         return planWorkspaceReorder(workspace: workspace, insertIndex: modelIndex, model: model)
 
     case let (.workspaces(block), .workspaceRail(insertIndex)):
-        let modelIndex = RailSections.modelInsertIndex(forRailIndex: insertIndex, in: model, board: board)
+        let modelIndex = RailSections.modelInsertIndex(forRailIndex: insertIndex, in: model, board: board, pinned: pinned)
         return planWorkspaceBlockReorder(block: block, insertIndex: modelIndex, model: model)
 
     default:
