@@ -75,7 +75,7 @@ struct MissionControlView: View {
                             ForEach(section.groups) { group($0, sections: sections, now: now, cooling: true) }
                         }
                     }
-                    .padding(.top, section.id == board.atRest.first?.id ? 0 : M.restSectionGap)
+                    .padding(.top, section.id == board.atRest.first?.id ? M.restFirstSectionGap : M.restSectionGap)
                 }
             }
         }
@@ -233,7 +233,7 @@ struct RestSectionLabel: View {
                         Image(systemName: section.isCollapsed ? "chevron.right" : "chevron.down")
                             .font(.system(size: 9, weight: .semibold))
                         title
-                        Text("\(section.count)").font(ChromeType.missionLaneTitle)
+                        Text("\(section.count)").font(ChromeType.missionRestSection)
                     }
                     .padding(.vertical, M.restDisclosureVerticalPadding)
                     .padding(.horizontal, M.restDisclosureHorizontalPadding)
@@ -242,7 +242,7 @@ struct RestSectionLabel: View {
                 .padding(.leading, -M.restDisclosureHorizontalPadding)
                 .accessibilityIdentifier("flock.mission.rest.older")
             } else {
-                title.foregroundStyle(theme.textLabel)
+                title.foregroundStyle(theme.textLabel.opacity(M.restLabelOpacity))
             }
             Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
         }
@@ -250,7 +250,7 @@ struct RestSectionLabel: View {
 
     private var title: some View {
         Text(section.age.title.uppercased())
-            .font(ChromeType.missionLaneTitle)
+            .font(ChromeType.missionRestSection)
             .tracking(M.restLabelTracking)
             .lineLimit(1)
             .fixedSize()

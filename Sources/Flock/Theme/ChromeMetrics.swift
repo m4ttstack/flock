@@ -832,6 +832,8 @@ enum ChromeMetrics {
         static let restLabelTracking: CGFloat = 1
         /// Added above every section but the first, on top of the card gap.
         static let restSectionGap: CGFloat = 6
+        static let restFirstSectionGap: CGFloat = 4
+        static let restLabelOpacity: Double = 0.75
         /// Room around the Older disclosure's text for its hover block, taken
         /// back out of its leading edge so the label lines up with the others.
         static let restDisclosureCornerRadius: CGFloat = 3

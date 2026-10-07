@@ -132,6 +132,7 @@ enum ChromeType {
     static let gridMiniPaneStatus = mono(10)
 
     static let missionLaneTitle = inter(10.5, .semibold)
+    static let missionRestSection = inter(9.5, .semibold)
     static let missionLaneCount = inter(12)
     static let missionCardMeta = inter(11.5)
     static let missionCardTitle = inter(14.5, .medium)
