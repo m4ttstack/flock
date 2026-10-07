@@ -66,7 +66,7 @@ public enum RestAge: CaseIterable, Sendable {
         case .yesterday: "Yesterday"
         case .thisWeek: "This week"
         case .older: "Older"
-        case .unknown: "Earlier"
+        case .unknown: "Unknown"
         }
     }
 
@@ -85,7 +85,7 @@ public enum RestAge: CaseIterable, Sendable {
 
 /// One of At rest's time sections. Never empty.
 public struct MissionRestSection: Equatable, Sendable, Identifiable {
-    /// Past this many panes, Older and Earlier can fold to their label.
+    /// Past this many panes, Older and Unknown can fold to their label.
     public static let collapsibleOver = 8
 
     public var id: RestAge { age }
@@ -176,7 +176,7 @@ public struct MissionBoard: Equatable, Sendable {
     public init(
         model: SessionModel, sections: RailSections, toasts: AttentionToastStack,
         history: PaneStatusHistory, now: Date, calendar: Calendar = .current, opensOlder: Bool = false,
-        opensEarlier: Bool = false, oneTitle: Bool = false
+        opensUnknown: Bool = false, oneTitle: Bool = false
     ) {
         let rank = Dictionary(sections.railOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let names = Self.workspaceNames(model: model, sections: sections)
@@ -227,7 +227,7 @@ public struct MissionBoard: Equatable, Sendable {
         atRest = RestAge.allCases.compactMap { age in
             guard let cards = byAge[age] else { return nil }
             let collapsible = (age == .older || age == .unknown) && cards.count > MissionRestSection.collapsibleOver
-            let opened = age == .unknown ? opensEarlier : opensOlder
+            let opened = age == .unknown ? opensUnknown : opensOlder
             return MissionRestSection(
                 age: age, groups: Self.grouped(cards), count: cards.count,
                 isCollapsible: collapsible, isCollapsed: collapsible && !opened

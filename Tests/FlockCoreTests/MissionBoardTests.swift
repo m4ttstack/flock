@@ -16,12 +16,12 @@ final class MissionBoardTests: XCTestCase {
     private func board(
         _ model: SessionModel, toasts: AttentionToastStack = AttentionToastStack(),
         changedAgo: [String: TimeInterval] = [:], board names: BoardWorkspaceNames? = nil, opensOlder: Bool = false,
-        opensEarlier: Bool = false, unrecorded: Set<String> = []
+        opensUnknown: Bool = false, unrecorded: Set<String> = []
     ) -> MissionBoard {
         MissionBoard(
             model: model, sections: RailSections(model: model, board: names), toasts: toasts,
             history: history(model, changedAgo: changedAgo, unrecorded: unrecorded), now: now, calendar: utc,
-            opensOlder: opensOlder, opensEarlier: opensEarlier
+            opensOlder: opensOlder, opensUnknown: opensUnknown
         )
     }
 
@@ -178,7 +178,7 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertFalse(b.atRest[0].isCollapsed)
     }
 
-    func testAPaneWithNoKnownChangeRestsInEarlierAfterOlderInRailOrder() {
+    func testAPaneWithNoKnownChangeRestsInUnknownAfterOlderInRailOrder() {
         let model = MissionFixture.model([
             W(label: "acme", tabs: [T(label: "a", panes: [P(status: .idle), P(status: .idle)])]),
             W(label: "flock", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .done)])]),
@@ -189,7 +189,7 @@ final class MissionBoardTests: XCTestCase {
         )
         XCTAssertEqual(b.atRest.map(\.age), [.lastHour, .older, .unknown])
         let earlier = b.atRest[2]
-        XCTAssertEqual(earlier.age.title, "Earlier")
+        XCTAssertEqual(earlier.age.title, "Unknown")
         XCTAssertEqual(earlier.groups.map(\.name), ["acme", "flock"])
         XCTAssertEqual(earlier.groups.map { $0.cards.map(\.paneID.rawValue) }, [["w1:t1:p1"], ["w2:t1:p1"]])
         XCTAssertEqual(earlier.groups.flatMap(\.cards).map(\.since), [nil, nil])
@@ -203,7 +203,7 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(restCards(b), ["w1:t1:p1", "w1:t1:p2"])
     }
 
-    func testAPaneThatChangedAfterFirstSightLeavesEarlier() {
+    func testAPaneThatChangedAfterFirstSightLeavesUnknown() {
         let model = MissionFixture.single([.idle])
         var history = history(model, changedAgo: [:], unrecorded: ["w1:t1:p1"])
         let done = MissionFixture.single([.done])
@@ -215,7 +215,7 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(b.atRest.map(\.age), [.lastHour])
     }
 
-    func testEarlierFoldsOnlyPastEightPanesWithItsOwnOpenState() {
+    func testUnknownFoldsOnlyPastEightPanesWithItsOwnOpenState() {
         let many = MissionFixture.single(Array(repeating: .idle, count: 9))
         let manyPanes = Set(many.panes.keys.map(\.rawValue))
         let folded = board(many, unrecorded: manyPanes)
@@ -223,8 +223,8 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertTrue(folded.atRest[0].isCollapsed)
         XCTAssertTrue(folded.columns[2].isEmpty)
         XCTAssertEqual(folded.atRestCount, 9)
-        XCTAssertTrue(board(many, opensOlder: true, unrecorded: manyPanes).atRest[0].isCollapsed, "Older's flag does not open Earlier")
-        let opened = board(many, opensEarlier: true, unrecorded: manyPanes)
+        XCTAssertTrue(board(many, opensOlder: true, unrecorded: manyPanes).atRest[0].isCollapsed, "Older's flag does not open Unknown")
+        let opened = board(many, opensUnknown: true, unrecorded: manyPanes)
         XCTAssertFalse(opened.atRest[0].isCollapsed)
         XCTAssertEqual(opened.columns[2].count, 9)
 

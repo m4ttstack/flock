@@ -27,8 +27,8 @@ public final class AllWorkspacesModeStore {
     /// At rest's Older section, open or folded as it was left. Read only
     /// while Older is long enough to fold.
     public var opensOlder = false
-    /// The same for the Earlier section, panes with no known last change.
-    public var opensEarlier = false
+    /// The same for the Unknown section, panes with no known last change.
+    public var opensUnknown = false
 
     @ObservationIgnored private let userDefaults: UserDefaults
 

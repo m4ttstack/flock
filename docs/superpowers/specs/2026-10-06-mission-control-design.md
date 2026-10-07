@@ -115,7 +115,7 @@ recent first:
 - **Yesterday**: the previous calendar day.
 - **This week**: within the last 7 days.
 - **Older**: anything before that.
-- **Earlier**: a pane with no known last change (Status history, below).
+- **Unknown**: a pane with no known last change (Status history, below).
   Always last, after Older. Its panes follow rail order (workspaces, then
   board, then herds, then tab and pane order) instead of most recent first.
 
@@ -126,7 +126,7 @@ same tinted workspace groups as the other lanes: the group with the most
 recent change comes first, and inside a group the most recent change comes
 first. A workspace with panes in two sections has a group in each.
 
-Older and Earlier each fold only when they hold more than 8 panes: the label
+Older and Unknown each fold only when they hold more than 8 panes: the label
 becomes a disclosure (chevron, label, count) that starts folded, and each
 one's open or folded state is kept in `AllWorkspacesModeStore` while the view
 is closed.
@@ -332,7 +332,7 @@ Any other pane in that first snapshot (a fresh install, a pane flock never
 saw change, or one whose status changed while flock was closed) began its
 current status at an unknown time. Its timeline starts at launch, with the
 track before it empty, but it has no last change: its age and last change
-are nil, nothing is persisted for it, and it rests under Earlier. Its first
+are nil, nothing is persisted for it, and it rests under Unknown. Its first
 observed status change records a real time as for any pane. A pane that
 appears after that first snapshot began just now and is dated then.
 
@@ -440,7 +440,7 @@ FlockCore unit tests:
   pane quiet for weeks;
 - At rest's sections under an injected clock and calendar: 59 against 61
   minutes, midnight, yesterday, 7 days, the calendar's time zone, Older and
-  Earlier folding only past 8 panes each, and Earlier last in rail order;
+  Unknown folding only past 8 panes each, and Unknown last in rail order;
 - lane ordering: Needs you grouped by workspace with the oldest card on
   top, rail-ordered Working with label breaks, At rest's sections most
   recent first with workspace groups most recent first inside each, and the
