@@ -1,4 +1,3 @@
-import CoreGraphics
 import FlockCore
 
 /// The All Workspaces grid's side of the coordinator. Every decision lives in
@@ -45,19 +44,5 @@ extension DragCoordinator {
     /// not about.
     var gridSelection: PaneID? {
         activeSubject == nil ? gridSelectedPane : nil
-    }
-}
-
-/// Only `ChromeRenderTests` calls these, from its tests of the preview card
-/// Arrange no longer has. They go when those tests move to the selection.
-extension DragCoordinator {
-    func showGridPreview(pane: PaneID) {
-        selectGridPane(pane)
-    }
-
-    var gridPreviewCard: PaneID? { gridSelection }
-
-    func gridPaneFrame(of pane: PaneID) -> CGRect? {
-        surfaces?.grid?.miniPaneFrame(of: pane)
     }
 }

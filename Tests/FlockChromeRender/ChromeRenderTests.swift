@@ -970,13 +970,14 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The All Workspaces grid from fixture layouts, with a pane's preview card
-    /// open. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set; the
-    /// samples and the no-attach check always run.
+    /// The All Workspaces grid from fixture layouts, with a mini pane
+    /// selected. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set;
+    /// the samples and the no-attach check always run.
     func testAllWorkspacesGridRendersFromLayoutsWithoutAttachingAPane() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let model = try GridFixture.model()
         let harness = try await Harness(theme: .tokyoNight, model: model, client: GridFixtureClient(), attaching: [])
+        harness.modeStore.select(.arrange)
         let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         let shownByTheCanvas = Set(model.panes.keys.filter { harness.viewModel.ghosttySurface(for: $0) != nil })
@@ -993,100 +994,104 @@ final class ChromeRenderTests: XCTestCase {
         let claude = try XCTUnwrap(boxes.first { $0.pane == GridFixture.claudePane })
         let rest = try snapshot(window)
         assertGridSamples(rest, theme: .tokyoNight)
-        harness.drag.showGridPreview(pane: claude.pane)
+        harness.drag.selectGridPane(claude.pane)
         await settle(window)
-        // The card is placed against this box, so a card drawn anywhere else
-        // means the grid published a box the layout does not agree with.
-        let anchor = try XCTUnwrap(harness.drag.gridPaneFrame(of: claude.pane))
+        // The selection outline is drawn against this box, so an outline drawn
+        // anywhere else means the grid published a box the layout does not
+        // agree with.
+        let anchor = try XCTUnwrap(harness.drag.surfaces?.grid?.miniPaneFrame(of: claude.pane))
         XCTAssertEqual(anchor.minX, panes.minX + claude.frame.minX, accuracy: 0.5)
         XCTAssertEqual(anchor.minY, panes.minY + claude.frame.minY, accuracy: 0.5)
-        // The tail end to end, through the real decode: a card that opened and
-        // read nothing is what this render exists to catch.
-        let tail = try XCTUnwrap(harness.viewModel.paneTails[claude.pane], "the card opened without reading its pane")
+        // The tail end to end, through the real decode, on a tile big enough
+        // to read (the claude mini pane is below `TileDetail.tail`): a tile
+        // that drew and read nothing is what this render exists to catch.
+        let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
         XCTAssertEqual(tail.lines.count, PaneTailPolicy.lines)
         XCTAssertEqual(tail.lines.last, "Editing lib/daemon.ts")
-        let previewing = try snapshot(window)
+        let selected = try snapshot(window)
         if let directory {
-            try XCTUnwrap(previewing.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-preview.png"))
+            try XCTUnwrap(selected.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-selected.png"))
         }
         for pane in model.panes.keys where !shownByTheCanvas.contains(pane) {
             XCTAssertNil(harness.viewModel.ghosttySurface(for: pane), "the grid attached \(pane.rawValue)")
         }
-        // The grid's own canvas margin, well clear of the card: dimmed while
-        // the card is up, and only slightly.
-        let margin = CGPoint(x: 5, y: 120)
-        let dimming = channelDistance(hex(previewing, margin), hex(rest, margin))
-        XCTAssertGreaterThan(dimming, 0, "nothing dims the grid behind the card")
-        XCTAssertLessThan(dimming, 16, "the dim is heavy enough to hide the grid")
+        XCTAssertEqual(
+            hex(selected, CGPoint(x: anchor.midX, y: anchor.minY + 0.5)), Theme.tokyoNight.palette.accent.hex,
+            "the selected pane carries no accent outline"
+        )
         window.close()
     }
 
-    /// The preview card in a light theme, where its chrome ground sits over a
-    /// light canvas. A click on another pane moves it, and Esc puts it away
-    /// without closing the grid behind it.
-    func testThePreviewCardRendersInALightThemeAndEscPutsItAwayFirst() async throws {
+    /// Selection in a light theme: a click on another pane moves it, Return
+    /// opens it in Workspaces, and Esc puts it down without closing the grid.
+    func testASelectionMovesOpensAndEscPutsItAwayFirstInALightTheme() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })
         let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: GridFixtureClient(), attaching: [])
+        harness.modeStore.select(.arrange)
         let window = harness.makeWindow(size: Self.gridWindowSize)
         await settle(window)
         harness.drag.toggleGrid()
         await settle(window)
 
-        harness.drag.showGridPreview(pane: GridFixture.buildPane)
-        harness.drag.showGridPreview(pane: GridFixture.claudePane)
+        harness.drag.selectGridPane(GridFixture.buildPane)
+        harness.drag.selectGridPane(GridFixture.claudePane)
         await settle(window)
-        XCTAssertEqual(harness.drag.gridPreviewCard, GridFixture.claudePane, "the last click's pane")
-        XCTAssertNotNil(harness.viewModel.paneTails[GridFixture.claudePane], "the card opened without reading its pane")
+        XCTAssertEqual(harness.drag.gridSelection, GridFixture.claudePane, "the last click's pane")
+        XCTAssertNotNil(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
+        let image = try snapshot(window)
         if let directory {
-            try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-preview-latte.png"))
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("grid-selected-latte.png"))
         }
+        let box = try XCTUnwrap(harness.drag.surfaces?.grid?.miniPaneFrame(of: GridFixture.claudePane))
+        XCTAssertEqual(
+            hex(image, CGPoint(x: box.midX, y: box.minY + 0.5)), theme.palette.accent.hex,
+            "the selected pane carries no accent outline"
+        )
 
         harness.drag.updateGrid { $0.escape() }
-        XCTAssertNil(harness.drag.gridPreviewCard)
-        XCTAssertTrue(harness.drag.isGridShown, "Esc took the grid down with the card")
+        XCTAssertNil(harness.drag.gridSelection)
+        XCTAssertTrue(harness.drag.isGridShown, "Esc took the grid down with the selection")
         harness.drag.updateGrid { $0.escape() }
         XCTAssertFalse(harness.drag.isGridShown)
         window.close()
     }
 
-    /// A full-screen TUI wider than the card, read in herdr's ANSI format: the
-    /// card draws its bars in the theme's own terminal colours and the cube's,
-    /// and sets every row on one line. PNGs are written only when
-    /// `FLOCK_GRID_RENDER_DIR` is set.
-    func testThePreviewCardDrawsAStyledTUIInItsOwnColoursWithoutWrapping() async throws {
+    /// A full-screen TUI wider than its tile, read in herdr's ANSI format: the
+    /// tile keeps the colours it was sent, and Copy Output hands back the
+    /// plain text. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
+    func testAnArrangeTileDrawsAStyledTUIInItsOwnColours() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let latte = try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })
-        for (theme, name) in [(Theme.tokyoNight, "grid-preview-ansi.png"), (latte, "grid-preview-ansi-latte.png")] {
+        for (theme, name) in [(Theme.tokyoNight, "grid-tile-ansi.png"), (latte, "grid-tile-ansi-latte.png")] {
             let harness = try await Harness(theme: theme, model: try GridFixture.model(), client: AnsiTUIClient(), attaching: [])
+            harness.modeStore.select(.arrange)
             let window = harness.makeWindow(size: Self.gridWindowSize)
             await settle(window)
             harness.drag.toggleGrid()
             await settle(window)
-            harness.drag.showGridPreview(pane: GridFixture.claudePane)
             await settle(window)
 
-            let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.claudePane], "the card opened without reading its pane")
+            let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
             XCTAssertEqual(tail.rows.map(\.columns).max(), AnsiTUIClient.columns)
             XCTAssertEqual(tail.lines.first, " acme switch · 5 accounts")
             XCTAssertFalse(tail.text.unicodeScalars.contains { $0.value == 0x1B }, "an escape reached the copied text")
+            let copied = try XCTUnwrap(PaneOutputCopy.text(of: tail), "Copy Output found nothing to copy")
+            XCTAssertEqual(copied, tail.text)
+            XCTAssertTrue(copied.contains("acme-main"))
 
             let image = try snapshot(window)
             if let directory {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent(name))
             }
-            let ansi = theme.ghosttyThemeColors().ansi
-            // The header bar spans the card's text width, and the usage bars
-            // are a fifth of it at least, so a run that long is one of them.
-            XCTAssertGreaterThan(longestRun(of: ansi[4], in: image), 400, "\(theme.id): no header bar in the theme's blue")
-            XCTAssertGreaterThan(longestRun(of: ansi[2], in: image), 80, "\(theme.id): no usage bar in the theme's green")
-            XCTAssertGreaterThan(
-                longestRun(of: TerminalPalette.rgb(of: .indexed(208), ansi: ansi), in: image), 80,
-                "\(theme.id): no usage bar in the cube's orange"
-            )
+            // A tile shows the tail's last rows, which here end on the lowest
+            // account, whose usage bar is a 24-bit colour: styled text
+            // reaches the tile in the colour herdr sent.
+            let bar = GhosttyThemeColor(red: 180, green: 120, blue: 255)
+            XCTAssertGreaterThan(longestRun(of: bar, in: image), 0, "\(theme.id): no usage bar in the tile")
             window.close()
         }
     }
