@@ -62,26 +62,45 @@ struct MissionControlView: View {
     private func lanes(_ board: MissionBoard, sections: RailSections, now: Date) -> some View {
         let host = renameHost(in: board)
         return HStack(alignment: .top, spacing: M.laneGap) {
-            lane(title: "NEEDS YOU", status: .blocked, count: board.needsYou.reduce(0) { $0 + $1.cards.count }) {
-                if board.needsYou.isEmpty {
-                    Text("Nothing needs you").font(ChromeType.missionEmpty).foregroundStyle(theme.textLabel)
-                }
-                ForEach(board.needsYou) { group($0, sections: sections, now: now, cooling: false, renameHost: host) }
+            lane(title: "NEEDS YOU", count: board.needsYou.cardCount) {
+                LaneMark(
+                    theme: theme, front: board.needsYou.top.isEmpty ? nil : ShownStatus(.blocked),
+                    back: board.needsYou.bottom.isEmpty ? nil : ShownStatus(.done), resting: ShownStatus(.blocked),
+                    ground: theme.pane, size: M.laneDot
+                )
+            } body: {
+                split(
+                    board.needsYou, top: .blocked, bottom: .done, emptyMessage: "Nothing needs you",
+                    sections: sections, now: now, renameHost: host
+                )
             }
-            lane(title: "WORKING", status: .working, count: board.working.reduce(0) { $0 + $1.cards.count }) {
-                ForEach(board.working) { group($0, sections: sections, now: now, cooling: false, renameHost: host) }
+            lane(title: "WORKING", count: board.working.cardCount) {
+                LaneMark(
+                    theme: theme, front: board.working.top.isEmpty ? nil : ShownStatus(.working),
+                    back: board.working.bottom.isEmpty ? nil : ShownStatus(.idle, backgroundWork: MissionSubgroup.background.rawValue),
+                    resting: ShownStatus(.working), ground: theme.pane, size: M.laneDot
+                )
+            } body: {
+                split(
+                    board.working, top: .working, bottom: .background, emptyMessage: nil,
+                    sections: sections, now: now, renameHost: host
+                )
             }
-            lane(title: "AT REST", status: .idle, count: board.atRestCount) {
-                ForEach(board.atRest) { section in
-                    VStack(alignment: .leading, spacing: M.cardGap) {
-                        RestSectionLabel(theme: theme, section: section) {
-                            if section.age == .unknown { mode.opensUnknown.toggle() } else { mode.opensOlder.toggle() }
+            lane(title: "AT REST", count: board.atRestCount) {
+                StatusDot(status: .idle, theme: theme, size: M.laneDot)
+            } body: {
+                restScroll {
+                    ForEach(board.atRest) { section in
+                        VStack(alignment: .leading, spacing: M.cardGap) {
+                            RestSectionLabel(theme: theme, section: section) {
+                                if section.age == .unknown { mode.opensUnknown.toggle() } else { mode.opensOlder.toggle() }
+                            }
+                            if !section.isCollapsed {
+                                ForEach(section.groups) { group($0, sections: sections, now: now, cooling: true, renameHost: host) }
+                            }
                         }
-                        if !section.isCollapsed {
-                            ForEach(section.groups) { group($0, sections: sections, now: now, cooling: true, renameHost: host) }
-                        }
+                        .padding(.top, section.id == board.atRest.first?.id ? M.restFirstSectionGap : M.restSectionGap)
                     }
-                    .padding(.top, section.id == board.atRest.first?.id ? M.restFirstSectionGap : M.restSectionGap)
                 }
             }
         }
@@ -97,46 +116,72 @@ struct MissionControlView: View {
         .animation(reduceMotion ? nil : .easeOut(duration: M.laneMoveDuration), value: board)
     }
 
-    private func lane<Content: View>(
-        title: String, status: AgentStatus, count: Int, @ViewBuilder content: () -> Content
+    private func lane<Mark: View, Body: View>(
+        title: String, count: Int, @ViewBuilder mark: () -> Mark, @ViewBuilder body: () -> Body
     ) -> some View {
-        let cards = content()
-        return VStack(alignment: .leading, spacing: M.cardGap - M.selectionInset) {
+        VStack(alignment: .leading, spacing: M.cardGap - M.selectionInset) {
             HStack(spacing: M.laneHeaderSpacing) {
-                StatusDot(status: status, theme: theme, size: M.laneDot)
+                mark()
                 Text(title).font(ChromeType.missionLaneTitle).tracking(1.28).foregroundStyle(theme.textLabel)
                 Text("\(count)").font(ChromeType.missionLaneCount).foregroundStyle(theme.textLabel)
             }
             .padding(.horizontal, M.selectionInset)
-            ScrollViewReader { reader in
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: M.cardGap) { cards }
-                        .padding(M.selectionInset)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .scrollIndicators(.never)
-                .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-                // Clipped top and bottom only: a card moving to another lane
-                // is drawn by the lane it lands in, and has to stay visible
-                // as it crosses from its old lane.
-                .scrollClipDisabled()
-                .mask { Rectangle().padding(.horizontal, -M.crossLaneReach) }
-                .onAppear { if let selected = mode.missionSelection { reader.scrollTo(selected) } }
-                .onChange(of: mode.missionSelection) { _, selected in
-                    if let selected { withAnimation { reader.scrollTo(selected) } }
-                }
-            }
+            body()
         }
         .padding(M.lanePadding - M.selectionInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    private func split(
+        _ lane: MissionSplitLane, top: MissionSubgroup, bottom: MissionSubgroup, emptyMessage: String?,
+        sections: RailSections, now: Date, renameHost: PaneID?
+    ) -> some View {
+        SplitLaneBody(
+            theme: theme, memory: MissionLaneMemory.of(viewModel),
+            top: MissionSubgroupSlot(kind: top, cards: lane.top.flatMap(\.cards).map(\.paneID)),
+            bottom: MissionSubgroupSlot(kind: bottom, cards: lane.bottom.flatMap(\.cards).map(\.paneID)),
+            emptyMessage: emptyMessage, selection: mode.missionSelection
+        ) { kind in
+            let groups = kind == top ? lane.top : lane.bottom
+            ForEach(groups) { each in
+                group(
+                    each, sections: sections, now: now, cooling: false, renameHost: renameHost,
+                    floor: each.id == groups.first?.id ? kind : nil
+                )
+            }
+        }
+    }
+
+    private func restScroll<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        let cards = content()
+        return ScrollViewReader { reader in
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: M.cardGap) { cards }
+                    .padding(M.selectionInset)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.never)
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+            // Clipped top and bottom only: a card moving to another lane
+            // is drawn by the lane it lands in, and has to stay visible
+            // as it crosses from its old lane.
+            .scrollClipDisabled()
+            .mask { Rectangle().padding(.horizontal, -M.crossLaneReach) }
+            .onAppear { if let selected = mode.missionSelection { reader.scrollTo(selected) } }
+            .onChange(of: mode.missionSelection) { _, selected in
+                if let selected { withAnimation { reader.scrollTo(selected) } }
+            }
+        }
+    }
+
     /// A workspace's cards in one lane on the neutral wash its Arrange island
     /// wears. Its mark opens the symbol picker, and its menu is the rail's.
     /// `renameHost` is the one group, across every lane, that hosts the
-    /// workspace's rename editor.
+    /// workspace's rename editor. `floor` names the subgroup this group
+    /// leads, whose first card then reports where it ends.
     private func group(
-        _ group: MissionGroup, sections: RailSections, now: Date, cooling: Bool, renameHost: PaneID?
+        _ group: MissionGroup, sections: RailSections, now: Date, cooling: Bool, renameHost: PaneID?,
+        floor: MissionSubgroup? = nil
     ) -> some View {
         let key = WorkspaceIdentityStore.key(for: group.workspaceID, sections: sections)
         let drawsSymbol = WorkspaceMark.drawsSymbol(key: key, logo: boardNames.logo, in: identityStore)
@@ -160,7 +205,10 @@ struct MissionControlView: View {
                         .lineLimit(1)
                 }
             }
-            ForEach(group.cards) { card($0, now: now, cooling: cooling) }
+            ForEach(group.cards) { each in
+                card(each, now: now, cooling: cooling)
+                    .missionSubgroupFloor(each.id == group.cards.first?.id ? floor : nil, in: MissionLaneMemory.of(viewModel))
+            }
         }
         .padding(M.groupPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -175,7 +223,7 @@ struct MissionControlView: View {
     /// first one drawn, so a workspace with a group in several lanes shows one.
     private func renameHost(in board: MissionBoard) -> PaneID? {
         guard case .workspace(let workspace) = viewModel.renameTarget else { return nil }
-        let drawn = board.needsYou + board.working + board.atRest.filter { !$0.isCollapsed }.flatMap(\.groups)
+        let drawn = board.needsYou.groups + board.working.groups + board.atRest.filter { !$0.isCollapsed }.flatMap(\.groups)
         return drawn.first { $0.workspaceID == workspace }?.cards.first?.paneID
     }
 

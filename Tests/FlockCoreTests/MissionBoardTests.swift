@@ -294,10 +294,50 @@ final class MissionBoardTests: XCTestCase {
         toasts.raise(toast("w2:t1:p2", .needsInput, raised: 300))
         toasts.raise(toast("w1:t1:p2", .finished, raised: 60))
         let b = board(model, toasts: toasts)
-        XCTAssertEqual(b.needsYou.map(\.name), ["flock", "acme"], "the group holding the oldest card leads")
-        XCTAssertEqual(b.needsYou.map { $0.cards.map(\.paneID.rawValue) }, [["w2:t1:p1", "w2:t1:p2"], ["w1:t1:p1", "w1:t1:p2"]])
-        XCTAssertEqual(b.columns[0].first?.rawValue, "w2:t1:p1", "the top card is the oldest of all")
+        XCTAssertEqual(b.needsYou.top.map(\.name), ["flock", "acme"], "the group holding the oldest card leads")
+        XCTAssertEqual(b.needsYou.top.map { $0.cards.map(\.paneID.rawValue) }, [["w2:t1:p1", "w2:t1:p2"], ["w1:t1:p1"]])
+        XCTAssertEqual(b.needsYou.bottom.map { $0.cards.map(\.paneID.rawValue) }, [["w1:t1:p2"]], "a finished card is under Done")
+        XCTAssertEqual(b.columns[0].first?.rawValue, "w2:t1:p1", "the top card is the oldest blocked one")
         XCTAssertEqual(b.columns[0].map(\.rawValue), ["w2:t1:p1", "w2:t1:p2", "w1:t1:p1", "w1:t1:p2"], "the keys walk the drawn order")
+    }
+
+    func testNeedsYouDrawsBlockedAboveDoneEachOldestFirst() {
+        let model = MissionFixture.model([
+            W(label: "acme", tabs: [T(label: "a", panes: [P(status: .done), P(status: .blocked), P(status: .done)])]),
+            W(label: "flock", tabs: [T(label: "b", panes: [P(status: .blocked)])]),
+        ])
+        var toasts = AttentionToastStack()
+        toasts.raise(toast("w1:t1:p1", .finished, raised: 900))
+        toasts.raise(toast("w2:t1:p1", .needsInput, raised: 600))
+        toasts.raise(toast("w1:t1:p3", .finished, raised: 300))
+        toasts.raise(toast("w1:t1:p2", .needsInput, raised: 60))
+        let b = board(model, toasts: toasts)
+        XCTAssertEqual(b.needsYou.top.map(\.name), ["flock", "acme"])
+        XCTAssertEqual(b.needsYou.top.flatMap(\.cards).map(\.status), [.blocked, .blocked])
+        XCTAssertEqual(b.needsYou.bottom.map(\.name), ["acme"], "a workspace can head a group in both")
+        XCTAssertEqual(b.needsYou.bottom.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p1", "w1:t1:p3"])
+        XCTAssertEqual([b.needsYou.topCount, b.needsYou.bottomCount, b.needsYou.cardCount], [2, 2, 4])
+        XCTAssertEqual(
+            b.columns[0].map(\.rawValue), ["w2:t1:p1", "w1:t1:p2", "w1:t1:p1", "w1:t1:p3"],
+            "the keys walk Blocked, then Done"
+        )
+    }
+
+    func testWorkingDrawsRealWorkAboveBackgroundWorkEachInRailOrder() {
+        var model = MissionFixture.model([
+            W(label: "acme", tabs: [T(label: "a", panes: [P(status: .idle), P(status: .working)])]),
+            W(label: "flock", tabs: [T(label: "b", panes: [P(status: .working), P(status: .done)])]),
+        ])
+        for id in ["w1:t1:p1", "w2:t1:p2"] { model.panes[PaneID(rawValue: id)]?.agent = "claude" }
+        let work = [PaneID(rawValue: "w1:t1:p1"): "1 shell", PaneID(rawValue: "w2:t1:p2"): "1 monitor"]
+        let b = MissionBoard(
+            model: model, sections: RailSections(model: model, board: nil), toasts: AttentionToastStack(),
+            history: history(model, changedAgo: [:]), backgroundWork: work, now: now, calendar: utc
+        )
+        XCTAssertEqual(b.working.top.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p2", "w2:t1:p1"])
+        XCTAssertEqual(b.working.bottom.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p1", "w2:t1:p2"])
+        XCTAssertEqual(b.working.bottom.map(\.name), ["acme", "flock"])
+        XCTAssertEqual(b.columns[1].map(\.rawValue), ["w1:t1:p2", "w2:t1:p1", "w1:t1:p1", "w2:t1:p2"])
     }
 
     func testASectionGroupsByWorkspaceMostRecentChangeFirst() {

@@ -113,13 +113,40 @@ public struct MissionRestSection: Equatable, Sendable, Identifiable {
     }
 }
 
+/// A lane drawn as two subgroups, `top` above `bottom`, each grouped by
+/// workspace on its own: Needs you's blocked then done, Working's working then
+/// background. A workspace with cards in both has a group in each. As a
+/// collection it is the lane's groups in drawn order.
+public struct MissionSplitLane: Equatable, Sendable, RandomAccessCollection {
+    public let top: [MissionGroup]
+    public let bottom: [MissionGroup]
+
+    public init(top: [MissionGroup], bottom: [MissionGroup]) {
+        self.top = top
+        self.bottom = bottom
+    }
+
+    public var startIndex: Int { 0 }
+    public var endIndex: Int { top.count + bottom.count }
+    public subscript(position: Int) -> MissionGroup {
+        position < top.count ? top[position] : bottom[position - top.count]
+    }
+
+    public var groups: [MissionGroup] { top + bottom }
+    public var cards: [MissionCard] { groups.flatMap(\.cards) }
+    public var topCount: Int { top.reduce(0) { $0 + $1.cards.count } }
+    public var bottomCount: Int { bottom.reduce(0) { $0 + $1.cards.count } }
+    public var cardCount: Int { topCount + bottomCount }
+}
+
 /// Every pane in the lane its state puts it in. Needs you is the attention
 /// stack itself, so the dock and the lane can never disagree.
 public struct MissionBoard: Equatable, Sendable {
-    /// By workspace, the group holding the oldest card first and each
-    /// group's cards oldest first, so the top card is the oldest of all.
-    public let needsYou: [MissionGroup]
-    public let working: [MissionGroup]
+    /// Blocked above done. In each, by workspace, the group holding the
+    /// oldest card first and each group's cards oldest first.
+    public let needsYou: MissionSplitLane
+    /// Really working above busy only in the background, each in rail order.
+    public let working: MissionSplitLane
     /// Most recent section first, panes with no known change last. A workspace with panes in two sections
     /// has a group in each.
     public let atRest: [MissionRestSection]
@@ -129,14 +156,14 @@ public struct MissionBoard: Equatable, Sendable {
     /// The pane's card in whichever lane holds it, a folded section included.
     public func card(_ pane: PaneID) -> MissionCard? {
         let rest = atRest.flatMap { $0.groups.flatMap(\.cards) }
-        return (needsYou.flatMap(\.cards) + working.flatMap(\.cards) + rest).first { $0.paneID == pane }
+        return (needsYou.cards + working.cards + rest).first { $0.paneID == pane }
     }
 
     /// The drawn lanes, top to bottom, for the keyboard. A folded section's
     /// cards are not drawn.
     public var columns: [[PaneID]] {
         let rest = atRest.filter { !$0.isCollapsed }.flatMap { $0.groups.flatMap(\.cards) }
-        return [needsYou.flatMap(\.cards).map(\.paneID), working.flatMap(\.cards).map(\.paneID), rest.map(\.paneID)]
+        return [needsYou.cards.map(\.paneID), working.cards.map(\.paneID), rest.map(\.paneID)]
     }
 
     /// One group per workspace, in the order each workspace's first card
@@ -201,9 +228,13 @@ public struct MissionBoard: Equatable, Sendable {
         }
 
         let toasted = Set(toasts.toasts.map(\.paneID))
-        needsYou = Self.grouped(toasts.toasts.reversed().compactMap { toast in
+        let toastedCards = toasts.toasts.reversed().compactMap { toast in
             model.panes[toast.paneID].map { card($0, status: ShownStatus(toast.status), since: toast.raisedAt) }
-        })
+        }
+        needsYou = MissionSplitLane(
+            top: Self.grouped(toastedCards.filter { $0.status == .blocked }),
+            bottom: Self.grouped(toastedCards.filter { $0.status != .blocked })
+        )
 
         var working: [PaneRecord] = []
         var resting: [(PaneRecord, Date?)] = []
@@ -215,18 +246,25 @@ public struct MissionBoard: Equatable, Sendable {
             }
         }
 
-        var groups: [MissionGroup] = []
-        for pane in working.sorted(by: { railKey($0) < railKey($1) }) {
-            let next = card(
-                pane, status: ShownStatus.of(pane, backgroundWork: backgroundWork), since: history.lastChange(of: pane.paneID)
-            )
-            if let last = groups.last, last.workspaceID == pane.workspaceID {
-                groups[groups.count - 1] = MissionGroup(workspaceID: last.workspaceID, name: last.name, cards: last.cards + [next])
-            } else {
-                groups.append(MissionGroup(workspaceID: pane.workspaceID, name: next.workspaceName, cards: [next]))
+        /// A new group wherever the workspace changes, so rail order holds.
+        func runs(_ cards: [MissionCard]) -> [MissionGroup] {
+            var groups: [MissionGroup] = []
+            for next in cards {
+                if let last = groups.last, last.workspaceID == next.workspaceID {
+                    groups[groups.count - 1] = MissionGroup(workspaceID: last.workspaceID, name: last.name, cards: last.cards + [next])
+                } else {
+                    groups.append(MissionGroup(workspaceID: next.workspaceID, name: next.workspaceName, cards: [next]))
+                }
             }
+            return groups
         }
-        self.working = groups
+        let workingCards = working.sorted(by: { railKey($0) < railKey($1) }).map { pane in
+            card(pane, status: ShownStatus.of(pane, backgroundWork: backgroundWork), since: history.lastChange(of: pane.paneID))
+        }
+        self.working = MissionSplitLane(
+            top: runs(workingCards.filter { $0.backgroundWork == nil }),
+            bottom: runs(workingCards.filter { $0.backgroundWork != nil })
+        )
         let known = resting.compactMap { pane, since in
             since.map { (pane, $0) }
         }
