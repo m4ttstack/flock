@@ -78,6 +78,19 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(restCards(b), ["w1:t1:p3"])
     }
 
+    /// The view tab's badge is red, so it counts what Blocked holds and
+    /// never a done card.
+    func testTheBlockedCountIsEveryBlockedPaneCardOrNot() {
+        var toasts = AttentionToastStack()
+        toasts.raise(toast("w1:t1:p2", .needsInput, raised: 60))
+        toasts.raise(toast("w1:t1:p3", .finished, raised: 30))
+        let model = MissionFixture.single([.blocked, .blocked, .done, .idle])
+        let b = board(model, toasts: toasts)
+        XCTAssertEqual(MissionBoard.blockedCount(model: model, toasts: toasts), 2)
+        XCTAssertEqual(MissionBoard.blockedCount(model: model, toasts: toasts), b.needsYou.topCount)
+        XCTAssertEqual(MissionBoard.blockedCount(model: MissionFixture.single([.done]), toasts: AttentionToastStack()), 0)
+    }
+
     func testAPaneQuietForWeeksIsStillAtRest() {
         let b = board(MissionFixture.single([.idle]), changedAgo: ["w1:t1:p1": 30 * 24 * 3600])
         XCTAssertEqual(b.atRest.map(\.age), [.older])

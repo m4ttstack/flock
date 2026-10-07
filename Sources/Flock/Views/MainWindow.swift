@@ -78,7 +78,7 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild, needsYouCount: viewModel.attentionToasts.toasts.count
+                isDevBuild: isDevBuild, blockedCount: viewModel.model.map { MissionBoard.blockedCount(model: $0, toasts: viewModel.attentionToasts) } ?? 0
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -225,7 +225,7 @@ struct TitleBar: View {
     let connectionState: ConnectionState
     let isDevBuild: Bool
     /// Overview's tab shows it while Overview is not the view shown.
-    var needsYouCount = 0
+    var blockedCount = 0
     /// Per tab, for renders.
     var forcedTabs: [ViewTab: ControlInteraction] = [:]
 
@@ -269,7 +269,7 @@ struct TitleBar: View {
         // Over the mouse area, which would otherwise take the tabs' and the
         // restart pill's clicks for a title-bar drag.
         .overlay(alignment: .bottomLeading) {
-            ViewTabBar(theme: theme, needsYouCount: needsYouCount, forced: forcedTabs)
+            ViewTabBar(theme: theme, blockedCount: blockedCount, forced: forcedTabs)
                 .frame(height: ChromeMetrics.TitleBar.height)
                 .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
                 .fixedSize(horizontal: true, vertical: false)
