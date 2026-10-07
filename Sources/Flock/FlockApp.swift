@@ -146,7 +146,8 @@ struct FlockApp: App {
         let notificationLifetimeStore = NotificationLifetimeStore()
         _notificationLifetimeStore = State(initialValue: notificationLifetimeStore)
         _allWorkspacesModeStore = State(initialValue: AllWorkspacesModeStore())
-        _workspaceIdentityStore = State(initialValue: WorkspaceIdentityStore())
+        let workspaceIdentityStore = WorkspaceIdentityStore()
+        _workspaceIdentityStore = State(initialValue: workspaceIdentityStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
@@ -217,7 +218,9 @@ struct FlockApp: App {
             oneTitle: { oneTitleStore.active },
             startingFolder: { startingFolderStore.choice(for: $0) },
             rightClickDefaults: .standard,
-            completedTabDefaults: .standard
+            completedTabDefaults: .standard,
+            pinnedWorkspaceDefaults: .standard,
+            identity: workspaceIdentityStore
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
@@ -475,10 +478,8 @@ struct FlockApp: App {
                 .accessibilityIdentifier(ViewCommand.closeWorkspace.accessibilityIdentifier)
             }
             CommandGroup(before: .windowArrangement) {
-                let railRows = viewModel.model.map {
-                    RailSections(model: $0, board: boardStore.names, herdProgress: herdProgressStore.progress)
-                        .navigationOrder { sectionCollapseStore.isCollapsed($0) }
-                } ?? []
+                let railRows = viewModel.railSections(board: boardStore.names, herdProgress: herdProgressStore.progress)
+                    .map { $0.navigationOrder { sectionCollapseStore.isCollapsed($0) } } ?? []
                 let tabs = viewModel.tabsForSelectedWorkspace
                 ForEach(StepCommand.allCases, id: \.self) { command in
                     let tab = command.isTab ? viewModel.neighborTab(step: command.step) : nil

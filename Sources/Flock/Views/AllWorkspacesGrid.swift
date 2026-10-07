@@ -140,8 +140,10 @@ struct AllWorkspacesGrid: View {
     }
 
     private func refreshIdentities() {
-        guard let model = viewModel.model, !model.workspaces.isEmpty else { return }
-        identity.refresh(RailSections(model: model, board: boardNames, herdProgress: herdProgress))
+        guard viewModel.model?.workspaces.isEmpty == false,
+              let sections = viewModel.railSections(board: boardNames.names, herdProgress: herdProgress.progress)
+        else { return }
+        identity.refresh(sections)
     }
 
     /// What Arrange draws: every workspace's island as the fit lays it out.
@@ -158,7 +160,7 @@ struct AllWorkspacesGrid: View {
 
     private var arrange: Arrangement {
         let model = viewModel.model
-        let sections = model.map { RailSections(model: $0, board: boardNames, herdProgress: herdProgress) }
+        let sections = viewModel.railSections(board: boardNames.names, herdProgress: herdProgress.progress)
         let ranked = sections?.railOrder ?? []
         let ordered = ranked.compactMap { id in workspaces.first { $0.workspaceID == id } }
             + workspaces.filter { !ranked.contains($0.workspaceID) }

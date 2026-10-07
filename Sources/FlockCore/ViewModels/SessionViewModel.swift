@@ -34,6 +34,8 @@ public final class SessionViewModel {
     /// Each canvas pane's right-click mode (see `RightClickDisposition`).
     public let rightClicks: RightClickModeStore
     public let completedTabs: TabCompletionStore
+    /// The workspaces kept as places; they outlive herdr's.
+    public let pins: PinnedWorkspaceStore
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
     public private(set) var optimisticFocusedPaneID: PaneID?
@@ -155,6 +157,7 @@ public final class SessionViewModel {
     /// Read at each create, so a change in Settings lands on the next one.
     @ObservationIgnored private let startingFolder: @MainActor (NewTerminalKind) -> StartingFolderChoice
     @ObservationIgnored private let homeDirectory: String
+    @ObservationIgnored private let identity: WorkspaceIdentityStore?
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
     @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
@@ -179,7 +182,9 @@ public final class SessionViewModel {
         rt: RtCoordinator? = nil,
         rightClickDefaults: UserDefaults? = nil,
         completedTabDefaults: UserDefaults? = nil,
-        repoBranches: RepoBranchCache = RepoBranchCache()
+        repoBranches: RepoBranchCache = RepoBranchCache(),
+        pinnedWorkspaceDefaults: UserDefaults? = nil,
+        identity: WorkspaceIdentityStore? = nil
     ) {
         self.repoBranches = repoBranches
         self.client = client
@@ -202,6 +207,8 @@ public final class SessionViewModel {
         self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
         self.rightClicks = RightClickModeStore(userDefaults: rightClickDefaults)
         self.completedTabs = TabCompletionStore(userDefaults: completedTabDefaults)
+        self.pins = PinnedWorkspaceStore(userDefaults: pinnedWorkspaceDefaults)
+        self.identity = identity
         if let attentionToastArchive, notificationLifetime() != .never {
             attentionToasts = attentionToastArchive.load()
         }
@@ -269,6 +276,9 @@ public final class SessionViewModel {
         if connection == .live, let fullModel {
             rightClicks.keepOnly(Set(fullModel.panes.values.compactMap(\.terminalID)))
             completedTabs.keepOnly(Set(fullModel.tabs.values.flatMap { $0.map(\.tabID) }))
+            if let model {
+                pins.reconcile(with: model) { RailSections.isRailRow(label: $0.label, board: nil) }
+            }
         }
     }
 
@@ -1480,6 +1490,51 @@ public final class SessionViewModel {
     /// group included.
     public func closeWorkspace(_ workspace: WorkspaceID) async {
         await closeWorkspace(workspace, closeGroup: false)
+    }
+
+    public func railSections(board: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:]) -> RailSections? {
+        model.map { RailSections(model: $0, board: board, herdProgress: herdProgress, pins: pins.pins) }
+    }
+
+    public func pin(workspace: WorkspaceID, at index: Int? = nil) {
+        guard pins.pin(linkedTo: workspace) == nil, let model,
+              let record = model.workspaces.first(where: { $0.workspaceID == workspace }) else { return }
+        guard !pins.isNameTaken(record.label, except: nil) else {
+            noticeSink("A pinned workspace is already called \"\(record.label)\".")
+            return
+        }
+        let folder = PinFolders.firstPane(of: workspace, in: model) ?? homeDirectory
+        guard let pin = pins.add(workspace: workspace, name: record.label, folder: folder, at: index) else { return }
+        identity?.rekey(from: workspace.rawValue, to: pin.identityKey)
+    }
+
+    public func unpin(_ id: PinID) {
+        guard let pin = pins.pin(id), let workspace = pin.workspace else { return }
+        pins.remove(id)
+        identity?.rekey(from: pin.identityKey, to: workspace.rawValue)
+    }
+
+    public func removePin(_ id: PinID) {
+        guard pins.pin(id)?.workspace == nil else { return }
+        pins.remove(id)
+    }
+
+    public func movePin(_ id: PinID, toInsertIndex index: Int) {
+        pins.move(id, toInsertIndex: index)
+    }
+
+    public func setPinFolder(_ id: PinID, to folder: String) {
+        pins.setFolder(id, to: folder)
+    }
+
+    /// An empty pin's rename: nothing in herdr carries its name.
+    public func renamePin(_ id: PinID, to text: String) {
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, pins.pin(id)?.workspace == nil else { return }
+        guard pins.rename(id, to: name) else {
+            noticeSink("A pinned workspace is already called \"\(name)\".")
+            return
+        }
     }
 
     /// Re-asks for `workspace` with its group included. The id is a

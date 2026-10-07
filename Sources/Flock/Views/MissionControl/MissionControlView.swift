@@ -353,8 +353,9 @@ extension MissionBoard {
         viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore, opensOlder: Bool,
         opensUnknown: Bool = false, now: Date
     ) -> (MissionBoard, RailSections)? {
-        guard let model = viewModel.model else { return nil }
-        let sections = RailSections(model: model, board: board, herdProgress: herdProgress)
+        guard let model = viewModel.model,
+              let sections = viewModel.railSections(board: board.names, herdProgress: herdProgress.progress)
+        else { return nil }
         let missionBoard = MissionBoard(
             model: model, sections: sections, toasts: viewModel.attentionToasts,
             history: viewModel.statusHistory, now: now, opensOlder: opensOlder,
@@ -369,21 +370,13 @@ extension MissionBoard {
     static func card(
         _ pane: PaneID, viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore
     ) -> (card: MissionCard, sections: RailSections)? {
-        guard let model = viewModel.model else { return nil }
-        let sections = RailSections(model: model, board: board, herdProgress: herdProgress)
+        guard let model = viewModel.model,
+              let sections = viewModel.railSections(board: board.names, herdProgress: herdProgress.progress)
+        else { return nil }
         let card = MissionBoard.card(
             pane, model: model, sections: sections, toasts: viewModel.attentionToasts, history: viewModel.statusHistory,
             oneTitle: viewModel.oneTitle
         )
         return card.map { ($0, sections) }
-    }
-}
-
-extension RailSections {
-    /// The rail's sections as the app's stores hold them, for every view that
-    /// orders or keys workspaces the way the rail does.
-    @MainActor
-    init(model: SessionModel, board: BoardStore, herdProgress: HerdProgressStore) {
-        self.init(model: model, board: board.names, herdProgress: herdProgress.progress)
     }
 }

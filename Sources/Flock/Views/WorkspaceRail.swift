@@ -20,7 +20,7 @@ struct WorkspaceRail: View {
     @State private var railHeight: CGFloat?
 
     private var sections: RailSections? {
-        viewModel.model.map { RailSections(model: $0, board: board.names, herdProgress: herdProgress.progress) }
+        viewModel.railSections(board: board.names, herdProgress: herdProgress.progress)
     }
     private var herdLabels: Set<String> {
         Set(viewModel.model?.workspaces.map(\.label).filter(HerdWorkspace.isHerd(label:)) ?? [])
