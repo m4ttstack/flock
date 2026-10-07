@@ -2290,10 +2290,9 @@ final class ChromeRenderTests: XCTestCase {
             theme: theme, model: model, client: GridFixtureClient(), attaching: [], now: { clock.date }, oneTitle: true
         )
         // Minutes into the day after launch, and 45 of them have passed: a
-        // pane left alone since launch rests under Yesterday (This week in a
-        // time zone where launch fell two calendar days back), one changed
-        // before the last hour under Earlier today, and `w2:p1` under Last
-        // hour.
+        // pane left alone since launch has no known last change and rests
+        // under Earlier, one changed before the last hour under Earlier
+        // today, and `w2:p1` under Last hour.
         let steps: [(minute: Double, pane: PaneID, status: AgentStatus)] = [
             (-150, PaneID(rawValue: "w5:p1"), .done),
             (5, GridFixture.glancePane, .working),
@@ -2339,6 +2338,7 @@ final class ChromeRenderTests: XCTestCase {
         ))
         XCTAssertGreaterThanOrEqual(board.atRest.count, 2, "\(id): At rest draws its time sections")
         XCTAssertEqual(board.atRest.first?.age, .lastHour)
+        XCTAssertEqual(board.atRest.last?.age, .unknown, "\(id): panes left alone since launch rest under Earlier")
         XCTAssertEqual(board.atRest.first?.groups.flatMap(\.cards).map(\.paneID), [PaneID(rawValue: "w2:p1")])
         let firstWorking = try XCTUnwrap(board.working.first?.cards.first, "the premise: Working holds a group")
         let working = try XCTUnwrap(harness.missionCardFrame(of: firstWorking.paneID))

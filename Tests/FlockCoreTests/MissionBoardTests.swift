@@ -15,19 +15,24 @@ final class MissionBoardTests: XCTestCase {
 
     private func board(
         _ model: SessionModel, toasts: AttentionToastStack = AttentionToastStack(),
-        changedAgo: [String: TimeInterval] = [:], board names: BoardWorkspaceNames? = nil, opensOlder: Bool = false
+        changedAgo: [String: TimeInterval] = [:], board names: BoardWorkspaceNames? = nil, opensOlder: Bool = false,
+        opensEarlier: Bool = false, unrecorded: Set<String> = []
     ) -> MissionBoard {
         MissionBoard(
             model: model, sections: RailSections(model: model, board: names), toasts: toasts,
-            history: history(model, changedAgo: changedAgo), now: now, calendar: utc, opensOlder: opensOlder
+            history: history(model, changedAgo: changedAgo, unrecorded: unrecorded), now: now, calendar: utc,
+            opensOlder: opensOlder, opensEarlier: opensEarlier
         )
     }
 
     /// Every pane entered its current status two hours ago, or `changedAgo`
-    /// seconds before now when listed.
-    private func history(_ model: SessionModel, changedAgo: [String: TimeInterval]) -> PaneStatusHistory {
+    /// seconds before now when listed. An `unrecorded` pane has no record, so
+    /// its last change is unknown.
+    private func history(
+        _ model: SessionModel, changedAgo: [String: TimeInterval], unrecorded: Set<String> = []
+    ) -> PaneStatusHistory {
         var seeds: [PaneID: PaneStatusHistory.Transition] = [:]
-        for (id, pane) in model.panes {
+        for (id, pane) in model.panes where !unrecorded.contains(id.rawValue) {
             seeds[id] = .init(status: pane.agentStatus, at: now.addingTimeInterval(-(changedAgo[id.rawValue] ?? 7200)))
         }
         var history = PaneStatusHistory()
@@ -104,7 +109,7 @@ final class MissionBoardTests: XCTestCase {
 
         XCTAssertEqual(age(afternoon.addingTimeInterval(-7 * 24 * 3600 + 1), now: afternoon), .thisWeek)
         XCTAssertEqual(age(afternoon.addingTimeInterval(-7 * 24 * 3600), now: afternoon), .older)
-        XCTAssertEqual(age(nil, now: afternoon), .older, "no recorded change")
+        XCTAssertEqual(age(nil, now: afternoon), .unknown, "no known change")
     }
 
     func testRestAgeReadsDaysInTheCalendarsTimeZone() {
@@ -171,6 +176,62 @@ final class MissionBoardTests: XCTestCase {
         let b = board(model, changedAgo: changedAgo)
         XCTAssertEqual(b.atRest.map(\.age), [.thisWeek])
         XCTAssertFalse(b.atRest[0].isCollapsed)
+    }
+
+    func testAPaneWithNoKnownChangeRestsInEarlierAfterOlderInRailOrder() {
+        let model = MissionFixture.model([
+            W(label: "acme", tabs: [T(label: "a", panes: [P(status: .idle), P(status: .idle)])]),
+            W(label: "flock", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .done)])]),
+        ])
+        let b = board(
+            model, changedAgo: ["w1:t1:p2": 30 * 24 * 3600, "w2:t1:p2": 60],
+            unrecorded: ["w1:t1:p1", "w2:t1:p1"]
+        )
+        XCTAssertEqual(b.atRest.map(\.age), [.lastHour, .older, .unknown])
+        let earlier = b.atRest[2]
+        XCTAssertEqual(earlier.age.title, "Earlier")
+        XCTAssertEqual(earlier.groups.map(\.name), ["acme", "flock"])
+        XCTAssertEqual(earlier.groups.map { $0.cards.map(\.paneID.rawValue) }, [["w1:t1:p1"], ["w2:t1:p1"]])
+        XCTAssertEqual(earlier.groups.flatMap(\.cards).map(\.since), [nil, nil])
+        XCTAssertEqual(b.columns[2].map(\.rawValue), restCards(b), "the keys walk the drawn order")
+        XCTAssertEqual(b.columns[2].last?.rawValue, "w2:t1:p1")
+    }
+
+    func testNoPaneIsInLastHourWhenNoChangeIsKnown() {
+        let b = board(MissionFixture.single([.idle, .done]), unrecorded: ["w1:t1:p1", "w1:t1:p2"])
+        XCTAssertEqual(b.atRest.map(\.age), [.unknown])
+        XCTAssertEqual(restCards(b), ["w1:t1:p1", "w1:t1:p2"])
+    }
+
+    func testAPaneThatChangedAfterFirstSightLeavesEarlier() {
+        let model = MissionFixture.single([.idle])
+        var history = history(model, changedAgo: [:], unrecorded: ["w1:t1:p1"])
+        let done = MissionFixture.single([.done])
+        history.observe(done, at: now.addingTimeInterval(-300))
+        let b = MissionBoard(
+            model: done, sections: RailSections(model: done, board: nil), toasts: AttentionToastStack(),
+            history: history, now: now, calendar: utc
+        )
+        XCTAssertEqual(b.atRest.map(\.age), [.lastHour])
+    }
+
+    func testEarlierFoldsOnlyPastEightPanesWithItsOwnOpenState() {
+        let many = MissionFixture.single(Array(repeating: .idle, count: 9))
+        let manyPanes = Set(many.panes.keys.map(\.rawValue))
+        let folded = board(many, unrecorded: manyPanes)
+        XCTAssertTrue(folded.atRest[0].isCollapsible)
+        XCTAssertTrue(folded.atRest[0].isCollapsed)
+        XCTAssertTrue(folded.columns[2].isEmpty)
+        XCTAssertEqual(folded.atRestCount, 9)
+        XCTAssertTrue(board(many, opensOlder: true, unrecorded: manyPanes).atRest[0].isCollapsed, "Older's flag does not open Earlier")
+        let opened = board(many, opensEarlier: true, unrecorded: manyPanes)
+        XCTAssertFalse(opened.atRest[0].isCollapsed)
+        XCTAssertEqual(opened.columns[2].count, 9)
+
+        let few = MissionFixture.single(Array(repeating: .idle, count: 8))
+        let b = board(few, unrecorded: Set(few.panes.keys.map(\.rawValue)))
+        XCTAssertFalse(b.atRest[0].isCollapsible)
+        XCTAssertEqual(b.columns[2].count, 8)
     }
 
     func testNeedsYouGroupsByWorkspaceWithTheOldestCardOnTop() {
@@ -299,6 +360,8 @@ final class MissionBoardTests: XCTestCase {
             title: "", status: .working, since: nil, folder: ""
         )
         XCTAssertEqual(unrecorded.stateText(at: now), "working")
+        let unknown = board(MissionFixture.single([.idle]), unrecorded: ["w1:t1:p1"]).atRest[0].groups[0].cards[0]
+        XCTAssertEqual(unknown.stateText(at: now), "idle", "no known change, no age")
     }
 
     func testAgeText() {

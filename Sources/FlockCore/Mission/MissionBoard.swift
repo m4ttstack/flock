@@ -55,6 +55,9 @@ public enum RestAge: CaseIterable, Sendable {
     case yesterday
     case thisWeek
     case older
+    /// No known last change: flock never saw the pane change, and nothing
+    /// persisted dates its status.
+    case unknown
 
     public var title: String {
         switch self {
@@ -63,13 +66,13 @@ public enum RestAge: CaseIterable, Sendable {
         case .yesterday: "Yesterday"
         case .thisWeek: "This week"
         case .older: "Older"
+        case .unknown: "Earlier"
         }
     }
 
-    /// Days are calendar days in `calendar`'s time zone. A pane with no
-    /// recorded change is `.older`.
+    /// Days are calendar days in `calendar`'s time zone.
     public static func of(_ since: Date?, now: Date, calendar: Calendar) -> RestAge {
-        guard let since else { return .older }
+        guard let since else { return .unknown }
         let age = now.timeIntervalSince(since)
         if age < 60 * 60 { return .lastHour }
         let today = calendar.startOfDay(for: now)
@@ -82,7 +85,7 @@ public enum RestAge: CaseIterable, Sendable {
 
 /// One of At rest's time sections. Never empty.
 public struct MissionRestSection: Equatable, Sendable, Identifiable {
-    /// Past this many panes, Older can fold to its label.
+    /// Past this many panes, Older and Earlier can fold to their label.
     public static let collapsibleOver = 8
 
     public var id: RestAge { age }
@@ -110,7 +113,7 @@ public struct MissionBoard: Equatable, Sendable {
     /// group's cards oldest first, so the top card is the oldest of all.
     public let needsYou: [MissionGroup]
     public let working: [MissionGroup]
-    /// Most recent section first. A workspace with panes in two sections
+    /// Most recent section first, panes with no known change last. A workspace with panes in two sections
     /// has a group in each.
     public let atRest: [MissionRestSection]
 
@@ -173,7 +176,7 @@ public struct MissionBoard: Equatable, Sendable {
     public init(
         model: SessionModel, sections: RailSections, toasts: AttentionToastStack,
         history: PaneStatusHistory, now: Date, calendar: Calendar = .current, opensOlder: Bool = false,
-        oneTitle: Bool = false
+        opensEarlier: Bool = false, oneTitle: Bool = false
     ) {
         let rank = Dictionary(sections.railOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let names = Self.workspaceNames(model: model, sections: sections)
@@ -212,16 +215,22 @@ public struct MissionBoard: Equatable, Sendable {
             }
         }
         self.working = groups
-        let recentFirst = resting
-            .sorted { ($0.1 ?? .distantPast, $1.0.paneID.rawValue) > ($1.1 ?? .distantPast, $0.0.paneID.rawValue) }
+        let known = resting.compactMap { pane, since in
+            since.map { (pane, $0) }
+        }
+        let unknown = resting.filter { $0.1 == nil }.map(\.0).sorted { railKey($0) < railKey($1) }
+        let recentFirst = known
+            .sorted { ($0.1, $1.0.paneID.rawValue) > ($1.1, $0.0.paneID.rawValue) }
             .map { card($0.0, status: $0.0.agentStatus, since: $0.1) }
+            + unknown.map { card($0, status: $0.agentStatus, since: nil) }
         let byAge = Dictionary(grouping: recentFirst) { RestAge.of($0.since, now: now, calendar: calendar) }
         atRest = RestAge.allCases.compactMap { age in
             guard let cards = byAge[age] else { return nil }
-            let collapsible = age == .older && cards.count > MissionRestSection.collapsibleOver
+            let collapsible = (age == .older || age == .unknown) && cards.count > MissionRestSection.collapsibleOver
+            let opened = age == .unknown ? opensEarlier : opensOlder
             return MissionRestSection(
                 age: age, groups: Self.grouped(cards), count: cards.count,
-                isCollapsible: collapsible, isCollapsed: collapsible && !opensOlder
+                isCollapsible: collapsible, isCollapsed: collapsible && !opened
             )
         }
     }

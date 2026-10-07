@@ -48,7 +48,7 @@ struct MissionControlView: View {
 
     /// The one place the board is built, for drawing and for the keys alike.
     private func makeBoard(now: Date) -> (MissionBoard, RailSections)? {
-        MissionBoard.make(viewModel: viewModel, board: boardNames, herdProgress: herdProgress, opensOlder: mode.opensOlder, now: now)
+        MissionBoard.make(viewModel: viewModel, board: boardNames, herdProgress: herdProgress, opensOlder: mode.opensOlder, opensEarlier: mode.opensEarlier, now: now)
     }
 
     private func resolveSelection(in board: MissionBoard) {
@@ -70,7 +70,9 @@ struct MissionControlView: View {
             lane(title: "AT REST", status: .idle, count: board.atRestCount) {
                 ForEach(board.atRest) { section in
                     VStack(alignment: .leading, spacing: M.cardGap) {
-                        RestSectionLabel(theme: theme, section: section) { mode.opensOlder.toggle() }
+                        RestSectionLabel(theme: theme, section: section) {
+                            if section.age == .unknown { mode.opensEarlier.toggle() } else { mode.opensOlder.toggle() }
+                        }
                         if !section.isCollapsed {
                             ForEach(section.groups) { group($0, sections: sections, now: now, cooling: true) }
                         }
@@ -240,7 +242,7 @@ struct RestSectionLabel: View {
                 }
                 .padding(.vertical, -M.restDisclosureVerticalPadding)
                 .padding(.leading, -M.restDisclosureHorizontalPadding)
-                .accessibilityIdentifier("flock.mission.rest.older")
+                .accessibilityIdentifier(section.age == .unknown ? "flock.mission.rest.earlier" : "flock.mission.rest.older")
             } else {
                 title.foregroundStyle(theme.textLabel.opacity(M.restLabelOpacity))
             }
@@ -308,13 +310,15 @@ extension MissionBoard {
     /// The board as the app's stores hold it, for drawing and for the keys.
     @MainActor
     static func make(
-        viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore, opensOlder: Bool, now: Date
+        viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore, opensOlder: Bool,
+        opensEarlier: Bool = false, now: Date
     ) -> (MissionBoard, RailSections)? {
         guard let model = viewModel.model else { return nil }
         let sections = RailSections(model: model, board: board, herdProgress: herdProgress)
         let missionBoard = MissionBoard(
             model: model, sections: sections, toasts: viewModel.attentionToasts,
-            history: viewModel.statusHistory, now: now, opensOlder: opensOlder, oneTitle: viewModel.oneTitle
+            history: viewModel.statusHistory, now: now, opensOlder: opensOlder,
+            opensEarlier: opensEarlier, oneTitle: viewModel.oneTitle
         )
         return (missionBoard, sections)
     }

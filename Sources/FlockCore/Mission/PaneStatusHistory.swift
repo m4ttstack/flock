@@ -2,8 +2,10 @@ import Foundation
 
 /// Each pane's agent status over the last hour, as flock saw it change. After
 /// a launch every pane starts with one entry, its status at the first
-/// snapshot, dated by its `PaneLastChangeArchive` record when that record
-/// holds the same status.
+/// snapshot. The entry is dated by the pane's `PaneLastChangeArchive` record
+/// when that record holds the same status; otherwise the pane's last change
+/// is unknown until its status next changes, and the entry only anchors the
+/// timeline at the launch.
 public struct PaneStatusHistory: Equatable, Sendable {
     public struct Transition: Equatable, Codable, Sendable {
         public let status: AgentStatus
@@ -55,21 +57,35 @@ public struct PaneStatusHistory: Equatable, Sendable {
     public static let window: TimeInterval = 60 * 60
 
     public private(set) var transitions: [PaneID: [Transition]] = [:]
+    /// Panes whose current status began at a time flock never learned: the
+    /// launch snapshot showed them in it with no record to date it.
+    public private(set) var unknownStart: Set<PaneID> = []
+    private var hasSeenPanes = false
 
     public init() {}
 
-    /// `seeds` date a pane seen for the first time, only while the seed's
-    /// status is still the pane's.
+    /// `seeds` date a pane seen in the launch snapshot, only while the seed's
+    /// status is still the pane's. A pane in that snapshot with no such seed
+    /// has an unknown last change; a pane appearing later began just now.
     public mutating func observe(_ model: SessionModel, at now: Date, seeds: [PaneID: Transition] = [:]) {
+        let isLaunchSnapshot = !hasSeenPanes
         for (paneID, pane) in model.panes where transitions[paneID]?.last?.status != pane.agentStatus {
             var at = now
-            if transitions[paneID] == nil, let seed = seeds[paneID], seed.status == pane.agentStatus {
-                at = min(seed.at, now)
+            var known = true
+            if transitions[paneID] == nil && isLaunchSnapshot {
+                if let seed = seeds[paneID], seed.status == pane.agentStatus {
+                    at = min(seed.at, now)
+                } else {
+                    known = false
+                }
             }
             transitions[paneID, default: []].append(Transition(status: pane.agentStatus, at: at))
+            if known { unknownStart.remove(paneID) } else { unknownStart.insert(paneID) }
         }
+        if !model.panes.isEmpty { hasSeenPanes = true }
         for paneID in Array(transitions.keys) where model.panes[paneID] == nil {
             transitions[paneID] = nil
+            unknownStart.remove(paneID)
         }
         trim(at: now)
     }
@@ -84,13 +100,14 @@ public struct PaneStatusHistory: Equatable, Sendable {
         }
     }
 
+    /// Nil for a pane whose current status began at an unknown time.
     public func lastChange(of pane: PaneID) -> Date? {
-        transitions[pane]?.last?.at
+        unknownStart.contains(pane) ? nil : transitions[pane]?.last?.at
     }
 
-    /// Every pane's transition in force now.
+    /// Every pane's transition in force now, for the archive: only real times.
     public var lastChanges: [PaneID: Transition] {
-        transitions.compactMapValues(\.last)
+        transitions.filter { !unknownStart.contains($0.key) }.compactMapValues(\.last)
     }
 
     public func age(of pane: PaneID, at now: Date) -> TimeInterval? {

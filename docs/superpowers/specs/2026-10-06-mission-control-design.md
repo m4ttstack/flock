@@ -114,7 +114,10 @@ recent first:
 - **Earlier today**: the same calendar day in local time, older than an hour.
 - **Yesterday**: the previous calendar day.
 - **This week**: within the last 7 days.
-- **Older**: anything before that, or a pane with no recorded change.
+- **Older**: anything before that.
+- **Earlier**: a pane with no known last change (Status history, below).
+  Always last, after Older. Its panes follow rail order (workspaces, then
+  board, then herds, then tab and pane order) instead of most recent first.
 
 An empty section is not drawn. Each section starts with a small label in the
 lane-title style (10.5pt semibold, tracked, `textLabel`, uppercase) followed
@@ -123,9 +126,10 @@ same tinted workspace groups as the other lanes: the group with the most
 recent change comes first, and inside a group the most recent change comes
 first. A workspace with panes in two sections has a group in each.
 
-Older folds only when it holds more than 8 panes: its label becomes a
-disclosure (chevron, label, count) that starts folded, and its open or
-folded state is kept in `AllWorkspacesModeStore` while the view is closed.
+Older and Earlier each fold only when they hold more than 8 panes: the label
+becomes a disclosure (chevron, label, count) that starts folded, and each
+one's open or folded state is kept in `AllWorkspacesModeStore` while the view
+is closed.
 The lane's count includes a folded section's panes; the keys skip them.
 
 A blocked or done pane whose card was cleared (⇧⌘U, or a "finished" card
@@ -142,7 +146,8 @@ Every card sits in its workspace's group, whose label names the workspace
 
 Top line: status dot, the card's title (Titles, below) on one line, and at
 the right the state and its age in the terminal face, `working 18m`, in the
-status hue.
+status hue. A pane whose last change is unknown shows the status word alone,
+`idle`, with no age.
 
 Second line, only when there is one: a small dim line (12pt, `textDim`).
 With One title on, it is the pane's own `displayTitle` when the tab holds
@@ -320,13 +325,20 @@ launches by `PaneLastChangeArchive`, in UserDefaults under
 `flock.paneLastChange`, saved whenever a pane's last change moves and pruned
 to the panes herdr still reports. When the first snapshot after launch shows
 a pane whose recorded status is still its status, the pane is recorded as
-having entered it at the recorded time; any other pane is recorded as having
-entered its current status at launch time. So a pane quiet since yesterday
+having entered it at the recorded time. So a pane quiet since yesterday
 still rests under Yesterday after a relaunch.
 
+Any other pane in that first snapshot (a fresh install, a pane flock never
+saw change, or one whose status changed while flock was closed) began its
+current status at an unknown time. Its timeline starts at launch, with the
+track before it empty, but it has no last change: its age and last change
+are nil, nothing is persisted for it, and it rests under Earlier. Its first
+observed status change records a real time as for any pane. A pane that
+appears after that first snapshot began just now and is dated then.
+
 It answers, for a pane: the current status's age, the timeline segments for
-the last 60 minutes, and the time of the last change. It takes the clock as
-a parameter so tests control time.
+the last 60 minutes, and the time of the last change, each nil when the last
+change is unknown. It takes the clock as a parameter so tests control time.
 
 A shell with no agent never changes status, so it rests in an older section
 even while a command runs in it. Using `PaneForegroundJob` to tell busy
@@ -419,15 +431,16 @@ and checked before implementation starts.
 FlockCore unit tests:
 
 - the status history: recording, trimming at 60 minutes with the in-force
-  entry kept, age and segment answers under an injected clock;
+  entry kept, age and segment answers under an injected clock, and a pane
+  first seen with no record having no last change until its status changes;
 - the last-change archive: a matching status keeps its recorded date, a
-  different one starts at launch, and a pane herdr no longer reports leaves
-  the archive;
+  different one has an unknown last change, an unknown time is never saved,
+  and a pane herdr no longer reports leaves the archive;
 - lane assignment and its precedence, including a cleared blocked card and a
   pane quiet for weeks;
 - At rest's sections under an injected clock and calendar: 59 against 61
-  minutes, midnight, yesterday, 7 days, the calendar's time zone, and Older
-  folding only past 8 panes;
+  minutes, midnight, yesterday, 7 days, the calendar's time zone, Older and
+  Earlier folding only past 8 panes each, and Earlier last in rail order;
 - lane ordering: Needs you grouped by workspace with the oldest card on
   top, rail-ordered Working with label breaks, At rest's sections most
   recent first with workspace groups most recent first inside each, and the

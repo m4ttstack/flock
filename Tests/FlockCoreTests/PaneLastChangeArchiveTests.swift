@@ -23,7 +23,7 @@ final class PaneLastChangeArchiveTests: XCTestCase {
         return defaults
     }
 
-    func testASeedWithTheSameStatusDatesThePaneAndAnotherStatusIsNow() {
+    func testASeedWithTheSameStatusDatesThePaneAndAnotherStatusIsUnknown() {
         let earlier = launch.addingTimeInterval(-3 * 3600)
         var history = PaneStatusHistory()
         history.observe(MissionFixture.single([.idle, .idle]), at: launch, seeds: [
@@ -31,7 +31,14 @@ final class PaneLastChangeArchiveTests: XCTestCase {
             p2: .init(status: .blocked, at: earlier),
         ])
         XCTAssertEqual(history.lastChange(of: p1), earlier)
-        XCTAssertEqual(history.lastChange(of: p2), launch, "the pane changed while flock was closed")
+        XCTAssertNil(history.lastChange(of: p2), "the pane changed while flock was closed, at a time nobody saw")
+        XCTAssertEqual(Set(history.lastChanges.keys), [p1])
+    }
+
+    func testAPaneWithNoSeedAtAllIsUnknown() {
+        var history = PaneStatusHistory()
+        history.observe(MissionFixture.single([.idle]), at: launch, seeds: [:])
+        XCTAssertNil(history.lastChange(of: p1))
     }
 
     func testASeedNeverDatesAPaneAlreadySeen() {
@@ -57,24 +64,38 @@ final class PaneLastChangeArchiveTests: XCTestCase {
         let defaults = scratchDefaults()
         let clock = Clock()
         let first = SessionViewModel(client: SilentClient(), now: { clock.now }, paneLastChangeArchive: PaneLastChangeArchive(userDefaults: defaults))
-        first.update(model: MissionFixture.single([.idle, .working]), connection: .live)
+        first.update(model: MissionFixture.single([.working, .working]), connection: .live)
         clock.now = launch.addingTimeInterval(600)
         first.update(model: MissionFixture.single([.idle, .done]), connection: .live)
 
         clock.now = launch.addingTimeInterval(5 * 3600)
         let relaunched = SessionViewModel(client: SilentClient(), now: { clock.now }, paneLastChangeArchive: PaneLastChangeArchive(userDefaults: defaults))
         relaunched.update(model: MissionFixture.single([.idle, .working]), connection: .live)
-        XCTAssertEqual(relaunched.statusHistory.lastChange(of: p1), launch, "still idle since the first launch")
-        XCTAssertEqual(relaunched.statusHistory.lastChange(of: p2), clock.now, "done then, working now")
+        XCTAssertEqual(relaunched.statusHistory.lastChange(of: p1), launch.addingTimeInterval(600), "still idle since it went idle")
+        XCTAssertNil(relaunched.statusHistory.lastChange(of: p2), "done then, working now: changed while closed")
+    }
+
+    func testAFreshInstallPersistsNothingUntilAPaneChanges() {
+        let clock = Clock()
+        let archive = PaneLastChangeArchive(userDefaults: scratchDefaults())
+        let viewModel = SessionViewModel(client: SilentClient(), now: { clock.now }, paneLastChangeArchive: archive)
+        viewModel.update(model: MissionFixture.single([.idle, .idle]), connection: .live)
+        XCTAssertNil(viewModel.statusHistory.lastChange(of: p1))
+        XCTAssertEqual(archive.load(), [:])
+        clock.now = launch.addingTimeInterval(60)
+        viewModel.update(model: MissionFixture.single([.idle, .working]), connection: .live)
+        XCTAssertEqual(archive.load(), [p2: .init(status: .working, at: clock.now)])
     }
 
     func testAPaneHerdrNoLongerReportsLeavesTheArchive() {
         let clock = Clock()
         let archive = PaneLastChangeArchive(userDefaults: scratchDefaults())
         let viewModel = SessionViewModel(client: SilentClient(), now: { clock.now }, paneLastChangeArchive: archive)
+        viewModel.update(model: MissionFixture.single([.working, .working]), connection: .live)
+        clock.now = launch.addingTimeInterval(60)
         viewModel.update(model: MissionFixture.single([.idle, .idle]), connection: .live)
         XCTAssertEqual(Set(archive.load().keys), [p1, p2])
-        clock.now = launch.addingTimeInterval(60)
+        clock.now = launch.addingTimeInterval(120)
         viewModel.update(model: MissionFixture.single([.idle]), connection: .live)
         XCTAssertEqual(Set(archive.load().keys), [p1])
     }

@@ -5,18 +5,44 @@ final class PaneStatusHistoryTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_000_000)
     private let pane = PaneID(rawValue: "w1:t1:p1")
 
-    func testAPaneFirstSeenIsRecordedAsEnteringItsStatusThen() {
+    func testAPaneFirstSeenWithNoRecordHasAnUnknownLastChange() {
         var history = PaneStatusHistory()
         history.observe(MissionFixture.single([.working]), at: t0)
-        XCTAssertEqual(history.lastChange(of: pane), t0)
-        XCTAssertEqual(history.age(of: pane, at: t0.addingTimeInterval(90)), 90)
+        XCTAssertNil(history.lastChange(of: pane))
+        XCTAssertNil(history.age(of: pane, at: t0.addingTimeInterval(90)))
+        XCTAssertEqual(history.lastChanges, [:], "an unknown time is never persisted")
+        XCTAssertEqual(history.segments(of: pane, at: t0.addingTimeInterval(90)).map(\.status), [nil, .working])
+    }
+
+    func testTheFirstChangeAfterFirstSightIsRealAndKnown() {
+        var history = PaneStatusHistory()
+        history.observe(MissionFixture.single([.working]), at: t0)
+        history.observe(MissionFixture.single([.idle]), at: t0.addingTimeInterval(120))
+        XCTAssertEqual(history.lastChange(of: pane), t0.addingTimeInterval(120))
+        XCTAssertEqual(history.age(of: pane, at: t0.addingTimeInterval(150)), 30)
+        XCTAssertEqual(history.lastChanges[pane]?.status, .idle)
+    }
+
+    func testAPaneAppearingAfterTheLaunchSnapshotBeganJustNow() {
+        var history = PaneStatusHistory()
+        history.observe(MissionFixture.single([.idle]), at: t0)
+        history.observe(MissionFixture.single([.idle, .working]), at: t0.addingTimeInterval(60))
+        XCTAssertNil(history.lastChange(of: pane))
+        XCTAssertEqual(history.lastChange(of: PaneID(rawValue: "w1:t1:p2")), t0.addingTimeInterval(60))
+    }
+
+    func testAnEmptySnapshotIsNotTheLaunchSnapshot() {
+        var history = PaneStatusHistory()
+        history.observe(MissionFixture.single([]), at: t0)
+        history.observe(MissionFixture.single([.idle]), at: t0.addingTimeInterval(5))
+        XCTAssertNil(history.lastChange(of: pane), "the first snapshot with panes is the launch one")
     }
 
     func testAnUnchangedStatusAddsNothing() {
         var history = PaneStatusHistory()
         history.observe(MissionFixture.single([.working]), at: t0)
         history.observe(MissionFixture.single([.working]), at: t0.addingTimeInterval(60))
-        XCTAssertEqual(history.lastChange(of: pane), t0)
+        XCTAssertNil(history.lastChange(of: pane))
     }
 
     func testAChangeIsRecordedAtItsTime() {
