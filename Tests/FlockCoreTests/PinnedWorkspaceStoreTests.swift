@@ -178,6 +178,28 @@ final class PinnedWorkspaceStoreTests: XCTestCase {
         }
     }
 
+    func testTheUnreadableBlobIsCopiedOnceBeforeThePersonsFirstChangeWritesOverIt() {
+        let blob = Data("not json".utf8)
+        let defaults = defaults()
+        defaults.set(blob, forKey: PinnedWorkspaceStore.defaultsKey)
+        let store = PinnedWorkspaceStore(userDefaults: defaults)
+        store.reconcile(with: model([("w1", "acme")]), eligible: anyRow)
+        XCTAssertNil(defaults.data(forKey: PinnedWorkspaceStore.unreadableKey), "running alone copies nothing")
+
+        _ = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme", folder: "/acme", at: nil)
+        XCTAssertEqual(defaults.data(forKey: PinnedWorkspaceStore.unreadableKey), blob)
+
+        _ = store.add(workspace: WorkspaceID(rawValue: "w2"), name: "beta", folder: "/beta", at: nil)
+        XCTAssertEqual(defaults.data(forKey: PinnedWorkspaceStore.unreadableKey), blob, "later saves leave the backup alone")
+    }
+
+    func testReadablePinsAreNeverCopiedToTheUnreadableKey() {
+        let defaults = defaults()
+        let store = PinnedWorkspaceStore(userDefaults: defaults)
+        _ = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme", folder: "/acme", at: nil)
+        XCTAssertNil(defaults.data(forKey: PinnedWorkspaceStore.unreadableKey))
+    }
+
     func testAFreshLinkTakesTheFirstLabelItSeesWithoutRenaming() {
         let store = PinnedWorkspaceStore(userDefaults: nil)
         let pin = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme", folder: "/acme", at: nil)!

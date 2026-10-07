@@ -67,6 +67,10 @@ public enum PinFolders {
 public final class PinnedWorkspaceStore {
     public static let defaultsKey = "flock.pinnedWorkspaces"
 
+    /// Holds the first blob a person's change replaced because it could not
+    /// be read; a later replacement never overwrites it.
+    public static let unreadableKey = "flock.pinnedWorkspaces.unreadable"
+
     public static let storedVersion = 1
 
     public private(set) var pins: [PinnedWorkspace]
@@ -225,7 +229,13 @@ public final class PinnedWorkspaceStore {
 
     private func save(byPerson: Bool = true) {
         guard let userDefaults else { return }
-        if byPerson { keepsStoredData = false }
+        if byPerson, keepsStoredData {
+            keepsStoredData = false
+            if userDefaults.data(forKey: Self.unreadableKey) == nil,
+               let original = userDefaults.data(forKey: Self.defaultsKey) {
+                userDefaults.set(original, forKey: Self.unreadableKey)
+            }
+        }
         guard !keepsStoredData else { return }
         let data = try? JSONEncoder().encode(Stored(version: Self.storedVersion, pins: pins))
         userDefaults.set(data, forKey: Self.defaultsKey)
