@@ -158,6 +158,8 @@ public final class SessionViewModel {
     @ObservationIgnored private let startingFolder: @MainActor (NewTerminalKind) -> StartingFolderChoice
     @ObservationIgnored private let homeDirectory: String
     @ObservationIgnored private let identity: WorkspaceIdentityStore?
+    @ObservationIgnored private let folderExists: @Sendable (String) -> Bool
+    @ObservationIgnored private var reopening: Set<PinID> = []
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
     @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
@@ -184,7 +186,8 @@ public final class SessionViewModel {
         completedTabDefaults: UserDefaults? = nil,
         repoBranches: RepoBranchCache = RepoBranchCache(),
         pinnedWorkspaceDefaults: UserDefaults? = nil,
-        identity: WorkspaceIdentityStore? = nil
+        identity: WorkspaceIdentityStore? = nil,
+        folderExists: @escaping @Sendable (String) -> Bool = SessionViewModel.directoryExists
     ) {
         self.repoBranches = repoBranches
         self.client = client
@@ -209,6 +212,7 @@ public final class SessionViewModel {
         self.completedTabs = TabCompletionStore(userDefaults: completedTabDefaults)
         self.pins = PinnedWorkspaceStore(userDefaults: pinnedWorkspaceDefaults)
         self.identity = identity
+        self.folderExists = folderExists
         if let attentionToastArchive, notificationLifetime() != .never {
             attentionToasts = attentionToastArchive.load()
         }
@@ -1642,15 +1646,41 @@ public final class SessionViewModel {
     /// echo. A response this cannot read leaves the selection where it was,
     /// which is what every create did before: herdr's own focus echo is then
     /// the only thing that moves it.
-    private func create(_ method: String, _ params: [String: JSONValue], label: String) async {
+    @discardableResult
+    private func create(_ method: String, _ params: [String: JSONValue], label: String) async -> CreatedTab? {
         do {
             let data = try await client.requestRaw(method, params)
-            guard let created = Self.extractCreatedTab(data) else { return }
+            guard let created = Self.extractCreatedTab(data) else { return nil }
             selectedWorkspaceID = created.workspaceID
             selectedTabID = created.tabID
             landIn(pane: created.rootPaneID)
+            return created
         } catch {
             noticeSink("\(label) failed: \(Self.describe(error))")
+            return nil
+        }
+    }
+
+    public nonisolated static func directoryExists(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// A fresh shell in the pin's folder, renamed to the pin and linked to it by
+    /// the id the create returns, never by name.
+    public func reopen(_ id: PinID) async {
+        guard let pin = pins.pin(id), pin.workspace == nil, !reopening.contains(id) else { return }
+        reopening.insert(id)
+        defer { reopening.remove(id) }
+        let folderIsThere = folderExists(pin.folder)
+        let params: [String: JSONValue] = [
+            "focus": .bool(true), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
+        ]
+        guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)") else { return }
+        pins.link(id, to: created.workspaceID)
+        await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, pin.name)], label: "Rename workspace"), recordsUndo: false)
+        if !folderIsThere {
+            noticeSink("\"\(pin.name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another.")
         }
     }
 

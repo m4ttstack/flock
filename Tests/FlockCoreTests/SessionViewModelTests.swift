@@ -2910,4 +2910,82 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(rt.leavesFocusAlone())
         rt.watches.values.forEach { $0.cancel() }
     }
+
+    @MainActor
+    func testReopeningAnEmptyPinCreatesInItsFolderRenamesAndLinks() async {
+        let client = StubCreateCommandClient(workspaceID: "w9", tabID: "w9:t1", paneID: "w9:p1")
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: client, planExecutor: executor, folderExists: { _ in true })
+        viewModel.update(model: makeModel(), connection: .live)
+        let workspace = viewModel.model!.workspaces[0].workspaceID
+        viewModel.pin(workspace: workspace)
+        let pin = viewModel.pins.pins[0]
+        var gone = makeModel()
+        gone.workspaces.removeAll()
+        viewModel.update(model: gone, connection: .live)
+
+        await viewModel.reopen(pin.id)
+
+        let calls = await client.calls
+        XCTAssertEqual(calls.map(\.method), ["workspace.create"])
+        XCTAssertEqual(stringParam(calls[0].params, "cwd"), pin.folder)
+        XCTAssertEqual(boolParam(calls[0].params, "focus"), true)
+        XCTAssertEqual(executor.executedPlans.map(\.ops), [[.renameWorkspace(WorkspaceID(rawValue: "w9"), pin.name)]])
+        XCTAssertEqual(viewModel.pins.pin(pin.id)?.workspace, WorkspaceID(rawValue: "w9"))
+    }
+
+    @MainActor
+    func testReopeningAPinWhoseFolderIsGoneOpensInHomeWithANotice() async {
+        let client = StubCreateCommandClient(workspaceID: "w9", tabID: "w9:t1", paneID: "w9:p1")
+        let notices = NoticeRecorder()
+        let viewModel = SessionViewModel(
+            client: client, planExecutor: FakePlanExecutor(), noticeSink: { notices.record($0) },
+            homeDirectory: "/Users/acme", folderExists: { _ in false }
+        )
+        viewModel.update(model: makeModel(), connection: .live)
+        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        let pin = viewModel.pins.pins[0]
+        var gone = makeModel()
+        gone.workspaces.removeAll()
+        viewModel.update(model: gone, connection: .live)
+
+        await viewModel.reopen(pin.id)
+
+        let calls = await client.calls
+        XCTAssertEqual(stringParam(calls[0].params, "cwd"), "/Users/acme")
+        XCTAssertEqual(notices.messages, ["\"\(pin.name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another."])
+    }
+
+    @MainActor
+    func testASecondReopenWhileOneIsInFlightSendsNothing() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client, planExecutor: FakePlanExecutor(), folderExists: { _ in true })
+        viewModel.update(model: makeModel(), connection: .live)
+        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        let pin = viewModel.pins.pins[0]
+        var gone = makeModel()
+        gone.workspaces.removeAll()
+        viewModel.update(model: gone, connection: .live)
+
+        await client.hold()
+        async let first: Void = viewModel.reopen(pin.id)
+        await Task.yield()
+        await viewModel.reopen(pin.id)
+        await client.releaseNext()
+        await first
+
+        let calls = await client.calls
+        XCTAssertEqual(calls.map(\.method), ["workspace.create"])
+    }
+
+    @MainActor
+    func testReopeningALinkedPinDoesNothing() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client, folderExists: { _ in true })
+        viewModel.update(model: makeModel(), connection: .live)
+        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        await viewModel.reopen(viewModel.pins.pins[0].id)
+        let calls = await client.calls
+        XCTAssertEqual(calls.count, 0)
+    }
 }
