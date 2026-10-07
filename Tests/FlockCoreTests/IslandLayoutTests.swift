@@ -43,6 +43,47 @@ final class IslandLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(IslandLayout.width(tabs: 12, perRow: perRow, thumbnail: fit.thumbnailWidth, metrics: .init()), 900)
     }
 
+    func testAFewWorkspacesGrowPastTheOldFixedSize() {
+        let fit = IslandLayout.fit(islands([2, 2, 1, 5]), in: CGSize(width: 1700, height: 1000))
+        XCTAssertFalse(fit.scrolls)
+        XCTAssertGreaterThan(fit.thumbnailWidth, 260, "four workspaces in a full window still draw at the old cap")
+        XCTAssertLessThanOrEqual(fit.thumbnailWidth, IslandLayout.Metrics().maximumWidth)
+    }
+
+    func testOneSmallWorkspaceStopsAtTheCap() {
+        let fit = IslandLayout.fit(islands([1]), in: CGSize(width: 2400, height: 1400))
+        XCTAssertEqual(fit.thumbnailWidth, IslandLayout.Metrics().maximumWidth)
+    }
+
+    func testAHerdTooWideForTheWindowWrapsEvenlyToGrow() {
+        let size = CGSize(width: 1200, height: 700)
+        let fit = IslandLayout.fit(islands([5]), in: size)
+        XCTAssertEqual(fit.tabsPerRow[WorkspaceID(rawValue: "w1")], 3, "five tabs wrap three over two")
+        let unwrapped = (size.width - 2 * IslandLayout.Metrics().horizontalPadding - 4 * IslandLayout.Metrics().tabGap) / 5
+        XCTAssertGreaterThan(fit.thumbnailWidth, unwrapped, "the wrap did not buy a larger thumbnail")
+    }
+
+    func testAnIslandThatFitsAtTheCapIsNeverWrapped() {
+        let fit = IslandLayout.fit(islands([3, 1]), in: CGSize(width: 2400, height: 1400))
+        XCTAssertEqual(fit.tabsPerRow[WorkspaceID(rawValue: "w1")], 3)
+        XCTAssertEqual(fit.rows.count, 1)
+    }
+
+    func testOnlyTheIslandsOverTheCapWrap() {
+        let fit = IslandLayout.fit(islands([2, 6]), in: CGSize(width: 1100, height: 760))
+        XCTAssertEqual(fit.tabsPerRow[WorkspaceID(rawValue: "w1")], 2)
+        XCTAssertEqual(fit.tabsPerRow[WorkspaceID(rawValue: "w2")], 3, "six tabs wrap three over three")
+    }
+
+    func testBalancedRowsNeverLeaveALoneTab() {
+        XCTAssertEqual(IslandLayout.balancedAcross(tabs: 5, cap: 4), 3)
+        XCTAssertEqual(IslandLayout.balancedAcross(tabs: 5, cap: 3), 3)
+        XCTAssertEqual(IslandLayout.balancedAcross(tabs: 5, cap: 2), 2)
+        XCTAssertEqual(IslandLayout.balancedAcross(tabs: 6, cap: 4), 3)
+        XCTAssertEqual(IslandLayout.balancedAcross(tabs: 2, cap: 9), 2)
+        XCTAssertEqual(IslandLayout.balancedAcross(tabs: 0, cap: 3), 1)
+    }
+
     func testTheFitHoldsStillWhileADragIsLive() {
         var hold = IslandFitHold()
         let first = hold.update(islands([2]), in: CGSize(width: 1700, height: 1000), dragging: false)

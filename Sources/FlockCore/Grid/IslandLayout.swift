@@ -1,7 +1,9 @@
 import CoreGraphics
 
 /// Arrange's layout: islands packed left to right in rail order, every
-/// thumbnail one size, the largest size at which the whole view fits.
+/// thumbnail one size, the largest size at which the whole view fits. An
+/// island may wrap its tabs onto more rows when that lets every thumbnail
+/// grow.
 public enum IslandLayout {
     public struct Metrics: Equatable, Sendable {
         /// Between islands, across a row and down the view.
@@ -13,7 +15,11 @@ public enum IslandLayout {
         public var bottomPadding: CGFloat = 16
         public var aspect: CGFloat = 0.62
         public var minimumWidth: CGFloat = 120
-        public var maximumWidth: CGFloat = 260
+        /// About 80 columns of the terminal face at 9pt, which is where a
+        /// one-pane tile reads its pane's whole tail. Past it a thumbnail
+        /// only grows its type, so a window holding one small workspace
+        /// leaves the canvas empty rather than drawing a poster.
+        public var maximumWidth: CGFloat = 440
         public var step: CGFloat = 2
 
         public init() {}
@@ -35,6 +41,16 @@ public enum IslandLayout {
         public let rows: [[WorkspaceID]]
         public let tabsPerRow: [WorkspaceID: Int]
         public let scrolls: Bool
+
+        public init(
+            thumbnailWidth: CGFloat, thumbnailHeight: CGFloat, rows: [[WorkspaceID]], tabsPerRow: [WorkspaceID: Int], scrolls: Bool
+        ) {
+            self.thumbnailWidth = thumbnailWidth
+            self.thumbnailHeight = thumbnailHeight
+            self.rows = rows
+            self.tabsPerRow = tabsPerRow
+            self.scrolls = scrolls
+        }
     }
 
     public static func thumbnailHeight(_ width: CGFloat, metrics: Metrics) -> CGFloat {
@@ -52,7 +68,8 @@ public enum IslandLayout {
             + (rows - 1) * metrics.tabGap + metrics.bottomPadding
     }
 
-    static func layout(_ islands: [Island], thumbnail: CGFloat, in width: CGFloat, metrics: Metrics)
+    /// `columns` caps every island's tabs per row.
+    static func layout(_ islands: [Island], thumbnail: CGFloat, in width: CGFloat, columns: Int = .max, metrics: Metrics)
         -> (rows: [[WorkspaceID]], perRow: [WorkspaceID: Int], height: CGFloat)
     {
         let maxAcross = max(1, Int((width - 2 * metrics.horizontalPadding + metrics.tabGap) / (thumbnail + metrics.tabGap)))
@@ -61,7 +78,7 @@ public enum IslandLayout {
         var rowHeights: [CGFloat] = []
         var x: CGFloat = 0
         for island in islands {
-            let across = min(max(1, island.tabs), maxAcross)
+            let across = balancedAcross(tabs: island.tabs, cap: min(columns, maxAcross))
             perRow[island.id] = across
             let w = self.width(tabs: island.tabs, perRow: across, thumbnail: thumbnail, metrics: metrics)
             let h = height(tabs: island.tabs, perRow: across, thumbnail: thumbnail, metrics: metrics)
@@ -79,15 +96,47 @@ public enum IslandLayout {
         return (rows, perRow, total)
     }
 
+    /// Tabs per row for `tabs` tabs at most `cap` across, spread over the
+    /// fewest rows the cap allows as evenly as they go: five under a cap of
+    /// three or four are three over two, never four over one.
+    public static func balancedAcross(tabs: Int, cap: Int) -> Int {
+        let tabs = max(1, tabs), cap = max(1, cap)
+        let rows = (tabs + cap - 1) / cap
+        return (tabs + rows - 1) / rows
+    }
+
+    /// The column caps worth trying, widest first: each wraps some island
+    /// further than the cap before it.
+    static func columnCaps(_ islands: [Island]) -> [Int] {
+        let widest = islands.map { max(1, $0.tabs) }.max() ?? 1
+        var seen: [[Int]] = []
+        var caps: [Int] = []
+        for cap in stride(from: widest, through: 1, by: -1) {
+            let shape = islands.map { balancedAcross(tabs: $0.tabs, cap: cap) }
+            if !seen.contains(shape) {
+                seen.append(shape)
+                caps.append(cap)
+            }
+        }
+        return caps
+    }
+
+    /// The largest thumbnail at which every island fits `size`. At each size
+    /// the unwrapped layout is tried first, so an island wraps its tabs only
+    /// when that is what lets the thumbnails grow, never to look tidier at
+    /// the same size.
     public static func fit(_ islands: [Island], in size: CGSize, metrics: Metrics = Metrics()) -> Fit {
+        let caps = columnCaps(islands)
         var width = metrics.maximumWidth
         while width >= metrics.minimumWidth {
-            let candidate = layout(islands, thumbnail: width, in: size.width, metrics: metrics)
-            if candidate.height <= size.height {
-                return Fit(
-                    thumbnailWidth: width, thumbnailHeight: thumbnailHeight(width, metrics: metrics),
-                    rows: candidate.rows, tabsPerRow: candidate.perRow, scrolls: false
-                )
+            for cap in caps {
+                let candidate = layout(islands, thumbnail: width, in: size.width, columns: cap, metrics: metrics)
+                if candidate.height <= size.height {
+                    return Fit(
+                        thumbnailWidth: width, thumbnailHeight: thumbnailHeight(width, metrics: metrics),
+                        rows: candidate.rows, tabsPerRow: candidate.perRow, scrolls: false
+                    )
+                }
             }
             width -= metrics.step
         }
