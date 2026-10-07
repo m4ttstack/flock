@@ -28,14 +28,15 @@ extension ChromeMetrics.Grid {
     static let zoomRecedeScale: CGFloat = 0.96
     /// The island header's zoom and close controls: no taller than the
     /// header row they sit in.
-    static let zoomControlSize: CGFloat = 20
-    static let zoomControlHorizontalPadding: CGFloat = 5
+    static let zoomControlSize: CGFloat = 24
+    static let zoomControlHorizontalPadding: CGFloat = 9
     static let zoomControlSpacing: CGFloat = 5
 }
 
 extension ChromeType {
-    static let arrangeZoomKey = mono(10)
-    static let arrangeZoomSymbol = Font.system(size: 10, weight: .semibold)
+    static let arrangeZoomKey = mono(10.5)
+    static let arrangeZoomLabel = inter(12, .medium)
+    static let arrangeZoomSymbol = Font.system(size: 12, weight: .semibold)
     static let arrangeTileMeta = mono(9)
     static let arrangeTileMetaZoomed = mono(10.5)
 }

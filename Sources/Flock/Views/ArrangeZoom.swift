@@ -147,18 +147,19 @@ struct ArrangeZoomControl: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: G.zoomControlSpacing) {
+                Image(systemName: isZoomed ? "xmark" : "arrow.up.left.and.arrow.down.right")
+                    .font(ChromeType.arrangeZoomSymbol)
+                Text(isZoomed ? "Close" : "Zoom").font(ChromeType.arrangeZoomLabel)
                 if isZoomed {
                     Text("esc").font(ChromeType.arrangeZoomKey).foregroundStyle(theme.textLabel)
                 }
-                Image(systemName: isZoomed ? "xmark" : "arrow.up.left.and.arrow.down.right")
-                    .font(ChromeType.arrangeZoomSymbol)
-                    .foregroundStyle(isHovering ? theme.textStrong : theme.textLabel)
             }
+            .foregroundStyle(theme.textStrong)
             .padding(.horizontal, G.zoomControlHorizontalPadding)
             .frame(minWidth: G.zoomControlSize, minHeight: G.zoomControlSize)
             .background(
                 RoundedRectangle(cornerRadius: ChromeRadius.control)
-                    .fill(isZoomed || isHovering ? theme.tabRest : .clear)
+                    .fill(isHovering ? theme.selection : theme.tabRest)
             )
             .contentShape(Rectangle())
         }
