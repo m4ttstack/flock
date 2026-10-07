@@ -1392,12 +1392,24 @@ public final class SessionViewModel {
             return pins.pins.map(\.id) == before ? .noOp : .committed
         case let (.pin(id), .workspaceRail(index)):
             guard let workspace = pins.pin(id)?.workspace else { return .noOp }
+            // herdr lands a move at either neighbouring slot where it already is,
+            // so the planner sends a move that changes nothing; skip it.
+            if let model = fullModel, let position = model.workspaces.firstIndex(where: { $0.workspaceID == workspace }) {
+                let slot = RailSections.modelInsertIndex(
+                    forRailIndex: index, in: model, board: board, pinned: pinnedWorkspaces
+                )
+                if slot == position || slot == position + 1 {
+                    unpin(id)
+                    return .committed
+                }
+            }
             let outcome = await performPlanned(
                 subject: .workspace(workspace), target: .workspaceRail(insertIndex: index), board: board,
                 pinned: pinnedWorkspaces
             )
-            if outcome == .committed { unpin(id) }
-            return outcome
+            guard outcome == .committed || outcome == .noOp else { return outcome }
+            unpin(id)
+            return .committed
         case (.pin, _), (_, .pinnedRail):
             return .noOp
         default:

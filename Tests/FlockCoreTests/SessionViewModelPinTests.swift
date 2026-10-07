@@ -193,4 +193,15 @@ final class SessionViewModelPinTests: XCTestCase {
         let outcome = await viewModel.perform(subject: .pin(viewModel.pins.pins[0].id), target: .pinnedRail(insertIndex: 0))
         XCTAssertEqual(outcome, .noOp)
     }
+
+    func testAPinDroppedWhereItsWorkspaceAlreadySitsUnpinsWithoutAMove() async {
+        let executor = RecordingExecutor()
+        let (viewModel, _) = viewModel(executor: executor)
+        viewModel.update(model: model([("a", "a"), ("w", "w"), ("b", "b"), ("c", "c")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w"))
+        let outcome = await viewModel.perform(subject: .pin(viewModel.pins.pins[0].id), target: .workspaceRail(insertIndex: 1))
+        XCTAssertEqual(outcome, .committed)
+        XCTAssertTrue(executor.plans.isEmpty)
+        XCTAssertEqual(viewModel.pins.pins, [])
+    }
 }
