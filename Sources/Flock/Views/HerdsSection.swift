@@ -24,7 +24,8 @@ struct HerdsSection: View {
                 // The section's one mark. Rows carry none: one moving glyph
                 // says "something in here is still going" without a row of
                 // them competing for the eye.
-                HerdMark(theme: theme, size: ChromeMetrics.RailSection.headerMark, isMoving: summary.isAnyRunning)
+                HerdMark(theme: theme, size: ChromeMetrics.RailSection.herdsMark, isMoving: summary.isAnyRunning)
+                    .offset(y: -ChromeMetrics.RailSection.herdsMarkLift)
             } trailing: {
                 // The summary is the only notice a folded section gives, so
                 // it is the last thing a narrow rail gets to cut.

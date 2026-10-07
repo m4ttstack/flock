@@ -99,6 +99,11 @@ enum ChromeMetrics {
     enum RailSection {
         /// The header's mark: the ram for Herds, board's own logo for Board.
         static let headerMark: CGFloat = 13
+        /// The ram's trail leaves its ink smaller and lower in its square than a
+        /// symbol's, so it takes a larger square and a lift to match the
+        /// workspace glyphs and centre on the heading.
+        static let herdsMark: CGFloat = 16
+        static let herdsMarkLift: CGFloat = 1.5
         static let headerChevron: CGFloat = 8
         static let headerChevronGap: CGFloat = 4
         /// The heading's own gap, doubled: a section has to read as another
