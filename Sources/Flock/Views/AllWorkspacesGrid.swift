@@ -500,10 +500,7 @@ private struct WorkspaceIsland: View {
             alignment: .leading
         )
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(theme.workspaceWash, in: shape)
-        // The wash is translucent, and a zooming island passes over the grid
-        // it is leaving.
-        .background(zoom.isZoomed ? theme.canvas : .clear, in: shape)
+        .workspaceGround(theme, in: shape)
         .fadingHover($isHovering)
         .workspaceMenu(
             viewModel: viewModel, workspace: workspace.workspaceID, key: identityKey,

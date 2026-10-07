@@ -201,7 +201,9 @@ struct MissionControlView: View {
                 } else {
                     Text(group.name)
                         .font(ChromeType.missionGroupName)
-                        .foregroundStyle(theme.textLabel)
+                        // `textLabel` falls below AA on the workspace ground
+                        // in several themes; `textDim` clears it in all.
+                        .foregroundStyle(theme.textDim)
                         .lineLimit(1)
                 }
             }
@@ -212,7 +214,7 @@ struct MissionControlView: View {
         }
         .padding(M.groupPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.workspaceWash, in: RoundedRectangle(cornerRadius: M.groupCornerRadius))
+        .workspaceGround(theme, in: RoundedRectangle(cornerRadius: M.groupCornerRadius))
         .contentShape(RoundedRectangle(cornerRadius: M.groupCornerRadius))
         .workspaceMenu(
             viewModel: viewModel, workspace: group.workspaceID, key: key, changeSymbol: drawsSymbol ? { pick(group) } : nil

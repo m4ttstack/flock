@@ -84,7 +84,7 @@ final class WorkspaceMarkRenderTests: XCTestCase {
         }
         .padding(ChromeMetrics.MissionControl.groupPadding)
         .frame(width: Self.rowWidth, height: Self.rowHeight, alignment: .leading)
-        .background(theme.workspaceWash, in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.groupCornerRadius))
+        .workspaceGround(theme, in: RoundedRectangle(cornerRadius: ChromeMetrics.MissionControl.groupCornerRadius))
     }
 
     private func sheet(_ theme: Theme) -> some View {

@@ -2,11 +2,26 @@ import AppKit
 import FlockCore
 import SwiftUI
 
+/// The grounds Overview, Arrange and the focused view nest, one per level,
+/// and the same at a level whichever view draws it:
+/// - canvas: `canvas`, behind everything;
+/// - lane: `pane`, Overview's lanes (Arrange has none);
+/// - workspace: `workspaceGround`, an Overview group and an Arrange island;
+/// - surface: `chrome` for an Overview card, `pane` for an Arrange thumbnail
+///   and a live pane, as the mission control spec gives them.
 extension Theme {
-    /// The ground of an Arrange island and of an Overview group: one faint
-    /// neutral for every workspace, since hue is how status is told.
+    /// One faint neutral for every workspace, since hue is how status is told.
     var workspaceWash: Color {
         textLabel.opacity(ChromeMetrics.Grid.islandTint)
+    }
+}
+
+extension View {
+    /// A workspace's ground: the wash over the canvas, opaque, so a group in
+    /// a lane matches an island on the canvas and a zooming island hides the
+    /// grid it passes over.
+    func workspaceGround<S: Shape>(_ theme: Theme, in shape: S) -> some View {
+        background(theme.workspaceWash, in: shape).background(theme.canvas, in: shape)
     }
 }
 
