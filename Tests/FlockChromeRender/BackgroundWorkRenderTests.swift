@@ -44,12 +44,12 @@ final class BackgroundWorkRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("background-work-\(scheme).png"))
             }
-            let yellow = theme.palette.yellow.hex
-            XCTAssertEqual(hex(image, CGPoint(x: Self.probe.minX + 7, y: Self.probe.midY)), yellow, "\(scheme): the left half is filled")
-            XCTAssertEqual(hex(image, CGPoint(x: Self.probe.maxX - 1.5, y: Self.probe.midY)), yellow, "\(scheme): the right half is a ring")
+            let mauve = theme.palette.mauve.hex
+            XCTAssertEqual(hex(image, CGPoint(x: Self.probe.minX + 1.5, y: Self.probe.midY)), mauve, "\(scheme): a mauve ring")
+            XCTAssertEqual(hex(image, CGPoint(x: Self.probe.maxX - 1.5, y: Self.probe.midY)), mauve, "\(scheme): a mauve ring")
             XCTAssertEqual(
-                hex(image, CGPoint(x: Self.probe.maxX - 7, y: Self.probe.midY)), theme.palette.terminalGround.hex,
-                "\(scheme): inside the ring's right half is open"
+                hex(image, CGPoint(x: Self.probe.midX, y: Self.probe.midY)), theme.palette.terminalGround.hex,
+                "\(scheme): the ring is open, like idle's"
             )
         }
     }
@@ -76,7 +76,7 @@ final class BackgroundWorkRenderTests: XCTestCase {
             card(.done, title: "Finished the acme migration", minutes: 2, theme: theme),
         ]
         return VStack(alignment: .leading, spacing: 14) {
-            BackgroundMarkView(mark: .drawn, theme: theme, size: Self.probe.width)
+            BackgroundMarkView(theme: theme, size: Self.probe.width)
             HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(cards, id: \.paneID) { card in

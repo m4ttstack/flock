@@ -112,7 +112,7 @@ struct MissionCardView: View {
     private var stateText: some View {
         Text(card.stateText(at: now))
             .font(ChromeType.missionCardMono)
-            .foregroundStyle(theme.agentStatusMarkColor(card.status))
+            .foregroundStyle(theme.shownStatusColor(card.shown))
             .lineLimit(1)
             .fixedSize()
     }
