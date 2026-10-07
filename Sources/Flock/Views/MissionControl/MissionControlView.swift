@@ -164,6 +164,9 @@ struct MissionControlView: View {
                 .accessibilityIdentifier("flock.mission.card.rename")
             Divider()
             IdentityColourMenu(theme: theme, key: WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections))
+            Divider()
+            Button("Close Pane") { Task { await viewModel.closePane(card.paneID) } }
+                .accessibilityIdentifier("flock.mission.card.close")
         }
         .matchedGeometryEffect(id: card.paneID, in: laneSpace)
         .id(card.paneID)
