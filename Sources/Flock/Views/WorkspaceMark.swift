@@ -11,7 +11,7 @@ extension Theme {
 }
 
 /// The rail's menu for a workspace, on a view outside the rail: its own rows
-/// from `WorkspaceMenuModel`, with Change Symbol... before Close when the
+/// from `WorkspaceMenuModel`, with Change Symbol... after Rename when the
 /// workspace's mark is a symbol. A workspace the rail gives no menu (Board's,
 /// a herd's) gets none here.
 private struct WorkspaceMenu: ViewModifier {
@@ -25,15 +25,22 @@ private struct WorkspaceMenu: ViewModifier {
         if WorkspaceIdentityStore.isRailRow(key: key) {
             content.contextMenu {
                 if let model = viewModel.model {
-                    ForEach(WorkspaceMenuModel.entries(for: workspace, model: model), id: \.accessibilityIdentifier) { entry in
-                        if entry.action == .close, let changeSymbol {
+                    let pin = viewModel.pins.pin(linkedTo: workspace)
+                    ForEach(WorkspaceMenuModel.entries(for: workspace, model: model, isPinned: pin != nil), id: \.accessibilityIdentifier) { entry in
+                        Button(entry.label) {
+                            if entry.action == .changeFolder, let pin {
+                                if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens") {
+                                    viewModel.setPinFolder(pin.id, to: folder)
+                                }
+                            } else {
+                                Task { await entry.action.perform(workspaceID: workspace, on: viewModel) }
+                            }
+                        }
+                        .accessibilityIdentifier(entry.accessibilityIdentifier)
+                        if entry.action == .rename, let changeSymbol {
                             Button("Change Symbol\u{2026}", action: changeSymbol)
                                 .accessibilityIdentifier("flock.identity.symbol.menu")
                         }
-                        Button(entry.label) {
-                            Task { await entry.action.perform(workspaceID: workspace, on: viewModel) }
-                        }
-                        .accessibilityIdentifier(entry.accessibilityIdentifier)
                     }
                 }
             }
@@ -48,6 +55,43 @@ extension View {
         viewModel: SessionViewModel, workspace: WorkspaceID, key: String?, changeSymbol: (() -> Void)?
     ) -> some View {
         modifier(WorkspaceMenu(viewModel: viewModel, workspace: workspace, key: key, changeSymbol: changeSymbol))
+    }
+}
+
+private struct EmptyPinMenu: ViewModifier {
+    let viewModel: SessionViewModel
+    let pin: PinnedWorkspace
+    let beginRename: () -> Void
+    let changeSymbol: () -> Void
+
+    func body(content: Content) -> some View {
+        content.contextMenu {
+            ForEach(EmptyPinMenuModel.entries(), id: \.accessibilityIdentifier) { entry in
+                Button(entry.label) {
+                    switch entry.action {
+                    case .rename: beginRename()
+                    case .changeFolder:
+                        if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens") {
+                            viewModel.setPinFolder(pin.id, to: folder)
+                        }
+                    case .remove: viewModel.removePin(pin.id)
+                    }
+                }
+                .accessibilityIdentifier(entry.accessibilityIdentifier)
+                if entry.action == .rename {
+                    Button("Change Symbol\u{2026}", action: changeSymbol)
+                        .accessibilityIdentifier("flock.identity.symbol.menu")
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    func emptyPinMenu(
+        viewModel: SessionViewModel, pin: PinnedWorkspace, beginRename: @escaping () -> Void, changeSymbol: @escaping () -> Void
+    ) -> some View {
+        modifier(EmptyPinMenu(viewModel: viewModel, pin: pin, beginRename: beginRename, changeSymbol: changeSymbol))
     }
 }
 

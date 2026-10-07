@@ -69,14 +69,25 @@ final class ChromeMenuModelTests: XCTestCase {
 
     // MARK: - Workspace menu
 
-    func testTheWorkspaceMenuMirrorsHerdrsTwoNonWorktreeRows() {
+    func testAnOrdinaryWorkspaceMenuOffersPinAndClose() {
         let entries = WorkspaceMenuModel.entries(for: Self.workspace, model: model())
 
-        XCTAssertEqual(entries.map(\.label), ["Rename", "Close"])
+        XCTAssertEqual(entries.map(\.label), ["Rename", "Pin", "Close"])
         XCTAssertEqual(entries.map(\.accessibilityIdentifier), [
-            "flock.workspace.menu.rename", "flock.workspace.menu.close",
+            "flock.workspace.menu.rename", "flock.workspace.menu.pin", "flock.workspace.menu.close",
         ])
-        XCTAssertEqual(entries.map(\.action), [.rename, .close])
+        XCTAssertEqual(entries.map(\.action), [.rename, .pin, .close])
+    }
+
+    func testAPinnedWorkspaceMenuOffersNoClose() {
+        let entries = WorkspaceMenuModel.entries(for: Self.workspace, model: model(), isPinned: true)
+
+        XCTAssertEqual(entries.map(\.label), ["Rename", "Change Folder\u{2026}", "Unpin"])
+        XCTAssertEqual(entries.map(\.action), [.rename, .changeFolder, .unpin])
+    }
+
+    func testAnEmptyPinMenuOffersRemove() {
+        XCTAssertEqual(EmptyPinMenuModel.entries().map(\.label), ["Rename", "Change Folder\u{2026}", "Remove"])
     }
 
     func testAWorkspaceTheModelDoesNotCarryHasNoMenuAtAll() {

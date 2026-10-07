@@ -51,16 +51,9 @@ struct StartingFolderSettingsSection: View {
     }
 
     private func chooseFolder(for kind: NewTerminalKind) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        panel.message = "\(kind.displayName) starts in this folder."
-        if let current = store.choice(for: kind).customPath {
-            panel.directoryURL = URL(fileURLWithPath: current, isDirectory: true)
-        }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        store.selectCustom(path: url.path, for: kind)
+        guard let path = FolderPanel.choose(
+            current: store.choice(for: kind).customPath, message: "\(kind.displayName) starts in this folder."
+        ) else { return }
+        store.selectCustom(path: path, for: kind)
     }
 }

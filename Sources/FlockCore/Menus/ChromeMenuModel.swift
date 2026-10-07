@@ -26,7 +26,16 @@ public enum TabMenuAction: Equatable, Sendable {
 
 public enum WorkspaceMenuAction: Equatable, Sendable {
     case rename
+    case pin
+    case unpin
+    case changeFolder
     case close
+}
+
+public enum EmptyPinMenuAction: Equatable, Sendable {
+    case rename
+    case changeFolder
+    case remove
 }
 
 public enum RailMenuAction: Equatable, Sendable {
@@ -62,15 +71,36 @@ public enum TabMenuModel {
 /// Pure model for a workspace row's right-click menu. herdr's
 /// `ClientContextMenuTarget::Workspace` list is Rename + Close plus worktree
 /// commands (New worktree, Open worktree..., Delete worktree checkout...,
-/// Expand/Collapse); flock mirrors the two it has a capability for and
-/// offers none of the worktree rows, since nothing in flock manages a
-/// worktree. Empty for a workspace the model does not carry.
+/// Expand/Collapse); flock mirrors Rename and Close, adds Pin, and offers none
+/// of the worktree rows, since nothing in flock manages a worktree. A pinned
+/// workspace offers Change Folder... and Unpin in place of Close. Empty for a
+/// workspace the model does not carry.
 public enum WorkspaceMenuModel {
-    public static func entries(for workspace: WorkspaceID, model: SessionModel) -> [ChromeMenuEntry<WorkspaceMenuAction>] {
+    public static func entries(for workspace: WorkspaceID, model: SessionModel, isPinned: Bool = false) -> [ChromeMenuEntry<WorkspaceMenuAction>] {
         guard model.workspaces.contains(where: { $0.workspaceID == workspace }) else { return [] }
+        let rename = ChromeMenuEntry(label: "Rename", action: WorkspaceMenuAction.rename, accessibilityIdentifier: "flock.workspace.menu.rename")
+        guard !isPinned else {
+            return [
+                rename,
+                ChromeMenuEntry(label: "Change Folder\u{2026}", action: .changeFolder, accessibilityIdentifier: "flock.workspace.menu.changeFolder"),
+                ChromeMenuEntry(label: "Unpin", action: .unpin, accessibilityIdentifier: "flock.workspace.menu.unpin"),
+            ]
+        }
         return [
-            ChromeMenuEntry(label: "Rename", action: .rename, accessibilityIdentifier: "flock.workspace.menu.rename"),
+            rename,
+            ChromeMenuEntry(label: "Pin", action: .pin, accessibilityIdentifier: "flock.workspace.menu.pin"),
             ChromeMenuEntry(label: "Close", action: .close, accessibilityIdentifier: "flock.workspace.menu.close"),
+        ]
+    }
+}
+
+/// Pure model for an empty pin's right-click menu: a pin with no live workspace.
+public enum EmptyPinMenuModel {
+    public static func entries() -> [ChromeMenuEntry<EmptyPinMenuAction>] {
+        [
+            ChromeMenuEntry(label: "Rename", action: .rename, accessibilityIdentifier: "flock.pin.menu.rename"),
+            ChromeMenuEntry(label: "Change Folder\u{2026}", action: .changeFolder, accessibilityIdentifier: "flock.pin.menu.changeFolder"),
+            ChromeMenuEntry(label: "Remove", action: .remove, accessibilityIdentifier: "flock.pin.menu.remove"),
         ]
     }
 }
@@ -108,6 +138,12 @@ extension WorkspaceMenuAction {
         switch self {
         case .rename:
             viewModel.beginRename(.workspace(workspaceID))
+        case .pin:
+            viewModel.pin(workspace: workspaceID)
+        case .unpin:
+            if let pin = viewModel.pins.pin(linkedTo: workspaceID) { viewModel.unpin(pin.id) }
+        case .changeFolder:
+            break
         case .close:
             await viewModel.closeWorkspace(workspaceID)
         }
