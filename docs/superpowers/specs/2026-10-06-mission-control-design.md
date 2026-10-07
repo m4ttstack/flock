@@ -380,16 +380,17 @@ The rule is one FlockCore type, `PaneNaming`, that every surface reads.
 ### Workspace symbol
 
 Colour means status only, so a workspace is told apart by a symbol, never a
-hue. The set is `WorkspaceSymbols`: about twenty filled SF Symbols (leaf,
-bolt, flask, hammer and so on) with no check, exclamation, clock, bell,
-cross or plain disc, the shapes status already uses. The symbol draws at
+hue. The set is `WorkspaceSymbols`: about 140 SF Symbols in six sections
+(Nature, Tools, Things, Travel and sport, Shapes, Animals) with no check,
+exclamation, clock, bell, cross or plain disc, the shapes status already
+uses. Twenty that look least alike are assigned first. The symbol draws at
 14pt in the primary text colour; every workspace's wash is the same
 neutral. Flock assigns the least used symbol to a workspace the first time
-it sees it (the earliest in the set breaking ties, so neighbours do not
-repeat), keyed by workspace id so a rename keeps the symbol, and stores the
-assignment in UserDefaults. The right-click menu on an island header in
-Arrange, a group header or a card in Overview gets Symbol..., which opens a
-popover anchored to what was clicked: Automatic pinned above a scrolling
+it sees it (the earliest in assignment order breaking ties, so neighbours
+do not repeat), keyed by workspace id so a rename keeps the symbol, and stores the
+assignment in UserDefaults. The right-click menu anywhere on an island in
+Arrange, or anywhere on a group or its cards in Overview, gets Symbol...,
+which opens a popover pointing at where the right-click landed: Automatic pinned above a scrolling
 grid of the set's icons in labelled groups, the current symbol selected and
 each cell's name as its tooltip. A pick stores an override the same way and
 closes the popover.

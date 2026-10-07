@@ -346,6 +346,8 @@ private struct WorkspaceIsland: View {
         )
         .frame(maxHeight: .infinity, alignment: .top)
         .background(theme.workspaceWash, in: shape)
+        .contextMenu { WorkspaceSymbolMenuItem(key: identityKey) { isPickingSymbol = true } }
+        .workspaceSymbolPopover(theme: theme, key: identityKey, isPresented: $isPickingSymbol)
         .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.islandCornerRadius) }
         .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
@@ -382,8 +384,6 @@ private struct WorkspaceIsland: View {
         .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
         .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
         .contentShape(Rectangle())
-        .contextMenu { WorkspaceSymbolMenuItem(key: identityKey) { isPickingSymbol = true } }
-        .workspaceSymbolPopover(theme: theme, key: identityKey, isPresented: $isPickingSymbol)
     }
 
     /// One cell, plus the reporter for the slot a committed drop lands in

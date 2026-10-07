@@ -92,17 +92,26 @@ struct WorkspaceSymbolPicker: View {
     }
 }
 
-/// Attaches a workspace's symbol picker as a popover on the view it modifies.
+/// Attaches a workspace's symbol picker as a popover on the view it modifies,
+/// pointing at where the pointer last was over it: a context menu's item gives
+/// no location, and the pointer still sits where the right-click landed.
 /// Picking closes it.
 private struct WorkspaceSymbolPopover: ViewModifier {
     let theme: Theme
     let key: String?
     @Binding var isPresented: Bool
 
+    @State private var pointer: CGPoint?
+
     @Environment(WorkspaceIdentityStore.self) private var identityStore
 
     func body(content: Content) -> some View {
-        content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
+        content
+            .onContinuousHover { phase in
+                guard !isPresented, case .active(let location) = phase else { return }
+                pointer = location
+            }
+            .popover(isPresented: $isPresented, attachmentAnchor: anchor, arrowEdge: .bottom) {
             if let key {
                 WorkspaceSymbolPicker(
                     theme: theme, current: identityStore.symbol(for: key),
@@ -113,6 +122,12 @@ private struct WorkspaceSymbolPopover: ViewModifier {
                 }
             }
         }
+    }
+}
+
+extension WorkspaceSymbolPopover {
+    private var anchor: PopoverAttachmentAnchor {
+        pointer.map { .rect(.rect(CGRect(origin: $0, size: .zero))) } ?? .rect(.bounds)
     }
 }
 
