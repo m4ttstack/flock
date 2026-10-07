@@ -146,7 +146,7 @@ struct ArrangeZoomControl: View {
     var body: some View {
         GridControlButton(
             theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: ChromeRadius.control)),
-            restFill: theme.tabRest, restForeground: theme.textStrong, forced: forced, action: action
+            restFill: theme.tabStripFill, restForeground: theme.textStrong, forced: forced, action: action
         ) {
             HStack(spacing: G.zoomControlSpacing) {
                 Image(systemName: isZoomed ? "xmark" : "arrow.up.left.and.arrow.down.right")
