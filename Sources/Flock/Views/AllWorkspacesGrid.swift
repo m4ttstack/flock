@@ -923,6 +923,7 @@ private struct TabThumbnail: View {
                         theme: theme, title: shownTitle(pane), status: pane.agentStatus,
                         backgroundWork: viewModel.shownStatus(of: pane).backgroundWork,
                         isSelected: drag.gridSelection == pane.paneID,
+                        isActive: drag.gridSelection == pane.paneID && drag.activeSubject == nil,
                         interaction: interaction(of: .pane(pane.paneID)),
                         detail: tileBody(pane, box: placed.frame.size)
                     )
@@ -1064,8 +1065,9 @@ struct TabHandleStrip: View {
 /// two values rather than a `PaneRecord` so the drag proxy, which carries a
 /// snapshot of what was picked up, can draw the same box.
 ///
-/// Outlined only when blocked or previewed: a blocked pane is the one outline
-/// inside an island, so it is found at a glance.
+/// A hairline at rest keeps a split tab's panes apart on the thumbnail's
+/// shared ground; blocked and selected are the only strong outlines inside an
+/// island, so they are found at a glance.
 struct MiniPane: View {
     let theme: Theme
     /// nil draws the status word alone: the tab's title above stands for it.
@@ -1074,6 +1076,9 @@ struct MiniPane: View {
     var backgroundWork: String? = nil
     /// The pane Arrange has selected, which Return opens.
     var isSelected = false
+    /// The selected wash, when it differs from `isSelected`: a live drag's
+    /// drop wash is the only accent wash a thumbnail shows.
+    var isActive: Bool? = nil
     var interaction: ControlInteraction = .rest
     /// Drawn in place of the status word and title: the pane's own output,
     /// for a box large enough to read it (`ArrangeTileBody`).
@@ -1102,15 +1107,16 @@ struct MiniPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background {
-            if let wash = statusWash { wash.opacity(ChromeMetrics.Grid.statusWashOpacity) }
-        }
         // The terminal's own ground in every state: a screen read draws on
         // what the pane itself draws on, and an app's painted background
-        // must keep blending into it. State is a wash over the whole tile.
+        // must keep blending into it. Status and state are washes over the
+        // whole tile, painted runs included.
         .background(theme.pane, in: shape)
         .clipShape(shape)
-        .overlay(GridStateWash(theme: theme, shape: AnyShape(shape), interaction: interaction, isActive: isSelected))
+        .overlay {
+            if let wash = statusWash { shape.fill(wash).opacity(ChromeMetrics.Grid.statusWashOpacity).allowsHitTesting(false) }
+        }
+        .overlay(GridStateWash(theme: theme, shape: AnyShape(shape), interaction: interaction, isActive: isActive ?? isSelected))
         .overlay(
             shape.strokeBorder(
                 ThumbnailPart.paneOutline(theme: theme, status: status, isSelected: isSelected, pane: interaction),

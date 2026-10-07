@@ -4,12 +4,12 @@ import SwiftUI
 import XCTest
 
 /// An Arrange thumbnail's handle and a mini pane showing a screen with a
-/// painted background, at rest, hovered, pressed and selected, in a dark and
-/// a light theme. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
+/// painted background, at rest, hovered, pressed and selected, then blocked
+/// and done at rest, in a dark and a light theme. PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
 @MainActor
 final class GridStateWashRenderTests: XCTestCase {
     private static let scale: CGFloat = 2
-    private static let size = CGSize(width: 1000, height: 200)
+    private static let size = CGSize(width: 1480, height: 200)
     private static let inset: CGFloat = 16
     private static let thumbnail = CGSize(width: 220, height: 160)
     private static let pitch: CGFloat = 240
@@ -20,6 +20,7 @@ final class GridStateWashRenderTests: XCTestCase {
         let name: String
         let interaction: ControlInteraction
         let isActive: Bool
+        var status = AgentStatus.working
     }
 
     private static let states = [
@@ -27,7 +28,11 @@ final class GridStateWashRenderTests: XCTestCase {
         State(name: "hover", interaction: .hover, isActive: false),
         State(name: "pressed", interaction: .pressed, isActive: false),
         State(name: "selected", interaction: .rest, isActive: true),
+        State(name: "blocked", interaction: .rest, isActive: false, status: .blocked),
+        State(name: "done", interaction: .rest, isActive: false, status: .done),
     ]
+    /// The states a person drives; the handle shows each of them differently.
+    private static let interactive = 4
 
     func testEachStateWashesTheWholeTileAndAPaintedBackgroundStaysFlush() async throws {
         ChromeType.install()
@@ -58,7 +63,7 @@ final class GridStateWashRenderTests: XCTestCase {
             }
             XCTAssertEqual(grounds[0], theme.palette.chromeRoles.pane.hex, "\(scheme): a resting mini pane sits on the terminal's ground")
             XCTAssertEqual(Set(grounds).count, Self.states.count, "\(scheme): mini pane states \(grounds) must all differ")
-            XCTAssertEqual(Set(strips).count, Self.states.count, "\(scheme): handle states \(strips) must all differ")
+            XCTAssertEqual(Set(strips.prefix(Self.interactive)).count, Self.interactive, "\(scheme): handle states \(strips) must all differ")
 
             let selected = Self.paneFrame(3)
             XCTAssertEqual(
@@ -88,7 +93,7 @@ final class GridStateWashRenderTests: XCTestCase {
                         interaction: state.interaction, isActive: state.isActive
                     )
                     MiniPane(
-                        theme: theme, title: "claude", status: .working, isSelected: state.isActive,
+                        theme: theme, title: "claude", status: state.status, isSelected: state.isActive,
                         interaction: state.interaction, detail: AnyView(Self.screen(theme))
                     )
                     .padding(ChromeMetrics.Grid.thumbnailPadding)
