@@ -390,7 +390,7 @@ private struct WorkspaceIsland: View {
                     .foregroundStyle(theme.textStrong)
                     .lineLimit(1)
             }
-            StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.Grid.cardStatusDot + 2)
+            StatusDot(shown: viewModel.shownStatus(of: workspace), theme: theme, size: ChromeMetrics.Grid.cardStatusDot + 2)
             Spacer(minLength: 0)
             Text(tabCount == 1 ? "1 tab" : "\(tabCount) tabs")
                 .font(ChromeType.gridCardMeta)
@@ -599,7 +599,7 @@ private struct TabThumbnail: View {
 
     private var titleStrip: some View {
         TabHandleStrip(
-            theme: theme, title: tabTitle, status: tab.agentStatus,
+            theme: theme, title: tabTitle, status: tab.agentStatus, isBackground: viewModel.shownStatus(of: tab).isBackground,
             isFocusedTab: tab.tabID == viewModel.model?.focusedTabID,
             interaction: interaction(of: .tab)
         )
@@ -746,6 +746,7 @@ private struct TabThumbnail: View {
                 } else if let pane = model?.panes[placed.pane] {
                     MiniPane(
                         theme: theme, title: shownTitle(pane), status: pane.agentStatus,
+                        backgroundWork: viewModel.shownStatus(of: pane).backgroundWork,
                         isPreviewed: drag.gridPreviewCard == pane.paneID,
                         interaction: interaction(of: .pane(pane.paneID))
                     )
@@ -790,6 +791,7 @@ struct TabHandleStrip: View {
     let theme: Theme
     let title: String
     let status: AgentStatus
+    var isBackground = false
     let isFocusedTab: Bool
     var interaction: ControlInteraction = .rest
 
@@ -804,7 +806,7 @@ struct TabHandleStrip: View {
                 .foregroundStyle(appearance.foreground)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot)
+            StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.labelStatusDot, isBackground: isBackground)
         }
         .padding(.horizontal, ChromeMetrics.Grid.tabStripHorizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -831,6 +833,7 @@ struct MiniPane: View {
     /// nil draws the status word alone: the tab's title above stands for it.
     let title: String?
     let status: AgentStatus
+    var backgroundWork: String? = nil
     /// Its preview card is the one open, so the card's pane is findable.
     var isPreviewed = false
     var interaction: ControlInteraction = .rest
@@ -885,15 +888,17 @@ struct MiniPane: View {
         .padding(.horizontal, ChromeMetrics.Grid.miniPaneHorizontalPadding)
     }
 
+    /// The reason alone for background work: a mini pane is too narrow for
+    /// `working · 1 shell`, and its mark already says working.
     private var statusWord: some View {
-        Text(status.rawValue)
+        Text(backgroundWork ?? status.rawValue)
             .font(ChromeType.gridMiniPaneStatus)
             .foregroundStyle(status == .blocked ? theme.red : theme.textLabel)
             .lineLimit(1)
     }
 
     private var dot: some View {
-        StatusDot(status: status, theme: theme, size: ChromeMetrics.Grid.miniPaneStatusDot)
+        StatusDot(shown: ShownStatus(status, backgroundWork: backgroundWork), theme: theme, size: ChromeMetrics.Grid.miniPaneStatusDot)
     }
 
     private var titleText: Text {
@@ -1015,7 +1020,7 @@ private struct GridPreviewCard: View {
            let pane = model.panes[previewed],
            let content = PaneHoverCardContent.make(
                pane: previewed, model: model, exported: viewModel.exportedLayout(for: pane.tabID), homeDirectory: NSHomeDirectory(),
-               oneTitle: viewModel.oneTitle
+               backgroundWork: viewModel.backgroundWork, oneTitle: viewModel.oneTitle
            ) {
             let paneBox = box.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
             let origin = HoverCardPlacement.origin(
@@ -1146,7 +1151,7 @@ private struct PaneHoverCardView: View {
     /// the card reads as that pane's window rather than a tooltip.
     private var bar: some View {
         HStack(spacing: ChromeMetrics.HoverCard.barSpacing) {
-            StatusDot(status: content.status, theme: theme, size: ChromeMetrics.HoverCard.statusDot)
+            StatusDot(shown: content.shown, theme: theme, size: ChromeMetrics.HoverCard.statusDot)
             Text(content.title)
                 .font(ChromeType.hoverCardTitle)
                 .foregroundStyle(theme.tabStripTitle)

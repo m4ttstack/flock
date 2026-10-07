@@ -16,18 +16,25 @@ public struct MissionCard: Equatable, Sendable, Identifiable {
     /// When the pane entered `status`, or when its attention card was raised.
     public let since: Date?
     public let folder: String
+    /// What the pane runs in the background while herdr calls it idle or
+    /// done; `status` is then `.working`.
+    public var backgroundWork: String? = nil
 
-    /// The status, with how long it has held when that is known: `blocked 12m`.
+    public var shown: ShownStatus { ShownStatus(status, backgroundWork: backgroundWork) }
+
+    /// The status, with how long it has held when that is known: `blocked 12m`,
+    /// or `working · 1 shell · 3m` for background work.
     public func stateText(at now: Date) -> String {
-        guard let since else { return status.rawValue }
-        return "\(status.rawValue) \(MissionAge.text(now.timeIntervalSince(since)))"
+        guard let since else { return shown.word }
+        let age = MissionAge.text(now.timeIntervalSince(since))
+        return backgroundWork == nil ? "\(shown.word) \(age)" : "\(shown.word) · \(age)"
     }
 }
 
 extension MissionCard {
     /// `names` is `MissionBoard.workspaceNames`, built once per board.
     init(
-        _ pane: PaneRecord, status: AgentStatus, since: Date?, model: SessionModel, names: [WorkspaceID: String], oneTitle: Bool
+        _ pane: PaneRecord, status: ShownStatus, since: Date?, model: SessionModel, names: [WorkspaceID: String], oneTitle: Bool
     ) {
         let tab = model.tabs[pane.workspaceID]?.first { $0.tabID == pane.tabID }
         let titles = PaneNaming.cardTitles(pane: pane, model: model, oneTitle: oneTitle)
@@ -35,8 +42,8 @@ extension MissionCard {
             paneID: pane.paneID, workspaceID: pane.workspaceID, tabID: pane.tabID,
             workspaceName: names[pane.workspaceID] ?? pane.workspaceID.rawValue,
             tabTitle: tab.map { TabTitle.resolve($0, in: model).text } ?? pane.tabID.rawValue,
-            title: titles.title, detail: titles.detail, status: status, since: since,
-            folder: pane.foregroundCwd ?? pane.cwd
+            title: titles.title, detail: titles.detail, status: status.status, since: since,
+            folder: pane.foregroundCwd ?? pane.cwd, backgroundWork: status.backgroundWork
         )
     }
 }
@@ -153,15 +160,18 @@ public struct MissionBoard: Equatable, Sendable {
     /// which lane holds a card never changes how the card reads.
     public static func card(
         _ pane: PaneID, model: SessionModel, sections: RailSections, toasts: AttentionToastStack, history: PaneStatusHistory,
-        oneTitle: Bool = false
+        backgroundWork: [PaneID: String] = [:], oneTitle: Bool = false
     ) -> MissionCard? {
         guard let record = model.panes[pane] else { return nil }
         let names = workspaceNames(model: model, sections: sections)
         if let toast = toasts.toast(pane: pane) {
-            return MissionCard(record, status: toast.status, since: toast.raisedAt, model: model, names: names, oneTitle: oneTitle)
+            return MissionCard(
+                record, status: ShownStatus(toast.status), since: toast.raisedAt, model: model, names: names, oneTitle: oneTitle
+            )
         }
         return MissionCard(
-            record, status: record.agentStatus, since: history.lastChange(of: pane), model: model, names: names, oneTitle: oneTitle
+            record, status: ShownStatus.of(record, backgroundWork: backgroundWork), since: history.lastChange(of: pane),
+            model: model, names: names, oneTitle: oneTitle
         )
     }
 
@@ -175,13 +185,13 @@ public struct MissionBoard: Equatable, Sendable {
 
     public init(
         model: SessionModel, sections: RailSections, toasts: AttentionToastStack,
-        history: PaneStatusHistory, now: Date, calendar: Calendar = .current, opensOlder: Bool = false,
-        opensUnknown: Bool = false, oneTitle: Bool = false
+        history: PaneStatusHistory, backgroundWork: [PaneID: String] = [:], now: Date, calendar: Calendar = .current,
+        opensOlder: Bool = false, opensUnknown: Bool = false, oneTitle: Bool = false
     ) {
         let rank = Dictionary(sections.railOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let names = Self.workspaceNames(model: model, sections: sections)
 
-        func card(_ pane: PaneRecord, status: AgentStatus, since: Date?) -> MissionCard {
+        func card(_ pane: PaneRecord, status: ShownStatus, since: Date?) -> MissionCard {
             MissionCard(pane, status: status, since: since, model: model, names: names, oneTitle: oneTitle)
         }
 
@@ -192,13 +202,13 @@ public struct MissionBoard: Equatable, Sendable {
 
         let toasted = Set(toasts.toasts.map(\.paneID))
         needsYou = Self.grouped(toasts.toasts.reversed().compactMap { toast in
-            model.panes[toast.paneID].map { card($0, status: toast.status, since: toast.raisedAt) }
+            model.panes[toast.paneID].map { card($0, status: ShownStatus(toast.status), since: toast.raisedAt) }
         })
 
         var working: [PaneRecord] = []
         var resting: [(PaneRecord, Date?)] = []
         for pane in model.panes.values where !toasted.contains(pane.paneID) {
-            if pane.agentStatus == .working {
+            if ShownStatus.of(pane, backgroundWork: backgroundWork).status == .working {
                 working.append(pane)
             } else {
                 resting.append((pane, history.lastChange(of: pane.paneID)))
@@ -207,7 +217,9 @@ public struct MissionBoard: Equatable, Sendable {
 
         var groups: [MissionGroup] = []
         for pane in working.sorted(by: { railKey($0) < railKey($1) }) {
-            let next = card(pane, status: .working, since: history.lastChange(of: pane.paneID))
+            let next = card(
+                pane, status: ShownStatus.of(pane, backgroundWork: backgroundWork), since: history.lastChange(of: pane.paneID)
+            )
             if let last = groups.last, last.workspaceID == pane.workspaceID {
                 groups[groups.count - 1] = MissionGroup(workspaceID: last.workspaceID, name: last.name, cards: last.cards + [next])
             } else {
@@ -221,8 +233,8 @@ public struct MissionBoard: Equatable, Sendable {
         let unknown = resting.filter { $0.1 == nil }.map(\.0).sorted { railKey($0) < railKey($1) }
         let recentFirst = known
             .sorted { ($0.1, $1.0.paneID.rawValue) > ($1.1, $0.0.paneID.rawValue) }
-            .map { card($0.0, status: $0.0.agentStatus, since: $0.1) }
-            + unknown.map { card($0, status: $0.agentStatus, since: nil) }
+            .map { card($0.0, status: ShownStatus($0.0.agentStatus), since: $0.1) }
+            + unknown.map { card($0, status: ShownStatus($0.agentStatus), since: nil) }
         let byAge = Dictionary(grouping: recentFirst) { RestAge.of($0.since, now: now, calendar: calendar) }
         atRest = RestAge.allCases.compactMap { age in
             guard let cards = byAge[age] else { return nil }

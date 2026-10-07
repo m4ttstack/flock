@@ -83,6 +83,55 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertTrue(b.atRest.isEmpty)
     }
 
+    func testAClaudePaneBusyInTheBackgroundIsInWorkingAndSaysWhy() {
+        var model = MissionFixture.single([.idle, .done, .idle])
+        for id in ["w1:t1:p1", "w1:t1:p2"] { model.panes[PaneID(rawValue: id)]?.agent = "claude" }
+        let work = [PaneID(rawValue: "w1:t1:p1"): "1 shell", PaneID(rawValue: "w1:t1:p2"): "2 monitors"]
+        let b = MissionBoard(
+            model: model, sections: RailSections(model: model, board: nil), toasts: AttentionToastStack(),
+            history: history(model, changedAgo: ["w1:t1:p1": 3 * 60, "w1:t1:p2": 60]), backgroundWork: work, now: now, calendar: utc
+        )
+        let working = b.working.flatMap(\.cards)
+        XCTAssertEqual(working.map(\.paneID.rawValue), ["w1:t1:p1", "w1:t1:p2"])
+        XCTAssertEqual(working.map(\.status), [.working, .working])
+        XCTAssertEqual(working.map { $0.stateText(at: now) }, ["working · 1 shell · 3m", "working · 2 monitors · 1m"])
+        XCTAssertEqual(restCards(b), ["w1:t1:p3"])
+    }
+
+    func testBackgroundWorkOnAPaneThatIsNotClaudeIsIgnored() {
+        let model = MissionFixture.single([.idle])
+        let b = MissionBoard(
+            model: model, sections: RailSections(model: model, board: nil), toasts: AttentionToastStack(),
+            history: history(model, changedAgo: [:]), backgroundWork: [PaneID(rawValue: "w1:t1:p1"): "1 shell"], now: now,
+            calendar: utc
+        )
+        XCTAssertTrue(b.working.isEmpty)
+        XCTAssertEqual(restCards(b), ["w1:t1:p1"])
+    }
+
+    func testAToastedPaneKeepsItsToastsStatusOverBackgroundWork() {
+        var model = MissionFixture.single([.done])
+        model.panes[PaneID(rawValue: "w1:t1:p1")]?.agent = "claude"
+        var toasts = AttentionToastStack()
+        toasts.raise(toast("w1:t1:p1", .finished, raised: 60))
+        let sections = RailSections(model: model, board: nil)
+        let history = history(model, changedAgo: [:])
+        let work = [PaneID(rawValue: "w1:t1:p1"): "1 shell"]
+        let b = MissionBoard(model: model, sections: sections, toasts: toasts, history: history, backgroundWork: work, now: now)
+        XCTAssertEqual(b.needsYou.flatMap(\.cards).map(\.status), [.done])
+        XCTAssertTrue(b.working.isEmpty)
+        let card = MissionBoard.card(
+            PaneID(rawValue: "w1:t1:p1"), model: model, sections: sections, toasts: toasts, history: history, backgroundWork: work
+        )
+        XCTAssertEqual(card?.backgroundWork, nil)
+        let untoasted = MissionBoard.card(
+            PaneID(rawValue: "w1:t1:p1"), model: model, sections: sections, toasts: AttentionToastStack(), history: history,
+            backgroundWork: work
+        )
+        XCTAssertEqual(untoasted?.shown, ShownStatus(.done, backgroundWork: "1 shell"))
+        XCTAssertEqual(untoasted?.status, .working)
+    }
+
     func testAtRestIsMostRecentChangeFirst() {
         let b = board(MissionFixture.single([.idle, .done]), changedAgo: ["w1:t1:p1": 600, "w1:t1:p2": 60])
         XCTAssertEqual(restCards(b), ["w1:t1:p2", "w1:t1:p1"])

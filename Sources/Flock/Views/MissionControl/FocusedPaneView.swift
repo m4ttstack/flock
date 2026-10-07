@@ -100,7 +100,7 @@ struct FocusedPaneView: View {
                 .font(ChromeType.focusedNextLabel)
                 .tracking(ChromeType.focusedNextLabelTracking)
                 .foregroundStyle(theme.textLabel)
-            StatusDot(status: card.status, theme: theme, size: M.cardDot)
+            StatusDot(shown: card.shown, theme: theme, size: M.cardDot)
             Text(card.workspaceName)
                 .font(ChromeType.focusedNextPlace)
                 .foregroundStyle(theme.textDim)
@@ -181,7 +181,7 @@ struct FocusedPlace: View {
             Text(card.workspaceName).foregroundStyle(theme.textStrong).fixedSize()
             Text("/").foregroundStyle(theme.textLabel.opacity(G.focusedSlashOpacity)).fixedSize()
             HStack(spacing: 6) {
-                StatusDot(status: card.status, theme: theme, size: ChromeMetrics.MissionControl.cardDot)
+                StatusDot(shown: card.shown, theme: theme, size: ChromeMetrics.MissionControl.cardDot)
                 Text(card.title).foregroundStyle(theme.textStrong)
                 if let detail = card.detail {
                     Text(detail).foregroundStyle(theme.textDim)

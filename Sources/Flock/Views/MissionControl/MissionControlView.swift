@@ -358,7 +358,7 @@ extension MissionBoard {
         else { return nil }
         let missionBoard = MissionBoard(
             model: model, sections: sections, toasts: viewModel.attentionToasts,
-            history: viewModel.statusHistory, now: now, opensOlder: opensOlder,
+            history: viewModel.statusHistory, backgroundWork: viewModel.backgroundWork, now: now, opensOlder: opensOlder,
             opensUnknown: opensUnknown, oneTitle: viewModel.oneTitle
         )
         return (missionBoard, sections)
@@ -375,7 +375,7 @@ extension MissionBoard {
         else { return nil }
         let card = MissionBoard.card(
             pane, model: model, sections: sections, toasts: viewModel.attentionToasts, history: viewModel.statusHistory,
-            oneTitle: viewModel.oneTitle
+            backgroundWork: viewModel.backgroundWork, oneTitle: viewModel.oneTitle
         )
         return card.map { ($0, sections) }
     }

@@ -42,6 +42,10 @@ public final class SessionViewModel {
     public private(set) var lastLines: [PaneID: String] = [:]
     /// The grid hover card's tails, one per pane it has opened on.
     public private(set) var paneTails: [PaneID: PaneTail] = [:]
+    /// `BackgroundWork.reason` for each eligible pane whose footer counts
+    /// work. Read through `ShownStatus.of`, which ignores an entry once its
+    /// pane has left eligibility.
+    public private(set) var backgroundWork: [PaneID: String] = [:]
     public private(set) var attentionToasts = AttentionToastStack() {
         didSet {
             if attentionToasts != oldValue { attentionToastArchive?.save(attentionToasts) }
@@ -61,6 +65,10 @@ public final class SessionViewModel {
     /// The panes with a tail read in flight, for the same reason and read the
     /// same way: `paneTails` is what the card observes.
     @ObservationIgnored private var tailReads: Set<PaneID> = []
+    @ObservationIgnored private var backgroundWorkPanes: Set<PaneID> = []
+    @ObservationIgnored private var backgroundWorkReads: Set<PaneID> = []
+    @ObservationIgnored private var backgroundWorkTimer: Task<Void, Never>?
+    @ObservationIgnored private let backgroundWorkInterval: Duration
     // One chained task per pane: every attach/park/teardown request for a
     // pane waits for whatever request came immediately before it (for that
     // SAME pane only; other panes are unaffected) before touching
@@ -179,6 +187,7 @@ public final class SessionViewModel {
         paneLastChangeArchive: PaneLastChangeArchive? = nil,
         oneTitle: @escaping @MainActor () -> Bool = { false },
         navigationPollInterval: Duration = .milliseconds(300),
+        backgroundWorkInterval: Duration = BackgroundWork.readInterval,
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
         homeDirectory: String = NSHomeDirectory(),
         rt: RtCoordinator? = nil,
@@ -205,6 +214,7 @@ public final class SessionViewModel {
         self.lastChangeSeeds = paneLastChangeArchive?.load() ?? [:]
         self.oneTitleSetting = oneTitle
         self.navigationPollInterval = navigationPollInterval
+        self.backgroundWorkInterval = backgroundWorkInterval
         self.startingFolder = startingFolder
         self.homeDirectory = homeDirectory
         self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
@@ -275,6 +285,7 @@ public final class SessionViewModel {
         refreshLayoutExports()
         reconcileClosedPanes()
         reconcileAgentStatusFeeds()
+        reconcileBackgroundWork(connection: connection)
         reconcileAttentionToasts(previous: previousModel)
         rt.update(model: fullModel)
         if connection == .live, let fullModel {
@@ -752,6 +763,81 @@ public final class SessionViewModel {
             guard let data, let text = Self.extractReadText(data) else { return }
             self.paneTails[pane] = PaneTailPolicy.make(from: text)
         }
+    }
+
+    // MARK: - background work
+
+    /// Reads each eligible pane on arrival and then on one shared cadence,
+    /// and forgets a pane the moment it leaves eligibility. Nothing is read
+    /// while the connection is down.
+    private func reconcileBackgroundWork(connection: ConnectionState) {
+        let eligible: Set<PaneID> = connection == .live
+            ? Set(model?.panes.values.filter(BackgroundWork.isEligible).map(\.paneID) ?? [])
+            : []
+        let arrived = eligible.subtracting(backgroundWorkPanes)
+        backgroundWorkPanes = eligible
+        if backgroundWork.keys.contains(where: { !eligible.contains($0) }) {
+            backgroundWork = backgroundWork.filter { eligible.contains($0.key) }
+        }
+        for pane in arrived.sorted(by: { $0.rawValue < $1.rawValue }) {
+            readBackgroundWork(pane)
+        }
+        if eligible.isEmpty {
+            backgroundWorkTimer?.cancel()
+            backgroundWorkTimer = nil
+        } else if backgroundWorkTimer == nil {
+            let interval = backgroundWorkInterval
+            backgroundWorkTimer = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: interval)
+                    guard !Task.isCancelled, let self else { return }
+                    for pane in self.backgroundWorkPanes.sorted(by: { $0.rawValue < $1.rawValue }) {
+                        self.readBackgroundWork(pane)
+                    }
+                }
+            }
+        }
+    }
+
+    /// One read in flight per pane. A read that fails keeps the last answer:
+    /// it is no evidence either way, and the next tick reads again.
+    private func readBackgroundWork(_ pane: PaneID) {
+        guard backgroundWorkReads.insert(pane).inserted else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let params: [String: JSONValue] = [
+                "pane_id": .string(pane.rawValue),
+                "source": .string("visible"),
+                "format": .string("text"),
+            ]
+            let data = try? await self.client.requestRaw("pane.read", params)
+            self.backgroundWorkReads.remove(pane)
+            guard self.backgroundWorkPanes.contains(pane), let data, let text = Self.extractReadText(data) else { return }
+            let reason = BackgroundWork.reason(in: text)
+            if self.backgroundWork[pane] != reason { self.backgroundWork[pane] = reason }
+        }
+    }
+
+    /// The status a pane's mark draws.
+    public func shownStatus(of pane: PaneRecord) -> ShownStatus {
+        ShownStatus.of(pane, backgroundWork: backgroundWork)
+    }
+
+    public func shownStatus(of workspace: WorkspaceRecord) -> ShownStatus {
+        guard !backgroundWork.isEmpty else { return ShownStatus(workspace.agentStatus) }
+        return ShownStatus.aggregate(
+            herdr: workspace.agentStatus,
+            panes: model?.panes.values.filter { $0.workspaceID == workspace.workspaceID } ?? [],
+            backgroundWork: backgroundWork
+        )
+    }
+
+    public func shownStatus(of tab: TabRecord) -> ShownStatus {
+        guard !backgroundWork.isEmpty else { return ShownStatus(tab.agentStatus) }
+        return ShownStatus.aggregate(
+            herdr: tab.agentStatus, panes: model?.panes.values.filter { $0.tabID == tab.tabID } ?? [],
+            backgroundWork: backgroundWork
+        )
     }
 
     /// `pane.read`'s payload sits under its own wrapper key, as every herdr

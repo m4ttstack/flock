@@ -255,7 +255,8 @@ struct WorkspaceRail: View {
                 workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.selectedWorkspaceID
             ),
             displacement: displacement,
-            isGhosted: isGhosted
+            isGhosted: isGhosted,
+            isBackground: viewModel.shownStatus(of: workspace).isBackground
         )
         // Outside the row, which offsets its own content: the frame published
         // here is the row's resting place, which is what the insertion index
@@ -481,6 +482,7 @@ struct WorkspaceRow: View {
     var displacement: CGFloat = 0
     /// The row this drag started from, left in place and faded.
     var isGhosted = false
+    var isBackground = false
 
     var body: some View {
         HStack(spacing: ChromeMetrics.WorkspaceRow.spacing) {
@@ -488,7 +490,9 @@ struct WorkspaceRow: View {
             // is already carried by the row fill and the heavier name, and a
             // row that swapped its status for an accent was the one row whose
             // agent you could not see.
-            StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
+            StatusDot(
+                status: workspace.agentStatus, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot, isBackground: isBackground
+            )
             if let markKey {
                 WorkspaceMark(theme: theme, key: markKey, size: ChromeMetrics.WorkspaceRow.mark, picking: pickingSymbol)
             }

@@ -78,7 +78,7 @@ struct MissionCardView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: M.cardLineSpacing) {
             HStack(spacing: 8) {
-                StatusDot(status: card.status, theme: theme, size: M.cardDot)
+                StatusDot(shown: card.shown, theme: theme, size: M.cardDot)
                 title
                 Spacer(minLength: 8)
                 stateText

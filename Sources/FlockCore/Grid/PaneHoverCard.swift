@@ -13,16 +13,17 @@ extension PaneRecord {
 /// which is fetched separately.
 public struct PaneHoverCardContent: Equatable, Sendable {
     public let title: String
-    public let status: AgentStatus
+    public let shown: ShownStatus
     /// The tab's label and the pane's place in it, "agents · pane 1 of 3".
     public let position: String
     public let cwd: String
 
-    public var statusWord: String { status.rawValue }
+    public var status: AgentStatus { shown.status }
+    public var statusWord: String { shown.word }
 
-    public init(title: String, status: AgentStatus, position: String, cwd: String) {
+    public init(title: String, status: ShownStatus, position: String, cwd: String) {
         self.title = title
-        self.status = status
+        self.shown = status
         self.position = position
         self.cwd = cwd
     }
@@ -31,7 +32,7 @@ public struct PaneHoverCardContent: Equatable, Sendable {
     /// included, so "pane 1" is the top-left box the user is looking at.
     public static func make(
         pane id: PaneID, model: SessionModel, exported: ExportedLayoutDescription?, homeDirectory: String,
-        oneTitle: Bool = false
+        backgroundWork: [PaneID: String] = [:], oneTitle: Bool = false
     ) -> PaneHoverCardContent? {
         guard let pane = model.panes[id] else { return nil }
         let tabLabel = model.tabs[pane.workspaceID]?.first { $0.tabID == pane.tabID }?.label ?? pane.tabID.rawValue
@@ -43,7 +44,7 @@ public struct PaneHoverCardContent: Equatable, Sendable {
         let position = order.firstIndex(of: id).map { "\(tabLabel) · pane \($0 + 1) of \(order.count)" } ?? tabLabel
         return PaneHoverCardContent(
             title: PaneNaming.name(pane: pane, model: model, oneTitle: oneTitle),
-            status: pane.agentStatus,
+            status: ShownStatus.of(pane, backgroundWork: backgroundWork),
             position: position,
             cwd: abbreviatingHome(pane.cwd, home: homeDirectory)
         )
