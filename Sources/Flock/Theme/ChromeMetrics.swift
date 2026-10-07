@@ -890,6 +890,8 @@ enum ChromeMetrics {
         static let headerSpacing: CGFloat = 8
         static let headerSeparatorHeight: CGFloat = 14
         static let focusedMark: CGFloat = 14
+        /// Above a live pane, so a little more room than Arrange's header.
+        static let focusedHeaderHeight: CGFloat = 40
         /// Between the focused header's back button, place, title and state.
         static let focusedGroupSpacing: CGFloat = 14
         static let focusedSlashOpacity: Double = 0.7

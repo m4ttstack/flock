@@ -55,8 +55,7 @@ struct FocusedPaneView: View {
             if let shown {
                 FocusedPlace(
                     theme: theme, card: shown.card,
-                    markKey: WorkspaceIdentityStore.key(for: shown.card.workspaceID, sections: shown.sections),
-                    now: now
+                    markKey: WorkspaceIdentityStore.key(for: shown.card.workspaceID, sections: shown.sections)
                 )
             }
             Spacer(minLength: 0)
@@ -64,7 +63,7 @@ struct FocusedPaneView: View {
         }
         .lineLimit(1)
         .padding(.horizontal, G.headerHorizontalPadding)
-        .frame(height: G.headerHeight)
+        .frame(height: G.focusedHeaderHeight)
         .background(WindowDragExclusion())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("flock.focused.header")
@@ -175,33 +174,27 @@ struct FocusedBackButton: View {
 }
 
 /// Where the focused pane lives and what it is doing: the workspace's mark and
-/// name, a slash, the pane's title, and its state in the status colour.
+/// name, a slash, then the pane's status dot and title.
 struct FocusedPlace: View {
     let theme: Theme
     let card: MissionCard
     let markKey: String?
-    let now: Date
 
     private typealias G = ChromeMetrics.Grid
 
     var body: some View {
-        HStack(spacing: G.focusedGroupSpacing) {
-            HStack(spacing: G.headerSpacing) {
-                WorkspaceMark(theme: theme, key: markKey, size: G.focusedMark)
-                Text(card.workspaceName).foregroundStyle(theme.textDim).fixedSize()
-                Text("/").foregroundStyle(theme.textLabel.opacity(G.focusedSlashOpacity)).fixedSize()
-                HStack(spacing: 6) {
-                    Text(card.title).foregroundStyle(theme.textStrong)
-                    if let detail = card.detail {
-                        Text(detail).foregroundStyle(theme.textDim)
-                    }
+        HStack(spacing: G.headerSpacing) {
+            WorkspaceMark(theme: theme, key: markKey, size: G.focusedMark)
+            Text(card.workspaceName).foregroundStyle(theme.textStrong).fixedSize()
+            Text("/").foregroundStyle(theme.textLabel.opacity(G.focusedSlashOpacity)).fixedSize()
+            HStack(spacing: 6) {
+                StatusDot(status: card.status, theme: theme, size: ChromeMetrics.MissionControl.cardDot)
+                Text(card.title).foregroundStyle(theme.textStrong)
+                if let detail = card.detail {
+                    Text(detail).foregroundStyle(theme.textDim)
                 }
-                .truncationMode(.middle)
             }
-            Text(card.stateText(at: now))
-                .font(ChromeType.missionCardMono)
-                .foregroundStyle(theme.agentStatusMarkColor(card.status))
-                .fixedSize()
+            .truncationMode(.middle)
         }
         .font(ChromeType.focusedPlace)
         .lineLimit(1)

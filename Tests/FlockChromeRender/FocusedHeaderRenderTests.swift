@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class FocusedHeaderRenderTests: XCTestCase {
     private static let scale: CGFloat = 2
-    private static let size = CGSize(width: 560, height: 2 * ChromeMetrics.Grid.headerHeight)
+    private static let size = CGSize(width: 560, height: 2 * ChromeMetrics.Grid.focusedHeaderHeight)
 
     func testTheBackButtonIsQuietUntilHovered() async throws {
         ChromeType.install()
@@ -41,12 +41,12 @@ final class FocusedHeaderRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("focused-header-\(scheme).png"))
             }
-            let rowMid = ChromeMetrics.Grid.headerHeight / 2
+            let rowMid = ChromeMetrics.Grid.focusedHeaderHeight / 2
             let fringe = ChromeMetrics.Grid.headerHorizontalPadding - ChromeMetrics.MissionControl.focusedBackPullIn + 2
             let ground = hex(image, CGPoint(x: 2, y: rowMid))
             XCTAssertEqual(hex(image, CGPoint(x: fringe, y: rowMid)), ground, "\(scheme): a resting back button draws no ground")
             XCTAssertNotEqual(
-                hex(image, CGPoint(x: fringe, y: rowMid + ChromeMetrics.Grid.headerHeight)), ground,
+                hex(image, CGPoint(x: fringe, y: rowMid + ChromeMetrics.Grid.focusedHeaderHeight)), ground,
                 "\(scheme): hover lifts the back button"
             )
         }
@@ -61,11 +61,11 @@ final class FocusedHeaderRenderTests: XCTestCase {
         )
         return HStack(spacing: ChromeMetrics.Grid.focusedGroupSpacing) {
             FocusedBackButton(theme: theme, forced: forced) {}
-            FocusedPlace(theme: theme, card: card, markKey: "w1", now: now)
+            FocusedPlace(theme: theme, card: card, markKey: "w1")
             Spacer(minLength: 0)
         }
         .padding(.horizontal, ChromeMetrics.Grid.headerHorizontalPadding)
-        .frame(height: ChromeMetrics.Grid.headerHeight)
+        .frame(height: ChromeMetrics.Grid.focusedHeaderHeight)
     }
 
     private func sheet(_ theme: Theme) -> some View {
