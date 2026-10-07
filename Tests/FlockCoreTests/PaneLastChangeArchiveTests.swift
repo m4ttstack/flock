@@ -60,6 +60,14 @@ final class PaneLastChangeArchiveTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: PaneLastChangeArchive.defaultsKey))
     }
 
+    func testARetiredArchiveIsNeverReadAndIsRemoved() throws {
+        let defaults = scratchDefaults()
+        let stale = try JSONEncoder().encode([p1: PaneStatusHistory.Transition(status: .idle, at: launch)])
+        defaults.set(stale, forKey: "flock.paneLastChange")
+        XCTAssertEqual(PaneLastChangeArchive(userDefaults: defaults).load(), [:])
+        XCTAssertNil(defaults.data(forKey: "flock.paneLastChange"))
+    }
+
     func testARelaunchKeepsWhenAnUnchangedPaneLastChanged() {
         let defaults = scratchDefaults()
         let clock = Clock()

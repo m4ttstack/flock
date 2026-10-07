@@ -9,12 +9,16 @@ import Foundation
 /// holds the recorded status.
 @MainActor
 public final class PaneLastChangeArchive {
-    public static let defaultsKey = "flock.paneLastChange"
+    public static let defaultsKey = "flock.paneLastChange.v2"
+    /// Written by builds that dated a pane's first sight as its last change,
+    /// so every record in it is suspect.
+    static let retiredKeys = ["flock.paneLastChange"]
 
     private let userDefaults: UserDefaults
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
+        for key in Self.retiredKeys { userDefaults.removeObject(forKey: key) }
     }
 
     /// Empty for anything unreadable.
