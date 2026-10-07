@@ -163,7 +163,7 @@ struct StatusTimeline: View {
             }
         }
         .background(theme.tabRest)
-        .clipShape(RoundedRectangle(cornerRadius: 2))
+        .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.tiny))
         .accessibilityHidden(true)
     }
 

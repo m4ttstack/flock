@@ -178,9 +178,9 @@ final class RtButtonRenderTests: XCTestCase {
             let fills = [Color(theme.palette.surface0), Color(theme.palette.selectionBg)]
             let row = HStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius)
                         .fill(fills[index / 2])
-                        .overlay { if index % 2 == 1 { HoverWashFill(theme: theme, cornerRadius: 4) } }
+                        .overlay { if index % 2 == 1 { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.RtButton.cornerRadius) } }
                         .frame(width: chip.width, height: chip.height)
                 }
             }
@@ -227,7 +227,7 @@ final class RtButtonRenderTests: XCTestCase {
         let control = CGSize(width: 31, height: PaneChrome.titleRowHeight)
         let view = HStack {
             Spacer()
-            RoundedRectangle(cornerRadius: 4).fill(Color(theme.palette.surface0))
+            RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius).fill(Color(theme.palette.surface0))
                 .frame(width: control.width, height: control.height)
                 .modifier(TipBelow(isShown: true, text: "Right-clicks go to the program", shortcut: "⌥⌘M"))
         }

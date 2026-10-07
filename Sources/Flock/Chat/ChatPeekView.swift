@@ -124,7 +124,7 @@ struct ChatPeekView: View {
             .padding(.vertical, ChromeMetrics.ChatPeek.PaneRow.pillVerticalPadding)
             .padding(.horizontal, ChromeMetrics.ChatPeek.PaneRow.pillHorizontalPadding)
             .frame(width: ChromeMetrics.ChatPeek.PaneRow.pillSize.width, height: ChromeMetrics.ChatPeek.PaneRow.pillSize.height)
-            .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPeek.PaneRow.pillCornerRadius).fill(theme.accent))
+            .background(theme.accent, in: Capsule())
     }
 
     private func location(for buddy: ChatBuddy) -> String {
