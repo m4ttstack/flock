@@ -1096,7 +1096,9 @@ struct MiniPane: View {
         .background {
             if let wash = statusWash { wash.opacity(ChromeMetrics.Grid.statusWashOpacity) }
         }
-        .background(GridControlGround(theme: theme, shape: AnyShape(shape), restFill: theme.tabRest, appearance: appearance))
+        // The terminal's own ground, so a screen read draws on what the pane
+        // itself draws on and an app's painted background blends into it.
+        .background(GridControlGround(theme: theme, shape: AnyShape(shape), restFill: theme.pane, appearance: appearance))
         .clipShape(shape)
         .overlay(
             shape.strokeBorder(
