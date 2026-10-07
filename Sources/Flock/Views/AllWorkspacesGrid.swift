@@ -933,7 +933,7 @@ private struct TabThumbnail: View {
                 }
             }
             if let slot = reflow.slot {
-                DropReflowSlot(theme: theme)
+                DropReflowSlot(theme: theme, frame: slot.frame)
                     .id(slot.key)
                     .transition(DropReflowSlot.transition(slot))
             }
