@@ -119,6 +119,21 @@ final class TerminalStyledTextTests: XCTestCase {
         XCTAssertEqual(bar.columns, 9)
     }
 
+    /// A tab moves to the next 8-column stop, counted in cells, and paints
+    /// nothing on the way, even under a background.
+    func testATabExpandsToTheNextEightColumnStop() {
+        XCTAssertEqual(row("a\tb").text, "a       b")
+        XCTAssertEqual(row("12345678\tx").text, "12345678        x")
+        XCTAssertEqual(row("界\tx").text, "界      x")
+        XCTAssertEqual(row("\tx").columns, 9)
+        let styled = row("\u{1B}[44mab\tcd")
+        XCTAssertEqual(styled.runs, [
+            StyledRun(text: "ab", style: TerminalStyle(background: .indexed(4))),
+            StyledRun(text: "      ", style: .plain),
+            StyledRun(text: "cd", style: TerminalStyle(background: .indexed(4))),
+        ])
+    }
+
     func testColumnsCountWideCharactersTwice() {
         XCTAssertEqual(StyledRow(plain: "ab").columns, 2)
         XCTAssertEqual(StyledRow(plain: "a界").columns, 3)

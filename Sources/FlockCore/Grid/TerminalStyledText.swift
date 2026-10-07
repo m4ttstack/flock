@@ -79,9 +79,11 @@ public struct StyledRow: Hashable, Sendable {
     }
 
     /// Terminal cells the row spans: an East Asian wide character takes two.
-    public var columns: Int {
-        runs.reduce(0) { total, run in
-            total + run.text.reduce(0) { $0 + Self.cellWidth(of: $1) }
+    public var columns: Int { Self.columns(of: runs.map(\.text)) }
+
+    static func columns(of texts: [String]) -> Int {
+        texts.reduce(0) { total, text in
+            total + text.reduce(0) { $0 + cellWidth(of: $1) }
         }
     }
 
@@ -192,7 +194,7 @@ public enum TerminalStyledText {
             case 0x0A:
                 endRow()
             case 0x09:
-                append(scalar)
+                tab()
             case 0x00...0x1F, 0x7F...0x9F:
                 break
             default:
@@ -233,6 +235,20 @@ public enum TerminalStyledText {
             }
             text.append(scalar)
         }
+
+        /// A tab moves to the next 8-column stop without painting the cells it
+        /// passes, so they are spaces in the plain style.
+        private mutating func tab() {
+            let column = StyledRow.columns(of: runs.map(\.text) + [String(text)])
+            let held = style
+            style = .plain
+            for _ in 0..<(Self.tabStop - column % Self.tabStop) {
+                append(" ")
+            }
+            style = held
+        }
+
+        private static let tabStop = 8
 
         private mutating func flushRun() {
             guard !text.isEmpty else { return }
