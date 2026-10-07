@@ -23,7 +23,7 @@ enum PaneTailRendering {
 
     /// The terminal face's cell width per point of size; a monospaced face's
     /// advance scales linearly with its size.
-    private static let advancePerPoint: CGFloat = {
+    static let advancePerPoint: CGFloat = {
         let reference: CGFloat = 100
         let font = CTFontCreateWithName(TerminalFont.face as CFString, reference, nil)
         var character = UniChar(("M" as Unicode.Scalar).value)

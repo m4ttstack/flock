@@ -853,7 +853,10 @@ public final class SessionViewModel {
             }
             self.tailReads.remove(pane)
             guard let text else { return }
-            self.paneTails[pane] = PaneTailPolicy.make(from: text)
+            // Every tile on Arrange's canvas observes this map, so a read
+            // that changed nothing must not write it.
+            let tail = PaneTailPolicy.make(from: text)
+            if self.paneTails[pane] != tail { self.paneTails[pane] = tail }
         }
     }
 

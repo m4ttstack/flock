@@ -27,6 +27,8 @@ final class ArrangeRenderTests: XCTestCase {
             await settle(window)
             let image = try snapshot(window)
             try write(image, "arrange-\(scheme).png")
+            let tail = try XCTUnwrap(arrange.viewModel.paneTails[ArrangeFixture.apiClaude], "\(scheme): the tile read no tail")
+            XCTAssertTrue(tail.lines.contains { $0.contains("Read(src/routes/invite.ts)") || $0.contains("migrate") || $0.contains("invite") })
             let working = try XCTUnwrap(arrange.drag.gridPaneFrame(of: ArrangeFixture.apiClaude))
             XCTAssertEqual(
                 hex(image, CGPoint(x: working.minX + 1, y: working.midY)), theme.palette.yellow.hex,
@@ -70,12 +72,17 @@ final class ArrangeRenderTests: XCTestCase {
     func testArrangeWithManyWorkspacesRendersInDarkAndLight() async throws {
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
-            let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model(extra: 8))
+            let client = ArrangeFixtureClient()
+            let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model(extra: 8), client: client)
             let window = arrange.makeWindow(size: Self.windowSize)
             await settle(window)
             arrange.drag.toggleGrid()
             await settle(window)
+            await settle(window)
             try write(snapshot(window), "arrange-many-\(scheme).png")
+            let reads = await client.tailReads
+            XCTAssertNotNil(reads[PaneID(rawValue: "w1:p3")], "\(scheme): a tile on the canvas read nothing")
+            XCTAssertNil(reads[PaneID(rawValue: "w4:p1")], "\(scheme): the herd is scrolled off the canvas and was read")
             window.close()
         }
     }
@@ -222,18 +229,20 @@ private struct ArrangeGroundFactory: GhosttyPaneFactory {
 }
 
 /// Answers every `pane.read` with that pane's fixture screen: ANSI when the
-/// read asks for it, plain otherwise. Counts reads per pane.
+/// read asks for it, plain otherwise. Counts the tail reads (the ANSI ones)
+/// per pane.
 actor ArrangeFixtureClient: HerdrCommandClient {
-    private(set) var reads: [PaneID: Int] = [:]
+    private(set) var tailReads: [PaneID: Int] = [:]
 
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         guard method == "pane.read", case .string(let raw)? = params["pane_id"] else {
             throw ArrangeFixture.Offline()
         }
         let pane = PaneID(rawValue: raw)
-        reads[pane, default: 0] += 1
         var screen = ArrangeFixture.screen(for: pane)
-        if case .string("ansi")? = params["format"] {} else {
+        if case .string("ansi")? = params["format"] {
+            tailReads[pane, default: 0] += 1
+        } else {
             screen = screen.replacing(/\u{1B}\[[0-9;:]*m/, with: "")
         }
         return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": screen]]])

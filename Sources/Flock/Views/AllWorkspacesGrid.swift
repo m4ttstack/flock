@@ -89,6 +89,7 @@ struct AllWorkspacesGrid: View {
                 }
             }
             .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
+            .environment(\.arrangeTiles, ArrangeTileContext(interval: TileTailCadence.grid))
             .padding(ChromeMetrics.Grid.canvasPadding)
             // A minimum of zero, or the rows laid out for the last viewport
             // hold the scroll view (and so the measured viewport) at least
@@ -746,7 +747,8 @@ private struct TabThumbnail: View {
                         theme: theme, title: shownTitle(pane), status: pane.agentStatus,
                         backgroundWork: viewModel.shownStatus(of: pane).backgroundWork,
                         isPreviewed: drag.gridPreviewCard == pane.paneID,
-                        interaction: interaction(of: .pane(pane.paneID))
+                        interaction: interaction(of: .pane(pane.paneID)),
+                        detail: tileBody(pane, box: placed.frame.size)
                     )
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
@@ -769,6 +771,16 @@ private struct TabThumbnail: View {
         // already the preview's answer to that resolution.
         .onAppear { publish(resting) }
         .onChange(of: resting) { _, boxes in publish(boxes) }
+    }
+
+    /// Nil for a box too small to read, which keeps the status word.
+    private func tileBody(_ pane: PaneRecord, box: CGSize) -> AnyView? {
+        let detail = TileDetail.of(box: box)
+        guard detail >= .tail else { return nil }
+        return AnyView(ArrangeTileBody(
+            theme: theme, viewModel: viewModel, pane: pane, title: shownTitle(pane),
+            shown: viewModel.shownStatus(of: pane), detail: detail
+        ))
     }
 
     /// The boxes a drop inside this thumbnail is hit-tested against, in the
@@ -835,6 +847,9 @@ struct MiniPane: View {
     /// Its preview card is the one open, so the card's pane is findable.
     var isPreviewed = false
     var interaction: ControlInteraction = .rest
+    /// Drawn in place of the status word and title: the pane's own output,
+    /// for a box large enough to read it (`ArrangeTileBody`).
+    var detail: AnyView? = nil
 
     var body: some View {
         let appearance = GridControlAppearance.resolve(
@@ -846,15 +861,21 @@ struct MiniPane: View {
         // short for the status word over the title, as a stacked split at the
         // 120pt floor is, keeps the dot and the title on one line rather than
         // clipping the title away.
-        ViewThatFits(in: .vertical) {
-            stacked(titleLines: title == nil ? 0 : 3)
-            stacked(titleLines: title == nil ? 0 : 1)
-            HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
-                dot
-                if title == nil { statusWord } else { titleText.lineLimit(1) }
+        Group {
+            if let detail {
+                detail
+            } else {
+                ViewThatFits(in: .vertical) {
+                    stacked(titleLines: title == nil ? 0 : 3)
+                    stacked(titleLines: title == nil ? 0 : 1)
+                    HStack(spacing: ChromeMetrics.Grid.miniPaneTitleSpacing) {
+                        dot
+                        if title == nil { statusWord } else { titleText.lineLimit(1) }
+                    }
+                    .padding(.vertical, ChromeMetrics.Grid.thumbnailPadding)
+                    .padding(.horizontal, ChromeMetrics.Grid.miniPaneTitleSpacing + ChromeMetrics.Grid.thumbnailPadding)
+                }
             }
-            .padding(.vertical, ChromeMetrics.Grid.thumbnailPadding)
-            .padding(.horizontal, ChromeMetrics.Grid.miniPaneTitleSpacing + ChromeMetrics.Grid.thumbnailPadding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
