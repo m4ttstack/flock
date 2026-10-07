@@ -18,3 +18,4 @@ __pycache__/
 # been renamed: that becomes an ordinary untracked tree, and a whole second
 # copy of the source turns up as hundreds of files staged into this one.
 .worktrees/
+.superpowers/
