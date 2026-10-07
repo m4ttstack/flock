@@ -34,6 +34,7 @@ struct ArrangeTileBody: View {
     let detail: TileDetail
 
     @Environment(\.arrangeTiles) private var tiles
+    @Environment(DragCoordinator.self) private var drag
     @State private var isOnScreen = false
 
     private typealias G = ChromeMetrics.Grid
@@ -53,7 +54,7 @@ struct ArrangeTileBody: View {
                     ArrangeTailLines(
                         tail: tail, size: proxy.size,
                         maxSize: tiles.isZoomed ? G.zoomedTileTailMaxSize : G.tileTailMaxSize,
-                        themeID: theme.id, palette: PaneTailPalette(theme: theme)
+                        theme: theme
                     )
                     .equatable()
                 }
@@ -80,14 +81,21 @@ struct ArrangeTileBody: View {
     /// them. A tile with nothing cached reads at once, so it never sits on its
     /// placeholder for a whole cycle; after that each pane keeps its own
     /// place in the cycle.
+    ///
+    /// A grid tile behind a zoom skips its turns rather than stopping: the
+    /// zoom is read here, outside `body`, so starting or ending one touches
+    /// no tile in the grid.
     private func read(every interval: Duration?) async {
         guard isOnScreen, let interval else { return }
+        let isZoomedTile = tiles.isZoomed
         if viewModel.paneTails[pane.paneID] == nil {
             viewModel.refreshPaneTail(for: pane.paneID)
         }
         try? await Task.sleep(for: TileTailCadence.offset(for: pane.paneID, interval: interval))
         while !Task.isCancelled {
-            viewModel.refreshPaneTail(for: pane.paneID)
+            if isZoomedTile || drag.gridZoomed == nil {
+                viewModel.refreshPaneTail(for: pane.paneID)
+            }
             try? await Task.sleep(for: interval)
         }
     }
@@ -132,14 +140,16 @@ private struct ArrangeTailLines: View, Equatable {
     let tail: PaneTail
     let size: CGSize
     let maxSize: CGFloat
-    let themeID: String
-    let palette: PaneTailPalette
+    /// Its palette is built only when the lines are drawn again, never on a
+    /// pass the equality check below lets through untouched.
+    let theme: Theme
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.tail == rhs.tail && lhs.size == rhs.size && lhs.maxSize == rhs.maxSize && lhs.themeID == rhs.themeID
+        lhs.tail == rhs.tail && lhs.size == rhs.size && lhs.maxSize == rhs.maxSize && lhs.theme.id == rhs.theme.id
     }
 
     var body: some View {
+        let palette = PaneTailPalette(theme: theme)
         let fontSize = Self.fontSize(columns: tail.rows.map(\.columns).max() ?? 0, width: size.width, maxSize: maxSize)
         let lineHeight = Self.lineHeight(fontSize)
         let fitting = lineHeight > 0 ? Int(size.height / lineHeight) : 0

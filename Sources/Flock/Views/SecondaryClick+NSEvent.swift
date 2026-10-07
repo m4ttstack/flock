@@ -23,6 +23,13 @@ extension NSEvent {
         )
     }
 
+    /// The second click of a primary double-click, for a single tap gesture
+    /// that acts on a double-click without holding the first click back.
+    static func isPrimaryDoubleClick(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        return chromeRowClick(event) == .beginRename
+    }
+
     /// `clickCount` raises on an event that is not a mouse click, so the type
     /// is checked before it is read; `0` is the rule's own "no count".
     private var mouseClickCount: Int {

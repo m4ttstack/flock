@@ -26,15 +26,50 @@ struct ArrangeZoomFrame: ViewModifier {
     }
 }
 
+/// Arrange's canvas: the grid first, then the zoomed island when there is
+/// one. The grid is proposed the same size whether or not a zoom covers it,
+/// so a zoom never lays it out again; the canvas measures as the zoomed
+/// island while there is one, so the grid behind adds no scroll.
+struct ArrangeCanvasLayout: Layout {
+    let isZoomed: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let grid = subviews.first else { return .zero }
+        let measured = isZoomed && subviews.count > 1 ? subviews[1] : grid
+        return measured.sizeThatFits(proposal)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            subview.place(at: bounds.origin, anchor: .topLeading, proposal: proposal)
+        }
+    }
+
+    /// None: the default merges every subview's guides, which measures the
+    /// whole grid again on a pass that only moved the zoomed island.
+    func explicitAlignment(
+        of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) -> CGFloat? {
+        nil
+    }
+
+    func explicitAlignment(
+        of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) -> CGFloat? {
+        nil
+    }
+}
+
 /// The grid behind a zoom: faded and drawn back a little, `progress` 1
-/// being fully gone.
+/// being fully gone. Reduce Motion keeps the fade alone.
 struct ArrangeRecede: ViewModifier {
     let progress: CGFloat
+    var travels = true
 
     func body(content: Content) -> some View {
         content
             .opacity(1 - progress)
-            .scaleEffect(1 - (1 - ChromeMetrics.Grid.zoomRecedeScale) * progress)
+            .scaleEffect(travels ? 1 - (1 - ChromeMetrics.Grid.zoomRecedeScale) * progress : 1)
     }
 }
 
@@ -53,10 +88,20 @@ enum ArrangeZoomMotion {
             identity: ArrangeZoomFrame(source: source, target: target, progress: 1)
         )
     }
+}
 
-    static func receding(reduceMotion: Bool) -> AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        return .modifier(active: ArrangeRecede(progress: 1), identity: ArrangeRecede(progress: 0))
+extension View {
+    /// Stops the zoom's own animation at the zoomed island's edge: the
+    /// transition carries the island whole, and inside it every view would
+    /// otherwise animate its frame from where it was just built to that same
+    /// place, which costs the zoom's first frame and changes nothing drawn.
+    /// Any other animation passes through.
+    func arrangeZoomStill(reduceMotion: Bool) -> some View {
+        transaction { transaction in
+            if transaction.animation == ArrangeZoomMotion.animation(reduceMotion: reduceMotion) {
+                transaction.animation = nil
+            }
+        }
     }
 }
 
@@ -72,6 +117,15 @@ extension EnvironmentValues {
         get { self[ArrangeZoomPreviewKey.self] }
         set { self[ArrangeZoomPreviewKey.self] = newValue }
     }
+}
+
+/// Which of Arrange's two layers an item is drawn in: the grid, which stays
+/// built behind a zoom, or the zoomed island in front of it. Each reports
+/// its frames apart, so a zoom changes which set a drop reads and nothing
+/// in the grid has to report again.
+enum ArrangeLayer: Sendable {
+    case grid
+    case zoomed
 }
 
 /// An island header's zoom control: zoom in from the grid, shown while the

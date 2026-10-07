@@ -36,7 +36,8 @@ struct AllWorkspacesGrid: View {
         // rail sections and the fit, and a drag re-runs this at pointer rate.
         let arrange = shownMode == .arrange ? self.arrange : nil
         // Mission control is never a drop target, so it publishes no items.
-        let order = arrange.map(itemOrder) ?? []
+        let order = arrange.map { itemOrder($0.fit) } ?? []
+        let zoomedOrder = arrange?.zoomFit.map(itemOrder) ?? []
         VStack(spacing: 0) {
             if arrange == nil, let focused = drag.gridFocusedPane {
                 FocusedPaneView(theme: theme, viewModel: viewModel, pane: focused)
@@ -57,8 +58,10 @@ struct AllWorkspacesGrid: View {
             mode.opened(dragInFlight: drag.activeSubject != nil)
             refreshIdentities()
             drag.setGridOrder(order)
+            drag.setGridOrder(zoomedOrder, layer: .zoomed)
         }
         .onChange(of: order) { drag.setGridOrder(order) }
+        .onChange(of: zoomedOrder) { drag.setGridOrder(zoomedOrder, layer: .zoomed) }
         .onChange(of: workspaces.map(\.workspaceID)) { _, ids in
             refreshIdentities()
             if let zoomed = drag.gridZoomed, !ids.contains(zoomed) { drag.unzoomGrid() }
@@ -118,10 +121,16 @@ struct AllWorkspacesGrid: View {
         .onAppear { drag.gridScroller = { y in scrollPosition.scrollTo(y: y) } }
     }
 
-    /// Every island, or the zoomed one alone. The two are never both laid
-    /// out, so the drop surfaces always name one set of frames.
+    /// Every island, with the zoomed one in front of them while there is
+    /// one. The grid stays built behind a zoom, and nothing it is handed
+    /// changes when a zoom starts or ends, so zooming out brings back islands
+    /// that are already laid out rather than building them all in the frame
+    /// the key or click waits on. Behind, it takes no clicks, its tiles read
+    /// nothing (`ArrangeTileBody`), and its frames are kept apart from the
+    /// zoomed island's (`ArrangeLayer`), so a drop reads the zoomed island's
+    /// alone.
     ///
-    /// Each side is its own content space, named INSIDE the transform that
+    /// Each layer is its own content space, named INSIDE the transform that
     /// carries it: a frame measured against it never sees the zoom's scale
     /// or offset, so the transition moves drawn layers and writes no item
     /// frames while it runs, and the content origin is the stack's, which
@@ -129,22 +138,25 @@ struct AllWorkspacesGrid: View {
     @ViewBuilder
     private func canvas(_ arrange: Arrangement) -> some View {
         let zoomed = arrange.zoomed.flatMap { id in workspaces.first { $0.workspaceID == id } }
-        ZStack(alignment: .topLeading) {
-            if let progress = zoomPreviewProgress, let zoomed, let zoomFit = arrange.zoomFit {
-                islandRows(arrange)
-                    .coordinateSpace(.named(DragSpace.gridContent))
-                    .modifier(ArrangeRecede(progress: progress))
-                zoomedIsland(zoomed, fit: zoomFit, arrange: arrange)
-                    .coordinateSpace(.named(DragSpace.gridContent))
-                    .modifier(ArrangeZoomFrame(source: zoomSource ?? zoomTarget, target: zoomTarget, progress: progress))
-            } else if let zoomed, let zoomFit = arrange.zoomFit {
-                zoomedIsland(zoomed, fit: zoomFit, arrange: arrange)
-                    .coordinateSpace(.named(DragSpace.gridContent))
-                    .transition(ArrangeZoomMotion.zoomed(from: zoomSource, to: zoomTarget, reduceMotion: reduceMotion))
-            } else {
-                islandRows(arrange)
-                    .coordinateSpace(.named(DragSpace.gridContent))
-                    .transition(ArrangeZoomMotion.receding(reduceMotion: reduceMotion))
+        let isZoomed = zoomed != nil && arrange.zoomFit != nil
+        let preview = isZoomed ? zoomPreviewProgress : nil
+        ArrangeCanvasLayout(isZoomed: isZoomed) {
+            islandRows(arrange)
+                .coordinateSpace(.named(DragSpace.gridContent))
+                .modifier(ArrangeRecede(progress: preview ?? (isZoomed ? 1 : 0), travels: !reduceMotion))
+                .allowsHitTesting(!isZoomed)
+                .accessibilityHidden(isZoomed)
+            if let zoomed, let zoomFit = arrange.zoomFit {
+                if let preview {
+                    zoomedIsland(zoomed, fit: zoomFit, arrange: arrange)
+                        .coordinateSpace(.named(DragSpace.gridContent))
+                        .modifier(ArrangeZoomFrame(source: zoomSource ?? zoomTarget, target: zoomTarget, progress: preview))
+                } else {
+                    zoomedIsland(zoomed, fit: zoomFit, arrange: arrange)
+                        .arrangeZoomStill(reduceMotion: reduceMotion)
+                        .coordinateSpace(.named(DragSpace.gridContent))
+                        .transition(ArrangeZoomMotion.zoomed(from: zoomSource, to: zoomTarget, reduceMotion: reduceMotion))
+                }
             }
         }
         .animation(ArrangeZoomMotion.animation(reduceMotion: reduceMotion), value: arrange.zoomed)
@@ -257,9 +269,6 @@ struct AllWorkspacesGrid: View {
         /// Set only while that workspace is still there to draw.
         let zoomed: WorkspaceID?
         let zoomFit: IslandLayout.Fit?
-
-        /// The fit the drawn islands are laid out against.
-        var drawnFit: IslandLayout.Fit { zoomFit ?? fit }
     }
 
     private var arrange: Arrangement {
@@ -293,12 +302,12 @@ struct AllWorkspacesGrid: View {
     /// The items a drop can hit, in grid order: what turns their frames back
     /// into a list and drops the frame of an item no longer shown. `.newTab`
     /// names the rect the created tab lands in, whichever cell is drawing it.
-    private func itemOrder(_ arrange: Arrangement) -> [GridItemID] {
-        let drawn = arrange.drawnFit.rows.joined().filter { id in workspaces.contains { $0.workspaceID == id } }
+    private func itemOrder(_ fit: IslandLayout.Fit) -> [GridItemID] {
+        let drawn = fit.rows.joined().filter { id in workspaces.contains { $0.workspaceID == id } }
         return drawn.flatMap { id -> [GridItemID] in
             let tabs = (viewModel.model?.tabs[id] ?? []).map(\.tabID)
             let preview = CardDropPreview(workspace: id, drag: drag, model: viewModel.model)
-            let cells = preview.cells(of: tabs, perRow: arrange.drawnFit.tabsPerRow[id] ?? 1)
+            let cells = preview.cells(of: tabs, perRow: fit.tabsPerRow[id] ?? 1)
             // The created tab's id is published once, wherever its slot turns
             // out to be: the card hangs the reporter on that cell rather than
             // on the placeholder, which is drawn somewhere else whenever the
@@ -419,6 +428,8 @@ private struct WorkspaceIsland: View {
 
     private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
 
+    private var layer: ArrangeLayer { zoom.isZoomed ? .zoomed : .grid }
+
     var body: some View {
         let tabs = viewModel.model?.tabs[workspace.workspaceID] ?? []
         let rows = GridCardLayout.rows(preview.cells(of: tabs.map(\.tabID), perRow: slotsPerRow), perRow: slotsPerRow)
@@ -477,7 +488,7 @@ private struct WorkspaceIsland: View {
         .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.islandCornerRadius) }
         .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
-        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID)) }
+        .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID), layer: layer) }
         // A container, not one combined element: an island really does hold
         // the tab thumbnails, each of which is its own tile. Undeclared,
         // SwiftUI folds the whole island into its text leaves and stamps this
@@ -526,7 +537,15 @@ private struct WorkspaceIsland: View {
         .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
         .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { if drag.activeSubject == nil { zoom.toggle() } }
+        // ONE tap gesture reading the click count: a `count: 2` tap here
+        // would hold every click inside the header, the zoom control's
+        // included, for the double-click interval (`ChromeRowClick`).
+        .onTapGesture {
+            guard NSEvent.isPrimaryDoubleClick(NSApp.currentEvent), drag.activeSubject == nil,
+                  viewModel.renameTarget == nil
+            else { return }
+            zoom.toggle()
+        }
     }
 
     /// One cell, plus the reporter for the slot a committed drop lands in
@@ -541,7 +560,7 @@ private struct WorkspaceIsland: View {
             .background {
                 if index == landingSlot(tabs) {
                     Color.clear.reportsFrame(in: DragSpace.gridContent) {
-                        drag.setGridItemFrame($0, for: .newTab(workspace.workspaceID))
+                        drag.setGridItemFrame($0, for: .newTab(workspace.workspaceID), layer: layer)
                     }
                 }
             }
@@ -569,7 +588,7 @@ private struct WorkspaceIsland: View {
                 // its resting place; the coordinator's freeze while a reorder
                 // is live is what actually guarantees that, since the
                 // insertion index is counted against resting cells.
-                .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(id)) }
+                .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .tab(id), layer: layer) }
             }
         case .newTab:
             NewTabPlaceholder(theme: theme, workspace: workspace.workspaceID)
@@ -616,6 +635,7 @@ private struct TabThumbnail: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.gridThumbnailSize) private var thumbnailSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.arrangeTiles) private var tiles
     @State private var isOverThumbnail = false
     @State private var hoveredPane: PaneID?
     @GestureState private var pressed: ThumbnailPart?
@@ -916,7 +936,8 @@ private struct TabThumbnail: View {
     /// the two, and a point it covers is the tab's own handle.
     private func publish(_ boxes: [MiniPaneLayout.Placed]) {
         drag.setGridMiniPanes(
-            MiniPaneLayout.boxesInThumbnail(boxes, stripHeight: ChromeMetrics.Grid.tabStripHeight), for: tab.tabID
+            MiniPaneLayout.boxesInThumbnail(boxes, stripHeight: ChromeMetrics.Grid.tabStripHeight), for: tab.tabID,
+            layer: tiles.isZoomed ? .zoomed : .grid
         )
     }
 }

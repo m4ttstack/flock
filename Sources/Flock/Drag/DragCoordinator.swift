@@ -228,11 +228,20 @@ final class DragCoordinator {
     private var pinnedRegion: CGRect?
     private(set) var workspacesHeading: CGRect?
     private var gridItems = ScrolledItemFrames<GridItemID>()
+    /// The zoomed island's items, kept apart from the grid's: the grid stays
+    /// built behind a zoom and names the same items, and its frames have to
+    /// be there, unchanged, the moment the zoom ends.
+    private var zoomedGridItems = ScrolledItemFrames<GridItemID>()
     /// Each drawn thumbnail's resting mini panes, in that thumbnail's own
     /// space. Held per tab rather than as frames of their own: the boxes only
     /// change when the tab's layout or the thumbnail's size does, and the
     /// thumbnail's own frame already carries every scroll and reflow.
     private var gridMiniPanes: [TabID: [MiniPaneLayout.Placed]] = [:]
+    private var zoomedGridMiniPanes: [TabID: [MiniPaneLayout.Placed]] = [:]
+
+    /// The layer in front, which is the one a drop lands on.
+    private var shownGridItems: ScrolledItemFrames<GridItemID> { grid.zoomed == nil ? gridItems : zoomedGridItems }
+    private var shownGridMiniPanes: [TabID: [MiniPaneLayout.Placed]] { grid.zoomed == nil ? gridMiniPanes : zoomedGridMiniPanes }
 
     var tabOrder: [TabID] { tabItems.order }
     var workspaceOrder: [WorkspaceID] { workspaceItems.order }
@@ -574,7 +583,8 @@ final class DragCoordinator {
         var cardOrder: [WorkspaceID] = []
         var drawnTabs: [WorkspaceID: [TabItemFrame]] = [:]
         var currentCard: WorkspaceID?
-        for item in gridItems.onScreen {
+        let miniPanes = shownGridMiniPanes
+        for item in shownGridItems.onScreen {
             switch item.id {
             case .tab(let id):
                 thumbnails.append(TabItemFrame(id: id, frame: item.frame))
@@ -595,7 +605,7 @@ final class DragCoordinator {
             // Built from the thumbnails actually drawn, so a tab whose
             // thumbnail has gone cannot leave boxes behind to be hit.
             miniPanes: thumbnails.compactMap { thumbnail in
-                gridMiniPanes[thumbnail.id].map { GridThumbnailPanes(tab: thumbnail.id, panes: $0) }
+                miniPanes[thumbnail.id].map { GridThumbnailPanes(tab: thumbnail.id, panes: $0) }
             }
         )
     }
@@ -1218,42 +1228,59 @@ final class DragCoordinator {
 
     // MARK: - All Workspaces grid storage (the rest is in DragCoordinator+Grid)
 
-    func setGridOrder(_ order: [GridItemID]) {
-        writeIfChanged(\.gridItems) { $0.setOrder(order) }
+    func setGridOrder(_ order: [GridItemID], layer: ArrangeLayer = .grid) {
+        writeIfChanged(Self.items(layer)) { $0.setOrder(order) }
         let drawn = Set(order.compactMap { item -> TabID? in
             guard case .tab(let id) = item else { return nil }
             return id
         })
-        guard gridMiniPanes.keys.contains(where: { !drawn.contains($0) }) else { return }
-        gridMiniPanes = gridMiniPanes.filter { drawn.contains($0.key) }
+        let miniPanes = Self.miniPanes(layer)
+        guard self[keyPath: miniPanes].keys.contains(where: { !drawn.contains($0) }) else { return }
+        self[keyPath: miniPanes] = self[keyPath: miniPanes].filter { drawn.contains($0.key) }
     }
 
     /// One thumbnail's mini panes where they REST, in its own space. The
     /// preview moves them, and the preview is derived from what a drop
     /// resolves to, so only the resting boxes may ever be reported.
-    func setGridMiniPanes(_ panes: [MiniPaneLayout.Placed], for tab: TabID) {
-        guard gridMiniPanes[tab] != panes else { return }
-        gridMiniPanes[tab] = panes
+    func setGridMiniPanes(_ panes: [MiniPaneLayout.Placed], for tab: TabID, layer: ArrangeLayer = .grid) {
+        let miniPanes = Self.miniPanes(layer)
+        guard self[keyPath: miniPanes][tab] != panes else { return }
+        self[keyPath: miniPanes][tab] = panes
+    }
+
+    private static func items(_ layer: ArrangeLayer) -> ReferenceWritableKeyPath<DragCoordinator, ScrolledItemFrames<GridItemID>> {
+        switch layer {
+        case .grid: \.gridItems
+        case .zoomed: \.zoomedGridItems
+        }
+    }
+
+    private static func miniPanes(_ layer: ArrangeLayer) -> ReferenceWritableKeyPath<DragCoordinator, [TabID: [MiniPaneLayout.Placed]]> {
+        switch layer {
+        case .grid: \.gridMiniPanes
+        case .zoomed: \.zoomedGridMiniPanes
+        }
     }
 
     /// Frozen while a card is showing a reorder, for the reason the strip's
     /// own reports are (`setTabFrame`): the insert index is measured against
     /// where the cells REST, so a cell that has slid must never report its
     /// shifted place back in and move the very gap that shifted it.
-    func setGridItemFrame(_ frame: CGRect, for id: GridItemID) {
+    func setGridItemFrame(_ frame: CGRect, for id: GridItemID, layer: ArrangeLayer = .grid) {
         guard !isReorderingTabs else { return }
-        writeIfChanged(\.gridItems) { $0.setContentFrame(frame, for: id) }
+        writeIfChanged(Self.items(layer)) { $0.setContentFrame(frame, for: id) }
     }
 
     /// One grid item where it is on screen now, in the drag space. Reaches
     /// the items the drop surfaces leave out, which is what a spring-back
     /// home and the new-tab placeholder both need.
     func gridItemFrame(for id: GridItemID) -> CGRect? {
-        gridItems.onScreen.first { $0.id == id }?.frame
+        shownGridItems.onScreen.first { $0.id == id }?.frame
     }
 
     func setGridContentOrigin(_ origin: CGPoint) {
         writeIfChanged(\.gridItems) { $0.setContentOrigin(origin) }
+        writeIfChanged(\.zoomedGridItems) { $0.setContentOrigin(origin) }
     }
 
     func setGridScroll(offset: CGFloat, maximumOffset: CGFloat) {

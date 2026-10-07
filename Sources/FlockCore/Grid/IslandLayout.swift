@@ -184,6 +184,16 @@ public enum IslandLayout {
 /// under the pointer would land the drop somewhere nobody aimed.
 public struct IslandFitHold: Equatable, Sendable {
     public private(set) var fit: IslandLayout.Fit?
+    /// What `fit` was computed from. Arrange asks for its fit on every pass,
+    /// and the search behind it is far dearer than this comparison.
+    private var inputs: Inputs?
+
+    private struct Inputs: Equatable, Sendable {
+        let islands: [IslandLayout.Island]
+        let size: CGSize
+        let metrics: IslandLayout.Metrics
+        let zoomed: Bool
+    }
 
     public init() {}
 
@@ -192,9 +202,9 @@ public struct IslandFitHold: Equatable, Sendable {
         metrics: IslandLayout.Metrics = IslandLayout.Metrics()
     ) -> IslandLayout.Fit {
         if dragging, let fit { return fit }
-        let next = IslandLayout.fit(islands, in: size, metrics: metrics)
-        fit = next
-        return next
+        return remember(Inputs(islands: islands, size: size, metrics: metrics, zoomed: false)) {
+            IslandLayout.fit(islands, in: size, metrics: metrics)
+        }
     }
 
     /// The zoomed island's fit, frozen by a drag the same way.
@@ -203,8 +213,16 @@ public struct IslandFitHold: Equatable, Sendable {
         metrics: IslandLayout.Metrics = IslandLayout.Metrics()
     ) -> IslandLayout.Fit {
         if dragging, let fit, fit.rows == [[island.id]] { return fit }
-        let next = IslandLayout.zoomFit(island, in: size, metrics: metrics)
-        fit = next
-        return next
+        return remember(Inputs(islands: [island], size: size, metrics: metrics, zoomed: true)) {
+            IslandLayout.zoomFit(island, in: size, metrics: metrics)
+        }
+    }
+
+    private mutating func remember(_ next: Inputs, _ compute: () -> IslandLayout.Fit) -> IslandLayout.Fit {
+        if let fit, inputs == next { return fit }
+        let computed = compute()
+        fit = computed
+        inputs = next
+        return computed
     }
 }
