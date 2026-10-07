@@ -132,8 +132,10 @@ one's open or folded state is kept in `AllWorkspacesModeStore` while the view
 is closed.
 The lane's count includes a folded section's panes; the keys skip them.
 
-A blocked or done pane whose card was cleared (⇧⌘U, or a "finished" card
-that timed out) is not in Needs you; it falls to At rest.
+A blocked pane stays in Needs you until it is unblocked, card or no card:
+clearing or opening its card, watching it as it blocks and a herd's pane all
+leave it there. A done pane whose card was cleared (⇧⌘U, opened, or a
+"finished" card that timed out) falls to At rest.
 
 Each lane's header shows its status dot, its name and its count. An empty
 Needs you lane reads "Nothing needs you".

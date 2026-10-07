@@ -231,14 +231,22 @@ public struct MissionBoard: Equatable, Sendable {
         let toastedCards = toasts.toasts.reversed().compactMap { toast in
             model.panes[toast.paneID].map { card($0, status: ShownStatus(toast.status), since: toast.raisedAt) }
         }
+        // A blocked pane waits on the person until it is unblocked, card or
+        // no card: a dismissed card, a pane watched as it blocked and a herd's
+        // pane all stay here.
+        let blockedWithoutCard = model.panes.values
+            .filter { !toasted.contains($0.paneID) && $0.agentStatus == .blocked }
+            .map { card($0, status: ShownStatus($0.agentStatus), since: history.lastChange(of: $0.paneID)) }
+        let blocked = (toastedCards.filter { $0.status == .blocked } + blockedWithoutCard)
+            .sorted { ($0.since ?? .distantFuture, $0.paneID.rawValue) < ($1.since ?? .distantFuture, $1.paneID.rawValue) }
         needsYou = MissionSplitLane(
-            top: Self.grouped(toastedCards.filter { $0.status == .blocked }),
+            top: Self.grouped(blocked),
             bottom: Self.grouped(toastedCards.filter { $0.status != .blocked })
         )
 
         var working: [PaneRecord] = []
         var resting: [(PaneRecord, Date?)] = []
-        for pane in model.panes.values where !toasted.contains(pane.paneID) {
+        for pane in model.panes.values where !toasted.contains(pane.paneID) && pane.agentStatus != .blocked {
             if ShownStatus.of(pane, backgroundWork: backgroundWork).status == .working {
                 working.append(pane)
             } else {

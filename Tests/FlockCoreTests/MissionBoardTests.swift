@@ -64,10 +64,18 @@ final class MissionBoardTests: XCTestCase {
         XCTAssertEqual(b.working.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p3"])
     }
 
-    func testABlockedPaneWhoseCardWasClearedIsAtRestInstead() {
-        let b = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 120])
-        XCTAssertTrue(b.needsYou.isEmpty)
-        XCTAssertEqual(restCards(b), ["w1:t1:p1"])
+    /// Blocked waits on the person until it is unblocked: clearing or opening
+    /// its card leaves it in Needs you. A done pane's card is what keeps it.
+    func testABlockedPaneStaysInNeedsYouWithoutACardButADoneOneRests() {
+        var toasts = AttentionToastStack()
+        toasts.raise(toast("w1:t1:p2", .needsInput, raised: 60))
+        let b = board(
+            MissionFixture.single([.blocked, .blocked, .done]), toasts: toasts,
+            changedAgo: ["w1:t1:p1": 600, "w1:t1:p3": 120]
+        )
+        XCTAssertEqual(b.needsYou.top.flatMap(\.cards).map(\.paneID.rawValue), ["w1:t1:p1", "w1:t1:p2"], "oldest first")
+        XCTAssertEqual(b.needsYou.bottomCount, 0)
+        XCTAssertEqual(restCards(b), ["w1:t1:p3"])
     }
 
     func testAPaneQuietForWeeksIsStillAtRest() {
@@ -173,7 +181,7 @@ final class MissionBoardTests: XCTestCase {
     func testAtRestSectionsRunMostRecentFirstAndAWorkspaceSplitsAcrossThem() {
         let model = MissionFixture.model([
             W(label: "acme", tabs: [T(label: "a", panes: [P(status: .idle), P(status: .idle), P(status: .done)])]),
-            W(label: "flock", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .blocked)])]),
+            W(label: "flock", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .done)])]),
         ])
         let b = board(model, changedAgo: [
             "w1:t1:p1": 30 * 60, "w2:t1:p1": 45 * 60,
@@ -344,7 +352,7 @@ final class MissionBoardTests: XCTestCase {
         let model = MissionFixture.model([
             W(label: "acme", tabs: [T(label: "a", panes: [P(status: .idle), P(status: .done)])]),
             W(label: "flock", tabs: [T(label: "b", panes: [P(status: .idle), P(status: .idle)])]),
-            W(label: "board", tabs: [T(label: "c", panes: [P(status: .blocked)])]),
+            W(label: "board", tabs: [T(label: "c", panes: [P(status: .done)])]),
         ])
         let b = board(model, changedAgo: [
             "w1:t1:p1": 900, "w1:t1:p2": 300,
@@ -442,7 +450,7 @@ final class MissionBoardTests: XCTestCase {
     }
 
     func testStateTextIsTheStatusAndHowLongItHasHeld() {
-        let card = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 12 * 60]).atRest[0].groups[0].cards[0]
+        let card = board(MissionFixture.single([.blocked]), changedAgo: ["w1:t1:p1": 12 * 60]).needsYou.top[0].cards[0]
         XCTAssertEqual(card.stateText(at: now), "blocked 12m")
         let unrecorded = MissionCard(
             paneID: card.paneID, workspaceID: card.workspaceID, tabID: card.tabID, workspaceName: "", tabTitle: "",
