@@ -920,8 +920,12 @@ private struct TabThumbnail: View {
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
                         .opacity(drag.isDragging(pane: pane.paneID) ? DragVisuals.originOpacity : 1)
+                        .overlay(alignment: .top) { renameEditor(for: pane.paneID) }
                         .onTapGesture { clicked(pane: pane.paneID) }
-                        .gesture(paneDrag(pane, box: placed.frame).simultaneously(with: press))
+                        .gesture(
+                            paneDrag(pane, box: placed.frame).simultaneously(with: press),
+                            including: renaming(pane.paneID) ? .subviews : .all
+                        )
                         .contextMenu { paneMenu(pane.paneID) }
                         .onHover { hovering in
                             GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
@@ -946,6 +950,8 @@ private struct TabThumbnail: View {
     /// thumbnail on every read.
     @ViewBuilder
     private func paneMenu(_ pane: PaneID) -> some View {
+        Button("Rename Pane") { viewModel.beginRename(.pane(pane)) }
+            .accessibilityIdentifier("flock.grid.pane.rename")
         Button("Copy Output") {
             guard let text = PaneOutputCopy.text(of: viewModel.paneTails[pane]) else { return }
             NSPasteboard.general.clearContents()
@@ -955,6 +961,28 @@ private struct TabThumbnail: View {
         Divider()
         Button("Close Pane") { Task { await viewModel.closePane(pane) } }
             .accessibilityIdentifier("flock.grid.pane.close")
+    }
+
+    /// What a rename opened on `pane` edits: the pane, or the tab standing for
+    /// it when the pane has no title of its own.
+    private func renaming(_ pane: PaneID) -> Bool {
+        viewModel.renameTarget != nil && viewModel.renameTarget == viewModel.renameTarget(for: .pane(pane))
+    }
+
+    /// The editor sits over the top of the tile, which a tile has no label
+    /// row to host in.
+    @ViewBuilder
+    private func renameEditor(for pane: PaneID) -> some View {
+        if renaming(pane) {
+            let target = viewModel.renameTarget(for: .pane(pane))
+            InlineRenameField(
+                theme: theme, font: ChromeType.gridMiniPaneTitle, initialText: viewModel.renameText(for: target),
+                accessibilityIdentifier: "flock.grid.rename.\(pane.rawValue)",
+                onCommit: { text in Task { await viewModel.commitRename(text, for: target) } },
+                onCancel: { viewModel.cancelRename() }
+            )
+            .padding(ChromeMetrics.Grid.miniPaneHorizontalPadding)
+        }
     }
 
     /// Nil for a box too small to read, which keeps the status word.

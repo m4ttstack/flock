@@ -65,6 +65,56 @@ final class ArrangeSelectionTests: XCTestCase {
         window.close()
     }
 
+    /// Rename Pane in a mini pane's menu begins the shared pane rename, whose
+    /// editor the tile hosts over its top edge: an accent-stroked field where
+    /// the tile had none. One theme only: a second test window in the same
+    /// xctest process ends the editor on its first turn, and a render of the
+    /// light theme is looked at by hand through `FLOCK_GRID_RENDER_DIR`.
+    func testRenamePaneOpensTheEditorInsideTheTile() async throws {
+        try await assertRenameEditor(id: "tokyo-night", scheme: "dark")
+    }
+
+    private func assertRenameEditor(id: String, scheme: String) async throws {
+        do {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model())
+            let window = arrange.makeWindow(size: Self.windowSize)
+            await settle(window)
+            arrange.drag.toggleGrid()
+            await settle(window)
+            let pane = ArrangeFixture.apiClaude
+            let box = try XCTUnwrap(arrange.drag.surfaces?.grid?.miniPaneFrame(of: pane))
+            let before = try snapshot(window)
+            XCTAssertEqual(accentPixels(before, in: box, theme: theme), 0, "\(scheme): the tile starts with an accent stroke")
+
+            arrange.viewModel.beginRename(.pane(pane))
+            XCTAssertEqual(arrange.viewModel.renameTarget, arrange.viewModel.renameTarget(for: .pane(pane)))
+            // One turn, not a settle: a test window is never key, so the
+            // editor's focus-loss commit ends it a few turns later.
+            window.contentView?.layoutSubtreeIfNeeded()
+            try? await Task.sleep(for: .milliseconds(30))
+            XCTAssertNotNil(arrange.viewModel.renameTarget, "\(scheme): the editor ended itself")
+            let image = try snapshot(window)
+            if let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap({ $0.isEmpty ? nil : $0 }) {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("arrange-rename-\(scheme).png"))
+            }
+            XCTAssertGreaterThan(accentPixels(image, in: box, theme: theme), 20, "\(scheme): no editor in the tile")
+            window.close()
+        }
+    }
+
+    private func accentPixels(_ image: NSBitmapImageRep, in box: CGRect, theme: Theme) -> Int {
+        var count = 0
+        for y in Int(box.minY * Self.scale)..<Int(box.maxY * Self.scale) {
+            for x in Int(box.minX * Self.scale)..<Int(box.maxX * Self.scale)
+            where hex(image, CGPoint(x: CGFloat(x) / Self.scale, y: CGFloat(y) / Self.scale)) == theme.palette.accent.hex {
+                count += 1
+            }
+        }
+        return count
+    }
+
     private func pressKey(_ window: NSWindow, keyCode: UInt16, characters: String) {
         guard let event = NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: [],
