@@ -92,6 +92,10 @@ final class WorkspaceIdentityStoreTests: XCTestCase {
         XCTAssertEqual(WorkspaceIdentityStore.key(for: WorkspaceID(rawValue: "w1"), sections: sections), "w1")
         XCTAssertEqual(WorkspaceIdentityStore.key(for: WorkspaceID(rawValue: "w2"), sections: sections), WorkspaceIdentityStore.boardKey)
         XCTAssertNil(WorkspaceIdentityStore.key(for: WorkspaceID(rawValue: "w3"), sections: sections))
+        let railRows = ["w1", "w2", "w3"].map {
+            WorkspaceIdentityStore.isRailRow(key: WorkspaceIdentityStore.key(for: WorkspaceID(rawValue: $0), sections: sections))
+        }
+        XCTAssertEqual(railRows, [true, false, false], "only an ordinary workspace has the rail's menu and rename")
     }
 
     func testKeysInRailOrderNameTheBoardOnceAndSkipHerds() {

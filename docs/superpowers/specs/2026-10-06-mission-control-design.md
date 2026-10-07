@@ -389,12 +389,24 @@ look least alike are assigned first. The symbol draws at
 neutral. Flock assigns the least used symbol to a workspace the first time
 it sees it (the earliest in assignment order breaking ties, so neighbours
 do not repeat), keyed by workspace id so a rename keeps the symbol, and stores the
-assignment in UserDefaults. The right-click menu anywhere on an island in
-Arrange, or anywhere on a group or its cards in Overview, gets Symbol...,
-which opens a popover pointing at where the right-click landed: Automatic pinned above a scrolling
-grid of the set's icons in labelled groups, the current symbol selected and
-each cell's name as its tooltip. A pick stores an override the same way and
-closes the popover.
+assignment in UserDefaults. Where the mark draws a symbol, on an Arrange
+island's header and an Overview group's header, it is a button: it lifts on
+hover over a small rounded ground, shows a link pointer and the tooltip
+"Change symbol", and opens a popover pointing at the mark: Automatic pinned
+above a scrolling grid of the set's icons in labelled groups, the current
+symbol selected and each cell's name as its tooltip. A pick stores an
+override the same way and closes the popover. Board's logo and a herd's ram
+have nothing to pick and are not buttons.
+
+The right-click menu anywhere on an island in Arrange, or anywhere on a group
+in Overview (its wash, header and padding), is the rail's menu for that
+workspace (Rename, Close), with Change Symbol... between them when the mark
+is a symbol; it opens the same popover on the header's mark. A Board
+workspace or a herd has no menu, as in the rail. Rename opens an inline
+editor in the group's or island's header, since the rail is not on screen
+there; a workspace with a group in several lanes shows it in the first lane
+it appears in. A pane card's menu is Rename Pane and Close Pane only.
+
 Assignments for workspaces herdr no longer reports are dropped whenever the
 view opens.
 

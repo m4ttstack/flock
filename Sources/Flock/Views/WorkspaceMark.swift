@@ -1,3 +1,4 @@
+import AppKit
 import FlockCore
 import SwiftUI
 
@@ -9,17 +10,44 @@ extension Theme {
     }
 }
 
-/// A workspace's right-click "Symbol…" item, which opens its picker popover.
-/// Empty for a herd, which has no key and draws the ram.
-struct WorkspaceSymbolMenuItem: View {
+/// The rail's menu for a workspace, on a view outside the rail: its own rows
+/// from `WorkspaceMenuModel`, with Change Symbol... before Close when the
+/// workspace's mark is a symbol. A workspace the rail gives no menu (Board's,
+/// a herd's) gets none here.
+private struct WorkspaceMenu: ViewModifier {
+    let viewModel: SessionViewModel
+    let workspace: WorkspaceID
     let key: String?
-    let open: () -> Void
+    let changeSymbol: (() -> Void)?
 
-    var body: some View {
-        if key != nil {
-            Button("Symbol\u{2026}", action: open)
-                .accessibilityIdentifier("flock.identity.symbol.menu")
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if WorkspaceIdentityStore.isRailRow(key: key) {
+            content.contextMenu {
+                if let model = viewModel.model {
+                    ForEach(WorkspaceMenuModel.entries(for: workspace, model: model), id: \.accessibilityIdentifier) { entry in
+                        if entry.action == .close, let changeSymbol {
+                            Button("Change Symbol\u{2026}", action: changeSymbol)
+                                .accessibilityIdentifier("flock.identity.symbol.menu")
+                        }
+                        Button(entry.label) {
+                            Task { await entry.action.perform(workspaceID: workspace, on: viewModel) }
+                        }
+                        .accessibilityIdentifier(entry.accessibilityIdentifier)
+                    }
+                }
+            }
+        } else {
+            content
         }
+    }
+}
+
+extension View {
+    func workspaceMenu(
+        viewModel: SessionViewModel, workspace: WorkspaceID, key: String?, changeSymbol: (() -> Void)?
+    ) -> some View {
+        modifier(WorkspaceMenu(viewModel: viewModel, workspace: workspace, key: key, changeSymbol: changeSymbol))
     }
 }
 
@@ -27,15 +55,47 @@ struct WorkspaceSymbolMenuItem: View {
 /// rail marks its sections: the board app's logo for board's workspaces, the
 /// ram for a herd, otherwise the workspace's symbol. `key` is its
 /// `WorkspaceIdentityStore` key, which already says which it is.
+///
+/// Given `picking`, a mark that draws a symbol is a button that opens the
+/// symbol picker anchored to itself. The logo and the ram have nothing to
+/// pick, so they stay plain.
 struct WorkspaceMark: View {
     let theme: Theme
     let key: String?
     let size: CGFloat
+    var picking: Binding<Bool>?
+    var forced: ControlInteraction?
 
     @Environment(BoardStore.self) private var board
     @Environment(WorkspaceIdentityStore.self) private var identityStore
 
+    static func drawsSymbol(key: String?, logo: NSImage?, in store: WorkspaceIdentityStore) -> Bool {
+        guard let key, !(key == WorkspaceIdentityStore.boardKey && logo != nil) else { return false }
+        return store.symbol(for: key) != nil
+    }
+
     var body: some View {
+        if let picking, Self.drawsSymbol(key: key, logo: board.logo, in: identityStore) {
+            let padding = ChromeMetrics.MarkButton.padding
+            GridControlButton(
+                theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MarkButton.cornerRadius)),
+                restForeground: theme.textStrong, forced: forced, action: { picking.wrappedValue = true }
+            ) {
+                mark.padding(padding)
+            }
+            .padding(-padding)
+            .pointerStyle(.link)
+            .help("Change symbol")
+            .workspaceSymbolPopover(theme: theme, key: key, isPresented: picking)
+            .accessibilityLabel("Change symbol")
+            .accessibilityIdentifier("flock.identity.symbol.button")
+        } else {
+            mark
+        }
+    }
+
+    @ViewBuilder
+    private var mark: some View {
         if key == WorkspaceIdentityStore.boardKey, let logo = board.logo {
             Image(nsImage: logo)
                 .resizable()

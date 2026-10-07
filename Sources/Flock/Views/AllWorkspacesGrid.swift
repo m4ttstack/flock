@@ -296,6 +296,8 @@ private struct WorkspaceIsland: View {
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.gridThumbnailSize) private var thumbnailSize
+    @Environment(BoardStore.self) private var boardNames
+    @Environment(WorkspaceIdentityStore.self) private var identityStore
     @State private var isPickingSymbol = false
 
     private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
@@ -346,8 +348,11 @@ private struct WorkspaceIsland: View {
         )
         .frame(maxHeight: .infinity, alignment: .top)
         .background(theme.workspaceWash, in: shape)
-        .contextMenu { WorkspaceSymbolMenuItem(key: identityKey) { isPickingSymbol = true } }
-        .workspaceSymbolPopover(theme: theme, key: identityKey, isPresented: $isPickingSymbol)
+        .workspaceMenu(
+            viewModel: viewModel, workspace: workspace.workspaceID, key: identityKey,
+            changeSymbol: WorkspaceMark.drawsSymbol(key: identityKey, logo: boardNames.logo, in: identityStore)
+                ? { isPickingSymbol = true } : nil
+        )
         .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.islandCornerRadius) }
         .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
@@ -368,11 +373,23 @@ private struct WorkspaceIsland: View {
 
     private func header(tabCount: Int) -> some View {
         HStack(spacing: ChromeMetrics.Grid.islandHeaderSpacing) {
-            WorkspaceMark(theme: theme, key: identityKey, size: ChromeMetrics.Grid.workspaceMark)
-            Text(workspace.label)
-                .font(ChromeType.gridCardName)
-                .foregroundStyle(theme.textStrong)
-                .lineLimit(1)
+            WorkspaceMark(theme: theme, key: identityKey, size: ChromeMetrics.Grid.workspaceMark, picking: $isPickingSymbol)
+            if viewModel.renameTarget == .workspace(workspace.workspaceID) {
+                InlineRenameField(
+                    theme: theme, font: ChromeType.gridCardName,
+                    initialText: viewModel.renameText(for: .workspace(workspace.workspaceID)),
+                    accessibilityIdentifier: "flock.grid.rename.\(workspace.workspaceID.rawValue)",
+                    onCommit: { text in
+                        Task { await viewModel.commitRename(text, for: .workspace(workspace.workspaceID)) }
+                    },
+                    onCancel: { viewModel.cancelRename() }
+                )
+            } else {
+                Text(workspace.label)
+                    .font(ChromeType.gridCardName)
+                    .foregroundStyle(theme.textStrong)
+                    .lineLimit(1)
+            }
             StatusDot(status: workspace.agentStatus, theme: theme, size: ChromeMetrics.Grid.cardStatusDot + 2)
             Spacer(minLength: 0)
             Text(tabCount == 1 ? "1 tab" : "\(tabCount) tabs")

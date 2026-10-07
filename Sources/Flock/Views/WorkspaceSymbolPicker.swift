@@ -1,9 +1,9 @@
 import FlockCore
 import SwiftUI
 
-/// What a workspace's "Symbol…" item opens: Automatic, then every group's
-/// symbols as a scrolling grid of icons, Automatic pinned above it. Picking one reports it and leaves the popover
-/// to the caller to close.
+/// What a workspace's mark opens: Automatic, then every group's symbols as a
+/// scrolling grid of icons, Automatic pinned above it. Picking one reports it
+/// and leaves the popover to the caller to close.
 struct WorkspaceSymbolPicker: View {
     let theme: Theme
     /// The symbol the workspace wears now, whether picked or assigned.
@@ -93,25 +93,16 @@ struct WorkspaceSymbolPicker: View {
 }
 
 /// Attaches a workspace's symbol picker as a popover on the view it modifies,
-/// pointing at where the pointer last was over it: a context menu's item gives
-/// no location, and the pointer still sits where the right-click landed.
-/// Picking closes it.
+/// pointing at that view. Picking closes it.
 private struct WorkspaceSymbolPopover: ViewModifier {
     let theme: Theme
     let key: String?
     @Binding var isPresented: Bool
 
-    @State private var pointer: CGPoint?
-
     @Environment(WorkspaceIdentityStore.self) private var identityStore
 
     func body(content: Content) -> some View {
-        content
-            .onContinuousHover { phase in
-                guard !isPresented, case .active(let location) = phase else { return }
-                pointer = location
-            }
-            .popover(isPresented: $isPresented, attachmentAnchor: anchor, arrowEdge: .bottom) {
+        content.popover(isPresented: $isPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
             if let key {
                 WorkspaceSymbolPicker(
                     theme: theme, current: identityStore.symbol(for: key),
@@ -122,12 +113,6 @@ private struct WorkspaceSymbolPopover: ViewModifier {
                 }
             }
         }
-    }
-}
-
-extension WorkspaceSymbolPopover {
-    private var anchor: PopoverAttachmentAnchor {
-        pointer.map { .rect(.rect(CGRect(origin: $0, size: .zero))) } ?? .rect(.bounds)
     }
 }
 

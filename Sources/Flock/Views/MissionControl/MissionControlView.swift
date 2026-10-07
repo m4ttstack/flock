@@ -13,6 +13,7 @@ struct MissionControlView: View {
     @Environment(AllWorkspacesModeStore.self) private var mode
     @Environment(MissionBottomLineStore.self) private var bottomLine
     @Environment(BoardStore.self) private var boardNames
+    @Environment(WorkspaceIdentityStore.self) private var identityStore
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// One space for every lane, so a card whose lane changes is the same
@@ -59,15 +60,16 @@ struct MissionControlView: View {
     }
 
     private func lanes(_ board: MissionBoard, sections: RailSections, now: Date) -> some View {
-        HStack(alignment: .top, spacing: M.laneGap) {
+        let host = renameHost(in: board)
+        return HStack(alignment: .top, spacing: M.laneGap) {
             lane(title: "NEEDS YOU", status: .blocked, count: board.needsYou.reduce(0) { $0 + $1.cards.count }) {
                 if board.needsYou.isEmpty {
                     Text("Nothing needs you").font(ChromeType.missionEmpty).foregroundStyle(theme.textLabel)
                 }
-                ForEach(board.needsYou) { group($0, sections: sections, now: now, cooling: false) }
+                ForEach(board.needsYou) { group($0, sections: sections, now: now, cooling: false, renameHost: host) }
             }
             lane(title: "WORKING", status: .working, count: board.working.reduce(0) { $0 + $1.cards.count }) {
-                ForEach(board.working) { group($0, sections: sections, now: now, cooling: false) }
+                ForEach(board.working) { group($0, sections: sections, now: now, cooling: false, renameHost: host) }
             }
             lane(title: "AT REST", status: .idle, count: board.atRestCount) {
                 ForEach(board.atRest) { section in
@@ -76,7 +78,7 @@ struct MissionControlView: View {
                             if section.age == .unknown { mode.opensUnknown.toggle() } else { mode.opensOlder.toggle() }
                         }
                         if !section.isCollapsed {
-                            ForEach(section.groups) { group($0, sections: sections, now: now, cooling: true) }
+                            ForEach(section.groups) { group($0, sections: sections, now: now, cooling: true, renameHost: host) }
                         }
                     }
                     .padding(.top, section.id == board.atRest.first?.id ? M.restFirstSectionGap : M.restSectionGap)
@@ -130,25 +132,51 @@ struct MissionControlView: View {
     }
 
     /// A workspace's cards in one lane on the neutral wash its Arrange island
-    /// wears.
-    private func group(_ group: MissionGroup, sections: RailSections, now: Date, cooling: Bool) -> some View {
+    /// wears. Its mark opens the symbol picker, and its menu is the rail's.
+    /// `renameHost` is the one group, across every lane, that hosts the
+    /// workspace's rename editor.
+    private func group(
+        _ group: MissionGroup, sections: RailSections, now: Date, cooling: Bool, renameHost: PaneID?
+    ) -> some View {
         let key = WorkspaceIdentityStore.key(for: group.workspaceID, sections: sections)
+        let drawsSymbol = WorkspaceMark.drawsSymbol(key: key, logo: boardNames.logo, in: identityStore)
+        let hostsRename = renameHost != nil && group.cards.first?.paneID == renameHost
         return VStack(alignment: .leading, spacing: M.cardGap) {
             HStack(spacing: M.groupLabelSpacing) {
-                WorkspaceMark(theme: theme, key: key, size: M.groupMark)
-                Text(group.name)
-                    .font(ChromeType.missionGroupName)
-                    .foregroundStyle(theme.textLabel)
-                    .lineLimit(1)
+                WorkspaceMark(theme: theme, key: key, size: M.groupMark, picking: pickerBinding(group))
+                if hostsRename {
+                    InlineRenameField(
+                        theme: theme, font: ChromeType.missionGroupName,
+                        initialText: viewModel.renameText(for: .workspace(group.workspaceID)),
+                        accessibilityIdentifier: "flock.mission.group.rename.\(group.workspaceID.rawValue)",
+                        onCommit: { text in Task { await viewModel.commitRename(text, for: .workspace(group.workspaceID)) } },
+                        onCancel: { viewModel.cancelRename() }
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(group.name)
+                        .font(ChromeType.missionGroupName)
+                        .foregroundStyle(theme.textLabel)
+                        .lineLimit(1)
+                }
             }
-            ForEach(group.cards) { card($0, sections: sections, now: now, cooling: cooling, pickSymbol: { pick(group) }) }
+            ForEach(group.cards) { card($0, now: now, cooling: cooling) }
         }
         .padding(M.groupPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.workspaceWash, in: RoundedRectangle(cornerRadius: M.groupCornerRadius))
         .contentShape(RoundedRectangle(cornerRadius: M.groupCornerRadius))
-        .contextMenu { WorkspaceSymbolMenuItem(key: key) { pick(group) } }
-        .workspaceSymbolPopover(theme: theme, key: key, isPresented: pickerBinding(group))
+        .workspaceMenu(
+            viewModel: viewModel, workspace: group.workspaceID, key: key, changeSymbol: drawsSymbol ? { pick(group) } : nil
+        )
+    }
+
+    /// The group that hosts the editor while a workspace is being renamed: the
+    /// first one drawn, so a workspace with a group in several lanes shows one.
+    private func renameHost(in board: MissionBoard) -> PaneID? {
+        guard case .workspace(let workspace) = viewModel.renameTarget else { return nil }
+        let drawn = board.needsYou + board.working + board.atRest.filter { !$0.isCollapsed }.flatMap(\.groups)
+        return drawn.first { $0.workspaceID == workspace }?.cards.first?.paneID
     }
 
     private func pick(_ group: MissionGroup) {
@@ -163,11 +191,8 @@ struct MissionControlView: View {
         )
     }
 
-    private func card(
-        _ card: MissionCard, sections: RailSections, now: Date, cooling: Bool, pickSymbol: @escaping () -> Void
-    ) -> some View {
-        let cardKey = WorkspaceIdentityStore.key(for: card.workspaceID, sections: sections)
-        return MissionCardView(
+    private func card(_ card: MissionCard, now: Date, cooling: Bool) -> some View {
+        MissionCardView(
             theme: theme, card: card,
             place: bottomLine.active.text(viewModel.repoBranches.repoBranch(for: card.folder), workspace: card.workspaceName),
             segments: viewModel.statusHistory.segments(of: card.paneID, at: now), now: now,
@@ -178,8 +203,6 @@ struct MissionControlView: View {
         .contextMenu {
             Button("Rename Pane") { viewModel.beginRename(.pane(card.paneID)) }
                 .accessibilityIdentifier("flock.mission.card.rename")
-            Divider()
-            WorkspaceSymbolMenuItem(key: cardKey, open: pickSymbol)
             Divider()
             Button("Close Pane") { Task { await viewModel.closePane(card.paneID) } }
                 .accessibilityIdentifier("flock.mission.card.close")

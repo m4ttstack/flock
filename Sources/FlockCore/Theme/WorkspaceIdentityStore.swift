@@ -33,6 +33,13 @@ public final class WorkspaceIdentityStore {
         return workspace.rawValue
     }
 
+    /// Whether `key` names one of the rail's own workspace rows, the only ones
+    /// with a menu and a rename: Board's workspaces and herds sit in sections
+    /// of their own.
+    public static func isRailRow(key: String?) -> Bool {
+        key != nil && key != boardKey
+    }
+
     /// Every key the rail shows, in rail order, so a first sighting takes
     /// symbols in the order the rail lists workspaces.
     public static func keys(in sections: RailSections) -> [String] {

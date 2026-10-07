@@ -548,6 +548,14 @@ enum ChromeMetrics {
         static let width: CGFloat = CGFloat(columns) * cellSize + CGFloat(columns - 1) * cellGap + 2 * padding
     }
 
+    /// The ground a clickable workspace mark lifts on: this far past the glyph
+    /// on every side, drawn outside the mark's layout box so the header does
+    /// not move.
+    enum MarkButton {
+        static let padding: CGFloat = 3
+        static let cornerRadius: CGFloat = 5
+    }
+
     enum RtButton {
         static let badgeSize = CGSize(width: 19, height: 14)
         static let badgeCornerRadius: CGFloat = 3
