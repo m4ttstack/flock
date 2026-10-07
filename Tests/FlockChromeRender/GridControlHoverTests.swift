@@ -195,9 +195,9 @@ final class GridControlHoverRenderTests: XCTestCase {
             .padding(ChromeMetrics.Grid.thumbnailPadding)
         }
         .frame(width: 160, height: 90)
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeRadius.surface))
         .overlay(
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius)
+            RoundedRectangle(cornerRadius: ChromeRadius.surface)
                 .strokeBorder(ThumbnailPart.thumbnailOutline(theme: theme, tab: tab), lineWidth: ChromeMetrics.ruleWidth)
         )
     }

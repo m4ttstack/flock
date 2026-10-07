@@ -74,8 +74,12 @@ struct ArrangeRecede: ViewModifier {
 }
 
 enum ArrangeZoomMotion {
+    static func duration(reduceMotion: Bool) -> Double {
+        reduceMotion ? ChromeMetrics.Grid.zoomCrossfadeDuration : ChromeMetrics.Grid.zoomDuration
+    }
+
     static func animation(reduceMotion: Bool) -> Animation {
-        .easeInOut(duration: reduceMotion ? ChromeMetrics.Grid.zoomCrossfadeDuration : ChromeMetrics.Grid.zoomDuration)
+        .easeInOut(duration: duration(reduceMotion: reduceMotion))
     }
 
     /// Opaque throughout: it starts as a cover over its own place in the

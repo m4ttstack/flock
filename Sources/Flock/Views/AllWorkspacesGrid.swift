@@ -26,6 +26,9 @@ struct AllWorkspacesGrid: View {
     @State private var zoomHold = IslandFitHold()
     /// The zoomed island's place in the grid, in the scroll view's space.
     @State private var zoomSource: CGRect?
+    /// The workspace the last zoom was into, kept until a zoom out has
+    /// finished shrinking back over its grid island.
+    @State private var zoomReturning: WorkspaceID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.arrangeZoomPreviewProgress) private var zoomPreviewProgress
 
@@ -105,6 +108,15 @@ struct AllWorkspacesGrid: View {
             holdFit(self.arrange.inputs)
         }
         .background { ArrangeKeyMonitor(space: spacePressed, open: openSelection) }
+        .task(id: arrange.zoomed) {
+            if let zoomed = arrange.zoomed {
+                zoomReturning = zoomed
+                return
+            }
+            try? await Task.sleep(for: .seconds(ArrangeZoomMotion.duration(reduceMotion: reduceMotion)))
+            guard !Task.isCancelled else { return }
+            zoomReturning = nil
+        }
         .scrollIndicators(.never)
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .scrollPosition($scrollPosition)
@@ -174,6 +186,11 @@ struct AllWorkspacesGrid: View {
                                 identityKey: arrange.sections.flatMap { WorkspaceIdentityStore.key(for: id, sections: $0) },
                                 zoom: IslandZoom(isZoomed: false) { zoom(into: id) }
                             )
+                            // Under the zoomed island while it grows out of
+                            // this place and shrinks back into it: the
+                            // zoom's scale draws its corners smaller than
+                            // these, so both showing reads as two outlines.
+                            .opacity(id == (arrange.zoomed ?? zoomReturning) ? 0 : 1)
                         }
                     }
                 }
@@ -445,7 +462,7 @@ private struct WorkspaceIsland: View {
         // reorder is over, and only while that reorder commits, has any.
         let displacements = reorder.displacements
         let metrics = ChromeMetrics.Grid.islands
-        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.Grid.islandCornerRadius)
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.container)
         VStack(alignment: .leading, spacing: 0) {
             header(tabCount: tabs.count)
             VStack(alignment: .leading, spacing: ChromeMetrics.Grid.tabGap) {
@@ -493,7 +510,7 @@ private struct WorkspaceIsland: View {
             changeSymbol: WorkspaceMark.drawsSymbol(key: identityKey, logo: boardNames.logo, in: identityStore)
                 ? { isPickingSymbol = true } : nil
         )
-        .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeMetrics.Grid.islandCornerRadius) }
+        .overlay { DropWash(theme: theme, isTargeted: takesTheDrop, cornerRadius: ChromeRadius.container) }
         .overlay(shape.strokeBorder(outline(tabs), lineWidth: ChromeMetrics.Grid.islandCurrentOutline))
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: isTargeted(tabs))
         .reportsFrame(in: DragSpace.gridContent) { drag.setGridItemFrame($0, for: .card(workspace.workspaceID), layer: layer) }
@@ -669,11 +686,11 @@ private struct TabThumbnail: View {
             }
         }
         .frame(height: thumbnailSize.height)
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeRadius.surface))
+        .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.surface))
         .overlay { DropWash(theme: theme, isTargeted: isTargeted) }
         .overlay {
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius)
+            RoundedRectangle(cornerRadius: ChromeRadius.surface)
                 .strokeBorder(
                     ThumbnailPart.thumbnailOutline(theme: theme, tab: interaction(of: .tab)),
                     lineWidth: ChromeMetrics.ruleWidth
@@ -887,7 +904,7 @@ private struct TabThumbnail: View {
         return ZStack(alignment: .topLeading) {
             ForEach(boxes, id: \.pane) { placed in
                 if placed.pane == arriving?.pane {
-                    RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
+                    RoundedRectangle(cornerRadius: ChromeRadius.control)
                         .fill(theme.accent.opacity(DragVisuals.dropWashOpacity))
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
@@ -1024,7 +1041,7 @@ struct MiniPane: View {
             theme: theme, restForeground: theme.textStrong,
             isHovering: interaction.isHovering, isPressed: interaction.isPressed
         )
-        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.Grid.miniPaneCornerRadius)
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.control)
         // A narrow box gives up title lines before the status word; one too
         // short for the status word over the title, as a stacked split at the
         // 120pt floor is, keeps the dot and the title on one line rather than
@@ -1050,11 +1067,6 @@ struct MiniPane: View {
             if let wash = statusWash { wash.opacity(ChromeMetrics.Grid.statusWashOpacity) }
         }
         .background(GridControlGround(theme: theme, shape: AnyShape(shape), restFill: theme.tabRest, appearance: appearance))
-        .overlay(alignment: .leading) {
-            if let edge = statusEdge {
-                Rectangle().fill(edge).frame(width: ChromeMetrics.Grid.statusEdgeWidth).allowsHitTesting(false)
-            }
-        }
         .clipShape(shape)
         .overlay(
             shape.strokeBorder(
@@ -1066,12 +1078,6 @@ struct MiniPane: View {
     }
 
     private var shown: ShownStatus { ShownStatus(status, backgroundWork: backgroundWork) }
-
-    /// Idle and unknown are the resting states, so they keep the plain frame.
-    private var statusEdge: Color? {
-        if shown.isBackground { return theme.backgroundWorkColor }
-        return theme.agentStatusColor(shown.status)
-    }
 
     private var statusWash: Color? {
         guard !shown.isBackground, shown.status == .done || shown.status == .blocked else { return nil }
@@ -1157,9 +1163,9 @@ private struct NewTabPlaceholder: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: thumbnailSize.height)
-        .background(theme.accent.opacity(DragVisuals.dropWashOpacity), in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
-        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .background(theme.accent.opacity(DragVisuals.dropWashOpacity), in: RoundedRectangle(cornerRadius: ChromeRadius.surface))
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeRadius.surface))
+        .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.surface))
         .accessibilityIdentifier("flock.grid.newTab.\(workspace.rawValue)")
         .allowsHitTesting(false)
     }
@@ -1179,7 +1185,7 @@ private enum GridCursor {
 private struct DropWash: View {
     let theme: Theme
     let isTargeted: Bool
-    var cornerRadius: CGFloat = ChromeMetrics.Grid.thumbnailCornerRadius
+    var cornerRadius: CGFloat = ChromeRadius.surface
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius)

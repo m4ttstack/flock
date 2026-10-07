@@ -921,7 +921,6 @@ enum ChromeMetrics {
         /// What a thumbnail is drawn at before the view has measured itself.
         static let thumbnailWidth: CGFloat = minimumThumbnailWidth
         static let thumbnailHeight: CGFloat = 74
-        static let islandCornerRadius: CGFloat = 14
         static let islandTint: Double = 0.10
         static let islandCurrentOutline: CGFloat = 1.5
         /// `IslandLayout.Metrics.headerHeight` is these three summed.
@@ -936,10 +935,8 @@ enum ChromeMetrics {
         static let tabStripHeight: CGFloat = 24
         static let tabStripHorizontalPadding: CGFloat = 8
         static let tabStripSpacing: CGFloat = 5
-        static let thumbnailCornerRadius: CGFloat = 6
         static let thumbnailPadding: CGFloat = 4
         static let miniPaneGap: CGFloat = 4
-        static let miniPaneCornerRadius: CGFloat = 4
         static let miniPaneVerticalPadding: CGFloat = 8
         static let miniPaneHorizontalPadding: CGFloat = 9
         static let miniPaneTitleSpacing: CGFloat = 4

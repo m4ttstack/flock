@@ -2,21 +2,17 @@ import FlockCore
 import SwiftUI
 
 extension ChromeMetrics.Grid {
-    /// A mini pane's status edge: its leading side in the status hue.
-    static let statusEdgeWidth: CGFloat = 2
     /// The faint coat of its hue a done or blocked mini pane's body takes,
     /// enough to find it across the canvas without competing with its text.
     static let statusWashOpacity: Double = 0.10
 
-    /// Inside a mini pane that draws its tail: clear of the status edge on
-    /// the leading side, and tighter than the status layout's padding so a
-    /// small box spends its height on lines.
+    /// Inside a mini pane that draws its tail: tighter than the status
+    /// layout's padding, so a small box spends its height on lines.
     static let tileLeadingPadding: CGFloat = 8
     static let tileTrailingPadding: CGFloat = 6
     static let tileVerticalPadding: CGFloat = 5
     static let tileRowSpacing: CGFloat = 4
     static let tileMetaSpacing: CGFloat = 6
-    static let tileTimelineHeight: CGFloat = 3
     /// The tail's type is fitted to the box's width between these. The floor
     /// still reads as text on a Retina display; the ceiling keeps a
     /// zoomed tile's output at about the terminal's own size.

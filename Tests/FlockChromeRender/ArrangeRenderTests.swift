@@ -29,15 +29,12 @@ final class ArrangeRenderTests: XCTestCase {
             try write(image, "arrange-\(scheme).png")
             let tail = try XCTUnwrap(arrange.viewModel.paneTails[ArrangeFixture.apiClaude], "\(scheme): the tile read no tail")
             XCTAssertTrue(tail.lines.contains { $0.contains("Read(src/routes/invite.ts)") || $0.contains("migrate") || $0.contains("invite") })
-            let working = try XCTUnwrap(arrange.drag.gridPaneFrame(of: ArrangeFixture.apiClaude))
-            XCTAssertEqual(
-                hex(image, CGPoint(x: working.minX + 1, y: working.midY)), theme.palette.yellow.hex,
-                "\(scheme): a working pane carries no yellow edge"
-            )
-            let idle = try XCTUnwrap(arrange.drag.gridPaneFrame(of: PaneID(rawValue: "w1:p2")))
+            // The status dot and the meta line carry a tile's status; no
+            // coloured edge runs down its side.
+            let working = try XCTUnwrap(arrange.drag.surfaces?.grid?.miniPaneFrame(of: ArrangeFixture.apiClaude))
             XCTAssertNotEqual(
-                hex(image, CGPoint(x: idle.minX + 1, y: idle.midY)), theme.palette.green.hex,
-                "\(scheme): an idle pane took a status edge"
+                hex(image, CGPoint(x: working.minX + 1, y: working.midY)), theme.palette.yellow.hex,
+                "\(scheme): a working pane still carries a status edge"
             )
             window.close()
         }

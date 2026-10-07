@@ -62,10 +62,6 @@ struct ArrangeTileBody: View {
                 placeholder
                 Spacer(minLength: 0)
             }
-            if detail >= .timeline {
-                StatusTimeline(theme: theme, segments: viewModel.statusHistory.segments(of: pane.paneID, at: viewModel.currentTime))
-                    .frame(height: G.tileTimelineHeight)
-            }
         }
         .padding(.leading, G.tileLeadingPadding)
         .padding(.trailing, G.tileTrailingPadding)

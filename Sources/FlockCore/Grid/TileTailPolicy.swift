@@ -11,8 +11,6 @@ public enum TileDetail: Int, Comparable, Sendable {
     case tail
     /// A line above them: the harness, repo @ branch and age.
     case meta
-    /// The status timeline under them.
-    case timeline
 
     public static func < (lhs: TileDetail, rhs: TileDetail) -> Bool { lhs.rawValue < rhs.rawValue }
 
@@ -22,15 +20,12 @@ public enum TileDetail: Int, Comparable, Sendable {
         public var tail = CGSize(width: 96, height: 40)
         /// Room for the meta line beside three lines of tail.
         public var meta = CGSize(width: 150, height: 72)
-        /// Room for the timeline under the meta line and the tail.
-        public var timeline = CGSize(width: 150, height: 110)
 
         public init() {}
     }
 
     public static func of(box: CGSize, thresholds: Thresholds = Thresholds()) -> TileDetail {
         func fits(_ minimum: CGSize) -> Bool { box.width >= minimum.width && box.height >= minimum.height }
-        if fits(thresholds.timeline) { return .timeline }
         if fits(thresholds.meta) { return .meta }
         if fits(thresholds.tail) { return .tail }
         return .status

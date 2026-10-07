@@ -11,7 +11,6 @@ final class TileTailPolicyTests: XCTestCase {
         XCTAssertEqual(TileDetail.of(box: CGSize(width: 110, height: 50)), .tail)
         XCTAssertEqual(TileDetail.of(box: CGSize(width: 120, height: 200)), .tail, "too narrow for the meta line")
         XCTAssertEqual(TileDetail.of(box: CGSize(width: 200, height: 80)), .meta)
-        XCTAssertEqual(TileDetail.of(box: CGSize(width: 200, height: 140)), .timeline)
     }
 
     func testDetailOnlyGrowsWithTheBox() {
@@ -21,7 +20,7 @@ final class TileTailPolicyTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(detail, last)
             last = detail
         }
-        XCTAssertEqual(last, .timeline)
+        XCTAssertEqual(last, .meta)
     }
 
     func testTheGridReadsAThirdAsOftenAsAZoomedIsland() {

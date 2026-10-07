@@ -115,9 +115,9 @@ final class BackgroundWorkRenderTests: XCTestCase {
             .padding(ChromeMetrics.Grid.thumbnailPadding)
         }
         .frame(width: 240, height: 110)
-        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius))
+        .background(theme.pane, in: RoundedRectangle(cornerRadius: ChromeRadius.surface))
         .overlay(
-            RoundedRectangle(cornerRadius: ChromeMetrics.Grid.thumbnailCornerRadius)
+            RoundedRectangle(cornerRadius: ChromeRadius.surface)
                 .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
         )
     }
