@@ -84,6 +84,10 @@ enum ChromeMetrics {
         /// workspace nobody is looking at has, and it has to survive being
         /// read from across the room rather than from the caret.
         static let statusDot: CGFloat = 8
+        /// An empty pin's symbol and name, over `textLabel`: a step below a
+        /// heading, still read at a glance. Its row's hover and its rename
+        /// field are not dimmed.
+        static let emptyPinOpacity: Double = 0.7
         /// The bar herdr's focused tab is marked with inside a grid
         /// thumbnail. Was the rail's indicator too, until the rail's became a
         /// status dot; the thumbnail keeps it, because there it marks focus

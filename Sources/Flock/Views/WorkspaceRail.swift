@@ -539,7 +539,7 @@ struct EmptyPinRow: View {
             Color.clear.frame(width: ChromeMetrics.WorkspaceRow.statusDot, height: ChromeMetrics.WorkspaceRow.statusDot)
             WorkspaceMark(
                 theme: theme, key: pin.identityKey, size: ChromeMetrics.WorkspaceRow.mark, picking: pickingSymbol,
-                foreground: theme.textLabel
+                foreground: theme.textLabel.opacity(ChromeMetrics.WorkspaceRow.emptyPinOpacity)
             )
             if isRenaming {
                 InlineRenameField(
@@ -550,7 +550,7 @@ struct EmptyPinRow: View {
             } else {
                 Text(pin.name)
                     .font(ChromeType.workspaceName(selected: false))
-                    .foregroundStyle(theme.textLabel)
+                    .foregroundStyle(theme.textLabel.opacity(ChromeMetrics.WorkspaceRow.emptyPinOpacity))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }

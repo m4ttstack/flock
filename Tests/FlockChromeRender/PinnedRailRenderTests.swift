@@ -5,7 +5,8 @@ import XCTest
 
 /// The rail with a live pin and an empty one under PINNED, over a WORKSPACES
 /// row, at rest, with that row dragged into PINNED and with a pin dragged out,
-/// in a dark and a light theme. PNGs are written only when
+/// over BOARD with nothing left unpinned, and the pins in ⌃Tab's panel, in a
+/// dark and a light theme. PNGs are written only when
 /// `FLOCK_CHROME_RENDER_DIR` is set.
 @MainActor
 final class PinnedRailRenderTests: XCTestCase {
@@ -15,6 +16,8 @@ final class PinnedRailRenderTests: XCTestCase {
     private static let web = WorkspaceID(rawValue: "w2")
     private static let docs = WorkspaceID(rawValue: "w3")
     private static let api = WorkspaceID(rawValue: "w4")
+    private static let reviews = WorkspaceID(rawValue: "w5")
+    private static let doctors = WorkspaceID(rawValue: "w6")
     /// How far a filled symbol's core may sit from its colour once
     /// rasterized: a channel step or two.
     private static let glyphCoreTolerance: Double = 3
@@ -238,10 +241,11 @@ final class PinnedRailRenderTests: XCTestCase {
             x: nameMinX, y: row.minY + ChromeMetrics.WorkspaceRow.verticalPadding,
             width: 24, height: ChromeMetrics.WorkspaceRow.contentHeight
         )
+        let dimmed = Self.emptyPinInk(roles)
         let ink = try XCTUnwrap(strongestInk(rendered.image, in: name, ground: roles.chrome), "\(scheme): the empty pin draws its name")
         XCTAssertLessThanOrEqual(
-            distance(ink, roles.textLabel), Self.textCoreTolerance,
-            "\(scheme): the empty pin's name is textLabel (\(roles.textLabel.hex)); its core drew \(ink.hex)"
+            distance(ink, dimmed), Self.textCoreTolerance,
+            "\(scheme): the empty pin's name is dimmed textLabel (\(dimmed.hex)); its core drew \(ink.hex)"
         )
         let mark = CGRect(
             x: dotMinX + ChromeMetrics.WorkspaceRow.statusDot + ChromeMetrics.WorkspaceRow.spacing,
@@ -250,9 +254,127 @@ final class PinnedRailRenderTests: XCTestCase {
         )
         let symbol = try XCTUnwrap(strongestInk(rendered.image, in: mark, ground: roles.chrome), "\(scheme): the empty pin draws its symbol")
         XCTAssertLessThanOrEqual(
-            distance(symbol, roles.textLabel), Self.glyphCoreTolerance,
-            "\(scheme): the empty pin's symbol is textLabel (\(roles.textLabel.hex)); its core drew \(symbol.hex)"
+            distance(symbol, dimmed), Self.glyphCoreTolerance,
+            "\(scheme): the empty pin's symbol is dimmed textLabel (\(dimmed.hex)); its core drew \(symbol.hex)"
         )
+    }
+
+    /// textLabel at the empty pin's opacity over the ground it sits on, the
+    /// rail's chrome unless given.
+    private static func emptyPinInk(_ roles: ChromeRoles, over ground: RGB? = nil) -> RGB {
+        let under = ground ?? roles.chrome
+        let alpha = ChromeMetrics.WorkspaceRow.emptyPinOpacity
+        func blend(_ over: Int, _ under: Int) -> Int { Int((Double(over) * alpha + Double(under) * (1 - alpha)).rounded()) }
+        return RGB(
+            blend(roles.textLabel.red, under.red), blend(roles.textLabel.green, under.green),
+            blend(roles.textLabel.blue, under.blue)
+        )
+    }
+
+    /// With every workspace pinned, BOARD follows PINNED directly, a section
+    /// gap below it, the way WORKSPACES' heading would.
+    func testWithEveryWorkspacePinnedBoardFollowsPinned() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let session = try session(
+                workspaces: [Self.acme, Self.web, Self.reviews, Self.doctors], pinned: [Self.web, Self.acme], closed: [Self.acme]
+            )
+            let (window, drag) = try await mount(theme, session: session, boardSources: .canned(logo: BoardFixture.logo))
+            defer { window.close() }
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pinned-rail-board-\(scheme).png"))
+            }
+            XCTAssertTrue(drag.workspaceFrames.isEmpty, "\(scheme): no WORKSPACES rows")
+            XCTAssertNil(drag.workspacesHeading, "\(scheme): no WORKSPACES heading")
+            let region = try XCTUnwrap(drag.pinnedFrame)
+            let roles = theme.palette.chromeRoles
+            let gap = region.maxY..<(region.maxY + ChromeMetrics.RailSection.sectionGap)
+            XCTAssertFalse(hasInk(image, rows: gap, from: region.minX, roles: roles), "\(scheme): a clear section gap under PINNED")
+            XCTAssertTrue(
+                hasInk(image, rows: gap.upperBound..<(gap.upperBound + ChromeMetrics.RailSection.headerMark), from: region.minX, roles: roles),
+                "\(scheme): BOARD's header sits right under the gap"
+            )
+        }
+    }
+
+    /// ⌃Tab's panel over a live workspace, a live pin and an empty one: the
+    /// empty pin's row is the rail's, with no dot, its name dimmed and no
+    /// count, and the highlight is on the row letting go opens.
+    func testTheSwitcherDrawsAnEmptyPinAsTheRailDoes() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let size = CGSize(width: 480, height: 360)
+        typealias Metrics = ChromeMetrics.Palette
+        for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let session = try session(unpinned: [Self.docs])
+            let viewModel = session.viewModel
+            let emptyPin = try XCTUnwrap(viewModel.pins.pins.first { $0.workspace == nil })
+            let switcher = WorkspaceSwitcher(userDefaults: session.defaults)
+            let view = SwitcherView(
+                theme: theme, switcher: switcher, trigger: .control, accessibilityPrefix: "flock.switcher", heading: "Workspaces",
+                row: { SwitcherOverlay.workspaceRow($0, viewModel: viewModel) },
+                candidates: { SwitcherOverlay.workspaceCandidates(viewModel: viewModel) },
+                current: { viewModel.selectedWorkspaceID },
+                blocked: { false },
+                go: { _ in }
+            )
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.colorSpace = .sRGB
+            window.contentView = NSHostingView(rootView: view.frame(width: size.width, height: size.height).background(theme.chrome))
+            defer { window.close() }
+            try await settle(window)
+            view.begin(reverse: false)
+            switcher.show(session: switcher.session)
+            try await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("switcher-pins-\(scheme).png"))
+            }
+
+            XCTAssertEqual(switcher.order, [Self.docs, Self.web, emptyPin.switcherID], "\(scheme): current, the live pin, the empty pin")
+            XCTAssertEqual(switcher.selected, Self.web, "\(scheme)")
+            let roles = theme.palette.chromeRoles
+            let top = ChromeMetrics.Switcher.top(inTabAreaHeight: size.height, rowCount: 3)
+            let boxX = (size.width - ChromeMetrics.Switcher.width) / 2
+            let rowY = { (index: Int) in
+                top + ChromeMetrics.Switcher.headerHeight + ChromeMetrics.ruleWidth + Metrics.listPadding + CGFloat(index) * (Metrics.rowHeight + 1)
+            }
+            let dotX = boxX + Metrics.listPadding + Metrics.rowPadding + 2
+            let dot = { (index: Int) in
+                CGRect(
+                    x: dotX, y: rowY(index) + (Metrics.rowHeight - ChromeMetrics.WorkspaceRow.statusDot) / 2,
+                    width: ChromeMetrics.WorkspaceRow.statusDot, height: ChromeMetrics.WorkspaceRow.statusDot
+                )
+            }
+            let count = { (index: Int) in
+                CGRect(x: boxX + ChromeMetrics.Switcher.width - Metrics.listPadding - Metrics.rowPadding - 14, y: rowY(index) + 8, width: 12, height: Metrics.rowHeight - 16)
+            }
+            let name = { (index: Int) in
+                CGRect(x: dotX + ChromeMetrics.WorkspaceRow.statusDot + Metrics.rowGap, y: rowY(index) + 8, width: 24, height: Metrics.rowHeight - 16)
+            }
+            // The box's own ground, read off a blank stretch of the empty row.
+            let ground = try XCTUnwrap(sample(image, CGPoint(x: boxX + ChromeMetrics.Switcher.width * 0.6, y: rowY(2) + Metrics.rowHeight / 2)))
+            XCTAssertNotNil(strongestInk(image, in: dot(0), ground: ground), "\(scheme): a live workspace draws its dot")
+            XCTAssertNotNil(strongestInk(image, in: count(0), ground: ground), "\(scheme): a live workspace draws its count")
+            XCTAssertNil(strongestInk(image, in: dot(2), ground: ground, beyond: 3), "\(scheme): the empty pin's dot slot is blank")
+            XCTAssertNil(strongestInk(image, in: count(2), ground: ground, beyond: 3), "\(scheme): the empty pin draws no count")
+            let live = try XCTUnwrap(strongestInk(image, in: name(0), ground: ground))
+            XCTAssertLessThanOrEqual(distance(live, roles.textStrong), Self.textCoreTolerance, "\(scheme): a live name is textStrong; drew \(live.hex)")
+            let dimmed = Self.emptyPinInk(roles, over: ground)
+            let empty = try XCTUnwrap(strongestInk(image, in: name(2), ground: ground), "\(scheme): the empty pin draws its name")
+            XCTAssertLessThanOrEqual(
+                distance(empty, dimmed), Self.textCoreTolerance, "\(scheme): the empty pin's name is dimmed textLabel (\(dimmed.hex)); drew \(empty.hex)"
+            )
+            let selection = try XCTUnwrap(sample(image, CGPoint(x: boxX + ChromeMetrics.Switcher.width - 30, y: rowY(1) + 4)))
+            XCTAssertEqual(selection, roles.selection, "\(scheme): the highlight is on the live pin, the row letting go opens")
+        }
     }
 
     private struct Session {
@@ -293,9 +415,13 @@ final class PinnedRailRenderTests: XCTestCase {
     }
 
     /// Drops commit through the view model, as the app's do.
-    private func mount(_ theme: Theme, session: Session) async throws -> (NSWindow, DragCoordinator) {
+    private func mount(
+        _ theme: Theme, session: Session, boardSources: BoardSources = .unconfigured
+    ) async throws -> (NSWindow, DragCoordinator) {
         let viewModel = session.viewModel
         let defaults = session.defaults
+        let board = BoardStore(sources: boardSources, userDefaults: defaults)
+        await board.refresh()
         let toasts = ToastCenter()
         let drag = DragCoordinator(
             toasts: toasts, rearrangeMode: RearrangeMode(),
@@ -309,7 +435,7 @@ final class PinnedRailRenderTests: XCTestCase {
         let probe = Probe(
             theme: theme, viewModel: viewModel, drag: drag, railWidth: railWidth,
             collapse: SectionCollapseStore(userDefaults: defaults),
-            board: BoardStore(sources: .unconfigured, userDefaults: defaults),
+            board: board,
             toasts: toasts, identity: session.identity, themeStore: themeStore, defaults: defaults
         )
         let window = NSWindow(
@@ -394,7 +520,10 @@ final class PinnedRailRenderTests: XCTestCase {
     }
 
     private func model(_ ids: [WorkspaceID]) -> SessionModel {
-        let labels = [Self.acme: "acme", Self.web: "web", Self.docs: "docs", Self.api: "api"]
+        let labels = [
+            Self.acme: "acme", Self.web: "web", Self.docs: "docs", Self.api: "api",
+            Self.reviews: BoardFixture.names.reviews, Self.doctors: BoardFixture.names.doctors,
+        ]
         return SessionModel(snapshot: SessionSnapshot(
             version: "0.9.0", protocolVersion: 22,
             focusedWorkspaceID: Self.docs, focusedTabID: nil, focusedPaneID: nil,
@@ -429,13 +558,15 @@ final class PinnedRailRenderTests: XCTestCase {
 
     /// The pixel in `box` farthest from `ground`: a glyph's solid core, not
     /// its antialiased edge. nil when the whole box is ground.
-    private func strongestInk(_ image: NSBitmapImageRep, in box: CGRect, ground: RGB) -> RGB? {
+    /// `beyond` ignores pixels that close to `ground`, for a ground that is
+    /// itself a channel step uneven.
+    private func strongestInk(_ image: NSBitmapImageRep, in box: CGRect, ground: RGB, beyond: Double = 0) -> RGB? {
         var best: (RGB, Double)?
         for y in stride(from: box.minY, to: box.maxY, by: 0.5) {
             for x in stride(from: box.minX, to: box.maxX, by: 0.5) {
                 guard let pixel = sample(image, CGPoint(x: x, y: y)) else { continue }
                 let away = distance(pixel, ground)
-                if away > (best?.1 ?? 0) { best = (pixel, away) }
+                if away > max(best?.1 ?? 0, beyond) { best = (pixel, away) }
             }
         }
         return best?.0

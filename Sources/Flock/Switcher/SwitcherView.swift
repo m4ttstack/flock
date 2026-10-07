@@ -19,19 +19,8 @@ struct SwitcherOverlay: View {
             SwitcherView(
                 theme: theme, switcher: workspaces, trigger: .control, accessibilityPrefix: "flock.switcher",
                 heading: "Workspaces",
-                row: { [viewModel] id in
-                    if let pin = PinID(switcherID: id).flatMap({ viewModel.pins.pin($0) }) {
-                        return SwitcherRow(status: .unknown, label: pin.name, count: 0)
-                    }
-                    return viewModel.model?.workspaces.first { $0.workspaceID == id }.map {
-                        SwitcherRow(status: $0.agentStatus, label: $0.label, count: viewModel.paneCount(for: id))
-                    }
-                },
-                candidates: { [viewModel] in
-                    WorkspaceSwitcher.candidates(
-                        viewModel.model?.workspaces ?? [], current: viewModel.selectedWorkspaceID, pins: viewModel.pins.pins
-                    )
-                },
+                row: { [viewModel] id in Self.workspaceRow(id, viewModel: viewModel) },
+                candidates: { [viewModel] in Self.workspaceCandidates(viewModel: viewModel) },
                 current: { [viewModel] in viewModel.selectedWorkspaceID },
                 blocked: { [tabs] in busy() || tabs.isActive },
                 go: { [viewModel] id in
@@ -66,6 +55,21 @@ struct SwitcherOverlay: View {
             )
         }
     }
+
+    static func workspaceRow(_ id: WorkspaceID, viewModel: SessionViewModel) -> SwitcherRow? {
+        if let pin = PinID(switcherID: id).flatMap({ viewModel.pins.pin($0) }) {
+            return .emptyPin(label: pin.name)
+        }
+        return viewModel.model?.workspaces.first { $0.workspaceID == id }.map {
+            SwitcherRow(status: $0.agentStatus, label: $0.label, count: viewModel.paneCount(for: id))
+        }
+    }
+
+    static func workspaceCandidates(viewModel: SessionViewModel) -> [WorkspaceID] {
+        WorkspaceSwitcher.candidates(
+            viewModel.model?.workspaces ?? [], current: viewModel.selectedWorkspaceID, pins: viewModel.pins.pins
+        )
+    }
 }
 
 struct SwitcherRow {
@@ -74,6 +78,20 @@ struct SwitcherRow {
     let count: Int
     /// Who in this tab is signed in to chat, when anyone is.
     var chat: String? = nil
+    /// Drawn as the rail draws an empty pin: no dot, the name dimmed, no
+    /// count.
+    var isEmptyPin = false
+
+    static func emptyPin(label: String) -> SwitcherRow {
+        SwitcherRow(status: .unknown, label: label, count: 0, isEmptyPin: true)
+    }
+}
+
+/// A drawn row and its index in the switcher's `order`.
+struct SwitcherLine<ID: Hashable> {
+    let index: Int
+    let id: ID
+    let row: SwitcherRow
 }
 
 /// One switcher's panel: the items most recently used first, the one letting
@@ -105,7 +123,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     var body: some View {
         ZStack {
             if switcher.isShown {
-                let rows = switcher.order.compactMap { id in row(id).map { (id, $0) } }
+                let rows = switcher.order.enumerated().compactMap { index, id in row(id).map { SwitcherLine(index: index, id: id, row: $0) } }
                 GeometryReader { proxy in
                     ZStack(alignment: .top) {
                         scrim
@@ -125,8 +143,11 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
         .onDisappear { monitor.remove() }
     }
 
-    private func begin(reverse: Bool) {
-        guard switcher.begin(items: candidates(), current: current(), reverse: reverse) else { return }
+    /// Only items that draw a row are offered, so `selection`, which counts
+    /// `order`, counts the rows as drawn.
+    func begin(reverse: Bool) {
+        let items = candidates().filter { row($0) != nil }
+        guard switcher.begin(items: items, current: current(), reverse: reverse) else { return }
         onBegin()
         let session = switcher.session
         Task {
@@ -143,19 +164,21 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
             .onTapGesture { switcher.cancel() }
     }
 
-    private func box(rows: [(ID, SwitcherRow)], maxListHeight: CGFloat) -> some View {
+    private func box(rows: [SwitcherLine<ID>], maxListHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 1) {
-                        ForEach(Array(rows.enumerated()), id: \.element.0) { index, item in
-                            Button { open(item.0) } label: {
-                                rowView(item.0, item.1, selected: index == switcher.selection)
+                        // Highlighted by its index in `order`, the index
+                        // letting go opens.
+                        ForEach(rows, id: \.id) { line in
+                            Button { open(line.id) } label: {
+                                rowView(line.id, line.row, selected: line.index == switcher.selection)
                             }
                             .buttonStyle(.plain)
-                            .id(item.0)
+                            .id(line.id)
                         }
                     }
                     .padding(Metrics.listPadding)
@@ -180,10 +203,14 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
 
     private func rowView(_ id: ID, _ item: SwitcherRow, selected: Bool) -> some View {
         HStack(spacing: Metrics.rowGap) {
-            StatusDot(status: item.status, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
+            if item.isEmptyPin {
+                Color.clear.frame(width: ChromeMetrics.WorkspaceRow.statusDot, height: ChromeMetrics.WorkspaceRow.statusDot)
+            } else {
+                StatusDot(status: item.status, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
+            }
             Text(item.label)
                 .font(selected ? ChromeType.paletteNameSelected : ChromeType.paletteName)
-                .foregroundStyle(theme.textStrong)
+                .foregroundStyle(item.isEmptyPin ? theme.textLabel.opacity(ChromeMetrics.WorkspaceRow.emptyPinOpacity) : theme.textStrong)
                 .lineLimit(1)
                 .layoutPriority(1)
             Spacer(minLength: 0)
@@ -198,9 +225,11 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                 .foregroundStyle(theme.textLabel)
                 .padding(.trailing, ChromeMetrics.Switcher.chatCountGap)
             }
-            Text("\(item.count)")
-                .font(ChromeType.paletteShortcut)
-                .foregroundStyle(theme.textLabel)
+            if !item.isEmptyPin {
+                Text("\(item.count)")
+                    .font(ChromeType.paletteShortcut)
+                    .foregroundStyle(theme.textLabel)
+            }
         }
         .padding(.horizontal, Metrics.rowPadding + 2)
         .frame(height: Metrics.rowHeight)
