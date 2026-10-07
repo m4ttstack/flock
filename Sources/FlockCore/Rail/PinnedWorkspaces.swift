@@ -145,7 +145,10 @@ public final class PinnedWorkspaceStore {
             guard let workspace = next[index].workspace else { continue }
             if let record = records[workspace] {
                 next[index].confirmed = true
-                if let synced = next[index].syncedLabel, synced != record.label { next[index].name = record.label }
+                if let synced = next[index].syncedLabel, synced != record.label,
+                   !next.contains(where: { $0.id != next[index].id && PinNames.matches($0.name, record.label) }) {
+                    next[index].name = record.label
+                }
                 next[index].syncedLabel = record.label
             } else if next[index].confirmed {
                 next[index].workspace = nil

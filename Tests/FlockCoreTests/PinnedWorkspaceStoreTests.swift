@@ -116,6 +116,16 @@ final class PinnedWorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.pins[0].name, "acme")
     }
 
+    func testANameDoesNotFollowARenameOntoAnotherPinsName() {
+        let store = PinnedWorkspaceStore(userDefaults: nil)
+        _ = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "a", folder: "/a", at: nil)
+        _ = store.add(workspace: WorkspaceID(rawValue: "w2"), name: "b", folder: "/b", at: nil)
+        store.reconcile(with: model([("w1", "B"), ("w2", "b")]), eligible: anyRow)
+        XCTAssertEqual(store.pins.map(\.name), ["a", "b"])
+        store.reconcile(with: model([("w1", "c"), ("w2", "b")]), eligible: anyRow)
+        XCTAssertEqual(store.pins.map(\.name), ["c", "b"])
+    }
+
     func testRenameRefusesAnotherPinsName() {
         let store = PinnedWorkspaceStore(userDefaults: nil)
         let a = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "a", folder: "/a", at: nil)!
