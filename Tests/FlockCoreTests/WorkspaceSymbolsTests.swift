@@ -2,9 +2,10 @@ import XCTest
 @testable import FlockCore
 
 final class WorkspaceSymbolsTests: XCTestCase {
-    func testTheSetIsAboutTwentyDistinctSymbolsWithTitles() {
+    func testTheSetIsDistinctSymbolsWithTitlesInNamedGroups() {
         let all = WorkspaceSymbols.all
-        XCTAssertTrue((18...24).contains(all.count), "\(all.count)")
+        XCTAssertTrue((40...60).contains(all.count), "\(all.count)")
+        XCTAssertFalse(WorkspaceSymbols.groups.contains { $0.title.isEmpty || $0.symbols.isEmpty })
         XCTAssertEqual(Set(all.map(\.name)).count, all.count)
         XCTAssertEqual(Set(all.map(\.title)).count, all.count)
         XCTAssertFalse(all.contains { $0.title.isEmpty })

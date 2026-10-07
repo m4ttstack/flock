@@ -9,8 +9,8 @@ extension Theme {
     }
 }
 
-/// A workspace's right-click Symbol menu: Automatic, then the set. Empty for a
-/// herd, which has no key and draws the ram.
+/// A workspace's right-click Symbol menu: Automatic, then a submenu per
+/// group. Empty for a herd, which has no key and draws the ram.
 struct WorkspaceSymbolMenu: View {
     let key: String?
 
@@ -22,13 +22,17 @@ struct WorkspaceSymbolMenu: View {
                 Button("Automatic") { identityStore.setOverride(nil, for: key) }
                     .accessibilityIdentifier("flock.identity.symbol.automatic")
                 Divider()
-                ForEach(WorkspaceSymbols.all, id: \.name) { symbol in
-                    Button {
-                        identityStore.setOverride(symbol.name, for: key)
-                    } label: {
-                        Label(symbol.title, systemImage: symbol.name)
+                ForEach(WorkspaceSymbols.groups, id: \.title) { group in
+                    Menu(group.title) {
+                        ForEach(group.symbols, id: \.name) { symbol in
+                            Button {
+                                identityStore.setOverride(symbol.name, for: key)
+                            } label: {
+                                Label(symbol.title, systemImage: symbol.name)
+                            }
+                            .accessibilityIdentifier("flock.identity.symbol.\(symbol.name)")
+                        }
                     }
-                    .accessibilityIdentifier("flock.identity.symbol.\(symbol.name)")
                 }
             }
         }
