@@ -303,10 +303,11 @@ struct ChatPopover: View {
             }
             .padding(.horizontal, ChromeMetrics.ChatPopover.Features.rowHorizontalPadding)
             .frame(width: ChromeMetrics.ChatPopover.Features.rowSize.width, height: ChromeMetrics.ChatPopover.Features.rowSize.height)
-            .background(
-                RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Features.rowCornerRadius)
-                    .fill(isHighlighted && !isDisabled ? Color(theme.palette.selectionBg) : Color.clear)
-            )
+            .background {
+                if isHighlighted && !isDisabled {
+                    HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.ChatPopover.Features.rowCornerRadius)
+                }
+            }
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)

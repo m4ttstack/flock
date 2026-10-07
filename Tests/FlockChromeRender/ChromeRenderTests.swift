@@ -666,7 +666,10 @@ final class ChromeRenderTests: XCTestCase {
         // anchored to, which the legend row above it already says, so the
         // band's own ground is what belongs there now.
         XCTAssertEqual(hex(signedOutImage, CGPoint(x: 343, y: 63)), theme.palette.panelBg.hex, "signed-out status band, trailing end")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 165)), theme.palette.selectionBg.hex, "signed-out selected feature row fill")
+        XCTAssertLessThanOrEqual(
+            hexChannelDistance(hex(signedOutImage, CGPoint(x: 200, y: 165)), theme.palette.panelBg.underHoverWash(theme).hex), 1,
+            "signed-out hovered feature row wears the hover wash"
+        )
         var bestIconDistance = Int.max
         for y in stride(from: CGFloat(159), through: 171, by: 0.5) {
             bestIconDistance = min(bestIconDistance, minChannelDistance(signedOutImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
@@ -697,7 +700,10 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 108.5)), theme.palette.surface0.hex, "signed-in status band rule")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 343, y: 63)), theme.palette.panelBg.hex, "signed-in status band, trailing end")
         XCTAssertEqual(hex(signedInImage, CGPoint(x: 17, y: 87)), theme.palette.activeRowBg.hex, "signed-in room chip fill")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 188)), theme.palette.selectionBg.hex, "signed-in selected feature row fill")
+        XCTAssertLessThanOrEqual(
+            hexChannelDistance(hex(signedInImage, CGPoint(x: 200, y: 188)), theme.palette.panelBg.underHoverWash(theme).hex), 1,
+            "signed-in hovered feature row wears the hover wash"
+        )
         var bestSignedInIconDistance = Int.max
         for y in stride(from: CGFloat(182), through: 194, by: 0.5) {
             bestSignedInIconDistance = min(bestSignedInIconDistance, minChannelDistance(signedInImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))

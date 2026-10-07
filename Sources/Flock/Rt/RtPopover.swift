@@ -113,10 +113,7 @@ struct RtPopover: View {
             }
             .padding(.horizontal, Metrics.Row.horizontalPadding)
             .frame(height: Metrics.Row.height)
-            .background(
-                RoundedRectangle(cornerRadius: Metrics.Row.cornerRadius)
-                    .fill(isHovered ? Color(theme.palette.selectionBg) : Color.clear)
-            )
+            .background { if isHovered { HoverWashFill(theme: theme, cornerRadius: Metrics.Row.cornerRadius) } }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -540,8 +540,9 @@ enum ChromeMetrics {
         static let groundWhite: Double = 0.07
     }
 
-    /// The legend controls' hover wash: the theme's text colour at this
-    /// opacity over the hovered target.
+    /// Every hover in the chrome: the theme's text colour at this opacity
+    /// over the hovered target (`HoverWashFill`), or over a control's resting
+    /// fill (`GridControlGround`).
     enum HoverWash {
         static let opacity: Double = 0.1
     }
@@ -896,9 +897,6 @@ enum ChromeMetrics {
         /// Half the launcher's press accent: over a whole card the launcher's
         /// own amount read as a selected surface rather than a press.
         static let cardPressedAccent: Double = 0.1
-        /// Half the controls' hover wash: over a whole card theirs lifts it
-        /// near the group wash's brightness.
-        static let cardHoverLift: Double = 0.05
         static let laneMoveDuration: Double = 0.2
         /// How far sideways a lane lets a moving card draw: past any lane
         /// it could be crossing from.

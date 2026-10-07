@@ -99,11 +99,7 @@ struct HoverCloseButton: View {
                 .font(ChromeType.closeSymbol)
                 .foregroundStyle(isHovering ? theme.textStrong : theme.textLabel)
                 .frame(width: ChromeMetrics.CloseButton.size, height: ChromeMetrics.CloseButton.size)
-                .background(
-                    RoundedRectangle(cornerRadius: ChromeMetrics.CloseButton.cornerRadius)
-                        .fill(theme.selection)
-                        .opacity(isHovering ? 1 : 0)
-                )
+                .background { if isHovering { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.CloseButton.cornerRadius) } }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -61,7 +61,7 @@ struct MissionCardView: View {
             Button(action: activate) { content }
                 .buttonStyle(GridControlStyle(
                     theme: theme, shape: shape, restFill: restFill,
-                    restForeground: theme.textStrong, pressAccent: M.cardPressedAccent, hoverLift: M.cardHoverLift,
+                    restForeground: theme.textStrong, pressAccent: M.cardPressedAccent,
                     isHovering: forced?.isHovering ?? isHovering, forcePressed: forced?.isPressed ?? false
                 ))
         }

@@ -59,11 +59,7 @@ private struct ChatHeaderIconButton: View {
                 .font(.system(size: ChromeMetrics.ChatSubviewHeader.iconSize.width, weight: .regular))
                 .foregroundStyle(isHovering ? theme.text : theme.subtext0)
                 .frame(width: ChromeMetrics.ChatSubviewHeader.iconHitSize, height: ChromeMetrics.ChatSubviewHeader.iconHitSize)
-                .background(
-                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatSubviewHeader.iconHitCornerRadius)
-                        .fill(Color(theme.palette.selectionBg))
-                        .opacity(isHovering ? 1 : 0)
-                )
+                .background { if isHovering { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.ChatSubviewHeader.iconHitCornerRadius) } }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

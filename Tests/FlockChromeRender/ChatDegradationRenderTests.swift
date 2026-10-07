@@ -271,8 +271,8 @@ final class ChatDegradationRenderTests: XCTestCase {
         // Peek is the second of the four feature rows.
         let peekRowY = ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedIn
             + ChromeMetrics.ChatPopover.SectionLabel.height + 1.5 * ChromeMetrics.ChatPopover.Features.rowSize.height
-        XCTAssertEqual(
-            hex(peekImage, CGPoint(x: 200, y: peekRowY)), theme.palette.selectionBg.hex,
+        XCTAssertLessThanOrEqual(
+            hexChannelDistance(hex(peekImage, CGPoint(x: 200, y: peekRowY)), theme.palette.panelBg.underHoverWash(theme).hex), 1,
             "deck missing must not stop every OTHER row from still highlighting when hovered"
         )
         peekWindow.close()

@@ -1,8 +1,9 @@
 import FlockCore
 import SwiftUI
 
-/// The legend controls' hover: a faint wash of the text colour over the
-/// hovered target, the same on every chip whatever its own fill.
+/// The one hover wash: a faint coat of the text colour in the hovered
+/// shape's own corners, the same over any ground. A control with a resting
+/// fill draws it over that fill (`GridControlGround`).
 struct HoverWashFill: View {
     let theme: Theme
     let cornerRadius: CGFloat

@@ -29,11 +29,7 @@ struct PaneGrip: View {
             }
         }
         .frame(width: Metrics.pillSize.width, height: Metrics.pillSize.height)
-        .background {
-            RoundedRectangle(cornerRadius: Metrics.pillCornerRadius)
-                .fill(Color(theme.palette.surface0))
-                .opacity(isHovering ? 1 : 0)
-        }
+        .background { if isHovering { HoverWashFill(theme: theme, cornerRadius: Metrics.pillCornerRadius) } }
         .frame(width: Metrics.hitWidth, height: PaneChrome.titleRowHeight)
         .contentShape(Rectangle())
         .onHover { hovering in

@@ -24,11 +24,11 @@ struct GridControlAppearance: Equatable {
 
     static func resolve(
         theme: Theme, restForeground: Color, pressAccent: Double = ChromeMetrics.Launcher.pressedAccent,
-        hoverLift: Double = ChromeMetrics.HoverWash.opacity, isHovering: Bool, isPressed: Bool
+        isHovering: Bool, isPressed: Bool
     ) -> GridControlAppearance {
         let lit = isHovering || isPressed
         return GridControlAppearance(
-            lift: lit ? theme.text.opacity(hoverLift) : .clear,
+            lift: lit ? theme.text.opacity(ChromeMetrics.HoverWash.opacity) : .clear,
             foreground: lit ? theme.textStrong : restForeground,
             pressWash: isPressed ? pressAccent : 0
         )
@@ -59,7 +59,6 @@ struct GridControlStyle: ButtonStyle {
     let restFill: Color
     let restForeground: Color
     var pressAccent = ChromeMetrics.Launcher.pressedAccent
-    var hoverLift = ChromeMetrics.HoverWash.opacity
     let isHovering: Bool
     var forcePressed = false
 
@@ -77,7 +76,7 @@ struct GridControlStyle: ButtonStyle {
         var body: some View {
             let appearance = GridControlAppearance.resolve(
                 theme: style.theme, restForeground: style.restForeground, pressAccent: style.pressAccent,
-                hoverLift: style.hoverLift, isHovering: style.isHovering, isPressed: isPressed
+                isHovering: style.isHovering, isPressed: isPressed
             )
             label
                 .foregroundStyle(appearance.foreground)

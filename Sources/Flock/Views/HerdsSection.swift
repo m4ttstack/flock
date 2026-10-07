@@ -118,11 +118,11 @@ struct RailRowChrome: ViewModifier {
             .frame(height: ChromeMetrics.WorkspaceRow.contentHeight)
             .padding(.vertical, ChromeMetrics.WorkspaceRow.verticalPadding)
             .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
-            .background(
+            .background {
                 RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius)
-                    .fill(showsFill ? theme.selection : Color(theme.palette.surface0))
-                    .opacity(showsFill || isHovering ? 1 : 0)
-            )
+                    .fill(showsFill ? theme.selection : .clear)
+                    .overlay { if isHovering { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius) } }
+            }
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
     }

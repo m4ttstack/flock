@@ -132,7 +132,10 @@ final class RtButtonRenderTests: XCTestCase {
             XCTAssertEqual(hex(image, at: point(0.5, 100)), palette.surface1.hex, "\(label): the outer stroke")
             XCTAssertEqual(hex(image, at: point(150, 40.5)), palette.surface0.hex, "\(label): the header rule")
             XCTAssertEqual(hex(image, at: point(16, 15)), Self.plum, "\(label): the header badge")
-            XCTAssertEqual(hex(image, at: point(180, 50)), palette.selectionBg.hex, "\(label): the hovered row's fill")
+            XCTAssertLessThanOrEqual(
+                hexChannelDistance(hex(image, at: point(180, 50)), palette.panelBg.underHoverWash(theme).hex), 1,
+                "\(label): the hovered row wears the hover wash"
+            )
             XCTAssertEqual(hex(image, at: point(180, 81)), palette.panelBg.hex, "\(label): a row not hovered has no fill")
             XCTAssertEqual(hex(image, at: point(180, 239)), palette.activeRowBg.hex, "\(label): the running item's fill")
             XCTAssertEqual(hex(image, at: point(180, 270)), palette.panelBg.hex, "\(label): a finished item has no fill")
