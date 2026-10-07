@@ -24,6 +24,14 @@ extension DragCoordinator {
         updateGrid { $0.unfocus() }
     }
 
+    func zoomGrid(into workspace: WorkspaceID) {
+        updateGrid { $0.zoom(into: workspace) }
+    }
+
+    func unzoomGrid() {
+        updateGrid { $0.unzoom() }
+    }
+
     func showGridPreview(pane: PaneID) {
         updateGrid { $0.showPreview(pane: pane) }
     }

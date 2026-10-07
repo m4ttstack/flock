@@ -146,6 +146,38 @@ public enum IslandLayout {
             rows: floor.rows, tabsPerRow: floor.perRow, scrolls: true
         )
     }
+
+    /// One island filling `size` exactly, its thumbnails stretched to the
+    /// canvas rather than held to the grid's aspect: a zoomed island is read,
+    /// so its tiles take every point the window has. The column count is the
+    /// one whose tiles hold the largest box between `minimumAspect` and
+    /// `maximumAspect` (height over width), so two tabs sit side by side as
+    /// two tall panes rather than as two strips.
+    public static func zoomFit(
+        _ island: Island, in size: CGSize, metrics: Metrics = Metrics(),
+        minimumAspect: CGFloat = 0.45, maximumAspect: CGFloat = 1.4
+    ) -> Fit {
+        let tabs = max(1, island.tabs)
+        var best: (score: CGFloat, across: Int, width: CGFloat, height: CGFloat)?
+        for across in 1...tabs where balancedAcross(tabs: tabs, cap: across) == across {
+            let rows = (tabs + across - 1) / across
+            let width = ((size.width - 2 * metrics.horizontalPadding - CGFloat(across - 1) * metrics.tabGap) / CGFloat(across))
+                .rounded(.down)
+            let height = ((size.height - metrics.headerHeight - metrics.bottomPadding - CGFloat(rows - 1) * metrics.tabGap)
+                / CGFloat(rows)).rounded(.down)
+            guard width > 0, height > 0 else { continue }
+            let score = min(width, height / minimumAspect) * min(height, width * maximumAspect)
+            if best.map({ score > $0.score }) ?? true { best = (score, across, width, height) }
+        }
+        let floorHeight = thumbnailHeight(metrics.minimumWidth, metrics: metrics)
+        let across = best?.across ?? 1
+        let width = max(metrics.minimumWidth, best?.width ?? 0)
+        let height = max(floorHeight, best?.height ?? 0)
+        return Fit(
+            thumbnailWidth: width, thumbnailHeight: height, rows: [[island.id]], tabsPerRow: [island.id: across],
+            scrolls: width > (best?.width ?? 0) || height > (best?.height ?? 0)
+        )
+    }
 }
 
 /// The fit Arrange draws with. A drag freezes it: a drop target that moved
@@ -161,6 +193,17 @@ public struct IslandFitHold: Equatable, Sendable {
     ) -> IslandLayout.Fit {
         if dragging, let fit { return fit }
         let next = IslandLayout.fit(islands, in: size, metrics: metrics)
+        fit = next
+        return next
+    }
+
+    /// The zoomed island's fit, frozen by a drag the same way.
+    public mutating func update(
+        zoomed island: IslandLayout.Island, in size: CGSize, dragging: Bool,
+        metrics: IslandLayout.Metrics = IslandLayout.Metrics()
+    ) -> IslandLayout.Fit {
+        if dragging, let fit, fit.rows == [[island.id]] { return fit }
+        let next = IslandLayout.zoomFit(island, in: size, metrics: metrics)
         fit = next
         return next
     }

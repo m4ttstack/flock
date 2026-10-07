@@ -138,8 +138,21 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
     /// so returning to Overview returns to it. Only going back, or the pane
     /// closing, ends it.
     public private(set) var focused: PaneID?
+    /// The workspace Arrange has zoomed into, its island alone filling the
+    /// canvas. Never kept past the grid closing: Arrange always opens on
+    /// every workspace.
+    public private(set) var zoomed: WorkspaceID?
 
     public init() {}
+
+    public mutating func zoom(into workspace: WorkspaceID) {
+        guard isShown else { return }
+        zoomed = workspace
+    }
+
+    public mutating func unzoom() {
+        zoomed = nil
+    }
 
     public mutating func focus(pane: PaneID) {
         guard isShown else { return }
@@ -164,6 +177,7 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
     public mutating func close() {
         isShown = false
         preview = nil
+        zoomed = nil
     }
 
     public mutating func toggle() {
@@ -185,11 +199,14 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         preview = nil
     }
 
-    /// Esc takes the card down first and the grid only once no card is up,
-    /// so dismissing a preview never also throws away the grid behind it.
+    /// Esc takes the card down first, then a zoom, and the grid only once
+    /// neither is up, so each Esc undoes one step and never throws away the
+    /// grid behind it.
     public mutating func escape() {
         if preview != nil {
             preview = nil
+        } else if zoomed != nil {
+            zoomed = nil
         } else {
             close()
         }

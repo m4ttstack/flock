@@ -87,6 +87,84 @@ final class ArrangeRenderTests: XCTestCase {
         }
     }
 
+    /// Space zooms into the current workspace: its island alone fills the
+    /// canvas, its tiles read at the zoomed cadence, and Esc steps back out
+    /// to the grid rather than closing it.
+    func testSpaceZoomsIntoTheCurrentWorkspaceAndEscStepsBackOut() async throws {
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model())
+            let window = arrange.makeWindow(size: Self.windowSize)
+            await settle(window)
+            arrange.drag.toggleGrid()
+            await settle(window)
+            let gridThumbnail = try XCTUnwrap(arrange.drag.surfaces?.grid?.thumbnails.first { $0.id == ArrangeFixture.apiServerTab }?.frame)
+            pressSpace(window)
+            await settle(window)
+            await settle(window)
+            XCTAssertEqual(arrange.drag.gridZoomed, ArrangeFixture.api, "\(scheme): space did not zoom the current workspace")
+            let image = try snapshot(window)
+            try write(image, "arrange-zoomed-\(scheme).png")
+            let zoomed = try XCTUnwrap(arrange.drag.surfaces?.grid?.thumbnails.first { $0.id == ArrangeFixture.apiServerTab }?.frame)
+            XCTAssertGreaterThan(zoomed.width, gridThumbnail.width * 1.5, "\(scheme): the zoomed island did not grow")
+            XCTAssertEqual(arrange.drag.surfaces?.grid?.cards.count, 1, "\(scheme): other islands are still drop targets")
+            XCTAssertLessThanOrEqual(
+                zoomed.maxY, Self.windowSize.height - ChromeMetrics.Grid.canvasPadding + 1, "\(scheme): the zoomed island runs off the canvas"
+            )
+            arrange.drag.updateGrid { $0.escape() }
+            await settle(window)
+            XCTAssertNil(arrange.drag.gridZoomed, "\(scheme): esc did not zoom out")
+            XCTAssertTrue(arrange.drag.isGridShown, "\(scheme): esc closed Arrange instead of zooming out")
+            window.close()
+        }
+    }
+
+    /// The five-tab herd zoomed, three tiles over two, in both schemes.
+    func testAZoomedHerdFillsTheCanvas() async throws {
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model())
+            let window = arrange.makeWindow(size: Self.windowSize)
+            await settle(window)
+            arrange.drag.toggleGrid()
+            await settle(window)
+            arrange.drag.zoomGrid(into: ArrangeFixture.herd)
+            await settle(window)
+            await settle(window)
+            try write(snapshot(window), "arrange-zoomed-herd-\(scheme).png")
+            XCTAssertEqual(arrange.drag.surfaces?.grid?.thumbnails.count, 5)
+            arrange.drag.closeGrid()
+            XCTAssertNil(arrange.drag.gridZoomed, "\(scheme): closing Arrange kept the zoom")
+            window.close()
+        }
+    }
+
+    /// A zoom held halfway: the island part grown out of its place in the
+    /// grid, the grid behind it fading and drawing back.
+    func testAZoomHalfwayShowsTheIslandGrowingOverTheRecedingGrid() async throws {
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model())
+            let window = arrange.makeWindow(size: Self.windowSize, zoomPreview: 0.5)
+            await settle(window)
+            arrange.drag.toggleGrid()
+            await settle(window)
+            pressSpace(window)
+            await settle(window)
+            try write(snapshot(window), "arrange-zoom-mid-\(scheme).png")
+            window.close()
+        }
+    }
+
+    private func pressSpace(_ window: NSWindow) {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49
+        ) else { return }
+        NSApplication.shared.sendEvent(event)
+    }
+
     private func write(_ image: NSBitmapImageRep, _ name: String) throws {
         guard let directory else { return }
         try XCTUnwrap(image.representation(using: .png, properties: [:]))
@@ -151,7 +229,7 @@ struct ArrangeHarness {
         viewModel.update(model: model, connection: .live)
     }
 
-    func makeWindow(size: CGSize) -> NSWindow {
+    func makeWindow(size: CGSize, zoomPreview: CGFloat? = nil) -> NSWindow {
         let themeStore = ThemeStore(userDefaults: defaults)
         themeStore.select(theme)
         let board = BoardStore(sources: .unconfigured, userDefaults: defaults)
@@ -161,6 +239,7 @@ struct ArrangeHarness {
             isDevBuild: false
         )
         .environment(nil as DevBuildWatcher?)
+        .environment(\.arrangeZoomPreviewProgress, zoomPreview)
         .environment(themeStore)
         .environment(TerminalTextSizeStore(userDefaults: defaults))
         .environment(RtModalSizeStore(userDefaults: defaults))

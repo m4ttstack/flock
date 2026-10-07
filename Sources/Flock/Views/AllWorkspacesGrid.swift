@@ -22,6 +22,12 @@ struct AllWorkspacesGrid: View {
     /// The space the islands can use: the scroll view less the canvas
     /// padding on each side.
     @State private var viewport: CGSize = .zero
+    /// The zoomed island's fit, held through a drag like the grid's.
+    @State private var zoomHold = IslandFitHold()
+    /// The zoomed island's place in the grid, in the scroll view's space.
+    @State private var zoomSource: CGRect?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.arrangeZoomPreviewProgress) private var zoomPreviewProgress
 
     private var workspaces: [WorkspaceRecord] { viewModel.model?.workspaces ?? [] }
 
@@ -53,7 +59,14 @@ struct AllWorkspacesGrid: View {
             drag.setGridOrder(order)
         }
         .onChange(of: order) { drag.setGridOrder(order) }
-        .onChange(of: workspaces.map(\.workspaceID)) { refreshIdentities() }
+        .onChange(of: workspaces.map(\.workspaceID)) { _, ids in
+            refreshIdentities()
+            if let zoomed = drag.gridZoomed, !ids.contains(zoomed) { drag.unzoomGrid() }
+        }
+        // A zoom belongs to this visit to Arrange.
+        .onChange(of: shownMode) { _, shown in
+            if shown != .arrange { drag.unzoomGrid() }
+        }
         // Initial too: a remembered focused pane may have closed while the
         // view was away.
         .onChange(of: livePanes, initial: true) { _, live in
@@ -68,35 +81,14 @@ struct AllWorkspacesGrid: View {
     private var shownMode: AllWorkspacesMode { mode.shown(dragInFlight: drag.activeSubject != nil) }
 
     private func arrangeGrid(_ arrange: Arrangement) -> some View {
-        let fit = arrange.fit
-        let metrics = ChromeMetrics.Grid.islands
-        return ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: metrics.islandGap) {
-                ForEach(fit.rows, id: \.self) { row in
-                    HStack(alignment: .top, spacing: metrics.islandGap) {
-                        ForEach(row, id: \.self) { id in
-                            if let workspace = workspaces.first(where: { $0.workspaceID == id }) {
-                                WorkspaceIsland(
-                                    theme: theme, viewModel: viewModel, workspace: workspace,
-                                    slotsPerRow: fit.tabsPerRow[id] ?? 1,
-                                    identityKey: arrange.sections.flatMap { WorkspaceIdentityStore.key(for: id, sections: $0) }
-                                )
-                            }
-                        }
-                    }
-                    // Islands sharing a row share the taller one's height.
-                    .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
-            .environment(\.arrangeTiles, ArrangeTileContext(interval: TileTailCadence.grid))
-            .padding(ChromeMetrics.Grid.canvasPadding)
-            // A minimum of zero, or the rows laid out for the last viewport
-            // hold the scroll view (and so the measured viewport) at least
-            // that wide, and narrowing the window never refits.
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
-            .coordinateSpace(.named(DragSpace.gridContent))
-            .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
+        ScrollView(.vertical) {
+            canvas(arrange)
+                .reportsDragFrame { drag.setGridContentOrigin($0.origin) }
+                .padding(ChromeMetrics.Grid.canvasPadding)
+                // A minimum of zero, or the rows laid out for the last viewport
+                // hold the scroll view (and so the measured viewport) at least
+                // that wide, and narrowing the window never refits.
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
         }
         .onGeometryChange(for: CGSize.self) { proxy in
             CGSize(
@@ -109,6 +101,7 @@ struct AllWorkspacesGrid: View {
             guard idle else { return }
             holdFit(self.arrange.inputs)
         }
+        .background { ArrangeKeyMonitor(space: spacePressed) }
         .scrollIndicators(.never)
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .scrollPosition($scrollPosition)
@@ -123,6 +116,112 @@ struct AllWorkspacesGrid: View {
         .overlay(alignment: .topLeading) { GridPreviewCard(theme: theme, viewModel: viewModel) }
         .reportsDragFrame { drag.gridViewport = $0 }
         .onAppear { drag.gridScroller = { y in scrollPosition.scrollTo(y: y) } }
+    }
+
+    /// Every island, or the zoomed one alone. The two are never both laid
+    /// out, so the drop surfaces always name one set of frames.
+    ///
+    /// Each side is its own content space, named INSIDE the transform that
+    /// carries it: a frame measured against it never sees the zoom's scale
+    /// or offset, so the transition moves drawn layers and writes no item
+    /// frames while it runs, and the content origin is the stack's, which
+    /// nothing transforms.
+    @ViewBuilder
+    private func canvas(_ arrange: Arrangement) -> some View {
+        let zoomed = arrange.zoomed.flatMap { id in workspaces.first { $0.workspaceID == id } }
+        ZStack(alignment: .topLeading) {
+            if let progress = zoomPreviewProgress, let zoomed, let zoomFit = arrange.zoomFit {
+                islandRows(arrange)
+                    .coordinateSpace(.named(DragSpace.gridContent))
+                    .modifier(ArrangeRecede(progress: progress))
+                zoomedIsland(zoomed, fit: zoomFit, arrange: arrange)
+                    .coordinateSpace(.named(DragSpace.gridContent))
+                    .modifier(ArrangeZoomFrame(source: zoomSource ?? zoomTarget, target: zoomTarget, progress: progress))
+            } else if let zoomed, let zoomFit = arrange.zoomFit {
+                zoomedIsland(zoomed, fit: zoomFit, arrange: arrange)
+                    .coordinateSpace(.named(DragSpace.gridContent))
+                    .transition(ArrangeZoomMotion.zoomed(from: zoomSource, to: zoomTarget, reduceMotion: reduceMotion))
+            } else {
+                islandRows(arrange)
+                    .coordinateSpace(.named(DragSpace.gridContent))
+                    .transition(ArrangeZoomMotion.receding(reduceMotion: reduceMotion))
+            }
+        }
+        .animation(ArrangeZoomMotion.animation(reduceMotion: reduceMotion), value: arrange.zoomed)
+    }
+
+    private func islandRows(_ arrange: Arrangement) -> some View {
+        let fit = arrange.fit
+        let metrics = ChromeMetrics.Grid.islands
+        return VStack(alignment: .leading, spacing: metrics.islandGap) {
+            ForEach(fit.rows, id: \.self) { row in
+                HStack(alignment: .top, spacing: metrics.islandGap) {
+                    ForEach(row, id: \.self) { id in
+                        if let workspace = workspaces.first(where: { $0.workspaceID == id }) {
+                            WorkspaceIsland(
+                                theme: theme, viewModel: viewModel, workspace: workspace,
+                                slotsPerRow: fit.tabsPerRow[id] ?? 1,
+                                identityKey: arrange.sections.flatMap { WorkspaceIdentityStore.key(for: id, sections: $0) },
+                                zoom: IslandZoom(isZoomed: false) { zoom(into: id) }
+                            )
+                        }
+                    }
+                }
+                // Islands sharing a row share the taller one's height.
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
+        .environment(\.arrangeTiles, ArrangeTileContext(interval: TileTailCadence.grid))
+    }
+
+    private func zoomedIsland(_ workspace: WorkspaceRecord, fit: IslandLayout.Fit, arrange: Arrangement) -> some View {
+        let id = workspace.workspaceID
+        return WorkspaceIsland(
+            theme: theme, viewModel: viewModel, workspace: workspace,
+            slotsPerRow: fit.tabsPerRow[id] ?? 1,
+            identityKey: arrange.sections.flatMap { WorkspaceIdentityStore.key(for: id, sections: $0) },
+            zoom: IslandZoom(isZoomed: true) { drag.unzoomGrid() }
+        )
+        .environment(\.gridThumbnailSize, CGSize(width: fit.thumbnailWidth, height: fit.thumbnailHeight))
+        .environment(\.arrangeTiles, ArrangeTileContext(interval: TileTailCadence.zoomed, isZoomed: true))
+    }
+
+    /// The zoomed island's place: the whole canvas inside its padding, in the
+    /// scroll view's own space, which a zoom scrolls back to the top of.
+    private var zoomTarget: CGRect {
+        CGRect(origin: CGPoint(x: ChromeMetrics.Grid.canvasPadding, y: ChromeMetrics.Grid.canvasPadding), size: viewport)
+    }
+
+    /// Where the island is in the grid, read once as the zoom starts: the
+    /// zoom grows out of it and shrinks back into it.
+    private func zoom(into id: WorkspaceID) {
+        guard drag.activeSubject == nil else { return }
+        if let card = drag.gridItemFrame(for: .card(id)), let scroller = drag.gridViewport {
+            zoomSource = card.offsetBy(dx: -scroller.minX, dy: -scroller.minY)
+        }
+        // Read before the island grows, so its tiles open on output rather
+        // than filling in as the zoom lands.
+        let panes = viewModel.model?.panes.values.filter { $0.workspaceID == id } ?? []
+        for pane in panes where viewModel.paneTails[pane.paneID] == nil {
+            viewModel.refreshPaneTail(for: pane.paneID)
+        }
+        drag.dismissGridPreview()
+        scrollPosition.scrollTo(y: 0)
+        drag.zoomGrid(into: id)
+    }
+
+    /// Space zooms into the current workspace, the outlined island, and
+    /// back out. Never while a name is being typed or a drag is live.
+    private func spacePressed() -> Bool {
+        guard drag.activeSubject == nil, viewModel.renameTarget == nil else { return false }
+        if drag.gridZoomed != nil {
+            drag.unzoomGrid()
+            return true
+        }
+        guard let id = viewModel.model?.focusedWorkspaceID, workspaces.contains(where: { $0.workspaceID == id }) else { return false }
+        zoom(into: id)
+        return true
     }
 
     private var header: some View {
@@ -149,11 +248,18 @@ struct AllWorkspacesGrid: View {
         struct Inputs: Equatable {
             let islands: [IslandLayout.Island]
             let viewport: CGSize
+            let zoomed: WorkspaceID?
         }
 
         let sections: RailSections?
         let inputs: Inputs
         let fit: IslandLayout.Fit
+        /// Set only while that workspace is still there to draw.
+        let zoomed: WorkspaceID?
+        let zoomFit: IslandLayout.Fit?
+
+        /// The fit the drawn islands are laid out against.
+        var drawnFit: IslandLayout.Fit { zoomFit ?? fit }
     }
 
     private var arrange: Arrangement {
@@ -165,29 +271,34 @@ struct AllWorkspacesGrid: View {
         let islands = ordered.map {
             IslandLayout.Island(id: $0.workspaceID, tabs: model?.tabs[$0.workspaceID]?.count ?? 1)
         }
-        let inputs = Arrangement.Inputs(islands: islands, viewport: viewport)
-        // A copy, so `body` never writes state; `holdFit` keeps the stored one.
+        let zoomed = drag.gridZoomed.flatMap { id in islands.first { $0.id == id } }
+        let inputs = Arrangement.Inputs(islands: islands, viewport: viewport, zoomed: zoomed?.id)
+        let dragging = drag.activeSubject != nil
+        // Copies, so `body` never writes state; `holdFit` keeps the stored ones.
         var held = hold
-        let fit = held.update(
-            islands, in: viewport, dragging: drag.activeSubject != nil, metrics: ChromeMetrics.Grid.islands
-        )
-        return Arrangement(sections: sections, inputs: inputs, fit: fit)
+        let fit = held.update(islands, in: viewport, dragging: dragging, metrics: ChromeMetrics.Grid.islands)
+        var heldZoom = zoomHold
+        let zoomFit = zoomed.map { heldZoom.update(zoomed: $0, in: viewport, dragging: dragging, metrics: ChromeMetrics.Grid.islands) }
+        return Arrangement(sections: sections, inputs: inputs, fit: fit, zoomed: zoomed?.id, zoomFit: zoomFit)
     }
 
     private func holdFit(_ inputs: Arrangement.Inputs) {
         guard drag.activeSubject == nil else { return }
         _ = hold.update(inputs.islands, in: inputs.viewport, dragging: false, metrics: ChromeMetrics.Grid.islands)
+        if let zoomed = inputs.zoomed, let island = inputs.islands.first(where: { $0.id == zoomed }) {
+            _ = zoomHold.update(zoomed: island, in: inputs.viewport, dragging: false, metrics: ChromeMetrics.Grid.islands)
+        }
     }
 
     /// The items a drop can hit, in grid order: what turns their frames back
     /// into a list and drops the frame of an item no longer shown. `.newTab`
     /// names the rect the created tab lands in, whichever cell is drawing it.
     private func itemOrder(_ arrange: Arrangement) -> [GridItemID] {
-        let drawn = arrange.fit.rows.joined().filter { id in workspaces.contains { $0.workspaceID == id } }
+        let drawn = arrange.drawnFit.rows.joined().filter { id in workspaces.contains { $0.workspaceID == id } }
         return drawn.flatMap { id -> [GridItemID] in
             let tabs = (viewModel.model?.tabs[id] ?? []).map(\.tabID)
             let preview = CardDropPreview(workspace: id, drag: drag, model: viewModel.model)
-            let cells = preview.cells(of: tabs, perRow: arrange.fit.tabsPerRow[id] ?? 1)
+            let cells = preview.cells(of: tabs, perRow: arrange.drawnFit.tabsPerRow[id] ?? 1)
             // The created tab's id is published once, wherever its slot turns
             // out to be: the card hangs the reporter on that cell rather than
             // on the placeholder, which is drawn somewhere else whenever the
@@ -282,6 +393,12 @@ private struct CardReorderPreview {
     }
 }
 
+/// An island's way into a zoom, or out of the one it is in.
+private struct IslandZoom {
+    let isZoomed: Bool
+    let toggle: () -> Void
+}
+
 private struct WorkspaceIsland: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -291,12 +408,14 @@ private struct WorkspaceIsland: View {
     let slotsPerRow: Int
     /// Nil for a herd, which takes no symbol of its own.
     let identityKey: String?
+    let zoom: IslandZoom
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(\.gridThumbnailSize) private var thumbnailSize
     @Environment(BoardStore.self) private var boardNames
     @Environment(WorkspaceIdentityStore.self) private var identityStore
     @State private var isPickingSymbol = false
+    @State private var isHovering = false
 
     private var isFocusedWorkspace: Bool { workspace.workspaceID == viewModel.model?.focusedWorkspaceID }
 
@@ -346,6 +465,10 @@ private struct WorkspaceIsland: View {
         )
         .frame(maxHeight: .infinity, alignment: .top)
         .background(theme.workspaceWash, in: shape)
+        // The wash is translucent, and a zooming island passes over the grid
+        // it is leaving.
+        .background(zoom.isZoomed ? theme.canvas : .clear, in: shape)
+        .fadingHover($isHovering)
         .workspaceMenu(
             viewModel: viewModel, workspace: workspace.workspaceID, key: identityKey,
             changeSymbol: WorkspaceMark.drawsSymbol(key: identityKey, logo: boardNames.logo, in: identityStore)
@@ -395,10 +518,15 @@ private struct WorkspaceIsland: View {
                 .foregroundStyle(theme.textLabel)
                 .lineLimit(1)
                 .fixedSize()
+            // Held in the row while hidden, so hovering never moves the count.
+            ArrangeZoomControl(theme: theme, isZoomed: zoom.isZoomed, workspace: workspace.workspaceID, action: zoom.toggle)
+                .opacity(zoom.isZoomed || (isHovering && drag.activeSubject == nil) ? 1 : 0)
+                .allowsHitTesting(zoom.isZoomed || isHovering)
         }
         .frame(height: ChromeMetrics.Grid.islandHeaderHeight)
         .padding(.bottom, ChromeMetrics.Grid.islandHeaderGap)
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) { if drag.activeSubject == nil { zoom.toggle() } }
     }
 
     /// One cell, plus the reporter for the slot a committed drop lands in

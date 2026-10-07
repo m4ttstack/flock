@@ -319,6 +319,7 @@ final class DragCoordinator {
     private(set) var isGridShown = false
     private(set) var gridPreview: PaneID?
     private(set) var gridFocusedPane: PaneID?
+    private(set) var gridZoomed: WorkspaceID?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
     /// Selects what a fired dwell uncovers. Synchronous and run before the
@@ -1282,6 +1283,9 @@ final class DragCoordinator {
         }
         if gridFocusedPane != grid.focused {
             gridFocusedPane = grid.focused
+        }
+        if gridZoomed != grid.zoomed {
+            gridZoomed = grid.zoomed
         }
         syncSelectionMonitor()
         return result

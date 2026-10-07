@@ -25,7 +25,21 @@ extension ChromeMetrics.Grid {
     static let zoomedTileTailMaxSize: CGFloat = 11.5
 }
 
+extension ChromeMetrics.Grid {
+    static let zoomDuration: Double = 0.3
+    static let zoomCrossfadeDuration: Double = 0.2
+    /// How far the grid draws back behind an island zooming out of it.
+    static let zoomRecedeScale: CGFloat = 0.96
+    /// The island header's zoom and close controls: no taller than the
+    /// header row they sit in.
+    static let zoomControlSize: CGFloat = 20
+    static let zoomControlHorizontalPadding: CGFloat = 5
+    static let zoomControlSpacing: CGFloat = 5
+}
+
 extension ChromeType {
+    static let arrangeZoomKey = mono(10)
+    static let arrangeZoomSymbol = Font.system(size: 10, weight: .semibold)
     static let arrangeTileMeta = mono(9)
     static let arrangeTileMetaZoomed = mono(10.5)
 }
