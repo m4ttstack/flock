@@ -79,7 +79,7 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
         let board = BoardStore(sources: .unconfigured, userDefaults: defaults)
         let hosting = NSHostingView(rootView: Probe(
             viewModel: viewModel, drag: drag, railWidth: railWidth, collapse: collapse, board: board, toasts: toasts,
-            missionDefaults: UserDefaults(suiteName: "flock-mission-\(UUID().uuidString)")!
+            missionDefaults: defaults
         ))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Probe.size),

@@ -24,6 +24,7 @@ final class WorkspaceMarkRenderTests: XCTestCase {
             let name = "WorkspaceMarkRenderTests.\(UUID().uuidString)"
             let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
             defaults.removePersistentDomain(forName: name)
+            defer { defaults.removePersistentDomain(forName: name) }
             let identity = WorkspaceIdentityStore(userDefaults: defaults)
             identity.assign(["w1"])
             let board = BoardStore(sources: .unconfigured, userDefaults: defaults)

@@ -41,7 +41,9 @@ final class SessionViewModelPinTests: XCTestCase {
     }
 
     private func viewModel(executor: (any PlanExecuting)? = nil, notices: @escaping @MainActor (String) -> Void = { _ in }) -> (SessionViewModel, WorkspaceIdentityStore) {
-        let identity = WorkspaceIdentityStore(userDefaults: UserDefaults(suiteName: "flock-pin-vm-\(UUID().uuidString)")!)
+        let suite = "flock-pin-vm-\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let identity = WorkspaceIdentityStore(userDefaults: UserDefaults(suiteName: suite)!)
         let viewModel = SessionViewModel(client: QuietClient(), planExecutor: executor, noticeSink: notices, identity: identity)
         return (viewModel, identity)
     }

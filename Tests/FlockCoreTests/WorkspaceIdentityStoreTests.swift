@@ -7,6 +7,7 @@ final class WorkspaceIdentityStoreTests: XCTestCase {
         let name = "WorkspaceIdentityStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         defaults.removePersistentDomain(forName: name)
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: name) }
         return defaults
     }
 

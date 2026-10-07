@@ -4,7 +4,9 @@ import XCTest
 @MainActor
 final class PinnedWorkspaceStoreTests: XCTestCase {
     private func defaults() -> UserDefaults {
-        UserDefaults(suiteName: "flock-pins-\(UUID().uuidString)")!
+        let name = "flock-pins-\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: name) }
+        return UserDefaults(suiteName: name)!
     }
 
     private func model(_ workspaces: [(id: String, label: String)]) -> SessionModel {

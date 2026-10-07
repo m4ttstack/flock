@@ -2752,7 +2752,9 @@ final class ChromeRenderTests: XCTestCase {
         let herdr = herdrDir.appendingPathComponent("herdr").path
         let artifact = herdrDir.appendingPathComponent("herdr-patched").path
         try Data("herdr 0.9.3 terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: artifact))
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "flock-banner-\(UUID().uuidString)"))
+        let bannerSuite = "flock-banner-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: bannerSuite))
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: bannerSuite) }
         let band = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 60)
 
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {

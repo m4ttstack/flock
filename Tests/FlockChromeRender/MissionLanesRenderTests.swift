@@ -109,6 +109,7 @@ final class MissionLanesRenderTests: XCTestCase {
             let suite = "MissionLanesRenderTests.\(UUID().uuidString)"
             let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
             defaults.removePersistentDomain(forName: suite)
+            defer { defaults.removePersistentDomain(forName: suite) }
             let start = Date(timeIntervalSince1970: 1_000_000)
             let clock = Clock(start)
             let viewModel = SessionViewModel(
