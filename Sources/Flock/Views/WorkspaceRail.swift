@@ -35,6 +35,7 @@ struct WorkspaceRail: View {
     /// The rows this rail lists, drags and reorders. Board's workspaces and
     /// herds are not among them: they sit in their own sections below.
     private var workspaces: [WorkspaceRecord] { sections?.workspaces ?? [] }
+    private var hasPins: Bool { !(sections?.pinned.isEmpty ?? true) }
     private var pinnedSlots: [PinnedSlot] {
         sections?.pinned.map { PinnedSlot(id: $0.pin.id, workspace: $0.record?.workspaceID) } ?? []
     }
@@ -49,24 +50,22 @@ struct WorkspaceRail: View {
                     VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
                         if let sections, !sections.pinned.isEmpty {
                             pinnedSection(sections)
-                                .padding(.bottom, drag.pinnedGrowth)
+                        }
+                        // A heading over no rows says nothing, except while a
+                        // live pin is carried and WORKSPACES is where it can go.
+                        if !workspaces.isEmpty || drag.isDraggingLivePin {
                             workspacesHeading
-                                .padding(.top, ChromeMetrics.RailSection.sectionGap)
-                        } else {
-                            workspacesHeading
+                                .padding(.top, hasPins ? ChromeMetrics.RailSection.sectionGap : 0)
                         }
                         ForEach(Array(workspaces.enumerated()), id: \.element.workspaceID) { index, workspace in
                             workspaceRow(
                                 workspace, markKey: workspace.workspaceID.rawValue,
-                                displacement: drag.workspaceDisplacement(at: index),
+                                displacement: drag.workspaceDisplacement(at: index) + drag.pinnedGrowth,
                                 isGhosted: drag.isDragging(workspace: workspace.workspaceID),
                                 joinsSelection: true,
                                 reportFrame: { drag.setWorkspaceFrame($0, for: workspace.workspaceID) },
                                 gesture: rowDrag(workspace)
                             )
-                        }
-                        if drag.workspacesGrowth > 0 {
-                            Color.clear.frame(height: drag.workspacesGrowth - ChromeMetrics.Rail.rowGap)
                         }
                         if let sections, !sections.board.isEmpty {
                             BoardSection(
@@ -76,6 +75,7 @@ struct WorkspaceRail: View {
                                 showsFill: { drag.showsWorkspaceFill($0, isCurrent: $0 == viewModel.selectedWorkspaceID) },
                                 onClick: handleSectionRowClick
                             )
+                            .offset(y: drag.pinnedGrowth + drag.workspacesGrowth)
                         }
                         if let sections, let summary = sections.herdSummary {
                             HerdsSection(
@@ -84,6 +84,7 @@ struct WorkspaceRail: View {
                                 showsFill: { drag.showsWorkspaceFill($0, isCurrent: $0 == viewModel.selectedWorkspaceID) },
                                 onClick: handleSectionRowClick
                             )
+                            .offset(y: drag.pinnedGrowth + drag.workspacesGrowth)
                         }
                         // Real content, filling whatever height the rows
                         // leave inside the viewport: a `ScrollView` bridges to
@@ -156,8 +157,15 @@ struct WorkspaceRail: View {
         }
         .onChange(of: pinnedSlots) { _, slots in
             setPinnedOrder(slots)
-            if let renamingPin, !slots.contains(PinnedSlot(id: renamingPin, workspace: nil)) {
-                self.renamingPin = nil
+            if let renamingPin, let slot = slots.first(where: { $0.id == renamingPin }) {
+                // A double click whose reopen landed after its second click:
+                // the rename it asked for moves to the workspace it opened.
+                if let workspace = slot.workspace {
+                    self.renamingPin = nil
+                    viewModel.beginRename(.workspace(workspace))
+                }
+            } else if renamingPin != nil {
+                renamingPin = nil
             }
             if let sections { identity.refresh(sections) }
         }
@@ -187,9 +195,13 @@ struct WorkspaceRail: View {
             .padding(.bottom, ChromeMetrics.Rail.headingToFirstRow - ChromeMetrics.Rail.rowGap)
     }
 
+    /// Offset inside its frame report, so the frame published is the
+    /// heading's resting place.
     private var workspacesHeading: some View {
         railHeading("WORKSPACES")
+            .offset(y: drag.pinnedGrowth)
             .reportsFrame(in: DragSpace.railContent) { drag.setWorkspacesHeading($0) }
+            .onDisappear { drag.setWorkspacesHeading(nil) }
     }
 
     /// Its region is reported whole, heading included, so a drop on the
@@ -521,8 +533,10 @@ struct EmptyPinRow: View {
     var body: some View {
         HStack(spacing: ChromeMetrics.WorkspaceRow.spacing) {
             Color.clear.frame(width: ChromeMetrics.WorkspaceRow.statusDot, height: ChromeMetrics.WorkspaceRow.statusDot)
-            WorkspaceMark(theme: theme, key: pin.identityKey, size: ChromeMetrics.WorkspaceRow.mark, picking: pickingSymbol)
-                .opacity(ChromeMetrics.WorkspaceRow.emptyPinMarkOpacity)
+            WorkspaceMark(
+                theme: theme, key: pin.identityKey, size: ChromeMetrics.WorkspaceRow.mark, picking: pickingSymbol,
+                foreground: theme.textLabel
+            )
             if isRenaming {
                 InlineRenameField(
                     theme: theme, font: ChromeType.workspaceName(selected: false), initialText: pin.name,

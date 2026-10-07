@@ -14,6 +14,14 @@ final class PinnedRailRenderTests: XCTestCase {
     private static let acme = WorkspaceID(rawValue: "w1")
     private static let web = WorkspaceID(rawValue: "w2")
     private static let docs = WorkspaceID(rawValue: "w3")
+    private static let api = WorkspaceID(rawValue: "w4")
+    /// How far a filled symbol's core may sit from its colour once
+    /// rasterized: a channel step or two.
+    private static let glyphCoreTolerance: Double = 3
+    /// Text stems are thinner than a pixel pair at this size, so their
+    /// darkest pixel still carries a little ground. Every role pair the rail
+    /// uses sits ten times further apart than this.
+    private static let textCoreTolerance: Double = 12
 
     private struct Probe: View {
         let theme: Theme
@@ -119,9 +127,10 @@ final class PinnedRailRenderTests: XCTestCase {
         }
     }
 
-    /// With every workspace pinned, WORKSPACES is a heading alone, and a live
-    /// pin carried below it is marked there rather than at the top of the
-    /// rail; the empty pin cannot leave PINNED at all.
+    /// With every workspace pinned, WORKSPACES draws nothing at rest. Its
+    /// heading shows for a live pin's drag alone, and the pin carried below it
+    /// is marked there rather than at the top of the rail; the empty pin
+    /// cannot leave PINNED at all.
     func testALivePinDraggedIntoAnEmptyWorkspacesIsMarkedBelowItsHeading() async throws {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -135,12 +144,26 @@ final class PinnedRailRenderTests: XCTestCase {
             let web = try XCTUnwrap(drag.pinFrames.first { $0.workspace == Self.web })
             drag.stripWorkspace = Self.web
             let below = CGPoint(x: web.frame.midX, y: region.maxY + 40)
+            let roles = theme.palette.chromeRoles
+            let headingBand = (region.maxY + ChromeMetrics.RailSection.sectionGap)..<(region.maxY + 40)
+            XCTAssertNil(drag.workspacesHeading, "\(scheme): no WORKSPACES heading at rest")
+            let resting = try snapshot(hosted.window)
+            if let directory {
+                try XCTUnwrap(resting.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pinned-rail-allpinned-\(scheme).png"))
+            }
+            XCTAssertFalse(
+                hasInk(resting, rows: headingBand, from: region.minX + ChromeMetrics.Rail.horizontalPadding, roles: roles),
+                "\(scheme): nothing drawn where the heading would be"
+            )
 
             drag.beginIfIdle(
                 .pin(hosted.emptyPin),
                 ghost: DragCoordinator.Ghost(title: "acme", symbol: "square.grid.2x2", originSize: web.frame.size),
                 at: CGPoint(x: web.frame.midX, y: web.frame.maxY + 14)
             )
+            try await settle(hosted.window)
+            XCTAssertNil(drag.workspacesHeading, "\(scheme): an empty pin's drag shows no WORKSPACES heading")
             drag.move(to: below)
             XCTAssertNil(drag.target, "\(scheme): an empty pin has nowhere to go among the workspaces")
             drag.release()
@@ -150,6 +173,12 @@ final class PinnedRailRenderTests: XCTestCase {
                 .pin(web.id),
                 ghost: DragCoordinator.Ghost(title: "web", symbol: "square.grid.2x2", originSize: web.frame.size),
                 at: CGPoint(x: web.frame.midX, y: web.frame.midY)
+            )
+            try await settle(hosted.window)
+            XCTAssertNotNil(drag.workspacesHeading, "\(scheme): a live pin's drag shows the WORKSPACES heading")
+            XCTAssertTrue(
+                hasInk(try snapshot(hosted.window), rows: headingBand, from: region.minX + ChromeMetrics.Rail.horizontalPadding, roles: roles),
+                "\(scheme): the heading draws below PINNED"
             )
             drag.move(to: below)
             XCTAssertEqual(drag.target, .workspaceRail(insertIndex: 0), "\(scheme)")
@@ -210,29 +239,67 @@ final class PinnedRailRenderTests: XCTestCase {
             width: 24, height: ChromeMetrics.WorkspaceRow.contentHeight
         )
         let ink = try XCTUnwrap(strongestInk(rendered.image, in: name, ground: roles.chrome), "\(scheme): the empty pin draws its name")
-        XCTAssertLessThan(
-            distance(ink, roles.textLabel), distance(ink, roles.textStrong),
-            "\(scheme): the empty pin's name is textLabel (\(roles.textLabel.hex)), not textStrong (\(roles.textStrong.hex)); drew \(ink.hex)"
+        XCTAssertLessThanOrEqual(
+            distance(ink, roles.textLabel), Self.textCoreTolerance,
+            "\(scheme): the empty pin's name is textLabel (\(roles.textLabel.hex)); its core drew \(ink.hex)"
+        )
+        let mark = CGRect(
+            x: dotMinX + ChromeMetrics.WorkspaceRow.statusDot + ChromeMetrics.WorkspaceRow.spacing,
+            y: row.midY - ChromeMetrics.WorkspaceRow.mark / 2,
+            width: ChromeMetrics.WorkspaceRow.mark, height: ChromeMetrics.WorkspaceRow.mark
+        )
+        let symbol = try XCTUnwrap(strongestInk(rendered.image, in: mark, ground: roles.chrome), "\(scheme): the empty pin draws its symbol")
+        XCTAssertLessThanOrEqual(
+            distance(symbol, roles.textLabel), Self.glyphCoreTolerance,
+            "\(scheme): the empty pin's symbol is textLabel (\(roles.textLabel.hex)); its core drew \(symbol.hex)"
         )
     }
 
-    private func host(_ theme: Theme, unpinned: [WorkspaceID] = [PinnedRailRenderTests.docs]) async throws -> Hosted {
+    private struct Session {
+        let viewModel: SessionViewModel
+        let identity: WorkspaceIdentityStore
+        let defaults: UserDefaults
+    }
+
+    /// `web` pinned and live, then `acme` pinned and closed, so its pin is
+    /// empty.
+    private func session(unpinned: [WorkspaceID]) throws -> Session {
+        try session(workspaces: [Self.acme, Self.web] + unpinned, pinned: [Self.web, Self.acme], closed: [Self.acme])
+    }
+
+    private func session(workspaces: [WorkspaceID], pinned: [WorkspaceID], closed: [WorkspaceID]) throws -> Session {
         let suite = "PinnedRailRenderTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
         let identity = WorkspaceIdentityStore(userDefaults: defaults)
         let viewModel = SessionViewModel(client: OfflineClient(), pinnedWorkspaceDefaults: nil, identity: identity)
-        viewModel.update(model: model([Self.acme, Self.web] + unpinned), connection: .live)
-        viewModel.pin(workspace: Self.web)
-        viewModel.pin(workspace: Self.acme)
-        viewModel.update(model: model([Self.web] + unpinned), connection: .live)
-        let emptyPin = try XCTUnwrap(viewModel.pins.pins.first { $0.workspace == nil }?.id, "acme's pin is empty")
+        viewModel.update(model: model(workspaces), connection: .live)
+        for workspace in pinned {
+            viewModel.pin(workspace: workspace)
+        }
+        if !closed.isEmpty {
+            viewModel.update(model: model(workspaces.filter { !closed.contains($0) }), connection: .live)
+        }
+        return Session(viewModel: viewModel, identity: identity, defaults: defaults)
+    }
 
+    private func host(_ theme: Theme, unpinned: [WorkspaceID] = [PinnedRailRenderTests.docs]) async throws -> Hosted {
+        let session = try session(unpinned: unpinned)
+        let emptyPin = try XCTUnwrap(session.viewModel.pins.pins.first { $0.workspace == nil }?.id, "acme's pin is empty")
+        session.identity.setOverride("cylinder.fill", for: "pin:\(emptyPin.rawValue)")
+        let (window, drag) = try await mount(theme, session: session)
+        return Hosted(window: window, drag: drag, emptyPin: emptyPin)
+    }
+
+    /// Drops commit through the view model, as the app's do.
+    private func mount(_ theme: Theme, session: Session) async throws -> (NSWindow, DragCoordinator) {
+        let viewModel = session.viewModel
+        let defaults = session.defaults
         let toasts = ToastCenter()
         let drag = DragCoordinator(
             toasts: toasts, rearrangeMode: RearrangeMode(),
-            commit: { _, _ in .noOp },
+            commit: { subject, target in await viewModel.perform(subject: subject, target: target) },
             reveal: { _ in }
         )
         let themeStore = ThemeStore(userDefaults: defaults)
@@ -243,7 +310,7 @@ final class PinnedRailRenderTests: XCTestCase {
             theme: theme, viewModel: viewModel, drag: drag, railWidth: railWidth,
             collapse: SectionCollapseStore(userDefaults: defaults),
             board: BoardStore(sources: .unconfigured, userDefaults: defaults),
-            toasts: toasts, identity: identity, themeStore: themeStore, defaults: defaults
+            toasts: toasts, identity: session.identity, themeStore: themeStore, defaults: defaults
         )
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Self.size), styleMask: [.borderless], backing: .buffered, defer: false
@@ -251,15 +318,83 @@ final class PinnedRailRenderTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.colorSpace = .sRGB
         window.contentView = NSHostingView(rootView: probe)
+        try await settle(window)
+        return (window, drag)
+    }
+
+    private func settle(_ window: NSWindow) async throws {
         for _ in 0..<6 {
             window.contentView?.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(50))
         }
-        return Hosted(window: window, drag: drag, emptyPin: emptyPin)
+    }
+
+    /// What a rail mounted fresh on the same session reports, which is where
+    /// the rows are actually laid out.
+    private func assertFramesMatchAFreshRail(_ drag: DragCoordinator, session: Session, _ message: String) async throws {
+        let (window, fresh) = try await mount(.tokyoNight, session: session)
+        defer { window.close() }
+        XCTAssertEqual(drag.workspaceFrames, fresh.workspaceFrames, "\(message): WORKSPACES rows")
+        XCTAssertEqual(drag.pinFrames, fresh.pinFrames, "\(message): PINNED rows")
+        XCTAssertEqual(drag.pinnedFrame, fresh.pinnedFrame, "\(message): PINNED's region")
+        XCTAssertEqual(drag.workspacesHeading, fresh.workspacesHeading, "\(message): WORKSPACES' heading")
+    }
+
+    /// Committed drops move rows between the lists; every frame the
+    /// coordinator holds afterwards is where its row really is, so the next
+    /// drag hit-tests the rail as drawn. In the app a drop's commit can land
+    /// before the rail lays out the drag's end, so each drop here applies its
+    /// change in the same turn as the release, and the commit that follows
+    /// finds it already made.
+    func testRailFramesMatchTheRowsAfterAWorkspaceIsPinnedAndUnpinnedByDragging() async throws {
+        ChromeType.install()
+        let session = try session(
+            workspaces: [Self.acme, Self.web, Self.api, Self.docs], pinned: [Self.web, Self.api], closed: []
+        )
+        let (window, drag) = try await mount(.tokyoNight, session: session)
+        defer { window.close() }
+        drag.stripWorkspace = Self.docs
+
+        let api = try XCTUnwrap(drag.pinFrames.last?.frame)
+        let docs = try XCTUnwrap(drag.workspaceFrames.last?.frame)
+        let lastPin = CGPoint(x: api.midX, y: api.midY + 4)
+        drag.beginIfIdle(
+            .workspace(Self.docs),
+            ghost: DragCoordinator.Ghost(title: "docs", symbol: "square.grid.2x2", originSize: docs.size),
+            at: CGPoint(x: docs.midX, y: docs.midY)
+        )
+        drag.move(to: lastPin)
+        XCTAssertEqual(drag.target, .pinnedRail(insertIndex: 2))
+        try await settle(window)
+        drag.release(at: lastPin)
+        session.viewModel.pin(workspace: Self.docs, at: 2)
+        try await Task.sleep(for: .seconds(DragVisuals.settleDuration + 0.1))
+        try await settle(window)
+        XCTAssertNotNil(session.viewModel.pins.pin(linkedTo: Self.docs), "docs is pinned")
+        try await assertFramesMatchAFreshRail(drag, session: session, "after docs is pinned")
+
+        let webPin = try XCTUnwrap(session.viewModel.pins.pin(linkedTo: Self.web)?.id)
+        let webRow = try XCTUnwrap(drag.pinFrames.first { $0.id == webPin }?.frame)
+        let acme = try XCTUnwrap(drag.workspaceFrames.first?.frame)
+        let below = CGPoint(x: acme.midX, y: acme.maxY + 4)
+        drag.beginIfIdle(
+            .pin(webPin),
+            ghost: DragCoordinator.Ghost(title: "web", symbol: "square.grid.2x2", originSize: webRow.size),
+            at: CGPoint(x: webRow.midX, y: webRow.midY)
+        )
+        drag.move(to: below)
+        XCTAssertEqual(drag.target, .workspaceRail(insertIndex: 1))
+        try await settle(window)
+        drag.release(at: below)
+        session.viewModel.unpin(webPin)
+        try await Task.sleep(for: .seconds(DragVisuals.settleDuration + 0.1))
+        try await settle(window)
+        XCTAssertNil(session.viewModel.pins.pin(linkedTo: Self.web), "web is unpinned")
+        try await assertFramesMatchAFreshRail(drag, session: session, "after web is unpinned")
     }
 
     private func model(_ ids: [WorkspaceID]) -> SessionModel {
-        let labels = [Self.acme: "acme", Self.web: "web", Self.docs: "docs"]
+        let labels = [Self.acme: "acme", Self.web: "web", Self.docs: "docs", Self.api: "api"]
         return SessionModel(snapshot: SessionSnapshot(
             version: "0.9.0", protocolVersion: 22,
             focusedWorkspaceID: Self.docs, focusedTabID: nil, focusedPaneID: nil,

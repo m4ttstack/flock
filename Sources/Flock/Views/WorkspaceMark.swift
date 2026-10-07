@@ -102,13 +102,15 @@ extension View {
 ///
 /// Given `picking`, a mark that draws a symbol is a button that opens the
 /// symbol picker anchored to itself. The logo and the ram have nothing to
-/// pick, so they stay plain.
+/// pick, so they stay plain. `foreground` recolours the symbol, which is
+/// otherwise `textStrong`.
 struct WorkspaceMark: View {
     let theme: Theme
     let key: String?
     let size: CGFloat
     var picking: Binding<Bool>?
     var forced: ControlInteraction?
+    var foreground: Color?
 
     @Environment(BoardStore.self) private var board
     @Environment(WorkspaceIdentityStore.self) private var identityStore
@@ -123,7 +125,7 @@ struct WorkspaceMark: View {
             let padding = ChromeMetrics.MarkButton.padding
             GridControlButton(
                 theme: theme, shape: AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.MarkButton.cornerRadius)),
-                restForeground: theme.textStrong, forced: forced, action: { picking.wrappedValue = true }
+                restForeground: foreground ?? theme.textStrong, forced: forced, action: { picking.wrappedValue = true }
             ) {
                 mark.padding(padding)
             }
@@ -152,7 +154,7 @@ struct WorkspaceMark: View {
                     Image(systemName: symbol)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .foregroundStyle(theme.textStrong)
+                        .foregroundStyle(foreground ?? theme.textStrong)
                 } else {
                     Color.clear
                 }

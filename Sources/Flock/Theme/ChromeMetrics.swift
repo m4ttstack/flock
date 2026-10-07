@@ -89,7 +89,6 @@ enum ChromeMetrics {
         /// status dot; the thumbnail keeps it, because there it marks focus
         /// and the tab's own status dot sits beside it.
         static let indicatorSize = CGSize(width: 3, height: 15)
-        static let emptyPinMarkOpacity: Double = 0.6
     }
 
     /// Board and Herds, the rail's folding sections below its workspaces.
