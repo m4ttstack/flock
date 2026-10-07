@@ -380,7 +380,7 @@ The rule is one FlockCore type, `PaneNaming`, that every surface reads.
 ### Workspace symbol
 
 Colour means status only, so a workspace is told apart by a symbol, never a
-hue. The set is `WorkspaceSymbols`: about 180 SF Symbols in eight sections
+hue. The set is `WorkspaceSymbols`: about 215 SF Symbols in eight sections
 (Engineering and Work first, then Tools, Nature, Things, Travel and sport,
 Shapes, Animals) with no check, exclamation, clock, bell, cross or plain
 disc, the shapes status already uses. Twenty engineering-leaning ones that
