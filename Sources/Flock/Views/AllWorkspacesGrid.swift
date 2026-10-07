@@ -661,6 +661,7 @@ private struct TabThumbnail: View {
     @Environment(\.gridThumbnailSize) private var thumbnailSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.arrangeTiles) private var tiles
+    @Environment(\.dropReflowPreviewProgress) private var reflowHeld
     @State private var isOverThumbnail = false
     @State private var hoveredPane: PaneID?
     @GestureState private var pressed: ThumbnailPart?
@@ -895,21 +896,20 @@ private struct TabThumbnail: View {
     /// leaves behind, so the panes make room where it will really go and the
     /// slot it takes is drawn in the canvas's own preview language: the wash
     /// alone, a second coat over the one the targeted thumbnail already
-    /// carries.
+    /// carries. The panes and the slot change under ONE animation, keyed on
+    /// the whole reflow, so the slot opens by exactly what the panes give up.
     private func miniPanes(size: CGSize) -> some View {
         let model = viewModel.model
         let arriving = arrival
         let boxes = paneBoxes(size: size, arriving: arriving)
         let resting = arriving == nil ? boxes : paneBoxes(size: size)
+        let preview = DropReflow(boxes: boxes, resting: resting, arriving: arriving)
+        let reflow = reflowHeld.map {
+            DropReflow.held(from: DropReflow(boxes: resting, resting: resting, arriving: nil), to: preview, progress: $0)
+        } ?? preview
         return ZStack(alignment: .topLeading) {
-            ForEach(boxes, id: \.pane) { placed in
-                if placed.pane == arriving?.pane {
-                    RoundedRectangle(cornerRadius: ChromeRadius.control)
-                        .fill(theme.accent.opacity(DragVisuals.dropWashOpacity))
-                        .frame(width: placed.frame.width, height: placed.frame.height)
-                        .offset(x: placed.frame.minX, y: placed.frame.minY)
-                        .allowsHitTesting(false)
-                } else if let pane = model?.panes[placed.pane] {
+            ForEach(reflow.panes, id: \.pane) { placed in
+                if let pane = model?.panes[placed.pane] {
                     MiniPane(
                         theme: theme, title: shownTitle(pane), status: pane.agentStatus,
                         backgroundWork: viewModel.shownStatus(of: pane).backgroundWork,
@@ -933,11 +933,16 @@ private struct TabThumbnail: View {
                                 if hovering { hoveredPane = pane.paneID } else if hoveredPane == pane.paneID { hoveredPane = nil }
                             }
                         }
-                        .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: placed.frame)
                 }
+            }
+            if let slot = reflow.slot {
+                DropReflowSlot(theme: theme)
+                    .id(slot.key)
+                    .transition(DropReflowSlot.transition(slot))
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .animation(DropReflowMotion.animation, value: reflow)
         // Published as data rather than as reported frames: a drop resolves
         // against where the mini panes REST, and every frame drawn here is
         // already the preview's answer to that resolution.

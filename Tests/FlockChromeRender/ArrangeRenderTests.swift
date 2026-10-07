@@ -226,7 +226,7 @@ struct ArrangeHarness {
         viewModel.update(model: model, connection: .live)
     }
 
-    func makeWindow(size: CGSize, zoomPreview: CGFloat? = nil) -> NSWindow {
+    func makeWindow(size: CGSize, zoomPreview: CGFloat? = nil, dropReflow: CGFloat? = nil) -> NSWindow {
         let themeStore = ThemeStore(userDefaults: defaults)
         themeStore.select(theme)
         let board = BoardStore(sources: .unconfigured, userDefaults: defaults)
@@ -237,6 +237,7 @@ struct ArrangeHarness {
         )
         .environment(nil as DevBuildWatcher?)
         .environment(\.arrangeZoomPreviewProgress, zoomPreview)
+        .environment(\.dropReflowPreviewProgress, dropReflow)
         .environment(themeStore)
         .environment(TerminalTextSizeStore(userDefaults: defaults))
         .environment(RtModalSizeStore(userDefaults: defaults))
