@@ -380,10 +380,11 @@ The rule is one FlockCore type, `PaneNaming`, that every surface reads.
 ### Workspace symbol
 
 Colour means status only, so a workspace is told apart by a symbol, never a
-hue. The set is `WorkspaceSymbols`: about 140 SF Symbols in six sections
-(Nature, Tools, Things, Travel and sport, Shapes, Animals) with no check,
-exclamation, clock, bell, cross or plain disc, the shapes status already
-uses. Twenty that look least alike are assigned first. The symbol draws at
+hue. The set is `WorkspaceSymbols`: about 180 SF Symbols in eight sections
+(Engineering and Work first, then Tools, Nature, Things, Travel and sport,
+Shapes, Animals) with no check, exclamation, clock, bell, cross or plain
+disc, the shapes status already uses. Twenty engineering-leaning ones that
+look least alike are assigned first. The symbol draws at
 14pt in the primary text colour; every workspace's wash is the same
 neutral. Flock assigns the least used symbol to a workspace the first time
 it sees it (the earliest in assignment order breaking ties, so neighbours
