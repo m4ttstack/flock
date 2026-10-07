@@ -492,7 +492,7 @@ struct PaneCellView: View {
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
             .frame(height: PaneChrome.titleRowHeight)
-            .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(appearance.color.opacity(0.14)))
+            .background(RoundedRectangle(cornerRadius: ChromeRadius.control).fill(appearance.color.opacity(0.14)))
             .padding(.top, PaneChrome.verticalPadding)
             .allowsHitTesting(false)
     }
@@ -682,9 +682,9 @@ struct PaneCellView: View {
             .foregroundStyle(theme.mauve)
             .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
             .frame(height: PaneChrome.titleRowHeight)
-            .background(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).fill(theme.mauve.opacity(0.14)))
-            .contentShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
-            .hoverWash(theme, cornerRadius: PaneChrome.cornerRadius)
+            .background(RoundedRectangle(cornerRadius: ChromeRadius.control).fill(theme.mauve.opacity(0.14)))
+            .contentShape(RoundedRectangle(cornerRadius: ChromeRadius.control))
+            .hoverWash(theme, cornerRadius: ChromeRadius.control)
         }
         .buttonStyle(.plain)
         .help("Unzoom (\(ShortcutLabel.text(key: KeyEquivalent(FocusedPaneCommand.zoom.key), modifiers: FocusedPaneCommand.zoom.modifiers)))")
@@ -947,9 +947,9 @@ struct PaneCellView: View {
                     .padding(.horizontal, ChromeMetrics.Card.lineHorizontalPadding)
                     .padding(.vertical, ChromeMetrics.Card.lineVerticalPadding)
                     .background(
-                        RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
+                        RoundedRectangle(cornerRadius: ChromeRadius.control)
                             .fill(theme.pane)
-                            .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.rule, lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: ChromeRadius.control).strokeBorder(theme.rule, lineWidth: 1))
                     )
             }
             Spacer(minLength: 0)

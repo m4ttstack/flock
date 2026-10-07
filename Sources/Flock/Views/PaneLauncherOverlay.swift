@@ -249,7 +249,7 @@ private struct LauncherButtonStyle: ButtonStyle {
         let appearance = LauncherButtonAppearance.resolve(
             theme: theme, isHovering: isHovering, isPressed: configuration.isPressed
         )
-        let shape = RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.control)
         return configuration.label
             .padding(.horizontal, ChromeMetrics.Launcher.buttonHorizontalPadding)
             .padding(.vertical, ChromeMetrics.Launcher.buttonVerticalPadding)

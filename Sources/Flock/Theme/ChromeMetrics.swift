@@ -78,7 +78,7 @@ enum ChromeMetrics {
         static let spacing: CGFloat = 8
         static let countMinimumGap: CGFloat = 5
         static let mark: CGFloat = 13
-        static let cornerRadius: CGFloat = 3
+        static let cornerRadius: CGFloat = ChromeRadius.control
         /// A step up from the strip's 6pt dot, which the parity checklist
         /// asks for on the rail and the pane header: this is the one mark a
         /// workspace nobody is looking at has, and it has to survive being
@@ -173,7 +173,7 @@ enum ChromeMetrics {
     /// padding and its host's row height rather than a box of its own.
     enum Rename {
         static let horizontalPadding: CGFloat = 5
-        static let cornerRadius: CGFloat = 3
+        static let cornerRadius: CGFloat = ChromeRadius.control
         /// Narrow enough for a rail row, wide enough that a two-word name is
         /// not scrolling as it is typed.
         static let minimumWidth: CGFloat = 72
@@ -187,7 +187,7 @@ enum ChromeMetrics {
     /// The hover-reveal close control on a tab and an attention toast.
     enum CloseButton {
         static let size: CGFloat = 18
-        static let cornerRadius: CGFloat = 3
+        static let cornerRadius: CGFloat = ChromeRadius.control
         static let symbol: CGFloat = 11
     }
 
