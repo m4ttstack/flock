@@ -1067,10 +1067,6 @@ struct MiniPane: View {
     var detail: AnyView? = nil
 
     var body: some View {
-        let appearance = GridControlAppearance.resolve(
-            theme: theme, restForeground: theme.textStrong,
-            isHovering: interaction.isHovering, isPressed: interaction.isPressed
-        )
         let shape = RoundedRectangle(cornerRadius: ChromeRadius.control)
         // A narrow box gives up title lines before the status word; one too
         // short for the status word over the title, as a stacked split at the
@@ -1096,9 +1092,10 @@ struct MiniPane: View {
         .background {
             if let wash = statusWash { wash.opacity(ChromeMetrics.Grid.statusWashOpacity) }
         }
-        // The terminal's own ground, so a screen read draws on what the pane
-        // itself draws on and an app's painted background blends into it.
-        .background(GridControlGround(theme: theme, shape: AnyShape(shape), restFill: theme.pane, appearance: appearance))
+        // The terminal's own ground, held through hover and press: a screen
+        // read draws on what the pane itself draws on, and an app's painted
+        // background must keep blending into it. The ring marks hover.
+        .background(theme.pane, in: shape)
         .clipShape(shape)
         .overlay(
             shape.strokeBorder(
