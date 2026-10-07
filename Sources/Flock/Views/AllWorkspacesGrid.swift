@@ -857,7 +857,15 @@ struct MiniPane: View {
             .padding(.horizontal, ChromeMetrics.Grid.miniPaneTitleSpacing + ChromeMetrics.Grid.thumbnailPadding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background {
+            if let wash = statusWash { wash.opacity(ChromeMetrics.Grid.statusWashOpacity) }
+        }
         .background(GridControlGround(theme: theme, shape: AnyShape(shape), restFill: theme.tabRest, appearance: appearance))
+        .overlay(alignment: .leading) {
+            if let edge = statusEdge {
+                Rectangle().fill(edge).frame(width: ChromeMetrics.Grid.statusEdgeWidth).allowsHitTesting(false)
+            }
+        }
         .clipShape(shape)
         .overlay(
             shape.strokeBorder(
@@ -866,6 +874,19 @@ struct MiniPane: View {
             )
         )
         .contentShape(Rectangle())
+    }
+
+    private var shown: ShownStatus { ShownStatus(status, backgroundWork: backgroundWork) }
+
+    /// Idle and unknown are the resting states, so they keep the plain frame.
+    private var statusEdge: Color? {
+        if shown.isBackground { return theme.backgroundWorkColor }
+        return theme.agentStatusColor(shown.status)
+    }
+
+    private var statusWash: Color? {
+        guard !shown.isBackground, shown.status == .done || shown.status == .blocked else { return nil }
+        return theme.agentStatusMarkColor(shown.status)
     }
 
     /// The blocked and previewed outlines are the island's alarms; a hover

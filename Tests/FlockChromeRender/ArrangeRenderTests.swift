@@ -25,9 +25,28 @@ final class ArrangeRenderTests: XCTestCase {
             arrange.drag.toggleGrid()
             await settle(window)
             await settle(window)
-            try write(snapshot(window), "arrange-\(scheme).png")
+            let image = try snapshot(window)
+            try write(image, "arrange-\(scheme).png")
+            let working = try XCTUnwrap(arrange.drag.gridPaneFrame(of: ArrangeFixture.apiClaude))
+            XCTAssertEqual(
+                hex(image, CGPoint(x: working.minX + 1, y: working.midY)), theme.palette.yellow.hex,
+                "\(scheme): a working pane carries no yellow edge"
+            )
+            let idle = try XCTUnwrap(arrange.drag.gridPaneFrame(of: PaneID(rawValue: "w1:p2")))
+            XCTAssertNotEqual(
+                hex(image, CGPoint(x: idle.minX + 1, y: idle.midY)), theme.palette.green.hex,
+                "\(scheme): an idle pane took a status edge"
+            )
             window.close()
         }
+    }
+
+    /// The pixel at a point in window space, top-left origin.
+    private func hex(_ image: NSBitmapImageRep, _ point: CGPoint) -> String {
+        let x = Int(point.x * Self.scale), y = Int(point.y * Self.scale)
+        guard let data = image.bitmapData, x >= 0, y >= 0, x < image.pixelsWide, y < image.pixelsHigh else { return "?" }
+        let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
+        return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
     }
 
     /// A full-screen window: the islands grow past the old fixed size
@@ -367,7 +386,7 @@ enum ArrangeFixture {
         ]
         let number = Int(pane.rawValue.split(separator: "p").last ?? "1") ?? 1
         let workspace = Int(pane.rawValue.dropFirst().split(separator: ":").first ?? "1") ?? 1
-        switch (workspace + number) % 5 {
+        switch pane == backgroundPane ? 1 : (workspace + number) % 5 {
         case 0:
             return [
                 "\(e)32m~/acme\(e)0m \(e)34mmain\(e)0m $ bun dev",
