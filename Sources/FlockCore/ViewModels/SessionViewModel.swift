@@ -292,7 +292,7 @@ public final class SessionViewModel {
             rightClicks.keepOnly(Set(fullModel.panes.values.compactMap(\.terminalID)))
             completedTabs.keepOnly(Set(fullModel.tabs.values.flatMap { $0.map(\.tabID) }))
             if let model {
-                pins.reconcile(with: model) { RailSections.isRailRow(label: $0.label, board: nil) }
+                pins.reconcile(with: model, reopening: reopening) { RailSections.isRailRow(label: $0.label, board: nil) }
             }
         }
     }
@@ -752,15 +752,20 @@ public final class SessionViewModel {
         guard tailReads.insert(pane).inserted else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let params: [String: JSONValue] = [
+            let plain: [String: JSONValue] = [
                 "pane_id": .string(pane.rawValue),
                 "source": .string("visible"),
                 "lines": .int(PaneTailPolicy.readLines),
-                "format": .string("ansi"),
             ]
-            let data = try? await self.client.requestRaw("pane.read", params)
+            var ansi = plain
+            ansi["format"] = .string("ansi")
+            // A herdr without the ansi format still answers a plain read.
+            var text = (try? await self.client.requestRaw("pane.read", ansi)).flatMap(Self.extractReadText)
+            if text == nil {
+                text = (try? await self.client.requestRaw("pane.read", plain)).flatMap(Self.extractReadText)
+            }
             self.tailReads.remove(pane)
-            guard let data, let text = Self.extractReadText(data) else { return }
+            guard let text else { return }
             self.paneTails[pane] = PaneTailPolicy.make(from: text)
         }
     }
@@ -1692,7 +1697,7 @@ public final class SessionViewModel {
     }
 
     public func removePin(_ id: PinID) {
-        guard pins.pin(id)?.workspace == nil else { return }
+        guard let pin = pins.pin(id), !isOpen(pin) else { return }
         pins.remove(id)
     }
 
@@ -1707,7 +1712,7 @@ public final class SessionViewModel {
     /// An empty pin's rename: nothing in herdr carries its name.
     public func renamePin(_ id: PinID, to text: String) {
         let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, pins.pin(id)?.workspace == nil else { return }
+        guard !name.isEmpty, let pin = pins.pin(id), !isOpen(pin) else { return }
         guard pins.rename(id, to: name) else {
             noticeSink("A pinned workspace is already called \"\(name)\".")
             return
@@ -1828,7 +1833,7 @@ public final class SessionViewModel {
     /// A fresh shell in the pin's folder, renamed to the pin and linked to it by
     /// the id the create returns, never by name.
     public func reopen(_ id: PinID) async {
-        guard let pin = pins.pin(id), pin.workspace == nil, !reopening.contains(id) else { return }
+        guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return }
         reopening.insert(id)
         defer { reopening.remove(id) }
         let folderIsThere = folderExists(pin.folder)
@@ -1836,11 +1841,20 @@ public final class SessionViewModel {
             "focus": .bool(true), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
         ]
         guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)") else { return }
+        // Read again past the await: a rename made while the create was out wins.
+        guard let name = pins.pin(id)?.name else { return }
         pins.link(id, to: created.workspaceID)
-        await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, pin.name)], label: "Rename workspace"), recordsUndo: false)
+        await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, name)], label: "Rename workspace"), recordsUndo: false)
         if !folderIsThere {
-            noticeSink("\"\(pin.name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another.")
+            noticeSink("\"\(name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another.")
         }
+    }
+
+    /// Whether the pin's workspace is one herdr reports, which is when the rail
+    /// draws it as a live row. Every other pin is drawn empty and acts empty.
+    public func isOpen(_ pin: PinnedWorkspace) -> Bool {
+        guard let workspace = pin.workspace else { return false }
+        return model?.workspaces.contains { $0.workspaceID == workspace } ?? false
     }
 
     private static func describe(_ error: Error) -> String {

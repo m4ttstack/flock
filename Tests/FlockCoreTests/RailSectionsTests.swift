@@ -39,6 +39,22 @@ final class RailSectionsTests: XCTestCase {
         XCTAssertEqual(sections.navigationOrder { _ in false }.map(\.title), ["web", "acme", "notes"])
     }
 
+    /// Pins are made from the workspace menu, which a herd has none of, but
+    /// one adopted by name or restored by id still shows in PINNED alone.
+    func testALinkedPinLeavesHerdsAndBoardToo() {
+        let model = model(["herd: acme-batch", "🛹 Reviews", "acme"])
+        let pins = [
+            PinnedWorkspace(id: PinID(rawValue: "p1"), name: "herd: acme-batch", folder: "/acme", workspace: WorkspaceID(rawValue: "w1"), syncedLabel: nil, confirmed: true),
+            PinnedWorkspace(id: PinID(rawValue: "p2"), name: "🛹 Reviews", folder: "/acme", workspace: WorkspaceID(rawValue: "w2"), syncedLabel: nil, confirmed: true),
+        ]
+        let sections = RailSections(model: model, board: board, pins: pins)
+        XCTAssertEqual(sections.herds, [])
+        XCTAssertNil(sections.herdSummary, "no herds left, so no section")
+        XCTAssertEqual(sections.board, [])
+        XCTAssertEqual(sections.workspaces.map(\.label), ["acme"])
+        XCTAssertEqual(sections.railOrder.map(\.rawValue), ["w1", "w2", "w3"])
+    }
+
     func testModelInsertIndexSkipsPinnedWorkspaces() {
         let model = model(["acme", "web", "notes"])
         let pinned: Set<WorkspaceID> = [WorkspaceID(rawValue: "w2")]

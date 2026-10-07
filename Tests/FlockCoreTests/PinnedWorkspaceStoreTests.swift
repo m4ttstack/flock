@@ -98,11 +98,82 @@ final class PinnedWorkspaceStoreTests: XCTestCase {
         let pin = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme", folder: "/acme", at: nil)!
         store.reconcile(with: model([]), eligible: anyRow)
         store.link(pin.id, to: WorkspaceID(rawValue: "w9"))
-        store.reconcile(with: model([]), eligible: anyRow)
+        store.reconcile(with: model([]), reopening: [pin.id], eligible: anyRow)
         XCTAssertEqual(store.pins[0].workspace, WorkspaceID(rawValue: "w9"))
-        store.reconcile(with: model([("w9", "acme")]), eligible: anyRow)
-        store.reconcile(with: model([]), eligible: anyRow)
+        store.reconcile(with: model([("w9", "acme")]), reopening: [pin.id], eligible: anyRow)
+        store.reconcile(with: model([]), reopening: [pin.id], eligible: anyRow)
         XCTAssertNil(store.pins[0].workspace, "once herdr has shown it, its absence unlinks")
+    }
+
+    /// The workspace closed, or herdr went away, between the create and the
+    /// first snapshot that would have carried it.
+    func testALinkHerdrNeverReportedIsDroppedOnceTheReopenIsOver() {
+        let store = PinnedWorkspaceStore(userDefaults: nil)
+        let pin = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme", folder: "/acme", at: nil)!
+        store.reconcile(with: model([]), eligible: anyRow)
+        store.link(pin.id, to: WorkspaceID(rawValue: "w9"))
+        store.reconcile(with: model([]), reopening: [pin.id], eligible: anyRow)
+        XCTAssertEqual(store.pins[0].workspace, WorkspaceID(rawValue: "w9"), "kept while the reopen is out")
+        store.reconcile(with: model([]), eligible: anyRow)
+        XCTAssertNil(store.pins[0].workspace)
+        XCTAssertFalse(store.pins[0].confirmed)
+    }
+
+    /// herdr labels a new workspace after its folder, and its created event
+    /// can land before the create's reply. A pin of that name adopts it from
+    /// the event; the reply's id then takes it back for the pin that reopened.
+    func testAReopenLinksByTheReturnedIdWhileASameNamedWorkspaceExists() {
+        let store = PinnedWorkspaceStore(userDefaults: nil)
+        let review = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme review", folder: "/acme", at: nil)!
+        let acme = store.add(workspace: WorkspaceID(rawValue: "w2"), name: "acme", folder: "/acme", at: nil)!
+        store.reconcile(with: model([]), eligible: anyRow)
+
+        store.reconcile(with: model([("w9", "acme")]), reopening: [review.id], eligible: anyRow)
+        XCTAssertEqual(store.pin(acme.id)?.workspace, WorkspaceID(rawValue: "w9"), "the premise: the event beat the reply")
+        store.link(review.id, to: WorkspaceID(rawValue: "w9"))
+        XCTAssertEqual(store.pin(review.id)?.workspace, WorkspaceID(rawValue: "w9"))
+        XCTAssertNil(store.pin(acme.id)?.workspace, "one workspace, one pin")
+
+        store.reconcile(with: model([("w9", "acme")]), reopening: [review.id], eligible: anyRow)
+        store.reconcile(with: model([("w9", "acme review")]), eligible: anyRow)
+        XCTAssertEqual(store.pins.map(\.name), ["acme review", "acme"])
+        XCTAssertEqual(store.pins.map(\.workspace), [WorkspaceID(rawValue: "w9"), nil])
+    }
+
+    /// A stored link that was never confirmed is an id herdr issued; it loads
+    /// like any other link rather than surviving every snapshot without it.
+    func testAStoredUnconfirmedLinkLoadsAsAnOrdinaryLink() throws {
+        let defaults = defaults()
+        let blob = #"{"version":1,"pins":[{"id":"p1","name":"acme","folder":"/acme","workspace":"w1","confirmed":false}]}"#
+        defaults.set(Data(blob.utf8), forKey: PinnedWorkspaceStore.defaultsKey)
+        let kept = PinnedWorkspaceStore(userDefaults: defaults)
+        XCTAssertEqual(kept.pins.map(\.workspace), [WorkspaceID(rawValue: "w1")])
+        kept.reconcile(with: model([("w1", "acme")]), eligible: anyRow)
+        XCTAssertEqual(kept.pins.map(\.workspace), [WorkspaceID(rawValue: "w1")], "herdr still reports it")
+
+        defaults.set(Data(blob.utf8), forKey: PinnedWorkspaceStore.defaultsKey)
+        let gone = PinnedWorkspaceStore(userDefaults: defaults)
+        gone.reconcile(with: model([]), eligible: anyRow)
+        XCTAssertEqual(gone.pins.map(\.workspace), [nil], "herdr no longer reports it")
+    }
+
+    /// Pins written by a newer build, or unreadable, load as none and are
+    /// left in place until the person changes the pins, which is the one
+    /// change allowed to write over them.
+    func testStoredPinsThisBuildCannotReadAreKeptUntilThePinsChange() throws {
+        let newer = Data(#"{"version":2,"pins":[{"id":"p1","name":"acme","folder":"/acme","confirmed":true}],"tags":[]}"#.utf8)
+        for blob in [newer, Data("not json".utf8)] {
+            let defaults = defaults()
+            defaults.set(blob, forKey: PinnedWorkspaceStore.defaultsKey)
+            let store = PinnedWorkspaceStore(userDefaults: defaults)
+            XCTAssertEqual(store.pins, [])
+            store.reconcile(with: model([("w1", "acme")]), eligible: anyRow)
+            XCTAssertEqual(defaults.data(forKey: PinnedWorkspaceStore.defaultsKey), blob, "running alone writes nothing")
+
+            _ = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme", folder: "/acme", at: nil)
+            XCTAssertNotEqual(defaults.data(forKey: PinnedWorkspaceStore.defaultsKey), blob)
+            XCTAssertEqual(PinnedWorkspaceStore(userDefaults: defaults).pins.map(\.name), ["acme"], "pinning writes over it")
+        }
     }
 
     func testAFreshLinkTakesTheFirstLabelItSeesWithoutRenaming() {

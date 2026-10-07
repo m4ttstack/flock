@@ -241,6 +241,34 @@ private actor TailReadClient: HerdrCommandClient {
     }
 }
 
+/// A herdr that predates the ansi read format: it refuses the format, or
+/// answers it with something that is not a read.
+private actor PlainOnlyReadClient: HerdrCommandClient {
+    enum AnsiAnswer { case refused, unreadable }
+
+    private(set) var formats: [String?] = []
+    private let screen: String
+    private let ansiAnswer: AnsiAnswer
+
+    init(screen: String, ansiAnswer: AnsiAnswer) {
+        self.screen = screen
+        self.ansiAnswer = ansiAnswer
+    }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.read" else { return Data("{}".utf8) }
+        let format: String? = if case let .string(value) = params["format"] { value } else { nil }
+        formats.append(format)
+        guard format == nil else {
+            switch ansiAnswer {
+            case .refused: throw HerdrClientError.server(code: "invalid_params", message: "unknown variant `ansi`")
+            case .unreadable: return Data(#"{"result":{"type":"ok"}}"#.utf8)
+            }
+        }
+        return try JSONSerialization.data(withJSONObject: ["result": ["read": ["text": screen]]])
+    }
+}
+
 @MainActor
 final class PaneTailReadTests: XCTestCase {
     private let pane = PaneID(rawValue: "w1:p1")
@@ -264,6 +292,18 @@ final class PaneTailReadTests: XCTestCase {
         XCTAssertEqual(landed.lines, ["one", "two"])
         let asks = await client.asks
         XCTAssertEqual(asks, [TailAsk(paneID: pane.rawValue, source: "visible", lines: PaneTailPolicy.readLines, format: "ansi")])
+    }
+
+    func testAnOlderHerdrThatRefusesTheAnsiFormatStillShowsAPlainTail() async throws {
+        for answer in [PlainOnlyReadClient.AnsiAnswer.refused, .unreadable] {
+            let client = PlainOnlyReadClient(screen: "one\ntwo\n", ansiAnswer: answer)
+            let viewModel = SessionViewModel(client: client)
+            _ = viewModel.paneTail(for: pane)
+            let landed = try await tail(viewModel)
+            XCTAssertEqual(landed.lines, ["one", "two"], "\(answer)")
+            let formats = await client.formats
+            XCTAssertEqual(formats, ["ansi", nil], "\(answer): one ansi read, then one plain retry")
+        }
     }
 
     /// Every render of the card asks for the tail, and the card's cadence asks

@@ -16,6 +16,15 @@ private actor RecordingCommandClient: HerdrCommandClient {
         pendingContinuations.removeFirst().resume()
     }
 
+    /// Whether a held request is waiting within two seconds: `releaseNext`
+    /// called before one is does nothing.
+    func waitUntilPending() async -> Bool {
+        for _ in 0..<2000 where pendingContinuations.isEmpty {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return !pendingContinuations.isEmpty
+    }
+
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         calls.append((method, params))
         if holdEnabled {
@@ -125,8 +134,30 @@ private actor StubCreateCommandClient: HerdrCommandClient {
         self.paneID = paneID
     }
 
+    private var holdsCreates = false
+    private var pendingCreates: [CheckedContinuation<Void, Never>] = []
+
+    /// Every later `workspace.create` waits for `releaseCreate()`.
+    func holdCreates() { holdsCreates = true }
+
+    func releaseCreate() {
+        guard !pendingCreates.isEmpty else { return }
+        pendingCreates.removeFirst().resume()
+    }
+
+    /// Whether a held create is waiting within two seconds.
+    func waitUntilCreatePending() async -> Bool {
+        for _ in 0..<2000 where pendingCreates.isEmpty {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return !pendingCreates.isEmpty
+    }
+
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         calls.append((method, params))
+        if method == "workspace.create", holdsCreates {
+            await withCheckedContinuation { pendingCreates.append($0) }
+        }
         let tab = #"{"tab_id":"\#(tabID)","workspace_id":"\#(workspaceID)","number":2,"label":"zsh","focused":true,"pane_count":1,"agent_status":"unknown"}"#
         let rootPane = #"{"pane_id":"\#(paneID)","workspace_id":"\#(workspaceID)","tab_id":"\#(tabID)","terminal_id":"t_2","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"}"#
         switch method {
@@ -2969,13 +3000,94 @@ final class SessionViewModelTests: XCTestCase {
 
         await client.hold()
         async let first: Void = viewModel.reopen(pin.id)
-        await Task.yield()
+        let pending = await client.waitUntilPending()
+        XCTAssertTrue(pending, "the first reopen's create never went out")
         await viewModel.reopen(pin.id)
         await client.releaseNext()
         await first
 
         let calls = await client.calls
         XCTAssertEqual(calls.map(\.method), ["workspace.create"])
+    }
+
+    @MainActor
+    func testARefusedCreateLeavesThePinEmptyWithTheUsualNoticeAndAllowsAnotherReopen() async {
+        let notices = NoticeRecorder()
+        let viewModel = SessionViewModel(
+            client: ServerErrorCommandClient(), planExecutor: FakePlanExecutor(), noticeSink: { notices.record($0) },
+            folderExists: { _ in true }
+        )
+        viewModel.update(model: makeModel(), connection: .live)
+        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        let pin = viewModel.pins.pins[0]
+        var gone = makeModel()
+        gone.workspaces.removeAll()
+        viewModel.update(model: gone, connection: .live)
+
+        await viewModel.reopen(pin.id)
+        XCTAssertNil(viewModel.pins.pin(pin.id)?.workspace)
+        XCTAssertEqual(notices.messages, ["Reopen \(pin.name) failed: no such workspace"])
+
+        await viewModel.reopen(pin.id)
+        XCTAssertEqual(notices.messages.count, 2, "the failed reopen left nothing in flight")
+    }
+
+    @MainActor
+    func testARenameMadeWhileTheReopenIsOutIsTheNameItGets() async {
+        let client = StubCreateCommandClient(workspaceID: "w9", tabID: "w9:t1", paneID: "w9:p1")
+        let executor = FakePlanExecutor()
+        let viewModel = SessionViewModel(client: client, planExecutor: executor, folderExists: { _ in true })
+        viewModel.update(model: makeModel(), connection: .live)
+        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        let pin = viewModel.pins.pins[0]
+        var gone = makeModel()
+        gone.workspaces.removeAll()
+        viewModel.update(model: gone, connection: .live)
+
+        await client.holdCreates()
+        async let reopened: Void = viewModel.reopen(pin.id)
+        let pending = await client.waitUntilCreatePending()
+        XCTAssertTrue(pending, "the create never went out")
+        viewModel.renamePin(pin.id, to: "acme two")
+        await client.releaseCreate()
+        await reopened
+
+        XCTAssertEqual(executor.executedPlans.map(\.ops), [[.renameWorkspace(WorkspaceID(rawValue: "w9"), "acme two")]])
+        XCTAssertEqual(viewModel.pins.pin(pin.id)?.name, "acme two")
+    }
+
+    /// The workspace a reopen linked closed before any snapshot carried it:
+    /// the rail draws the pin empty, so it reopens and removes like one, and
+    /// the next snapshot without it drops the link.
+    @MainActor
+    func testAPinLinkedToAWorkspaceHerdrNeverReportedActsEmpty() async {
+        let client = StubCreateCommandClient(workspaceID: "w9", tabID: "w9:t1", paneID: "w9:p1")
+        let viewModel = SessionViewModel(client: client, planExecutor: FakePlanExecutor(), folderExists: { _ in true })
+        viewModel.update(model: makeModel(), connection: .live)
+        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        let pin = viewModel.pins.pins[0]
+        var gone = makeModel()
+        gone.workspaces.removeAll()
+        viewModel.update(model: gone, connection: .live)
+
+        await viewModel.reopen(pin.id)
+        XCTAssertEqual(viewModel.pins.pin(pin.id)?.workspace, WorkspaceID(rawValue: "w9"), "the premise: linked from the reply")
+        XCTAssertNil(viewModel.railSections(board: nil)?.pinned.first?.record, "the premise: drawn empty")
+        XCTAssertEqual(
+            WorkspaceSwitcher.candidates(viewModel.model?.workspaces ?? [], current: nil, pins: viewModel.pins.pins),
+            [pin.switcherID], "the switcher offers it as an empty pin"
+        )
+
+        await viewModel.reopen(pin.id)
+        let calls = await client.calls
+        XCTAssertEqual(calls.map(\.method), ["workspace.create", "workspace.create"], "a click on the empty row reopens")
+
+        viewModel.update(model: gone, connection: .live)
+        XCTAssertNil(viewModel.pins.pin(pin.id)?.workspace, "a snapshot after the reopen without it drops the link")
+
+        viewModel.pins.link(pin.id, to: WorkspaceID(rawValue: "w10"))
+        viewModel.removePin(pin.id)
+        XCTAssertNil(viewModel.pins.pin(pin.id), "Remove works on a pin drawn empty")
     }
 
     @MainActor

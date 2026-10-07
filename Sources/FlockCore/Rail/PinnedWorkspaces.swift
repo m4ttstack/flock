@@ -67,21 +67,47 @@ public enum PinFolders {
 public final class PinnedWorkspaceStore {
     public static let defaultsKey = "flock.pinnedWorkspaces"
 
+    public static let storedVersion = 1
+
     public private(set) var pins: [PinnedWorkspace]
 
     @ObservationIgnored private let userDefaults: UserDefaults?
+    /// Set while the stored pins could not be read, so an older build that
+    /// merely runs never writes over a newer build's pins. Only a change the
+    /// person makes to the pins writes over them.
+    @ObservationIgnored private var keepsStoredData = false
 
     private struct Stored: Codable {
         var version: Int
         var pins: [PinnedWorkspace]
     }
 
+    private struct StoredVersion: Decodable {
+        var version: Int
+    }
+
     /// nil keeps the pins in memory only.
     public init(userDefaults: UserDefaults?) {
         self.userDefaults = userDefaults
-        pins = userDefaults?.data(forKey: Self.defaultsKey)
-            .flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
-            .map(\.pins) ?? []
+        guard let data = userDefaults?.data(forKey: Self.defaultsKey) else {
+            pins = []
+            return
+        }
+        let decoder = JSONDecoder()
+        guard let version = try? decoder.decode(StoredVersion.self, from: data).version, version <= Self.storedVersion,
+              let stored = try? decoder.decode(Stored.self, from: data) else {
+            pins = []
+            keepsStoredData = true
+            return
+        }
+        // An unconfirmed link spans a create's reply and the next snapshot,
+        // never a relaunch. A stored one is still an id herdr issued, so the
+        // next update keeps it or empties the pin like any confirmed link.
+        pins = stored.pins.map { pin in
+            var pin = pin
+            if pin.workspace != nil { pin.confirmed = true }
+            return pin
+        }
     }
 
     public func pin(_ id: PinID) -> PinnedWorkspace? {
@@ -138,19 +164,32 @@ public final class PinnedWorkspaceStore {
     }
 
     /// Links from a create's reply, before any snapshot carries the workspace.
+    /// The reply's id outranks a link by name: a pin that adopted the new
+    /// workspace from an event that beat the reply is emptied again.
     public func link(_ id: PinID, to workspace: WorkspaceID) {
         guard let index = pins.firstIndex(where: { $0.id == id }) else { return }
-        pins[index].workspace = workspace
-        pins[index].syncedLabel = nil
-        pins[index].confirmed = false
-        save()
+        var next = pins
+        for other in next.indices where other != index && next[other].workspace == workspace {
+            next[other].workspace = nil
+            next[other].syncedLabel = nil
+            next[other].confirmed = false
+        }
+        next[index].workspace = workspace
+        next[index].syncedLabel = nil
+        next[index].confirmed = false
+        pins = next
+        save(byPerson: false)
     }
 
     /// Keeps links that herdr still reports (names following its renames),
-    /// empties pins whose workspace herdr has shown and no longer does, then
-    /// lets each empty pin adopt the first unlinked `eligible` workspace with
-    /// its name.
-    public func reconcile(with model: SessionModel, eligible: (WorkspaceRecord) -> Bool) {
+    /// empties pins whose workspace herdr no longer reports, then lets each
+    /// empty pin adopt the first unlinked `eligible` workspace with its name.
+    /// A link herdr has never reported is kept only while its pin is in
+    /// `reopening`: the gap between a create's reply and the snapshot that
+    /// carries the workspace.
+    public func reconcile(
+        with model: SessionModel, reopening: Set<PinID> = [], eligible: (WorkspaceRecord) -> Bool
+    ) {
         var next = pins
         var records: [WorkspaceID: WorkspaceRecord] = [:]
         for record in model.workspaces where records[record.workspaceID] == nil { records[record.workspaceID] = record }
@@ -163,7 +202,7 @@ public final class PinnedWorkspaceStore {
                     next[index].name = record.label
                 }
                 next[index].syncedLabel = record.label
-            } else if next[index].confirmed {
+            } else if next[index].confirmed || !reopening.contains(next[index].id) {
                 next[index].workspace = nil
                 next[index].syncedLabel = nil
                 next[index].confirmed = false
@@ -181,12 +220,14 @@ public final class PinnedWorkspaceStore {
         }
         guard next != pins else { return }
         pins = next
-        save()
+        save(byPerson: false)
     }
 
-    private func save() {
+    private func save(byPerson: Bool = true) {
         guard let userDefaults else { return }
-        let data = try? JSONEncoder().encode(Stored(version: 1, pins: pins))
+        if byPerson { keepsStoredData = false }
+        guard !keepsStoredData else { return }
+        let data = try? JSONEncoder().encode(Stored(version: Self.storedVersion, pins: pins))
         userDefaults.set(data, forKey: Self.defaultsKey)
     }
 }

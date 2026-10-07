@@ -35,8 +35,8 @@ public struct RailSections: Equatable, Sendable {
         let linked = Set(pinned.compactMap { $0.record?.workspaceID })
         workspaces = herdRail.workspaces.filter { !labels.contains($0.label) && !linked.contains($0.workspaceID) }
         board = labels.flatMap { label in herdRail.workspaces.filter { $0.label == label && !linked.contains($0.workspaceID) } }
-        herds = herdRail.herds
-        herdSummary = herdRail.summary
+        herds = herdRail.herds.filter { !linked.contains($0.workspaceID) }
+        herdSummary = HerdRail.summary(of: herds)
     }
 
     /// Every workspace in the order the rail draws its sections, folded or not.
