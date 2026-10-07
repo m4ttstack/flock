@@ -194,8 +194,8 @@ struct FocusedPlace: View {
     }
 }
 
-/// Nothing is waiting: a success badge in the idle green, where the Next chip
-/// would be.
+/// Nothing is waiting: a success badge in herdr's done colour, where the Next
+/// chip would be.
 struct QueueClearBadge: View {
     let theme: Theme
 
@@ -206,10 +206,10 @@ struct QueueClearBadge: View {
             Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
             Text("Queue clear").font(ChromeType.focusedNextPlace)
         }
-        .foregroundStyle(theme.green)
+        .foregroundStyle(theme.agentStatusMarkColor(.done))
         .padding(.horizontal, M.nextHorizontalPadding)
         .frame(height: M.queueClearHeight)
-        .background(theme.green.opacity(M.queueClearWash), in: Capsule())
+        .background(theme.agentStatusMarkColor(.done).opacity(M.queueClearWash), in: Capsule())
         .fixedSize()
         .accessibilityIdentifier("flock.focused.queueClear")
     }
