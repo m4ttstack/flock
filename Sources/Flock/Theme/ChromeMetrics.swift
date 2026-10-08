@@ -62,8 +62,8 @@ enum ChromeMetrics {
         static let topBarButtonGap: CGFloat = 5
         static let topBarNameGap: CGFloat = 6
         /// The last button's clearance from the window's edge when no notice
-        /// follows it: the bar's own margin above and below a button.
-        static let topBarEdgeInset: CGFloat = (height - topBarButtonHeight) / 2
+        /// follows it.
+        static let topBarEdgeInset: CGFloat = 12
         /// An empty pin's icon and name, over `textStrong`.
         static let topBarEmptyOpacity: Double = 0.4
         static let renameWidth: CGFloat = 200
