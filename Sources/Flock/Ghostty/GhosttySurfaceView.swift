@@ -644,7 +644,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             command: event.modifierFlags.contains(.command),
             shift: event.modifierFlags.contains(.shift)
         ) {
-            session.resumeScreenActivityReporting()
             session.onClearRequested?()
         }
         keyTextAccumulator = []

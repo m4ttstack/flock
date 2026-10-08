@@ -256,11 +256,7 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
         holdCalls.append(.take)
     }
 
-    private(set) var resumeScreenActivityCallCount = 0
-
-    func resumeScreenActivityReporting() {
-        resumeScreenActivityCallCount += 1
-    }
+    var cellHeight: CGFloat? = 18
 }
 
 /// A fake `GhosttyPaneFactory` for `SessionViewModelTests`' ghostty attach
@@ -277,7 +273,7 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
     private(set) var onUserInputHandlers: [PaneID: () -> Void] = [:]
     private(set) var onClearRequestedHandlers: [PaneID: () -> Void] = [:]
-    private(set) var onScreenActivityHandlers: [PaneID: (Int) -> Bool] = [:]
+    private(set) var onScreenActivityHandlers: [PaneID: (Int) -> Void] = [:]
     private var holdEnabled = false
     private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
 
@@ -293,7 +289,7 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Bool
+        onScreenActivity: @escaping (Int) -> Void
     ) async -> any GhosttyPaneSurface {
         makeSurfaceCalls.append(pane)
         onUserInputHandlers[pane] = onUserInput

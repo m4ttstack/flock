@@ -83,7 +83,7 @@ final class GhosttySession {
     var onUserInput: (() -> Void)?
     /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
     /// clear its screen, AFTER `onUserInput` for the same event: clearing is
-    /// still typing, so the keystroke has to land first and the clear is what
+    /// still typing, so the keystroke lands first and the clear is what
     /// reopens the question the keystroke just closed.
     var onClearRequested: (() -> Void)?
     /// The chosen scroll speed, asked for at wheel time rather than carried
@@ -374,45 +374,61 @@ final class GhosttySession {
         return ghostty_surface_has_selection(surface)
     }
 
-    /// The launcher-pristine contract's screen-activity half: called with
-    /// this pane's current non-empty retained-row count on every real
-    /// content change (see `reportScreenActivityIfDue`'s own doc), so a
-    /// pane whose program prints real output -- never typed into -- also
-    /// hides the overlay. Returns whether to keep reporting; `false` (no
-    /// longer pristine) makes this session stop calling it for good.
-    var onScreenActivity: ((Int) -> Bool)?
-    private var screenActivityStillWanted = true
+    /// The launcher's screen half: called with this pane's current non-empty
+    /// active-screen row count each time that count changes (see
+    /// `noteRenderForScreenActivity`), for the surface's whole life.
+    var onScreenActivity: ((Int) -> Void)?
+    /// Counting walks the whole active screen (`ghostty_surface_read_text`
+    /// is documented "expensive" by libghostty), so it runs at most this
+    /// often. A focused pane renders on every cursor blink.
+    static let screenActivityInterval: TimeInterval = 0.5
     private var lastScreenActivityCheck = Date.distantPast
+    private var lastReportedRowCount: Int?
+    private var trailingScreenActivityCheck: Task<Void, Never>?
 
-    /// Turns row counting back on after it has been switched off. A clear key
-    /// is the only caller: the question it reopens ("is this pane empty
-    /// again?") can only be answered by counting, and the answer has to be
-    /// read from the screen the shell paints a moment later, not from the key
-    /// itself. `lastScreenActivityCheck` is reset too, so the very next render
-    /// reports rather than waiting out a throttle interval that began while
-    /// the pane was still busy.
-    func resumeScreenActivityReporting() {
-        screenActivityStillWanted = true
-        lastScreenActivityCheck = .distantPast
+    /// `GHOSTTY_ACTION_RENDER` is libghostty asking for a frame: real content
+    /// changed, or the cursor blinked. A render inside the interval books one
+    /// trailing check at the interval's end, because an unfocused pane never
+    /// blinks and so may never render again after a burst.
+    func noteRenderForScreenActivity(now: Date = Date()) {
+        guard onScreenActivity != nil else { return }
+        let elapsed = now.timeIntervalSince(lastScreenActivityCheck)
+        guard elapsed >= Self.screenActivityInterval else {
+            scheduleTrailingScreenActivityCheck(after: Self.screenActivityInterval - elapsed)
+            return
+        }
+        reportScreenActivity(now: now)
     }
 
-    /// Throttled to at most 4 times a second, and only while some listener
-    /// still wants to know: `GHOSTTY_ACTION_RENDER` is ghostty's own "real
-    /// content changed, please redraw" signal (see `handle`'s own case for
-    /// it), which is what makes this an actual content-change hook rather
-    /// than a blind timer -- counting non-empty rows walks the whole active
-    /// screen (`readScreenRows`'s underlying `ghostty_surface_read_text` call
-    /// is documented "expensive" by libghostty itself), so it must never run
-    /// once per render.
-    private func reportScreenActivityIfDue() {
-        guard screenActivityStillWanted, let onScreenActivity else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastScreenActivityCheck) >= 0.25 else { return }
+    private func scheduleTrailingScreenActivityCheck(after delay: TimeInterval) {
+        guard trailingScreenActivityCheck == nil else { return }
+        trailingScreenActivityCheck = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(delay * 1000) + 1))
+            guard let self, !Task.isCancelled else { return }
+            self.trailingScreenActivityCheck = nil
+            self.reportScreenActivity(now: Date())
+        }
+    }
+
+    /// A test's stand-in for the libghostty read, which needs a live surface.
+    var screenRowsOverride: (() -> [String])?
+
+    private func reportScreenActivity(now: Date) {
+        trailingScreenActivityCheck?.cancel()
+        trailingScreenActivityCheck = nil
         lastScreenActivityCheck = now
-        let nonEmptyRows = readScreenRows().reduce(into: 0) { count, line in
+        let rows = screenRowsOverride?() ?? readScreenRows()
+        let nonEmptyRows = rows.reduce(into: 0) { count, line in
             if !line.trimmingCharacters(in: .whitespaces).isEmpty { count += 1 }
         }
-        screenActivityStillWanted = onScreenActivity(nonEmptyRows)
+        guard nonEmptyRows != lastReportedRowCount else { return }
+        lastReportedRowCount = nonEmptyRows
+        onScreenActivity?(nonEmptyRows)
+    }
+
+    /// One row in points: libghostty reports the cell in pixels.
+    var cellHeight: CGFloat? {
+        state.cellSize.map { CGFloat($0.height) / scale }
     }
 
     /// The ACTIVE area -- the editable screen a running program can address --
@@ -627,7 +643,7 @@ final class GhosttySession {
         switch action.tag {
         case GHOSTTY_ACTION_RENDER:
             requestRender()
-            reportScreenActivityIfDue()
+            noteRenderForScreenActivity()
         case GHOSTTY_ACTION_SET_TITLE:
             state.title = text
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:

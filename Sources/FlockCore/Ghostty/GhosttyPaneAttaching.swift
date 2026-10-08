@@ -110,10 +110,6 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// Idempotent, like `unpark()`.
     func takeHerdrHold()
 
-    /// Turns the launcher's row counting back on after the surface switched
-    /// it off, for a launcher offered again at a prompt nobody has measured.
-    func resumeScreenActivityReporting()
-
     /// Whether the bridge has reported this surface's first full-frame paint,
     /// ever, over the status FIFO's `flock.first_frame` line. `PaneCellView`
     /// reads this to decide whether a cold attach still shows the status card;
@@ -130,6 +126,11 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// swapping, so the surface has already had time to draw by the time the
     /// card has fully faded.
     var hasFirstFrame: Bool { get }
+
+    /// One terminal row in points, or nil before libghostty has reported its
+    /// cell size. The launcher overlay keeps this many rows clear per row the
+    /// screen holds.
+    var cellHeight: CGFloat? { get }
 
     /// Whether the pane's program has ever asked for mouse reporting, as the
     /// bridge reports it. Every rt-ui program does as it takes the screen,
@@ -156,23 +157,14 @@ public protocol GhosttyPaneFactory {
     /// without any real NSView or NSEvent: a test can invoke it directly and
     /// assert the pristine flag clears.
     ///
-    /// `onScreenActivity` is the launcher-pristine contract's OTHER half:
-    /// called with the surface's current non-empty retained-row count
-    /// whenever the surface reports new content, so a pane whose program
-    /// prints real output (never typed into) also hides the overlay, not
-    /// only a pane that received a keystroke. Returns whether the surface
-    /// should keep reporting; a `false` is the surface's own signal to stop
-    /// counting rows, which is a full buffer scan and not something to leave
-    /// running on a pane whose answer can no longer change.
-    ///
-    /// `onClearRequested` fires on the key that asks a pane to clear its
-    /// screen. It shows nothing on its own -- it turns the row count back on
-    /// for long enough to see whether the screen actually came back down to
-    /// the size it started at, which is what separates a shell that cleared
-    /// from a full-screen program that took the key and repainted.
+    /// `onScreenActivity` is the launcher's screen half: called with the
+    /// surface's current non-empty active-screen row count whenever that
+    /// count changes, for the whole life of the surface. `onClearRequested`
+    /// fires on the key that asks the pane to clear its screen, after
+    /// `onUserInput` for the same event.
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Bool
+        onScreenActivity: @escaping (Int) -> Void
     ) async -> any GhosttyPaneSurface
 }

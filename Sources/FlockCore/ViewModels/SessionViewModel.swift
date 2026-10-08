@@ -1122,11 +1122,7 @@ public final class SessionViewModel {
             for: pane,
             onUserInput: { [weak self] in self?.recordLauncherKeystroke(pane) },
             onClearRequested: { [weak self] in self?.recordLauncherClearRequested(pane) },
-            onScreenActivity: { [weak self] nonEmptyRowCount in
-                guard let self, self.wantsLauncherScreenActivity(pane) else { return false }
-                self.recordLauncherScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
-                return self.wantsLauncherScreenActivity(pane)
-            }
+            onScreenActivity: { [weak self] rows in self?.recordLauncherScreenActivity(pane, nonEmptyRowCount: rows) }
         )
         ghosttySurfaces[pane] = surface
         // Only the release is asserted here: a bridge spawns holding, so a
@@ -1308,7 +1304,6 @@ public final class SessionViewModel {
             paneLauncherRegistry.recordForegroundJob(pane, idle: !busy, at: now())
             guard !paneLauncherRegistry.isNavigating(pane) else { continue }
             launcherRegistryVersion += 1
-            ghosttySurfaces[pane]?.resumeScreenActivityReporting()
             navigationWatches[pane] = nil
             return
         }
