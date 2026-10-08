@@ -10,8 +10,13 @@ struct PinFolderPopover: View {
     let ask: PinFolderAsk
     let onChoose: (String) -> Void
     let onOther: () -> Void
+    /// Per row, for renders; `PinFolderPopover.otherRow` is Other's.
+    var forced: [Int: ControlInteraction] = [:]
+
+    static let otherRow = -1
 
     @State private var picked = 0
+    @State private var hovered: Int?
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -28,23 +33,28 @@ struct PinFolderPopover: View {
             .padding(.horizontal, ChromeMetrics.PinFolderPopover.horizontalPadding)
             .padding(.bottom, ChromeMetrics.PinFolderPopover.titleBottomPadding)
             ForEach(Array(ask.choices.enumerated()), id: \.offset) { index, choice in
-                row(choice, isPicked: index == picked)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onChoose(choice.folder) }
-                    .onHover { if $0 { picked = index } }
+                Button { onChoose(choice.folder) } label: {
+                    row(choice, isPicked: index == picked)
+                }
+                .buttonStyle(PinFolderRowStyle(theme: theme, isPicked: index == picked, hovering: hovered == index, forced: forced[index]))
+                .onHover { hovered = $0 ? index : (hovered == index ? nil : hovered) }
             }
             Rectangle()
                 .fill(theme.rule)
                 .frame(height: ChromeMetrics.ruleWidth)
-            Text("Other\u{2026}")
-                .font(ChromeType.pinFolderOther)
-                .foregroundStyle(theme.textDim)
-                .padding(.leading, ChromeMetrics.PinFolderPopover.otherLeading)
-                .padding(.vertical, ChromeMetrics.PinFolderPopover.otherVerticalPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onOther)
-                .accessibilityAddTraits(.isButton)
+            Button(action: onOther) {
+                Text("Other\u{2026}")
+                    .font(ChromeType.pinFolderOther)
+                    .foregroundStyle(theme.textDim)
+                    .padding(.leading, ChromeMetrics.PinFolderPopover.otherLeading)
+                    .padding(.vertical, ChromeMetrics.PinFolderPopover.otherVerticalPadding)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PinFolderRowStyle(
+                theme: theme, isPicked: false, hovering: hovered == Self.otherRow, forced: forced[Self.otherRow]
+            ))
+            .onHover { hovered = $0 ? Self.otherRow : (hovered == Self.otherRow ? nil : hovered) }
         }
         .padding(.vertical, ChromeMetrics.PinFolderPopover.verticalPadding)
         .frame(width: ChromeMetrics.PinFolderPopover.width)
@@ -103,7 +113,7 @@ struct PinFolderPopover: View {
         }
         .padding(.horizontal, ChromeMetrics.PinFolderPopover.horizontalPadding)
         .padding(.vertical, ChromeMetrics.PinFolderPopover.rowVerticalPadding)
-        .background(isPicked ? theme.selection : .clear)
+        .contentShape(Rectangle())
     }
 
     static func reason(_ reason: PinFolderAsk.Choice.Reason) -> String {
@@ -112,5 +122,26 @@ struct PinFolderPopover: View {
         case .shellLastSeen: "where the shell was last seen"
         case .shellStarted: "where it started"
         }
+    }
+}
+
+/// A row's states: the keyboard's pick as the selection fill, and hover and
+/// press as the chrome's one wash over it, so the pick never moves under the
+/// pointer.
+private struct PinFolderRowStyle: ButtonStyle {
+    let theme: Theme
+    let isPicked: Bool
+    let hovering: Bool
+    var forced: ControlInteraction?
+
+    func makeBody(configuration: Configuration) -> some View {
+        let interaction = forced ?? ControlInteraction(isHovering: hovering, isPressed: configuration.isPressed)
+        configuration.label
+            .background {
+                ZStack {
+                    isPicked ? theme.selection : Color.clear
+                    GridStateWash(theme: theme, shape: AnyShape(Rectangle()), interaction: interaction)
+                }
+            }
     }
 }
