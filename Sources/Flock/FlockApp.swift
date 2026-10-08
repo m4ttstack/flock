@@ -412,6 +412,11 @@ struct FlockApp: App {
                         Button(LauncherSlots.title(for: entry)) {
                             // Read before the Task: the current event moves on.
                             let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
+                            // A key only borrows the launcher that is drawn:
+                            // otherwise it would type into a line in progress.
+                            if path == .key, dragCoordinator.isGridShown || !viewModel.focusedPaneShowsLauncher {
+                                return NSSound.beep()
+                            }
                             Task { await LauncherSlots.launchInFocusedPane(entry, via: path, on: viewModel) }
                         }
                         // The first three digits are the View menu's, which
@@ -555,8 +560,10 @@ struct FlockApp: App {
                         // equivalent: a pane offering the launcher borrows
                         // the digit, and SwiftUI's menu refresh is not in
                         // the loop. A mouse pick of a view always means it.
+                        // Overview and Arrange hide the panes, so no launcher
+                        // is on screen to borrow the digit.
                         switch DigitKeyDispatch.decide(
-                            launcherShowing: viewModel.focusedPaneShowsLauncher,
+                            launcherShowing: !dragCoordinator.isGridShown && viewModel.focusedPaneShowsLauncher,
                             cameFromKey: LauncherSlots.menuActionCameFromKey, index: index
                         ) {
                         case .launch(let slot):

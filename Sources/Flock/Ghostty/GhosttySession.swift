@@ -489,7 +489,10 @@ final class GhosttySession {
     /// (`GhosttyControlSurfaceFactory` logs that). It reaches the program
     /// unframed, which is what every paste did before, and is the only thing
     /// left that reaches it at all.
+    /// Pasted text is typing to the launcher, though no key reached
+    /// `keyDown` for it.
     func paste(_ text: String) {
+        onUserInput?()
         guard let controlChannel else {
             insertText(text)
             return

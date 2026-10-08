@@ -58,6 +58,9 @@ public final class PaneLauncherRegistry {
         /// typed, however the rest of the screen changed.
         var typedOverLastRow: String?
         var lastRow: String?
+        /// Keys since typing began. A clear key that is the only one has
+        /// nothing typed in front of it; the screen read may be a tick stale.
+        var keysSinceTyped = 0
         var starting = false
         var learningUntil: Date?
         var foreground: Foreground = .unasked
@@ -83,6 +86,7 @@ public final class PaneLauncherRegistry {
             typed = false
             typedOver = nil
             typedOverLastRow = nil
+            keysSinceTyped = 0
             foreground = .unasked
             failedAsks = 0
         }
@@ -114,9 +118,20 @@ public final class PaneLauncherRegistry {
     ) {
         var state = panes[pane] ?? Pane()
         if let screen {
+            let before = (screen: state.screen, lastRow: state.lastRow)
             state.screen = screen
             state.lastRow = lastRow
-            if state.typed, state.navigation == nil {
+            // Text that reached the line without a key (another client's
+            // input): the count stays, the cursor's line grows.
+            if !state.typed, state.navigation == nil, rows == state.rows,
+               let old = before.lastRow, let lastRow, lastRow != old, lastRow.hasPrefix(old) {
+                state.typed = true
+                state.typedOver = before.screen
+                state.typedOverLastRow = old
+                state.keysSinceTyped = 1
+                state.starting = false
+                state.learningUntil = nil
+            } else if state.typed, state.navigation == nil {
                 let bareNow = state.promptRows.map { rows <= $0 } ?? false
                 if screen == state.typedOver || (bareNow && state.lineBackToWhereTypingBegan) {
                     state.untype()
@@ -169,7 +184,9 @@ public final class PaneLauncherRegistry {
         if !state.typed {
             state.typedOver = state.screen
             state.typedOverLastRow = state.lastRow
+            state.keysSinceTyped = 0
         }
+        state.keysSinceTyped += 1
         state.typed = true
         state.starting = false
         state.learningUntil = nil
@@ -198,7 +215,7 @@ public final class PaneLauncherRegistry {
     public func recordClearKey(_ pane: PaneID) {
         var state = panes[pane] ?? Pane()
         guard state.navigation == nil else { return }
-        if state.typed, state.screen == state.typedOver {
+        if state.typed, state.keysSinceTyped <= 1 {
             state.untype()
         }
         panes[pane] = state

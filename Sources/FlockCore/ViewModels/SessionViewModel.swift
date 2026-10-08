@@ -1179,24 +1179,26 @@ public final class SessionViewModel {
         let stale = Array(parkedPanes.prefix(overflow))
         parkedPanes.removeFirst(overflow)
         for pane in stale {
-            await teardownSurface(pane)
+            // The pane is still in herdr: what was typed into it and the
+            // prompt height it taught still hold when it comes back.
+            await teardownSurface(pane, forgetLauncherState: false)
         }
     }
 
     /// Tears `pane`'s surface down for real: the warm cap's own eviction, or
     /// herdr no longer reporting this pane at all (`reconcileClosedPanes`).
     /// Chained through `paneWork` like every other per-pane operation.
-    private func teardownSurface(_ pane: PaneID) async {
+    private func teardownSurface(_ pane: PaneID, forgetLauncherState: Bool = true) async {
         let previous = paneWork[pane]
         let task = Task { [weak self] in
             _ = await previous?.value
-            await self?.performTeardown(pane: pane)
+            await self?.performTeardown(pane: pane, forgetLauncherState: forgetLauncherState)
         }
         paneWork[pane] = task
         await task.value
     }
 
-    private func performTeardown(pane: PaneID) async {
+    private func performTeardown(pane: PaneID, forgetLauncherState: Bool) async {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
         paneScrollSubscriber?.unsubscribe(pane: pane)
         parkedPanes.removeAll { $0 == pane }
@@ -1204,8 +1206,10 @@ public final class SessionViewModel {
         promptWatches[pane] = nil
         navigationWatches[pane]?.cancel()
         navigationWatches[pane] = nil
-        paneLauncherRegistry.forget(pane)
-        launcherRegistryVersion += 1
+        if forgetLauncherState {
+            paneLauncherRegistry.forget(pane)
+            launcherRegistryVersion += 1
+        }
         await surface.detach()
     }
 
@@ -1365,19 +1369,25 @@ public final class SessionViewModel {
     /// as the picker exits) is retried on the next tick; only the pane going
     /// away (`performTeardown` cancels this task) ends the watch early.
     private func watchNavigation(in pane: PaneID) async {
+        var sawPickerRun = false
         while !Task.isCancelled, paneLauncherRegistry.isNavigating(pane) {
             try? await Task.sleep(for: navigationPollInterval)
             guard !Task.isCancelled else { return }
             let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
             guard !Task.isCancelled else { return }
             let idle = data.flatMap { PaneForegroundJob.isBusy(processInfoResponse: $0) }.map { !$0 }
+            if idle == false { sawPickerRun = true }
             paneLauncherRegistry.recordForegroundJob(pane, idle: idle, at: now())
         }
         guard !Task.isCancelled else { return }
-        _ = try? await client.requestRaw(
-            "pane.send_keys",
-            ["pane_id": .string(pane.rawValue), "keys": .array([.string("ctrl+l")])]
-        )
+        // A command never seen running failed on its way up; its error is
+        // the only answer to the click and must stay on screen.
+        if sawPickerRun {
+            _ = try? await client.requestRaw(
+                "pane.send_keys",
+                ["pane_id": .string(pane.rawValue), "keys": .array([.string("ctrl+l")])]
+            )
+        }
         // Cancelled during the send: a later navigation may own the entry now.
         guard !Task.isCancelled else { return }
         navigationWatches[pane] = nil
