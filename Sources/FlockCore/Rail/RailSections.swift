@@ -14,6 +14,8 @@ public struct RailSections: Equatable, Sendable {
     }
 
     public let pinned: [PinnedRow]
+    /// Drawn in the title bar, never in the rail.
+    public let topBar: [PinnedRow]
     public let workspaces: [WorkspaceRecord]
     /// In role order, then herdr's order within a role.
     public let board: [WorkspaceRecord]
@@ -25,14 +27,19 @@ public struct RailSections: Equatable, Sendable {
     /// shows in PINNED alone.
     public init(
         model: SessionModel, board names: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:],
-        pins: [PinnedWorkspace] = []
+        pins: [PinnedWorkspace] = [], topBarModel: SessionModel? = nil
     ) {
         let herdRail = HerdRail(model: model, progress: herdProgress)
         let labels = names?.labels ?? []
         var records: [WorkspaceID: WorkspaceRecord] = [:]
         for record in model.workspaces where records[record.workspaceID] == nil { records[record.workspaceID] = record }
-        pinned = pins.map { PinnedRow(pin: $0, record: $0.workspace.flatMap { records[$0] }) }
-        let linked = Set(pinned.compactMap { $0.record?.workspaceID })
+        var barRecords: [WorkspaceID: WorkspaceRecord] = [:]
+        for record in (topBarModel ?? model).workspaces where barRecords[record.workspaceID] == nil {
+            barRecords[record.workspaceID] = record
+        }
+        pinned = pins.filter { $0.placement == .rail }.map { PinnedRow(pin: $0, record: $0.workspace.flatMap { records[$0] }) }
+        topBar = pins.filter { $0.placement == .topBar }.map { PinnedRow(pin: $0, record: $0.workspace.flatMap { barRecords[$0] }) }
+        let linked = Set((pinned + topBar).compactMap { $0.record?.workspaceID })
         workspaces = herdRail.workspaces.filter { !labels.contains($0.label) && !linked.contains($0.workspaceID) }
         board = labels.flatMap { label in herdRail.workspaces.filter { $0.label == label && !linked.contains($0.workspaceID) } }
         herds = herdRail.herds.filter { !linked.contains($0.workspaceID) }

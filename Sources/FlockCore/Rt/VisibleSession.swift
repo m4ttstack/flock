@@ -6,7 +6,12 @@ extension SessionModel {
     /// sits inside one reads as none, so nothing that follows herdr's focus
     /// can follow it there.
     public var withoutFlockOwned: SessionModel {
-        let hidden = Set(workspaces.filter { RtLabels.isFlockOwned(workspaceLabel: $0.label) }.map(\.workspaceID))
+        hiding(Set(workspaces.filter { RtLabels.isFlockOwned(workspaceLabel: $0.label) }.map(\.workspaceID)))
+    }
+
+    /// The session without the given workspaces, with the same focus rule as
+    /// `withoutFlockOwned`.
+    public func hiding(_ hidden: Set<WorkspaceID>) -> SessionModel {
         guard !hidden.isEmpty else { return self }
         var visible = self
         let hiddenTabs = Set(hidden.flatMap { tabs[$0] ?? [] }.map(\.tabID))
