@@ -23,7 +23,7 @@ final class PinFolderPopoverRenderTests: XCTestCase {
             let view = PinFolderPopover(theme: theme, name: "training-plan", ask: ask, onChoose: { _ in }, onOther: {})
                 .padding(20)
                 .frame(width: Self.size.width, height: Self.size.height, alignment: .topLeading)
-                .background(theme.tabRest)
+                .background(theme.pane)
             let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.colorSpace = .sRGB

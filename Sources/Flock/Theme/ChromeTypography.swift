@@ -159,6 +159,7 @@ enum ChromeType {
 
     static let launcherName = inter(16.5, .medium)
     static let launcherMonogram = inter(14, .bold)
+    static let launcherSymbol = Font.system(size: 13, weight: .semibold)
     static let launcherHint = inter(11.5)
     static let launcherShortcut = inter(12.5)
 

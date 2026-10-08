@@ -14,6 +14,8 @@ struct HarnessEntry: Identifiable, Equatable {
     let monogramColor: Color
     var mark: HarnessMark?
     var monogramInk: Color = .white
+    /// An SF Symbol drawn in the badge in place of the monogram's letters.
+    var symbol: String? = nil
     var paletteName: String? = nil
     var paletteHint: String? = nil
 }
@@ -320,10 +322,16 @@ private struct MonogramBadge: View {
         Circle()
             .fill(entry.monogramColor)
             .frame(width: ChromeMetrics.Launcher.monogram, height: ChromeMetrics.Launcher.monogram)
-            .overlay(
-                Text(entry.monogram)
-                    .font(ChromeType.launcherMonogram)
-                    .foregroundStyle(entry.monogramInk)
-            )
+            .overlay {
+                if let symbol = entry.symbol {
+                    Image(systemName: symbol)
+                        .font(ChromeType.launcherSymbol)
+                        .foregroundStyle(entry.monogramInk)
+                } else {
+                    Text(entry.monogram)
+                        .font(ChromeType.launcherMonogram)
+                        .foregroundStyle(entry.monogramInk)
+                }
+            }
     }
 }

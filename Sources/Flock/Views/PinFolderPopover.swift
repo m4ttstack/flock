@@ -48,6 +48,15 @@ struct PinFolderPopover: View {
         }
         .padding(.vertical, ChromeMetrics.PinFolderPopover.verticalPadding)
         .frame(width: ChromeMetrics.PinFolderPopover.width)
+        // Opaque, as the symbol picker is: the popover's own material lets
+        // the terminal under it show through the text.
+        .background(RoundedRectangle(cornerRadius: ChromeRadius.container).fill(Color(theme.palette.panelBg)))
+        .overlay(
+            RoundedRectangle(cornerRadius: ChromeRadius.container)
+                .strokeBorder(Color(theme.palette.surface1), lineWidth: ChromeMetrics.ruleWidth)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.container))
+        .background(PopoverAppearancePin(isDark: !ChromeRoles.isLight(panelBg: theme.palette.panelBg)))
         .focusable()
         .focusEffectDisabled()
         .focused($isFocused)
