@@ -15,8 +15,6 @@ final class TopBarRenderTests: XCTestCase {
     private static let dash = WorkspaceID(rawValue: "w1")
     private static let logs = WorkspaceID(rawValue: "w2")
     private static let board = WorkspaceID(rawValue: "w3")
-    /// How far a filled mark's core may sit from its colour once rasterized.
-    private static let inkTolerance: Double = 12
 
     private struct Hosted {
         let window: NSWindow
@@ -26,20 +24,27 @@ final class TopBarRenderTests: XCTestCase {
 
     private static let names = ["dash", "logs", "board"]
 
-    /// The dot is centred on the mark's top-trailing corner.
-    private static func dotCenter(in cell: CGRect) -> CGPoint {
-        let mark = ChromeMetrics.TitleBar.topBarMark
-        return CGPoint(x: cell.minX + ChromeMetrics.TitleBar.topBarCellPadding + mark, y: cell.midY - mark / 2)
+    /// The icon's box inside a button: after the leading padding, centred.
+    private static func iconBox(in button: CGRect) -> CGRect {
+        let icon = ChromeMetrics.TitleBar.topBarIcon
+        return CGRect(x: button.minX + ChromeMetrics.TitleBar.topBarButtonPadding, y: button.midY - icon / 2, width: icon, height: icon)
     }
 
-    func testCellsDrawIconOnlyWithNamesAndFallBackWhenNarrow() async throws {
+    func testButtonsDrawIconOnlyWithNamesAndFallBackWhenNarrow() async throws {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let iconCellWidth = 2 * ChromeMetrics.TitleBar.topBarCellPadding + ChromeMetrics.TitleBar.topBarMark
+        let metrics = ChromeMetrics.TitleBar.self
+        let iconButtonWidth = 2 * metrics.topBarButtonPadding + metrics.topBarIcon
         for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let roles = theme.palette.chromeRoles
-            for (name, width, label) in [("icons", 1100.0, TopBarLabel.iconOnly), ("names", 1100.0, .iconAndName), ("narrow", 640.0, .iconAndName)] {
+            let isLight = ChromeRoles.isLight(panelBg: theme.palette.panelBg)
+            let openWash = isLight
+                ? roles.chrome.mixed(with: RGB(0, 0, 0), amount: ChromeMetrics.MenuBarWash.lightOpen)
+                : roles.chrome.mixed(with: RGB(255, 255, 255), amount: ChromeMetrics.MenuBarWash.darkOpen)
+            let dimmed = roles.textStrong.mixed(with: roles.chrome, amount: 1 - metrics.topBarEmptyOpacity)
+            let working = theme.palette.yellow
+            for (name, width, label) in [("icons", 1100.0, TopBarLabel.iconOnly), ("names", 1100.0, .iconAndName), ("narrow", 540.0, .iconAndName)] {
                 let hosted = try await host(theme, width: width, label: label)
                 defer { hosted.window.close() }
                 let image = try snapshot(hosted.window)
@@ -48,36 +53,55 @@ final class TopBarRenderTests: XCTestCase {
                         .write(to: URL(fileURLWithPath: directory).appendingPathComponent("top-bar-\(name)-\(scheme).png"))
                 }
                 let message = "\(name) \(scheme)"
-                // The cells, read off the rules that part them, which run the
-                // bar's full height as the view tabs' do.
-                let cells = ruledCells(image, roles: roles, width: width)
-                XCTAssertEqual(cells.count, 3, message)
-                guard cells.count == 3 else { continue }
-                let cell = { (pin: String) in cells[Self.names.firstIndex(of: pin)!] }
-                // A cell is wider than its icon and padding exactly when it carries a name.
-                XCTAssertEqual(cells.allSatisfy { $0.width > iconCellWidth + 1 }, name == "names", "\(message): \(cells)")
-                XCTAssertEqual(try XCTUnwrap(cells.last).maxX, width, accuracy: 0.5, "\(message): flush with the bar's trailing edge")
-
-                let dot = try XCTUnwrap(sample(image, Self.dotCenter(in: cell("dash"))))
-                XCTAssertLessThanOrEqual(
-                    distance(dot, theme.palette.yellow), Self.inkTolerance, "\(message): the working dot drew \(dot.hex)"
+                let buttons = hosted.drag.topBarFrames.map(\.frame)
+                XCTAssertEqual(buttons.count, 3, message)
+                guard buttons.count == 3 else { continue }
+                let button = { (pin: String) in buttons[Self.names.firstIndex(of: pin)!] }
+                for frame in buttons {
+                    XCTAssertEqual(frame.height, metrics.topBarButtonHeight, accuracy: 0.5, "\(message): \(frame)")
+                    XCTAssertEqual(frame.midY, metrics.height / 2, accuracy: 0.5, "\(message): centred in the bar \(frame)")
+                }
+                for (a, b) in zip(buttons, buttons.dropFirst()) {
+                    XCTAssertEqual(b.minX - a.maxX, metrics.topBarButtonGap, accuracy: 0.5, "\(message): the gap")
+                }
+                // A button is wider than its icon and padding exactly when it carries a name.
+                XCTAssertEqual(buttons.allSatisfy { $0.width > iconButtonWidth + 1 }, name == "names", "\(message): \(buttons)")
+                if name != "names" {
+                    XCTAssertTrue(buttons.allSatisfy { abs($0.width - iconButtonWidth) < 0.5 }, "\(message): \(buttons)")
+                }
+                XCTAssertEqual(
+                    try XCTUnwrap(buttons.last).maxX, width - metrics.topBarEdgeInset, accuracy: 0.5, "\(message): inset from the edge"
                 )
-                let emptyDot = try XCTUnwrap(sample(image, Self.dotCenter(in: cell("logs"))))
-                XCTAssertGreaterThan(distance(emptyDot, theme.palette.yellow), 60, "\(message): the empty pin draws no dot")
 
-                let board = cell("board")
-                let fill = try XCTUnwrap(sample(image, CGPoint(x: board.maxX - 3, y: board.minY + 4)))
-                XCTAssertLessThanOrEqual(distance(fill, roles.tabRest), 2, "\(message): the open cell has the selected tab's fill")
-                let underline = try XCTUnwrap(sample(image, CGPoint(x: board.midX, y: board.maxY - 1)))
-                XCTAssertLessThanOrEqual(distance(underline, roles.accent), 2, "\(message): the open cell is underlined in accent")
-                let rest = try XCTUnwrap(sample(image, CGPoint(x: cell("dash").minX + 3, y: board.minY + 4)))
-                XCTAssertLessThanOrEqual(distance(rest, roles.chrome), 2, "\(message): a closed cell draws no fill")
+                // Status is the icon's colour: dash works, board is idle.
+                let dashInk = count(working, tolerance: 16, in: image, within: Self.iconBox(in: button("dash")))
+                XCTAssertGreaterThan(dashInk, 60, "\(message): the working icon is not drawn in the working colour")
+                XCTAssertEqual(
+                    count(working, tolerance: 16, in: image, within: button("board")), 0,
+                    "\(message): the idle icon is tinted, or a dot remains"
+                )
+                XCTAssertGreaterThan(
+                    count(roles.textStrong, tolerance: 16, in: image, within: Self.iconBox(in: button("board"))), 30,
+                    "\(message): the idle icon is not textStrong"
+                )
+                let logsIcon = Self.iconBox(in: button("logs"))
+                XCTAssertGreaterThan(count(dimmed, tolerance: 12, in: image, within: logsIcon), 30, "\(message): the empty icon is not dimmed")
+                XCTAssertEqual(count(roles.textStrong, tolerance: 16, in: image, within: logsIcon), 0, "\(message): the empty icon is full strength")
+
+                // Grounds, sampled in the leading padding beside each icon.
+                let ground = { (pin: String) in CGPoint(x: button(pin).minX + 3, y: button(pin).midY) }
+                let open = try XCTUnwrap(sample(image, ground("board")))
+                XCTAssertLessThanOrEqual(distance(open, openWash), 2, "\(message): the open button drew \(open.hex), not \(openWash.hex)")
+                for pin in ["dash", "logs"] {
+                    let rest = try XCTUnwrap(sample(image, ground(pin)))
+                    XCTAssertLessThanOrEqual(distance(rest, roles.chrome), 2, "\(message): \(pin) drew a ground at rest: \(rest.hex)")
+                }
             }
         }
     }
 
     /// `logs` picked up and carried over `dash`'s leading half: the gap opens
-    /// before `dash`, which slides along by `logs`' width, `board` stays, and
+    /// before `dash`, which slides along by `logs`' advance, `board` stays, and
     /// `logs` itself is left ghosted.
     func testACellDraggedAlongTheBarOpensAGapThere() async throws {
         ChromeType.install()
@@ -101,7 +125,7 @@ final class TopBarRenderTests: XCTestCase {
             )
             drag.move(to: CGPoint(x: dash.minX + 4, y: dash.midY))
             XCTAssertEqual(drag.target, .topBar(insertIndex: 0), scheme)
-            XCTAssertEqual(drag.topBarDisplacement(at: 0), logs.width, accuracy: 0.5, "\(scheme): dash slides along")
+            XCTAssertEqual(drag.topBarDisplacement(at: 0), logs.width + ChromeMetrics.TitleBar.topBarButtonGap, accuracy: 0.5, "\(scheme): dash slides along by logs and its gap")
             XCTAssertEqual(drag.topBarDisplacement(at: 2), 0, "\(scheme): board stays")
             let bar = try XCTUnwrap(drag.insertionMark?.bar, "\(scheme): the insertion bar shows in the title bar")
             XCTAssertEqual(bar.midX, dash.minX, accuracy: 2, "\(scheme): the bar sits before dash: \(bar)")
@@ -420,30 +444,6 @@ final class TopBarRenderTests: XCTestCase {
             panes: [],
             layouts: []
         ))
-    }
-
-    /// The top-bar cells, leading to trailing: the spans between the last
-    /// four columns from the bar's trailing edge drawn in the rule colour from
-    /// the bar's top to below its marks. The strip's leading rule opens the
-    /// first cell; each cell's trailing rule closes it.
-    private func ruledCells(_ image: NSBitmapImageRep, roles: ChromeRoles, width: CGFloat) -> [CGRect] {
-        let rows: [CGFloat] = [0.5, 5, 30]
-        var rules: [ClosedRange<CGFloat>] = []
-        var x = width - 0.5
-        while x >= 0, rules.count < 4 {
-            let ruled = rows.allSatisfy { y in sample(image, CGPoint(x: x, y: y)).map { distance($0, roles.rule) <= 3 } ?? false }
-            if ruled {
-                if let last = rules.last, last.lowerBound - x <= 0.5 {
-                    rules[rules.count - 1] = x...last.upperBound
-                } else {
-                    rules.append(x...x)
-                }
-            }
-            x -= 0.5
-        }
-        guard rules.count == 4 else { return [] }
-        let edges = rules.reversed().enumerated().map { index, rule in index == 0 ? rule.lowerBound : rule.upperBound + 0.5 }
-        return zip(edges, edges.dropFirst()).map { CGRect(x: $0, y: 0, width: $1 - $0, height: ChromeMetrics.TitleBar.height) }
     }
 
     private func distance(_ a: RGB, _ b: RGB) -> Double {

@@ -52,9 +52,20 @@ enum ChromeMetrics {
         static let tabGlyphSize: CGFloat = 12
         static let tabGlyphGap: CGFloat = 7
         static let tabUnderline: CGFloat = 2
-        static let topBarMark: CGFloat = tabGlyphSize + 2
-        static let topBarDot: CGFloat = 6
-        static let topBarCellPadding: CGFloat = tabHorizontalPadding
+        /// A top-bar workspace is a menu-bar extra: a rounded button centred
+        /// in the bar, `2 * topBarButtonPadding + topBarIcon` wide when it
+        /// shows no name.
+        static let topBarIcon: CGFloat = 16
+        static let topBarButtonHeight: CGFloat = 26
+        static let topBarButtonPadding: CGFloat = 8
+        static let topBarButtonRadius: CGFloat = 6
+        static let topBarButtonGap: CGFloat = 5
+        static let topBarNameGap: CGFloat = 6
+        /// The last button's clearance from the window's edge when no notice
+        /// follows it: the bar's own margin above and below a button.
+        static let topBarEdgeInset: CGFloat = (height - topBarButtonHeight) / 2
+        /// An empty pin's icon and name, over `textStrong`.
+        static let topBarEmptyOpacity: Double = 0.4
         static let renameWidth: CGFloat = 200
         /// The least clearance the centred title keeps from either end's
         /// content before it hides. Small enough that "flock" and the DEV tag
@@ -549,6 +560,14 @@ enum ChromeMetrics {
     /// fill (`GridControlGround`).
     enum HoverWash {
         static let opacity: Double = 0.1
+    }
+
+    /// An open top-bar workspace button's ground: white over a dark theme,
+    /// black over a light one. A closed button has none at rest and takes
+    /// `HoverWash` under the pointer, which stays below this.
+    enum MenuBarWash {
+        static let darkOpen: Double = 0.14
+        static let lightOpen: Double = 0.08
     }
 
     /// The workspace symbol picker popover: an Automatic button, then each
