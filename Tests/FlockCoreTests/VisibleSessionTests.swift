@@ -38,4 +38,15 @@ final class VisibleSessionTests: XCTestCase {
         XCTAssertNil(visible.focusedTabID)
         XCTAssertNil(visible.focusedPaneID)
     }
+
+    func testHidingDropsTheNamedWorkspaceAndClearsFocusInsideIt() {
+        let visible = model(focusedWorkspace: "w1", focusedTab: "w1:t1", focusedPane: "w1:p1")
+            .hiding([WorkspaceID(rawValue: "w1")])
+        XCTAssertFalse(visible.workspaces.contains { $0.workspaceID == WorkspaceID(rawValue: "w1") })
+        XCTAssertNil(visible.tabs[WorkspaceID(rawValue: "w1")])
+        XCTAssertNil(visible.panes[PaneID(rawValue: "w1:p1")])
+        XCTAssertNil(visible.focusedWorkspaceID)
+        XCTAssertNil(visible.focusedTabID)
+        XCTAssertNil(visible.focusedPaneID)
+    }
 }
