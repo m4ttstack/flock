@@ -169,6 +169,9 @@ public final class SessionViewModel {
     private let planExecutor: (any PlanExecuting)?
     private let undoJournal: UndoJournal?
     private let noticeSink: @MainActor (String) -> Void
+    /// Read at each launch that needs it, never cached: an account removed
+    /// from cswap since the menu was drawn must not be typed.
+    private let cswapAccounts: @Sendable () async -> [CswapAccount]?
     /// Injected so a test can place a transition inside or outside the
     /// attention stack's coalescing window without sleeping.
     @ObservationIgnored private let now: @MainActor () -> Date
@@ -225,7 +228,8 @@ public final class SessionViewModel {
         repoBranches: RepoBranchCache = RepoBranchCache(),
         pinnedWorkspaceDefaults: UserDefaults? = nil,
         identity: WorkspaceIdentityStore? = nil,
-        folderExists: @escaping @Sendable (String) -> Bool = SessionViewModel.directoryExists
+        folderExists: @escaping @Sendable (String) -> Bool = SessionViewModel.directoryExists,
+        cswapAccounts: @escaping @Sendable () async -> [CswapAccount]? = { nil }
     ) {
         self.repoBranches = repoBranches
         self.client = client
@@ -255,6 +259,7 @@ public final class SessionViewModel {
         self.pins = PinnedWorkspaceStore(userDefaults: pinnedWorkspaceDefaults)
         self.identity = identity
         self.folderExists = folderExists
+        self.cswapAccounts = cswapAccounts
         if let attentionToastArchive, notificationLifetime() != .never {
             attentionToasts = attentionToastArchive.load()
         }
@@ -1404,16 +1409,37 @@ public final class SessionViewModel {
     /// program enabled it (a shell at a prompt does), and a newline inside
     /// that bracket reaches the line editor as a literal newline rather than
     /// accept-line. `keys` is encoded outside the bracket.
-    public func launchHarness(_ binary: String, in pane: PaneID) async {
+    ///
+    /// `pin` names the pin an empty-pin launch opened, whose pane a snapshot
+    /// may not carry yet; otherwise the pin is the one linked to the pane's
+    /// workspace. False when the pane left its prompt while cswap was read.
+    @discardableResult
+    public func launchHarness(_ binary: String, in pane: PaneID, pin: PinID? = nil) async -> Bool {
         recordLauncherKeystroke(pane)
+        let owner = pin.flatMap(pins.pin) ?? userModel?.panes[pane].flatMap { pins.pin(linkedTo: $0.workspaceID) }
+        let account = binary == ClaudeAccountLaunch.claudeBinary ? owner?.claudeAccount : nil
+        var accounts: [CswapAccount]?
+        if account != nil {
+            accounts = await cswapAccounts()
+            guard await isAtPrompt(pane) else {
+                // Takes back the keystroke recorded above, which was never typed.
+                recordLauncherClearKey(pane)
+                return false
+            }
+        }
+        let line = ClaudeAccountLaunch.line(binary: binary, account: account, accounts: accounts)
+        if let owner, let fallback = line.fallback {
+            noticeSink(ClaudeAccountLaunch.notice(pinName: owner.name, fallback: fallback))
+        }
         _ = try? await client.requestRaw(
             "pane.send_input",
             [
                 "pane_id": .string(pane.rawValue),
-                "text": .string(binary),
+                "text": .string(line.text),
                 "keys": .array([.string("Enter")]),
             ]
         )
+        return true
     }
 
     /// Asked of herdr at the moment of launching, never cached: a command

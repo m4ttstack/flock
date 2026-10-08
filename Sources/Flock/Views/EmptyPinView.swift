@@ -28,7 +28,7 @@ enum EmptyPinLaunch {
         viewModel.recordLauncherKeystroke(pane)
         guard entry.id != ShellEntry.entry.id else { return }
         _ = await viewModel.awaitPrompt(pane)
-        await LauncherSlots.launch(entry, in: pane, via: .click, on: viewModel)
+        await LauncherSlots.launch(entry, in: pane, via: .click, on: viewModel, pin: pin)
     }
 }
 

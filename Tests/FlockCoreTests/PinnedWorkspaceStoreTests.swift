@@ -246,6 +246,35 @@ final class PinnedWorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.pins.map(\.placement), [.rail])
     }
 
+    func testAStoredPinWithoutAClaudeAccountHasNone() throws {
+        let json = #"{"version":1,"pins":[{"id":"p1","name":"acme","folder":"/acme","confirmed":true}]}"#
+        let defaults = defaults()
+        defaults.set(Data(json.utf8), forKey: PinnedWorkspaceStore.defaultsKey)
+        XCTAssertEqual(PinnedWorkspaceStore(userDefaults: defaults).pins.map(\.claudeAccount), [nil])
+    }
+
+    /// Builds before the organization was stored saved the email alone.
+    func testAStoredEmailOnlyClaudeAccountDecodesWithoutAnOrganization() throws {
+        let json = #"{"version":1,"pins":[{"id":"p1","name":"acme","folder":"/acme","confirmed":true,"claudeAccount":"dev@acme.test"}]}"#
+        let defaults = defaults()
+        defaults.set(Data(json.utf8), forKey: PinnedWorkspaceStore.defaultsKey)
+        XCTAssertEqual(
+            PinnedWorkspaceStore(userDefaults: defaults).pins.map(\.claudeAccount),
+            [ClaudeAccountRef(email: "dev@acme.test", organizationUuid: nil)]
+        )
+    }
+
+    func testClaudeAccountRoundTripsThroughDefaultsAndClears() {
+        let defaults = defaults()
+        let store = PinnedWorkspaceStore(userDefaults: defaults)
+        let a = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "a", folder: "/a", at: nil)!
+        let ref = ClaudeAccountRef(email: "dev@acme.test", organizationUuid: "org-acme")
+        store.setClaudeAccount(a.id, to: ref)
+        XCTAssertEqual(PinnedWorkspaceStore(userDefaults: defaults).pins.map(\.claudeAccount), [ref])
+        store.setClaudeAccount(a.id, to: nil)
+        XCTAssertEqual(PinnedWorkspaceStore(userDefaults: defaults).pins.map(\.claudeAccount), [nil])
+    }
+
     func testPlacementRoundTripsThroughDefaults() {
         let defaults = defaults()
         let store = PinnedWorkspaceStore(userDefaults: defaults)

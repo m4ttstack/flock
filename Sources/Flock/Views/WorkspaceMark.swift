@@ -63,6 +63,9 @@ private struct WorkspaceMenu: ViewModifier {
                             Button("Change Symbol\u{2026}", action: changeSymbol)
                                 .accessibilityIdentifier("flock.identity.symbol.menu")
                         }
+                        if entry.action == .changeFolder, let pin {
+                            ClaudeAccountSubmenu(pin: pin, viewModel: viewModel)
+                        }
                     }
                 }
             }
@@ -104,6 +107,9 @@ private struct EmptyPinMenu: ViewModifier {
                 if entry.action == .rename {
                     Button("Change Symbol\u{2026}", action: changeSymbol)
                         .accessibilityIdentifier("flock.identity.symbol.menu")
+                }
+                if entry.action == .changeFolder {
+                    ClaudeAccountSubmenu(pin: pin, viewModel: viewModel)
                 }
             }
         }
