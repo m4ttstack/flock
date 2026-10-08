@@ -396,7 +396,9 @@ final class GhosttySession {
 
     /// Parking stops the poll: a parked pane's screen is not on show. Unparking
     /// reads at once, since the screen may have changed while nothing looked.
+    /// A pane's appearance unparks it twice, and only a real transition acts.
     func setParked(_ parked: Bool) {
+        guard parked != isParked else { return }
         isParked = parked
         restartScreenActivityTimer()
         if !parked { tickScreenActivity() }
@@ -433,9 +435,13 @@ final class GhosttySession {
         screenActivityTimer?.invalidate()
         screenActivityTimer = nil
         guard onScreenActivity != nil, !isParked, !isDetached else { return }
-        screenActivityTimer = Timer.scheduledTimer(withTimeInterval: Self.screenActivityInterval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.screenActivityInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tickScreenActivity() }
         }
+        // Common modes: an open menu or a live resize tracks events, and the
+        // default mode alone would stall the count until it ends.
+        RunLoop.main.add(timer, forMode: .common)
+        screenActivityTimer = timer
     }
 
     /// One row in points: libghostty reports the cell in pixels.
