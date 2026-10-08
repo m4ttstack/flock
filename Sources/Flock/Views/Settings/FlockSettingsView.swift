@@ -46,6 +46,7 @@ struct FlockSettingsView: View {
     let overviewReturnStore: OverviewReturnStore
     let overviewInclusionStore: OverviewInclusionStore
     let oneTitleStore: OneTitleStore
+    let agentCloseWarningStore: AgentCloseWarningStore
     let topBarLabelStore: TopBarLabelStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
     let startingFolderStore: StartingFolderStore
@@ -59,7 +60,7 @@ struct FlockSettingsView: View {
         herdrMousePatchStore: HerdrMousePatchStore, notificationLifetimeStore: NotificationLifetimeStore,
         missionBottomLineStore: MissionBottomLineStore, overviewReturnStore: OverviewReturnStore,
         overviewInclusionStore: OverviewInclusionStore,
-        oneTitleStore: OneTitleStore, topBarLabelStore: TopBarLabelStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
+        oneTitleStore: OneTitleStore, agentCloseWarningStore: AgentCloseWarningStore, topBarLabelStore: TopBarLabelStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, tab: SettingsTab = .general
     ) {
@@ -69,6 +70,7 @@ struct FlockSettingsView: View {
         self.overviewReturnStore = overviewReturnStore
         self.overviewInclusionStore = overviewInclusionStore
         self.oneTitleStore = oneTitleStore
+        self.agentCloseWarningStore = agentCloseWarningStore
         self.topBarLabelStore = topBarLabelStore
         self.rearrangeAfterMoveStore = rearrangeAfterMoveStore
         self.startingFolderStore = startingFolderStore
@@ -85,6 +87,7 @@ struct FlockSettingsView: View {
                 NotificationSettingsSection(store: notificationLifetimeStore)
                 TitlesSettingsSection(store: oneTitleStore)
                 TopBarSettingsSection(store: topBarLabelStore)
+                ClosingSettingsSection(store: agentCloseWarningStore)
             }
             .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.symbol) }
             .tag(SettingsTab.general)

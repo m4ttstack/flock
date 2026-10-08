@@ -64,6 +64,7 @@ struct FlockApp: App {
     @State private var overviewReturnStore: OverviewReturnStore
     @State private var overviewInclusionStore = OverviewInclusionStore()
     @State private var oneTitleStore: OneTitleStore
+    @State private var agentCloseWarningStore: AgentCloseWarningStore
     @State private var workspaceIdentityStore: WorkspaceIdentityStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
     @State private var startingFolderStore: StartingFolderStore
@@ -199,6 +200,8 @@ struct FlockApp: App {
         _startingFolderStore = State(initialValue: startingFolderStore)
         let oneTitleStore = OneTitleStore()
         _oneTitleStore = State(initialValue: oneTitleStore)
+        let agentCloseWarningStore = AgentCloseWarningStore()
+        _agentCloseWarningStore = State(initialValue: agentCloseWarningStore)
         // One client, two roles: `HerdrClient` conforms to both
         // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
         // command verbs and the layout-export coordinator share the same
@@ -220,6 +223,7 @@ struct FlockApp: App {
             attentionToastArchive: AttentionToastArchive(),
             paneLastChangeArchive: PaneLastChangeArchive(),
             oneTitle: { oneTitleStore.active },
+            agentCloseWarning: agentCloseWarningStore,
             startingFolder: { startingFolderStore.choice(for: $0) },
             rightClickDefaults: .standard,
             completedTabDefaults: .standard,
@@ -704,6 +708,7 @@ struct FlockApp: App {
                 overviewReturnStore: overviewReturnStore,
                 overviewInclusionStore: overviewInclusionStore,
                 oneTitleStore: oneTitleStore,
+                agentCloseWarningStore: agentCloseWarningStore,
                 topBarLabelStore: topBarLabelStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,

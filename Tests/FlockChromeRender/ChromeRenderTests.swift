@@ -2687,6 +2687,7 @@ final class ChromeRenderTests: XCTestCase {
         defaults.removeObject(forKey: RearrangeAfterMoveStore.defaultsKey)
         defaults.removeObject(forKey: MissionBottomLineStore.defaultsKey)
         defaults.removeObject(forKey: OneTitleStore.defaultsKey)
+        defaults.removeObject(forKey: AgentCloseWarningStore.defaultsKey)
         defaults.removeObject(forKey: TopBarLabelStore.defaultsKey)
         for kind in NewTerminalKind.allCases {
             defaults.removeObject(forKey: StartingFolderStore.defaultsKey(for: kind))
@@ -2712,6 +2713,7 @@ final class ChromeRenderTests: XCTestCase {
                 overviewReturnStore: OverviewReturnStore(userDefaults: defaults),
                 overviewInclusionStore: OverviewInclusionStore(userDefaults: defaults),
                 oneTitleStore: OneTitleStore(userDefaults: defaults),
+                agentCloseWarningStore: AgentCloseWarningStore(userDefaults: defaults),
                 topBarLabelStore: TopBarLabelStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,
@@ -4008,6 +4010,45 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// Closing a tab that runs Claude asks, and the prompt carries "Don't
+    /// warn me next time"; ticking it and closing turns the warning off.
+    func testTheAgentCloseWarningOffersDontWarnMeNextTime() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (id, appearance) in [("tokyo-night", NSAppearance.Name.darkAqua), ("one-light", .aqua)] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let suite = "flock-agent-close-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+            let store = AgentCloseWarningStore(userDefaults: defaults)
+            let harness = try await Harness(theme: theme, agentCloseWarning: store)
+            let window = harness.makeWindow(size: Self.windowSize)
+            window.appearance = NSAppearance(named: appearance)
+            await settle(window)
+            let tab = try XCTUnwrap(harness.viewModel.selectedTabID)
+            await harness.viewModel.closeTab(tab)
+            XCTAssertEqual(harness.viewModel.pendingClose?.warnsOfAgents, true, "\(id): no agent warning raised")
+            await settle(window)
+            let sheet = try XCTUnwrap(window.attachedSheet, "\(id): the prompt is not a sheet on the window")
+            let buttons = Self.buttons(in: try XCTUnwrap(sheet.contentView))
+            let checkbox = try XCTUnwrap(buttons.first { $0.title == "Don't warn me next time" }, "\(id): \(buttons.map(\.title))")
+            if let directory, let view = sheet.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("agent-close-warning-\(id).png"))
+            }
+            checkbox.performClick(nil)
+            let confirm = try XCTUnwrap(buttons.first { $0.title.hasPrefix("Close") }, "\(id): \(buttons.map(\.title))")
+            confirm.performClick(nil)
+            await settle(window)
+            XCTAssertFalse(store.active, "\(id): the ticked box left the warning on")
+            window.close()
+        }
+    }
+
+    private static func buttons(in view: NSView) -> [NSButton] {
+        (view as? NSButton).map { [$0] } ?? [] + view.subviews.flatMap { buttons(in: $0) }
+    }
+
     /// ⌥Tab's panel is ⌃Tab's over the selected workspace's tabs: the current
     /// tab on top, the last one used selected under it.
     func testTheTabSwitcherSelectsTheLastTabUnderTheCurrentOne() async throws {
@@ -4444,7 +4485,8 @@ private struct Harness {
         mouseHolders: Set<PaneID> = [],
         // Off by default, so every render that predates Settings > Titles
         // keeps drawing each pane's own title.
-        oneTitle: Bool = false
+        oneTitle: Bool = false,
+        agentCloseWarning: AgentCloseWarningStore? = nil
     ) async throws {
         ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -4499,7 +4541,8 @@ private struct Harness {
         }
         viewModel = SessionViewModel(
             client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now,
-            notificationLifetime: { notificationLifetime }, oneTitle: { oneTitle }, repoBranches: repoBranches
+            notificationLifetime: { notificationLifetime }, oneTitle: { oneTitle }, agentCloseWarning: agentCloseWarning,
+            repoBranches: repoBranches
         )
         escapeOwner = viewModel
         viewModel.update(model: try model ?? Fixture.model(), connection: .live)

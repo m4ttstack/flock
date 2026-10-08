@@ -203,31 +203,7 @@ struct MainWindow: View {
                 ] as [String?]).compactMap { $0 }.joined(separator: " ")
             )
         }
-        // A pane or tab close herdr would escalate into a tab or a workspace.
-        // One prompt for both verbs, since one rule decides both. Same
-        // `presenting:` shape, and for the same reason: what the confirm button
-        // closes is captured when the prompt goes up.
-        .confirmationDialog(
-            viewModel.pendingClose?.title ?? "",
-            isPresented: Binding(
-                get: { viewModel.pendingClose != nil },
-                set: { shown in if !shown { viewModel.cancelPendingClose() } }
-            ),
-            titleVisibility: .visible,
-            presenting: viewModel.pendingClose
-        ) { pending in
-            Button(pending.confirmButtonTitle) {
-                Task { await viewModel.confirmClose(pending.subject) }
-            }
-            // No destructive role: as the default it draws blue anyway, and the
-            // role's red flashes back in as the prompt dismisses.
-            .keyboardShortcut(.defaultAction)
-            .accessibilityIdentifier("flock.close.confirm")
-            Button("Cancel", role: .cancel) { viewModel.cancelPendingClose() }
-                .accessibilityIdentifier("flock.close.cancel")
-        } message: { pending in
-            Text(pending.message)
-        }
+        .modifier(CloseConfirmationDialog(viewModel: viewModel))
         .modifier(TopBarRefusalAlert(viewModel: viewModel))
         // The same confirmation the settings row raises, hosted here too so
         // the banner's Install is the identical action rather than a shortcut
@@ -247,6 +223,75 @@ struct MainWindow: View {
             Button("Cancel", role: .cancel) { herdrMousePatchStore.cancelPendingConfirmation() }
         } message: { pending in
             Text(pending.confirmation.message)
+        }
+    }
+}
+
+/// A pane or tab close that escalates, interrupts a busy pane or ends an agent
+/// session. One prompt for both verbs, since one rule decides both. Same
+/// `presenting:` shape as the group close, and for the same reason: what the
+/// confirm button closes is captured when the prompt goes up.
+private struct CloseConfirmationDialog: ViewModifier {
+    let viewModel: SessionViewModel
+
+    @State private var dontWarnAgain = false
+
+    /// Presented from a background of its own: the suppression box is set on
+    /// the presenting view, and toggling it there leaves the window's content
+    /// untouched.
+    func body(content: Content) -> some View {
+        content.background { presenter }
+    }
+
+    private var presenter: some View {
+        Color.clear.confirmationDialog(
+            viewModel.pendingClose?.title ?? "",
+            isPresented: Binding(
+                get: { viewModel.pendingClose != nil },
+                set: { shown in if !shown { answered(); viewModel.cancelPendingClose() } }
+            ),
+            titleVisibility: .visible,
+            presenting: viewModel.pendingClose
+        ) { pending in
+            Button(pending.confirmButtonTitle) {
+                answered()
+                Task { await viewModel.confirmClose(pending.subject) }
+            }
+            // No destructive role: as the default it draws blue anyway, and the
+            // role's red flashes back in as the prompt dismisses.
+            .keyboardShortcut(.defaultAction)
+            .accessibilityIdentifier("flock.close.confirm")
+            Button("Cancel", role: .cancel) {
+                answered()
+                viewModel.cancelPendingClose()
+            }
+            .accessibilityIdentifier("flock.close.cancel")
+        } message: { pending in
+            Text(pending.message)
+        }
+        .modifier(AgentWarningSuppression(
+            isOffered: viewModel.pendingClose?.warnsOfAgents == true, isSuppressed: $dontWarnAgain
+        ))
+    }
+
+    /// The box counts whichever way the prompt is answered, as a system
+    /// alert's suppression box does.
+    private func answered() {
+        guard dontWarnAgain else { return }
+        dontWarnAgain = false
+        viewModel.stopWarningOnAgentCloses()
+    }
+}
+
+private struct AgentWarningSuppression: ViewModifier {
+    let isOffered: Bool
+    @Binding var isSuppressed: Bool
+
+    func body(content: Content) -> some View {
+        if isOffered {
+            content.dialogSuppressionToggle("Don't warn me next time", isSuppressed: $isSuppressed)
+        } else {
+            content
         }
     }
 }
