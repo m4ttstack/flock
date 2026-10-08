@@ -441,4 +441,61 @@ final class ReducerTests: XCTestCase {
             TabID(rawValue: "w2:t1")
         )
     }
+
+    /// herdr hands a closed active tab's place to the tab on its left and
+    /// emits no `tab.focused` for it, so a workspace selected afterwards
+    /// would land on a tab that is gone and draw "No tab selected".
+    func testClosingTheActiveTabHandsItToTheTabOnItsLeft() throws {
+        var model = try seededModel()
+        apply(.tabFocused(TabID(rawValue: "w1:t2")), to: &model)
+
+        apply(.tabClosed(TabID(rawValue: "w1:t2")), to: &model)
+
+        XCTAssertEqual(activeTab(of: "w1", in: model), TabID(rawValue: "w1:t1"))
+    }
+
+    func testClosingTheLeftmostActiveTabHandsItRightward() throws {
+        var model = try seededModel()
+
+        apply(.tabClosed(TabID(rawValue: "w1:t1")), to: &model)
+
+        XCTAssertEqual(activeTab(of: "w1", in: model), TabID(rawValue: "w1:t2"))
+    }
+
+    func testClosingAnotherTabLeavesTheActiveTabAlone() throws {
+        var model = try seededModel()
+        apply(.tabFocused(TabID(rawValue: "w1:t2")), to: &model)
+
+        apply(.tabClosed(TabID(rawValue: "w1:t1")), to: &model)
+
+        XCTAssertEqual(activeTab(of: "w1", in: model), TabID(rawValue: "w1:t2"))
+    }
+
+    /// A pane that empties its tab takes the tab with it (`removePane`).
+    func testClosingTheLastPaneOfTheActiveTabMovesTheActiveTab() throws {
+        var model = try seededModel()
+        apply(.tabFocused(TabID(rawValue: "w1:t2")), to: &model)
+
+        apply(.paneClosed(PaneID(rawValue: "w1:p3")), to: &model)
+
+        XCTAssertEqual(activeTab(of: "w1", in: model), TabID(rawValue: "w1:t1"))
+    }
+
+    func testMovingTheActiveTabAwayMovesTheSourcesActiveTab() throws {
+        var model = try seededModel()
+        let other = WorkspaceID(rawValue: "w2")
+        model.workspaces.append(WorkspaceRecord(
+            workspaceID: other, label: "second", number: 2, activeTabID: TabID(rawValue: "w2:t1"), agentStatus: .unknown
+        ))
+        apply(.tabFocused(TabID(rawValue: "w1:t2")), to: &model)
+        let moved = try XCTUnwrap(model.tabs[WorkspaceID(rawValue: "w1")]?.first { $0.tabID == TabID(rawValue: "w1:t2") })
+
+        apply(.tabMoved(moved.tabID, other, [moved]), to: &model)
+
+        XCTAssertEqual(activeTab(of: "w1", in: model), TabID(rawValue: "w1:t1"))
+    }
+
+    private func activeTab(of workspace: String, in model: SessionModel) -> TabID? {
+        model.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: workspace) }?.activeTabID
+    }
 }

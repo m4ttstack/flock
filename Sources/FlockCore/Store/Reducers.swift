@@ -85,6 +85,7 @@ private func reduce(_ event: HerdrEvent, into model: inout SessionModel) {
 
     case .tabMoved(let tabID, let workspaceID, let tabs):
         for otherWorkspaceID in model.tabs.keys where otherWorkspaceID != workspaceID {
+            handOffActiveTab(tabID, leaving: otherWorkspaceID, in: &model)
             model.tabs[otherWorkspaceID]?.removeAll { $0.tabID == tabID }
         }
         model.tabs[workspaceID] = tabs
@@ -215,6 +216,7 @@ private func upsertWorkspace(_ workspace: WorkspaceRecord, into model: inout Ses
 
 private func removeTab(_ tabID: TabID, from model: inout SessionModel) {
     for workspaceID in model.tabs.keys {
+        handOffActiveTab(tabID, leaving: workspaceID, in: &model)
         model.tabs[workspaceID]?.removeAll { $0.tabID == tabID }
     }
     model.layouts.removeValue(forKey: tabID)
@@ -225,6 +227,21 @@ private func removeTab(_ tabID: TabID, from model: inout SessionModel) {
     // them, rather than being torn down the moment the tab is actually
     // gone). Mirrors `removeWorkspace`'s own pane prune below.
     model.panes = model.panes.filter { $0.value.tabID != tabID }
+}
+
+/// herdr moves a workspace's active tab off one that leaves it to the tab on
+/// its left, or its right from the leftmost (`Workspace::close_tab`), and
+/// emits no `tab.focused` for it. Left naming the gone tab, selecting the
+/// workspace would land on nothing until the next snapshot.
+private func handOffActiveTab(_ tabID: TabID, leaving workspaceID: WorkspaceID, in model: inout SessionModel) {
+    guard let index = model.workspaces.firstIndex(where: { $0.workspaceID == workspaceID && $0.activeTabID == tabID }),
+          let order = model.tabs[workspaceID]?.map(\.tabID),
+          let position = order.firstIndex(of: tabID)
+    else { return }
+    let left = order[..<position].last
+    let right = order[order.index(after: position)...].first
+    guard let landing = left ?? right else { return }
+    model.workspaces[index].activeTabID = landing
 }
 
 private func removeWorkspace(_ workspaceID: WorkspaceID, from model: inout SessionModel) {
