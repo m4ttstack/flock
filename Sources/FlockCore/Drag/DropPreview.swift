@@ -67,7 +67,7 @@ public enum DropPreview {
                 return DropPreviewFrames(incoming: box(incomingRect(in: frame, edge: .right)))
             }
             return DropPreviewFrames(incoming: box(frame))
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .pinnedRail:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .pinnedRail, .topBar:
             return nil
         }
     }
@@ -102,7 +102,7 @@ public enum DropPreview {
             return replacingLeaf(targetPane, in: root) { existing in
                 split(incoming: .pane(ExportedLayoutPane(paneID: pane)), existing: existing, on: .right)
             }
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .pinnedRail:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .pinnedRail, .topBar:
             return nil
         }
     }
@@ -193,7 +193,7 @@ public enum DropPreview {
 /// sliver burning at a position the new arrangement has already moved past.
 public func dropFlashRect(for target: DropTarget, surfaces: DropSurfaces) -> CGRect? {
     switch target {
-    case .tabStrip, .workspaceRail, .pinnedRail:
+    case .tabStrip, .workspaceRail, .pinnedRail, .topBar:
         return nil
     case .paneEdge, .paneInterior, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
         return dropTargetRect(for: target, surfaces: surfaces)
@@ -257,6 +257,11 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
         guard let container = surfaces.pinnedFrame ?? surfaces.railViewport else { return nil }
         return InsertionBarGeometry.bar(
             atInsertIndex: insertIndex, items: surfaces.pinnedFrames.map(\.frame), container: container, axis: .horizontal
+        )
+    case .topBar(let insertIndex):
+        guard let container = surfaces.topBarFrame else { return nil }
+        return InsertionBarGeometry.bar(
+            atInsertIndex: insertIndex, items: surfaces.topBarFrames.map(\.frame), container: container, axis: .vertical
         )
     }
 }

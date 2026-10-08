@@ -52,6 +52,21 @@ enum ChromeMetrics {
         static let tabGlyphSize: CGFloat = 12
         static let tabGlyphGap: CGFloat = 7
         static let tabUnderline: CGFloat = 2
+        /// A top-bar workspace is a menu-bar extra: a rounded button centred
+        /// in the bar, `2 * topBarButtonPadding + topBarIcon` wide when it
+        /// shows no name.
+        static let topBarIcon: CGFloat = 16
+        static let topBarButtonHeight: CGFloat = 26
+        static let topBarButtonPadding: CGFloat = 8
+        static let topBarButtonRadius: CGFloat = 6
+        static let topBarButtonGap: CGFloat = 5
+        static let topBarNameGap: CGFloat = 6
+        /// The last button's clearance from the window's edge when no notice
+        /// follows it.
+        static let topBarEdgeInset: CGFloat = 12
+        /// An empty pin's icon and name, over `textStrong`.
+        static let topBarEmptyOpacity: Double = 0.4
+        static let renameWidth: CGFloat = 200
         /// The least clearance the centred title keeps from either end's
         /// content before it hides. Small enough that "flock" and the DEV tag
         /// still fit beside the tabs at the main window's minimum width.
@@ -547,6 +562,14 @@ enum ChromeMetrics {
         static let opacity: Double = 0.1
     }
 
+    /// An open top-bar workspace button's ground: white over a dark theme,
+    /// black over a light one. A closed button has none at rest and takes
+    /// `HoverWash` under the pointer, which stays below this.
+    enum MenuBarWash {
+        static let darkOpen: Double = 0.14
+        static let lightOpen: Double = 0.08
+    }
+
     /// The workspace symbol picker popover: an Automatic button, then each
     /// group's symbols in a grid of square cells.
     enum SymbolPicker {
@@ -644,11 +667,11 @@ enum ChromeMetrics {
         }
     }
 
-    /// The rt modal over the tab area: a box of one hidden pane, a title row
-    /// above it and, once its command has ended, a strip below it.
-    enum RtModal {
-        /// Of the tab area, on each axis.
-        static func sizeFraction(_ size: RtModalSize) -> CGFloat {
+    /// A modal over an area: a card of one hosted pane, a title row above it
+    /// and, optionally, a footer below it.
+    enum Modal {
+        /// Of the area under the modal, on each axis.
+        static func sizeFraction(_ size: ModalSize) -> CGFloat {
             switch size {
             case .small: 0.7
             case .medium: 0.8
@@ -663,20 +686,18 @@ enum ChromeMetrics {
         /// The canvas's blur of 24: a SwiftUI radius is half the spread.
         static let shadowRadius: CGFloat = 12
         static let shadowY: CGFloat = 8
-        /// From the box's edges, around the terminal area between the title
-        /// row and the strip.
+        /// From the card's edges, around the content area between the title
+        /// row and the footer.
         static let paneInset: CGFloat = 6
 
         enum TitleRow {
             static let height: CGFloat = 28
             static let horizontalPadding: CGFloat = 12
             static let gap: CGFloat = 8
-            static let backDividerSize = CGSize(width: 1, height: 12)
             /// The close control's box, which is also its hover wash.
             static let closeGlyphSize: CGFloat = 20
             static let buttonBoxSide: CGFloat = 20
             static let buttonCornerRadius: CGFloat = ChromeRadius.control
-            static let backHoverPadding: CGFloat = 5
         }
 
         /// The title row's three size buttons, Small to Large, before the
@@ -688,7 +709,7 @@ enum ChromeMetrics {
             static let glyphCornerRadius: CGFloat = 1.5
             static let glyphLineWidth: CGFloat = 1.25
 
-            static func glyphSize(_ size: RtModalSize) -> CGSize {
+            static func glyphSize(_ size: ModalSize) -> CGSize {
                 switch size {
                 case .small: CGSize(width: 10, height: 7)
                 case .medium: CGSize(width: 12, height: 9)
@@ -696,6 +717,12 @@ enum ChromeMetrics {
                 }
             }
         }
+    }
+
+    /// The rt modal's own pieces on top of the shared `Modal`.
+    enum RtModal {
+        static let backDividerSize = CGSize(width: 1, height: 12)
+        static let backHoverPadding: CGFloat = 5
 
         enum Strip {
             static let height: CGFloat = 26

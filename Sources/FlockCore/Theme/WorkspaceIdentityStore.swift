@@ -45,7 +45,7 @@ public final class WorkspaceIdentityStore {
     /// symbol; then every other key the rail shows, in rail order.
     public static func keys(in sections: RailSections) -> [String] {
         var seen = Set<String>()
-        let pins = sections.pinned.map(\.pin.identityKey)
+        let pins = (sections.pinned + sections.topBar).map(\.pin.identityKey)
         let rest = sections.railOrder.compactMap { key(for: $0, sections: sections) }
         return (pins + rest).filter { seen.insert($0).inserted }
     }

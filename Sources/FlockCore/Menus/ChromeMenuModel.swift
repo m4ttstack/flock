@@ -29,13 +29,22 @@ public enum WorkspaceMenuAction: Equatable, Sendable {
     case pin
     case unpin
     case changeFolder
+    case moveToTopBar
     case close
 }
 
 public enum EmptyPinMenuAction: Equatable, Sendable {
     case rename
     case changeFolder
+    case moveToTopBar
     case remove
+}
+
+public enum TopBarMenuAction: Equatable, Sendable {
+    case moveToSidebar
+    case rename
+    case changeSymbol
+    case unpin
 }
 
 public enum RailMenuAction: Equatable, Sendable {
@@ -79,16 +88,21 @@ public enum WorkspaceMenuModel {
     public static func entries(for workspace: WorkspaceID, model: SessionModel, isPinned: Bool = false) -> [ChromeMenuEntry<WorkspaceMenuAction>] {
         guard model.workspaces.contains(where: { $0.workspaceID == workspace }) else { return [] }
         let rename = ChromeMenuEntry(label: "Rename", action: WorkspaceMenuAction.rename, accessibilityIdentifier: "flock.workspace.menu.rename")
+        let moveToTopBar = ChromeMenuEntry(
+            label: "Move to Top Bar", action: WorkspaceMenuAction.moveToTopBar, accessibilityIdentifier: "flock.workspace.menu.moveToTopBar"
+        )
         guard !isPinned else {
             return [
                 rename,
                 ChromeMenuEntry(label: "Change Folder\u{2026}", action: .changeFolder, accessibilityIdentifier: "flock.workspace.menu.changeFolder"),
+                moveToTopBar,
                 ChromeMenuEntry(label: "Unpin", action: .unpin, accessibilityIdentifier: "flock.workspace.menu.unpin"),
             ]
         }
         return [
             rename,
             ChromeMenuEntry(label: "Pin", action: .pin, accessibilityIdentifier: "flock.workspace.menu.pin"),
+            moveToTopBar,
             ChromeMenuEntry(label: "Close", action: .close, accessibilityIdentifier: "flock.workspace.menu.close"),
         ]
     }
@@ -100,7 +114,20 @@ public enum EmptyPinMenuModel {
         [
             ChromeMenuEntry(label: "Rename", action: .rename, accessibilityIdentifier: "flock.pin.menu.rename"),
             ChromeMenuEntry(label: "Change Folder\u{2026}", action: .changeFolder, accessibilityIdentifier: "flock.pin.menu.changeFolder"),
+            ChromeMenuEntry(label: "Move to Top Bar", action: .moveToTopBar, accessibilityIdentifier: "flock.pin.menu.moveToTopBar"),
             ChromeMenuEntry(label: "Remove", action: .remove, accessibilityIdentifier: "flock.pin.menu.remove"),
+        ]
+    }
+}
+
+/// A title-bar workspace's right-click menu.
+public enum TopBarMenuModel {
+    public static func entries() -> [ChromeMenuEntry<TopBarMenuAction>] {
+        [
+            ChromeMenuEntry(label: "Move to Sidebar", action: .moveToSidebar, accessibilityIdentifier: "flock.topBar.menu.moveToSidebar"),
+            ChromeMenuEntry(label: "Rename", action: .rename, accessibilityIdentifier: "flock.topBar.menu.rename"),
+            ChromeMenuEntry(label: "Change Icon\u{2026}", action: .changeSymbol, accessibilityIdentifier: "flock.topBar.menu.changeSymbol"),
+            ChromeMenuEntry(label: "Unpin", action: .unpin, accessibilityIdentifier: "flock.topBar.menu.unpin"),
         ]
     }
 }
@@ -144,6 +171,8 @@ extension WorkspaceMenuAction {
             if let pin = viewModel.pins.pin(linkedTo: workspaceID) { viewModel.unpin(pin.id) }
         case .changeFolder:
             break
+        case .moveToTopBar:
+            viewModel.moveToTopBar(workspace: workspaceID, at: nil)
         case .close:
             await viewModel.closeWorkspace(workspaceID)
         }

@@ -18,8 +18,8 @@ final class RtModalSizeTests: XCTestCase {
     }
 
     func testTheSizesRunSmallToLargeUnderTheirNames() {
-        XCTAssertEqual(RtModalSize.allCases, [.small, .medium, .large])
-        XCTAssertEqual(RtModalSize.allCases.map(\.displayName), ["Small", "Medium", "Large"])
+        XCTAssertEqual(ModalSize.allCases, [.small, .medium, .large])
+        XCTAssertEqual(ModalSize.allCases.map(\.displayName), ["Small", "Medium", "Large"])
     }
 
     @MainActor
@@ -49,7 +49,7 @@ final class RtModalSizeTests: XCTestCase {
     @MainActor
     func testTheSharedSizeFromBeforeSeedsEachCommand() throws {
         let suite = try makeDefaults()
-        suite.set(RtModalSize.large.rawValue, forKey: RtModalSizeStore.legacyDefaultsKey)
+        suite.set(ModalSize.large.rawValue, forKey: RtModalSizeStore.legacyDefaultsKey)
         let store = RtModalSizeStore(userDefaults: suite)
         store.select(.small, for: .glitter)
 

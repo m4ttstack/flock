@@ -14,6 +14,7 @@ struct FlockSettingsView: View {
     let notificationLifetimeStore: NotificationLifetimeStore
     let missionBottomLineStore: MissionBottomLineStore
     let oneTitleStore: OneTitleStore
+    let topBarLabelStore: TopBarLabelStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
     let startingFolderStore: StartingFolderStore
     let rtModalTextSizeStore: RtModalTextSizeStore
@@ -24,6 +25,7 @@ struct FlockSettingsView: View {
             StartingFolderSettingsSection(store: startingFolderStore)
             NotificationSettingsSection(store: notificationLifetimeStore)
             TitlesSettingsSection(store: oneTitleStore)
+            TopBarSettingsSection(store: topBarLabelStore)
             OverviewSettingsSection(bottomLineStore: missionBottomLineStore)
             RearrangeSettingsSection(store: rearrangeAfterMoveStore)
             RtModalTextSizeSection(store: rtModalTextSizeStore)

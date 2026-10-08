@@ -12,7 +12,7 @@ extension PaletteContext {
             canvasPane: viewModel.canvasFocusedPaneID,
             focusedPaneZoomed: viewModel.canvasFocusedPaneIsZoomed,
             neighbors: Set(PaneDirection.allCases.filter { viewModel.focusedPaneHasNeighbor(toward: $0) }),
-            rtModalUp: viewModel.rt.modal != nil,
+            modalUp: viewModel.modalIsUp,
             rtInstalled: rtInstalled && terminal != nil,
             rtCommands: terminal.map { viewModel.rt.commandRows(linkedTo: $0) } ?? [],
             chatRows: ChatMenuModel.rows(
@@ -25,7 +25,8 @@ extension PaletteContext {
             rightClickMode: viewModel.focusedPaneRightClickMode,
             programHasMouse: focused.flatMap { viewModel.ghosttySurface(for: $0) }?.programHasMouse ?? false,
             hasSelectedWorkspace: viewModel.selectedWorkspaceID != nil,
-            hasNotifications: !viewModel.attentionToasts.isEmpty
+            hasNotifications: !viewModel.attentionToasts.isEmpty,
+            topBarOverlayUp: viewModel.topBarOverlay.openPin != nil
         )
     }
 }

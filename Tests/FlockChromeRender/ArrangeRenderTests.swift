@@ -252,6 +252,7 @@ struct ArrangeHarness {
         .environment(modeStore)
         .environment(MissionBottomLineStore(userDefaults: defaults))
         .environment(WorkspaceIdentityStore(userDefaults: defaults))
+        .environment(TopBarOverlaySizeStore(userDefaults: defaults))
         .environment(DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in })))
         .environment(ChatStore(
             toasts: ToastCenter(), probe: { nil }, rtProbe: { true }, deckProbe: { true },

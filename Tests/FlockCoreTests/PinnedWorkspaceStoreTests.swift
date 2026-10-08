@@ -237,4 +237,48 @@ final class PinnedWorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(PinFolders.firstPane(of: WorkspaceID(rawValue: "w1"), in: model), "/acme/apps/web")
         XCTAssertNil(PinFolders.firstPane(of: WorkspaceID(rawValue: "nope"), in: model))
     }
+
+    func testAStoredPinWithoutAPlacementDecodesAsRail() throws {
+        let json = #"{"version":1,"pins":[{"id":"p1","name":"acme","folder":"/acme","confirmed":true}]}"#
+        let defaults = defaults()
+        defaults.set(Data(json.utf8), forKey: PinnedWorkspaceStore.defaultsKey)
+        let store = PinnedWorkspaceStore(userDefaults: defaults)
+        XCTAssertEqual(store.pins.map(\.placement), [.rail])
+    }
+
+    func testPlacementRoundTripsThroughDefaults() {
+        let defaults = defaults()
+        let store = PinnedWorkspaceStore(userDefaults: defaults)
+        let a = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "a", folder: "/a", at: nil)!
+        store.setPlacement(a.id, to: .topBar, at: nil)
+        XCTAssertEqual(PinnedWorkspaceStore(userDefaults: defaults).pins.map(\.placement), [.topBar])
+    }
+
+    /// The rail draws only rail pins, so its drop index must not count a
+    /// top-bar pin that sits between them in the stored order.
+    func testIndicesCountOnlyThePlacementBeingDrawn() {
+        let store = PinnedWorkspaceStore(userDefaults: nil)
+        let a = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "a", folder: "/a", at: nil)!
+        let t = store.add(workspace: WorkspaceID(rawValue: "w2"), name: "t", folder: "/t", at: nil, placement: .topBar)!
+        let b = store.add(workspace: WorkspaceID(rawValue: "w3"), name: "b", folder: "/b", at: nil)!
+        XCTAssertEqual(store.pins(in: .rail).map(\.name), ["a", "b"])
+        XCTAssertEqual(store.pins(in: .topBar).map(\.name), ["t"])
+        store.move(b.id, toInsertIndex: 0)
+        XCTAssertEqual(store.pins(in: .rail).map(\.name), ["b", "a"])
+        store.move(b.id, toInsertIndex: 2)
+        XCTAssertEqual(store.pins(in: .rail).map(\.name), ["a", "b"])
+        store.setPlacement(a.id, to: .topBar, at: 0)
+        XCTAssertEqual(store.pins(in: .topBar).map(\.name), ["a", "t"])
+        store.setPlacement(t.id, to: .rail, at: 0)
+        XCTAssertEqual(store.pins(in: .rail).map(\.name), ["t", "b"])
+        XCTAssertEqual(store.pins(in: .topBar).map(\.name), ["a"])
+    }
+
+    func testAddAtAnIndexCountsItsOwnPlacement() {
+        let store = PinnedWorkspaceStore(userDefaults: nil)
+        _ = store.add(workspace: WorkspaceID(rawValue: "w1"), name: "t", folder: "/t", at: nil, placement: .topBar)
+        _ = store.add(workspace: WorkspaceID(rawValue: "w2"), name: "a", folder: "/a", at: nil)
+        _ = store.add(workspace: WorkspaceID(rawValue: "w3"), name: "b", folder: "/b", at: 0)
+        XCTAssertEqual(store.pins(in: .rail).map(\.name), ["b", "a"])
+    }
 }

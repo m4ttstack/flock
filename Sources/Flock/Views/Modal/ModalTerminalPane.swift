@@ -1,13 +1,13 @@
 import FlockCore
 import SwiftUI
 
-/// One hidden pane on its ghostty surface. It attaches and parks like a
-/// canvas cell, through the view model's per-pane chain.
+/// One pane on its ghostty surface inside a modal. It attaches and parks
+/// like a canvas cell, through the view model's per-pane chain.
 ///
-/// While the item's own command is on its way up (`RtModalLoaderPolicy`), the
-/// pane loader runs over the pane instead. The surface stays mounted
+/// Given a `command`, the pane loader covers the pane while that command is
+/// on its way up (`RtModalLoaderPolicy`). The surface stays mounted
 /// underneath at zero opacity: libghostty needs a real window to render into.
-struct RtModalPane: View {
+struct ModalTerminalPane: View {
     /// What the item's own command has done so far. A service pane has none:
     /// nothing was typed into it, so nothing ever covers it.
     struct Command: Equatable {

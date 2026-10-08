@@ -39,6 +39,7 @@ final class WorkspaceRailNewWorkspaceZoneHitTestTests: XCTestCase {
                 .environment(AllWorkspacesModeStore(userDefaults: missionDefaults))
             .environment(MissionBottomLineStore(userDefaults: missionDefaults))
                 .environment(WorkspaceIdentityStore(userDefaults: missionDefaults))
+                .environment(TopBarOverlaySizeStore(userDefaults: missionDefaults))
                 .frame(width: Self.size.width, height: Self.size.height)
         }
     }
