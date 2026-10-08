@@ -2718,6 +2718,7 @@ final class ChromeRenderTests: XCTestCase {
                     executablePath: "/Applications/Flock.app/Contents/MacOS/Flock",
                     name: "flock"
                 ),
+                herdrVersion: "0.9.3",
                 tab: tab
             )
             let window = NSWindow(

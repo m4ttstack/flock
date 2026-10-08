@@ -662,10 +662,11 @@ struct FlockApp: App {
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,
-                commandLineToolStore: commandLineToolStore
+                commandLineToolStore: commandLineToolStore,
+                herdrVersion: viewModel.model?.herdrVersion
             )
         }
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
     }
 
     private func focusedPaneButton(_ command: FocusedPaneCommand) -> some View {

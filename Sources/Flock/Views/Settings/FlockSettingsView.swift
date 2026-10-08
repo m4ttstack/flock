@@ -49,6 +49,7 @@ struct FlockSettingsView: View {
     let startingFolderStore: StartingFolderStore
     let rtModalTextSizeStore: RtModalTextSizeStore
     let commandLineToolStore: CommandLineToolStore
+    let herdrVersion: String?
 
     @State private var tab: SettingsTab
 
@@ -57,7 +58,7 @@ struct FlockSettingsView: View {
         missionBottomLineStore: MissionBottomLineStore, overviewReturnStore: OverviewReturnStore,
         oneTitleStore: OneTitleStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
-        commandLineToolStore: CommandLineToolStore, tab: SettingsTab = .general
+        commandLineToolStore: CommandLineToolStore, herdrVersion: String?, tab: SettingsTab = .general
     ) {
         self.herdrMousePatchStore = herdrMousePatchStore
         self.notificationLifetimeStore = notificationLifetimeStore
@@ -68,6 +69,7 @@ struct FlockSettingsView: View {
         self.startingFolderStore = startingFolderStore
         self.rtModalTextSizeStore = rtModalTextSizeStore
         self.commandLineToolStore = commandLineToolStore
+        self.herdrVersion = herdrVersion
         _tab = State(initialValue: tab)
     }
 
@@ -93,7 +95,7 @@ struct FlockSettingsView: View {
             .tabItem { Label(SettingsTab.tools.title, systemImage: SettingsTab.tools.symbol) }
             .tag(SettingsTab.tools)
             pane(.herdr) {
-                HerdrMousePatchRow(store: herdrMousePatchStore)
+                HerdrMousePatchRow(store: herdrMousePatchStore, herdrVersion: herdrVersion)
             }
             .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }
             .tag(SettingsTab.herdr)
