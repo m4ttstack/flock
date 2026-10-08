@@ -1,44 +1,40 @@
 import AppKit
 import SwiftUI
 
-/// Registers the Settings window with `FlockWindow` and fits it to the shown
-/// tab: the settings' width, and the tab's measured height, its top edge held
-/// still. Left to itself the window keeps whatever frame it last had, an
-/// earlier resizable build's included, and the tab floats in the middle.
+/// Registers the Settings window with `FlockWindow` and sets its size once,
+/// when it is first shown. A window otherwise keeps whatever frame it last
+/// had, an earlier resizable build's included.
 struct SettingsWindowRegistration: NSViewRepresentable {
-    let width: CGFloat
-    /// The shown tab's height; nil until it has been measured.
-    let height: CGFloat?
+    let contentSize: CGSize
 
-    func makeNSView(context: Context) -> FittingView { FittingView() }
+    func makeNSView(context: Context) -> RegisteringView { RegisteringView(contentSize: contentSize) }
+    func updateNSView(_ view: RegisteringView, context: Context) {}
 
-    func updateNSView(_ view: FittingView, context: Context) {
-        view.fit(width: width, height: height)
-    }
+    final class RegisteringView: NSView {
+        private let contentSize: CGSize
+        private weak var sized: NSWindow?
 
-    final class FittingView: NSView {
-        private var size: (width: CGFloat, height: CGFloat?) = (0, nil)
+        init(contentSize: CGSize) {
+            self.contentSize = contentSize
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { nil }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            guard let window else { return }
+            guard let window, window !== sized else { return }
+            sized = window
             FlockWindow.settings = window
-            window.styleMask.remove(.resizable)
-            fit(width: size.width, height: size.height)
-        }
-
-        func fit(width: CGFloat, height: CGFloat?) {
-            size = (width, height)
-            guard width > 0, let height else { return }
-            // After SwiftUI's own sizing pass for this update, which would
-            // undo it.
-            DispatchQueue.main.async { [weak self] in
-                guard let window = self?.window else { return }
+            // After SwiftUI's own first sizing pass, which would undo it.
+            DispatchQueue.main.async { [contentSize] in
+                window.styleMask.remove(.resizable)
                 let content = window.contentRect(forFrameRect: window.frame)
-                guard abs(content.width - width) > 0.5 || abs(content.height - height) > 0.5 else { return }
-                var frame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: width, height: height))
+                guard abs(content.width - contentSize.width) > 0.5 || abs(content.height - contentSize.height) > 0.5 else { return }
+                var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
                 frame.origin = NSPoint(x: window.frame.midX - frame.width / 2, y: window.frame.maxY - frame.height)
-                window.setFrame(frame, display: true, animate: window.isVisible)
+                window.setFrame(frame, display: true)
             }
         }
     }

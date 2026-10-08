@@ -2678,8 +2678,8 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// Each Settings tab in both system appearances, each as tall as its
-    /// content. PNGs go to `FLOCK_SETTINGS_RENDER_DIR`.
+    /// Each Settings tab in both system appearances, all one size. PNGs go
+    /// to `FLOCK_SETTINGS_RENDER_DIR`.
     func testTheSettingsWindowDrawsInBothAppearances() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -2702,6 +2702,7 @@ final class ChromeRenderTests: XCTestCase {
         }
         cases.append(("custom-tab-light", .aqua, customTab, .general))
         cases.append(("custom-tab-dark", .darkAqua, customTab, .general))
+        var tabSizes: Set<CGSize> = []
         for (name, appearance, startingFolderStore, tab) in cases {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
@@ -2720,7 +2721,7 @@ final class ChromeRenderTests: XCTestCase {
                 tab: tab
             )
             let window = NSWindow(
-                contentRect: CGRect(x: 0, y: 0, width: FlockSettingsView.width, height: 400),
+                contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false
             )
             window.isReleasedWhenClosed = false
@@ -2731,8 +2732,8 @@ final class ChromeRenderTests: XCTestCase {
             window.orderFront(nil)
             await settle(window)
             let content = window.contentRect(forFrameRect: window.frame).size
-            XCTAssertEqual(content.width, FlockSettingsView.width, accuracy: 1, "\(name): Settings is not its fixed width")
-            XCTAssertLessThan(content.height, 700, "\(name): a tab is taller than a window should open")
+            XCTAssertEqual(content.width, FlockSettingsView.size.width, accuracy: 1, "\(name): Settings is not its fixed width")
+            tabSizes.insert(host.fittingSize)
             let image = try snapshot(window)
             XCTAssertGreaterThan(image.pixelsWide, 0)
             if let directory {
@@ -2741,6 +2742,7 @@ final class ChromeRenderTests: XCTestCase {
             }
             window.close()
         }
+        XCTAssertEqual(tabSizes.count, 1, "every tab is one size, so switching never moves the window: \(tabSizes)")
     }
 
     /// The unprompted mouse patch offer under the title bar. PNGs go to

@@ -31,12 +31,14 @@ enum SettingsTab: String, CaseIterable, Hashable {
 /// of flock's theme: a dark card floating in an oversized window read as a
 /// dialog that had escaped from somewhere else.
 ///
-/// Each setting is its own `Section`, never folded into another's. Each tab
-/// is as tall as what it holds, so none scrolls.
+/// Each setting is its own `Section`, never folded into another's. Every tab
+/// is the same size, so switching tabs never moves the window: a shorter tab
+/// leaves room below, a longer one scrolls.
 struct FlockSettingsView: View {
     /// Wide enough that a setting's description and its control share a row
-    /// without the description wrapping to three lines.
-    static let width: CGFloat = 620
+    /// without the description wrapping to three lines; tall enough for
+    /// General, the longest tab, with a custom folder showing.
+    static let size = CGSize(width: 560, height: 520)
 
     let herdrMousePatchStore: HerdrMousePatchStore
     let notificationLifetimeStore: NotificationLifetimeStore
@@ -49,8 +51,6 @@ struct FlockSettingsView: View {
     let commandLineToolStore: CommandLineToolStore
 
     @State private var tab: SettingsTab
-    /// Each tab's measured height, which the window is fitted to.
-    @State private var heights: [SettingsTab: CGFloat] = [:]
 
     init(
         herdrMousePatchStore: HerdrMousePatchStore, notificationLifetimeStore: NotificationLifetimeStore,
@@ -98,24 +98,16 @@ struct FlockSettingsView: View {
             .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }
             .tag(SettingsTab.herdr)
         }
-        .frame(width: Self.width)
-        .background(SettingsWindowRegistration(width: Self.width, height: heights[tab]))
+        .background(SettingsWindowRegistration(contentSize: Self.size))
         .onAppear {
             herdrMousePatchStore.refresh()
             commandLineToolStore.refresh()
         }
     }
 
-    /// One tab's sections, as tall as they are and measured: a grouped form
-    /// scrolls by default and offers the window no height of its own. Held
-    /// to the top, so a window taller than the tab never centres it.
     private func pane<Content: View>(_ tab: SettingsTab, @ViewBuilder _ content: () -> Content) -> some View {
         Form(content: content)
             .formStyle(.grouped)
-            .scrollDisabled(true)
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights[tab] = $0 }
-            .frame(width: Self.width)
-            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(width: Self.size.width, height: Self.size.height)
     }
 }
