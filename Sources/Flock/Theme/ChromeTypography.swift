@@ -166,6 +166,7 @@ enum ChromeType {
     static let emptyPinFolder = mono(12.5)
     static let emptyPinCaption = inter(12)
 
+    static let symbolSearchGlyph = Font.system(size: 11, weight: .medium)
     static let pinFolderGlyph = Font.system(size: 10.5, weight: .semibold)
     static let pinFolderTitle = inter(12.5, .semibold)
     static let pinFolderPath = mono(12)

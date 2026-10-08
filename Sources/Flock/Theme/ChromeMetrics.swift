@@ -566,8 +566,17 @@ enum ChromeMetrics {
         static let cornerRadius: CGFloat = ChromeRadius.container
         static let selectedFill: Double = 0.24
         static let selectedStroke: Double = 0.7
-        /// Eight cells and the gaps between them, plus the padding either side.
-        static let width: CGFloat = CGFloat(columns) * cellSize + CGFloat(columns - 1) * cellGap + 2 * padding
+        static let searchFill: Double = 0.06
+        static let searchGlyphGap: CGFloat = 6
+        static let emptyHeight: CGFloat = 60
+        /// Room right of the grid for the scroller, so it never sits over the
+        /// last column, and the scroller's clearance from the popover's edge.
+        static let scrollerGutter: CGFloat = 10
+        static let scrollerInset: CGFloat = 4
+        /// Eight cells and the gaps between them, the padding on the left,
+        /// and the scroller's gutter and inset on the right.
+        static let width: CGFloat = CGFloat(columns) * cellSize + CGFloat(columns - 1) * cellGap + padding
+            + scrollerGutter + scrollerInset
     }
 
     /// The ground a clickable workspace mark lifts on: this far past the glyph
