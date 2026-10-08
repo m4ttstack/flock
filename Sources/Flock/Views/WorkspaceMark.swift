@@ -14,6 +14,13 @@ extension Theme {
     var workspaceWash: Color {
         textLabel.opacity(ChromeMetrics.Grid.islandTint)
     }
+
+    /// The ground of the top-bar workspace whose overlay is showing.
+    var menuBarOpenWash: Color {
+        ChromeRoles.isLight(panelBg: palette.panelBg)
+            ? Color.black.opacity(ChromeMetrics.MenuBarWash.lightOpen)
+            : Color.white.opacity(ChromeMetrics.MenuBarWash.darkOpen)
+    }
 }
 
 extension View {

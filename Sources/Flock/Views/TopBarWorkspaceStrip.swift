@@ -1,8 +1,8 @@
 import FlockCore
 import SwiftUI
 
-/// The title bar's top-bar workspaces: one cell per pin, in pin order,
-/// drawn like the view tabs.
+/// The title bar's top-bar workspaces: one button per pin, in pin order,
+/// drawn like menu-bar extras.
 struct TopBarWorkspaceStrip: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -17,15 +17,15 @@ struct TopBarWorkspaceStrip: View {
     var body: some View {
         let rows = viewModel.railSections(board: nil)?.topBar ?? []
         if measuring {
-            HStack(spacing: 0) {
+            HStack(spacing: ChromeMetrics.TitleBar.topBarButtonGap) {
                 ForEach(rows, id: \.pin.id) { row in
-                    TopBarCellLabel(theme: theme, viewModel: viewModel, row: row, showsName: showsNames, isOpen: isOpen(row))
+                    TopBarCellLabel(theme: theme, viewModel: viewModel, row: row, showsName: showsNames)
                 }
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         } else {
-            HStack(spacing: 0) {
+            HStack(spacing: ChromeMetrics.TitleBar.topBarButtonGap) {
                 ForEach(Array(rows.enumerated()), id: \.element.pin.id) { index, row in
                     TopBarCell(
                         theme: theme, viewModel: viewModel, row: row, showsName: showsNames, isOpen: isOpen(row),
@@ -38,11 +38,6 @@ struct TopBarWorkspaceStrip: View {
             .reportsDragFrame { drag.setTopBarRegion($0) }
             .onChange(of: rows.map(\.pin.id), initial: true) { _, order in drag.setTopBarOrder(order) }
             .onDisappear { drag.setTopBarOrder([]) }
-            .overlay(alignment: .leading) {
-                if !rows.isEmpty {
-                    Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
-                }
-            }
         }
     }
 
@@ -51,42 +46,38 @@ struct TopBarWorkspaceStrip: View {
     }
 }
 
-/// A cell's content: the pin's symbol with its status dot, then its name when
-/// names show. An empty pin's symbol and name are dimmed and carry no dot.
+/// A button's content: the pin's symbol, then its name when names show.
+/// Status is the symbol's colour; an empty pin's symbol and name are dimmed.
 private struct TopBarCellLabel: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let row: RailSections.PinnedRow
     let showsName: Bool
-    let isOpen: Bool
 
     var body: some View {
         let pin = row.pin
-        let dimmed = row.record == nil ? theme.textLabel.opacity(ChromeMetrics.WorkspaceRow.emptyPinOpacity) : nil
-        HStack(spacing: ChromeMetrics.TitleBar.tabGlyphGap) {
-            WorkspaceMark(theme: theme, key: pin.identityKey, size: ChromeMetrics.TitleBar.topBarMark, foreground: dimmed)
-                .overlay(alignment: .topTrailing) {
-                    if let status = viewModel.topBarStatus(of: pin) {
-                        let dot = ChromeMetrics.TitleBar.topBarDot
-                        StatusDot(shown: status, theme: theme, size: dot)
-                            .offset(x: dot / 2, y: -dot / 2)
-                    }
-                }
+        let isEmpty = row.record == nil
+        let ink = isEmpty ? theme.textStrong.opacity(ChromeMetrics.TitleBar.topBarEmptyOpacity) : theme.textStrong
+        HStack(spacing: ChromeMetrics.TitleBar.topBarNameGap) {
+            WorkspaceMark(theme: theme, key: pin.identityKey, size: ChromeMetrics.TitleBar.topBarIcon, foreground: iconColor(ink))
             if showsName {
                 Text(pin.name)
-                    .font(ChromeType.viewTab(selected: isOpen))
-                    .foregroundStyle(dimmed.map(AnyShapeStyle.init) ?? AnyShapeStyle(.foreground))
+                    .font(ChromeType.viewTab(selected: false))
+                    .foregroundStyle(ink)
                     .lineLimit(1)
                     .fixedSize()
             }
         }
-        .padding(.horizontal, ChromeMetrics.TitleBar.topBarCellPadding)
-        .frame(maxHeight: .infinity)
-        .overlay(alignment: .bottom) {
-            if isOpen {
-                Rectangle().fill(theme.accent).frame(height: ChromeMetrics.TitleBar.tabUnderline)
-            }
-        }
+        .padding(.horizontal, ChromeMetrics.TitleBar.topBarButtonPadding)
+        .frame(height: ChromeMetrics.TitleBar.topBarButtonHeight)
+    }
+
+    /// The rail dot's colour while an agent is active or background work
+    /// runs; otherwise the label's own ink.
+    private func iconColor(_ ink: Color) -> Color {
+        guard let status = viewModel.topBarStatus(of: row.pin) else { return ink }
+        if status.isBackground { return theme.shownStatusColor(status) }
+        return theme.agentStatusColor(status.status) ?? ink
     }
 }
 
@@ -111,9 +102,6 @@ private struct TopBarCell: View {
         // A tap gesture rather than a Button: a Button also fires when a drag
         // is released back over the cell it started on, toggling the overlay.
         .onTapGesture { toggle() }
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
-        }
         .background(WindowDragExclusion())
         .opacity(drag.isDragging(pin: pin.id) ? DragVisuals.originOpacity : 1)
         .simultaneousGesture(
@@ -167,19 +155,15 @@ private struct TopBarCell: View {
         .accessibilityAction { toggle() }
     }
 
-    /// `GridControlButton`'s rest and hover, without its press.
+    /// No ground at rest; the chrome's hover wash under the pointer, and
+    /// only the stronger open wash while open, so hover never outshines it.
     private var face: some View {
-        let appearance = GridControlAppearance.resolve(
-            theme: theme, restForeground: isOpen ? theme.textStrong : theme.textDim, isHovering: isHovering, isPressed: false
-        )
-        return TopBarCellLabel(theme: theme, viewModel: viewModel, row: row, showsName: showsName, isOpen: isOpen)
-            .foregroundStyle(appearance.foreground)
-            .background(
-                GridControlGround(
-                    theme: theme, shape: AnyShape(Rectangle()), restFill: isOpen ? theme.tabRest : .clear, appearance: appearance
-                )
-            )
-            .contentShape(Rectangle())
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.TitleBar.topBarButtonRadius)
+        let ground: Color = isOpen ? theme.menuBarOpenWash
+            : isHovering ? theme.text.opacity(ChromeMetrics.HoverWash.opacity) : .clear
+        return TopBarCellLabel(theme: theme, viewModel: viewModel, row: row, showsName: showsName)
+            .background(shape.fill(ground).allowsHitTesting(false))
+            .contentShape(shape)
             .fadingHover($isHovering)
     }
 

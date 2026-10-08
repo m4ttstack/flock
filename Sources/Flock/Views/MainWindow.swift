@@ -374,9 +374,11 @@ struct TitleBar: View {
                     }
                     connectionNotice
                 }
-                // Cells sit flush with the bar's edge when no notice follows them.
                 .padding(.leading, hasTopBarWorkspaces && hasNotices ? ChromeMetrics.TitleBar.noticeTrailingPadding : 0)
-                .padding(.trailing, hasTopBarWorkspaces && !hasNotices ? 0 : ChromeMetrics.TitleBar.noticeTrailingPadding)
+                .padding(
+                    .trailing,
+                    hasTopBarWorkspaces && !hasNotices ? ChromeMetrics.TitleBar.topBarEdgeInset : ChromeMetrics.TitleBar.noticeTrailingPadding
+                )
                 .fixedSize()
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { noticesWidth = $0 }
             }
