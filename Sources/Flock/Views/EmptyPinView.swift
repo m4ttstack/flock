@@ -6,7 +6,7 @@ import SwiftUI
 enum ShellEntry {
     static let entry = HarnessEntry(
         id: "shell", binary: "shell", displayName: "shell", monogram: ">_",
-        monogramColor: Color(white: 0.27), monogramInk: Color(white: 0.92), symbol: "apple.terminal"
+        monogramColor: Color(white: 0.27), monogramInk: Color(white: 0.92)
     )
     static let shortcutLabel = "\u{21A9}"
 }
