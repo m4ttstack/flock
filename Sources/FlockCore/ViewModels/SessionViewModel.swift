@@ -1229,14 +1229,19 @@ public final class SessionViewModel {
         launcherChange(pane) { $0.recordRows(pane, rows: rows, at: now()) }
     }
 
-    /// Applies one registry mutation, bumps the observation seam when the
-    /// pane's answer or occupied rows moved, and re-arms or cancels the
-    /// pane's herdr poll to match the registry's new question.
+    /// Applies one registry mutation, bumps the observation seam only when a
+    /// reader would see a change (the pane's answer flipped, or the rows an
+    /// overlay on screen keeps clear of moved), and re-arms or cancels the
+    /// pane's herdr poll to match the registry's new question. Every visible
+    /// cell reads the seam, and a busy program's pane changes rows twice a
+    /// second.
     private func launcherChange(_ pane: PaneID, _ mutate: (PaneLauncherRegistry) -> Void) {
         let showingBefore = paneLauncherRegistry.isShowing(pane)
         let rowsBefore = paneLauncherRegistry.occupiedRows(pane)
         mutate(paneLauncherRegistry)
-        if showingBefore != paneLauncherRegistry.isShowing(pane) || rowsBefore != paneLauncherRegistry.occupiedRows(pane) {
+        let showingAfter = paneLauncherRegistry.isShowing(pane)
+        let rowsMoved = rowsBefore != paneLauncherRegistry.occupiedRows(pane)
+        if showingBefore != showingAfter || (rowsMoved && showingAfter) {
             launcherRegistryVersion += 1
         }
         schedulePromptPoll(pane)

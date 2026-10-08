@@ -1054,6 +1054,33 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(polls.count, 1)
     }
 
+    /// Every visible cell reads the seam, so a busy program's screen in a
+    /// pane with no launcher must not re-render them all twice a second.
+    @MainActor
+    func testRowChangesMoveTheSeamOnlyWhereALauncherIsOrWasShowing() async throws {
+        let client = StubForegroundClient([.idle])
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory, launcherPollBackoff: [.milliseconds(1)])
+        let busy = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(busy)
+        let busyRows = try XCTUnwrap(factory.onScreenActivityHandlers[busy])
+        let before = viewModel.launcherRegistryVersion
+        for rows in [30, 31, 40, 12, 38] {
+            busyRows(rows)
+        }
+        XCTAssertEqual(viewModel.launcherRegistryVersion, before, "a pane with no launcher moved the seam")
+
+        let showing = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(showing)
+        let showingRows = try XCTUnwrap(factory.onScreenActivityHandlers[showing])
+        showingRows(2)
+        try await XCTUnwrap(viewModel.promptWatches[showing]).value
+        XCTAssertTrue(viewModel.isLauncherShowing(showing))
+        let shown = viewModel.launcherRegistryVersion
+        showingRows(9)
+        XCTAssertGreaterThan(viewModel.launcherRegistryVersion, shown, "the launcher hid, so its cell must re-read")
+    }
+
     /// Busy, then a failed request, then idle: every answer is retried, and
     /// the pane shows once the shell is back.
     @MainActor
