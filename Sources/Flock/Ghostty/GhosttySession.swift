@@ -420,9 +420,10 @@ final class GhosttySession {
         let nonEmptyRows = rows.reduce(into: 0) { count, line in
             if !line.trimmingCharacters(in: .whitespaces).isEmpty { count += 1 }
         }
-        // A shell always paints a prompt, so a blank first read is a surface
-        // that has not painted yet, not a pane with no prompt.
-        guard nonEmptyRows > 0 || lastReportedRowCount != nil else { return }
+        // A shell always paints a prompt, for the pane's whole life, so a
+        // blank read is a surface between paints (not yet painted, or an
+        // alt-screen switch before the program draws), never a bare screen.
+        guard nonEmptyRows > 0 else { return }
         guard nonEmptyRows != lastReportedRowCount else { return }
         lastReportedRowCount = nonEmptyRows
         onScreenActivity(nonEmptyRows)

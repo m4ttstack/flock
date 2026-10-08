@@ -58,6 +58,23 @@ final class ScreenActivityTimerTests: XCTestCase {
         XCTAssertEqual(reports, [1])
     }
 
+    /// An alt-screen switch can be read before the program's first paint.
+    func testABlankReadBetweenPaintsIsSilent() throws {
+        let session = try makeSession()
+        var reports: [Int] = []
+        var screen = ["prompt", "prompt"]
+        session.screenRowsOverride = { screen }
+        session.onScreenActivity = { reports.append($0) }
+
+        session.tickScreenActivity()
+        screen = []
+        session.tickScreenActivity()
+        screen = Array(repeating: "row", count: 40)
+        session.tickScreenActivity()
+
+        XCTAssertEqual(reports, [2, 40])
+    }
+
     func testAStoppedSessionStaysSilentAfterUnparking() throws {
         let session = try makeSession()
         var reports: [Int] = []

@@ -77,10 +77,10 @@ final class PaneLauncherRegistryTests: XCTestCase {
         registry.recordRows(pane, rows: 2, at: settled.addingTimeInterval(2))
         // `ls` typed inside the window, output arrives inside it too.
         registry.recordKeystroke(pane)
-        registry.recordRows(pane, rows: 30, at: settled.addingTimeInterval(2.5))
+        registry.recordRows(pane, rows: 6, at: settled.addingTimeInterval(2.5))
 
         registry.recordForegroundJob(pane, idle: true, at: settled.addingTimeInterval(2.6))
-        XCTAssertFalse(registry.isShowing(pane), "30 rows of ls output must not read as a prompt")
+        XCTAssertFalse(registry.isShowing(pane), "6 rows of ls output must not read as a prompt")
         XCTAssertNil(registry.nextPollDelay(pane))
     }
 
@@ -295,6 +295,45 @@ final class PaneLauncherRegistryTests: XCTestCase {
         registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(20.1))
         XCTAssertTrue(registry.isShowing(pane))
         XCTAssertEqual(registry.occupiedRows(pane), 2)
+    }
+
+    /// The blank between an alt-screen switch and a TUI's first paint can
+    /// be read as 0 rows. It is not a prompt height: a later clear still
+    /// brings the launcher back.
+    @MainActor
+    func testAZeroReportTeachesNothing() {
+        let registry = PaneLauncherRegistry()
+        registry.recordRows(pane, rows: 2, at: start)
+        registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(0.1))
+        XCTAssertTrue(registry.isShowing(pane))
+
+        registry.recordRows(pane, rows: 0, at: settled.addingTimeInterval(1))
+        registry.recordRows(pane, rows: 40, at: settled.addingTimeInterval(1.2))
+        XCTAssertFalse(registry.isShowing(pane))
+
+        registry.recordRows(pane, rows: 2, at: settled.addingTimeInterval(10))
+        registry.recordForegroundJob(pane, idle: true, at: settled.addingTimeInterval(10.1))
+        XCTAssertTrue(registry.isShowing(pane), "the drop back to the prompt's height is bare")
+        XCTAssertEqual(registry.occupiedRows(pane), 2)
+    }
+
+    @MainActor
+    func testAZeroReportInsideAWindowOrStartupTeachesNothing() {
+        let windowed = PaneLauncherRegistry()
+        windowed.recordRows(pane, rows: 2, at: start)
+        windowed.recordRows(pane, rows: 0, at: start.addingTimeInterval(0.5))
+        windowed.recordRows(pane, rows: 2, at: settled.addingTimeInterval(1))
+        windowed.recordForegroundJob(pane, idle: true, at: settled.addingTimeInterval(1.1))
+        XCTAssertTrue(windowed.isShowing(pane), "the prompt is still two rows")
+
+        let created = PaneLauncherRegistry()
+        created.recordCreated(pane)
+        created.recordRows(pane, rows: 3, at: start)
+        created.recordRows(pane, rows: 0, at: start.addingTimeInterval(0.2))
+        created.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(0.3))
+        created.recordRows(pane, rows: 3, at: settled.addingTimeInterval(1))
+        created.recordForegroundJob(pane, idle: true, at: settled.addingTimeInterval(1.1))
+        XCTAssertTrue(created.isShowing(pane), "startup learned three rows, not zero")
     }
 
     @MainActor

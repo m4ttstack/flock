@@ -59,6 +59,13 @@ public final class PaneLauncherRegistry {
             guard let rows, let promptRows else { return false }
             return rows <= promptRows
         }
+
+        /// A count of 0 is the blank between an alt-screen switch and the
+        /// program's first paint, never a prompt: learned, it would leave no
+        /// later screen bare.
+        mutating func learnPrompt(_ rows: Int) {
+            if rows > 0 { promptRows = rows }
+        }
     }
 
     private let pollBackoff: [Duration]
@@ -83,12 +90,12 @@ public final class PaneLauncherRegistry {
         defer { panes[pane] = state }
         if state.navigation != nil { return }
         if state.starting {
-            state.promptRows = rows
+            state.learnPrompt(rows)
             return
         }
         if let until = state.learningUntil, time < until {
             if rows <= Self.tallestPrompt {
-                state.promptRows = rows
+                state.learnPrompt(rows)
             } else {
                 state.learningUntil = nil
             }
@@ -97,7 +104,7 @@ public final class PaneLauncherRegistry {
         state.learningUntil = nil
         guard let previous else {
             if rows <= Self.unknownHeightCap {
-                state.promptRows = rows
+                state.learnPrompt(rows)
                 state.learningUntil = time.addingTimeInterval(Self.learningWindow)
             }
             return
@@ -105,7 +112,7 @@ public final class PaneLauncherRegistry {
         let bareHeight = state.promptRows ?? Self.unknownHeightCap
         if rows < previous, rows <= bareHeight {
             state.typed = false
-            state.promptRows = rows
+            state.learnPrompt(rows)
             state.learningUntil = time.addingTimeInterval(Self.learningWindow)
         }
     }
@@ -129,7 +136,7 @@ public final class PaneLauncherRegistry {
         var state = panes[pane] ?? Pane()
         state.starting = true
         if let rows = state.rows, state.navigation == nil {
-            state.promptRows = rows
+            state.learnPrompt(rows)
             state.learningUntil = nil
         }
         panes[pane] = state
