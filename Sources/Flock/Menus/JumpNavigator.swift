@@ -27,6 +27,14 @@ struct JumpNavigator {
         Task { await viewModel.jumpToOldestDisplayedAttentionToast() }
     }
 
+    /// herdr's focus was moved from outside flock and the selection has
+    /// already followed it under the grid.
+    func followExternalFocus() {
+        guard drag.isGridShown else { return }
+        viewModel.forgetWorkspacesFocus()
+        drag.closeGrid()
+    }
+
     func open(toast pane: PaneID) {
         viewModel.forgetWorkspacesFocus()
         drag.closeGrid()

@@ -328,6 +328,30 @@ final class MissionJumpTests: XCTestCase {
         XCTAssertEqual(focuses, openedAPI + ["tab.focus w2:t2"])
     }
 
+    /// rt's focus pane moves herdr while flock is in the background, then
+    /// raises flock: the window lands on that pane with nothing given back.
+    func testAFocusMovedFromOutsideLandsWithoutAGiveBack() async {
+        let client = RecordingClient()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: overviewModel(), connection: .live)
+        viewModel.isMainCanvasCovered = true
+        await open(api, in: viewModel)
+        viewModel.update(model: overviewModel(focused: "w2:t1:p1"), connection: .live)
+        XCTAssertEqual(viewModel.externalFocusMoves, 0, "Overview's own move is flock's")
+
+        viewModel.appLeftFront()
+        viewModel.update(model: overviewModel(focused: "w2:t2:p1"), connection: .live)
+        viewModel.appCameToFront()
+        XCTAssertEqual(viewModel.externalFocusMoves, 1)
+
+        viewModel.forgetWorkspacesFocus()
+        viewModel.isMainCanvasCovered = false
+        await viewModel.herdrFocusQueue?.value
+        let focuses = await client.focuses
+        XCTAssertEqual(focuses, openedAPI)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, web)
+    }
+
     func testARecordedPaneThatClosedIsNotGivenBack() async {
         let client = RecordingClient()
         let viewModel = SessionViewModel(client: client)

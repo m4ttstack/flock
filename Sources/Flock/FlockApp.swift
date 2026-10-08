@@ -378,7 +378,12 @@ struct FlockApp: App {
                 .task { await boardStore.refresh() }
                 .task { await cswapStore.refresh() }
                 .task { devBuildWatcher?.start() }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                    viewModel.appLeftFront()
+                }
+                .onChange(of: viewModel.externalFocusMoves) { navigator.followExternalFocus() }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    viewModel.appCameToFront()
                     Task { await boardStore.refresh() }
                     Task { await cswapStore.refresh() }
                     devBuildWatcher?.check()
