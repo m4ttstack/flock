@@ -3046,6 +3046,29 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(notices.messages.count, 2, "the failed reopen left nothing in flight")
     }
 
+    /// A launch waits on the pane `reopen` returns, so a pin removed while
+    /// the create was out returns none: nothing runs in a pane no pin holds.
+    @MainActor
+    func testAPinRemovedWhileItsReopenIsOutReturnsNoPane() async {
+        let client = StubCreateCommandClient(workspaceID: "w9", tabID: "w9:t1", paneID: "w9:p1")
+        let viewModel = SessionViewModel(client: client, planExecutor: FakePlanExecutor(), folderExists: { _ in true })
+        viewModel.update(model: makeModel(), connection: .live)
+        await pinSettled(viewModel, viewModel.model!.workspaces[0].workspaceID)
+        let pin = viewModel.pins.pins[0]
+        var gone = makeModel()
+        gone.workspaces.removeAll()
+        viewModel.update(model: gone, connection: .live)
+
+        await client.holdCreates()
+        async let reopened: PaneID? = viewModel.reopen(pin.id)
+        let pending = await client.waitUntilCreatePending()
+        XCTAssertTrue(pending, "the create never went out")
+        viewModel.removePin(pin.id)
+        await client.releaseCreate()
+        let pane = await reopened
+        XCTAssertNil(pane)
+    }
+
     @MainActor
     func testARenameMadeWhileTheReopenIsOutIsTheNameItGets() async {
         let client = StubCreateCommandClient(workspaceID: "w9", tabID: "w9:t1", paneID: "w9:p1")

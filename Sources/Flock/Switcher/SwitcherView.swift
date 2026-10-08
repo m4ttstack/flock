@@ -25,7 +25,15 @@ struct SwitcherOverlay: View {
                 blocked: { [tabs] in busy() || tabs.isActive },
                 go: { [viewModel] id in
                     Task {
-                        if let pin = PinID(switcherID: id) { viewModel.show(emptyPin: pin) } else { await viewModel.jumpToHerdr(workspace: id) }
+                        if let pin = PinID(switcherID: id) {
+                            if viewModel.pins.pin(pin)?.placement == .topBar {
+                                await viewModel.toggleTopBar(pin)
+                            } else {
+                                viewModel.show(emptyPin: pin)
+                            }
+                        } else {
+                            await viewModel.jumpToHerdr(workspace: id)
+                        }
                     }
                 }
             )

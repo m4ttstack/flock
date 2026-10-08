@@ -6,6 +6,25 @@ private actor QuietClient: HerdrCommandClient {
 }
 
 /// A shell that has `cd`ed since herdr last pushed its folder.
+/// A shell whose folder read waits for `release()`, so a test can act while
+/// a new pin is still asking where it opens.
+private actor HeldShellFolderClient: HerdrCommandClient {
+    private var held: CheckedContinuation<Void, Never>?
+
+    var isHeld: Bool { held != nil }
+
+    func release() {
+        held?.resume()
+        held = nil
+    }
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.process_info" else { return Data("{}".utf8) }
+        await withCheckedContinuation { held = $0 }
+        return Data(#"{"result":{"process_info":{"foreground_process_group_id":7,"foreground_processes":[{"name":"zsh","pid":7,"cwd":"/acme/code/shell-now"}],"shell_pid":7}}}"#.utf8)
+    }
+}
+
 private struct ShellFolderClient: HerdrCommandClient {
     let folder: String
 
@@ -200,6 +219,42 @@ final class SessionViewModelPinTests: XCTestCase {
         viewModel.select(workspace: WorkspaceID(rawValue: "w2"))
         XCTAssertNil(viewModel.shownEmptyPin)
         XCTAssertEqual(viewModel.shownWorkspaceID, WorkspaceID(rawValue: "w2"))
+    }
+
+    func testAFolderChosenWhileTheShellIsReadWinsAndIsNotAskedAgain() async throws {
+        let client = HeldShellFolderClient()
+        let (viewModel, _) = viewModel(client: client)
+        viewModel.update(model: model([("w1", "acme")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        let pin = viewModel.pins.pins[0]
+        for _ in 0..<500 where !(await client.isHeld) {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        viewModel.setPinFolder(pin.id, to: "/acme/code/chosen")
+        await client.release()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(viewModel.pins.pin(pin.id)?.folder, "/acme/code/chosen")
+        XCTAssertNil(viewModel.pinFolderAsk)
+    }
+
+    func testMovingTheShownPinnedWorkspaceToTheTopBarLeavesNoEmptyPin() {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")], focused: "w1"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.moveToTopBar(pin: viewModel.pins.pins[0].id, at: nil)
+        XCTAssertNil(viewModel.shownEmptyPin, "it is open in the top bar, not closed")
+        XCTAssertEqual(viewModel.shownWorkspaceID, WorkspaceID(rawValue: "w2"))
+    }
+
+    func testATopBarPinIsNeverShownEmpty() {
+        let (viewModel, _) = viewModel()
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")], focused: "w2"), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: model([("w2", "web")], focused: "w2"), connection: .live)
+        let pin = viewModel.pins.pins[0].id
+        viewModel.moveToTopBar(pin: pin, at: nil)
+        viewModel.show(emptyPin: pin)
+        XCTAssertNil(viewModel.shownEmptyPin)
     }
 
     func testAnOpenPinIsNeverShownEmpty() {

@@ -49,9 +49,10 @@ public final class SessionViewModel {
     public private(set) var shownEmptyPin: PinID?
     /// A pin just made, whose folder the person is asked to confirm.
     public private(set) var pinFolderAsk: PinFolderAsk?
-    /// Pins whose folder the person has chosen outright, which a folder
-    /// question still reading the shell must neither overwrite nor ask.
-    @ObservationIgnored private var pinFoldersChosen: Set<PinID> = []
+    /// New pins whose shell folder is still being read. A folder chosen
+    /// outright meanwhile takes the pin out, and the read then neither
+    /// overwrites it nor asks.
+    @ObservationIgnored private var pinFolderReads: Set<PinID> = []
     public var pinAwaitingFolder: PinID? { pinFolderAsk?.pin }
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
@@ -1878,6 +1879,7 @@ public final class SessionViewModel {
         identity?.rekey(from: workspace.rawValue, to: pin.identityKey)
         let pane = PinFolders.firstPaneID(of: workspace, in: model)
         let started = pane.flatMap { model.panes[$0]?.cwd }
+        pinFolderReads.insert(pin.id)
         Task { await askForFolder(pin.id, from: pane, recorded: folder, started: started) }
     }
 
@@ -1886,7 +1888,7 @@ public final class SessionViewModel {
     /// the person is asked to confirm, beside the folder it started in.
     private func askForFolder(_ id: PinID, from pane: PaneID?, recorded: String, started: String?) async {
         let live = await liveOnlyFolder(of: pane)
-        guard !pinFoldersChosen.contains(id) else { return }
+        guard pinFolderReads.remove(id) != nil else { return }
         if let live, pins.pin(id)?.folder == recorded {
             pins.setFolder(id, to: live)
         }
@@ -1905,9 +1907,10 @@ public final class SessionViewModel {
         if let folder { pins.setFolder(id, to: folder) }
     }
 
-    /// Stands an empty pin in for the selected workspace. Opens nothing.
+    /// Stands an empty sidebar pin in for the selected workspace. Opens
+    /// nothing. A top-bar pin opens over the view instead (`toggleTopBar`).
     public func show(emptyPin id: PinID) {
-        guard let pin = pins.pin(id), !isOpen(pin) else { return }
+        guard let pin = pins.pin(id), pin.placement == .rail, !isOpen(pin) else { return }
         shownEmptyPin = id
     }
 
@@ -1935,7 +1938,7 @@ public final class SessionViewModel {
     }
 
     public func setPinFolder(_ id: PinID, to folder: String) {
-        pinFoldersChosen.insert(id)
+        pinFolderReads.remove(id)
         if pinAwaitingFolder == id { pinFolderAsk = nil }
         pins.setFolder(id, to: folder)
     }
