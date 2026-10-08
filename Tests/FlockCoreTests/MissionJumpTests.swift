@@ -186,6 +186,37 @@ final class MissionJumpTests: XCTestCase {
         XCTAssertTrue(quiet.attentionToasts.isEmpty)
     }
 
+    /// Overview and Arrange cover the main canvas, so the keys that split,
+    /// zoom or move its focused pane would act on a tab nobody can see.
+    func testTheMainCanvasHasNoFocusedPaneWhileTheGridCoversIt() {
+        let viewModel = SessionViewModel(client: RecordingClient())
+        let pane = PaneID(rawValue: "w2:t1:p1")
+        viewModel.update(model: focusedModel(.working), connection: .live)
+        XCTAssertEqual(viewModel.canvasFocusedPaneID, pane)
+
+        viewModel.isMainCanvasCovered = true
+        XCTAssertNil(viewModel.canvasFocusedPaneID)
+        XCTAssertFalse(viewModel.canvasFocusedPaneIsZoomed)
+
+        viewModel.isMainCanvasCovered = false
+        XCTAssertEqual(viewModel.canvasFocusedPaneID, pane)
+    }
+
+    /// The pane-only keys (close, right clicks) follow the pane on screen:
+    /// Overview's focused pane, and none on its cards or in Arrange.
+    func testThePaneOnlyKeysFollowThePaneOverviewShows() {
+        let viewModel = SessionViewModel(client: RecordingClient())
+        let pane = PaneID(rawValue: "w2:t1:p1")
+        viewModel.update(model: focusedModel(.working), connection: .live)
+        XCTAssertEqual(viewModel.shownFocusedPaneID, pane)
+
+        viewModel.isMainCanvasCovered = true
+        XCTAssertNil(viewModel.shownFocusedPaneID)
+
+        viewModel.paneShownInOverview = pane
+        XCTAssertEqual(viewModel.shownFocusedPaneID, pane)
+    }
+
     /// Overview's focused view watches its pane whatever the grid does.
     func testThePaneShownInOverviewStaysSuppressedWhileTheGridIsUp() {
         let clock = Clock()

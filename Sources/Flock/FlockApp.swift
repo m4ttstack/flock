@@ -278,6 +278,10 @@ struct FlockApp: App {
         dragCoordinator.isGridShown ? nil : viewModel.shownEmptyPin
     }
 
+    /// Overview shows no strip, rail or tab, so the keys that create, close
+    /// or step between them would change the hidden Workspaces view.
+    private var overviewShown: Bool { navigator.isInMissionControl }
+
     private var viewTabs: ViewTabNavigator {
         ViewTabNavigator(drag: dragCoordinator, mode: allWorkspacesModeStore)
     }
@@ -477,13 +481,16 @@ struct FlockApp: App {
                     Task { await viewModel.createTab(in: workspace) }
                 }
                 .keyboardShortcut(ViewCommand.newTab.shortcut)
-                .disabled((viewModel.selectedWorkspaceID == nil && shownEmptyPin == nil) || viewModel.topBarOverlay.openPin != nil)
+                .disabled(
+                    (viewModel.selectedWorkspaceID == nil && shownEmptyPin == nil) || viewModel.topBarOverlay.openPin != nil
+                        || overviewShown
+                )
                 .accessibilityIdentifier(ViewCommand.newTab.accessibilityIdentifier)
                 Button(ViewCommand.newWorkspace.title) {
                     Task { await viewModel.createWorkspace() }
                 }
                 .keyboardShortcut(ViewCommand.newWorkspace.shortcut)
-                .disabled(viewModel.topBarOverlay.openPin != nil)
+                .disabled(viewModel.topBarOverlay.openPin != nil || overviewShown)
                 .accessibilityIdentifier(ViewCommand.newWorkspace.accessibilityIdentifier)
             }
             // Takes the system Close's ⌘W, which would close flock's only
@@ -498,7 +505,7 @@ struct FlockApp: App {
                         NSApp.keyWindow?.performClose(nil)
                         return
                     }
-                    guard let pane = viewModel.canvasFocusedPaneID else { return }
+                    guard let pane = viewModel.shownFocusedPaneID else { return }
                     Task { await FocusedPaneCommand.closePane.action.perform(paneID: pane, on: viewModel) }
                 }
                 .keyboardShortcut(FocusedPaneCommand.closePane.shortcut)
@@ -509,7 +516,7 @@ struct FlockApp: App {
                     Task { await viewModel.closeTab(tab) }
                 }
                 .keyboardShortcut(ViewCommand.closeTab.shortcut)
-                .disabled(viewModel.selectedTabID == nil || viewModel.modalIsUp)
+                .disabled(viewModel.selectedTabID == nil || viewModel.modalIsUp || overviewShown)
                 .accessibilityIdentifier(ViewCommand.closeTab.accessibilityIdentifier)
                 Button(ViewCommand.closeWorkspace.title) {
                     guard FlockWindow.isContent(NSApp.keyWindow) else { return }
@@ -517,7 +524,7 @@ struct FlockApp: App {
                     Task { await viewModel.closeWorkspace(workspace) }
                 }
                 .keyboardShortcut(ViewCommand.closeWorkspace.shortcut)
-                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.modalIsUp)
+                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.modalIsUp || overviewShown)
                 .accessibilityIdentifier(ViewCommand.closeWorkspace.accessibilityIdentifier)
             }
             CommandGroup(before: .windowArrangement) {
@@ -534,7 +541,7 @@ struct FlockApp: App {
                         if let workspace { Task { await viewModel.jumpToHerdr(workspace: workspace) } }
                     }
                     .keyboardShortcut(command.key, modifiers: command.modifiers)
-                    .disabled((tab == nil && workspace == nil) || viewModel.modalIsUp)
+                    .disabled((tab == nil && workspace == nil) || viewModel.modalIsUp || overviewShown)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                     if command == .nextTab { Divider() }
                 }
@@ -545,7 +552,7 @@ struct FlockApp: App {
                             Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
                         }
                             .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.tabModifiers)
-                            .disabled(viewModel.modalIsUp)
+                            .disabled(viewModel.modalIsUp || overviewShown)
                     }
                 }
                 .disabled(tabs.isEmpty)
@@ -553,7 +560,7 @@ struct FlockApp: App {
                     ForEach(Array(railRows.prefix(GoToCommand.limit).enumerated()), id: \.element.workspaceID) { index, row in
                         Button(row.title) { Task { await viewModel.jumpToHerdr(workspace: row.workspaceID) } }
                             .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.workspaceModifiers)
-                            .disabled(viewModel.modalIsUp)
+                            .disabled(viewModel.modalIsUp || overviewShown)
                     }
                 }
                 .disabled(railRows.isEmpty)

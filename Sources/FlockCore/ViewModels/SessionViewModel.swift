@@ -750,6 +750,14 @@ public final class SessionViewModel {
     /// The pane the main canvas draws as focused and lets take the keyboard.
     public var canvasFocusedPaneID: PaneID? { canvasFocus(solo: nil) }
 
+    /// The focused pane on screen, for the keys that act on a pane alone and
+    /// never on the tab around it: the main canvas's, or the one Overview
+    /// shows by itself.
+    public var shownFocusedPaneID: PaneID? {
+        guard isMainCanvasCovered else { return canvasFocusedPaneID }
+        return paneShownInOverview.flatMap { canvasFocus(solo: $0) }
+    }
+
     /// The workspace the Workspaces view draws, which is none while an empty
     /// pin stands in its place.
     public var shownWorkspaceID: WorkspaceID? { shownEmptyPin == nil ? selectedWorkspaceID : nil }
@@ -757,9 +765,10 @@ public final class SessionViewModel {
     /// The pane a canvas draws as focused and lets take the keyboard: the
     /// main canvas's resolved focus, or a solo canvas's one pane. None while
     /// the rt modal is drawn over that canvas or the top-bar overlay over
-    /// every canvas, since their own surfaces have it.
+    /// every canvas, since their own surfaces have it, and none for the main
+    /// canvas while Overview or Arrange covers it.
     public func canvasFocus(solo: PaneID?) -> PaneID? {
-        if solo == nil, shownEmptyPin != nil { return nil }
+        if solo == nil, shownEmptyPin != nil || isMainCanvasCovered { return nil }
         guard topBarOverlay.openPin == nil, !rtModalIsOver(solo: solo) else { return nil }
         return solo ?? resolvedFocusedPaneID
     }
@@ -2291,23 +2300,23 @@ public final class SessionViewModel {
 
     /// The menu-command forms: whichever pane is focused right now.
     public func moveFocusedPane(toward direction: PaneDirection) async {
-        guard let pane = resolvedFocusedPaneID else { return }
+        guard let pane = canvasFocusedPaneID else { return }
         await movePane(pane, toward: direction)
     }
 
     public func swapFocusedPane(toward direction: PaneDirection) async {
-        guard let pane = resolvedFocusedPaneID else { return }
+        guard let pane = canvasFocusedPaneID else { return }
         await swapPane(pane, toward: direction)
     }
 
-    /// The canvas's focused pane's right-click mode, nil with no pane focused
+    /// The shown focused pane's right-click mode, nil with no pane focused
     /// or one herdr gave no terminal.
     public var focusedPaneRightClickMode: RightClickMode? {
         guard let terminal = focusedPaneTerminal else { return nil }
         return rightClicks.mode(for: terminal)
     }
 
-    /// Flips the canvas's focused pane's right-click mode; false when there is
+    /// Flips the shown focused pane's right-click mode; false when there is
     /// no such pane to flip.
     @discardableResult
     public func toggleFocusedPaneRightClicks() -> Bool {
@@ -2317,13 +2326,13 @@ public final class SessionViewModel {
     }
 
     private var focusedPaneTerminal: TerminalID? {
-        canvasFocusedPaneID.flatMap { model?.panes[$0]?.terminalID }
+        shownFocusedPaneID.flatMap { model?.panes[$0]?.terminalID }
     }
 
     /// Focuses the neighbor a move or swap would aim at. Silent when nothing
     /// lies that way.
     public func focusNeighbor(toward direction: PaneDirection) async {
-        guard let pane = resolvedFocusedPaneID, let layout = layout(holding: pane),
+        guard let pane = canvasFocusedPaneID, let layout = layout(holding: pane),
               let neighbor = PaneNeighbors.pane(pane, toward: direction, in: layout)
         else { return }
         await jumpToHerdr(pane: neighbor)
@@ -2334,7 +2343,7 @@ public final class SessionViewModel {
     /// silently. One predicate for all three: focus, move and swap aim at the
     /// same neighbor and differ only in what they do once there.
     public func focusedPaneHasNeighbor(toward direction: PaneDirection) -> Bool {
-        guard let pane = resolvedFocusedPaneID, let layout = layout(holding: pane) else { return false }
+        guard let pane = canvasFocusedPaneID, let layout = layout(holding: pane) else { return false }
         return PaneNeighbors.pane(pane, toward: direction, in: layout) != nil
     }
 

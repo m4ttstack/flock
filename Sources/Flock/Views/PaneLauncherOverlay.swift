@@ -99,7 +99,7 @@ enum LauncherSlots {
 
     @MainActor
     static func target(on viewModel: SessionViewModel) -> PaneID? {
-        let pane = viewModel.canvasFocusedPaneID
+        let pane = viewModel.shownFocusedPaneID
         return LaunchTarget.pane(canvasPane: pane, agent: pane.flatMap { viewModel.model?.panes[$0]?.agent })
     }
 
