@@ -90,11 +90,13 @@ struct GhostOverlay: View {
     }
 
     /// A row's proxy is the row's own size, so it takes the row's side inset
-    /// and no more height than the row has.
+    /// and no more height than the row has. Its symbol starts where the
+    /// row's does, past the slot the row keeps for its status dot.
     private var insets: EdgeInsets {
         if ghost.isRow {
             let side = ChromeMetrics.WorkspaceRow.horizontalPadding
-            return EdgeInsets(top: 0, leading: side, bottom: 0, trailing: side)
+            let leading = side + ChromeMetrics.WorkspaceRow.statusDot + ChromeMetrics.WorkspaceRow.spacing
+            return EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: side)
         }
         let all = ghost.isCompact ? ChromeMetrics.Ghost.compactPadding : ChromeMetrics.Ghost.padding
         return EdgeInsets(top: all, leading: all, bottom: all, trailing: all)

@@ -49,6 +49,9 @@ public final class SessionViewModel {
     public private(set) var shownEmptyPin: PinID?
     /// A pin just made, whose folder the person is asked to confirm.
     public private(set) var pinFolderAsk: PinFolderAsk?
+    /// Pins whose folder the person has chosen outright, which a folder
+    /// question still reading the shell must neither overwrite nor ask.
+    @ObservationIgnored private var pinFoldersChosen: Set<PinID> = []
     public var pinAwaitingFolder: PinID? { pinFolderAsk?.pin }
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
@@ -1883,6 +1886,7 @@ public final class SessionViewModel {
     /// the person is asked to confirm, beside the folder it started in.
     private func askForFolder(_ id: PinID, from pane: PaneID?, recorded: String, started: String?) async {
         let live = await liveOnlyFolder(of: pane)
+        guard !pinFoldersChosen.contains(id) else { return }
         if let live, pins.pin(id)?.folder == recorded {
             pins.setFolder(id, to: live)
         }
@@ -1931,6 +1935,8 @@ public final class SessionViewModel {
     }
 
     public func setPinFolder(_ id: PinID, to folder: String) {
+        pinFoldersChosen.insert(id)
+        if pinAwaitingFolder == id { pinFolderAsk = nil }
         pins.setFolder(id, to: folder)
     }
 
@@ -2174,7 +2180,7 @@ public final class SessionViewModel {
         ]
         guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)", lands: focus) else { return nil }
         // Read again past the await: a rename made while the create was out wins.
-        guard let name = pins.pin(id)?.name else { return created.rootPaneID }
+        guard let name = pins.pin(id)?.name else { return nil }
         pins.link(id, to: created.workspaceID)
         if pins.pin(id)?.placement == .topBar { refreshVisibility() }
         await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, name)], label: "Rename workspace"), recordsUndo: false)

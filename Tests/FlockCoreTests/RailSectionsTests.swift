@@ -70,6 +70,17 @@ final class RailSectionsTests: XCTestCase {
         XCTAssertEqual(sections.herdIDs, [WorkspaceID(rawValue: "w3")])
     }
 
+    func testAPinnedReviewOrHerdIsStillOne() {
+        let pins = [
+            PinnedWorkspace(id: PinID(rawValue: "p1"), name: "🛹 Reviews", folder: "/acme", workspace: WorkspaceID(rawValue: "w2"), syncedLabel: nil, confirmed: true),
+            PinnedWorkspace(id: PinID(rawValue: "p2"), name: "herd: acme-batch", folder: "/acme", workspace: WorkspaceID(rawValue: "w3"), syncedLabel: nil, confirmed: true),
+        ]
+        let sections = RailSections(model: model(["flock", "🛹 Reviews", "herd: acme-batch"]), board: board, pins: pins)
+        XCTAssertEqual(sections.board, [], "the premise: the pin's row draws it")
+        XCTAssertEqual(sections.reviewIDs, [WorkspaceID(rawValue: "w2")])
+        XCTAssertEqual(sections.herdIDs, [WorkspaceID(rawValue: "w3")])
+    }
+
     func testBoardsWorkspacesLeaveTheRegularListForTheirOwnSection() {
         let sections = RailSections(model: model(["flock", "🛹 Reviews", "repo-tools", "🛹 Doctors"]), board: board)
         XCTAssertEqual(sections.workspaces.map(\.label), ["flock", "repo-tools"])
