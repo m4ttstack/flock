@@ -145,6 +145,9 @@ private struct TopBarCell: View {
                     }
                 }
                 .accessibilityIdentifier(entry.accessibilityIdentifier)
+                if entry.action == .changeSymbol {
+                    ClaudeAccountSubmenu(pin: pin, viewModel: viewModel)
+                }
             }
         }
         .help(pin.name)
