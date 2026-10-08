@@ -112,6 +112,16 @@ Icon only (default) and Icon and name.
 - A drop on the strip while the window is too narrow to draw it is not
   possible: no frames, no target.
 
+## Shared modal
+
+The rt modal's shell moves to `Sources/Flock/Views/Modal/` under neutral
+names: `ChromeModal` (backdrop, card sized by `ModalSize`, title row with the
+caller's leading content, the size control and close, content, optional
+footer), `ModalSize` (in FlockCore), `ModalSizeControl` and
+`ModalTerminalPane`. The rt modal becomes its first user with unchanged
+pixels; the top-bar overlay is its second and adds no modal chrome of its
+own. Future modals start here.
+
 ## Overlay
 
 `TopBarWorkspaceOverlay`, mounted on `MainWindow` over everything below the
