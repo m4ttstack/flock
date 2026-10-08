@@ -52,8 +52,8 @@ struct WorkspaceRail: View {
                             pinnedSection(sections)
                         }
                         // A heading over no rows says nothing, except while a
-                        // live pin is carried and WORKSPACES is where it can go.
-                        if !workspaces.isEmpty || drag.isDraggingLivePin {
+                        // pin is carried and WORKSPACES is where it would go.
+                        if !workspaces.isEmpty || drag.isDraggingPin {
                             workspacesHeading
                                 .padding(.top, hasPins ? ChromeMetrics.RailSection.sectionGap : 0)
                         }
@@ -228,6 +228,15 @@ struct WorkspaceRail: View {
                 reportFrame: report,
                 gesture: pinDrag(row.pin)
             )
+            .popover(isPresented: folderAskBinding(row.pin.id), arrowEdge: .trailing) {
+                if let ask = viewModel.pinFolderAsk, ask.pin == row.pin.id {
+                    PinFolderPopover(
+                        theme: theme, name: row.pin.name, ask: ask,
+                        onChoose: { viewModel.answerPinFolder(row.pin.id, with: $0) },
+                        onOther: { chooseOtherFolder(for: row.pin) }
+                    )
+                }
+            }
         } else {
             emptyPinRow(row.pin, index: index, reportFrame: report)
         }
@@ -242,7 +251,7 @@ struct WorkspaceRail: View {
             theme: theme,
             workspace: workspace,
             paneCount: viewModel.paneCount(for: workspace.workspaceID),
-            isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
+            isSelected: workspace.workspaceID == viewModel.shownWorkspaceID,
             isRenaming: isRenaming,
             markKey: markKey,
             pickingSymbol: pickerBinding(workspace.workspaceID),
@@ -252,7 +261,7 @@ struct WorkspaceRail: View {
             },
             onCancelRename: { viewModel.cancelRename() },
             showsFill: drag.showsWorkspaceFill(
-                workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.selectedWorkspaceID
+                workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.shownWorkspaceID
             ),
             displacement: displacement,
             isGhosted: isGhosted,
@@ -287,6 +296,7 @@ struct WorkspaceRail: View {
         return EmptyPinRow(
             theme: theme,
             pin: pin,
+            isSelected: viewModel.shownEmptyPin == pin.id,
             isRenaming: isRenaming,
             pickingSymbol: pinPickerBinding(pin.id),
             onCommitRename: { text in
@@ -316,7 +326,7 @@ struct WorkspaceRail: View {
         switch NSEvent.chromeRowClick(NSApp.currentEvent) {
         case .select:
             let commandHeld = joinsSelection && NSEvent.modifierFlags.contains(.command)
-            if drag.clickWorkspace(workspace, commandHeld: commandHeld, current: viewModel.selectedWorkspaceID) {
+            if drag.clickWorkspace(workspace, commandHeld: commandHeld, current: viewModel.shownWorkspaceID) {
                 onSelect(workspace)
             }
         case .beginRename:
@@ -326,16 +336,36 @@ struct WorkspaceRail: View {
         }
     }
 
-    /// Reopens on the first click and renames on the second, by the rule
-    /// `handleClick` follows.
+    /// Shows the pin on the first click and renames on the second, by the
+    /// rule `handleClick` follows. Showing opens nothing.
     private func handleEmptyPinClick(_ pin: PinID) {
         switch NSEvent.chromeRowClick(NSApp.currentEvent) {
         case .select:
-            Task { await viewModel.reopen(pin) }
+            viewModel.show(emptyPin: pin)
         case .beginRename:
             renamingPin = pin
         case .ignore:
             break
+        }
+    }
+
+    /// Dismissing the question keeps the folder the pin already holds.
+    private func folderAskBinding(_ pin: PinID) -> Binding<Bool> {
+        Binding(
+            get: { viewModel.pinAwaitingFolder == pin },
+            set: { shown in if !shown { viewModel.answerPinFolder(pin, with: nil) } }
+        )
+    }
+
+    /// After the popover has gone: Finder's panel is modal, and the popover
+    /// must not sit under it.
+    private func chooseOtherFolder(for pin: PinnedWorkspace) {
+        let current = viewModel.pins.pin(pin.id)?.folder ?? pin.folder
+        viewModel.answerPinFolder(pin.id, with: nil)
+        DispatchQueue.main.async {
+            if let folder = FolderPanel.choose(current: current, message: "Where should \"\(pin.name)\" open?") {
+                viewModel.setPinFolder(pin.id, to: folder)
+            }
         }
     }
 
@@ -432,30 +462,39 @@ struct WorkspaceRail: View {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
                 let subject = drag.workspaceDragSubject(pressing: workspace.workspaceID)
-                let title = if case .workspaces(let block) = subject { "\(block.count) workspaces" } else { workspace.label }
+                let block = if case .workspaces(let block) = subject { block } else { [WorkspaceID]() }
+                let row = drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame
                 drag.beginIfIdle(
                     subject,
                     ghost: DragCoordinator.Ghost(
-                        title: title,
-                        symbol: "square.grid.2x2",
-                        originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero
+                        title: block.isEmpty ? workspace.label : "\(block.count) workspaces",
+                        symbol: block.isEmpty ? identity.symbol(for: workspace.workspaceID.rawValue) ?? Self.blockSymbol : Self.blockSymbol,
+                        originSize: row?.size ?? .zero,
+                        isRow: true
                     ),
-                    at: value.startLocation
+                    at: value.startLocation,
+                    home: row.map { DragCoordinator.DragHome(atStart: $0) }
                 )
             }
     }
 
+    /// Several workspaces carried at once, which no one symbol stands for.
+    private static let blockSymbol = "square.grid.2x2"
+
     private func pinDrag(_ pin: PinnedWorkspace) -> some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
+                let row = drag.pinFrames.first { $0.id == pin.id }?.frame
                 drag.beginIfIdle(
                     drag.pinDragSubject(pin.id),
                     ghost: DragCoordinator.Ghost(
                         title: pin.name,
-                        symbol: "square.grid.2x2",
-                        originSize: drag.pinFrames.first { $0.id == pin.id }?.frame.size ?? .zero
+                        symbol: identity.symbol(for: pin.identityKey) ?? Self.blockSymbol,
+                        originSize: row?.size ?? .zero,
+                        isRow: true
                     ),
-                    at: value.startLocation
+                    at: value.startLocation,
+                    home: row.map { DragCoordinator.DragHome(atStart: $0) }
                 )
             }
     }
@@ -527,6 +566,7 @@ struct WorkspaceRow: View {
 struct EmptyPinRow: View {
     let theme: Theme
     let pin: PinnedWorkspace
+    var isSelected = false
     var isRenaming = false
     var pickingSymbol: Binding<Bool>?
     var onCommitRename: (String) -> Void = { _ in }
@@ -555,7 +595,7 @@ struct EmptyPinRow: View {
                 Spacer(minLength: 0)
             }
         }
-        .modifier(RailRowChrome(theme: theme, showsFill: false))
+        .modifier(RailRowChrome(theme: theme, showsFill: isSelected))
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(y: displacement)
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)

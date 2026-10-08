@@ -43,6 +43,17 @@ public final class SessionViewModel {
     public let pins: PinnedWorkspaceStore
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
+    /// An empty pin the Workspaces view shows in place of the selected
+    /// workspace, which nothing reopens until the person picks how to start.
+    /// The selection underneath is kept so leaving the pin lands somewhere.
+    public private(set) var shownEmptyPin: PinID?
+    /// A pin just made, whose folder the person is asked to confirm.
+    public private(set) var pinFolderAsk: PinFolderAsk?
+    /// New pins whose shell folder is still being read. A folder chosen
+    /// outright meanwhile takes the pin out, and the read then neither
+    /// overwrites it nor asks.
+    @ObservationIgnored private var pinFolderReads: Set<PinID> = []
+    public var pinAwaitingFolder: PinID? { pinFolderAsk?.pin }
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
     /// Arrange's tails, one per pane a tile has read.
@@ -265,6 +276,8 @@ public final class SessionViewModel {
         fullModel = newFullModel
         let user = newFullModel?.withoutFlockOwned
         userModel = user
+        let previouslyShown = shownWorkspaceID
+        let shownPin = previouslyShown.flatMap { pins.pin(linkedTo: $0)?.id }
         if connection == .live, let user {
             pins.reconcile(with: user, reopening: reopening) { RailSections.isRailRow(label: $0.label, board: nil) }
         }
@@ -296,6 +309,7 @@ public final class SessionViewModel {
             optimisticFocusedPaneID = nil
         }
         landSelectionAfterClose(previous: previousModel)
+        holdClosedPinOnScreen(previouslyShown, pin: shownPin, previous: previousModel)
         reconcileRenameTarget()
         refreshLayoutExports()
         reconcileClosedPanes()
@@ -307,7 +321,32 @@ public final class SessionViewModel {
             rightClicks.keepOnly(Set(fullModel.panes.values.compactMap(\.terminalID)))
             completedTabs.keepOnly(Set(fullModel.tabs.values.flatMap { $0.map(\.tabID) }))
         }
+        reconcileShownEmptyPin()
         closeTopBarOverlayIfGone()
+    }
+
+    /// The shown workspace closed and `pin`, a sidebar pin, held it: the pin
+    /// stays on screen, empty, rather than the view following herdr's focus
+    /// elsewhere. The pin is read before the pins reconcile, which unlinks
+    /// it. Gone from herdr, not just hidden: a workspace moved to the top bar
+    /// is still open.
+    private func holdClosedPinOnScreen(_ shown: WorkspaceID?, pin: PinID?, previous: SessionModel?) {
+        guard let shown, let pin, pins.pin(pin)?.placement == .rail, let userModel, let previous,
+              previous.workspaces.contains(where: { $0.workspaceID == shown }),
+              !userModel.workspaces.contains(where: { $0.workspaceID == shown })
+        else { return }
+        shownEmptyPin = pin
+    }
+
+    /// A shown pin that is gone stops standing in; one herdr has opened again
+    /// shows its workspace.
+    private func reconcileShownEmptyPin() {
+        guard let id = shownEmptyPin else { return }
+        guard let pin = pins.pin(id), pin.placement == .rail else {
+            shownEmptyPin = nil
+            return
+        }
+        if isOpen(pin), let workspace = pin.workspace { select(workspace: workspace) }
     }
 
     /// Moves the selection off a tab or workspace this update has closed, to
@@ -706,11 +745,16 @@ public final class SessionViewModel {
     /// The pane the main canvas draws as focused and lets take the keyboard.
     public var canvasFocusedPaneID: PaneID? { canvasFocus(solo: nil) }
 
+    /// The workspace the Workspaces view draws, which is none while an empty
+    /// pin stands in its place.
+    public var shownWorkspaceID: WorkspaceID? { shownEmptyPin == nil ? selectedWorkspaceID : nil }
+
     /// The pane a canvas draws as focused and lets take the keyboard: the
     /// main canvas's resolved focus, or a solo canvas's one pane. None while
     /// the rt modal is drawn over that canvas or the top-bar overlay over
     /// every canvas, since their own surfaces have it.
     public func canvasFocus(solo: PaneID?) -> PaneID? {
+        if solo == nil, shownEmptyPin != nil { return nil }
         guard topBarOverlay.openPin == nil, !rtModalIsOver(solo: solo) else { return nil }
         return solo ?? resolvedFocusedPaneID
     }
@@ -769,6 +813,7 @@ public final class SessionViewModel {
     }
 
     public func select(workspace id: WorkspaceID) {
+        shownEmptyPin = nil
         selectedWorkspaceID = id
         selectedTabID = model?.workspaces.first { $0.workspaceID == id }?.activeTabID
     }
@@ -777,6 +822,7 @@ public final class SessionViewModel {
     /// thumbnail), and the strip shows only the selected workspace's tabs, so
     /// its workspace is selected along with it.
     public func select(tab id: TabID) {
+        shownEmptyPin = nil
         if let owner = model?.tabs.first(where: { $0.value.contains { $0.tabID == id } })?.key, owner != selectedWorkspaceID {
             selectedWorkspaceID = owner
         }
@@ -1831,6 +1877,48 @@ public final class SessionViewModel {
         let folder = PinFolders.firstPane(of: workspace, in: model) ?? homeDirectory
         guard let pin = pins.add(workspace: workspace, name: record.label, folder: folder, at: index) else { return }
         identity?.rekey(from: workspace.rawValue, to: pin.identityKey)
+        let pane = PinFolders.firstPaneID(of: workspace, in: model)
+        let started = pane.flatMap { model.panes[$0]?.cwd }
+        pinFolderReads.insert(pin.id)
+        Task { await askForFolder(pin.id, from: pane, recorded: folder, started: started) }
+    }
+
+    /// The model's folder is the one herdr last pushed, which a `cd` since
+    /// does not move; the shell's own folder, asked for now, is the guess
+    /// the person is asked to confirm, beside the folder it started in.
+    private func askForFolder(_ id: PinID, from pane: PaneID?, recorded: String, started: String?) async {
+        let live = await liveOnlyFolder(of: pane)
+        guard pinFolderReads.remove(id) != nil else { return }
+        if let live, pins.pin(id)?.folder == recorded {
+            pins.setFolder(id, to: live)
+        }
+        guard pins.pin(id) != nil else { return }
+        var choices = [PinFolderAsk.Choice(folder: live ?? recorded, reason: live == nil ? .shellLastSeen : .shellNow)]
+        if let started, started != choices[0].folder {
+            choices.append(PinFolderAsk.Choice(folder: started, reason: .shellStarted))
+        }
+        pinFolderAsk = PinFolderAsk(pin: id, choices: choices)
+    }
+
+    /// The person's answer to where a new pin opens; nil keeps the folder it
+    /// was made with.
+    public func answerPinFolder(_ id: PinID, with folder: String?) {
+        if pinAwaitingFolder == id { pinFolderAsk = nil }
+        if let folder { pins.setFolder(id, to: folder) }
+    }
+
+    /// Stands an empty sidebar pin in for the selected workspace. Opens
+    /// nothing. A top-bar pin opens over the view instead (`toggleTopBar`).
+    public func show(emptyPin id: PinID) {
+        guard let pin = pins.pin(id), pin.placement == .rail, !isOpen(pin) else { return }
+        shownEmptyPin = id
+    }
+
+    /// Opens the pin and shows its new workspace; the new workspace's first
+    /// pane, for a launch to run in.
+    @discardableResult
+    public func start(emptyPin id: PinID) async -> PaneID? {
+        await reopen(id)
     }
 
     public func unpin(_ id: PinID) {
@@ -1842,6 +1930,7 @@ public final class SessionViewModel {
     public func removePin(_ id: PinID) {
         guard let pin = pins.pin(id), !isOpen(pin) else { return }
         pins.remove(id)
+        reconcileShownEmptyPin()
     }
 
     public func movePin(_ id: PinID, toInsertIndex index: Int) {
@@ -1849,6 +1938,8 @@ public final class SessionViewModel {
     }
 
     public func setPinFolder(_ id: PinID, to folder: String) {
+        pinFolderReads.remove(id)
+        if pinAwaitingFolder == id { pinFolderAsk = nil }
         pins.setFolder(id, to: folder)
     }
 
@@ -2037,12 +2128,17 @@ public final class SessionViewModel {
     /// leader; the folder herdr last recorded when it cannot say.
     private func liveFolder(of pane: PaneID?) async -> String? {
         guard let pane else { return nil }
-        if let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)]),
-           let leaderCwd = PaneForegroundJob.snapshot(processInfoResponse: data)?.leaderCwd {
-            return leaderCwd
-        }
+        if let leaderCwd = await liveOnlyFolder(of: pane) { return leaderCwd }
         let record = fullModel?.panes[pane]
         return record?.foregroundCwd ?? record?.cwd
+    }
+
+    /// Where herdr says the pane's shell is now, and nothing else.
+    private func liveOnlyFolder(of pane: PaneID?) async -> String? {
+        guard let pane,
+              let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
+        else { return nil }
+        return PaneForegroundJob.snapshot(processInfoResponse: data)?.leaderCwd
     }
 
     /// Both create responses name the tab that was made and its root pane
@@ -2057,6 +2153,7 @@ public final class SessionViewModel {
             let data = try await client.requestRaw(method, params)
             guard let created = Self.extractCreatedTab(data) else { return nil }
             if lands {
+                shownEmptyPin = nil
                 selectedWorkspaceID = created.workspaceID
                 selectedTabID = created.tabID
                 landIn(pane: created.rootPaneID)
@@ -2075,23 +2172,25 @@ public final class SessionViewModel {
 
     /// A fresh shell in the pin's folder, renamed to the pin and linked to it by
     /// the id the create returns, never by name.
-    public func reopen(_ id: PinID, focus: Bool = true) async {
-        guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return }
+    @discardableResult
+    public func reopen(_ id: PinID, focus: Bool = true) async -> PaneID? {
+        guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return nil }
         reopening.insert(id)
         defer { reopening.remove(id) }
         let folderIsThere = folderExists(pin.folder)
         let params: [String: JSONValue] = [
             "focus": .bool(focus), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
         ]
-        guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)", lands: focus) else { return }
+        guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)", lands: focus) else { return nil }
         // Read again past the await: a rename made while the create was out wins.
-        guard let name = pins.pin(id)?.name else { return }
+        guard let name = pins.pin(id)?.name else { return nil }
         pins.link(id, to: created.workspaceID)
         if pins.pin(id)?.placement == .topBar { refreshVisibility() }
         await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, name)], label: "Rename workspace"), recordsUndo: false)
         if !folderIsThere {
             noticeSink("\"\(name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another.")
         }
+        return created.rootPaneID
     }
 
     /// Whether the pin's workspace is one herdr reports, which is when the rail

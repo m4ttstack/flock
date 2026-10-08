@@ -51,7 +51,7 @@ final class NewTabAffordanceRenderTests: XCTestCase {
             TabStrip(
                 theme: .tokyoNight, viewModel: viewModel, workspace: NewTabAffordanceRenderTests.workspace,
                 tabs: viewModel.tabsForSelectedWorkspace, selectedTabID: viewModel.selectedTabID,
-                herdrVersion: "0.9.0", onSelect: { _ in }, previewHoversNewTabAffordance: true
+                onSelect: { _ in }, previewHoversNewTabAffordance: true
             )
             .environment(drag)
             .frame(width: Self.size.width, height: Self.size.height)

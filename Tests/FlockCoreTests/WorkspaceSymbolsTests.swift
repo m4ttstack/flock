@@ -20,6 +20,21 @@ final class WorkspaceSymbolsTests: XCTestCase {
         }
     }
 
+    func testASearchKeepsTheGroupsWhoseSymbolsMatchByTitleOrName() {
+        XCTAssertEqual(WorkspaceSymbols.groups(matching: "  ").map(\.title), WorkspaceSymbols.groups.map(\.title))
+        let database = WorkspaceSymbols.groups(matching: "DATA")
+        XCTAssertEqual(database.flatMap(\.symbols).map(\.name), ["cylinder.fill"])
+        XCTAssertEqual(database.map(\.title), ["Engineering"])
+        let byName = WorkspaceSymbols.groups(matching: "cylinder").flatMap(\.symbols).map(\.name)
+        XCTAssertEqual(byName, ["cylinder.fill", "cylinder.split.1x2.fill"])
+        XCTAssertTrue(WorkspaceSymbols.groups(matching: "zzzz").isEmpty)
+    }
+
+    func testSearchingAGroupsTitleKeepsTheWholeGroup() throws {
+        let engineering = try XCTUnwrap(WorkspaceSymbols.groups.first { $0.title == "Engineering" })
+        XCTAssertEqual(WorkspaceSymbols.groups(matching: "engineering").first?.symbols, engineering.symbols)
+    }
+
     func testContainsOnlyTheSetsOwnNames() {
         XCTAssertTrue(WorkspaceSymbols.contains("leaf.fill"))
         XCTAssertFalse(WorkspaceSymbols.contains("checkmark.circle.fill"))

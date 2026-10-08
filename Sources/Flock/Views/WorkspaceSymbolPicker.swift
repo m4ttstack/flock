@@ -1,9 +1,9 @@
 import FlockCore
 import SwiftUI
 
-/// What a workspace's mark opens: Automatic, then every group's symbols as a
-/// scrolling grid of icons, Automatic pinned above it. Picking one reports it
-/// and leaves the popover to the caller to close.
+/// What a workspace's mark opens: a search field and Automatic, then every
+/// group's symbols as a scrolling grid of icons, narrowed by the search.
+/// Picking one reports it and leaves the popover to the caller to close.
 struct WorkspaceSymbolPicker: View {
     let theme: Theme
     /// The symbol the workspace wears now, whether picked or assigned.
@@ -13,16 +13,31 @@ struct WorkspaceSymbolPicker: View {
 
     private typealias Metrics = ChromeMetrics.SymbolPicker
 
+    @State private var query = ""
+    @FocusState private var searchFocused: Bool
+
     private var columns: [GridItem] {
         Array(repeating: GridItem(.fixed(Metrics.cellSize), spacing: Metrics.cellGap), count: Metrics.columns)
     }
 
     var body: some View {
+        let groups = WorkspaceSymbols.groups(matching: query)
         VStack(alignment: .leading, spacing: Metrics.sectionGap) {
-            automatic
+            HStack(spacing: Metrics.cellGap * 2) {
+                search(firstMatch: groups.first?.symbols.first)
+                automatic
+            }
+            .padding(.trailing, Metrics.scrollerGutter)
+            if groups.isEmpty {
+                Text("No symbols match")
+                    .font(ChromeType.paletteName)
+                    .foregroundStyle(theme.textLabel)
+                    .frame(maxWidth: .infinity, minHeight: Metrics.emptyHeight)
+                    .padding(.trailing, Metrics.scrollerGutter)
+            }
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Metrics.sectionGap) {
-                    ForEach(WorkspaceSymbols.groups, id: \.title) { group in
+                    ForEach(groups, id: \.title) { group in
                         VStack(alignment: .leading, spacing: Metrics.labelGap) {
                             Text(group.title.uppercased())
                                 .font(ChromeType.paletteSection)
@@ -35,10 +50,12 @@ struct WorkspaceSymbolPicker: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, Metrics.scrollerGutter)
             }
-            .frame(maxHeight: Metrics.maxGridHeight)
+            .frame(maxHeight: groups.isEmpty ? 0 : Metrics.maxGridHeight)
         }
-        .padding(Metrics.padding)
+        .padding([.leading, .vertical], Metrics.padding)
+        .padding(.trailing, Metrics.scrollerInset)
         .frame(width: Metrics.width, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(Color(theme.palette.panelBg)))
         .overlay(
@@ -47,6 +64,31 @@ struct WorkspaceSymbolPicker: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius))
         .background(PopoverAppearancePin(isDark: !ChromeRoles.isLight(panelBg: theme.palette.panelBg)))
+    }
+
+    /// Return picks the first symbol the search leaves.
+    private func search(firstMatch: WorkspaceSymbols.Symbol?) -> some View {
+        HStack(spacing: Metrics.searchGlyphGap) {
+            Image(systemName: "magnifyingglass")
+                .font(ChromeType.symbolSearchGlyph)
+                .foregroundStyle(theme.textLabel)
+            TextField("Search symbols", text: $query)
+                .textFieldStyle(.plain)
+                .font(ChromeType.paletteName)
+                .foregroundStyle(theme.textStrong)
+                .focused($searchFocused)
+                .onSubmit { if let firstMatch { onPick(firstMatch.name) } }
+                .accessibilityIdentifier("flock.identity.symbol.search")
+        }
+        .padding(.horizontal, Metrics.automaticHorizontalPadding)
+        .frame(height: Metrics.automaticHeight)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: Metrics.cellCornerRadius).fill(theme.textStrong.opacity(Metrics.searchFill)))
+        .overlay(
+            RoundedRectangle(cornerRadius: Metrics.cellCornerRadius)
+                .strokeBorder(searchFocused ? theme.accent.opacity(Metrics.selectedStroke) : theme.rule, lineWidth: ChromeMetrics.ruleWidth)
+        )
+        .onAppear { searchFocused = true }
     }
 
     private var automatic: some View {

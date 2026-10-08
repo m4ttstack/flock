@@ -162,14 +162,26 @@ final class PinnedRailRenderTests: XCTestCase {
 
             drag.beginIfIdle(
                 .pin(hosted.emptyPin),
-                ghost: DragCoordinator.Ghost(title: "acme", symbol: "square.grid.2x2", originSize: web.frame.size),
+                ghost: DragCoordinator.Ghost(title: "acme", symbol: "cylinder.fill", originSize: web.frame.size, isRow: true),
                 at: CGPoint(x: web.frame.midX, y: web.frame.maxY + 14)
             )
             try await settle(hosted.window)
-            XCTAssertNil(drag.workspacesHeading, "\(scheme): an empty pin's drag shows no WORKSPACES heading")
+            XCTAssertNotNil(drag.workspacesHeading, "\(scheme): an empty pin's drag shows the WORKSPACES heading it would go under")
             drag.move(to: below)
             XCTAssertNil(drag.target, "\(scheme): an empty pin has nowhere to go among the workspaces")
+            let refused = try XCTUnwrap(drag.refusedZone, "\(scheme): the rail below PINNED says the drop is refused")
+            XCTAssertGreaterThan(refused.minY, region.maxY + ChromeMetrics.RailSection.sectionGap, "\(scheme): the refusal sits under the WORKSPACES heading")
+            XCTAssertEqual(refused.height, web.frame.height, accuracy: 0.5, "\(scheme): the refusal is the one slot the pin would take")
+            try await settle(hosted.window)
+            if let directory {
+                try XCTUnwrap(try snapshot(hosted.window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pinned-rail-refused-\(scheme).png"))
+            }
+            drag.move(to: CGPoint(x: web.frame.midX, y: web.frame.midY))
+            XCTAssertNil(drag.refusedZone, "\(scheme): over PINNED nothing is refused")
+            drag.move(to: below)
             drag.release()
+            XCTAssertNil(drag.refusedZone, "\(scheme): the refusal goes with the drag")
             try await Task.sleep(for: .seconds(DragVisuals.settleDuration + 0.1))
 
             drag.beginIfIdle(
@@ -199,6 +211,9 @@ final class PinnedRailRenderTests: XCTestCase {
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pinned-rail-dragout-\(scheme).png"))
             }
             drag.release()
+            try await Task.sleep(for: .milliseconds(60))
+            let landing = try XCTUnwrap(drag.ghostTopLeft, "\(scheme): the ghost is still settling")
+            XCTAssertGreaterThan(landing.y, bar.minY - web.frame.height, "\(scheme): the ghost settles where the bar was, not at the top of PINNED")
         }
     }
 
@@ -298,6 +313,44 @@ final class PinnedRailRenderTests: XCTestCase {
                 hasInk(image, rows: gap.upperBound..<(gap.upperBound + ChromeMetrics.RailSection.headerMark), from: region.minX, roles: roles),
                 "\(scheme): BOARD's header sits right under the gap"
             )
+
+            // An empty pin carried below PINNED opens WORKSPACES over BOARD,
+            // with room for its refused slot and the reason under it.
+            let empty = try XCTUnwrap(drag.pinFrames.first { $0.workspace == nil })
+            drag.stripWorkspace = Self.web
+            drag.beginIfIdle(
+                .pin(empty.id),
+                ghost: DragCoordinator.Ghost(title: "acme", symbol: "cylinder.fill", originSize: empty.frame.size, isRow: true),
+                at: CGPoint(x: empty.frame.midX, y: empty.frame.midY),
+                home: DragCoordinator.DragHome(atStart: empty.frame)
+            )
+            XCTAssertEqual(drag.ghostTopLeft, empty.frame.origin, "\(scheme): the ghost starts over the row it came from")
+            drag.move(to: CGPoint(x: empty.frame.midX + 120, y: empty.frame.midY + 6))
+            XCTAssertEqual(drag.ghostTopLeft?.x, empty.frame.minX, "\(scheme): a row's ghost keeps to the rail")
+            XCTAssertEqual(drag.ghostTopLeft?.y, empty.frame.minY + 6, "\(scheme): and follows the pointer along it")
+            try await settle(window)
+            drag.move(to: CGPoint(x: empty.frame.midX, y: region.maxY + 50))
+            try await settle(window)
+            drag.move(to: CGPoint(x: empty.frame.midX, y: region.maxY + 51))
+            try await settle(window)
+            let refused = try XCTUnwrap(drag.refusedZone, "\(scheme): the slot is refused")
+            let ghost = try XCTUnwrap(drag.ghost)
+            XCTAssertEqual(
+                DragVisuals.ghostSize(forOrigin: ghost.originSize, bounds: ghost.bounds), empty.frame.size,
+                "\(scheme): a row's ghost is the row's own size"
+            )
+            let carried = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(carried.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pinned-rail-board-refused-\(scheme).png"))
+            }
+            let reason = refused.maxY..<(refused.maxY + DragVisuals.refusedZoneLabelGap + DragVisuals.refusedZoneLabelHeight)
+            XCTAssertEqual(
+                drag.workspacesGrowth, refused.height + ChromeMetrics.Rail.rowGap + reason.upperBound - reason.lowerBound, accuracy: 0.5,
+                "\(scheme): BOARD moves down past the slot and its reason"
+            )
+            drag.release()
+            try await Task.sleep(for: .seconds(DragVisuals.settleDuration + 0.1))
         }
     }
 

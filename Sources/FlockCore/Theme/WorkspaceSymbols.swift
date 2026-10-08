@@ -270,4 +270,18 @@ public enum WorkspaceSymbols {
     public static func contains(_ name: String) -> Bool {
         all.contains { $0.name == name }
     }
+
+    /// The picker's sections narrowed to a search: a group whose title
+    /// matches keeps every symbol, any other keeps the symbols whose title
+    /// or name does, and a group left empty is dropped.
+    public static func groups(matching query: String) -> [Group] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return groups }
+        func matches(_ text: String) -> Bool { text.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+        return groups.compactMap { group in
+            if matches(group.title) { return group }
+            let symbols = group.symbols.filter { matches($0.title) || matches($0.name) }
+            return symbols.isEmpty ? nil : Group(title: group.title, symbols: symbols)
+        }
+    }
 }
