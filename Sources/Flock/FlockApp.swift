@@ -72,6 +72,7 @@ struct FlockApp: App {
     @State private var railWidthStore = RailWidthStore()
     @State private var sectionCollapseStore = SectionCollapseStore()
     @State private var boardStore: BoardStore
+    @State private var cswapStore = CswapStore()
     @State private var devBuildWatcher: DevBuildWatcher? = BuildFlavor.isDev ? DevBuildWatcher() : nil
     @State private var herdProgressStore = HerdProgressStore()
     @State private var toastCenter: ToastCenter
@@ -228,7 +229,8 @@ struct FlockApp: App {
             rightClickDefaults: .standard,
             completedTabDefaults: .standard,
             pinnedWorkspaceDefaults: .standard,
-            identity: workspaceIdentityStore
+            identity: workspaceIdentityStore,
+            cswapAccounts: CswapList.read
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
@@ -351,6 +353,7 @@ struct FlockApp: App {
                 .environment(railWidthStore)
                 .environment(sectionCollapseStore)
                 .environment(boardStore)
+                .environment(cswapStore)
                 .environment(devBuildWatcher)
                 .environment(herdProgressStore)
                 .environment(toastCenter)
@@ -373,9 +376,11 @@ struct FlockApp: App {
                     await herdrStore.start()
                 }
                 .task { await boardStore.refresh() }
+                .task { await cswapStore.refresh() }
                 .task { devBuildWatcher?.start() }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     Task { await boardStore.refresh() }
+                    Task { await cswapStore.refresh() }
                     devBuildWatcher?.check()
                 }
                 .onChange(of: herdrStore.model) {

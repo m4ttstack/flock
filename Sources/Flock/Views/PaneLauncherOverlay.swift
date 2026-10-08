@@ -153,7 +153,9 @@ enum LauncherSlots {
     /// the time of the click, and a command typed into anything but a shell
     /// at its prompt reaches that program as input.
     @MainActor
-    static func launch(_ entry: HarnessEntry, in pane: PaneID, via path: LaunchPath, on viewModel: SessionViewModel) async {
+    static func launch(
+        _ entry: HarnessEntry, in pane: PaneID, via path: LaunchPath, on viewModel: SessionViewModel, pin: PinID? = nil
+    ) async {
         if viewModel.isLauncherShowing(pane) {
             flash(entry, via: path, on: .pane(pane), viewModel: viewModel)
         }
@@ -165,7 +167,7 @@ enum LauncherSlots {
         if entry.id == NavigatorRoster.rtCd.id {
             await viewModel.launchNavigator(NavigatorRoster.command, in: pane)
         } else {
-            await viewModel.launchHarness(entry.binary, in: pane)
+            await viewModel.launchHarness(entry.binary, in: pane, pin: pin)
         }
     }
 }
