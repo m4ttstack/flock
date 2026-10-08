@@ -533,6 +533,7 @@ public final class SessionViewModel {
             if let left = oldValue, shownCardsHeldBack.remove(left) != nil { raiseHeldBackCard(for: left) }
             guard let pane = paneShownInOverview, isMainCanvasCovered, let record = model?.panes[pane] else { return }
             overviewMovedFocus = true
+            externalFocusWatch.flockQueued(pane)
             queueHerdrFocus(tab: record.tabID, pane: pane)
         }
     }

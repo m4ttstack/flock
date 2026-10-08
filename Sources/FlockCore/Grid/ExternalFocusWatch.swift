@@ -6,7 +6,9 @@ import Foundation
 /// so a move between leaving the front and coming back counts. herdr's event
 /// can trail the raise, so a move inside `grace` after coming back counts
 /// too. A move onto `ownTarget`, the pane Overview is showing, never counts:
-/// Overview's own queued focus can land on either side of the raise. A nil
+/// Overview's own queued focus can land on either side of the raise. Nor does
+/// one onto a pane flock queued since coming back, since a quick run of
+/// Overview cards echoes each one after the next is already shown. A nil
 /// focus is a model not yet known, never a move.
 public struct ExternalFocusWatch: Equatable, Sendable {
     public static let grace: TimeInterval = 1
@@ -14,6 +16,7 @@ public struct ExternalFocusWatch: Equatable, Sendable {
     private var away = false
     private var focusWhenLeft: PaneID?
     private var graceEnds: Date?
+    private var queuedSinceReturn: Set<PaneID> = []
 
     public init() {}
 
@@ -21,6 +24,12 @@ public struct ExternalFocusWatch: Equatable, Sendable {
         away = true
         focusWhenLeft = focus
         graceEnds = nil
+        queuedSinceReturn = []
+    }
+
+    public mutating func flockQueued(_ pane: PaneID) {
+        guard !away else { return }
+        queuedSinceReturn.insert(pane)
     }
 
     /// Whether herdr's focus moved while flock was away.
@@ -49,6 +58,6 @@ public struct ExternalFocusWatch: Equatable, Sendable {
 
     private func isMove(to focus: PaneID?, ownTarget: PaneID?) -> Bool {
         guard let focus, let focusWhenLeft else { return false }
-        return focus != focusWhenLeft && focus != ownTarget
+        return focus != focusWhenLeft && focus != ownTarget && !queuedSinceReturn.contains(focus)
     }
 }

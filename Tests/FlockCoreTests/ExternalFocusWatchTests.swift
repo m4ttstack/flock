@@ -62,6 +62,26 @@ final class ExternalFocusWatchTests: XCTestCase {
         XCTAssertTrue(watch.observed(focus: c, ownTarget: b, at: at(0.2)))
     }
 
+    /// Overview's cards flipped quickly: b's echo lands while c is shown.
+    func testAPaneFlockQueuedSinceComingBackIsNeverAMove() {
+        var watch = ExternalFocusWatch()
+        watch.left(focus: a)
+        _ = watch.returned(focus: a, ownTarget: a, at: t0)
+        watch.flockQueued(b)
+        watch.flockQueued(c)
+        XCTAssertFalse(watch.observed(focus: b, ownTarget: c, at: at(0.1)))
+        XCTAssertFalse(watch.observed(focus: c, ownTarget: c, at: at(0.2)))
+    }
+
+    func testQueuedPanesAreForgottenOnLeaving() {
+        var watch = ExternalFocusWatch()
+        watch.left(focus: a)
+        _ = watch.returned(focus: a, ownTarget: nil, at: t0)
+        watch.flockQueued(b)
+        watch.left(focus: a)
+        XCTAssertTrue(watch.returned(focus: b, ownTarget: nil, at: at(0.5)))
+    }
+
     func testAnUnknownFocusIsNotAMoveAndLeavesTheGraceArmed() {
         var watch = ExternalFocusWatch()
         watch.left(focus: a)
