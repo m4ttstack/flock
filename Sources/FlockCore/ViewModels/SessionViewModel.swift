@@ -1849,7 +1849,19 @@ public final class SessionViewModel {
         let folder = PinFolders.firstPane(of: workspace, in: model) ?? homeDirectory
         guard let pin = pins.add(workspace: workspace, name: record.label, folder: folder, at: index) else { return }
         identity?.rekey(from: workspace.rawValue, to: pin.identityKey)
-        pinAwaitingFolder = pin.id
+        let pane = PinFolders.firstPaneID(of: workspace, in: model)
+        Task { await askForFolder(pin.id, from: pane, recorded: folder) }
+    }
+
+    /// The model's folder is the one herdr last pushed, which a `cd` since
+    /// does not move; the shell's own folder, asked for now, is the guess
+    /// the person is asked to confirm.
+    private func askForFolder(_ id: PinID, from pane: PaneID?, recorded: String) async {
+        if let live = await liveFolder(of: pane), pins.pin(id)?.folder == recorded {
+            pins.setFolder(id, to: live)
+        }
+        guard pins.pin(id) != nil else { return }
+        pinAwaitingFolder = id
     }
 
     /// The person's answer to where a new pin opens; nil keeps the folder it

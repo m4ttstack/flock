@@ -53,12 +53,17 @@ public enum PinFolders {
     /// The folder of the first pane of the workspace's first tab, as it is:
     /// never widened to its repo, since one repo can hold many places.
     public static func firstPane(of workspace: WorkspaceID, in model: SessionModel) -> String? {
+        firstPaneID(of: workspace, in: model).flatMap { model.panes[$0] }.map { $0.foregroundCwd ?? $0.cwd }
+    }
+
+    /// The pane `firstPane` reads its folder from.
+    public static func firstPaneID(of workspace: WorkspaceID, in model: SessionModel) -> PaneID? {
         guard let tab = model.tabs[workspace]?.first else { return nil }
         let inLayout = (model.layouts[tab.tabID]?.panes ?? []).lazy.compactMap { model.panes[$0.paneID] }.first
         let pane = inLayout ?? model.panes.values
             .filter { $0.tabID == tab.tabID }
             .min { $0.paneID.rawValue < $1.paneID.rawValue }
-        return pane.map { $0.foregroundCwd ?? $0.cwd }
+        return pane?.paneID
     }
 }
 

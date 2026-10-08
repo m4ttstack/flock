@@ -5,6 +5,16 @@ private actor QuietClient: HerdrCommandClient {
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data { Data("{}".utf8) }
 }
 
+/// A shell that has `cd`ed since herdr last pushed its folder.
+private struct ShellFolderClient: HerdrCommandClient {
+    let folder: String
+
+    func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
+        guard method == "pane.process_info" else { return Data("{}".utf8) }
+        return Data(#"{"result":{"process_info":{"foreground_process_group_id":7,"foreground_processes":[{"name":"zsh","pid":7,"cwd":"\#(folder)"}],"shell_pid":7}}}"#.utf8)
+    }
+}
+
 /// Answers `workspace.create` with a new workspace w3 and records every ask.
 private actor CreatingClient: HerdrCommandClient {
     private(set) var asks: [(method: String, params: [String: JSONValue])] = []
@@ -102,20 +112,44 @@ final class SessionViewModelPinTests: XCTestCase {
         XCTAssertEqual(viewModel.pins.pins, [])
     }
 
-    func testPinningAsksWhereThePinOpensAndCancellingKeepsTheFirstPanesFolder() {
+    func testPinningAsksWhereThePinOpensAndCancellingKeepsTheFirstPanesFolder() async throws {
         let (viewModel, _) = viewModel()
         viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
         viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
         let first = viewModel.pins.pins[0]
-        XCTAssertEqual(viewModel.pinAwaitingFolder, first.id)
+        try await waitForAsk(first.id, on: viewModel)
         viewModel.answerPinFolder(first.id, with: nil)
         XCTAssertNil(viewModel.pinAwaitingFolder)
         XCTAssertEqual(viewModel.pins.pin(first.id)?.folder, "/acme/acme")
         viewModel.pin(workspace: WorkspaceID(rawValue: "w2"))
         let second = viewModel.pins.pins[1]
+        try await waitForAsk(second.id, on: viewModel)
         viewModel.answerPinFolder(second.id, with: "/acme/code/web")
         XCTAssertEqual(viewModel.pins.pin(second.id)?.folder, "/acme/code/web")
         XCTAssertNil(viewModel.pinAwaitingFolder)
+    }
+
+    /// herdr pushes no event for a `cd`, so the model still holds the folder
+    /// the shell started in; the ask starts where the shell is now.
+    func testPinningAsksFromWhereTheShellIsNowNotWhereItStarted() async throws {
+        let (viewModel, _) = viewModel(client: ShellFolderClient(folder: "/acme/code/training-plan"))
+        viewModel.update(model: model([("w1", "acme")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        let pin = viewModel.pins.pins[0]
+        try await waitForAsk(pin.id, on: viewModel)
+        XCTAssertEqual(viewModel.pins.pin(pin.id)?.folder, "/acme/code/training-plan")
+    }
+
+    private struct NeverAsked: Error {}
+
+    private func waitForAsk(_ id: PinID, on viewModel: SessionViewModel) async throws {
+        for _ in 0..<200 where viewModel.pinAwaitingFolder != id {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        guard viewModel.pinAwaitingFolder == id else {
+            XCTFail("the folder was never asked for")
+            throw NeverAsked()
+        }
     }
 
     // MARK: - an empty pin shown in place of a workspace
