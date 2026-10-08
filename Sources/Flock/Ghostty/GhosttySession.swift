@@ -77,13 +77,13 @@ final class GhosttySession {
     /// from `flagsChanged`, and never for a bare Command combo -- see that
     /// call site). Set by `GhosttyControlSurfaceFactory.makeSurface` at
     /// creation, from `SessionViewModel`'s own `recordLauncherKeystroke`:
-    /// without this, a real keystroke into a pristine pane would never hide
+    /// without this, a real keystroke into a launcher pane would never hide
     /// the launcher overlay, leaving it hit-testable over live terminal
     /// output.
     var onUserInput: (() -> Void)?
     /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
     /// clear its screen, AFTER `onUserInput` for the same event: clearing is
-    /// still typing, so the keystroke has to land first and the clear is what
+    /// still typing, so the keystroke lands first and the clear is what
     /// reopens the question the keystroke just closed.
     var onClearRequested: (() -> Void)?
     /// The chosen scroll speed, asked for at wheel time rather than carried
@@ -133,6 +133,7 @@ final class GhosttySession {
     }
 
     deinit {
+        screenActivityTimer?.invalidate()
         if secureEventInputEnabled {
             DisableSecureEventInput()
         }
@@ -374,45 +375,84 @@ final class GhosttySession {
         return ghostty_surface_has_selection(surface)
     }
 
-    /// The launcher-pristine contract's screen-activity half: called with
-    /// this pane's current non-empty retained-row count on every real
-    /// content change (see `reportScreenActivityIfDue`'s own doc), so a
-    /// pane whose program prints real output -- never typed into -- also
-    /// hides the overlay. Returns whether to keep reporting; `false` (no
-    /// longer pristine) makes this session stop calling it for good.
-    var onScreenActivity: ((Int) -> Bool)?
-    private var screenActivityStillWanted = true
-    private var lastScreenActivityCheck = Date.distantPast
+    /// The launcher's screen half: called with this pane's non-empty
+    /// active-screen row count and a fingerprint of its text each time either
+    /// changes. Setting it starts the poll that feeds it; a session without
+    /// one polls nothing.
+    var onScreenActivity: ((ScreenActivity) -> Void)? {
+        didSet { restartScreenActivityTimer() }
+    }
+    /// libghostty never announces a changed screen to the embedder, and
+    /// counting walks the whole active screen (`ghostty_surface_read_text`
+    /// is documented "expensive"), so the count is polled this often.
+    static let screenActivityInterval: TimeInterval = 0.5
+    private var lastReportedRowCount: Int?
+    private var lastReportedFingerprint: Int?
+    private var isParked = false
+    private var isDetached = false
+    /// Invalidated in `deinit`, which is not actor isolated.
+    nonisolated(unsafe) private var screenActivityTimer: Timer?
 
-    /// Turns row counting back on after it has been switched off. A clear key
-    /// is the only caller: the question it reopens ("is this pane empty
-    /// again?") can only be answered by counting, and the answer has to be
-    /// read from the screen the shell paints a moment later, not from the key
-    /// itself. `lastScreenActivityCheck` is reset too, so the very next render
-    /// reports rather than waiting out a throttle interval that began while
-    /// the pane was still busy.
-    func resumeScreenActivityReporting() {
-        screenActivityStillWanted = true
-        lastScreenActivityCheck = .distantPast
+    /// A test's stand-in for the libghostty read, which needs a live surface.
+    var screenRowsOverride: (() -> [String])?
+
+    /// Parking stops the poll: a parked pane's screen is not on show. Unparking
+    /// reads at once, since the screen may have changed while nothing looked.
+    /// A pane's appearance unparks it twice, and only a real transition acts.
+    func setParked(_ parked: Bool) {
+        guard parked != isParked else { return }
+        isParked = parked
+        restartScreenActivityTimer()
+        if !parked { tickScreenActivity() }
     }
 
-    /// Throttled to at most 4 times a second, and only while some listener
-    /// still wants to know: `GHOSTTY_ACTION_RENDER` is ghostty's own "real
-    /// content changed, please redraw" signal (see `handle`'s own case for
-    /// it), which is what makes this an actual content-change hook rather
-    /// than a blind timer -- counting non-empty rows walks the whole active
-    /// screen (`readScreenRows`'s underlying `ghostty_surface_read_text` call
-    /// is documented "expensive" by libghostty itself), so it must never run
-    /// once per render.
-    private func reportScreenActivityIfDue() {
-        guard screenActivityStillWanted, let onScreenActivity else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastScreenActivityCheck) >= 0.25 else { return }
-        lastScreenActivityCheck = now
-        let nonEmptyRows = readScreenRows().reduce(into: 0) { count, line in
+    /// Ends the poll for good: the pane is gone and a later unpark must not revive it.
+    func stopScreenActivity() {
+        isDetached = true
+        restartScreenActivityTimer()
+    }
+
+    func tickScreenActivity() {
+        guard !isParked, !isDetached, let onScreenActivity else { return }
+        let rows: [String]
+        if let screenRowsOverride {
+            rows = screenRowsOverride()
+        } else {
+            guard surface != nil else { return }
+            rows = readScreenRows()
+        }
+        let nonEmptyRows = rows.reduce(into: 0) { count, line in
             if !line.trimmingCharacters(in: .whitespaces).isEmpty { count += 1 }
         }
-        screenActivityStillWanted = onScreenActivity(nonEmptyRows)
+        // A shell always paints a prompt, for the pane's whole life, so a
+        // blank read is a surface between paints (not yet painted, or an
+        // alt-screen switch before the program draws), never a bare screen.
+        guard nonEmptyRows > 0 else { return }
+        let fingerprint = rows.joined(separator: "\n").hashValue
+        guard nonEmptyRows != lastReportedRowCount || fingerprint != lastReportedFingerprint else { return }
+        lastReportedRowCount = nonEmptyRows
+        lastReportedFingerprint = fingerprint
+        let lastRow = rows.last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { String($0.reversed().drop { $0 == " " }.reversed()) }
+        onScreenActivity(ScreenActivity(rows: nonEmptyRows, fingerprint: fingerprint, lastRow: lastRow))
+    }
+
+    private func restartScreenActivityTimer() {
+        screenActivityTimer?.invalidate()
+        screenActivityTimer = nil
+        guard onScreenActivity != nil, !isParked, !isDetached else { return }
+        let timer = Timer(timeInterval: Self.screenActivityInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tickScreenActivity() }
+        }
+        // Common modes: an open menu or a live resize tracks events, and the
+        // default mode alone would stall the count until it ends.
+        RunLoop.main.add(timer, forMode: .common)
+        screenActivityTimer = timer
+    }
+
+    /// One row in points: libghostty reports the cell in pixels.
+    var cellHeight: CGFloat? {
+        state.cellSize.map { CGFloat($0.height) / scale }
     }
 
     /// The ACTIVE area -- the editable screen a running program can address --
@@ -449,7 +489,10 @@ final class GhosttySession {
     /// (`GhosttyControlSurfaceFactory` logs that). It reaches the program
     /// unframed, which is what every paste did before, and is the only thing
     /// left that reaches it at all.
+    /// Pasted text is typing to the launcher, though no key reached
+    /// `keyDown` for it.
     func paste(_ text: String) {
+        onUserInput?()
         guard let controlChannel else {
             insertText(text)
             return
@@ -627,7 +670,6 @@ final class GhosttySession {
         switch action.tag {
         case GHOSTTY_ACTION_RENDER:
             requestRender()
-            reportScreenActivityIfDue()
         case GHOSTTY_ACTION_SET_TITLE:
             state.title = text
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:

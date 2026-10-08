@@ -28,10 +28,10 @@ struct GhosttyPaneTerminalView: View {
     /// `DragCoordinator.isPaneDragInFlight`: while true the cursor is
     /// closed-hand everywhere, not just over this pane.
     let paneDragInProgress: Bool
-    /// `SessionViewModel.isPristineLauncherPane`: while true this pane's
+    /// `SessionViewModel.isLauncherShowing`: while true this pane's
     /// surface claims no mouse point at all, so `PaneLauncherOverlay`'s
     /// button row (drawn above it in SwiftUI) receives clicks and hover.
-    let isPristineLauncherPane: Bool
+    let isLauncherShowing: Bool
     /// `SessionViewModel.renameTarget != nil`: while an inline editor is
     /// open anywhere in the window, this pane's surface makes no
     /// first-responder claim of its own.
@@ -61,7 +61,7 @@ struct GhosttyPaneTerminalView: View {
         surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
         optionAsAlt: OptionAsAlt,
         rearrangeActive: Bool = false, rightClickMode: RightClickMode = .program,
-        paneDragInProgress: Bool = false, isPristineLauncherPane: Bool = false,
+        paneDragInProgress: Bool = false, isLauncherShowing: Bool = false,
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
@@ -75,7 +75,7 @@ struct GhosttyPaneTerminalView: View {
         self.rearrangeActive = rearrangeActive
         self.rightClickMode = rightClickMode
         self.paneDragInProgress = paneDragInProgress
-        self.isPristineLauncherPane = isPristineLauncherPane
+        self.isLauncherShowing = isLauncherShowing
         self.editorIsOpen = editorIsOpen
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
@@ -92,7 +92,7 @@ struct GhosttyPaneTerminalView: View {
                 surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
                 optionAsAlt: optionAsAlt,
                 rearrangeActive: rearrangeActive, rightClickMode: rightClickMode,
-                paneDragInProgress: paneDragInProgress, isPristineLauncherPane: isPristineLauncherPane,
+                paneDragInProgress: paneDragInProgress, isLauncherShowing: isLauncherShowing,
                 // The find field is an editor too: while it holds the
                 // keyboard, this pane's terminal must not take it back.
                 editorIsOpen: editorIsOpen || search?.fieldHasFocus == true,
@@ -130,7 +130,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     var rearrangeActive: Bool = false
     var rightClickMode: RightClickMode = .program
     var paneDragInProgress: Bool = false
-    var isPristineLauncherPane: Bool = false
+    var isLauncherShowing: Bool = false
     var editorIsOpen: Bool = false
     var findBarFrame: CGRect?
     var onPrimaryClick: () -> Void = {}
@@ -189,7 +189,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             existingView.rearrangeActive = rearrangeActive
             existingView.rightClickMode = rightClickMode
             existingView.paneDragInProgress = paneDragInProgress
-            existingView.isPristineLauncherPane = isPristineLauncherPane
+            existingView.isLauncherShowing = isLauncherShowing
             existingView.editorIsOpen = editorIsOpen
             existingView.findBarFrame = findBarFrame
             existingView.onPrimaryClick = onPrimaryClick
@@ -203,7 +203,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         view.rearrangeActive = rearrangeActive
         view.rightClickMode = rightClickMode
         view.paneDragInProgress = paneDragInProgress
-        view.isPristineLauncherPane = isPristineLauncherPane
+        view.isLauncherShowing = isLauncherShowing
         view.editorIsOpen = editorIsOpen
         view.findBarFrame = findBarFrame
         view.onPrimaryClick = onPrimaryClick
@@ -241,7 +241,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         ghosttyView.rearrangeActive = rearrangeActive
         ghosttyView.rightClickMode = rightClickMode
         ghosttyView.paneDragInProgress = paneDragInProgress
-        ghosttyView.isPristineLauncherPane = isPristineLauncherPane
+        ghosttyView.isLauncherShowing = isLauncherShowing
         // Set before the claim below reads it, never after: the whole point
         // of the flag is to be current at the instant that claim is decided.
         ghosttyView.editorIsOpen = editorIsOpen

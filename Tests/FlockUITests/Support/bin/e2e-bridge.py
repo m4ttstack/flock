@@ -424,13 +424,18 @@ class Bridge:
         return self.run_helper("seed-layout.sh", [self.socket_path])
 
     def run_helper(self, script, argv, capture=False):
+        env = {"HOME": os.environ["HOME"],
+               "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "HERDR_BIN": self.herdr_bin}
+        # A reseed restarts herdr from here, and its panes run SHELL.
+        for name in ("SHELL", "TERM"):
+            if name in os.environ:
+                env[name] = os.environ[name]
         try:
             completed = subprocess.run(
                 ["/bin/bash", "%s/%s" % (self.lib_dir, script)] + argv,
                 capture_output=True, text=True, timeout=HELPER_TIMEOUT_SECONDS,
-                env={"HOME": os.environ["HOME"],
-                     "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                     "HERDR_BIN": self.herdr_bin},
+                env=env,
             )
         except (OSError, subprocess.SubprocessError) as error:
             return json.dumps({"error": {"message": "%s: %s" % (script, error)}})

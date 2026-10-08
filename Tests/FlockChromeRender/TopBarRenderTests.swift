@@ -486,7 +486,7 @@ private final class OverlaySurface: GhosttyPaneSurface {
     func unpark() {}
     func releaseHerdrHold() {}
     func takeHerdrHold() {}
-    func resumeScreenActivityReporting() {}
+    var cellHeight: CGFloat? { nil }
     var hasFirstFrame: Bool { true }
     var hasClaimedMouse: Bool { false }
     var programHasMouse: Bool { false }
@@ -497,7 +497,7 @@ private struct OverlaySurfaceFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Bool
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         OverlaySurface()
     }

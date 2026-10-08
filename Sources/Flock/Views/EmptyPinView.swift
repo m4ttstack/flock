@@ -21,7 +21,7 @@ enum EmptyPinLaunch {
         if entry.id == ShellEntry.entry.id {
             viewModel.recordLauncherKeystroke(pane)
         } else {
-            await LauncherSlots.launch(entry, in: pane, on: viewModel)
+            await LauncherSlots.launch(entry, in: pane, via: .click, on: viewModel)
         }
     }
 }
@@ -75,16 +75,10 @@ struct EmptyPinView: View {
     }
 
     private func launcher(showsShortcuts: Bool) -> some View {
-        HStack(spacing: ChromeMetrics.Launcher.buttonSpacing) {
-            LauncherButton(theme: theme, entry: ShellEntry.entry, shortcut: showsShortcuts ? ShellEntry.shortcutLabel : nil) {
-                launch(ShellEntry.entry)
-            }
-            ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
-                LauncherButton(theme: theme, entry: entry, shortcut: showsShortcuts ? LauncherSlots.shortcutLabel(at: index) : nil) {
-                    launch(entry)
-                }
-            }
-        }
+        LauncherBar(
+            style: LauncherBarStyle(theme: theme), slots: LauncherSlots.current(), showsShortcuts: showsShortcuts,
+            leading: (ShellEntry.entry, ShellEntry.shortcutLabel), onLaunch: launch
+        )
     }
 
     private func launch(_ entry: HarnessEntry) {
