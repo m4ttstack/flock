@@ -2687,7 +2687,10 @@ final class ChromeRenderTests: XCTestCase {
         defaults.removeObject(forKey: RearrangeAfterMoveStore.defaultsKey)
         defaults.removeObject(forKey: MissionBottomLineStore.defaultsKey)
         defaults.removeObject(forKey: OneTitleStore.defaultsKey)
-        defaults.removeObject(forKey: AgentCloseWarningStore.defaultsKey)
+        defaults.removeObject(forKey: AgentCloseWarningStore.legacyDefaultsKey)
+        for kind in AgentCloseWarningStore.Kind.allCases {
+            defaults.removeObject(forKey: AgentCloseWarningStore.defaultsKey(for: kind))
+        }
         defaults.removeObject(forKey: TopBarLabelStore.defaultsKey)
         for kind in NewTerminalKind.allCases {
             defaults.removeObject(forKey: StartingFolderStore.defaultsKey(for: kind))
@@ -4040,7 +4043,8 @@ final class ChromeRenderTests: XCTestCase {
             let confirm = try XCTUnwrap(buttons.first { $0.title.hasPrefix("Close") }, "\(id): \(buttons.map(\.title))")
             confirm.performClick(nil)
             await settle(window)
-            XCTAssertFalse(store.active, "\(id): the ticked box left the warning on")
+            XCTAssertFalse(store.warns(on: .tab), "\(id): the ticked box left the tab warning on")
+            XCTAssertTrue(store.warns(on: .pane), "\(id): a tab's box turned the pane warning off")
             window.close()
         }
     }

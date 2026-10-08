@@ -248,13 +248,17 @@ private struct CloseConfirmationDialog: ViewModifier {
             viewModel.pendingClose?.title ?? "",
             isPresented: Binding(
                 get: { viewModel.pendingClose != nil },
-                set: { shown in if !shown { answered(); viewModel.cancelPendingClose() } }
+                set: { shown in
+                    guard !shown else { return }
+                    if let pending = viewModel.pendingClose { answered(pending.subject) }
+                    viewModel.cancelPendingClose()
+                }
             ),
             titleVisibility: .visible,
             presenting: viewModel.pendingClose
         ) { pending in
             Button(pending.confirmButtonTitle) {
-                answered()
+                answered(pending.subject)
                 Task { await viewModel.confirmClose(pending.subject) }
             }
             // No destructive role: as the default it draws blue anyway, and the
@@ -262,7 +266,7 @@ private struct CloseConfirmationDialog: ViewModifier {
             .keyboardShortcut(.defaultAction)
             .accessibilityIdentifier("flock.close.confirm")
             Button("Cancel", role: .cancel) {
-                answered()
+                answered(pending.subject)
                 viewModel.cancelPendingClose()
             }
             .accessibilityIdentifier("flock.close.cancel")
@@ -276,10 +280,10 @@ private struct CloseConfirmationDialog: ViewModifier {
 
     /// The box counts whichever way the prompt is answered, as a system
     /// alert's suppression box does.
-    private func answered() {
+    private func answered(_ subject: CloseSubject) {
         guard dontWarnAgain else { return }
         dontWarnAgain = false
-        viewModel.stopWarningOnAgentCloses()
+        viewModel.stopWarningOnAgentCloses(subject)
     }
 }
 

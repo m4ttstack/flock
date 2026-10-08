@@ -126,15 +126,23 @@ final class AgentSessionsTests: XCTestCase {
         XCTAssertFalse(prompt.warnsOfAgents)
     }
 
-    // MARK: - The view model and the setting
+    // MARK: - The view model and the settings
 
     @MainActor
-    private func viewModel(warning: Bool) throws -> (SessionViewModel, RecordingPlanExecutor, AgentCloseWarningStore) {
+    private func defaults() throws -> UserDefaults {
         let suite = "AgentSessionsTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
-        let store = AgentCloseWarningStore(userDefaults: defaults)
-        store.select(warning)
+        return defaults
+    }
+
+    /// `w1:t1` holds a Claude pane `w1:p1` and a shell `w1:p2`, so neither
+    /// close escalates and the agent is the only reason to ask.
+    @MainActor
+    private func viewModel(tabs: Bool, panes: Bool) throws -> (SessionViewModel, RecordingPlanExecutor, AgentCloseWarningStore) {
+        let store = AgentCloseWarningStore(userDefaults: try defaults())
+        store.select(tabs, for: .tab)
+        store.select(panes, for: .pane)
         let executor = RecordingPlanExecutor()
         let viewModel = SessionViewModel(client: OfflineCommandClient(), planExecutor: executor, agentCloseWarning: store)
         viewModel.update(model: twoTabModel("claude", nil), connection: .live)
@@ -143,7 +151,7 @@ final class AgentSessionsTests: XCTestCase {
 
     @MainActor
     func testClosingAnAgentsTabAsksBeforeSendingAnything() async throws {
-        let (viewModel, executor, _) = try viewModel(warning: true)
+        let (viewModel, executor, _) = try viewModel(tabs: true, panes: false)
 
         await viewModel.closeTab(TabID(rawValue: "w1:t1"))
 
@@ -152,8 +160,8 @@ final class AgentSessionsTests: XCTestCase {
     }
 
     @MainActor
-    func testWithTheWarningOffAnAgentsTabClosesAtOnce() async throws {
-        let (viewModel, executor, _) = try viewModel(warning: false)
+    func testWithTheTabWarningOffAnAgentsTabClosesAtOnce() async throws {
+        let (viewModel, executor, _) = try viewModel(tabs: false, panes: true)
 
         await viewModel.closeTab(TabID(rawValue: "w1:t1"))
 
@@ -162,22 +170,54 @@ final class AgentSessionsTests: XCTestCase {
     }
 
     @MainActor
-    func testDontWarnMeNextTimeTurnsTheSettingOff() throws {
-        let (viewModel, _, store) = try viewModel(warning: true)
+    func testThePaneWarningFollowsItsOwnSetting() async throws {
+        let (asking, askingExecutor, _) = try viewModel(tabs: false, panes: true)
+        await asking.closePane(PaneID(rawValue: "w1:p1"))
+        XCTAssertEqual(asking.pendingClose?.warnsOfAgents, true)
+        XCTAssertTrue(askingExecutor.executedPlans.isEmpty)
 
-        viewModel.stopWarningOnAgentCloses()
+        let (silent, silentExecutor, _) = try viewModel(tabs: true, panes: false)
+        await silent.closePane(PaneID(rawValue: "w1:p1"))
+        XCTAssertNil(silent.pendingClose)
+        XCTAssertEqual(silentExecutor.executedPlans, [OpPlan(ops: [.closePane(PaneID(rawValue: "w1:p1"))], label: "Close pane")])
+    }
 
-        XCTAssertFalse(store.active)
+    /// The box turns off the setting for what was being closed, and only it.
+    @MainActor
+    func testDontWarnMeNextTimeTurnsOffOnlyItsOwnSetting() throws {
+        let (viewModel, _, store) = try viewModel(tabs: true, panes: true)
+
+        viewModel.stopWarningOnAgentCloses(.pane(PaneID(rawValue: "w1:p1")))
+        XCTAssertFalse(store.warns(on: .pane))
+        XCTAssertTrue(store.warns(on: .tab))
+
+        viewModel.stopWarningOnAgentCloses(.tab(TabID(rawValue: "w1:t1")))
+        XCTAssertFalse(store.warns(on: .tab))
     }
 
     @MainActor
-    func testTheWarningIsOnByDefaultAndRemembered() throws {
-        let suite = "AgentSessionsTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+    func testBothWarningsAreOnByDefaultAndRememberedApart() throws {
+        let defaults = try defaults()
 
-        XCTAssertTrue(AgentCloseWarningStore(userDefaults: defaults).active)
-        AgentCloseWarningStore(userDefaults: defaults).select(false)
-        XCTAssertFalse(AgentCloseWarningStore(userDefaults: defaults).active)
+        let fresh = AgentCloseWarningStore(userDefaults: defaults)
+        XCTAssertTrue(fresh.warns(on: .tab))
+        XCTAssertTrue(fresh.warns(on: .pane))
+        fresh.select(false, for: .pane)
+
+        let reread = AgentCloseWarningStore(userDefaults: defaults)
+        XCTAssertTrue(reread.warns(on: .tab))
+        XCTAssertFalse(reread.warns(on: .pane))
+    }
+
+    /// Before the split there was one switch; whatever it held carries into both.
+    @MainActor
+    func testTheSingleSwitchCarriesIntoBoth() throws {
+        let defaults = try defaults()
+        defaults.set(false, forKey: AgentCloseWarningStore.legacyDefaultsKey)
+
+        let store = AgentCloseWarningStore(userDefaults: defaults)
+
+        XCTAssertFalse(store.warns(on: .tab))
+        XCTAssertFalse(store.warns(on: .pane))
     }
 }

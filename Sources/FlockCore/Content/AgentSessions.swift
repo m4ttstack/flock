@@ -41,24 +41,52 @@ public struct AgentSessions: Equatable, Sendable {
     }
 }
 
-/// Settings > Closing > "Warn before closing an agent", and the close
-/// prompt's "Don't warn me next time". On by default.
+/// Settings > Closing, one switch for tabs and one for panes, and the close
+/// prompt's "Don't warn me next time", which turns off the one for what was
+/// being closed. Both on by default.
 @MainActor
 @Observable
 public final class AgentCloseWarningStore {
-    public static let defaultsKey = "flock.warnBeforeClosingAgents"
+    public enum Kind: String, CaseIterable, Sendable {
+        case tab, pane
 
-    public private(set) var active: Bool
+        /// A pane close that takes its tab is still a pane close: that is what
+        /// was asked for.
+        public init(_ subject: CloseSubject) {
+            switch subject {
+            case .tab: self = .tab
+            case .pane: self = .pane
+            }
+        }
+    }
+
+    /// The one switch there was before tabs and panes had their own; what it
+    /// held is where both start.
+    public static let legacyDefaultsKey = "flock.warnBeforeClosingAgents"
+
+    public static func defaultsKey(for kind: Kind) -> String {
+        switch kind {
+        case .tab: "flock.warnBeforeClosingAgentTabs"
+        case .pane: "flock.warnBeforeClosingAgentPanes"
+        }
+    }
+
+    private var warnings: [Kind: Bool]
 
     @ObservationIgnored private let userDefaults: UserDefaults
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        active = userDefaults.object(forKey: Self.defaultsKey) as? Bool ?? true
+        let legacy = userDefaults.object(forKey: Self.legacyDefaultsKey) as? Bool ?? true
+        warnings = Dictionary(uniqueKeysWithValues: Kind.allCases.map {
+            ($0, userDefaults.object(forKey: Self.defaultsKey(for: $0)) as? Bool ?? legacy)
+        })
     }
 
-    public func select(_ value: Bool) {
-        active = value
-        userDefaults.set(value, forKey: Self.defaultsKey)
+    public func warns(on kind: Kind) -> Bool { warnings[kind] ?? true }
+
+    public func select(_ value: Bool, for kind: Kind) {
+        warnings[kind] = value
+        userDefaults.set(value, forKey: Self.defaultsKey(for: kind))
     }
 }

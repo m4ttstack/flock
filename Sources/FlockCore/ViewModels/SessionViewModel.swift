@@ -1507,9 +1507,9 @@ public final class SessionViewModel {
         pendingClose = nil
     }
 
-    /// The close prompt's "Don't warn me next time".
-    public func stopWarningOnAgentCloses() {
-        agentCloseWarning?.select(false)
+    /// The close prompt's "Don't warn me next time", for what `subject` is.
+    public func stopWarningOnAgentCloses(_ subject: CloseSubject) {
+        agentCloseWarning?.select(false, for: AgentCloseWarningStore.Kind(subject))
     }
 
     /// Closes `pane`, asking first when herdr would take the tab or the
@@ -1548,7 +1548,7 @@ public final class SessionViewModel {
                 consequence = .subjectOnly
             }
             let busy = BusyPanes(closing: subject, consequence: consequence, model: model)
-            let agents = agentCloseWarning?.active == true
+            let agents = agentCloseWarning?.warns(on: AgentCloseWarningStore.Kind(subject)) == true
                 ? AgentSessions(closing: subject, consequence: consequence, model: model) : .none
             if let confirmation = consequence.confirmation(closing: subject, busy: busy, agents: agents) {
                 pendingClose = confirmation
