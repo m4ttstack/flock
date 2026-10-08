@@ -190,10 +190,12 @@ public final class PaneLauncherRegistry {
 
     /// A navigator command (a directory picker) was just typed into this
     /// pane. The launcher steps aside until the shell is back at a prompt.
+    /// It is use of the pane, so it ends startup like a keystroke.
     public func recordNavigationStarted(_ pane: PaneID, at time: Date) {
         var state = panes[pane] ?? Pane()
         state.navigation = Navigation(startedAt: time)
         state.typed = true
+        state.starting = false
         state.learningUntil = nil
         panes[pane] = state
     }

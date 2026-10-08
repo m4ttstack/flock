@@ -1117,11 +1117,22 @@ public final class SessionViewModel {
             paneScrollSubscriber?.subscribe(pane: pane)
             return
         }
+        // A surface can deliver a tick it queued before its teardown; a pane
+        // with no surface must not be re-created in the registry and polled.
         let surface = await factory.makeSurface(
             for: pane,
-            onUserInput: { [weak self] in self?.recordLauncherKeystroke(pane) },
-            onClearRequested: { [weak self] in self?.recordLauncherClearKey(pane) },
-            onScreenActivity: { [weak self] rows in self?.recordLauncherRows(pane, rows: rows) }
+            onUserInput: { [weak self] in
+                guard let self, self.ghosttySurfaces[pane] != nil else { return }
+                self.recordLauncherKeystroke(pane)
+            },
+            onClearRequested: { [weak self] in
+                guard let self, self.ghosttySurfaces[pane] != nil else { return }
+                self.recordLauncherClearKey(pane)
+            },
+            onScreenActivity: { [weak self] rows in
+                guard let self, self.ghosttySurfaces[pane] != nil else { return }
+                self.recordLauncherRows(pane, rows: rows)
+            }
         )
         ghosttySurfaces[pane] = surface
         // Only the release is asserted here: a bridge spawns holding, so a
@@ -1333,6 +1344,8 @@ public final class SessionViewModel {
             "pane.send_keys",
             ["pane_id": .string(pane.rawValue), "keys": .array([.string("ctrl+l")])]
         )
+        // Cancelled during the send: a later navigation may own the entry now.
+        guard !Task.isCancelled else { return }
         navigationWatches[pane] = nil
         launcherRegistryVersion += 1
         schedulePromptPoll(pane)

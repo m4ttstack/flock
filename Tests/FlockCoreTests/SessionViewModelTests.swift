@@ -92,13 +92,29 @@ private actor StubForegroundClient: HerdrCommandClient {
 
     private(set) var calls: [(method: String, params: [String: JSONValue])] = []
     private var script: [Answer]
+    private var heldMethod: String?
+    private var held: CheckedContinuation<Void, Never>?
 
     init(_ script: [Answer]) {
         self.script = script
     }
 
+    /// The next call to `method` waits, recorded, until `release()`.
+    func holdNext(_ method: String) {
+        heldMethod = method
+    }
+
+    func release() {
+        held?.resume()
+        held = nil
+    }
+
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data {
         calls.append((method, params))
+        if method == heldMethod {
+            heldMethod = nil
+            await withCheckedContinuation { held = $0 }
+        }
         switch method {
         case "pane.split":
             return Data(#"{"result":{"pane":{"pane_id":"w1:p2"}}}"#.utf8)
@@ -1145,6 +1161,18 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(waiting.isCancelled)
         XCTAssertNil(viewModel.promptWatches[pane])
         XCTAssertEqual(viewModel.launcherOccupiedRows(pane), 0, "forgotten")
+        let pollsAtTeardown = await client.calls.filter { $0.method == "pane.process_info" }.count
+        await waiting.value
+        var polls = await client.calls.filter { $0.method == "pane.process_info" }.count
+        XCTAssertEqual(polls, pollsAtTeardown, "the cancelled poll asked herdr anyway")
+
+        // A tick the surface had already queued lands after the teardown.
+        try XCTUnwrap(factory.onScreenActivityHandlers[pane])(3)
+        XCTAssertNil(viewModel.promptWatches[pane], "a late report revived a forgotten pane")
+        XCTAssertEqual(viewModel.launcherOccupiedRows(pane), 0)
+        await Task.yield()
+        polls = await client.calls.filter { $0.method == "pane.process_info" }.count
+        XCTAssertEqual(polls, pollsAtTeardown)
     }
 
     // MARK: - a navigator command (rt cd) launched from the launcher
@@ -1184,6 +1212,35 @@ final class SessionViewModelTests: XCTestCase {
         let sends = await client.calls.filter { $0.method == "pane.send_input" }
         XCTAssertEqual(sends.count, 1)
         viewModel.navigationWatches[newPane]?.cancel()
+    }
+
+    /// The first picker closes and its Ctrl-L is still in flight when a
+    /// second picker starts: the first watch, cancelled, must not touch the
+    /// second one's bookkeeping when its send returns.
+    @MainActor
+    func testACancelledNavigationWatchLeavesTheNextOneAlone() async throws {
+        let client = StubForegroundClient([.busy, .idle, .busy])
+        let viewModel = SessionViewModel(client: client, navigationPollInterval: .milliseconds(1))
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let pane = PaneID(rawValue: "w1:p2")
+        await client.holdNext("pane.send_keys")
+
+        await viewModel.launchNavigator("rt cd", in: pane)
+        let first = try XCTUnwrap(viewModel.navigationWatches[pane])
+        while await !client.calls.contains(where: { $0.method == "pane.send_keys" }) {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+
+        await viewModel.launchNavigator("rt cd", in: pane)
+        let second = try XCTUnwrap(viewModel.navigationWatches[pane])
+        XCTAssertNotEqual(first, second)
+        let version = viewModel.launcherRegistryVersion
+        await client.release()
+        await first.value
+
+        XCTAssertEqual(viewModel.navigationWatches[pane], second, "the cancelled watch dropped the live one")
+        XCTAssertEqual(viewModel.launcherRegistryVersion, version)
+        second.cancel()
     }
 
     /// A split is a pane flock created: its first screen may be a banner

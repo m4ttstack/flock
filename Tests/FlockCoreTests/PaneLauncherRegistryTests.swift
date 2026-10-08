@@ -267,6 +267,23 @@ final class PaneLauncherRegistryTests: XCTestCase {
         XCTAssertFalse(registry.isShowing(pane))
     }
 
+    /// A navigator typed into a fresh pane is use: what it leaves on screen
+    /// is output, not a banner.
+    @MainActor
+    func testANavigatorEndsStartup() {
+        let registry = PaneLauncherRegistry()
+        registry.recordCreated(pane)
+        registry.recordRows(pane, rows: 2, at: start)
+        registry.recordNavigationStarted(pane, at: start.addingTimeInterval(0.5))
+        let closedAt = start.addingTimeInterval(PaneLauncherRegistry.navigationStartCeiling + 1)
+        registry.recordForegroundJob(pane, idle: true, at: closedAt)
+        XCTAssertFalse(registry.isNavigating(pane))
+
+        registry.recordRows(pane, rows: 30, at: closedAt.addingTimeInterval(0.2))
+        registry.recordForegroundJob(pane, idle: true, at: closedAt.addingTimeInterval(0.3))
+        XCTAssertFalse(registry.isShowing(pane), "the picker's leftovers were taken for a startup banner")
+    }
+
     @MainActor
     func testANotIdleAnswerLeavesStartupOn() {
         let registry = PaneLauncherRegistry()
