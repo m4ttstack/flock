@@ -30,8 +30,8 @@ public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
     /// not the workspace closing.
     public var confirmed: Bool
     public var placement: PinPlacement = .rail
-    /// The cswap account email Claude launches as here; nil for the current login.
-    public var claudeAccount: String?
+    /// The cswap account Claude launches as here; nil for the current login.
+    public var claudeAccount: ClaudeAccountRef?
 
     public var identityKey: String { "pin:\(id.rawValue)" }
 
@@ -41,7 +41,7 @@ public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
 
     public init(
         id: PinID, name: String, folder: String, workspace: WorkspaceID?, syncedLabel: String?, confirmed: Bool,
-        placement: PinPlacement = .rail, claudeAccount: String? = nil
+        placement: PinPlacement = .rail, claudeAccount: ClaudeAccountRef? = nil
     ) {
         self.id = id
         self.name = name
@@ -63,7 +63,9 @@ public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
         syncedLabel = try container.decodeIfPresent(String.self, forKey: .syncedLabel)
         confirmed = try container.decode(Bool.self, forKey: .confirmed)
         placement = try container.decodeIfPresent(PinPlacement.self, forKey: .placement) ?? .rail
-        claudeAccount = try container.decodeIfPresent(String.self, forKey: .claudeAccount)
+        claudeAccount = (try? container.decodeIfPresent(ClaudeAccountRef.self, forKey: .claudeAccount))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .claudeAccount))
+                .flatMap { $0.map { ClaudeAccountRef(email: $0, organizationUuid: nil) } }
     }
 }
 
@@ -253,7 +255,7 @@ public final class PinnedWorkspaceStore {
         save()
     }
 
-    public func setClaudeAccount(_ id: PinID, to account: String?) {
+    public func setClaudeAccount(_ id: PinID, to account: ClaudeAccountRef?) {
         guard let index = pins.firstIndex(where: { $0.id == id }), pins[index].claudeAccount != account else { return }
         pins[index].claudeAccount = account
         save()

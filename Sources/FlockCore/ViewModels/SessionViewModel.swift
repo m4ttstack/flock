@@ -1415,8 +1415,8 @@ public final class SessionViewModel {
             }
         }
         let line = ClaudeAccountLaunch.line(binary: binary, account: account, accounts: accounts)
-        if let owner, let missing = line.unavailableAccount {
-            noticeSink(ClaudeAccountLaunch.notice(pinName: owner.name, account: missing))
+        if let owner, let fallback = line.fallback {
+            noticeSink(ClaudeAccountLaunch.notice(pinName: owner.name, fallback: fallback))
         }
         _ = try? await client.requestRaw(
             "pane.send_input",

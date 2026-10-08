@@ -1056,7 +1056,7 @@ final class SessionViewModelTests: XCTestCase {
 
     @MainActor
     private func pinnedLaunch(
-        account: String?, accounts: [CswapAccount]?, binary: String = "claude", passPin: Bool = false,
+        account: ClaudeAccountRef?, accounts: [CswapAccount]?, binary: String = "claude", passPin: Bool = false,
         placement: PinPlacement = .rail, foreground: StubForegroundClient.Answer = .idle
     ) async -> (typed: String?, notices: [String]) {
         let client = StubForegroundClient([foreground])
@@ -1075,12 +1075,16 @@ final class SessionViewModelTests: XCTestCase {
         return (send.flatMap { stringParam($0.params, "text") }, notices)
     }
 
-    private static let acmeAccount = CswapAccount(number: 1, email: "dev@acme.test", organizationName: "Acme", alias: nil)
+    private static let acmeAccount = CswapAccount(
+        number: 1, email: "dev@acme.test", organizationName: "Acme", organizationUuid: "org-acme", alias: nil
+    )
+    private static let acme = acmeAccount.ref
+    private static let gone = ClaudeAccountRef(email: "gone@acme.test", organizationUuid: "org-acme")
 
     @MainActor
     func testClaudeInAPinnedWorkspaceRunsAsItsAccount() async {
-        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount])
-        XCTAssertEqual(launch.typed, "cswap run 'dev@acme.test'")
+        let launch = await pinnedLaunch(account: Self.acme, accounts: [Self.acmeAccount])
+        XCTAssertEqual(launch.typed, "cswap run 1")
         XCTAssertEqual(launch.notices, [])
     }
 
@@ -1088,8 +1092,8 @@ final class SessionViewModelTests: XCTestCase {
     /// any snapshot yet.
     @MainActor
     func testANamedPinOutranksThePanesWorkspace() async {
-        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], passPin: true)
-        XCTAssertEqual(launch.typed, "cswap run 'dev@acme.test'")
+        let launch = await pinnedLaunch(account: Self.acme, accounts: [Self.acmeAccount], passPin: true)
+        XCTAssertEqual(launch.typed, "cswap run 1")
     }
 
     @MainActor
@@ -1101,24 +1105,24 @@ final class SessionViewModelTests: XCTestCase {
 
     @MainActor
     func testAnAccountCswapLacksLaunchesPlainClaudeAndSaysSo() async {
-        let launch = await pinnedLaunch(account: "gone@acme.test", accounts: nil)
+        let launch = await pinnedLaunch(account: Self.gone, accounts: [Self.acmeAccount])
         XCTAssertEqual(launch.typed, "claude")
-        XCTAssertEqual(launch.notices, [ClaudeAccountLaunch.notice(pinName: "seed", account: "gone@acme.test")])
+        XCTAssertEqual(launch.notices, [ClaudeAccountLaunch.notice(pinName: "seed", fallback: .notInCswap("gone@acme.test"))])
     }
 
     /// `model` hides a top-bar pin's workspace, so its panes are found in
     /// `userModel`.
     @MainActor
     func testClaudeInATopBarPinRunsAsItsAccount() async {
-        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], placement: .topBar)
-        XCTAssertEqual(launch.typed, "cswap run 'dev@acme.test'")
+        let launch = await pinnedLaunch(account: Self.acme, accounts: [Self.acmeAccount], placement: .topBar)
+        XCTAssertEqual(launch.typed, "cswap run 1")
     }
 
     /// Reading cswap is a wait during which a program can take the pane, and
     /// a command typed then would be its input.
     @MainActor
     func testALaunchThatLostThePromptWhileReadingCswapTypesNothing() async {
-        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], foreground: .busy)
+        let launch = await pinnedLaunch(account: Self.acme, accounts: [Self.acmeAccount], foreground: .busy)
         XCTAssertNil(launch.typed)
     }
 
@@ -1134,7 +1138,7 @@ final class SessionViewModelTests: XCTestCase {
         )
         viewModel.update(model: makeModel(), connection: .live)
         let pin = viewModel.pins.add(workspace: WorkspaceID(rawValue: "w1"), name: "seed", folder: "/acme", at: nil)!
-        viewModel.pins.setClaudeAccount(pin.id, to: "dev@acme.test")
+        viewModel.pins.setClaudeAccount(pin.id, to: Self.acme)
         let pane = PaneID(rawValue: "w1:p1")
         _ = await viewModel.attachPane(pane)
         try XCTUnwrap(factory.onScreenActivityHandlers[pane])(2)
@@ -1150,7 +1154,7 @@ final class SessionViewModelTests: XCTestCase {
 
     @MainActor
     func testCodexIgnoresThePinsAccount() async {
-        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], binary: "codex")
+        let launch = await pinnedLaunch(account: Self.acme, accounts: [Self.acmeAccount], binary: "codex")
         XCTAssertEqual(launch.typed, "codex")
     }
 

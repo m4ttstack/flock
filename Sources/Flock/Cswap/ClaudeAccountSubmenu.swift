@@ -22,9 +22,9 @@ struct ClaudeAccountSubmenu: View {
         }
     }
 
-    /// Reads the checked entry's tag rather than the saved email, which may
-    /// differ from cswap's in case.
-    private func selection(_ entries: [ClaudeAccountMenu.Entry]) -> Binding<String?> {
+    /// Reads the checked entry's tag rather than the saved account, which may
+    /// differ from cswap's in case or lack an organization.
+    private func selection(_ entries: [ClaudeAccountMenu.Entry]) -> Binding<ClaudeAccountRef?> {
         Binding(
             get: { entries.first(where: \.isChecked)?.account },
             set: { viewModel.pins.setClaudeAccount(pin.id, to: $0) }
