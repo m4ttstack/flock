@@ -1,6 +1,5 @@
 import FlockCore
 import XCTest
-@testable import Flock
 
 /// libghostty never announces a changed screen on macOS, so the row count is
 /// polled; only a changed count may reach the launcher.
