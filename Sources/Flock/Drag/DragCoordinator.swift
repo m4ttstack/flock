@@ -328,6 +328,9 @@ final class DragCoordinator {
     private(set) var isGridShown = false
     private(set) var gridSelectedPane: PaneID?
     private(set) var gridFocusedPane: PaneID?
+    /// Settings > Overview, read as the grid changes so a new choice holds
+    /// from the next close on.
+    @ObservationIgnored var keepsOverviewPane: @MainActor () -> Bool = { false }
     private(set) var gridZoomed: WorkspaceID?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
@@ -1294,6 +1297,7 @@ final class DragCoordinator {
     /// preview opening never re-renders the cards or the window.
     @discardableResult
     func updateGrid<Result>(_ change: (inout AllWorkspacesGridState) -> Result) -> Result {
+        grid.keepsFocusedPane = keepsOverviewPane()
         let result = change(&grid)
         // The strip is unmounted under a shown grid, so it observes no
         // selection change while one is up and never asks for the reveal that

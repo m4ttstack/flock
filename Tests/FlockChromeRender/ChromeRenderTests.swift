@@ -2706,6 +2706,7 @@ final class ChromeRenderTests: XCTestCase {
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
+                overviewReturnStore: OverviewReturnStore(userDefaults: defaults),
                 oneTitleStore: OneTitleStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,

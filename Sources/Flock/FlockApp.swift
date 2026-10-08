@@ -59,6 +59,7 @@ struct FlockApp: App {
     @State private var notificationLifetimeStore: NotificationLifetimeStore
     @State private var allWorkspacesModeStore: AllWorkspacesModeStore
     @State private var missionBottomLineStore = MissionBottomLineStore()
+    @State private var overviewReturnStore: OverviewReturnStore
     @State private var oneTitleStore: OneTitleStore
     @State private var workspaceIdentityStore: WorkspaceIdentityStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
@@ -230,7 +231,9 @@ struct FlockApp: App {
         _rearrangeMode = State(initialValue: rearrangeMode)
         let boardStore = BoardStore()
         _boardStore = State(initialValue: boardStore)
-        _dragCoordinator = State(initialValue: DragCoordinator(
+        let overviewReturnStore = OverviewReturnStore()
+        _overviewReturnStore = State(initialValue: overviewReturnStore)
+        let dragCoordinator = DragCoordinator(
             toasts: toastCenter,
             rearrangeMode: rearrangeMode,
             commit: { subject, target in await viewModel.perform(subject: subject, target: target, board: boardStore.names) },
@@ -251,7 +254,9 @@ struct FlockApp: App {
             },
             gridClosed: { viewModel.isMainCanvasCovered = false },
             gridHoldsEscape: { viewModel.renameTarget != nil || viewModel.paneShownInOverview != nil }
-        ))
+        )
+        dragCoordinator.keepsOverviewPane = { overviewReturnStore.active == .openPane }
+        _dragCoordinator = State(initialValue: dragCoordinator)
         let dividerDragSession = DividerDragSession(
             commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }
         )
@@ -652,6 +657,7 @@ struct FlockApp: App {
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
                 missionBottomLineStore: missionBottomLineStore,
+                overviewReturnStore: overviewReturnStore,
                 oneTitleStore: oneTitleStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,

@@ -13,6 +13,7 @@ struct FlockSettingsView: View {
     let herdrMousePatchStore: HerdrMousePatchStore
     let notificationLifetimeStore: NotificationLifetimeStore
     let missionBottomLineStore: MissionBottomLineStore
+    let overviewReturnStore: OverviewReturnStore
     let oneTitleStore: OneTitleStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
     let startingFolderStore: StartingFolderStore
@@ -24,7 +25,7 @@ struct FlockSettingsView: View {
             StartingFolderSettingsSection(store: startingFolderStore)
             NotificationSettingsSection(store: notificationLifetimeStore)
             TitlesSettingsSection(store: oneTitleStore)
-            OverviewSettingsSection(bottomLineStore: missionBottomLineStore)
+            OverviewSettingsSection(bottomLineStore: missionBottomLineStore, returnStore: overviewReturnStore)
             RearrangeSettingsSection(store: rearrangeAfterMoveStore)
             RtModalTextSizeSection(store: rtModalTextSizeStore)
             HerdrMousePatchRow(store: herdrMousePatchStore)

@@ -311,12 +311,22 @@ final class AllWorkspacesGridTests: XCTestCase {
         XCTAssertNil(grid.focused)
     }
 
-    func testReopeningTheViewReturnsToTheFocusedPane() {
+    func testLeavingTheViewPutsTheFocusedPaneDownByDefault() {
         var grid = AllWorkspacesGridState()
         grid.open()
         grid.focus(pane: PaneID(rawValue: "p1"))
         grid.close()
         grid.open()
+        XCTAssertNil(grid.focused, "Overview opens on its lanes again")
+    }
+
+    func testKeepingTheFocusedPaneReturnsToItAfterLeaving() {
+        var grid = AllWorkspacesGridState()
+        grid.keepsFocusedPane = true
+        grid.open()
+        grid.focus(pane: PaneID(rawValue: "p1"))
+        grid.toggle()
+        grid.toggle()
         XCTAssertEqual(grid.focused, PaneID(rawValue: "p1"), "Overview remembers its place")
         grid.unfocus()
         XCTAssertNil(grid.focused, "only going back leaves it")
