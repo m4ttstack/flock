@@ -669,7 +669,16 @@ private struct TabThumbnail: View {
     }
 
     private func interaction(of part: ThumbnailPart) -> ControlInteraction {
-        ThumbnailPart.interaction(of: part, hovered: hovered, pressed: pressed, dragInFlight: drag.activeSubject != nil)
+        guard isMovable else { return .rest }
+        return ThumbnailPart.interaction(of: part, hovered: hovered, pressed: pressed, dragInFlight: drag.activeSubject != nil)
+    }
+
+    /// A zoomed island holding one tab of one pane has nothing to move and
+    /// nowhere else to drop it, so it offers no drag, hover or grab cursor.
+    private var isMovable: Bool {
+        guard tiles.isZoomed, let model = viewModel.model else { return true }
+        let tabCount = model.tabs[tab.workspaceID]?.count ?? 0
+        return tabCount > 1 || model.panes.values.filter { $0.tabID == tab.tabID }.count > 1
     }
 
     private var tabTitle: String {
@@ -721,7 +730,7 @@ private struct TabThumbnail: View {
         // On the whole thumbnail, mini panes included, so a press anywhere a
         // mini pane does not cover drags the tab. A mini pane's own gesture
         // is a descendant's, so it takes the press where it sits.
-        .gesture(tabDrag.simultaneously(with: press))
+        .gesture(tabDrag.simultaneously(with: press), including: isMovable ? .all : .subviews)
         // Last, so everything above moves together and the frame the card
         // publishes from outside this view is the layout frame an offset
         // cannot touch. This is the strip's own shape (`TabBlock`).
@@ -769,7 +778,7 @@ private struct TabThumbnail: View {
             isActive: isActiveTab
         )
         .onHover { hovering in
-            GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
+            GridCursor.hover(hovering && isMovable, dragInFlight: drag.holdsGrabCursor)
         }
     }
 
@@ -934,11 +943,11 @@ private struct TabThumbnail: View {
                         .onTapGesture { clicked(pane: pane.paneID) }
                         .gesture(
                             paneDrag(pane, box: placed.frame).simultaneously(with: press),
-                            including: renaming(pane.paneID) ? .subviews : .all
+                            including: renaming(pane.paneID) || !isMovable ? .subviews : .all
                         )
                         .contextMenu { paneMenu(pane.paneID) }
                         .onHover { hovering in
-                            GridCursor.hover(hovering, dragInFlight: drag.holdsGrabCursor)
+                            GridCursor.hover(hovering && isMovable, dragInFlight: drag.holdsGrabCursor)
                             withAnimation(GridControlFade.animation(reduceMotion: reduceMotion)) {
                                 if hovering { hoveredPane = pane.paneID } else if hoveredPane == pane.paneID { hoveredPane = nil }
                             }
