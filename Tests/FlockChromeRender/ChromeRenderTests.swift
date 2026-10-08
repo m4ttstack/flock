@@ -2876,8 +2876,8 @@ final class ChromeRenderTests: XCTestCase {
     /// The grid covers the rail, so Arrange's dock floats in the corner the
     /// rail would hold, at the rail's width, with flock's notice and none of
     /// the attention cards, which are Overview's Needs you lane. Read against
-    /// the same grid with nothing to say: the notice's `chrome` ground
-    /// appears there, and the needs-input card's red does not.
+    /// the same grid with its cards and notice cleared: the notice's `chrome`
+    /// ground appears there, and the needs-input card's red does not.
     func testOverTheGridTheDockFloatsWhereTheRailWouldBe() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_DOCK_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
@@ -2889,9 +2889,13 @@ final class ChromeRenderTests: XCTestCase {
         var reds: [Int] = []
         var grounds: [Int] = []
         for withMessages in [false, true] {
-            let harness = withMessages
-                ? try await dockHarness(theme: theme, overflowing: false)
-                : try await Harness(theme: theme, model: try Fixture.herdModel())
+            // The same panes either way, so a red tile in the corner is in
+            // both reads and only the dock differs.
+            let harness = try await dockHarness(theme: theme, overflowing: false)
+            if !withMessages {
+                harness.viewModel.clearAttentionToasts()
+                if let notice = harness.toasts.current?.id { harness.toasts.dismiss(notice) }
+            }
             let window = harness.makeWindow(size: Self.gridWindowSize)
             await settle(window)
             harness.drag.toggleGrid()
