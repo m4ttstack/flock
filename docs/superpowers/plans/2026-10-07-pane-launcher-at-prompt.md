@@ -1864,3 +1864,9 @@ EOF
 ```
 
 Per Matt's PR rules: wait for CodeRabbit's review and address actionable findings, wait for CI green, then ask Matt before merging.
+
+## Spike findings (2026-10-07)
+
+- The Flock Dev run is deferred until Matt is at his desk. The spike build was delivered and its edits reverted; no log was collected.
+- Tasks 1 to 6 proceeded on the plan's default constants: unknownHeightCap = 4, learningWindow = 2s, tallestPrompt = 8.
+- The spike's checks move into Task 7's hand-off checklist: ⌘2 from a cold launch before and after opening Pane > Launch, row counts read from the launcher log, and the launcher's return after rt cd. The `C-l` send is exercised by the navigator flow itself.
