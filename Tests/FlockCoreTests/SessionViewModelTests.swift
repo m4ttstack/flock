@@ -1174,6 +1174,21 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isLauncherShowing(newPane))
     }
 
+    /// The surface can report before the create request returns.
+    @MainActor
+    func testASplitPaneThatReportedBeforeLandingStillShowsTheLauncher() async throws {
+        let client = StubForegroundClient([.idle])
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory, launcherPollBackoff: [.milliseconds(1)])
+        let newPane = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(newPane)
+        try XCTUnwrap(factory.onScreenActivityHandlers[newPane])(22)
+        XCTAssertFalse(viewModel.isLauncherShowing(newPane))
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        try await XCTUnwrap(viewModel.promptWatches[newPane]).value
+        XCTAssertTrue(viewModel.isLauncherShowing(newPane))
+    }
+
     /// Busy, an unreadable answer, then idle: the watch survives the bad
     /// answer, and the picker's end is followed by a Ctrl-L so the pane is
     /// bare again for the generic rule to show on.

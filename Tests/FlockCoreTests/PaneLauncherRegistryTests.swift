@@ -245,6 +245,19 @@ final class PaneLauncherRegistryTests: XCTestCase {
     }
 
     @MainActor
+    func testAPaneMarkedCreatedAfterItsFirstReportStillLearnsIt() {
+        let registry = PaneLauncherRegistry()
+        registry.recordRows(pane, rows: 22, at: start)
+        registry.recordCreated(pane)
+        XCTAssertEqual(registry.nextPollDelay(pane), .zero)
+
+        registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(0.1))
+
+        XCTAssertTrue(registry.isShowing(pane))
+        XCTAssertEqual(registry.occupiedRows(pane), 22)
+    }
+
+    @MainActor
     func testAKeystrokeEndsStartupAsTyped() {
         let registry = PaneLauncherRegistry()
         registry.recordCreated(pane)

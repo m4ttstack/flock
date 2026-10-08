@@ -128,6 +128,10 @@ public final class PaneLauncherRegistry {
     public func recordCreated(_ pane: PaneID) {
         var state = panes[pane] ?? Pane()
         state.starting = true
+        if let rows = state.rows, state.navigation == nil {
+            state.promptRows = rows
+            state.learningUntil = nil
+        }
         panes[pane] = state
     }
 
