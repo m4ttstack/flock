@@ -75,6 +75,223 @@ final class TopBarRenderTests: XCTestCase {
         }
     }
 
+    // MARK: - The overlay
+
+    private static let overlaySize = CGSize(width: 1100, height: 700)
+    private nonisolated static let left = PaneID(rawValue: "w1:p1")
+    private nonisolated static let right = PaneID(rawValue: "w1:p2")
+
+    private enum OverlayCase: String, CaseIterable {
+        case oneSmall = "one-small", oneLarge = "one-large", splitMedium = "split-medium", tabsMedium = "tabs-medium"
+
+        var size: ModalSize {
+            switch self {
+            case .oneSmall: .small
+            case .oneLarge: .large
+            case .splitMedium, .tabsMedium: .medium
+            }
+        }
+
+        var panes: [PaneID] { self == .splitMedium ? [left, right] : [left] }
+    }
+
+    /// The overlay is the shared modal: its card is the size's box over the
+    /// area it is mounted on, its title row names the pin, and each of the
+    /// tab's panes sits in its layout box: one pane fills the content area as
+    /// the rt modal's does, a split leaves one gutter between two outlined
+    /// boxes, the focused one in the accent.
+    func testTheOverlayIsTheSharedModalHoldingTheTabsPanes() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let roles = theme.palette.chromeRoles
+            for overlay in OverlayCase.allCases {
+                let (window, viewModel) = try await hostOverlay(theme, overlay)
+                defer { window.close() }
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:])).write(
+                        to: URL(fileURLWithPath: directory).appendingPathComponent("top-bar-overlay-\(overlay.rawValue)-\(scheme).png")
+                    )
+                }
+                let message = "\(overlay.rawValue) \(scheme)"
+                let scale = window.backingScaleFactor
+                let box = ChromeModal<EmptyView, EmptyView, EmptyView>.boxFrame(
+                    in: Self.overlaySize, origin: .zero, scale: scale, fraction: ChromeMetrics.Modal.sizeFraction(overlay.size)
+                )
+                for (edge, point) in [
+                    ("left", CGPoint(x: box.minX + 0.25, y: box.midY)), ("right", CGPoint(x: box.maxX - 0.75, y: box.midY)),
+                    ("top", CGPoint(x: box.midX, y: box.minY + 0.25)), ("bottom", CGPoint(x: box.midX, y: box.maxY - 0.75)),
+                ] {
+                    let ink = try XCTUnwrap(sample(image, point))
+                    XCTAssertLessThanOrEqual(distance(ink, roles.paneBorder), 2, "\(message): the card's \(edge) edge drew \(ink.hex)")
+                }
+                let outside = try XCTUnwrap(sample(image, CGPoint(x: box.minX - 1, y: box.midY)))
+                XCTAssertGreaterThan(distance(outside, roles.paneBorder), 2, "\(message): the card is wider than \(overlay.size)")
+
+                let titleRow = ChromeMetrics.Modal.TitleRow.height
+                let title = CGRect(x: box.minX, y: box.minY, width: box.width / 2, height: titleRow)
+                XCTAssertGreaterThan(count(roles.textStrong, in: image, within: title), 100, "\(message): no pin name in the title row")
+                let note = CGRect(x: box.minX + 140, y: box.minY, width: box.width / 2 - 140, height: titleRow)
+                let noted = count(roles.textDim, in: image, within: note)
+                if overlay == .tabsMedium {
+                    XCTAssertGreaterThan(noted, 40, "\(message): no note for a workspace past one tab")
+                } else {
+                    XCTAssertEqual(noted, 0, "\(message): a note for a one-tab workspace")
+                }
+
+                let inset = ChromeMetrics.Modal.paneInset
+                let area = CGRect(
+                    x: box.minX + inset, y: box.minY + titleRow + inset,
+                    width: box.width - 2 * inset, height: box.height - titleRow - 2 * inset
+                )
+                let layout = try XCTUnwrap(viewModel.userModel?.layouts[TabID(rawValue: "w1:t1")])
+                let boxes = TopBarOverlayCanvas.geometry(layout: layout, exported: nil, area: area.size, scale: scale)
+                    .mapValues { $0.offsetBy(dx: area.minX, dy: area.minY) }
+                XCTAssertEqual(Set(boxes.keys), Set(overlay.panes), message)
+                let surfaces = surfaceFrames(in: window).sorted { $0.minX < $1.minX }
+                XCTAssertEqual(surfaces.count, overlay.panes.count, "\(message): surfaces on screen")
+                if overlay.panes.count == 1 {
+                    XCTAssertEqual(boxes[Self.left], area, "\(message): one pane's box is the content area")
+                    XCTAssertEqual(surfaces.first?.origin, area.origin, "\(message): the surface's origin")
+                } else {
+                    let left = try XCTUnwrap(boxes[Self.left]), right = try XCTUnwrap(boxes[Self.right])
+                    XCTAssertEqual(left.minX, area.minX, message)
+                    XCTAssertEqual(right.maxX, area.maxX, message)
+                    XCTAssertEqual(right.minX - left.maxX, DividerBand.gutter, "\(message): the gutter")
+                    XCTAssertEqual(left.height, area.height, message)
+                    let outline = TopBarOverlayCanvas.outlineInset
+                    XCTAssertEqual(
+                        surfaces.map(\.origin), [left, right].map { CGPoint(x: $0.minX + outline, y: $0.minY + outline) },
+                        "\(message): each surface inside its outline"
+                    )
+                    let focused = try XCTUnwrap(sample(image, CGPoint(x: left.minX + 0.5, y: left.midY)))
+                    XCTAssertLessThanOrEqual(distance(focused, roles.accent), 3, "\(message): herdr's focused pane drew \(focused.hex)")
+                    let other = try XCTUnwrap(sample(image, CGPoint(x: right.maxX - 0.75, y: right.midY)))
+                    XCTAssertLessThanOrEqual(distance(other, roles.paneBorder), 3, "\(message): the other pane drew \(other.hex)")
+                }
+            }
+        }
+    }
+
+    private func hostOverlay(_ theme: Theme, _ overlay: OverlayCase) async throws -> (NSWindow, SessionViewModel) {
+        let suite = "TopBarRenderTests.overlay.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let identity = WorkspaceIdentityStore(userDefaults: defaults)
+        let viewModel = SessionViewModel(
+            client: OfflineClient(), ghosttyFactory: OverlaySurfaceFactory(), pinnedWorkspaceDefaults: nil, identity: identity
+        )
+        viewModel.update(model: overlayModel(overlay, tabs: 1), connection: .live)
+        viewModel.moveToTopBar(workspace: Self.dash, at: nil)
+        if overlay == .tabsMedium {
+            viewModel.update(model: overlayModel(overlay, tabs: 2), connection: .live)
+        }
+        let pin = try XCTUnwrap(viewModel.pins.pins(in: .topBar).first)
+        identity.setOverride("server.rack", for: pin.identityKey)
+        let sizes = TopBarOverlaySizeStore(userDefaults: defaults)
+        sizes.select(overlay.size, for: pin.id)
+        await viewModel.toggleTopBar(pin.id)
+        XCTAssertEqual(viewModel.topBarOverlay.openPin, pin.id)
+
+        let board = BoardStore(sources: .unconfigured, userDefaults: defaults)
+        await board.refresh()
+        let root = ZStack {
+            theme.canvas
+            TopBarWorkspaceOverlay(theme: theme, viewModel: viewModel)
+        }
+        .frame(width: Self.overlaySize.width, height: Self.overlaySize.height)
+        .environment(identity)
+        .environment(board)
+        .environment(sizes)
+        .environment(TerminalTextSizeStore(userDefaults: defaults))
+        .environment(OptionAsAltStore(userDefaults: defaults))
+        .environment(CommandPaletteState())
+
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: Self.overlaySize), styleMask: [.borderless],
+            backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.colorSpace = .sRGB
+        window.contentView = NSHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<6 {
+            window.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return (window, viewModel)
+    }
+
+    /// `main`, and `dash` holding the overlay's panes side by side in its
+    /// first tab, herdr's focus on the left one.
+    private func overlayModel(_ overlay: OverlayCase, tabs: Int) -> SessionModel {
+        let tab = TabID(rawValue: "w1:t1")
+        let mainTab = TabID(rawValue: "w0:t1")
+        let panes = overlay.panes
+        let width = 80 / panes.count
+        return SessionModel(snapshot: SessionSnapshot(
+            version: "0.9.0", protocolVersion: 22,
+            focusedWorkspaceID: Self.main, focusedTabID: mainTab, focusedPaneID: nil,
+            workspaces: [
+                WorkspaceRecord(workspaceID: Self.main, label: "main", number: 1, activeTabID: mainTab, agentStatus: .idle),
+                WorkspaceRecord(workspaceID: Self.dash, label: "dash", number: 2, activeTabID: tab, agentStatus: .idle),
+            ],
+            tabs: [TabRecord(tabID: mainTab, workspaceID: Self.main, label: "first", number: 1, paneCount: 1, agentStatus: .idle)]
+                + (1...tabs).map { n in
+                    TabRecord(
+                        tabID: TabID(rawValue: "w1:t\(n)"), workspaceID: Self.dash, label: "first", number: n,
+                        paneCount: n == 1 ? panes.count : 1, agentStatus: .idle
+                    )
+                },
+            panes: panes.map { pane in
+                PaneRecord(
+                    paneID: pane, workspaceID: Self.dash, tabID: tab, focused: pane == Self.left, agentStatus: .idle,
+                    revision: 0, terminalTitleStripped: "zsh", label: nil, cwd: "/acme", scroll: nil
+                )
+            },
+            layouts: [
+                LayoutSnapshot(
+                    workspaceID: Self.dash, tabID: tab, zoomed: false, area: CellRect(x: 0, y: 0, width: 80, height: 24),
+                    focusedPaneID: Self.left,
+                    panes: panes.enumerated().map { index, pane in
+                        PaneRect(paneID: pane, focused: pane == Self.left, rect: CellRect(x: index * width, y: 0, width: width, height: 24))
+                    },
+                    splits: []
+                ),
+            ]
+        ))
+    }
+
+    /// Every pane's surface as the window holds it, top-left in the window.
+    private func surfaceFrames(in window: NSWindow) -> [CGRect] {
+        guard let root = window.contentView else { return [] }
+        func find(_ view: NSView) -> [NSView] {
+            if String(describing: type(of: view)) == "PlaceholderGhosttyHostView" { return [view] }
+            return view.subviews.flatMap(find)
+        }
+        return find(root).map { surface in
+            let frame = surface.convert(surface.bounds, to: nil)
+            return CGRect(x: frame.minX, y: root.bounds.height - frame.maxY, width: frame.width, height: frame.height)
+        }
+    }
+
+    /// Pixels within `tolerance` of `color` on every channel in `rect`, top
+    /// left in the window.
+    private func count(_ color: RGB, tolerance: Int = 24, in image: NSBitmapImageRep, within rect: CGRect) -> Int {
+        var found = 0
+        for y in stride(from: rect.minY, to: rect.maxY, by: 1 / Self.scale) {
+            for x in stride(from: rect.minX, to: rect.maxX, by: 1 / Self.scale) {
+                guard let ink = sample(image, CGPoint(x: x, y: y)) else { continue }
+                if abs(ink.red - color.red) <= tolerance, abs(ink.green - color.green) <= tolerance,
+                   abs(ink.blue - color.blue) <= tolerance { found += 1 }
+            }
+        }
+        return found
+    }
+
     private func host(_ theme: Theme, width: CGFloat, label: TopBarLabel) async throws -> Hosted {
         let suite = "TopBarRenderTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -212,4 +429,28 @@ final class TopBarRenderTests: XCTestCase {
 private struct OfflineClient: HerdrCommandClient {
     struct Offline: Error {}
     func requestRaw(_ method: String, _ params: [String: JSONValue]) async throws -> Data { throw Offline() }
+}
+
+@MainActor
+private final class OverlaySurface: GhosttyPaneSurface {
+    func detach() async {}
+    func park() {}
+    func unpark() {}
+    func releaseHerdrHold() {}
+    func takeHerdrHold() {}
+    func resumeScreenActivityReporting() {}
+    var hasFirstFrame: Bool { true }
+    var hasClaimedMouse: Bool { false }
+    var programHasMouse: Bool { false }
+}
+
+@MainActor
+private struct OverlaySurfaceFactory: GhosttyPaneFactory {
+    func makeSurface(
+        for pane: PaneID, onUserInput: @escaping () -> Void,
+        onClearRequested: @escaping () -> Void,
+        onScreenActivity: @escaping (Int) -> Bool
+    ) async -> any GhosttyPaneSurface {
+        OverlaySurface()
+    }
 }

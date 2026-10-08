@@ -71,6 +71,12 @@ struct MainWindow: View {
             }
         }
         .background(theme.chrome)
+        // Below the title bar and over everything else, rail included, so it
+        // opens from any view and its icon can close it again.
+        .overlay {
+            TopBarWorkspaceOverlay(theme: theme, viewModel: viewModel)
+                .padding(.top, ChromeMetrics.TitleBar.height)
+        }
         // Over the content rather than above it in the stack: the tab strip's
         // `NSScrollView` stretches up through the system title bar's safe
         // area to the window's top edge. Stacked, that scroll view sits over
@@ -107,6 +113,7 @@ struct MainWindow: View {
         .onChange(of: dragCoordinator.isGridShown) { _, shown in
             if shown { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
         }
+        .modifier(TopBarOverlayExclusion(viewModel: viewModel))
         // Here, where it runs once whichever view draws the stack: the dock,
         // or mission control's Needs you lane, which has no dock. It runs for
         // as long as anything is in the stack, not just while a finished
@@ -216,6 +223,33 @@ struct MainWindow: View {
         } message: { pending in
             Text(pending.confirmation.message)
         }
+    }
+}
+
+/// The top-bar overlay and the window's other modal layers, one at a time:
+/// opening it closes the rt modal, the palette and the switchers, and opening
+/// any of those closes it.
+private struct TopBarOverlayExclusion: ViewModifier {
+    let viewModel: SessionViewModel
+
+    @Environment(CommandPaletteState.self) private var commandPalette
+    @Environment(WorkspaceSwitcher.self) private var switcher
+    @Environment(TabSwitcher.self) private var tabSwitcher
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: viewModel.topBarOverlay.openPin) { _, open in
+                guard open != nil else { return }
+                commandPalette.close()
+                switcher.cancel()
+                tabSwitcher.cancel()
+                if viewModel.rt.modal != nil { Task { await viewModel.rt.closeModal() } }
+            }
+            .onChange(of: viewModel.rt.modal != nil) { _, shown in if shown { viewModel.topBarOverlay.close() } }
+            .onChange(of: commandPalette.isOpen) { _, open in if open { viewModel.topBarOverlay.close() } }
+            .onChange(of: switcher.isShown || tabSwitcher.isShown) { _, shown in
+                if shown { viewModel.topBarOverlay.close() }
+            }
     }
 }
 

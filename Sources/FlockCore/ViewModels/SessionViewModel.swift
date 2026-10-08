@@ -708,9 +708,11 @@ public final class SessionViewModel {
 
     /// The pane a canvas draws as focused and lets take the keyboard: the
     /// main canvas's resolved focus, or a solo canvas's one pane. None while
-    /// the rt modal is drawn over that canvas, since its own surface has it.
+    /// the rt modal is drawn over that canvas or the top-bar overlay over
+    /// every canvas, since their own surfaces have it.
     public func canvasFocus(solo: PaneID?) -> PaneID? {
-        rtModalIsOver(solo: solo) ? nil : solo ?? resolvedFocusedPaneID
+        guard topBarOverlay.openPin == nil, !rtModalIsOver(solo: solo) else { return nil }
+        return solo ?? resolvedFocusedPaneID
     }
 
     /// Whether the rt modal is drawn over a canvas: the main canvas draws any,

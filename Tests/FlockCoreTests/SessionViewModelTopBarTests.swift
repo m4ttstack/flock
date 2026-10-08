@@ -222,6 +222,22 @@ final class SessionViewModelTopBarTests: XCTestCase {
         XCTAssertNil(vm.topBarOverlay.openPin)
     }
 
+    /// The overlay's panes take the keyboard, so no canvas under it may claim
+    /// it back, the main one or a solo one.
+    func testEveryCanvasYieldsTheKeyboardWhileTheOverlayIsOpen() async {
+        let vm = viewModel()
+        vm.update(model: model([("w1", "acme"), ("w2", "dash")], focused: "w1"), connection: .live)
+        vm.moveToTopBar(workspace: w2, at: nil)
+        let shown = PaneID(rawValue: "w1:p1")
+        XCTAssertEqual(vm.canvasFocus(solo: shown), shown)
+        let pin = vm.pins.pins(in: .topBar)[0]
+        await vm.toggleTopBar(pin.id)
+        XCTAssertNil(vm.canvasFocus(solo: nil))
+        XCTAssertNil(vm.canvasFocus(solo: shown))
+        await vm.toggleTopBar(pin.id)
+        XCTAssertEqual(vm.canvasFocus(solo: shown), shown)
+    }
+
     func testTogglingTheOpenPinClosesAndAnEmptiedPinClosesTheOverlay() async {
         let vm = viewModel()
         vm.update(model: model([("w1", "acme"), ("w2", "dash")]), connection: .live)
