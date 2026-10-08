@@ -569,7 +569,9 @@ public final class SessionViewModel {
     }
 
     public func appCameToFront() {
-        if externalFocusWatch.returned(focus: model?.focusedPaneID, at: now()) { externalFocusMoves += 1 }
+        if externalFocusWatch.returned(focus: model?.focusedPaneID, ownTarget: paneShownInOverview, at: now()) {
+            externalFocusMoves += 1
+        }
     }
 
     /// herdr's focused pane when the main canvas was last covered.

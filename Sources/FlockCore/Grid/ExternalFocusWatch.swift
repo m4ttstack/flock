@@ -5,15 +5,15 @@ import Foundation
 /// while flock is in the background and are followed by flock being raised,
 /// so a move between leaving the front and coming back counts. herdr's event
 /// can trail the raise, so a move inside `grace` after coming back counts
-/// too, unless it lands on `ownTarget`: the pane Overview is showing, whose
-/// own focus a click on the way in can send.
+/// too. A move onto `ownTarget`, the pane Overview is showing, never counts:
+/// Overview's own queued focus can land on either side of the raise. A nil
+/// focus is a model not yet known, never a move.
 public struct ExternalFocusWatch: Equatable, Sendable {
     public static let grace: TimeInterval = 1
 
     private var away = false
     private var focusWhenLeft: PaneID?
     private var graceEnds: Date?
-    private var focusWhenReturned: PaneID?
 
     public init() {}
 
@@ -24,15 +24,14 @@ public struct ExternalFocusWatch: Equatable, Sendable {
     }
 
     /// Whether herdr's focus moved while flock was away.
-    public mutating func returned(focus: PaneID?, at now: Date) -> Bool {
+    public mutating func returned(focus: PaneID?, ownTarget: PaneID?, at now: Date) -> Bool {
         guard away else { return false }
         away = false
-        if focus != focusWhenLeft {
+        if isMove(to: focus, ownTarget: ownTarget) {
             graceEnds = nil
             return true
         }
         graceEnds = now.addingTimeInterval(Self.grace)
-        focusWhenReturned = focus
         return false
     }
 
@@ -43,8 +42,13 @@ public struct ExternalFocusWatch: Equatable, Sendable {
             graceEnds = nil
             return false
         }
-        guard focus != focusWhenReturned else { return false }
+        guard isMove(to: focus, ownTarget: ownTarget) else { return false }
         graceEnds = nil
-        return focus != nil && focus != ownTarget
+        return true
+    }
+
+    private func isMove(to focus: PaneID?, ownTarget: PaneID?) -> Bool {
+        guard let focus, let focusWhenLeft else { return false }
+        return focus != focusWhenLeft && focus != ownTarget
     }
 }
