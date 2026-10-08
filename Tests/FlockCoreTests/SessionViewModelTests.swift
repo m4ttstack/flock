@@ -1055,6 +1055,61 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     @MainActor
+    private func pinnedLaunch(
+        account: String?, accounts: [CswapAccount]?, binary: String = "claude", passPin: Bool = false
+    ) async -> (typed: String?, notices: [String]) {
+        let client = StubSplitCommandClient()
+        var notices: [String] = []
+        let viewModel = SessionViewModel(
+            client: client, noticeSink: { notices.append($0) }, cswapAccounts: { accounts }
+        )
+        viewModel.update(model: makeModel(), connection: .live)
+        let pin = viewModel.pins.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme", folder: "/acme", at: nil)!
+        viewModel.pins.setClaudeAccount(pin.id, to: account)
+        let pane = PaneID(rawValue: passPin ? "w9:p1" : "w1:p1")
+        await viewModel.launchHarness(binary, in: pane, pin: passPin ? pin.id : nil)
+        let send = await client.calls.last { $0.method == "pane.send_input" }
+        return (send.flatMap { stringParam($0.params, "text") }, notices)
+    }
+
+    private static let acmeAccount = CswapAccount(number: 1, email: "dev@acme.test", organizationName: "Acme", alias: nil)
+
+    @MainActor
+    func testClaudeInAPinnedWorkspaceRunsAsItsAccount() async {
+        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount])
+        XCTAssertEqual(launch.typed, "cswap run 'dev@acme.test'")
+        XCTAssertEqual(launch.notices, [])
+    }
+
+    /// An empty pin's launch names its pin: the pane it opened may not be in
+    /// any snapshot yet.
+    @MainActor
+    func testANamedPinOutranksThePanesWorkspace() async {
+        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], passPin: true)
+        XCTAssertEqual(launch.typed, "cswap run 'dev@acme.test'")
+    }
+
+    @MainActor
+    func testAPinWithNoAccountLaunchesPlainClaude() async {
+        let launch = await pinnedLaunch(account: nil, accounts: [Self.acmeAccount])
+        XCTAssertEqual(launch.typed, "claude")
+        XCTAssertEqual(launch.notices, [])
+    }
+
+    @MainActor
+    func testAnAccountCswapLacksLaunchesPlainClaudeAndSaysSo() async {
+        let launch = await pinnedLaunch(account: "gone@acme.test", accounts: nil)
+        XCTAssertEqual(launch.typed, "claude")
+        XCTAssertEqual(launch.notices, [ClaudeAccountLaunch.notice(pinName: "acme", account: "gone@acme.test")])
+    }
+
+    @MainActor
+    func testCodexIgnoresThePinsAccount() async {
+        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], binary: "codex")
+        XCTAssertEqual(launch.typed, "codex")
+    }
+
+    @MainActor
     func testIsAtPromptOnlyWhenTheShellHoldsTheForeground() async {
         let pane = PaneID(rawValue: "w1:p2")
         let idle = await SessionViewModel(client: StubForegroundClient([.idle])).isAtPrompt(pane)
