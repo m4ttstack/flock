@@ -26,12 +26,11 @@ final class RtModalChromeRenderTests: XCTestCase {
         let rowWidth: CGFloat = 480
         for theme in Self.themes {
             for back in [false, true] {
-                for selected in RtModalSize.allCases {
-                    let row = RtModalTitleRow(
-                        theme: theme, title: "runner · ~/src/acme", showsBackToRunner: back, size: selected,
-                        onBack: {}, onSize: { _ in }, onClose: {}
-                    )
-                    XCTAssertEqual(NSHostingView(rootView: row).fittingSize.height, ChromeMetrics.RtModal.TitleRow.height)
+                for selected in ModalSize.allCases {
+                    let row = ModalTitleRow(theme: theme, size: selected, onSize: { _ in }, onClose: {}) {
+                        RtModalTitle(theme: theme, title: "runner · ~/src/acme", showsBackToRunner: back, onBack: {})
+                    }
+                    XCTAssertEqual(NSHostingView(rootView: row).fittingSize.height, ChromeMetrics.Modal.TitleRow.height)
                     let window = host(row.frame(width: rowWidth), theme: theme, size: CGSize(width: 500, height: 48))
                     await settle(window)
                     let image = try snapshot(window)
@@ -45,7 +44,7 @@ final class RtModalChromeRenderTests: XCTestCase {
                     let strong = count(roles.textStrong, in: image)
                     XCTAssertGreaterThan(strong, 150, "\(label): the title did not draw in textStrong")
 
-                    for size in RtModalSize.allCases {
+                    for size in ModalSize.allCases {
                         let glyph = Self.sizeGlyph(size, rowTrailing: Self.inset + rowWidth, rowTop: Self.inset)
                         let accent = count(palette.accent, in: image, within: glyph)
                         let dim = count(roles.textDim, in: image, within: glyph)
@@ -129,7 +128,7 @@ final class RtModalChromeRenderTests: XCTestCase {
     func testTheModalDimsTheTabAreaAndCentresItsBoxAtEachSize() async throws {
         ChromeType.install()
         for theme in Self.themes {
-            for size in RtModalSize.allCases {
+            for size in ModalSize.allCases {
                 for variant in Variant.allCases {
                     try await checkModal(theme: theme, size: size, variant: variant)
                 }
@@ -137,7 +136,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         }
     }
 
-    private func checkModal(theme: Theme, size: RtModalSize, variant: Variant) async throws {
+    private func checkModal(theme: Theme, size: ModalSize, variant: Variant) async throws {
         let window = try await hostModal(theme: theme, variant: variant, size: size, textSizes: Self.textSizes).window
         defer { window.close() }
         let image = try snapshot(window)
@@ -148,7 +147,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         let roles = palette.chromeRoles
         let box = StandIn.box(in: window, size: size)
         let opacity = ChromeRoles.isLight(panelBg: palette.panelBg)
-            ? ChromeMetrics.RtModal.lightBackdropOpacity : ChromeMetrics.RtModal.darkBackdropOpacity
+            ? ChromeMetrics.Modal.lightBackdropOpacity : ChromeMetrics.Modal.darkBackdropOpacity
 
         let dimmed = hex(image, at: CGPoint(x: StandIn.size.width - 20, y: StandIn.titleBar + 15))
         XCTAssertLessThanOrEqual(
@@ -163,7 +162,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         XCTAssertEqual(hex(image, at: CGPoint(x: box.midX, y: box.maxY - 0.75)), roles.paneBorder.hex, "\(label): bottom edge")
         XCTAssertNotEqual(hex(image, at: CGPoint(x: box.minX - 0.75, y: box.midY)), roles.paneBorder.hex, "\(label): wider than \(size.rawValue)")
 
-        let titleRow = ChromeMetrics.RtModal.TitleRow.height
+        let titleRow = ChromeMetrics.Modal.TitleRow.height
         XCTAssertEqual(hex(image, at: CGPoint(x: box.midX + 100, y: box.minY + 3)), roles.chrome.hex, "\(label): title row")
         XCTAssertEqual(hex(image, at: CGPoint(x: box.midX, y: box.minY + titleRow + 2)), roles.pane.hex, "\(label): pane ground")
         let stripHeight = ChromeMetrics.RtModal.Strip.height
@@ -178,7 +177,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         }
 
         let surface = try XCTUnwrap(surfaceFrame(in: window), "\(label): no surface in the box")
-        let paneInset = ChromeMetrics.RtModal.paneInset
+        let paneInset = ChromeMetrics.Modal.paneInset
         let area = CGRect(
             x: box.minX + paneInset, y: box.minY + titleRow + paneInset,
             width: box.width - 2 * paneInset,
@@ -230,7 +229,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         let (window, viewModel) = (hosted.window, hosted.viewModel)
         defer { window.close() }
         let box = StandIn.box(in: window)
-        let row = ChromeMetrics.RtModal.TitleRow.self
+        let row = ChromeMetrics.Modal.TitleRow.self
         let y = box.minY + row.height / 2
 
         click(window, at: CGPoint(x: box.minX + row.horizontalPadding + 12, y: y))
@@ -253,8 +252,8 @@ final class RtModalChromeRenderTests: XCTestCase {
         let border = Theme(.tokyoNight).palette.chromeRoles.paneBorder.hex
         XCTAssertEqual(store.size(for: .nav), .medium, "the modal did not open at Medium")
 
-        var shown = RtModalSize.medium
-        for size in [RtModalSize.small, .large, .medium] {
+        var shown = ModalSize.medium
+        for size in [ModalSize.small, .large, .medium] {
             let before = StandIn.box(in: window, size: shown)
             let button = Self.sizeButton(size, rowTrailing: before.maxX, rowTop: before.minY)
             click(window, at: CGPoint(x: button.midX, y: button.midY))
@@ -464,8 +463,8 @@ final class RtModalChromeRenderTests: XCTestCase {
     /// box's edges.
     private func paneArea(in window: NSWindow) -> CGRect {
         let box = StandIn.box(in: window)
-        let inset = ChromeMetrics.RtModal.paneInset
-        let titleRow = ChromeMetrics.RtModal.TitleRow.height
+        let inset = ChromeMetrics.Modal.paneInset
+        let titleRow = ChromeMetrics.Modal.TitleRow.height
         return CGRect(
             x: box.minX + inset, y: box.minY + titleRow + inset,
             width: box.width - 2 * inset, height: box.height - titleRow - 2 * inset
@@ -518,12 +517,12 @@ final class RtModalChromeRenderTests: XCTestCase {
         static let titleBar: CGFloat = 30
         static let rail: CGFloat = 150
         static let tabArea = CGRect(x: rail, y: titleBar, width: size.width - rail, height: size.height - titleBar)
-        static let boxFractions: [RtModalSize: CGFloat] = [.small: 0.7, .medium: 0.8, .large: 0.9]
+        static let boxFractions: [ModalSize: CGFloat] = [.small: 0.7, .medium: 0.8, .large: 0.9]
 
         /// `size`'s fraction of the tab area, centred, each edge on the
         /// window's device pixels: at 0.7 and 0.9 an edge can fall on a half
         /// point.
-        static func box(in window: NSWindow, size: RtModalSize = .medium) -> CGRect {
+        static func box(in window: NSWindow, size: ModalSize = .medium) -> CGRect {
             let scale = window.backingScaleFactor
             func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
             let fraction = boxFractions[size] ?? 0
@@ -586,7 +585,7 @@ final class RtModalChromeRenderTests: XCTestCase {
     /// the modal opens at whatever a fresh store reads.
     private func hostModal(
         theme: Theme, variant: Variant, started: Bool = true, factory: any GhosttyPaneFactory = GroundSurfaceFactory(),
-        model: SessionModel? = nil, size: RtModalSize? = nil, textSizes: [RtKind: TerminalTextSize] = [:]
+        model: SessionModel? = nil, size: ModalSize? = nil, textSizes: [RtKind: TerminalTextSize] = [:]
     ) async throws -> Hosted {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: Self.defaultsSuite))
         for kind in RtKind.allCases {
@@ -646,7 +645,7 @@ final class RtModalChromeRenderTests: XCTestCase {
 
     // MARK: - The size control
 
-    private static let sizeGlyphs: [RtModalSize: CGSize] = [
+    private static let sizeGlyphs: [ModalSize: CGSize] = [
         .small: CGSize(width: 10, height: 7), .medium: CGSize(width: 12, height: 9), .large: CGSize(width: 14, height: 10.5),
     ]
     private static let sizeButtonSide: CGFloat = 18
@@ -656,10 +655,10 @@ final class RtModalChromeRenderTests: XCTestCase {
     /// `size`'s button in a title row whose trailing edge and top are given:
     /// the buttons run Small to Large, ending the gap before the close glyph,
     /// each centred on the row's height.
-    private static func sizeButton(_ size: RtModalSize, rowTrailing: CGFloat, rowTop: CGFloat) -> CGRect {
-        let row = ChromeMetrics.RtModal.TitleRow.self
-        let index = RtModalSize.allCases.firstIndex(of: size) ?? 0
-        let fromTrailing = CGFloat(RtModalSize.allCases.count - 1 - index)
+    private static func sizeButton(_ size: ModalSize, rowTrailing: CGFloat, rowTop: CGFloat) -> CGRect {
+        let row = ChromeMetrics.Modal.TitleRow.self
+        let index = ModalSize.allCases.firstIndex(of: size) ?? 0
+        let fromTrailing = CGFloat(ModalSize.allCases.count - 1 - index)
         let maxX = rowTrailing - row.horizontalPadding - row.closeGlyphSize - sizeControlGapBeforeClose
             - fromTrailing * (sizeButtonSide + sizeButtonSpacing)
         return CGRect(
@@ -668,7 +667,7 @@ final class RtModalChromeRenderTests: XCTestCase {
         )
     }
 
-    private static func sizeGlyph(_ size: RtModalSize, rowTrailing: CGFloat, rowTop: CGFloat) -> CGRect {
+    private static func sizeGlyph(_ size: ModalSize, rowTrailing: CGFloat, rowTop: CGFloat) -> CGRect {
         let button = sizeButton(size, rowTrailing: rowTrailing, rowTop: rowTop)
         let glyph = sizeGlyphs[size] ?? .zero
         return CGRect(
