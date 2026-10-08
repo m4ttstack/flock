@@ -15,21 +15,20 @@ enum ShellEntry {
 }
 
 enum EmptyPinLaunch {
-    /// Opens the pin, then runs the choice in its first pane. The shell needs
-    /// nothing run; marking the pane typed into puts its own launcher away,
-    /// since the person has already chosen.
+    /// Opens the pin, then runs the choice in its first pane. The pane is
+    /// marked typed into the moment it exists, before its shell is up: the
+    /// person has already chosen, so its own launcher must never show while
+    /// the launch waits for the prompt. The shell needs nothing run.
     @MainActor
     static func start(
         _ pin: PinID, with entry: HarnessEntry, via path: LauncherSlots.LaunchPath, on viewModel: SessionViewModel
     ) async {
         LauncherSlots.flash(entry, via: path, on: .pin(pin), viewModel: viewModel)
         guard let pane = await viewModel.start(emptyPin: pin) else { return }
-        if entry.id == ShellEntry.entry.id {
-            viewModel.recordLauncherKeystroke(pane)
-        } else {
-            _ = await viewModel.awaitPrompt(pane)
-            await LauncherSlots.launch(entry, in: pane, via: .click, on: viewModel)
-        }
+        viewModel.recordLauncherKeystroke(pane)
+        guard entry.id != ShellEntry.entry.id else { return }
+        _ = await viewModel.awaitPrompt(pane)
+        await LauncherSlots.launch(entry, in: pane, via: .click, on: viewModel)
     }
 }
 
