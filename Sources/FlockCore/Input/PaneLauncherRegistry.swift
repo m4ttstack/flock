@@ -1,198 +1,208 @@
 import Foundation
 
-/// Decides which panes may be offered the harness launcher, and when.
+/// Decides, per pane, whether the harness launcher is offered right now.
 ///
-/// Two things make a pane offerable, and the second is why this is not just
-/// provenance: flock created it (a fresh pane, nothing in it yet), or the user
-/// cleared it (they asked for a blank pane, whoever made it). Either way the
-/// offer goes away as soon as the pane is in use -- the first keystroke routed
-/// through it, or the first screen change after it settled.
-///
-/// **A clear counts even on a pane flock never created.** That rule used to be
-/// provenance-only, which made the feature unreliable for the wrong reason:
-/// the set below is in-memory, so restarting flock made every existing pane
-/// permanently ineligible, and clearing one did nothing for the rest of the
-/// session. A user who clears a pane is asking for a fresh start in it, and
-/// that reads the same whoever opened it.
-///
-/// What keeps this from being intrusive is that a clear is only ever
-/// *proposed* here: the pane's screen has to actually come back down to its
-/// settled size before the overlay returns, so a Ctrl-L that a full-screen
-/// program handled itself, and repainted straight over, changes nothing.
+/// The answer is a function of the pane's present state, never its history:
+/// the screen holds nothing but a prompt, nothing has been typed since it
+/// last emptied, and herdr says the shell holds the foreground. Each signal
+/// arrives through its own `record` method with its own timestamp, so this
+/// type reads no clock and tests never sleep.
 @MainActor
 public final class PaneLauncherRegistry {
-    /// How long after a pane's first frame its output is still the shell
-    /// starting up. Nothing a shell prints on its own way up is use: a prompt
-    /// can be one line or five (a starship prompt emits a path line, the
-    /// prompt itself, and warnings), and anything the user did in that window
-    /// arrived as a keystroke, which hides the overlay by its own route. So
-    /// the window is generous on purpose; erring long only delays the hide
-    /// until the pane's next output, while erring short is what put the
-    /// overlay away before it could be clicked.
-    static let settleWindow: TimeInterval = 2
+    /// How long a prompt has to finish painting after the pane first paints,
+    /// after the screen drops to bare, or after a navigator ends. A prompt
+    /// can land in two frames, and a shell prints warnings on its way up;
+    /// erring long only lets a quick command's output in, and a keystroke
+    /// closes the window before that output can arrive.
+    public static let learningWindow: TimeInterval = 2
 
-    /// How long after a clear key the pane's screen is watched for the drop
-    /// that proves the clear happened. It covers a round trip out to herdr,
-    /// through the shell and back, with room to spare; past it the watch stops
-    /// rather than leaving the scan running on a pane nobody cleared.
-    static let clearWindow: TimeInterval = 2
+    /// The most rows a first screen may hold and still be taken for a bare
+    /// prompt when the pane's own prompt height is unknown: a two-line prompt
+    /// plus two startup warnings. A two-line prompt, one line of output and
+    /// a new prompt is five.
+    public static let unknownHeightCap = 4
+
+    /// No prompt is taller than this. A report above it inside a learning
+    /// window is output and closes the window instead of teaching.
+    public static let tallestPrompt = 8
 
     /// How long after a navigator command is typed an idle pane still means
-    /// the command has yet to start. Past it, idle means it already finished:
-    /// one that fails straight away can exit between two polls unseen.
-    static let navigationStartCeiling: TimeInterval = 3
+    /// the command has yet to start. Past it, idle means it already finished.
+    public static let navigationStartCeiling: TimeInterval = 3
 
-    /// Timed from the pane's FIRST frame, not from when flock created it: a
-    /// pane created in a workspace that is not on screen has no surface, and
-    /// so no startup output, until something attaches one.
-    private struct Screen {
-        let firstReport: Date
-        var settledRowCount: Int
+    /// Delays between asks of herdr while the shell is busy at a bare screen.
+    /// The last one repeats; a screen change starts over.
+    public static let defaultPollBackoff: [Duration] = [
+        .milliseconds(500), .seconds(1), .seconds(2), .seconds(4), .seconds(8),
+    ]
+
+    private enum Foreground {
+        case unasked, idle, notIdle
     }
-
-    /// Panes the launcher may be offered on at all: created by flock, or
-    /// cleared by the user. A pane in neither category never sees it.
-    private var offerable: Set<PaneID> = []
-    private var hidden: Set<PaneID> = []
-    private var screens: [PaneID: Screen] = [:]
-    private var clearRequests: [PaneID: Date] = [:]
 
     private struct Navigation {
         let startedAt: Date
         var seenRunning = false
     }
 
-    private var navigations: [PaneID: Navigation] = [:]
+    private struct Pane {
+        var promptRows: Int?
+        var rows: Int?
+        var typed = false
+        var learningUntil: Date?
+        var foreground: Foreground = .unasked
+        var failedAsks = 0
+        var navigation: Navigation?
 
-    public init() {}
-
-    /// Called with the pane id a `pane.split`/`tab.create`/`workspace.create`
-    /// response just handed back -- the provenance seam.
-    public func registerFlockCreated(_ pane: PaneID) {
-        offerable.insert(pane)
+        var isBare: Bool {
+            guard let rows, let promptRows else { return false }
+            return rows <= promptRows
+        }
     }
 
-    /// Keys typed while a navigator runs are the picker being used, not the
-    /// pane.
+    private let pollBackoff: [Duration]
+    private var panes: [PaneID: Pane] = [:]
+
+    public init(pollBackoff: [Duration] = PaneLauncherRegistry.defaultPollBackoff) {
+        precondition(!pollBackoff.isEmpty)
+        self.pollBackoff = pollBackoff
+    }
+
+    /// The surface's count of non-empty rows on its ACTIVE screen, not its
+    /// scrollback: a clear empties the screen and keeps the history, so a
+    /// scrollback-wide count could never come back down. A repeat of the
+    /// last count is a repaint and changes nothing.
+    public func recordRows(_ pane: PaneID, rows: Int, at time: Date) {
+        var state = panes[pane] ?? Pane()
+        let previous = state.rows
+        guard rows != previous else { return }
+        state.rows = rows
+        state.foreground = .unasked
+        state.failedAsks = 0
+        defer { panes[pane] = state }
+        if state.navigation != nil { return }
+        if let until = state.learningUntil, time < until {
+            if rows <= Self.tallestPrompt {
+                state.promptRows = rows
+            } else {
+                state.learningUntil = nil
+            }
+            return
+        }
+        state.learningUntil = nil
+        guard let previous else {
+            if rows <= Self.unknownHeightCap {
+                state.promptRows = rows
+                state.learningUntil = time.addingTimeInterval(Self.learningWindow)
+            }
+            return
+        }
+        let bareHeight = state.promptRows ?? Self.unknownHeightCap
+        if rows < previous, rows <= bareHeight {
+            state.typed = false
+            state.promptRows = rows
+            state.learningUntil = time.addingTimeInterval(Self.learningWindow)
+        }
+    }
+
+    /// A real keystroke into the pane. Keys typed while a navigator runs are
+    /// the picker's, not the pane's.
     public func recordKeystroke(_ pane: PaneID) {
-        guard navigations[pane] == nil else { return }
-        hide(pane)
+        var state = panes[pane] ?? Pane()
+        guard state.navigation == nil else { return }
+        state.typed = true
+        state.learningUntil = nil
+        panes[pane] = state
+    }
+
+    /// The key that asks the shell to clear: an explicit ask for a fresh
+    /// screen, so whatever was typed before it no longer counts, and herdr
+    /// is asked again.
+    public func recordClearKey(_ pane: PaneID) {
+        var state = panes[pane] ?? Pane()
+        guard state.navigation == nil else { return }
+        state.typed = false
+        state.foreground = .unasked
+        state.failedAsks = 0
+        panes[pane] = state
+    }
+
+    /// `idle` is whether the shell alone holds the pane's foreground; nil
+    /// when herdr could not say. While a navigator runs this drives its end:
+    /// idle once the command was seen running, or idle past the start
+    /// ceiling. Otherwise it answers the question `nextPollDelay` asked.
+    public func recordForegroundJob(_ pane: PaneID, idle: Bool?, at time: Date) {
+        var state = panes[pane] ?? Pane()
+        defer { panes[pane] = state }
+        if var navigation = state.navigation {
+            guard let idle else { return }
+            if !idle {
+                navigation.seenRunning = true
+                state.navigation = navigation
+                return
+            }
+            guard navigation.seenRunning
+                || time.timeIntervalSince(navigation.startedAt) >= Self.navigationStartCeiling
+            else { return }
+            state.navigation = nil
+            state.typed = false
+            state.learningUntil = time.addingTimeInterval(Self.learningWindow)
+            state.foreground = .unasked
+            state.failedAsks = 0
+            return
+        }
+        if idle == true {
+            state.foreground = .idle
+            state.failedAsks = 0
+        } else {
+            state.foreground = .notIdle
+            state.failedAsks += 1
+        }
     }
 
     /// A navigator command (a directory picker) was just typed into this
-    /// pane. The launcher steps aside while it runs and returns at the prompt
-    /// it leaves behind, since picking a folder is the step before launching
-    /// an agent in it.
+    /// pane. The launcher steps aside until the shell is back at a prompt.
     public func recordNavigationStarted(_ pane: PaneID, at time: Date) {
-        hide(pane)
-        navigations[pane] = Navigation(startedAt: time)
-    }
-
-    /// `busy` is whether anything but the shell holds the pane's foreground.
-    /// Idle ends the navigation once the command was seen running, or once
-    /// it has had `navigationStartCeiling` to start.
-    public func recordForegroundJob(_ pane: PaneID, busy: Bool, at time: Date) {
-        guard var navigation = navigations[pane] else { return }
-        if busy {
-            navigation.seenRunning = true
-            navigations[pane] = navigation
-            return
-        }
-        guard navigation.seenRunning
-            || time.timeIntervalSince(navigation.startedAt) >= Self.navigationStartCeiling
-        else { return }
-        navigations.removeValue(forKey: pane)
-        hidden.remove(pane)
-        // The prompt the picker leaves is not the screen the pane settled at,
-        // so the next report measures it afresh, with its own settle window.
-        screens.removeValue(forKey: pane)
+        var state = panes[pane] ?? Pane()
+        state.navigation = Navigation(startedAt: time)
+        state.typed = true
+        state.learningUntil = nil
+        panes[pane] = state
     }
 
     public func isNavigating(_ pane: PaneID) -> Bool {
-        navigations[pane] != nil
+        panes[pane]?.navigation != nil
     }
 
-    /// The pane can no longer be asked about (it closed, or herdr stopped
-    /// answering for it), so nothing will ever end this navigation.
-    public func forgetNavigation(_ pane: PaneID) {
-        navigations.removeValue(forKey: pane)
+    /// The pane is gone from herdr; nothing about it is worth keeping.
+    public func forget(_ pane: PaneID) {
+        panes[pane] = nil
     }
 
-    /// The user asked this pane to clear. Nothing is shown yet, and this makes
-    /// no judgement about the pane: it opens the window in which a screen
-    /// dropping to its settled size is read as the clear having landed, and
-    /// that is what decides.
-    ///
-    /// Deliberately unguarded by provenance. Clearing is an explicit ask for a
-    /// blank pane, and a pane flock did not open is no less blank for it.
-    public func recordClearRequested(_ pane: PaneID, at time: Date) {
-        clearRequests[pane] = time
+    public func isShowing(_ pane: PaneID) -> Bool {
+        guard let state = panes[pane], isCandidate(state) else { return false }
+        return state.foreground == .idle
     }
 
-    /// Whether this pane's screen is worth reporting on at all. Counting a
-    /// surface's non-empty rows is a full buffer scan, so it runs only while
-    /// an answer could still change: the pane is still offering the launcher,
-    /// or a clear it was just asked for has yet to land.
-    public func wantsScreenActivity(_ pane: PaneID, at time: Date) -> Bool {
-        guard navigations[pane] == nil else { return false }
-        return isPristine(pane) || hasPendingClear(pane, at: time)
-    }
-
-    /// `nonEmptyRowCount` counts the surface's ACTIVE screen, not its
-    /// scrollback: a clear empties the screen and keeps the history, so a
-    /// count that reached back through the scrollback could never come down
-    /// again and the clear below would never be seen.
-    ///
-    /// It is reported on every real content change. A count that differs from
-    /// the one the pane settled at is output, and output the user did not type
-    /// is the other way a pane is in use; a repeat of the settled count is a
-    /// repaint of the same screen (a blinking cursor, a prompt redrawing its
-    /// clock) and means nothing.
-    public func recordScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int, at time: Date) {
-        guard navigations[pane] == nil else { return }
-        guard var screen = screens[pane] else {
-            screens[pane] = Screen(firstReport: time, settledRowCount: nonEmptyRowCount)
-            return
+    /// nil when the pane is not a candidate (not bare, typed into, under a
+    /// navigator, or already answered idle); `.zero` when herdr has not been
+    /// asked since the screen last changed; otherwise the wait before asking
+    /// again.
+    public func nextPollDelay(_ pane: PaneID) -> Duration? {
+        guard let state = panes[pane], isCandidate(state) else { return nil }
+        switch state.foreground {
+        case .idle: return nil
+        case .unasked: return .zero
+        case .notIdle: return pollBackoff[min(state.failedAsks, pollBackoff.count) - 1]
         }
-        if hasPendingClear(pane, at: time) {
-            // The screen is back to the size it was when the pane was new, so
-            // the clear landed. Anything larger is a program that took Ctrl-L
-            // for itself and repainted, and it keeps the overlay away.
-            guard nonEmptyRowCount <= screen.settledRowCount else { return }
-            clearRequests.removeValue(forKey: pane)
-            // A cleared pane becomes offerable whether or not flock opened it:
-            // the user asked for a blank pane and got one.
-            offerable.insert(pane)
-            hidden.remove(pane)
-            // The shell redraws its prompt immediately after clearing, and
-            // that redraw is startup, not use -- the same reason a fresh pane
-            // gets a settle window at all.
-            screens[pane] = Screen(firstReport: time, settledRowCount: nonEmptyRowCount)
-            return
-        }
-        guard time.timeIntervalSince(screen.firstReport) >= Self.settleWindow else {
-            screen.settledRowCount = nonEmptyRowCount
-            screens[pane] = screen
-            return
-        }
-        guard nonEmptyRowCount != screen.settledRowCount else { return }
-        hide(pane)
     }
 
-    public func isPristine(_ pane: PaneID) -> Bool {
-        offerable.contains(pane) && !hidden.contains(pane)
+    /// The rows the pane's screen holds, which the overlay keeps clear of.
+    public func occupiedRows(_ pane: PaneID) -> Int {
+        panes[pane]?.rows ?? 0
     }
 
-    private func hasPendingClear(_ pane: PaneID, at time: Date) -> Bool {
-        guard let requested = clearRequests[pane] else { return false }
-        return time.timeIntervalSince(requested) < Self.clearWindow
-    }
-
-    /// The pane's settled row count deliberately survives this: it is what a
-    /// later clear is measured against, and it is the one thing that says how
-    /// big "empty" is for this particular shell's prompt.
-    private func hide(_ pane: PaneID) {
-        hidden.insert(pane)
-        clearRequests.removeValue(forKey: pane)
+    private func isCandidate(_ state: Pane) -> Bool {
+        state.navigation == nil && !state.typed && state.isBare
     }
 }

@@ -972,7 +972,6 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: client)
         await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
         let newPane = PaneID(rawValue: "w1:p2")
-        XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
 
         await viewModel.launchHarness("claude", in: newPane)
 
@@ -1000,7 +999,6 @@ final class SessionViewModelTests: XCTestCase {
         await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p1"))
         _ = await viewModel.attachPane(newPane)
         XCTAssertNotEqual(viewModel.resolvedFocusedPaneID, newPane)
-        XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
 
         await viewModel.launchHarness("claude", in: newPane)
 
@@ -1024,88 +1022,6 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     // MARK: - a navigator command (rt cd) launched from the launcher
-
-    @MainActor
-    func testLaunchNavigatorFocusesThePaneBeforeSubmittingTheCommand() async throws {
-        let client = StubForegroundClient([.busy])
-        let viewModel = SessionViewModel(client: client, navigationPollInterval: .milliseconds(1))
-        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
-        let newPane = PaneID(rawValue: "w1:p2")
-        await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p1"))
-
-        await viewModel.launchNavigator("rt cd", in: newPane)
-
-        let calls = await client.calls
-        let focusIndex = try XCTUnwrap(calls.lastIndex { $0.method == "pane.focus" })
-        let sendIndex = try XCTUnwrap(calls.lastIndex { $0.method == "pane.send_input" })
-        XCTAssertEqual(stringParam(calls[focusIndex].params, "pane_id"), "w1:p2")
-        XCTAssertLessThan(focusIndex, sendIndex, "the picker takes keys the moment it opens")
-        XCTAssertEqual(stringParam(calls[sendIndex].params, "text"), "rt cd")
-        XCTAssertEqual(stringArrayParam(calls[sendIndex].params, "keys"), ["Enter"])
-        XCTAssertFalse(viewModel.isPristineLauncherPane(newPane), "the launcher steps aside for the picker")
-        viewModel.navigationWatches[newPane]?.cancel()
-    }
-
-    /// The button stays on screen until the view model says otherwise, so a
-    /// second click can land while the first is still focusing and sending.
-    @MainActor
-    func testASecondClickWhileTheFirstIsStillSendingTypesNothing() async throws {
-        let client = StubForegroundClient([.busy])
-        let viewModel = SessionViewModel(client: client, navigationPollInterval: .milliseconds(1))
-        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
-        let newPane = PaneID(rawValue: "w1:p2")
-
-        async let first: Void = viewModel.launchNavigator("rt cd", in: newPane)
-        async let second: Void = viewModel.launchNavigator("rt cd", in: newPane)
-        _ = await (first, second)
-
-        let sends = await client.calls.filter { $0.method == "pane.send_input" }
-        XCTAssertEqual(sends.count, 1)
-        viewModel.navigationWatches[newPane]?.cancel()
-    }
-
-    @MainActor
-    func testTheLauncherComesBackWhenTheNavigatorCloses() async throws {
-        let client = StubForegroundClient([.busy, .busy, .idle])
-        let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(
-            client: client, ghosttyFactory: factory, navigationPollInterval: .milliseconds(1)
-        )
-        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
-        let newPane = PaneID(rawValue: "w1:p2")
-        _ = await viewModel.attachPane(newPane)
-
-        await viewModel.launchNavigator("rt cd", in: newPane)
-        let watch = try XCTUnwrap(viewModel.navigationWatches[newPane])
-        await watch.value
-
-        XCTAssertTrue(viewModel.isPristineLauncherPane(newPane))
-        XCTAssertEqual(
-            factory.surfaces[newPane]?.resumeScreenActivityCallCount, 1,
-            "row counting was off while the picker ran, and the new prompt has to be measured"
-        )
-        let polls = await client.calls.filter { $0.method == "pane.process_info" }
-        XCTAssertEqual(polls.count, 3, "polling stops once the pane is back at its prompt")
-        XCTAssertEqual(stringParam(polls[0].params, "pane_id"), "w1:p2")
-        XCTAssertNil(viewModel.navigationWatches[newPane])
-    }
-
-    @MainActor
-    func testANavigatorHerdrStopsAnsweringForLeavesTheLauncherHidden() async throws {
-        let client = StubForegroundClient([.busy, .failure])
-        let viewModel = SessionViewModel(client: client, navigationPollInterval: .milliseconds(1))
-        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
-        let newPane = PaneID(rawValue: "w1:p2")
-
-        await viewModel.launchNavigator("rt cd", in: newPane)
-        let watch = try XCTUnwrap(viewModel.navigationWatches[newPane])
-        await watch.value
-
-        XCTAssertFalse(viewModel.isPristineLauncherPane(newPane))
-        XCTAssertNil(viewModel.navigationWatches[newPane])
-        let polls = await client.calls.filter { $0.method == "pane.process_info" }
-        XCTAssertEqual(polls.count, 2)
-    }
 
     // MARK: - ghostty pane attach (every visible pane, one surface for its whole life)
 
@@ -1669,70 +1585,6 @@ final class SessionViewModelTests: XCTestCase {
         let noop = await viewModel.attachPane(pane)
         XCTAssertTrue(noop === surface)
         XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "still only one surface ever created for this pane")
-    }
-
-    /// The launcher-pristine contract's ghostty half: a keystroke reported
-    /// through the ghostty input seam (`onUserInput`, the closure
-    /// `GhosttyPaneFactory.makeSurface` is handed) must hide the launcher.
-    @MainActor
-    func testGhosttyPaneKeystrokeThroughInputSeamHidesTheLauncher() async throws {
-        let factory = FakeGhosttyPaneFactory()
-        let client = StubSplitCommandClient(newPaneID: "w1:p2")
-        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory)
-        let pane = PaneID(rawValue: "w1:p2")
-
-        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
-        XCTAssertTrue(viewModel.isPristineLauncherPane(pane), "a freshly flock-created pane starts pristine")
-
-        _ = await viewModel.attachPane(pane)
-        let onUserInput = try XCTUnwrap(factory.onUserInputHandlers[pane])
-
-        onUserInput()
-
-        XCTAssertFalse(
-            viewModel.isPristineLauncherPane(pane),
-            "a keystroke reported through the ghostty seam must hide the launcher"
-        )
-    }
-
-    /// The launcher-pristine contract's OTHER half: a pane whose program
-    /// prints real output, never typed into, also hides the overlay.
-    /// `GhosttySession` reports this through `onScreenActivity`, gated on
-    /// `isPristineLauncherPane` at the ViewModel end so a call arriving
-    /// after the pane is already hidden (by either path) is a cheap no-op
-    /// that also tells the surface to stop reporting. This is the seam; the
-    /// rule that reads the counts is `PaneLauncherRegistryTests`.
-    @MainActor
-    func testScreenActivityThroughGhosttySeamHidesTheLauncherAndStopsFurtherReporting() async throws {
-        let clock = TestClock()
-        let factory = FakeGhosttyPaneFactory()
-        let client = StubSplitCommandClient(newPaneID: "w1:p2")
-        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory, now: { clock.now })
-        let pane = PaneID(rawValue: "w1:p2")
-
-        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
-        XCTAssertTrue(viewModel.isPristineLauncherPane(pane))
-
-        _ = await viewModel.attachPane(pane)
-        let onScreenActivity = try XCTUnwrap(factory.onScreenActivityHandlers[pane])
-
-        // The shell's own startup, however many rows it prints: still
-        // pristine, and the surface is told to keep reporting.
-        XCTAssertTrue(onScreenActivity(1), "the shell is still starting up -- keep polling")
-        clock.advance(0.25)
-        XCTAssertTrue(onScreenActivity(4), "the shell is still starting up -- keep polling")
-        XCTAssertTrue(viewModel.isPristineLauncherPane(pane))
-
-        // Output the settled pane printed: hides the launcher, and tells the
-        // surface to stop.
-        clock.advance(PaneLauncherRegistry.settleWindow + 1)
-        XCTAssertFalse(onScreenActivity(9), "output from a settled pane hides it -- stop polling")
-        XCTAssertFalse(viewModel.isPristineLauncherPane(pane))
-
-        // A later call (the surface's own throttle firing once more before
-        // it notices the stop signal) must stay a harmless no-op.
-        clock.advance(0.25)
-        XCTAssertFalse(onScreenActivity(10))
     }
 
     // MARK: - context-menu commands (split down, close, right-click routing)

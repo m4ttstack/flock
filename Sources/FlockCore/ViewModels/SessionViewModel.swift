@@ -1193,7 +1193,7 @@ public final class SessionViewModel {
 
     public func isPristineLauncherPane(_ pane: PaneID) -> Bool {
         _ = launcherRegistryVersion
-        return paneLauncherRegistry.isPristine(pane)
+        return paneLauncherRegistry.isShowing(pane)
     }
 
     /// On the key path: `GhosttySurfaceView.keyDown` calls this for every real
@@ -1203,7 +1203,7 @@ public final class SessionViewModel {
     /// the pane's first keystroke -- for a pane flock never created it never
     /// changes at all.
     public func recordLauncherKeystroke(_ pane: PaneID) {
-        let wasPristine = paneLauncherRegistry.isPristine(pane)
+        let wasPristine = paneLauncherRegistry.isShowing(pane)
         paneLauncherRegistry.recordKeystroke(pane)
         guard wasPristine else { return }
         launcherRegistryVersion += 1
@@ -1216,7 +1216,7 @@ public final class SessionViewModel {
     /// the shell still starting up, and which are the pane in use, is
     /// `PaneLauncherRegistry`'s answer.
     public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
-        paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount, at: now())
+        paneLauncherRegistry.recordRows(pane, rows: nonEmptyRowCount, at: now())
         launcherRegistryVersion += 1
     }
 
@@ -1226,7 +1226,7 @@ public final class SessionViewModel {
     /// again. A program that handled the key itself and repainted never makes
     /// that drop, so it keeps the overlay away.
     public func recordLauncherClearRequested(_ pane: PaneID) {
-        paneLauncherRegistry.recordClearRequested(pane, at: now())
+        paneLauncherRegistry.recordClearKey(pane)
         launcherRegistryVersion += 1
     }
 
@@ -1235,7 +1235,7 @@ public final class SessionViewModel {
     /// on panes whose answer can no longer change.
     public func wantsLauncherScreenActivity(_ pane: PaneID) -> Bool {
         _ = launcherRegistryVersion
-        return paneLauncherRegistry.wantsScreenActivity(pane, at: now())
+        return true
     }
 
     /// Sends `binary` to `pane` and submits it in one `send_input` call (the
@@ -1301,11 +1301,11 @@ public final class SessionViewModel {
             let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
             guard !Task.isCancelled else { return }
             guard let data, let busy = PaneForegroundJob.isBusy(processInfoResponse: data) else {
-                paneLauncherRegistry.forgetNavigation(pane)
+                paneLauncherRegistry.forget(pane)
                 navigationWatches[pane] = nil
                 return
             }
-            paneLauncherRegistry.recordForegroundJob(pane, busy: busy, at: now())
+            paneLauncherRegistry.recordForegroundJob(pane, idle: !busy, at: now())
             guard !paneLauncherRegistry.isNavigating(pane) else { continue }
             launcherRegistryVersion += 1
             ghosttySurfaces[pane]?.resumeScreenActivityReporting()
@@ -1349,7 +1349,6 @@ public final class SessionViewModel {
     /// ever put the user in what they just made.
     private func landIn(pane: PaneID) {
         optimisticFocusedPaneID = pane
-        paneLauncherRegistry.registerFlockCreated(pane)
         launcherRegistryVersion += 1
     }
 
