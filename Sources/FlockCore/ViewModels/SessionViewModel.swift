@@ -28,6 +28,11 @@ public final class SessionViewModel {
     /// it (herdr's indexes are into its full lists); every view reads
     /// `model`, which never holds a flock-owned workspace.
     public private(set) var fullModel: SessionModel?
+    /// The session without flock's own workspaces but with the top bar's,
+    /// which pins are reconciled against: the filtered `model` would read a
+    /// top-bar pin's workspace as closed.
+    public private(set) var userModel: SessionModel?
+    public let topBarOverlay = TopBarOverlayStore()
     public private(set) var connectionState: ConnectionState = .connecting
     /// Everything opened through a pane's rt button.
     public let rt: RtCoordinator
@@ -258,7 +263,12 @@ public final class SessionViewModel {
     /// old workspace's rail and strip would show two workspaces at once.
     public func update(model newFullModel: SessionModel?, connection: ConnectionState) {
         fullModel = newFullModel
-        let model = newFullModel?.withoutFlockOwned
+        let user = newFullModel?.withoutFlockOwned
+        userModel = user
+        if connection == .live, let user {
+            pins.reconcile(with: user, reopening: reopening) { RailSections.isRailRow(label: $0.label, board: nil) }
+        }
+        let model = user?.hiding(topBarWorkspaces)
         let previousFocusedTabID = self.model?.focusedTabID
         let previousModel = self.model
         self.model = model
@@ -296,10 +306,8 @@ public final class SessionViewModel {
         if connection == .live, let fullModel {
             rightClicks.keepOnly(Set(fullModel.panes.values.compactMap(\.terminalID)))
             completedTabs.keepOnly(Set(fullModel.tabs.values.flatMap { $0.map(\.tabID) }))
-            if let model {
-                pins.reconcile(with: model, reopening: reopening) { RailSections.isRailRow(label: $0.label, board: nil) }
-            }
         }
+        closeTopBarOverlayIfGone()
     }
 
     /// Moves the selection off a tab or workspace this update has closed, to
@@ -320,13 +328,14 @@ public final class SessionViewModel {
         selectedTabID = landing.tab
     }
 
-    /// One feed per pane herdr reports, since herdr serves
+    /// One feed per pane herdr reports outside flock's own workspaces, top-bar
+    /// ones included since their icon carries a status dot. herdr serves
     /// `pane.agent_status_changed` per pane id and nowhere else. A nil model
     /// (a dropped connection) disarms every feed; the next snapshot arms them
     /// again, each with its own probe.
     private func reconcileAgentStatusFeeds() {
         guard let paneAgentStatusSubscriber else { return }
-        let known = Set((model?.panes ?? [:]).keys)
+        let known = Set((userModel?.panes ?? [:]).keys)
         for pane in known.subtracting(armedAgentStatusFeeds) {
             paneAgentStatusSubscriber.subscribe(pane: pane)
         }
@@ -898,7 +907,7 @@ public final class SessionViewModel {
     /// while the connection is down.
     private func reconcileBackgroundWork(connection: ConnectionState) {
         let eligible: Set<PaneID> = connection == .live
-            ? Set(model?.panes.values.filter(BackgroundWork.isEligible).map(\.paneID) ?? [])
+            ? Set(userModel?.panes.values.filter(BackgroundWork.isEligible).map(\.paneID) ?? [])
             : []
         let arrived = eligible.subtracting(backgroundWorkPanes)
         backgroundWorkPanes = eligible
@@ -1796,7 +1805,7 @@ public final class SessionViewModel {
     }
 
     public func railSections(board: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:]) -> RailSections? {
-        model.map { RailSections(model: $0, board: board, herdProgress: herdProgress, pins: pins.pins) }
+        model.map { RailSections(model: $0, board: board, herdProgress: herdProgress, pins: pins.pins, topBarModel: userModel) }
     }
 
     public func pin(workspace: WorkspaceID, at index: Int? = nil) {
@@ -1838,6 +1847,101 @@ public final class SessionViewModel {
             noticeSink("A pinned workspace is already called \"\(name)\".")
             return
         }
+    }
+
+    private var topBarWorkspaces: Set<WorkspaceID> {
+        Set(pins.pins(in: .topBar).compactMap(\.workspace))
+    }
+
+    /// Re-filters after a placement change, through the same path a herdr
+    /// update takes, so the selection leaves a workspace that has just
+    /// moved to the top bar.
+    private func refreshVisibility() {
+        update(model: fullModel, connection: connectionState)
+    }
+
+    private func closeTopBarOverlayIfGone() {
+        guard let id = topBarOverlay.openPin else { return }
+        guard let pin = pins.pin(id), pin.placement == .topBar else { return topBarOverlay.close() }
+        if pin.workspace == nil, !reopening.contains(id) { topBarOverlay.close() }
+    }
+
+    public nonisolated static func topBarTabLimitNotice(name: String, tabs: Int) -> String {
+        "Top-bar workspaces show a single view, so they hold one tab. \"\(name)\" has \(tabs) tabs: close the extras, then move it."
+    }
+
+    /// False, after posting the notice, when `workspace` has more than one tab.
+    private func passesTopBarTabLimit(_ workspace: WorkspaceID?, name: String) -> Bool {
+        guard let workspace, let count = userModel?.tabs[workspace]?.count, count > 1 else { return true }
+        noticeSink(Self.topBarTabLimitNotice(name: name, tabs: count))
+        return false
+    }
+
+    public func moveToTopBar(workspace: WorkspaceID, at index: Int?) {
+        if let existing = pins.pin(linkedTo: workspace) { return moveToTopBar(pin: existing.id, at: index) }
+        guard let record = model?.workspaces.first(where: { $0.workspaceID == workspace }),
+              passesTopBarTabLimit(workspace, name: record.label) else { return }
+        pin(workspace: workspace)
+        guard let pin = pins.pin(linkedTo: workspace) else { return }
+        pins.setPlacement(pin.id, to: .topBar, at: index)
+        refreshVisibility()
+    }
+
+    public func moveToTopBar(pin id: PinID, at index: Int?) {
+        guard let pin = pins.pin(id), passesTopBarTabLimit(pin.workspace, name: pin.name) else { return }
+        pins.setPlacement(id, to: .topBar, at: index)
+        refreshVisibility()
+    }
+
+    public func moveToSidebar(pin id: PinID, at index: Int?) {
+        guard pins.pin(id) != nil else { return }
+        if topBarOverlay.openPin == id { topBarOverlay.close() }
+        pins.setPlacement(id, to: .rail, at: index)
+        refreshVisibility()
+    }
+
+    /// An empty pin opens on the loader while its workspace is created
+    /// unfocused: herdr's focus and the main selection stay where they are.
+    public func toggleTopBar(_ id: PinID) async {
+        guard let pin = pins.pin(id), pin.placement == .topBar else { return }
+        if topBarOverlay.openPin == id { return topBarOverlay.close() }
+        topBarOverlay.open(id)
+        if !isOpen(pin) {
+            await reopen(id, focus: false)
+            closeTopBarOverlayIfGone()
+        }
+    }
+
+    /// The bar has no inline editor of its own: an open workspace is renamed
+    /// in herdr, and the pin follows its label on the next reconcile.
+    public func renameTopBarPin(_ id: PinID, to text: String) async {
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let pin = pins.pin(id) else { return }
+        guard isOpen(pin), let workspace = pin.workspace else { return renamePin(id, to: name) }
+        guard !pins.isNameTaken(name, except: id) else {
+            noticeSink("A pinned workspace is already called \"\(name)\".")
+            return
+        }
+        await run(OpPlan(ops: [.renameWorkspace(workspace, name)], label: "Rename workspace"))
+    }
+
+    public func unpinTopBar(_ id: PinID) {
+        guard let pin = pins.pin(id) else { return }
+        if topBarOverlay.openPin == id { topBarOverlay.close() }
+        if isOpen(pin) { unpin(id) } else { removePin(id) }
+        refreshVisibility()
+    }
+
+    /// nil while the pin is empty.
+    public func topBarStatus(of pin: PinnedWorkspace) -> ShownStatus? {
+        guard let workspace = pin.workspace,
+              let record = userModel?.workspaces.first(where: { $0.workspaceID == workspace }) else { return nil }
+        guard !backgroundWork.isEmpty else { return ShownStatus(record.agentStatus) }
+        return ShownStatus.aggregate(
+            herdr: record.agentStatus,
+            panes: userModel?.panes.values.filter { $0.workspaceID == workspace } ?? [],
+            backgroundWork: backgroundWork
+        )
     }
 
     /// Re-asks for `workspace` with its group included. The id is a
@@ -1932,13 +2036,15 @@ public final class SessionViewModel {
     /// which is what every create did before: herdr's own focus echo is then
     /// the only thing that moves it.
     @discardableResult
-    private func create(_ method: String, _ params: [String: JSONValue], label: String) async -> CreatedTab? {
+    private func create(_ method: String, _ params: [String: JSONValue], label: String, lands: Bool = true) async -> CreatedTab? {
         do {
             let data = try await client.requestRaw(method, params)
             guard let created = Self.extractCreatedTab(data) else { return nil }
-            selectedWorkspaceID = created.workspaceID
-            selectedTabID = created.tabID
-            landIn(pane: created.rootPaneID)
+            if lands {
+                selectedWorkspaceID = created.workspaceID
+                selectedTabID = created.tabID
+                landIn(pane: created.rootPaneID)
+            }
             return created
         } catch {
             noticeSink("\(label) failed: \(Self.describe(error))")
@@ -1953,15 +2059,15 @@ public final class SessionViewModel {
 
     /// A fresh shell in the pin's folder, renamed to the pin and linked to it by
     /// the id the create returns, never by name.
-    public func reopen(_ id: PinID) async {
+    public func reopen(_ id: PinID, focus: Bool = true) async {
         guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return }
         reopening.insert(id)
         defer { reopening.remove(id) }
         let folderIsThere = folderExists(pin.folder)
         let params: [String: JSONValue] = [
-            "focus": .bool(true), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
+            "focus": .bool(focus), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
         ]
-        guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)") else { return }
+        guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)", lands: focus) else { return }
         // Read again past the await: a rename made while the create was out wins.
         guard let name = pins.pin(id)?.name else { return }
         pins.link(id, to: created.workspaceID)
@@ -1975,7 +2081,7 @@ public final class SessionViewModel {
     /// draws it as a live row. Every other pin is drawn empty and acts empty.
     public func isOpen(_ pin: PinnedWorkspace) -> Bool {
         guard let workspace = pin.workspace else { return false }
-        return model?.workspaces.contains { $0.workspaceID == workspace } ?? false
+        return userModel?.workspaces.contains { $0.workspaceID == workspace } ?? false
     }
 
     private static func describe(_ error: Error) -> String {
