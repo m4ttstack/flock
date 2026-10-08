@@ -404,7 +404,7 @@ struct FlockApp: App {
                             }
                             .keyboardShortcut(command.key, modifiers: command.modifiers)
                             // herdr's focused pane, which the rt modal does not hold.
-                            .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction) || viewModel.rt.modal != nil)
+                            .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction) || viewModel.modalIsUp)
                             .accessibilityIdentifier(command.accessibilityIdentifier)
                         }
                     }
@@ -451,12 +451,13 @@ struct FlockApp: App {
                     Task { await viewModel.createTab(in: workspace) }
                 }
                 .keyboardShortcut(ViewCommand.newTab.shortcut)
-                .disabled(viewModel.selectedWorkspaceID == nil)
+                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.topBarOverlay.openPin != nil)
                 .accessibilityIdentifier(ViewCommand.newTab.accessibilityIdentifier)
                 Button(ViewCommand.newWorkspace.title) {
                     Task { await viewModel.createWorkspace() }
                 }
                 .keyboardShortcut(ViewCommand.newWorkspace.shortcut)
+                .disabled(viewModel.topBarOverlay.openPin != nil)
                 .accessibilityIdentifier(ViewCommand.newWorkspace.accessibilityIdentifier)
             }
             // Takes the system Close's ⌘W, which would close flock's only
@@ -482,7 +483,7 @@ struct FlockApp: App {
                     Task { await viewModel.closeTab(tab) }
                 }
                 .keyboardShortcut(ViewCommand.closeTab.shortcut)
-                .disabled(viewModel.selectedTabID == nil || viewModel.rt.modal != nil)
+                .disabled(viewModel.selectedTabID == nil || viewModel.modalIsUp)
                 .accessibilityIdentifier(ViewCommand.closeTab.accessibilityIdentifier)
                 Button(ViewCommand.closeWorkspace.title) {
                     guard FlockWindow.isContent(NSApp.keyWindow) else { return }
@@ -490,7 +491,7 @@ struct FlockApp: App {
                     Task { await viewModel.closeWorkspace(workspace) }
                 }
                 .keyboardShortcut(ViewCommand.closeWorkspace.shortcut)
-                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.rt.modal != nil)
+                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.modalIsUp)
                 .accessibilityIdentifier(ViewCommand.closeWorkspace.accessibilityIdentifier)
             }
             CommandGroup(before: .windowArrangement) {
@@ -507,7 +508,7 @@ struct FlockApp: App {
                         if let workspace { Task { await viewModel.jumpToHerdr(workspace: workspace) } }
                     }
                     .keyboardShortcut(command.key, modifiers: command.modifiers)
-                    .disabled((tab == nil && workspace == nil) || viewModel.rt.modal != nil)
+                    .disabled((tab == nil && workspace == nil) || viewModel.modalIsUp)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                     if command == .nextTab { Divider() }
                 }
@@ -518,7 +519,7 @@ struct FlockApp: App {
                             Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
                         }
                             .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.tabModifiers)
-                            .disabled(viewModel.rt.modal != nil)
+                            .disabled(viewModel.modalIsUp)
                     }
                 }
                 .disabled(tabs.isEmpty)
@@ -526,7 +527,7 @@ struct FlockApp: App {
                     ForEach(Array(railRows.prefix(GoToCommand.limit).enumerated()), id: \.element.workspaceID) { index, row in
                         Button(row.title) { Task { await viewModel.jumpToHerdr(workspace: row.workspaceID) } }
                             .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.workspaceModifiers)
-                            .disabled(viewModel.rt.modal != nil)
+                            .disabled(viewModel.modalIsUp)
                     }
                 }
                 .disabled(railRows.isEmpty)

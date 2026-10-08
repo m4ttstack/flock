@@ -178,7 +178,7 @@ final class TopBarRenderTests: XCTestCase {
                 let title = CGRect(x: box.minX, y: box.minY, width: box.width / 2, height: titleRow)
                 XCTAssertGreaterThan(count(roles.textStrong, in: image, within: title), 100, "\(message): no pin name in the title row")
                 let note = CGRect(x: box.minX + 140, y: box.minY, width: box.width / 2 - 140, height: titleRow)
-                let noted = count(roles.textDim, in: image, within: note)
+                let noted = count(roles.textLabel, in: image, within: note)
                 if overlay == .tabsMedium {
                     XCTAssertGreaterThan(noted, 40, "\(message): no note for a workspace past one tab")
                 } else {

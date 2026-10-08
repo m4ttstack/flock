@@ -13,6 +13,7 @@ public struct RailSections: Equatable, Sendable {
         public let record: WorkspaceRecord?
     }
 
+    /// Rail pins only; a top-bar pin is in `topBar`.
     public let pinned: [PinnedRow]
     /// Drawn in the title bar, never in the rail.
     public let topBar: [PinnedRow]
@@ -24,7 +25,8 @@ public struct RailSections: Equatable, Sendable {
 
     /// Board is drawn from what `HerdRail` leaves, so a label that names both
     /// a herd and a board role is the herd's. A workspace linked to a pin
-    /// shows in PINNED alone.
+    /// shows in that pin's row alone: PINNED for a rail pin, the title bar
+    /// for a top-bar one.
     public init(
         model: SessionModel, board names: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:],
         pins: [PinnedWorkspace] = [], topBarModel: SessionModel? = nil

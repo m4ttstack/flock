@@ -99,6 +99,7 @@ private struct TopBarCell: View {
     let onUnpin: () -> Void
 
     @Environment(DragCoordinator.self) private var drag
+    @Environment(WorkspaceIdentityStore.self) private var identityStore
     @State private var picking = false
     @State private var renaming = false
     @State private var isHovering = false
@@ -121,7 +122,7 @@ private struct TopBarCell: View {
                     drag.beginIfIdle(
                         drag.pinDragSubject(pin.id),
                         ghost: DragCoordinator.Ghost(
-                            title: pin.name, symbol: "square.grid.2x2",
+                            title: pin.name, symbol: identityStore.symbol(for: pin.identityKey) ?? "square.grid.2x2",
                             originSize: drag.topBarFrames.first { $0.id == pin.id }?.frame.size ?? .zero
                         ),
                         at: value.startLocation
