@@ -342,11 +342,11 @@ final class PaneLauncherOverlayTests: XCTestCase {
         XCTAssertFalse(probe.pointsClaimedByTheOverlay().isEmpty, "the items still draw below the clearance")
     }
 
-    /// Room below the prompt for the bar and 12pt either side: the bar is
-    /// centered in that room, clear of the prompt.
-    func testTheBarCentersBelowThePromptWhenItFitsThere() {
+    /// Room below the prompt for the bar and 12pt either side: the bar sits
+    /// a third of the way down that room, clear of the prompt.
+    func testTheBarSitsBelowThePromptWhenItFitsThere() {
         let bar = ChromeMetrics.Launcher.barHeight
-        XCTAssertEqual(PaneLauncherOverlay.barTop(clearance: 90, availableHeight: 300, barHeight: 40), 175)
+        XCTAssertEqual(PaneLauncherOverlay.barTop(clearance: 90, availableHeight: 300, barHeight: 40), 90 + 170 / 3, accuracy: 0.01)
 
         let snug = 90 + bar + 2 * ChromeMetrics.Launcher.barMargin
         XCTAssertEqual(
@@ -356,14 +356,15 @@ final class PaneLauncherOverlayTests: XCTestCase {
         )
     }
 
-    /// Too little room below the prompt: the bar centers in the whole pane,
-    /// over the text, rather than squeezing against the prompt or the bottom.
-    func testTheBarCentersInThePaneWhenThePromptLeavesNoRoom() {
+    /// Too little room below the prompt: the bar sits a third of the way down
+    /// the whole pane, over the text, rather than squeezing against the prompt
+    /// or the bottom.
+    func testTheBarSitsInThePaneWhenThePromptLeavesNoRoom() {
         let bar = ChromeMetrics.Launcher.barHeight
         let short = 90 + bar + 2 * ChromeMetrics.Launcher.barMargin - 1
-        XCTAssertEqual(PaneLauncherOverlay.barTop(clearance: 90, availableHeight: short, barHeight: bar), (short - bar) / 2)
+        XCTAssertEqual(PaneLauncherOverlay.barTop(clearance: 90, availableHeight: short, barHeight: bar), (short - bar) / 3, accuracy: 0.01)
         XCTAssertEqual(
-            PaneLauncherOverlay.barTop(clearance: 414, availableHeight: 300, barHeight: 40), 130,
+            PaneLauncherOverlay.barTop(clearance: 414, availableHeight: 300, barHeight: 40), 260 / 3, accuracy: 0.01,
             "a banner taller than the pane"
         )
         XCTAssertEqual(
@@ -397,9 +398,9 @@ final class PaneLauncherOverlayTests: XCTestCase {
     }
 
     /// 22 rows of startup banner at an 18pt cell would want 414pt of
-    /// clearance; on a 300pt pane the bar centers in the pane, over the text,
-    /// with every item still clickable.
-    func testABannerTallerThanThePaneCentersTheBarInThePane() async throws {
+    /// clearance; on a 300pt pane the bar sits at the pane's optical center,
+    /// over the text, with every item still clickable.
+    func testABannerTallerThanThePaneSitsTheBarInThePane() async throws {
         let probe = try await hostProbe(entries: Self.entries, occupiedRows: 22, cellHeight: 18)
         defer { probe.window.close() }
         let claimed = probe.pointsClaimedByTheOverlay()
@@ -407,7 +408,9 @@ final class PaneLauncherOverlayTests: XCTestCase {
         let band = claimed.reduce(into: CGRect.null) { $0 = $0.union(CGRect(origin: $1, size: .zero)) }
         XCTAssertLessThan(band.maxY, Probe.size.height, "the items run off the bottom: \(band)")
         XCTAssertGreaterThan(band.height, ChromeMetrics.Launcher.itemHeight - 8, "the items are cut off: \(band)")
-        XCTAssertEqual(band.midY, Probe.size.height / 2, accuracy: 3, "the bar is not centered in the pane: \(band)")
+        let bar = ChromeMetrics.Launcher.barHeight
+        let expectedMid = PaneLauncherOverlay.barTop(clearance: 414, availableHeight: Probe.size.height, barHeight: bar) + bar / 2
+        XCTAssertEqual(band.midY, expectedMid, accuracy: 3, "the bar is not at the pane's optical center: \(band)")
     }
 
     /// A two-row prompt, and a 22-row banner on a short pane, in a dark and

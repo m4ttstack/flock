@@ -53,7 +53,11 @@ enum HarnessRoster {
 /// where `rt` resolves on flock's startup PATH; the badge is rt's own pink on
 /// its plum ground.
 enum NavigatorRoster {
-    static let command = "rt cd"
+    /// `--repo` opens the picker across every repo even from inside one: a
+    /// pane offering the launcher is already in its folder, so the pick is
+    /// somewhere else.
+    static let command = "rt cd --repo"
+    static let title = "rt cd"
 
     static let rtCd = HarnessEntry(
         id: "rt-cd", binary: "rt", displayName: "cd", monogram: "rt",
@@ -86,7 +90,7 @@ enum LauncherSlots {
     }
 
     static func title(for entry: HarnessEntry) -> String {
-        entry.id == NavigatorRoster.rtCd.id ? NavigatorRoster.command : "Launch \(entry.displayName)"
+        entry.id == NavigatorRoster.rtCd.id ? NavigatorRoster.title : "Launch \(entry.displayName)"
     }
 
     private static let log = Logger(subsystem: "dev.mattstack.flock", category: "launcher")
@@ -129,6 +133,9 @@ enum LauncherSlots {
     /// at its prompt reaches that program as input.
     @MainActor
     static func launch(_ entry: HarnessEntry, in pane: PaneID, via path: LaunchPath, on viewModel: SessionViewModel) async {
+        if path != .click, viewModel.isLauncherShowing(pane) {
+            viewModel.flashLauncherSlot(entry.id, in: pane)
+        }
         let atPrompt = await viewModel.isAtPrompt(pane)
         log.notice(
             "launch \(entry.id, privacy: .public) via \(path.rawValue, privacy: .public) in \(pane.rawValue, privacy: .public): at prompt \(atPrompt)"
@@ -162,6 +169,8 @@ struct PaneLauncherOverlay: View {
     let occupiedRows: Int
     /// One terminal row in points; nil before the surface knows its cell size.
     let cellHeight: CGFloat?
+    /// The slot a key press just fired, drawn pressed.
+    var flashedSlot: String? = nil
     let onLaunch: (HarnessEntry) -> Void
 
     /// One row of breathing room below whatever the screen holds, and never
@@ -173,17 +182,19 @@ struct PaneLauncherOverlay: View {
         return max(floor, CGFloat(occupiedRows + 1) * cellHeight)
     }
 
-    /// The bar's top edge. Centered in the space below the prompt when the bar
-    /// and a `barMargin` either side fit there; otherwise centered in the
-    /// whole pane, where its blur covers the text behind it: a startup banner
+    /// The bar's top edge, at the optical center (`barRise`) of the space below
+    /// the prompt when the bar and a `barMargin` either side fit there;
+    /// otherwise of the whole pane, where its blur covers the text behind it:
+    /// a startup banner
     /// can be taller than the pane, and a bar pushed off the pane cannot be
     /// clicked.
     static func barTop(clearance: CGFloat, availableHeight: CGFloat, barHeight: CGFloat) -> CGFloat {
+        let rise = ChromeMetrics.Launcher.barRise
         let below = availableHeight - clearance
         guard below >= barHeight + 2 * ChromeMetrics.Launcher.barMargin else {
-            return max(0, (availableHeight - barHeight) / 2)
+            return max(0, (availableHeight - barHeight) * rise)
         }
-        return clearance + (below - barHeight) / 2
+        return clearance + max(ChromeMetrics.Launcher.barMargin, (below - barHeight) * rise)
     }
 
     var body: some View {
@@ -204,8 +215,8 @@ struct PaneLauncherOverlay: View {
                 // A narrow pane drops the key hints before it would wrap a
                 // harness name or push the bar past its edges.
                 ViewThatFits(in: .horizontal) {
-                    LauncherBar(style: style, slots: slots, showsShortcuts: true, onLaunch: onLaunch)
-                    LauncherBar(style: style, slots: slots, showsShortcuts: false, onLaunch: onLaunch)
+                    LauncherBar(style: style, slots: slots, showsShortcuts: true, flashedSlot: flashedSlot, onLaunch: onLaunch)
+                    LauncherBar(style: style, slots: slots, showsShortcuts: false, flashedSlot: flashedSlot, onLaunch: onLaunch)
                 }
                 .padding(.horizontal, ChromeMetrics.Launcher.barSideMargin)
             }
@@ -272,13 +283,15 @@ private struct LauncherBar: View {
     let style: LauncherBarStyle
     let slots: [HarnessEntry]
     let showsShortcuts: Bool
+    let flashedSlot: String?
     let onLaunch: (HarnessEntry) -> Void
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Launcher.itemSpacing) {
             ForEach(Array(slots.enumerated()), id: \.element.id) { index, entry in
                 LauncherItem(
-                    style: style, entry: entry, shortcut: showsShortcuts ? LauncherSlots.shortcutLabel(at: index) : nil
+                    style: style, entry: entry, shortcut: showsShortcuts ? LauncherSlots.shortcutLabel(at: index) : nil,
+                    isFlashed: flashedSlot == entry.id
                 ) {
                     onLaunch(entry)
                 }
@@ -359,6 +372,7 @@ private struct LauncherItem: View {
     let style: LauncherBarStyle
     let entry: HarnessEntry
     let shortcut: String?
+    let isFlashed: Bool
     let onLaunch: () -> Void
 
     @State private var isHovering = false
@@ -381,7 +395,7 @@ private struct LauncherItem: View {
                 }
             }
         }
-        .buttonStyle(LauncherItemStyle(style: style, isHovering: isHovering))
+        .buttonStyle(LauncherItemStyle(style: style, isHovering: isHovering, isFlashed: isFlashed))
         .onHover { hovering in
             withAnimation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade)) { isHovering = hovering }
         }
@@ -395,20 +409,22 @@ private struct LauncherItem: View {
 private struct LauncherItemStyle: ButtonStyle {
     let style: LauncherBarStyle
     let isHovering: Bool
+    let isFlashed: Bool
 
     func makeBody(configuration: Configuration) -> some View {
+        let isPressed = configuration.isPressed || isFlashed
         let shape = RoundedRectangle(cornerRadius: ChromeMetrics.Launcher.itemCornerRadius, style: .continuous)
         return configuration.label
             .padding(.vertical, ChromeMetrics.Launcher.itemVerticalPadding)
             .padding(.leading, ChromeMetrics.Launcher.itemLeadingPadding)
             .padding(.trailing, ChromeMetrics.Launcher.itemTrailingPadding)
-            .background(shape.fill(style.itemFill(isHovering: isHovering, isPressed: configuration.isPressed)))
+            .background(shape.fill(style.itemFill(isHovering: isHovering, isPressed: isPressed)))
             // With no fill at rest, only the glyphs would take a click.
             .contentShape(shape)
             // Only the press animates here; the hover fade is driven from the
             // `onHover` that owns `isHovering`, since a ButtonStyle cannot see
             // that change coming.
-            .animation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade), value: configuration.isPressed)
+            .animation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade), value: isPressed)
     }
 }
 

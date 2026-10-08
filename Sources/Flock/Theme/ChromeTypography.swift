@@ -159,10 +159,10 @@ enum ChromeType {
 
     /// The launcher is a macOS-style frosted bar and is set in the system
     /// face, not the chrome's Inter.
-    static let launcherName = Font.system(size: 13, weight: .medium)
-    static let launcherMonogram = inter(9, .bold)
-    static let launcherHint = Font.system(size: 11)
-    static let launcherShortcut = Font.system(size: 11, weight: .medium)
+    static let launcherName = Font.system(size: 17, weight: .medium)
+    static let launcherMonogram = inter(12, .bold)
+    static let launcherHint = Font.system(size: 13)
+    static let launcherShortcut = Font.system(size: 13, weight: .medium)
 
     static let toastSymbol = Font.system(size: 11, weight: .medium)
     static let toastMessage = inter(12)
