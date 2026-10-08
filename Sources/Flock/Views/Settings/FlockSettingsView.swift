@@ -49,6 +49,8 @@ struct FlockSettingsView: View {
     let commandLineToolStore: CommandLineToolStore
 
     @State private var tab: SettingsTab
+    /// Each tab's measured height, which the window is fitted to.
+    @State private var heights: [SettingsTab: CGFloat] = [:]
 
     init(
         herdrMousePatchStore: HerdrMousePatchStore, notificationLifetimeStore: NotificationLifetimeStore,
@@ -71,45 +73,49 @@ struct FlockSettingsView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            pane {
+            pane(.general) {
                 StartingFolderSettingsSection(store: startingFolderStore)
                 NotificationSettingsSection(store: notificationLifetimeStore)
                 TitlesSettingsSection(store: oneTitleStore)
             }
             .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.symbol) }
             .tag(SettingsTab.general)
-            pane {
+            pane(.views) {
                 OverviewSettingsSection(bottomLineStore: missionBottomLineStore, returnStore: overviewReturnStore)
                 RearrangeSettingsSection(store: rearrangeAfterMoveStore)
             }
             .tabItem { Label(SettingsTab.views.title, systemImage: SettingsTab.views.symbol) }
             .tag(SettingsTab.views)
-            pane {
+            pane(.tools) {
                 RtModalTextSizeSection(store: rtModalTextSizeStore)
                 CommandLineToolSection(store: commandLineToolStore)
             }
             .tabItem { Label(SettingsTab.tools.title, systemImage: SettingsTab.tools.symbol) }
             .tag(SettingsTab.tools)
-            pane {
+            pane(.herdr) {
                 HerdrMousePatchRow(store: herdrMousePatchStore)
             }
             .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }
             .tag(SettingsTab.herdr)
         }
-        .background(SettingsWindowRegistration())
+        .frame(width: Self.width)
+        .background(SettingsWindowRegistration(width: Self.width, height: heights[tab]))
         .onAppear {
             herdrMousePatchStore.refresh()
             commandLineToolStore.refresh()
         }
     }
 
-    /// One tab's sections, as tall as they are: a grouped form scrolls by
-    /// default and offers the window no height of its own.
-    private func pane<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    /// One tab's sections, as tall as they are and measured: a grouped form
+    /// scrolls by default and offers the window no height of its own. Held
+    /// to the top, so a window taller than the tab never centres it.
+    private func pane<Content: View>(_ tab: SettingsTab, @ViewBuilder _ content: () -> Content) -> some View {
         Form(content: content)
             .formStyle(.grouped)
             .scrollDisabled(true)
             .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights[tab] = $0 }
             .frame(width: Self.width)
+            .frame(maxHeight: .infinity, alignment: .top)
     }
 }
