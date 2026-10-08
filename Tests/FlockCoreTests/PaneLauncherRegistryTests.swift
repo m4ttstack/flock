@@ -29,6 +29,36 @@ final class PaneLauncherRegistryTests: XCTestCase {
         XCTAssertEqual(registry.occupiedRows(pane), 4)
     }
 
+    /// An empty pin's launch marks its pane chosen before the shell paints:
+    /// startup growing, a prompt redrawn smaller, and the screen's first
+    /// fingerprints never read as the choice being undone.
+    @MainActor
+    func testAPaneChosenBeforeItsShellPaintsNeverShowsThroughStartup() {
+        let registry = PaneLauncherRegistry()
+        registry.recordCreated(pane)
+        registry.recordKeystroke(pane)
+        registry.recordRows(pane, rows: 3, screen: 11, lastRow: "~ ", at: start)
+        registry.recordRows(pane, rows: 4, screen: 12, lastRow: "~ ", at: start.addingTimeInterval(0.3))
+        registry.recordRows(pane, rows: 1, screen: 13, lastRow: "> ", at: start.addingTimeInterval(0.6))
+        registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(0.7))
+        XCTAssertFalse(registry.isShowing(pane))
+        XCTAssertNil(registry.nextPollDelay(pane), "nothing to ask while the pane is chosen")
+    }
+
+    /// The same pane once in use: output then a clear re-arms it as any
+    /// typed-into pane is.
+    @MainActor
+    func testAPaneChosenBeforeItsShellPaintsReArmsOnAClearLikeAnyOther() {
+        let registry = PaneLauncherRegistry()
+        registry.recordCreated(pane)
+        registry.recordKeystroke(pane)
+        registry.recordRows(pane, rows: 1, screen: 11, lastRow: "> ", at: start)
+        registry.recordRows(pane, rows: 9, screen: 12, lastRow: "> ", at: settled.addingTimeInterval(1))
+        registry.recordRows(pane, rows: 1, screen: 13, lastRow: "> ", at: settled.addingTimeInterval(2))
+        registry.recordForegroundJob(pane, idle: true, at: settled.addingTimeInterval(2.1))
+        XCTAssertTrue(registry.isShowing(pane))
+    }
+
     @MainActor
     func testOutputAfterTheWindowHidesAndTheNextDropReArms() {
         let registry = PaneLauncherRegistry()
