@@ -7,6 +7,13 @@ public struct PinID: RawRepresentable, Hashable, Codable, Sendable {
     public static func make() -> PinID { PinID(rawValue: UUID().uuidString) }
 }
 
+/// Where a pin is drawn: in the rail's PINNED, or as a title-bar icon whose
+/// workspace no other list shows.
+public enum PinPlacement: String, Codable, Sendable {
+    case rail
+    case topBar
+}
+
 /// A place the person keeps: it outlives the herdr workspace it is linked to.
 public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
     public let id: PinID
@@ -22,8 +29,38 @@ public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
     /// reply links before any snapshot carries the workspace, and that gap is
     /// not the workspace closing.
     public var confirmed: Bool
+    public var placement: PinPlacement = .rail
 
     public var identityKey: String { "pin:\(id.rawValue)" }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, folder, workspace, syncedLabel, confirmed, placement
+    }
+
+    public init(
+        id: PinID, name: String, folder: String, workspace: WorkspaceID?, syncedLabel: String?, confirmed: Bool,
+        placement: PinPlacement = .rail
+    ) {
+        self.id = id
+        self.name = name
+        self.folder = folder
+        self.workspace = workspace
+        self.syncedLabel = syncedLabel
+        self.confirmed = confirmed
+        self.placement = placement
+    }
+
+    /// Pins stored before placement existed decode as rail pins.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(PinID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        folder = try container.decode(String.self, forKey: .folder)
+        workspace = try container.decodeIfPresent(WorkspaceID.self, forKey: .workspace)
+        syncedLabel = try container.decodeIfPresent(String.self, forKey: .syncedLabel)
+        confirmed = try container.decode(Bool.self, forKey: .confirmed)
+        placement = try container.decodeIfPresent(PinPlacement.self, forKey: .placement) ?? .rail
+    }
 }
 
 extension PinnedWorkspace {
@@ -144,15 +181,23 @@ public final class PinnedWorkspaceStore {
         pins.contains { $0.id != except && PinNames.matches($0.name, name) }
     }
 
+    public func pins(in placement: PinPlacement) -> [PinnedWorkspace] {
+        pins.filter { $0.placement == placement }
+    }
+
     @discardableResult
-    public func add(workspace: WorkspaceID, name: String, folder: String, at index: Int?) -> PinnedWorkspace? {
+    public func add(
+        workspace: WorkspaceID, name: String, folder: String, at index: Int?, placement: PinPlacement = .rail
+    ) -> PinnedWorkspace? {
         guard pin(linkedTo: workspace) == nil, !isNameTaken(name, except: nil) else { return nil }
         let pin = PinnedWorkspace(
-            id: .make(), name: name, folder: folder, workspace: workspace, syncedLabel: name, confirmed: true
+            id: .make(), name: name, folder: folder, workspace: workspace, syncedLabel: name, confirmed: true,
+            placement: placement
         )
-        pins.insert(pin, at: min(max(index ?? pins.count, 0), pins.count))
+        pins.append(pin)
+        if let index { place(pin.id, in: placement, at: index, saving: false) }
         save()
-        return pin
+        return self.pin(pin.id)
     }
 
     public func remove(_ id: PinID) {
@@ -160,16 +205,35 @@ public final class PinnedWorkspaceStore {
         save()
     }
 
-    /// `index` counts the pins as drawn, the moving one included.
+    /// `index` counts the pins of this one's placement as drawn, the moving
+    /// one included.
     public func move(_ id: PinID, toInsertIndex index: Int) {
+        guard let current = pin(id) else { return }
+        place(id, in: current.placement, at: index)
+    }
+
+    /// `index` counts the destination's pins as drawn; nil puts it last.
+    public func setPlacement(_ id: PinID, to placement: PinPlacement, at index: Int?) {
+        place(id, in: placement, at: index)
+    }
+
+    private func place(_ id: PinID, in placement: PinPlacement, at index: Int?, saving: Bool = true) {
         guard let from = pins.firstIndex(where: { $0.id == id }) else { return }
+        let ownSlot = pins[from].placement == placement
+            ? pins.indices.filter { pins[$0].placement == placement }.firstIndex(of: from)
+            : nil
         var next = pins
-        let moving = next.remove(at: from)
-        let target = index > from ? index - 1 : index
-        next.insert(moving, at: min(max(target, 0), next.count))
+        var moving = next.remove(at: from)
+        moving.placement = placement
+        let peers = next.indices.filter { next[$0].placement == placement }
+        var target = index ?? peers.count
+        if let ownSlot, target > ownSlot { target -= 1 }
+        target = min(max(target, 0), peers.count)
+        let position = target < peers.count ? peers[target] : (peers.last.map { $0 + 1 } ?? next.count)
+        next.insert(moving, at: position)
         guard next != pins else { return }
         pins = next
-        save()
+        if saving { save() }
     }
 
     public func rename(_ id: PinID, to name: String) -> Bool {

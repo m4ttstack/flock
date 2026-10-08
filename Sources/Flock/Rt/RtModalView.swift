@@ -1,10 +1,9 @@
 import FlockCore
 import SwiftUI
 
-/// The rt item on screen, over the tab area: a backdrop that dims it and
-/// closes the modal on a click, and centred on it a box holding the item's
-/// one pane under flock's title row, with the strip below once its command
-/// has ended. Draws nothing while no item is shown over its canvas.
+/// The rt item on screen, over the tab area: a `ChromeModal` holding the
+/// item's one pane under flock's title row, with the strip below once its
+/// command has ended. Draws nothing while no item is shown over its canvas.
 struct RtModalView: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -14,100 +13,45 @@ struct RtModalView: View {
     @Environment(RtModalTextSizeStore.self) private var textSizeStore
     @Environment(RtModalSizeStore.self) private var modalSizeStore
     @Environment(CommandPaletteState.self) private var commandPalette
-    @Environment(\.displayScale) private var displayScale
-
-    private typealias Metrics = ChromeMetrics.RtModal
 
     var body: some View {
         if viewModel.rtModalIsOver(solo: solo), let modal = viewModel.rt.modal, let item = viewModel.rt.modalItem {
-            GeometryReader { proxy in
-                let scale = displayScale > 0 ? displayScale : 2
-                let frame = Self.boxFrame(
-                    in: proxy.size, origin: proxy.frame(in: .global).origin, scale: scale,
-                    fraction: Metrics.sizeFraction(modalSizeStore.size(for: item.kind))
+            let paneID = shownPaneID(modal: modal, item: item)
+            let fontSize = textSizeStore.points(for: item.kind)
+            ChromeModal(
+                theme: theme, size: modalSizeStore.size(for: item.kind),
+                footerHeight: item.strip == nil ? 0 : ChromeMetrics.RtModal.Strip.height,
+                onSize: { modalSizeStore.select($0, for: item.kind) }, onDismiss: close
+            ) {
+                RtModalTitle(
+                    theme: theme, title: item.modalTitle(home: NSHomeDirectory()),
+                    showsBackToRunner: modal.serviceTabID != nil, onBack: back
                 )
-                ZStack(alignment: .topLeading) {
-                    backdrop
-                    box(modal: modal, item: item, size: frame.size, scale: scale)
-                        .offset(x: frame.minX, y: frame.minY)
-                }
+            } content: { area, scale in
+                let fit = SurfaceGrid.fit(inner: area, cell: TerminalCellMetrics.cell(fontSize: fontSize, scale: scale))
+                // A service is never typed into: only the item's own pane waits
+                // for its command.
+                ModalTerminalPane(
+                    theme: theme, viewModel: viewModel, paneID: paneID, grid: PTYSize(cols: fit.cols, rows: fit.rows),
+                    surfaceSize: fit.size, fontSizePoints: fontSize, isFocused: item.strip == nil,
+                    command: modal.serviceTabID != nil ? nil : ModalTerminalPane.Command(
+                        started: item.started, startedAt: item.startedAt, ended: item.strip != nil || !item.isRunning
+                    ),
+                    onFocus: {}
+                )
+                // A service shown in place of its board is another pane: it gets
+                // a view of its own, so the board's surface parks as it leaves.
+                .id(paneID)
+            } footer: {
+                if let strip = item.strip { RtModalStripView(theme: theme, strip: strip) }
             }
+            // The sidebar stays live under the modal, so a rename editor can be
+            // open there, and the keys typed into it are not the strip's; nor
+            // are the palette's, which can open over the modal.
+            .background(RtModalKeyMonitor(
+                stripShown: item.strip != nil && !viewModel.renameEditorIsOnScreen && !commandPalette.isOpen, onClose: close
+            ))
         }
-    }
-
-    /// Both edges of each axis are snapped where they land in the window, as
-    /// `CanvasGrid` snaps a pane box: the pane inside sits a whole number of
-    /// points in from them, so ghostty composites it on whole device pixels.
-    static func boxFrame(in area: CGSize, origin: CGPoint, scale: CGFloat, fraction: CGFloat) -> CGRect {
-        let grid = CanvasGrid(canvas: area, phase: origin, displayScale: scale)
-        let margin = (1 - fraction) / 2
-        let left = grid.snappedX(area.width * margin)
-        let right = grid.snappedX(area.width * (1 - margin))
-        let top = grid.snappedY(area.height * margin)
-        let bottom = grid.snappedY(area.height * (1 - margin))
-        return CGRect(x: left, y: top, width: right - left, height: bottom - top)
-    }
-
-    private var backdrop: some View {
-        let isLight = ChromeRoles.isLight(panelBg: theme.palette.panelBg)
-        return Color.black
-            .opacity(isLight ? Metrics.lightBackdropOpacity : Metrics.darkBackdropOpacity)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: close)
-    }
-
-    private func box(modal: RtModal, item: RtItem, size: CGSize, scale: CGFloat) -> some View {
-        let stripHeight = item.strip == nil ? 0 : Metrics.Strip.height
-        let area = CGSize(
-            width: max(0, size.width - 2 * Metrics.paneInset),
-            height: max(0, size.height - Metrics.TitleRow.height - stripHeight - 2 * Metrics.paneInset)
-        )
-        let fontSize = textSizeStore.points(for: item.kind)
-        let fit = SurfaceGrid.fit(inner: area, cell: TerminalCellMetrics.cell(fontSize: fontSize, scale: scale))
-        let paneID = shownPaneID(modal: modal, item: item)
-        let shape = RoundedRectangle(cornerRadius: Metrics.cornerRadius)
-        return VStack(spacing: 0) {
-            RtModalTitleRow(
-                theme: theme, title: item.modalTitle(home: NSHomeDirectory()),
-                showsBackToRunner: modal.serviceTabID != nil, size: modalSizeStore.size(for: item.kind),
-                onBack: back, onSize: { modalSizeStore.select($0, for: item.kind) }, onClose: close
-            )
-            // A service is never typed into: only the item's own pane waits
-            // for its command.
-            RtModalPane(
-                theme: theme, viewModel: viewModel, paneID: paneID, grid: PTYSize(cols: fit.cols, rows: fit.rows),
-                surfaceSize: fit.size, fontSizePoints: fontSize, isFocused: item.strip == nil,
-                command: modal.serviceTabID != nil ? nil : RtModalPane.Command(
-                    started: item.started, startedAt: item.startedAt, ended: item.strip != nil || !item.isRunning
-                ),
-                onFocus: {}
-            )
-            // A service shown in place of its board is another pane: it gets
-            // a view of its own, so the board's surface parks as it leaves.
-            .id(paneID)
-            .frame(width: area.width, height: area.height)
-            .padding(Metrics.paneInset)
-            if let strip = item.strip {
-                RtModalStripView(theme: theme, strip: strip)
-            }
-        }
-        .frame(width: size.width, height: size.height, alignment: .top)
-        .background(theme.pane)
-        .clipShape(shape)
-        .overlay(shape.strokeBorder(theme.paneBorder, lineWidth: ChromeMetrics.ruleWidth))
-        // Cast by a shape behind the box rather than by the box itself, which
-        // would pull the terminal's surface through an offscreen pass.
-        .background {
-            shape
-                .fill(theme.pane)
-                .shadow(color: .black.opacity(Metrics.shadowOpacity), radius: Metrics.shadowRadius, y: Metrics.shadowY)
-        }
-        // The sidebar stays live under the modal, so a rename editor can be
-        // open there, and the keys typed into it are not the strip's; nor
-        // are the palette's, which can open over the modal.
-        .background(RtModalKeyMonitor(
-            stripShown: item.strip != nil && !viewModel.renameEditorIsOnScreen && !commandPalette.isOpen, onClose: close
-        ))
     }
 
     /// Every hidden rt tab holds one pane. Until the model has the tab the
@@ -125,18 +69,15 @@ struct RtModalView: View {
     }
 }
 
-/// The command and its folder, the size control, a close control, and in a
-/// runner's service view a way back to the board.
-struct RtModalTitleRow: View {
+/// The back button to the runner's board in a runner's service view, its
+/// divider, and the command and its folder.
+struct RtModalTitle: View {
     let theme: Theme
     let title: String
     let showsBackToRunner: Bool
-    let size: RtModalSize
     let onBack: () -> Void
-    let onSize: (RtModalSize) -> Void
-    let onClose: () -> Void
 
-    private typealias Metrics = ChromeMetrics.RtModal.TitleRow
+    private typealias Metrics = ChromeMetrics.Modal.TitleRow
 
     var body: some View {
         HStack(spacing: Metrics.gap) {
@@ -146,7 +87,7 @@ struct RtModalTitleRow: View {
                         .font(ChromeType.rtModalBack)
                         .foregroundStyle(theme.accent)
                         .fixedSize()
-                        .padding(.horizontal, Metrics.backHoverPadding)
+                        .padding(.horizontal, ChromeMetrics.RtModal.backHoverPadding)
                         .frame(height: Metrics.buttonBoxSide)
                         .hoverWash(theme, cornerRadius: Metrics.buttonCornerRadius)
                         .frame(maxHeight: .infinity)
@@ -157,74 +98,17 @@ struct RtModalTitleRow: View {
                 .accessibilityIdentifier("flock.rt.modal.backToRunner")
                 Rectangle()
                     .fill(theme.rule)
-                    .frame(width: Metrics.backDividerSize.width, height: Metrics.backDividerSize.height)
+                    .frame(
+                        width: ChromeMetrics.RtModal.backDividerSize.width,
+                        height: ChromeMetrics.RtModal.backDividerSize.height
+                    )
             }
             Text(title)
-                .font(ChromeType.rtModalTitle)
+                .font(ChromeType.modalTitle)
                 .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 0)
-            HStack(spacing: ChromeMetrics.RtModal.SizeControl.gapBeforeClose) {
-                RtModalSizeControl(theme: theme, selected: size, onSelect: onSize)
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(ChromeType.rtModalClose)
-                        .foregroundStyle(theme.textDim)
-                        .frame(width: Metrics.closeGlyphSize, height: Metrics.closeGlyphSize)
-                        .hoverWash(theme, cornerRadius: Metrics.buttonCornerRadius)
-                        .frame(maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-                .accessibilityIdentifier("flock.rt.modal.close")
-            }
         }
-        .padding(.horizontal, Metrics.horizontalPadding)
-        .frame(height: Metrics.height)
-        .background(theme.chrome)
-    }
-}
-
-/// One button per modal size, each a box that grows with the size it stands
-/// for; the selected one is filled.
-struct RtModalSizeControl: View {
-    let theme: Theme
-    let selected: RtModalSize
-    let onSelect: (RtModalSize) -> Void
-
-    private typealias Metrics = ChromeMetrics.RtModal.SizeControl
-
-    var body: some View {
-        HStack(spacing: Metrics.spacing) {
-            ForEach(RtModalSize.allCases, id: \.self) { size in
-                Button { onSelect(size) } label: {
-                    glyph(size)
-                        .frame(width: Metrics.buttonSide, height: Metrics.buttonSide)
-                        .hoverWash(theme, cornerRadius: ChromeMetrics.RtModal.TitleRow.buttonCornerRadius)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(size.displayName)
-                .accessibilityLabel("Modal size: \(size.displayName)")
-                .accessibilityIdentifier("flock.rt.modal.size.\(size.rawValue)")
-                .accessibilityAddTraits(size == selected ? .isSelected : [])
-            }
-        }
-    }
-
-    private func glyph(_ size: RtModalSize) -> some View {
-        let shape = RoundedRectangle(cornerRadius: Metrics.glyphCornerRadius)
-        let glyphSize = Metrics.glyphSize(size)
-        return ZStack {
-            if size == selected {
-                shape.fill(theme.accent)
-            } else {
-                shape.strokeBorder(theme.textDim, lineWidth: Metrics.glyphLineWidth)
-            }
-        }
-        .frame(width: glyphSize.width, height: glyphSize.height)
     }
 }
 

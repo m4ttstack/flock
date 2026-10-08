@@ -142,4 +142,13 @@ final class WorkspaceIdentityStoreTests: XCTestCase {
         let sections = RailSections(model: model, board: BoardWorkspaceNames(reviews: "Reviews", responds: "Responses", doctors: "Doctors"))
         XCTAssertEqual(WorkspaceIdentityStore.keys(in: sections), ["w2", WorkspaceIdentityStore.boardKey])
     }
+
+    func testATopBarPinKeepsItsSymbolThroughARefresh() {
+        let store = WorkspaceIdentityStore(userDefaults: defaults())
+        let bar = PinnedWorkspace(id: PinID(rawValue: "p2"), name: "dash", folder: "/dash", workspace: nil,
+                                  syncedLabel: nil, confirmed: false, placement: .topBar)
+        store.setOverride("key.fill", for: bar.identityKey)
+        store.refresh(RailSections(model: model([]), board: nil, pins: [bar]))
+        XCTAssertEqual(store.symbol(for: bar.identityKey), "key.fill")
+    }
 }

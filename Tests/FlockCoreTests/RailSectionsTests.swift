@@ -206,4 +206,20 @@ final class RailSectionsTests: XCTestCase {
         XCTAssertEqual(sections.navigationOrder { $0 == .board }.map(\.title), ["flock", "ship"])
         XCTAssertEqual(sections.navigationOrder { $0 == .herds }.map(\.title), ["flock", "🛹 Reviews"])
     }
+
+    // MARK: - Top bar
+
+    func testTopBarPinsLeavePinnedAndFindTheirRecordInTheTopBarModel() {
+        let full = model(["acme", "dash"])
+        let hidden = full.hiding([WorkspaceID(rawValue: "w2")])
+        let rail = PinnedWorkspace(id: PinID(rawValue: "p1"), name: "acme", folder: "/acme",
+                                   workspace: WorkspaceID(rawValue: "w1"), syncedLabel: "acme", confirmed: true)
+        let bar = PinnedWorkspace(id: PinID(rawValue: "p2"), name: "dash", folder: "/dash",
+                                  workspace: WorkspaceID(rawValue: "w2"), syncedLabel: "dash", confirmed: true,
+                                  placement: .topBar)
+        let sections = RailSections(model: hidden, board: nil, pins: [rail, bar], topBarModel: full)
+        XCTAssertEqual(sections.pinned.map(\.pin.id), [rail.id])
+        XCTAssertEqual(sections.topBar.map(\.pin.id), [bar.id])
+        XCTAssertEqual(sections.topBar.first?.record?.label, "dash")
+    }
 }

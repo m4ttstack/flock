@@ -2687,6 +2687,7 @@ final class ChromeRenderTests: XCTestCase {
         defaults.removeObject(forKey: RearrangeAfterMoveStore.defaultsKey)
         defaults.removeObject(forKey: MissionBottomLineStore.defaultsKey)
         defaults.removeObject(forKey: OneTitleStore.defaultsKey)
+        defaults.removeObject(forKey: TopBarLabelStore.defaultsKey)
         for kind in NewTerminalKind.allCases {
             defaults.removeObject(forKey: StartingFolderStore.defaultsKey(for: kind))
             defaults.removeObject(forKey: StartingFolderStore.customPathKey(for: kind))
@@ -2711,6 +2712,7 @@ final class ChromeRenderTests: XCTestCase {
                 overviewReturnStore: OverviewReturnStore(userDefaults: defaults),
                 overviewInclusionStore: OverviewInclusionStore(userDefaults: defaults),
                 oneTitleStore: OneTitleStore(userDefaults: defaults),
+                topBarLabelStore: TopBarLabelStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults),
@@ -4512,6 +4514,7 @@ private struct Harness {
             .environment(modeStore)
             .environment(MissionBottomLineStore(userDefaults: modeDefaults))
             .environment(WorkspaceIdentityStore(userDefaults: modeDefaults))
+            .environment(TopBarOverlaySizeStore(userDefaults: modeDefaults))
             .environment(dividerDrag)
             .environment(chatStore)
             .environment(optionAsAlt)

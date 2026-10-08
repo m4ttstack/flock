@@ -14,6 +14,13 @@ extension Theme {
     var workspaceWash: Color {
         textLabel.opacity(ChromeMetrics.Grid.islandTint)
     }
+
+    /// The ground of the top-bar workspace whose overlay is showing.
+    var menuBarOpenWash: Color {
+        ChromeRoles.isLight(panelBg: palette.panelBg)
+            ? Color.black.opacity(ChromeMetrics.MenuBarWash.lightOpen)
+            : Color.white.opacity(ChromeMetrics.MenuBarWash.darkOpen)
+    }
 }
 
 extension View {
@@ -89,6 +96,7 @@ private struct EmptyPinMenu: ViewModifier {
                         if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens") {
                             viewModel.setPinFolder(pin.id, to: folder)
                         }
+                    case .moveToTopBar: viewModel.moveToTopBar(pin: pin.id, at: nil)
                     case .remove: viewModel.removePin(pin.id)
                     }
                 }

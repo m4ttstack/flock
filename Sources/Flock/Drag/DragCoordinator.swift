@@ -235,6 +235,11 @@ final class DragCoordinator {
     /// The PINNED section's whole region, heading and gaps included, in the
     /// rail's content space.
     private var pinnedRegion: CGRect?
+    /// The title bar's top-bar cells and the strip's region, straight in the
+    /// drag space: the bar never scrolls.
+    private var topBarOrder: [PinID] = []
+    private var topBarItemFrames: [PinID: CGRect] = [:]
+    private var topBarRegion: CGRect?
     private(set) var workspacesHeading: CGRect?
     private var gridItems = ScrolledItemFrames<GridItemID>()
     /// The zoomed island's items, kept apart from the grid's: the grid stays
@@ -562,6 +567,11 @@ final class DragCoordinator {
         return false
     }
 
+    private var isReorderingTopBar: Bool {
+        if case .topBar? = target { return true }
+        return false
+    }
+
     var surfaces: DropSurfaces? {
         guard let stripWorkspace else { return nil }
         return DropSurfaces(
@@ -577,7 +587,9 @@ final class DragCoordinator {
             newWorkspaceZone: newWorkspaceZone,
             grid: gridSurfaces,
             pinnedFrames: pinFrames,
-            pinnedFrame: pinnedFrame
+            pinnedFrame: pinnedFrame,
+            topBarFrames: topBarFrames,
+            topBarFrame: topBarFrame
         )
     }
 
@@ -1392,6 +1404,14 @@ final class DragCoordinator {
     }
 
     var insertionMark: InsertionMark? {
+        // The title bar stays over the grid, so its gap is marked either way.
+        if case .topBar(let insertIndex)? = target {
+            guard let container = topBarFrame else { return nil }
+            let bar = InsertionBarGeometry.bar(
+                atInsertIndex: insertIndex, items: topBarFrames.map(\.frame), container: container, axis: .vertical
+            )
+            return InsertionMark(bar: bar, dot: InsertionBarGeometry.endDot(for: bar, axis: .vertical))
+        }
         // A reorder inside the grid is marked by the card opening the slot
         // itself; the strip the bar would be placed in is unmounted, and its
         // last frames sit wherever the window left them.
@@ -1441,7 +1461,7 @@ final class DragCoordinator {
         switch target {
         case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
             return dropTargetRect(for: target, surfaces: surfaces)
-        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .pinnedRail:
+        case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .pinnedRail, .topBar:
             return nil
         }
     }
@@ -1532,7 +1552,7 @@ final class DragCoordinator {
     /// frame the drop is measured against.
     var pinnedGrowth: CGFloat {
         guard case .pinnedRail? = target else { return 0 }
-        if case .pin? = activeSubject { return 0 }
+        if draggingPinIndex != nil { return 0 }
         return arrivingExtent(items: pinFrames.map(\.frame))
     }
 
@@ -1570,5 +1590,56 @@ final class DragCoordinator {
     private var draggingPinIndex: Int? {
         guard case .pin(let id)? = activeSubject else { return nil }
         return pinFrames.firstIndex { $0.id == id }
+    }
+}
+
+// MARK: - The title bar's top-bar strip
+
+extension DragCoordinator {
+    /// In the strip's order. No pin here is a drop target for a pane or a
+    /// tab, so none carries its workspace.
+    var topBarFrames: [PinItemFrame] {
+        topBarOrder.compactMap { id in topBarItemFrames[id].map { PinItemFrame(id: id, workspace: nil, frame: $0) } }
+    }
+
+    /// nil while the strip draws no cells, which is also while it is not
+    /// mounted at all.
+    var topBarFrame: CGRect? {
+        topBarOrder.isEmpty ? nil : topBarRegion
+    }
+
+    /// Cells slide along the bar, never down: a cell carried in from PINNED
+    /// has no width of its own here, so it opens the first cell's.
+    func topBarDisplacement(at index: Int) -> CGFloat {
+        guard case .topBar(let insertIndex)? = target else { return 0 }
+        let items = topBarFrames.map(\.frame)
+        let draggingIndex: Int? = if case .pin(let id)? = activeSubject { topBarFrames.firstIndex { $0.id == id } } else { nil }
+        return ReshuffleOffset.displacement(
+            forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex,
+            extent: draggingIndex.map { ReshuffleOffset.advance(ofItemAt: $0, items: items, axis: .vertical) }
+                ?? (items.first?.width ?? ReshuffleOffset.defaultExtent)
+        )
+    }
+
+    /// Frozen while the bar shows a gap, for the same reason the strip's
+    /// frames are (`setTabFrame`).
+    func setTopBarFrame(_ frame: CGRect, for id: PinID) {
+        guard !isReorderingTopBar, topBarItemFrames[id] != frame else { return }
+        topBarItemFrames[id] = frame
+    }
+
+    func setTopBarRegion(_ frame: CGRect) {
+        guard !isReorderingTopBar, topBarRegion != frame else { return }
+        topBarRegion = frame
+    }
+
+    /// An empty order is the strip leaving the title bar: its last frames
+    /// must not keep taking drops.
+    func setTopBarOrder(_ order: [PinID]) {
+        guard topBarOrder != order else { return }
+        topBarOrder = order
+        let kept = topBarItemFrames.filter { order.contains($0.key) }
+        if kept.count != topBarItemFrames.count { topBarItemFrames = kept }
+        if order.isEmpty { topBarRegion = nil }
     }
 }

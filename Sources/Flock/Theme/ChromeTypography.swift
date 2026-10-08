@@ -97,10 +97,11 @@ enum ChromeType {
     static let rtPopoverLabel = inter(10, .semibold)
     static let rtPopoverLabelTracking: CGFloat = 0.5
     static let rtPopoverState = inter(10)
-    static let rtModalTitle = inter(11.5, .semibold)
+    static let modalTitle = inter(11.5, .semibold)
+    static let modalNote = inter(11)
     static let rtModalBack = inter(11, .medium)
     static let rtModalStrip = inter(11, .medium)
-    static let rtModalClose = Font.system(size: 11, weight: .medium)
+    static let modalClose = Font.system(size: 11, weight: .medium)
     static let paletteSearch = inter(14)
     static let paletteName = inter(13)
     static let paletteNameSelected = inter(13, .medium)

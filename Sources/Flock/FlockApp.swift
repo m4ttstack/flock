@@ -54,6 +54,8 @@ struct FlockApp: App {
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
     @State private var rtModalSizeStore = RtModalSizeStore()
+    @State private var topBarLabelStore = TopBarLabelStore()
+    @State private var topBarOverlaySizeStore = TopBarOverlaySizeStore()
     @State private var rtModalTextSizeStore = RtModalTextSizeStore()
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
@@ -245,7 +247,7 @@ struct FlockApp: App {
                 switch target {
                 case .tabThumbnail(let id): viewModel.select(tab: id)
                 case .workspaceThumbnail(let id): viewModel.select(workspace: id)
-                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail, .pinnedRail: break
+                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail, .pinnedRail, .topBar: break
                 }
             },
             // Repo and branch are read again each time the view opens.
@@ -336,6 +338,8 @@ struct FlockApp: App {
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
+                .environment(topBarLabelStore)
+                .environment(topBarOverlaySizeStore)
                 .environment(rtModalTextSizeStore)
                 .environment(optionAsAltStore)
                 .environment(railWidthStore)
@@ -413,7 +417,7 @@ struct FlockApp: App {
                             }
                             .keyboardShortcut(command.key, modifiers: command.modifiers)
                             // herdr's focused pane, which the rt modal does not hold.
-                            .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction) || viewModel.rt.modal != nil)
+                            .disabled(!viewModel.focusedPaneHasNeighbor(toward: command.direction) || viewModel.modalIsUp)
                             .accessibilityIdentifier(command.accessibilityIdentifier)
                         }
                     }
@@ -468,12 +472,13 @@ struct FlockApp: App {
                     Task { await viewModel.createTab(in: workspace) }
                 }
                 .keyboardShortcut(ViewCommand.newTab.shortcut)
-                .disabled(viewModel.selectedWorkspaceID == nil && shownEmptyPin == nil)
+                .disabled((viewModel.selectedWorkspaceID == nil && shownEmptyPin == nil) || viewModel.topBarOverlay.openPin != nil)
                 .accessibilityIdentifier(ViewCommand.newTab.accessibilityIdentifier)
                 Button(ViewCommand.newWorkspace.title) {
                     Task { await viewModel.createWorkspace() }
                 }
                 .keyboardShortcut(ViewCommand.newWorkspace.shortcut)
+                .disabled(viewModel.topBarOverlay.openPin != nil)
                 .accessibilityIdentifier(ViewCommand.newWorkspace.accessibilityIdentifier)
             }
             // Takes the system Close's ⌘W, which would close flock's only
@@ -499,7 +504,7 @@ struct FlockApp: App {
                     Task { await viewModel.closeTab(tab) }
                 }
                 .keyboardShortcut(ViewCommand.closeTab.shortcut)
-                .disabled(viewModel.selectedTabID == nil || viewModel.rt.modal != nil)
+                .disabled(viewModel.selectedTabID == nil || viewModel.modalIsUp)
                 .accessibilityIdentifier(ViewCommand.closeTab.accessibilityIdentifier)
                 Button(ViewCommand.closeWorkspace.title) {
                     guard FlockWindow.isContent(NSApp.keyWindow) else { return }
@@ -507,7 +512,7 @@ struct FlockApp: App {
                     Task { await viewModel.closeWorkspace(workspace) }
                 }
                 .keyboardShortcut(ViewCommand.closeWorkspace.shortcut)
-                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.rt.modal != nil)
+                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.modalIsUp)
                 .accessibilityIdentifier(ViewCommand.closeWorkspace.accessibilityIdentifier)
             }
             CommandGroup(before: .windowArrangement) {
@@ -524,7 +529,7 @@ struct FlockApp: App {
                         if let workspace { Task { await viewModel.jumpToHerdr(workspace: workspace) } }
                     }
                     .keyboardShortcut(command.key, modifiers: command.modifiers)
-                    .disabled((tab == nil && workspace == nil) || viewModel.rt.modal != nil)
+                    .disabled((tab == nil && workspace == nil) || viewModel.modalIsUp)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                     if command == .nextTab { Divider() }
                 }
@@ -535,7 +540,7 @@ struct FlockApp: App {
                             Task { await viewModel.jumpToHerdr(tab: tab.tabID) }
                         }
                             .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.tabModifiers)
-                            .disabled(viewModel.rt.modal != nil)
+                            .disabled(viewModel.modalIsUp)
                     }
                 }
                 .disabled(tabs.isEmpty)
@@ -543,7 +548,7 @@ struct FlockApp: App {
                     ForEach(Array(railRows.prefix(GoToCommand.limit).enumerated()), id: \.element.workspaceID) { index, row in
                         Button(row.title) { Task { await viewModel.jumpToHerdr(workspace: row.workspaceID) } }
                             .keyboardShortcut(GoToCommand.key(at: index), modifiers: GoToCommand.workspaceModifiers)
-                            .disabled(viewModel.rt.modal != nil)
+                            .disabled(viewModel.modalIsUp)
                     }
                 }
                 .disabled(railRows.isEmpty)
@@ -662,6 +667,7 @@ struct FlockApp: App {
                 overviewReturnStore: overviewReturnStore,
                 overviewInclusionStore: overviewInclusionStore,
                 oneTitleStore: oneTitleStore,
+                topBarLabelStore: topBarLabelStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,

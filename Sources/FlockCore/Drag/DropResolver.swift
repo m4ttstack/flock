@@ -161,6 +161,10 @@ public struct DropSurfaces: Equatable, Sendable {
     public let grid: GridDropSurfaces?
     public let pinnedFrames: [PinItemFrame]
     public let pinnedFrame: CGRect?
+    /// The title bar's top-bar cells, left to right, and the strip's own
+    /// region. The bar never scrolls, so it has no viewport.
+    public let topBarFrames: [PinItemFrame]
+    public let topBarFrame: CGRect?
 
     public init(
         canvas: CanvasGeometry,
@@ -175,8 +179,12 @@ public struct DropSurfaces: Equatable, Sendable {
         newWorkspaceZone: CGRect?,
         grid: GridDropSurfaces? = nil,
         pinnedFrames: [PinItemFrame] = [],
-        pinnedFrame: CGRect? = nil
+        pinnedFrame: CGRect? = nil,
+        topBarFrames: [PinItemFrame] = [],
+        topBarFrame: CGRect? = nil
     ) {
+        self.topBarFrames = topBarFrames
+        self.topBarFrame = topBarFrame
         self.grid = grid
         self.pinnedFrames = pinnedFrames
         self.pinnedFrame = pinnedFrame
@@ -211,7 +219,9 @@ public let minimumEdgeBand: CGFloat = 6
 /// Resolves one drag frame's drop target from a point plus the surfaces it
 /// could land on.
 ///
-/// A shown grid answers alone (see `DropSurfaces`). Otherwise, precedence
+/// The title bar's top-bar strip sits above everything else and answers
+/// first, for a pin only. Then a shown grid answers alone (see
+/// `DropSurfaces`). Otherwise, precedence
 /// when surfaces overlap on screen: the new-tab/new-workspace zones, then
 /// the workspace rail, then the tab strip, then the canvas. Each
 /// tier that contains the point owns the result outright, including `nil`
@@ -225,6 +235,11 @@ public let minimumEdgeBand: CGFloat = 6
 /// what a drop that means nothing should do. A target the planner cannot serve
 /// would instead reach the user as a "Can't move there" rejection.
 public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
+    if let bar = surfaces.topBarFrame ?? unionRect(surfaces.topBarFrames.map(\.frame)), bar.contains(point) {
+        guard case .pin = dragging else { return nil }
+        return .topBar(insertIndex: insertIndex(of: point.x, centers: surfaces.topBarFrames.map(\.frame.midX)))
+    }
+
     if let grid = surfaces.grid {
         return resolveGrid(at: point, dragging: dragging, grid: grid)
     }
@@ -384,6 +399,9 @@ private func resolveRail(at point: CGPoint, dragging: DragSubject, surfaces: Dro
         return .workspaceThumbnail(hit.id)
     case .pin(let id) where surfaces.pinnedFrames.contains(where: { $0.id == id && $0.workspace == nil }):
         // An empty pin has nothing in herdr to move.
+        return nil
+    case .pin(let id) where surfaces.topBarFrames.contains(where: { $0.id == id }):
+        // A top-bar cell only goes back by way of PINNED.
         return nil
     case .workspace, .workspaces, .pin:
         let centers = surfaces.workspaceFrames.map(\.frame.midY)

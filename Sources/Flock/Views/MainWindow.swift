@@ -29,7 +29,7 @@ struct MainWindow: View {
         let excluded = overviewInclusion.flatMap { inclusion in
             viewModel.railSections(board: boardStore.names, herdProgress: herdProgress.progress).map(inclusion.excluded(from:))
         } ?? []
-        return MissionBoard.blockedCount(model: model.without(workspaces: excluded), toasts: viewModel.attentionToasts)
+        return MissionBoard.blockedCount(model: model.hiding(excluded), toasts: viewModel.attentionToasts)
     }
 
     var body: some View {
@@ -87,6 +87,12 @@ struct MainWindow: View {
             }
         }
         .background(theme.chrome)
+        // Below the title bar and over everything else, rail included, so it
+        // opens from any view and its icon can close it again.
+        .overlay {
+            TopBarWorkspaceOverlay(theme: theme, viewModel: viewModel)
+                .padding(.top, ChromeMetrics.TitleBar.height)
+        }
         // Over the content rather than above it in the stack: the tab strip's
         // `NSScrollView` stretches up through the system title bar's safe
         // area to the window's top edge. Stacked, that scroll view sits over
@@ -94,7 +100,7 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild, blockedCount: blockedCount
+                isDevBuild: isDevBuild, blockedCount: blockedCount, viewModel: viewModel
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -123,6 +129,7 @@ struct MainWindow: View {
         .onChange(of: dragCoordinator.isGridShown) { _, shown in
             if shown { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
         }
+        .modifier(TopBarOverlayExclusion(viewModel: viewModel))
         // Here, where it runs once whichever view draws the stack: the dock,
         // or mission control's Needs you lane, which has no dock. It runs for
         // as long as anything is in the stack, not just while a finished
@@ -214,6 +221,7 @@ struct MainWindow: View {
         } message: { pending in
             Text(pending.message)
         }
+        .modifier(TopBarRefusalAlert(viewModel: viewModel))
         // The same confirmation the settings row raises, hosted here too so
         // the banner's Install is the identical action rather than a shortcut
         // around it. Naming the exact path being replaced is the point of it,
@@ -236,6 +244,54 @@ struct MainWindow: View {
     }
 }
 
+private struct TopBarRefusalAlert: ViewModifier {
+    let viewModel: SessionViewModel
+
+    func body(content: Content) -> some View {
+        content.alert(
+            viewModel.topBarRefusal?.title ?? "",
+            isPresented: Binding(
+                get: { viewModel.topBarRefusal != nil },
+                set: { shown in if !shown { viewModel.dismissTopBarRefusal() } }
+            ),
+            presenting: viewModel.topBarRefusal
+        ) { _ in
+            Button("OK") { viewModel.dismissTopBarRefusal() }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("flock.topBar.refusal.ok")
+        } message: { refusal in
+            Text(refusal.message)
+        }
+    }
+}
+
+/// The top-bar overlay and the window's other modal layers, one at a time:
+/// opening it closes the rt modal, the palette and the switchers, and opening
+/// any of those closes it.
+private struct TopBarOverlayExclusion: ViewModifier {
+    let viewModel: SessionViewModel
+
+    @Environment(CommandPaletteState.self) private var commandPalette
+    @Environment(WorkspaceSwitcher.self) private var switcher
+    @Environment(TabSwitcher.self) private var tabSwitcher
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: viewModel.topBarOverlay.openPin) { _, open in
+                guard open != nil else { return }
+                commandPalette.close()
+                switcher.cancel()
+                tabSwitcher.cancel()
+                if viewModel.rt.modal != nil { Task { await viewModel.rt.closeModal() } }
+            }
+            .onChange(of: viewModel.rt.modal != nil) { _, shown in if shown { viewModel.topBarOverlay.close() } }
+            .onChange(of: commandPalette.isOpen) { _, open in if open { viewModel.topBarOverlay.close() } }
+            .onChange(of: switcher.isShown || tabSwitcher.isShown) { _, shown in
+                if shown { viewModel.topBarOverlay.close() }
+            }
+    }
+}
+
 struct TitleBar: View {
     let theme: Theme
     let sessionLabel: String
@@ -245,20 +301,40 @@ struct TitleBar: View {
     var blockedCount = 0
     /// Per tab, for renders.
     var forcedTabs: [ViewTab: ControlInteraction] = [:]
+    /// Draws the top-bar workspaces; none without it.
+    var viewModel: SessionViewModel? = nil
 
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
+    @Environment(TopBarLabelStore.self) private var labels: TopBarLabelStore?
 
     @State private var barWidth: CGFloat = 0
     @State private var titleWidth: CGFloat = 0
     @State private var tabsMaxX: CGFloat = 0
     @State private var trailingWidth: CGFloat = 0
+    @State private var noticesWidth: CGFloat = 0
+    @State private var namedStripWidth: CGFloat = 0
 
     private var showsTitle: Bool {
         TitleBarFit.showsTitle(
             barWidth: barWidth, titleWidth: titleWidth, leadingEdge: tabsMaxX, trailingWidth: trailingWidth,
             gap: ChromeMetrics.TitleBar.titleClearance
         )
+    }
+
+    private var showsNames: Bool {
+        labels?.label == .iconAndName && TitleBarFit.showsNames(
+            barWidth: barWidth, leadingEdge: tabsMaxX, noticesWidth: noticesWidth,
+            namedStripWidth: namedStripWidth, gap: ChromeMetrics.TitleBar.titleClearance
+        )
+    }
+
+    private var hasTopBarWorkspaces: Bool {
+        viewModel?.railSections(board: nil)?.topBar.isEmpty == false
+    }
+
+    private var hasNotices: Bool {
+        devBuild?.newerBuildReady == true || noticeColor != nil
     }
 
     var body: some View {
@@ -295,14 +371,34 @@ struct TitleBar: View {
                 }
         }
         .overlay(alignment: .trailing) {
-            HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
-                if let devBuild, devBuild.newerBuildReady {
-                    RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
+            HStack(spacing: 0) {
+                if let viewModel, hasTopBarWorkspaces {
+                    TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: showsNames)
+                        .frame(height: ChromeMetrics.TitleBar.height)
+                        .fixedSize()
+                        // Measured named whatever is drawn, so the fit rule
+                        // reads the width names would need.
+                        .background {
+                            TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: true, measuring: true)
+                                .fixedSize()
+                                .hidden()
+                                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { namedStripWidth = $0 }
+                        }
                 }
-                connectionNotice
+                HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
+                    if let devBuild, devBuild.newerBuildReady {
+                        RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
+                    }
+                    connectionNotice
+                }
+                .padding(.leading, hasTopBarWorkspaces && hasNotices ? ChromeMetrics.TitleBar.noticeTrailingPadding : 0)
+                .padding(
+                    .trailing,
+                    hasTopBarWorkspaces && !hasNotices ? ChromeMetrics.TitleBar.topBarEdgeInset : ChromeMetrics.TitleBar.noticeTrailingPadding
+                )
+                .fixedSize()
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { noticesWidth = $0 }
             }
-            .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
-            .fixedSize()
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { trailingWidth = $0 }
         }
         .background(theme.chrome)

@@ -47,9 +47,9 @@ final class OverviewInclusionTests: XCTestCase {
     func testAModelWithoutWorkspacesDropsTheirPanesAndFocus() {
         var full = model(["flock", "🛹 Reviews"])
         full.focusedWorkspaceID = WorkspaceID(rawValue: "w2")
-        let narrowed = full.without(workspaces: [WorkspaceID(rawValue: "w2")])
+        let narrowed = full.hiding([WorkspaceID(rawValue: "w2")])
         XCTAssertEqual(narrowed.workspaces.map(\.label), ["flock"])
         XCTAssertNil(narrowed.focusedWorkspaceID)
-        XCTAssertEqual(full.without(workspaces: []), full)
+        XCTAssertEqual(full.hiding([]), full)
     }
 }

@@ -411,7 +411,7 @@ extension MissionBoard {
               let sections = viewModel.railSections(board: board.names, herdProgress: herdProgress.progress)
         else { return nil }
         let missionBoard = MissionBoard(
-            model: model.without(workspaces: inclusion?.excluded(from: sections) ?? []), sections: sections, toasts: viewModel.attentionToasts,
+            model: model.hiding(inclusion?.excluded(from: sections) ?? []), sections: sections, toasts: viewModel.attentionToasts,
             history: viewModel.statusHistory, backgroundWork: viewModel.backgroundWork, now: now, opensOlder: opensOlder,
             opensUnknown: opensUnknown, oneTitle: viewModel.oneTitle
         )

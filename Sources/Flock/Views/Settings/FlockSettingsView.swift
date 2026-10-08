@@ -46,6 +46,7 @@ struct FlockSettingsView: View {
     let overviewReturnStore: OverviewReturnStore
     let overviewInclusionStore: OverviewInclusionStore
     let oneTitleStore: OneTitleStore
+    let topBarLabelStore: TopBarLabelStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
     let startingFolderStore: StartingFolderStore
     let rtModalTextSizeStore: RtModalTextSizeStore
@@ -58,7 +59,7 @@ struct FlockSettingsView: View {
         herdrMousePatchStore: HerdrMousePatchStore, notificationLifetimeStore: NotificationLifetimeStore,
         missionBottomLineStore: MissionBottomLineStore, overviewReturnStore: OverviewReturnStore,
         overviewInclusionStore: OverviewInclusionStore,
-        oneTitleStore: OneTitleStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
+        oneTitleStore: OneTitleStore, topBarLabelStore: TopBarLabelStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, tab: SettingsTab = .general
     ) {
@@ -68,6 +69,7 @@ struct FlockSettingsView: View {
         self.overviewReturnStore = overviewReturnStore
         self.overviewInclusionStore = overviewInclusionStore
         self.oneTitleStore = oneTitleStore
+        self.topBarLabelStore = topBarLabelStore
         self.rearrangeAfterMoveStore = rearrangeAfterMoveStore
         self.startingFolderStore = startingFolderStore
         self.rtModalTextSizeStore = rtModalTextSizeStore
@@ -82,6 +84,7 @@ struct FlockSettingsView: View {
                 StartingFolderSettingsSection(store: startingFolderStore)
                 NotificationSettingsSection(store: notificationLifetimeStore)
                 TitlesSettingsSection(store: oneTitleStore)
+                TopBarSettingsSection(store: topBarLabelStore)
             }
             .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.symbol) }
             .tag(SettingsTab.general)
