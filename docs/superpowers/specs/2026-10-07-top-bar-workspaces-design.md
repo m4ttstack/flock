@@ -114,7 +114,15 @@ alike.
   tab strip shows above it only when the workspace has 2+ tabs; choosing a
   tab there focuses it in herdr.
 - Frame: a card inset from the content area, with a header showing symbol,
-  name, and ✕. Background dimmed behind it.
+  name, the rt modal's `RtModalSizeControl`, and ✕. Background dimmed
+  behind it. The card's box for each `RtModalSize` is the rt modal's, scaled
+  to the area below the title bar.
+- Size per workspace: `TopBarOverlaySizeStore` in FlockCore keeps an
+  `RtModalSize` per `PinID`, persisted in UserDefaults
+  (`flock.topBarOverlaySize`, a JSON dictionary keyed by pin id). A pin never
+  sized opens at `.medium`; a stored size this build does not know reads as
+  `.medium`. Unpinning drops the pin's entry; moving it to the sidebar and
+  back keeps it.
 - Focus: on open, keyboard focus goes to the active tab's focused pane.
 - Closing: Esc, ✕, a click on the dim, or the icon again. Surfaces return to
   parked as the rt modal's do. Opening it closes the rt modal, the command
@@ -127,7 +135,7 @@ alike.
 
 ## Out of scope
 
-Per-workspace overlay size, a shortcut per icon, top-bar entries in the
+Free-form overlay resizing (sizes are the rt modal's three), a shortcut per icon, top-bar entries in the
 command palette.
 
 ## Testing
@@ -144,6 +152,8 @@ FlockCore unit tests:
   `.pinnedRail`.
 - `TopBarOverlayStore` open/switch/close and mutual exclusion with the rt
   modal.
+- `TopBarOverlaySizeStore`: default `.medium`, per-pin persistence across a
+  reload, an unknown stored value, and the entry dropped on unpin.
 - `TopBarLabelStore` default and persistence; `TitleBarFit` falling back to
   icons when the named strip does not fit.
 
@@ -153,5 +163,5 @@ FlockCore unit tests:
   one selected; once icon only, once with names, and once with names in a
   window narrow enough to force the icon fallback.
 - The Settings window with the new section.
-- The overlay open over Workspaces with a one-pane workspace, and over
-  Overview with a two-tab workspace.
+- The overlay open over Workspaces with a one-pane workspace at Small and at
+  Large, and over Overview with a two-tab workspace at Medium.
