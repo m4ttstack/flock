@@ -12,7 +12,6 @@ struct TabStrip: View {
     let tabs: [TabRecord]
     let selectedTabID: TabID?
     /// The connected herdr's release; nil until a snapshot has landed.
-    let herdrVersion: String?
     let onSelect: (TabID) -> Void
     /// Exists only so a render test can sample the new-tab affordance's drawn
     /// state without simulating a real pointer -- production call sites never
@@ -92,12 +91,6 @@ struct TabStrip: View {
                         }
                     }
                 }
-                Text(herdrVersion.map { "herdr v\($0)" } ?? "")
-                    .font(ChromeType.versionReadout)
-                    .foregroundStyle(theme.textLabel)
-                    .padding(.bottom, ChromeMetrics.Strip.readoutBottomInset)
-                    .frame(height: ChromeMetrics.Strip.height)
-                    .reportsDragFrame { drag.stripTrailingLimit = $0.minX }
             }
             .padding(.trailing, ChromeMetrics.Strip.horizontalPadding)
             .frame(height: ChromeMetrics.Strip.height)

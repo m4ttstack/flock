@@ -188,9 +188,6 @@ final class DragCoordinator {
     var canvas = CanvasGeometry.empty
     var stripWorkspace: WorkspaceID?
     var stripFrame: CGRect?
-    /// Where the strip's trailing readout begins, which is as far right as the
-    /// new-tab zone may reach.
-    var stripTrailingLimit: CGFloat?
     var railFrame: CGRect?
     /// Which edge of the strip hints at tabs scrolled out of view. Written
     /// only on an actual change (see `setStripScroll`), so a scroll that
@@ -209,7 +206,7 @@ final class DragCoordinator {
         let firstComplete = frames.first { stripCompleteTabs.contains($0.id) }
         return DropZones.trailing(
             in: stripFrame, itemsEndingAt: frames.last { !stripCompleteTabs.contains($0.id) }?.frame.maxX,
-            before: firstComplete?.frame.minX ?? stripTrailingLimit ?? stripFrame.maxX
+            before: firstComplete?.frame.minX ?? stripFrame.maxX
         )
     }
     var stripCompleteTabs: Set<TabID> = []

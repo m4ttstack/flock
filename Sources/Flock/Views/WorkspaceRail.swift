@@ -131,6 +131,17 @@ struct WorkspaceRail: View {
             MessageDock(theme: theme, viewModel: viewModel, placement: .rail, railHeight: railHeight)
                 .frame(width: railWidth.width)
                 .padding(.trailing, ChromeMetrics.ruleWidth)
+            if let version = viewModel.model?.herdrVersion {
+                Text("herdr v\(version)")
+                    .font(ChromeType.versionReadout)
+                    .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+                    .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding + ChromeMetrics.WorkspaceRow.horizontalPadding)
+                    .padding(.vertical, ChromeMetrics.Rail.versionVerticalPadding)
+                    .frame(width: railWidth.width, alignment: .trailing)
+                    .padding(.trailing, ChromeMetrics.ruleWidth)
+                    .accessibilityIdentifier("flock.rail.herdrVersion")
+            }
         }
         // One rule down the whole edge, the dock's stretch included, so the
         // edge never breaks where the lists end.

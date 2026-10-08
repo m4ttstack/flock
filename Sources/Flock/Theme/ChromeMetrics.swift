@@ -79,6 +79,8 @@ enum ChromeMetrics {
         /// The heading's bottom to the first row's top: the heading gap with a
         /// row gap either side of it.
         static let headingToFirstRow: CGFloat = rowGap + headingGap + rowGap
+        /// Above and below the herdr version at the rail's foot.
+        static let versionVerticalPadding: CGFloat = 8
     }
 
     enum WorkspaceRow {
@@ -140,7 +142,6 @@ enum ChromeMetrics {
         /// The design sets the protocol readout 1.5pt above the strip's
         /// center; the inset is twice that because the frame centers the
         /// padded label.
-        static let readoutBottomInset: CGFloat = 3
         /// How far the overflow hint runs in from an edge that hides tabs.
         static let edgeFadeWidth: CGFloat = 24
         /// What one notch of a classic wheel is worth, whose delta counts

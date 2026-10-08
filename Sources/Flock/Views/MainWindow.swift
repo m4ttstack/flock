@@ -60,7 +60,6 @@ struct MainWindow: View {
                                 workspace: viewModel.selectedWorkspaceID,
                                 tabs: viewModel.tabsForSelectedWorkspace,
                                 selectedTabID: viewModel.selectedTabID,
-                                herdrVersion: viewModel.model?.herdrVersion,
                                 onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
                             )
                             PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
