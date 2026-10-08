@@ -184,6 +184,7 @@ public final class SessionViewModel {
     @ObservationIgnored private let oneTitleSetting: @MainActor () -> Bool
     @ObservationIgnored private let agentCloseWarning: AgentCloseWarningStore?
     @ObservationIgnored private let navigationPollInterval: Duration
+    @ObservationIgnored private let freshPanePromptPoll: Duration
     /// Read at each create, so a change in Settings lands on the next one.
     @ObservationIgnored private let startingFolder: @MainActor (NewTerminalKind) -> StartingFolderChoice
     @ObservationIgnored private let homeDirectory: String
@@ -213,6 +214,7 @@ public final class SessionViewModel {
         oneTitle: @escaping @MainActor () -> Bool = { false },
         agentCloseWarning: AgentCloseWarningStore? = nil,
         navigationPollInterval: Duration = .milliseconds(300),
+        freshPanePromptPoll: Duration = .milliseconds(150),
         launcherPollBackoff: [Duration] = PaneLauncherRegistry.defaultPollBackoff,
         backgroundWorkInterval: Duration = BackgroundWork.readInterval,
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
@@ -242,6 +244,7 @@ public final class SessionViewModel {
         self.oneTitleSetting = oneTitle
         self.agentCloseWarning = agentCloseWarning
         self.navigationPollInterval = navigationPollInterval
+        self.freshPanePromptPoll = freshPanePromptPoll
         self.paneLauncherRegistry = PaneLauncherRegistry(pollBackoff: launcherPollBackoff)
         self.backgroundWorkInterval = backgroundWorkInterval
         self.startingFolder = startingFolder
@@ -1397,6 +1400,21 @@ public final class SessionViewModel {
             return false
         }
         return PaneForegroundJob.isBusy(processInfoResponse: data) == false
+    }
+
+    /// About ten seconds at the default poll: a slow shell rc file finishes
+    /// well inside it, and a pane that never settles still ends in a beep.
+    public static let freshPanePromptAttempts = 66
+
+    /// For a pane herdr has only just made: its shell is still starting, or
+    /// running its rc files, when a launch picked before it existed fires.
+    public func awaitPrompt(_ pane: PaneID) async -> Bool {
+        for attempt in 0..<Self.freshPanePromptAttempts {
+            if attempt > 0 { try? await Task.sleep(for: freshPanePromptPoll) }
+            if Task.isCancelled { return false }
+            if await isAtPrompt(pane) { return true }
+        }
+        return false
     }
 
     /// Runs a navigator command (a directory picker such as `rt cd`) in

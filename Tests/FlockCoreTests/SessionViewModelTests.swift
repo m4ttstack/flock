@@ -1065,6 +1065,26 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(unknown, "herdr could not say")
     }
 
+    @MainActor
+    func testAFreshPaneIsWaitedOnUntilItsShellReachesItsPrompt() async {
+        let client = StubForegroundClient([.failure, .busy, .busy, .idle])
+        let viewModel = SessionViewModel(client: client, freshPanePromptPoll: .milliseconds(1))
+        let ready = await viewModel.awaitPrompt(PaneID(rawValue: "w1:p2"))
+        let polls = await client.calls.filter { $0.method == "pane.process_info" }.count
+        XCTAssertTrue(ready)
+        XCTAssertEqual(polls, 4)
+    }
+
+    @MainActor
+    func testAFreshPaneThatNeverReachesItsPromptGivesUp() async {
+        let client = StubForegroundClient([.busy])
+        let viewModel = SessionViewModel(client: client, freshPanePromptPoll: .milliseconds(1))
+        let ready = await viewModel.awaitPrompt(PaneID(rawValue: "w1:p2"))
+        let polls = await client.calls.filter { $0.method == "pane.process_info" }.count
+        XCTAssertFalse(ready)
+        XCTAssertEqual(polls, SessionViewModel.freshPanePromptAttempts)
+    }
+
     /// No focused pane (no model yet): the digits are the views' keys.
     @MainActor
     func testFocusedPaneShowsLauncherIsFalseWithoutAFocusedShellPane() async throws {

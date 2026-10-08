@@ -2,11 +2,14 @@ import FlockCore
 import SwiftUI
 
 /// The plain shell an empty pin can open to, offered first beside the
-/// navigator and the harnesses. Return reaches it, not a number.
+/// navigator and the harnesses. Return reaches it, not a number. Its ground
+/// is near black, never a mid grey: the bar's hover fill is one, and a badge
+/// that matches it vanishes into the item it sits in.
 enum ShellEntry {
     static let entry = HarnessEntry(
         id: "shell", binary: "shell", displayName: "shell", monogram: ">_",
-        monogramColor: Color(white: 0.27), monogramInk: Color(white: 0.92)
+        monogramColor: Color(white: 0.08), monogramInk: Color(white: 0.94),
+        monogramFont: ChromeType.launcherPromptMonogram
     )
     static let shortcutLabel = "\u{21A9}"
 }
@@ -21,6 +24,7 @@ enum EmptyPinLaunch {
         if entry.id == ShellEntry.entry.id {
             viewModel.recordLauncherKeystroke(pane)
         } else {
+            _ = await viewModel.awaitPrompt(pane)
             await LauncherSlots.launch(entry, in: pane, via: .click, on: viewModel)
         }
     }
