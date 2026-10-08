@@ -783,6 +783,19 @@ public final class SessionViewModel {
     /// selection and focus the window's commands would act on unseen.
     public var modalIsUp: Bool { rt.modal != nil || topBarOverlay.openPin != nil }
 
+    /// The window's close key while a modal is up: it closes the modal,
+    /// never a pane. `false` when no modal is up and the key is the pane's.
+    @discardableResult
+    public func closeShownModal() async -> Bool {
+        if topBarOverlay.openPin != nil {
+            topBarOverlay.close()
+            return true
+        }
+        guard rt.modal != nil else { return false }
+        await rt.closeModal()
+        return true
+    }
+
     /// Whether the rt modal is drawn over a canvas: the main canvas draws any,
     /// a solo canvas only one opened from its own pane.
     public func rtModalIsOver(solo: PaneID?) -> Bool {

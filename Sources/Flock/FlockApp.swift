@@ -500,15 +500,19 @@ struct FlockApp: App {
                 .accessibilityIdentifier(ViewCommand.newWorkspace.accessibilityIdentifier)
             }
             // Takes the system Close's ⌘W, which would close flock's only
-            // window. None while the rt modal is up: the pane behind it is the
-            // one its items are linked to, and closing it would take them all
-            // down; the modal's own monitor takes ⌘W to close itself.
+            // window. While a modal is up it closes the modal, never a pane:
+            // the pane behind the rt modal is the one its items are linked to,
+            // and closing it would take them all down.
             // In any other window (Settings) ⌘W closes that window, the Close
             // item this group replaced; the items stay enabled for it.
             CommandGroup(replacing: .saveItem) {
                 Button(FocusedPaneCommand.closePane.title) {
                     guard FlockWindow.isContent(NSApp.keyWindow) else {
                         NSApp.keyWindow?.performClose(nil)
+                        return
+                    }
+                    if viewModel.modalIsUp {
+                        Task { await viewModel.closeShownModal() }
                         return
                     }
                     guard let pane = viewModel.shownFocusedPaneID else { return }

@@ -256,6 +256,22 @@ final class SessionViewModelTopBarTests: XCTestCase {
         XCTAssertTrue(vm.modalIsUp)
     }
 
+    func testTheCloseKeyClosesTheOverlayOrTheRtModalAndNothingWithoutOne() async {
+        let vm = viewModel()
+        vm.update(model: model([("w1", "acme"), ("w2", "dash")], focused: "w1"), connection: .live)
+        vm.moveToTopBar(workspace: w2, at: nil)
+        let none = await vm.closeShownModal()
+        XCTAssertFalse(none, "no modal: the key is the pane's")
+        await vm.toggleTopBar(vm.pins.pins(in: .topBar)[0].id)
+        let overlay = await vm.closeShownModal()
+        XCTAssertTrue(overlay)
+        XCTAssertNil(vm.topBarOverlay.openPin)
+        vm.rt.modal = RtModal(itemID: "tok1", tabID: TabID(rawValue: "w1:t1"), serviceTabID: nil)
+        let rtModal = await vm.closeShownModal()
+        XCTAssertTrue(rtModal)
+        XCTAssertNil(vm.rt.modal)
+    }
+
     /// herdr's workspace-created event may land before the create's reply.
     func testAWorkspaceCreatedForAnEmptyPinNeverShowsInTheRail() async {
         let holder = Box<SessionViewModel>()
