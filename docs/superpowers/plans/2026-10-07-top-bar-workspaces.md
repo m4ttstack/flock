@@ -1066,7 +1066,7 @@ git commit -m "view model: top-bar placement, one-tab rule, overlay open and clo
 - Consumes: Task 4's view model API.
 - Produces:
   - `WorkspaceMenuAction.moveToTopBar`, `EmptyPinMenuAction.moveToTopBar`
-  - `public enum TopBarMenuAction { case moveToSidebar, rename, changeIcon, unpin }`
+  - `public enum TopBarMenuAction { case moveToSidebar, rename, changeSymbol, unpin }`
   - `TopBarMenuModel.entries() -> [ChromeMenuEntry<TopBarMenuAction>]`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1086,7 +1086,7 @@ git commit -m "view model: top-bar placement, one-tab rule, overlay open and clo
         XCTAssertEqual(entries.map(\.label), ["Move to Sidebar", "Rename", "Change Icon\u{2026}", "Unpin"])
         XCTAssertEqual(entries.map(\.accessibilityIdentifier), [
             "flock.topBar.menu.moveToSidebar", "flock.topBar.menu.rename",
-            "flock.topBar.menu.changeIcon", "flock.topBar.menu.unpin",
+            "flock.topBar.menu.changeSymbol", "flock.topBar.menu.unpin",
         ])
     }
 ```
@@ -1121,7 +1121,7 @@ public enum EmptyPinMenuAction: Equatable, Sendable {
 public enum TopBarMenuAction: Equatable, Sendable {
     case moveToSidebar
     case rename
-    case changeIcon
+    case changeSymbol
     case unpin
 }
 ```
@@ -1147,7 +1147,7 @@ public enum TopBarMenuModel {
         [
             ChromeMenuEntry(label: "Move to Sidebar", action: .moveToSidebar, accessibilityIdentifier: "flock.topBar.menu.moveToSidebar"),
             ChromeMenuEntry(label: "Rename", action: .rename, accessibilityIdentifier: "flock.topBar.menu.rename"),
-            ChromeMenuEntry(label: "Change Icon\u{2026}", action: .changeIcon, accessibilityIdentifier: "flock.topBar.menu.changeIcon"),
+            ChromeMenuEntry(label: "Change Icon\u{2026}", action: .changeSymbol, accessibilityIdentifier: "flock.topBar.menu.changeSymbol"),
             ChromeMenuEntry(label: "Unpin", action: .unpin, accessibilityIdentifier: "flock.topBar.menu.unpin"),
         ]
     }
@@ -1538,7 +1538,7 @@ private struct TopBarCell: View {
                     switch entry.action {
                     case .moveToSidebar: viewModel.moveToSidebar(pin: pin.id, at: nil)
                     case .rename: renaming = true
-                    case .changeIcon: picking = true
+                    case .changeSymbol: picking = true
                     case .unpin:
                         viewModel.unpinTopBar(pin.id)
                         onUnpin()
