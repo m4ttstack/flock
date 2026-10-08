@@ -72,22 +72,40 @@ final class ChromeMenuModelTests: XCTestCase {
     func testAnOrdinaryWorkspaceMenuOffersPinAndClose() {
         let entries = WorkspaceMenuModel.entries(for: Self.workspace, model: model())
 
-        XCTAssertEqual(entries.map(\.label), ["Rename", "Pin", "Close"])
+        XCTAssertEqual(entries.map(\.label), ["Rename", "Pin", "Move to Top Bar", "Close"])
         XCTAssertEqual(entries.map(\.accessibilityIdentifier), [
-            "flock.workspace.menu.rename", "flock.workspace.menu.pin", "flock.workspace.menu.close",
+            "flock.workspace.menu.rename", "flock.workspace.menu.pin", "flock.workspace.menu.moveToTopBar",
+            "flock.workspace.menu.close",
         ])
-        XCTAssertEqual(entries.map(\.action), [.rename, .pin, .close])
+        XCTAssertEqual(entries.map(\.action), [.rename, .pin, .moveToTopBar, .close])
     }
 
     func testAPinnedWorkspaceMenuOffersNoClose() {
         let entries = WorkspaceMenuModel.entries(for: Self.workspace, model: model(), isPinned: true)
 
-        XCTAssertEqual(entries.map(\.label), ["Rename", "Change Folder\u{2026}", "Unpin"])
-        XCTAssertEqual(entries.map(\.action), [.rename, .changeFolder, .unpin])
+        XCTAssertEqual(entries.map(\.label), ["Rename", "Change Folder\u{2026}", "Move to Top Bar", "Unpin"])
+        XCTAssertEqual(entries.map(\.action), [.rename, .changeFolder, .moveToTopBar, .unpin])
     }
 
     func testAnEmptyPinMenuOffersRemove() {
-        XCTAssertEqual(EmptyPinMenuModel.entries().map(\.label), ["Rename", "Change Folder\u{2026}", "Remove"])
+        XCTAssertEqual(EmptyPinMenuModel.entries().map(\.label), ["Rename", "Change Folder\u{2026}", "Move to Top Bar", "Remove"])
+    }
+
+    func testRailRowsOfferMoveToTopBar() {
+        XCTAssertEqual(WorkspaceMenuModel.entries(for: Self.workspace, model: model()).map(\.action),
+                       [.rename, .pin, .moveToTopBar, .close])
+        XCTAssertEqual(WorkspaceMenuModel.entries(for: Self.workspace, model: model(), isPinned: true).map(\.action),
+                       [.rename, .changeFolder, .moveToTopBar, .unpin])
+        XCTAssertEqual(EmptyPinMenuModel.entries().map(\.action), [.rename, .changeFolder, .moveToTopBar, .remove])
+    }
+
+    func testTopBarCellsOfferTheFourActionsInOrder() {
+        let entries = TopBarMenuModel.entries()
+        XCTAssertEqual(entries.map(\.label), ["Move to Sidebar", "Rename", "Change Icon\u{2026}", "Unpin"])
+        XCTAssertEqual(entries.map(\.accessibilityIdentifier), [
+            "flock.topBar.menu.moveToSidebar", "flock.topBar.menu.rename",
+            "flock.topBar.menu.changeSymbol", "flock.topBar.menu.unpin",
+        ])
     }
 
     func testAWorkspaceTheModelDoesNotCarryHasNoMenuAtAll() {
