@@ -49,6 +49,7 @@ public final class PaneLauncherRegistry {
         var promptRows: Int?
         var rows: Int?
         var typed = false
+        var starting = false
         var learningUntil: Date?
         var foreground: Foreground = .unasked
         var failedAsks = 0
@@ -81,6 +82,10 @@ public final class PaneLauncherRegistry {
         state.failedAsks = 0
         defer { panes[pane] = state }
         if state.navigation != nil { return }
+        if state.starting {
+            state.promptRows = rows
+            return
+        }
         if let until = state.learningUntil, time < until {
             if rows <= Self.tallestPrompt {
                 state.promptRows = rows
@@ -111,7 +116,18 @@ public final class PaneLauncherRegistry {
         var state = panes[pane] ?? Pane()
         guard state.navigation == nil else { return }
         state.typed = true
+        state.starting = false
         state.learningUntil = nil
+        panes[pane] = state
+    }
+
+    /// A pane flock itself just created. Until herdr first answers idle or a
+    /// key is typed, every rows report is the prompt's height, uncapped: the
+    /// shell may print a banner of any size on its way up. A pane first seen
+    /// mid-life is never marked, so it keeps the unknown-height cap.
+    public func recordCreated(_ pane: PaneID) {
+        var state = panes[pane] ?? Pane()
+        state.starting = true
         panes[pane] = state
     }
 
@@ -152,6 +168,7 @@ public final class PaneLauncherRegistry {
             return
         }
         if idle == true {
+            state.starting = false
             state.foreground = .idle
             state.failedAsks = 0
         } else {

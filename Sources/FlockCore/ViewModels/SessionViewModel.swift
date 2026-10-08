@@ -1366,6 +1366,7 @@ public final class SessionViewModel {
     /// just made.
     private func landIn(pane: PaneID) {
         optimisticFocusedPaneID = pane
+        launcherChange(pane) { $0.recordCreated(pane) }
     }
 
     /// The close herdr would escalate into a tab or a workspace, held while the

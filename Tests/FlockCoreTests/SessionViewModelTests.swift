@@ -1159,6 +1159,21 @@ final class SessionViewModelTests: XCTestCase {
         viewModel.navigationWatches[newPane]?.cancel()
     }
 
+    /// A split is a pane flock created: its first screen may be a banner
+    /// taller than the unknown-height cap and still gets the launcher.
+    @MainActor
+    func testASplitPaneWithAStartupBannerShowsTheLauncherOnceIdle() async throws {
+        let client = StubForegroundClient([.idle])
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory, launcherPollBackoff: [.milliseconds(1)])
+        await viewModel.splitRight(from: PaneID(rawValue: "w1:p1"))
+        let newPane = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(newPane)
+        try XCTUnwrap(factory.onScreenActivityHandlers[newPane])(22)
+        try await XCTUnwrap(viewModel.promptWatches[newPane]).value
+        XCTAssertTrue(viewModel.isLauncherShowing(newPane))
+    }
+
     /// Busy, an unreadable answer, then idle: the watch survives the bad
     /// answer, and the picker's end is followed by a Ctrl-L so the pane is
     /// bare again for the generic rule to show on.

@@ -227,6 +227,63 @@ final class PaneLauncherRegistryTests: XCTestCase {
         XCTAssertTrue(registry.isShowing(pane), "back at a bare prompt in the folder the picker chose")
     }
 
+    /// A pane flock created measures its prompt from startup output: a
+    /// banner taller than the cap is the prompt's height, not content.
+    @MainActor
+    func testACreatedPaneTakesStartupOutputAsItsPromptAndShowsOnceIdle() {
+        let registry = PaneLauncherRegistry()
+        registry.recordCreated(pane)
+        registry.recordRows(pane, rows: 1, at: start)
+        registry.recordRows(pane, rows: 3, at: start.addingTimeInterval(0.5))
+        registry.recordRows(pane, rows: 22, at: start.addingTimeInterval(1))
+        XCTAssertEqual(registry.nextPollDelay(pane), .zero, "a banner keeps the pane a candidate")
+
+        registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(1.2))
+
+        XCTAssertTrue(registry.isShowing(pane))
+        XCTAssertEqual(registry.occupiedRows(pane), 22)
+    }
+
+    @MainActor
+    func testAKeystrokeEndsStartupAsTyped() {
+        let registry = PaneLauncherRegistry()
+        registry.recordCreated(pane)
+        registry.recordRows(pane, rows: 22, at: start)
+        registry.recordKeystroke(pane)
+        registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(0.1))
+        XCTAssertFalse(registry.isShowing(pane))
+    }
+
+    @MainActor
+    func testANotIdleAnswerLeavesStartupOn() {
+        let registry = PaneLauncherRegistry()
+        registry.recordCreated(pane)
+        registry.recordRows(pane, rows: 10, at: start)
+        registry.recordForegroundJob(pane, idle: false, at: start.addingTimeInterval(0.1))
+        registry.recordRows(pane, rows: 22, at: start.addingTimeInterval(0.5))
+        registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(0.6))
+        XCTAssertTrue(registry.isShowing(pane))
+        XCTAssertEqual(registry.occupiedRows(pane), 22)
+    }
+
+    @MainActor
+    func testAfterStartupEndsLaterOutputHidesAndTheNextDropReLearns() {
+        let registry = PaneLauncherRegistry()
+        registry.recordCreated(pane)
+        registry.recordRows(pane, rows: 22, at: start)
+        registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(0.1))
+        XCTAssertTrue(registry.isShowing(pane))
+
+        registry.recordRows(pane, rows: 30, at: start.addingTimeInterval(10))
+        XCTAssertFalse(registry.isShowing(pane), "startup is over: no longer taken as the prompt")
+        XCTAssertNil(registry.nextPollDelay(pane))
+
+        registry.recordRows(pane, rows: 2, at: start.addingTimeInterval(20))
+        registry.recordForegroundJob(pane, idle: true, at: start.addingTimeInterval(20.1))
+        XCTAssertTrue(registry.isShowing(pane))
+        XCTAssertEqual(registry.occupiedRows(pane), 2)
+    }
+
     @MainActor
     func testForgetDropsEverythingAboutThePane() {
         let registry = PaneLauncherRegistry()

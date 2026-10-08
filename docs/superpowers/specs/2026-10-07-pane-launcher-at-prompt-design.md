@@ -68,6 +68,12 @@ a short command's output never passes as empty. Inside a window, a report
 above eight rows (taller than any prompt) is output and closes the window
 instead of teaching.
 
+### Startup output on a pane flock created
+
+A pane flock just created (split, new tab, new workspace) is in startup until herdr first answers idle or a key is typed. During startup every row report is taken as the prompt height, with no cap and no window, and the pane stays a candidate, so herdr is asked with the usual backoff. The first idle answer with nothing typed ends startup and shows the launcher over whatever the shell printed on its way up: a fastfetch banner, a message of the day, a prompt of any height. Provenance is only this hint about where to start; it never decides whether the launcher may show.
+
+A pane first seen mid-life (after a Flock restart, or made outside flock) cannot be measured from the screen alone: a six-row screen may be a six-row prompt or a short prompt under output, and herdr's repaint strips the shell's prompt marks before flock sees them. It keeps the cap of four rows until its first clear, which teaches it the real height.
+
 ### Hiding and re-arming
 
 - Any non-⌘ keystroke sets `typed`.
@@ -83,7 +89,7 @@ instead of teaching.
 
 ### What goes away
 
-Provenance (`registerFlockCreated`, "offerable"), the pending-clear window
+Provenance as a gate ("offerable"), the pending-clear window
 and its bookkeeping, and the rule that a pane stops being watched once it is
 "in use". Every pane on screen plays by the same rule.
 
