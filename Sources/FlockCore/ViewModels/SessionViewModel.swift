@@ -42,9 +42,9 @@ public final class SessionViewModel {
     /// workspace, which nothing reopens until the person picks how to start.
     /// The selection underneath is kept so leaving the pin lands somewhere.
     public private(set) var shownEmptyPin: PinID?
-    /// A pin just made, whose folder the person is asked for: the first
-    /// pane's folder it starts with is rarely the one they want.
-    public private(set) var pinAwaitingFolder: PinID?
+    /// A pin just made, whose folder the person is asked to confirm.
+    public private(set) var pinFolderAsk: PinFolderAsk?
+    public var pinAwaitingFolder: PinID? { pinFolderAsk?.pin }
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
     /// Arrange's tails, one per pane a tile has read.
@@ -1850,24 +1850,30 @@ public final class SessionViewModel {
         guard let pin = pins.add(workspace: workspace, name: record.label, folder: folder, at: index) else { return }
         identity?.rekey(from: workspace.rawValue, to: pin.identityKey)
         let pane = PinFolders.firstPaneID(of: workspace, in: model)
-        Task { await askForFolder(pin.id, from: pane, recorded: folder) }
+        let started = pane.flatMap { model.panes[$0]?.cwd }
+        Task { await askForFolder(pin.id, from: pane, recorded: folder, started: started) }
     }
 
     /// The model's folder is the one herdr last pushed, which a `cd` since
     /// does not move; the shell's own folder, asked for now, is the guess
-    /// the person is asked to confirm.
-    private func askForFolder(_ id: PinID, from pane: PaneID?, recorded: String) async {
-        if let live = await liveFolder(of: pane), pins.pin(id)?.folder == recorded {
+    /// the person is asked to confirm, beside the folder it started in.
+    private func askForFolder(_ id: PinID, from pane: PaneID?, recorded: String, started: String?) async {
+        let live = await liveOnlyFolder(of: pane)
+        if let live, pins.pin(id)?.folder == recorded {
             pins.setFolder(id, to: live)
         }
         guard pins.pin(id) != nil else { return }
-        pinAwaitingFolder = id
+        var choices = [PinFolderAsk.Choice(folder: live ?? recorded, reason: live == nil ? .shellLastSeen : .shellNow)]
+        if let started, started != choices[0].folder {
+            choices.append(PinFolderAsk.Choice(folder: started, reason: .shellStarted))
+        }
+        pinFolderAsk = PinFolderAsk(pin: id, choices: choices)
     }
 
     /// The person's answer to where a new pin opens; nil keeps the folder it
     /// was made with.
     public func answerPinFolder(_ id: PinID, with folder: String?) {
-        if pinAwaitingFolder == id { pinAwaitingFolder = nil }
+        if pinAwaitingFolder == id { pinFolderAsk = nil }
         if let folder { pins.setFolder(id, to: folder) }
     }
 
@@ -1991,12 +1997,17 @@ public final class SessionViewModel {
     /// leader; the folder herdr last recorded when it cannot say.
     private func liveFolder(of pane: PaneID?) async -> String? {
         guard let pane else { return nil }
-        if let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)]),
-           let leaderCwd = PaneForegroundJob.snapshot(processInfoResponse: data)?.leaderCwd {
-            return leaderCwd
-        }
+        if let leaderCwd = await liveOnlyFolder(of: pane) { return leaderCwd }
         let record = fullModel?.panes[pane]
         return record?.foregroundCwd ?? record?.cwd
+    }
+
+    /// Where herdr says the pane's shell is now, and nothing else.
+    private func liveOnlyFolder(of pane: PaneID?) async -> String? {
+        guard let pane,
+              let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
+        else { return nil }
+        return PaneForegroundJob.snapshot(processInfoResponse: data)?.leaderCwd
     }
 
     /// Both create responses name the tab that was made and its root pane

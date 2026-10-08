@@ -228,6 +228,15 @@ struct WorkspaceRail: View {
                 reportFrame: report,
                 gesture: pinDrag(row.pin)
             )
+            .popover(isPresented: folderAskBinding(row.pin.id), arrowEdge: .trailing) {
+                if let ask = viewModel.pinFolderAsk, ask.pin == row.pin.id {
+                    PinFolderPopover(
+                        theme: theme, name: row.pin.name, ask: ask,
+                        onChoose: { viewModel.answerPinFolder(row.pin.id, with: $0) },
+                        onOther: { chooseOtherFolder(for: row.pin) }
+                    )
+                }
+            }
         } else {
             emptyPinRow(row.pin, index: index, reportFrame: report)
         }
@@ -337,6 +346,26 @@ struct WorkspaceRail: View {
             renamingPin = pin
         case .ignore:
             break
+        }
+    }
+
+    /// Dismissing the question keeps the folder the pin already holds.
+    private func folderAskBinding(_ pin: PinID) -> Binding<Bool> {
+        Binding(
+            get: { viewModel.pinAwaitingFolder == pin },
+            set: { shown in if !shown { viewModel.answerPinFolder(pin, with: nil) } }
+        )
+    }
+
+    /// After the popover has gone: Finder's panel is modal, and the popover
+    /// must not sit under it.
+    private func chooseOtherFolder(for pin: PinnedWorkspace) {
+        let current = viewModel.pins.pin(pin.id)?.folder ?? pin.folder
+        viewModel.answerPinFolder(pin.id, with: nil)
+        DispatchQueue.main.async {
+            if let folder = FolderPanel.choose(current: current, message: "Where should \"\(pin.name)\" open?") {
+                viewModel.setPinFolder(pin.id, to: folder)
+            }
         }
     }
 

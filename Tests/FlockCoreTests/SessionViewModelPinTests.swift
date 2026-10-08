@@ -118,6 +118,10 @@ final class SessionViewModelPinTests: XCTestCase {
         viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
         let first = viewModel.pins.pins[0]
         try await waitForAsk(first.id, on: viewModel)
+        XCTAssertEqual(
+            viewModel.pinFolderAsk?.choices, [PinFolderAsk.Choice(folder: "/acme/acme", reason: .shellLastSeen)],
+            "a shell herdr cannot place offers where it was last seen, once"
+        )
         viewModel.answerPinFolder(first.id, with: nil)
         XCTAssertNil(viewModel.pinAwaitingFolder)
         XCTAssertEqual(viewModel.pins.pin(first.id)?.folder, "/acme/acme")
@@ -138,6 +142,10 @@ final class SessionViewModelPinTests: XCTestCase {
         let pin = viewModel.pins.pins[0]
         try await waitForAsk(pin.id, on: viewModel)
         XCTAssertEqual(viewModel.pins.pin(pin.id)?.folder, "/acme/code/training-plan")
+        XCTAssertEqual(viewModel.pinFolderAsk?.choices, [
+            PinFolderAsk.Choice(folder: "/acme/code/training-plan", reason: .shellNow),
+            PinFolderAsk.Choice(folder: "/acme/acme", reason: .shellStarted),
+        ])
     }
 
     private struct NeverAsked: Error {}

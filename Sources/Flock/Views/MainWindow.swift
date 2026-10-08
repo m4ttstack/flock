@@ -135,16 +135,7 @@ struct MainWindow: View {
         .onChange(of: viewModel.selectedTabID, initial: true) { _, id in
             if let id { tabSwitcher.note(id) }
         }
-        // After the change settles: a pin made by a drop asks once the drop
-        // has finished, never from inside its handler.
-        .onChange(of: viewModel.pinAwaitingFolder) { _, id in
-            guard let id else { return }
-            DispatchQueue.main.async {
-                guard let pin = viewModel.pins.pin(id) else { return viewModel.answerPinFolder(id, with: nil) }
-                let folder = FolderPanel.choose(current: pin.folder, message: "Where should \"\(pin.name)\" open?")
-                viewModel.answerPinFolder(id, with: folder)
-            }
-        }
+
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.chrome))

@@ -49,6 +49,19 @@ public enum PinNames {
     }
 }
 
+/// A new pin's question: where it should open, with the folders worth
+/// offering, the likeliest first.
+public struct PinFolderAsk: Equatable, Sendable {
+    public struct Choice: Equatable, Sendable {
+        public enum Reason: Equatable, Sendable { case shellNow, shellLastSeen, shellStarted }
+        public let folder: String
+        public let reason: Reason
+    }
+
+    public let pin: PinID
+    public let choices: [Choice]
+}
+
 public enum PinFolders {
     /// The folder of the first pane of the workspace's first tab, as it is:
     /// never widened to its repo, since one repo can hold many places.
