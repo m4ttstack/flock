@@ -36,6 +36,7 @@ final class PaneLauncherOverlayTests: XCTestCase {
         let theme: Theme
         let entries: [HarnessEntry]
         let navigator: HarnessEntry?
+        var promptClearance: CGFloat = ChromeMetrics.Launcher.promptClearance
         let capture: (TerminalStandIn) -> Void
 
         var body: some View {
@@ -44,7 +45,7 @@ final class PaneLauncherOverlayTests: XCTestCase {
                 Terminal(capture: capture)
                 PaneLauncherOverlay(
                     theme: theme, entries: entries, navigator: navigator,
-                    onLaunch: { _ in }
+                    promptClearance: promptClearance, onLaunch: { _ in }
                 )
             }
             .frame(width: size.width, height: size.height)
@@ -271,13 +272,58 @@ final class PaneLauncherOverlayTests: XCTestCase {
         }
     }
 
+    /// The clearance follows the rows the screen holds: one row of breathing
+    /// room above a four-row prompt at an 18pt cell is 90pt, and nothing on
+    /// the overlay may answer a click inside it.
+    func testTheClearanceFollowsTheOccupiedRows() async throws {
+        XCTAssertEqual(PaneLauncherOverlay.promptClearance(occupiedRows: 4, cellHeight: 18), 90)
+        XCTAssertEqual(
+            PaneLauncherOverlay.promptClearance(occupiedRows: 0, cellHeight: 18), ChromeMetrics.Launcher.promptClearance,
+            "never less than the fixed clearance"
+        )
+        XCTAssertEqual(
+            PaneLauncherOverlay.promptClearance(occupiedRows: 4, cellHeight: nil), ChromeMetrics.Launcher.promptClearance,
+            "no cell size yet: the fixed clearance"
+        )
+
+        let probe = try await hostProbe(entries: Self.entries, promptClearance: 90)
+        defer { probe.window.close() }
+        for y in stride(from: CGFloat(4), to: 90, by: 8) {
+            XCTAssertTrue(probe.hitTest(CGPoint(x: Probe.size.width / 2, y: y)) === probe.terminal, "a button sits inside the clearance at y=\(y)")
+        }
+        XCTAssertFalse(probe.pointsClaimedByTheOverlay().isEmpty, "the buttons still draw below the clearance")
+    }
+
+    /// A four-row prompt in a dark and a light theme. Writes both PNGs when
+    /// `FLOCK_CHROME_RENDER_DIR` names a directory.
+    func testAFourRowPromptKeepsTheButtonsBelowItInDarkAndLightThemes() async throws {
+        for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
+            let probe = try await hostProbe(
+                entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, promptClearance: 90
+            )
+            defer { probe.window.close() }
+            let image = try snapshot(probe.window)
+            if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("launcher-four-rows-\(theme.id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let ground = hex(image, x: 2, y: 2)
+            let scale = 2
+            for y in stride(from: 4, to: 90 * scale, by: 16) {
+                XCTAssertEqual(hex(image, x: image.pixelsWide / 2, y: y), ground, "\(theme.id): something drew inside the clearance at y=\(y)")
+            }
+        }
+    }
+
     private func hostProbe(
-        entries: [HarnessEntry], navigator: HarnessEntry? = nil, theme: Theme = Theme.builtins[0], size: CGSize = Probe.size
+        entries: [HarnessEntry], navigator: HarnessEntry? = nil, theme: Theme = Theme.builtins[0], size: CGSize = Probe.size,
+        promptClearance: CGFloat = ChromeMetrics.Launcher.promptClearance
     ) async throws -> HostedProbe {
         ChromeType.install()
         var captured: TerminalStandIn?
         let hosting = NSHostingView(rootView: Probe(
-            size: size, theme: theme, entries: entries, navigator: navigator, capture: { captured = $0 }
+            size: size, theme: theme, entries: entries, navigator: navigator,
+            promptClearance: promptClearance, capture: { captured = $0 }
         ))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),

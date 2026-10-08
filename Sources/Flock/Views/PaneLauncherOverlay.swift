@@ -131,9 +131,9 @@ enum LauncherSlots {
     }
 }
 
-/// Renders on a pane showing the launcher: the bare shell prompt stays
-/// visible above (this view never covers it -- it only occupies the space
-/// below, via its own top spacer), the navigator when there is one and a
+/// Renders on a pane showing the launcher: the rows the screen holds stay
+/// visible above (this view never covers them; it only occupies the space
+/// below them, via its own top spacer), the navigator when there is one and a
 /// button per detected harness centered in that space, and, only when a PATH
 /// resolved no harness at all, a dim line at the very bottom saying so
 /// (`LauncherHint`), rather than leaving an empty button row to be read as a
@@ -148,7 +148,16 @@ struct PaneLauncherOverlay: View {
     let theme: Theme
     let entries: [HarnessEntry]
     let navigator: HarnessEntry?
+    /// Points kept clear at the top so the buttons never sit on the prompt.
+    let promptClearance: CGFloat
     let onLaunch: (HarnessEntry) -> Void
+
+    /// One row above whatever the screen holds, never less than the fixed
+    /// clearance a fresh pane gets before its cell size is known.
+    static func promptClearance(occupiedRows: Int, cellHeight: CGFloat?) -> CGFloat {
+        guard let cellHeight, cellHeight > 0, occupiedRows > 0 else { return ChromeMetrics.Launcher.promptClearance }
+        return max(ChromeMetrics.Launcher.promptClearance, CGFloat(occupiedRows + 1) * cellHeight)
+    }
 
     var body: some View {
         VStack(spacing: ChromeMetrics.Launcher.spacing) {
@@ -174,7 +183,7 @@ struct PaneLauncherOverlay: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, ChromeMetrics.Launcher.promptClearance)
+        .padding(.top, promptClearance)
     }
 
     private func buttonRow(showsShortcuts: Bool) -> some View {
