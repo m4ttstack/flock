@@ -1870,3 +1870,16 @@ Per Matt's PR rules: wait for CodeRabbit's review and address actionable finding
 - The Flock Dev run is deferred until Matt is at his desk. The spike build was delivered and its edits reverted; no log was collected.
 - Tasks 1 to 6 proceeded on the plan's default constants: unknownHeightCap = 4, learningWindow = 2s, tallestPrompt = 8.
 - The spike's checks move into Task 7's hand-off checklist: ⌘2 from a cold launch before and after opening Pane > Launch, row counts read from the launcher log, and the launcher's return after rt cd. The `C-l` send is exercised by the navigator flow itself.
+
+## Spike findings, scratch run (2026-10-07)
+
+Run against a scratch herdr session (`scratch-session.sh`, seeded with `seed-layout.sh`), reading screens with `pane.read` `visible`, which is the screen flock's surface repaints.
+
+- A (⌘2 from a cold launch): not run. The XCUITest runner failed twice with "Timed out while enabling automation mode" on the origin/main build; UI automation needs an unlocked console session. B's in-app row log needs the app for the same reason. Both stay open for Matt's hand-off checklist.
+- Prompt height: a fresh pane goes from 0 to 2 non-empty rows within 150ms (cwd line, prompt symbol line). The symbol changes with exit status; the count does not.
+- Starship's scan-timeout warnings print above the prompt in a slow-to-scan directory on any prompt, not only at startup. Two warnings wrap to 3 rows at 119 columns, so warnings plus prompt is 5 rows, above `unknownHeightCap` (4). A pane first seen in that state waits for a drop; a learning window still takes 5 as the prompt (below `tallestPrompt`).
+- `ls` in a large directory fills the screen (39 rows). `clear` drops it to 2.
+- herdr's `pane.send_keys` rejects `C-l` (`invalid_key: unsupported key C-l`); only `C-c` has a `C-` spelling. `ctrl+l` is accepted and clears zsh (20 rows to 2). Task 4 sends `C-l`, so the navigator's clear fails silently as built.
+- C: polling `pane.process_info` every 100ms through `sleep 1` never returned an empty `foreground_processes`. The one transitional answer at exit lists `starship` (rendering the prompt) in the shell's group; `isBusy` reads it as busy, so it is retried, never nil.
+- D: `rt` is on the scratch shell's PATH. While the picker is up the foreground lists `rt-ui` (its pid is not the shell's, though its group is), so it reads busy. Escape returns the pane to a bare 2-row prompt on its own; the Ctrl-L after the navigator is not what makes the pane bare.
+- Constants: unknownHeightCap 4, learningWindow 2s, tallestPrompt 8 hold for a plain prompt. Required change: the navigator sends `ctrl+l`.
