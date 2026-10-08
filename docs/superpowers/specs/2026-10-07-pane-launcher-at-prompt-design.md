@@ -91,21 +91,20 @@ and its bookkeeping, and the rule that a pane stops being watched once it is
 
 ### Screen rows
 
-The surface already counts the active screen's non-empty rows on each
-libghostty render action, throttled. Changes:
+The surface counts the active screen's non-empty rows on a timer: every
+500ms while it is live and unparked, it reads the active screen and reports
+the count only when it changed. libghostty's render action cannot drive
+this on macOS: only its GTK runtime routes draws through that action, so the
+embedded runtime never sends it (found by the spike; it is also why the
+pre-existing Ctrl-L re-offer never worked).
 
-- Counting stays on for every live, unparked surface; the "stop reporting"
+- Counting runs for every live, unparked surface; the "stop reporting"
   return value and `resumeScreenActivityReporting` go.
-- The throttle is 500ms.
-- A render inside the throttle schedules one trailing re-check at the end of
-  the interval, so the last frame of a burst is never lost. libghostty's
-  render action fires on every frame: a focused pane ticks with its cursor
-  blink, an unfocused one only on content changes, so without the re-check
-  an unfocused pane's final frame can be dropped.
+- Parking stops the timer and unparking restarts it with an immediate read.
 - Only a changed count reaches the registry.
 
-The read covers the active screen, never the scrollback. Parked surfaces are
-occluded and draw nothing, so they report nothing.
+The read covers the active screen, never the scrollback, so its cost is the
+size of the window, not the session's history.
 
 ### Shell idle
 
@@ -123,7 +122,7 @@ watch except the pane going away from the model.
 The `rt cd` slot sends the command as today, then polls every 300ms until
 the command was seen running and then idle, or idle past the three-second
 start ceiling. Unreadable answers are retried like busy. Then flock sends
-Ctrl-L over `pane.send_keys` (`C-l`), clears `typed`, and opens a learning
+Ctrl-L over `pane.send_keys` (`ctrl+l`; herdr rejects `C-l`), clears `typed`, and opens a learning
 window. The generic rule shows the launcher when the drop lands and herdr
 confirms idle. Keystrokes while the picker is up are the picker's, not the
 pane's, as today.
@@ -217,7 +216,7 @@ confirms or corrects four assumptions, and the plan records the findings:
 where today's presses die, that the prompt is two rows and four at startup,
 what rt cd leaves on screen, and that herdr's answers stay readable through
 the picker's exit. Against a scratch herdr session, `pane.send_keys` with
-`C-l` is confirmed to clear a zsh prompt. Nothing from the spike is kept.
+`ctrl+l` is confirmed to clear a zsh prompt. Nothing from the spike is kept.
 
 ### FlockCore unit tests
 
@@ -240,7 +239,7 @@ the picker's exit. Against a scratch herdr session, `pane.send_keys` with
 
 - One poll task per candidate pane, driven by the rows seam, with the stub
   client's idle, busy and failure scripts; a failure mid-watch retries.
-- The navigator sends `C-l` after idle, through `pane.send_keys`.
+- The navigator sends `ctrl+l` after idle, through `pane.send_keys`.
 - Click, key and palette go through the one launch function, each asking
   `pane.process_info` once; a busy answer sends nothing.
 - `isLauncherShowing` bumps the observation seam when it changes.
