@@ -19,7 +19,7 @@ final class ScreenActivityTimerTests: XCTestCase {
         var reports: [Int] = []
         var screen = ["prompt"]
         session.screenRowsOverride = { screen }
-        session.onScreenActivity = { reports.append($0) }
+        session.onScreenActivity = { reports.append($0.rows) }
 
         session.tickScreenActivity()
         screen = ["prompt", "output"]
@@ -32,7 +32,7 @@ final class ScreenActivityTimerTests: XCTestCase {
         let session = try makeSession()
         var reports: [Int] = []
         session.screenRowsOverride = { ["prompt", "", "   "] }
-        session.onScreenActivity = { reports.append($0) }
+        session.onScreenActivity = { reports.append($0.rows) }
 
         session.tickScreenActivity()
         session.tickScreenActivity()
@@ -46,7 +46,7 @@ final class ScreenActivityTimerTests: XCTestCase {
         var reports: [Int] = []
         var screen: [String] = []
         session.screenRowsOverride = { screen }
-        session.onScreenActivity = { reports.append($0) }
+        session.onScreenActivity = { reports.append($0.rows) }
 
         session.tickScreenActivity()
         screen = ["", "  "]
@@ -64,7 +64,7 @@ final class ScreenActivityTimerTests: XCTestCase {
         var reports: [Int] = []
         var screen = ["prompt", "prompt"]
         session.screenRowsOverride = { screen }
-        session.onScreenActivity = { reports.append($0) }
+        session.onScreenActivity = { reports.append($0.rows) }
 
         session.tickScreenActivity()
         screen = []
@@ -84,7 +84,7 @@ final class ScreenActivityTimerTests: XCTestCase {
         let session = try makeSession()
         var reports: [Int] = []
         session.screenRowsOverride = { ["prompt"] }
-        session.onScreenActivity = { reports.append($0) }
+        session.onScreenActivity = { reports.append($0.rows) }
 
         // `run(mode:before:)` can return after any one source fires, so it
         // is driven until the deadline.
@@ -102,7 +102,7 @@ final class ScreenActivityTimerTests: XCTestCase {
         var reports: [Int] = []
         var screen = ["prompt"]
         session.screenRowsOverride = { screen }
-        session.onScreenActivity = { reports.append($0) }
+        session.onScreenActivity = { reports.append($0.rows) }
         session.tickScreenActivity()
 
         screen = ["prompt", "output"]
@@ -117,7 +117,7 @@ final class ScreenActivityTimerTests: XCTestCase {
         var reports: [Int] = []
         var screen = ["prompt"]
         session.screenRowsOverride = { screen }
-        session.onScreenActivity = { reports.append($0) }
+        session.onScreenActivity = { reports.append($0.rows) }
         session.tickScreenActivity()
 
         session.stopScreenActivity()
@@ -133,7 +133,7 @@ final class ScreenActivityTimerTests: XCTestCase {
         var reports: [Int] = []
         var screen = ["prompt"]
         session.screenRowsOverride = { screen }
-        session.onScreenActivity = { reports.append($0) }
+        session.onScreenActivity = { reports.append($0.rows) }
         session.tickScreenActivity()
 
         session.setParked(true)

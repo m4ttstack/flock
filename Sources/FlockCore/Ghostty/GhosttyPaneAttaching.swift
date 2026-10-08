@@ -157,14 +157,34 @@ public protocol GhosttyPaneFactory {
     /// without any real NSView or NSEvent: a test can invoke it directly and
     /// assert the launcher flag clears.
     ///
-    /// `onScreenActivity` is the launcher's screen half: called with the
-    /// surface's current non-empty active-screen row count whenever that
-    /// count changes, for the whole life of the surface. `onClearRequested`
+    /// `onScreenActivity` is the launcher's screen half: called whenever the
+    /// surface's active screen changes, for the whole life of the surface.
+    /// `onClearRequested`
     /// fires on the key that asks the pane to clear its screen, after
     /// `onUserInput` for the same event.
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Void
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface
+}
+
+/// One read of a surface's active screen: its non-empty row count, a
+/// fingerprint of its text, and its last non-empty row (the cursor's line at
+/// a prompt), so a screen that changed without changing its count (a line
+/// typed, then erased) can be told from one that did not.
+public struct ScreenActivity: Equatable, Sendable, ExpressibleByIntegerLiteral {
+    public let rows: Int
+    public let fingerprint: Int?
+    public let lastRow: String?
+
+    public init(rows: Int, fingerprint: Int?, lastRow: String?) {
+        self.rows = rows
+        self.fingerprint = fingerprint
+        self.lastRow = lastRow
+    }
+
+    public init(integerLiteral rows: Int) {
+        self.init(rows: rows, fingerprint: nil, lastRow: nil)
+    }
 }

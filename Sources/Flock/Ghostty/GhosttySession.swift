@@ -375,10 +375,11 @@ final class GhosttySession {
         return ghostty_surface_has_selection(surface)
     }
 
-    /// The launcher's screen half: called with this pane's current non-empty
-    /// active-screen row count each time that count changes. Setting it starts
-    /// the poll that feeds it; a session without one polls nothing.
-    var onScreenActivity: ((Int) -> Void)? {
+    /// The launcher's screen half: called with this pane's non-empty
+    /// active-screen row count and a fingerprint of its text each time either
+    /// changes. Setting it starts the poll that feeds it; a session without
+    /// one polls nothing.
+    var onScreenActivity: ((ScreenActivity) -> Void)? {
         didSet { restartScreenActivityTimer() }
     }
     /// libghostty never announces a changed screen to the embedder, and
@@ -386,6 +387,7 @@ final class GhosttySession {
     /// is documented "expensive"), so the count is polled this often.
     static let screenActivityInterval: TimeInterval = 0.5
     private var lastReportedRowCount: Int?
+    private var lastReportedFingerprint: Int?
     private var isParked = false
     private var isDetached = false
     /// Invalidated in `deinit`, which is not actor isolated.
@@ -426,9 +428,13 @@ final class GhosttySession {
         // blank read is a surface between paints (not yet painted, or an
         // alt-screen switch before the program draws), never a bare screen.
         guard nonEmptyRows > 0 else { return }
-        guard nonEmptyRows != lastReportedRowCount else { return }
+        let fingerprint = rows.joined(separator: "\n").hashValue
+        guard nonEmptyRows != lastReportedRowCount || fingerprint != lastReportedFingerprint else { return }
         lastReportedRowCount = nonEmptyRows
-        onScreenActivity(nonEmptyRows)
+        lastReportedFingerprint = fingerprint
+        let lastRow = rows.last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { String($0.reversed().drop { $0 == " " }.reversed()) }
+        onScreenActivity(ScreenActivity(rows: nonEmptyRows, fingerprint: fingerprint, lastRow: lastRow))
     }
 
     private func restartScreenActivityTimer() {

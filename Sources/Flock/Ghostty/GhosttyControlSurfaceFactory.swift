@@ -53,7 +53,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Void
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         // `nil` when the FIFO cannot be created (`PaneControlChannel.init?`'s
         // documented failure case): the pane still resizes through its PTY,

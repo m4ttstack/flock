@@ -1129,9 +1129,9 @@ public final class SessionViewModel {
                 guard let self, self.ghosttySurfaces[pane] != nil else { return }
                 self.recordLauncherClearKey(pane)
             },
-            onScreenActivity: { [weak self] rows in
+            onScreenActivity: { [weak self] activity in
                 guard let self, self.ghosttySurfaces[pane] != nil else { return }
-                self.recordLauncherRows(pane, rows: rows)
+                self.recordLauncherRows(pane, rows: activity.rows, screen: activity.fingerprint, lastRow: activity.lastRow)
             }
         )
         ghosttySurfaces[pane] = surface
@@ -1203,6 +1203,25 @@ public final class SessionViewModel {
     /// (result discarded) purely to register that dependency.
     public private(set) var launcherRegistryVersion = 0
 
+    /// The launcher item a key press just fired, lit as if pressed so the
+    /// press is seen before the launcher hides.
+    public struct LauncherFlash: Equatable {
+        public let pane: PaneID
+        public let slot: String
+    }
+
+    public private(set) var launcherFlash: LauncherFlash?
+
+    public func flashLauncherSlot(_ slot: String, in pane: PaneID) {
+        let flash = LauncherFlash(pane: pane, slot: slot)
+        launcherFlash = flash
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, self.launcherFlash == flash else { return }
+            self.launcherFlash = nil
+        }
+    }
+
     public func isLauncherShowing(_ pane: PaneID) -> Bool {
         _ = launcherRegistryVersion
         return paneLauncherRegistry.isShowing(pane)
@@ -1236,8 +1255,8 @@ public final class SessionViewModel {
     }
 
     /// The surface's non-empty active-screen row count, each time it changes.
-    public func recordLauncherRows(_ pane: PaneID, rows: Int) {
-        launcherChange(pane) { $0.recordRows(pane, rows: rows, at: now()) }
+    public func recordLauncherRows(_ pane: PaneID, rows: Int, screen: Int? = nil, lastRow: String? = nil) {
+        launcherChange(pane) { $0.recordRows(pane, rows: rows, screen: screen, lastRow: lastRow, at: now()) }
     }
 
     /// Applies one registry mutation, bumps the observation seam only when a

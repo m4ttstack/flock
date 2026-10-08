@@ -49,6 +49,15 @@ public final class PaneLauncherRegistry {
         var promptRows: Int?
         var rows: Int?
         var typed = false
+        /// The screen as it read when typing began on an untouched pane.
+        /// Seeing it again means whatever was typed has been erased.
+        var typedOver: Int?
+        var screen: Int?
+        /// The cursor's line when typing began, and as it reads now. The
+        /// line reading as the first plus more text means something is still
+        /// typed, however the rest of the screen changed.
+        var typedOverLastRow: String?
+        var lastRow: String?
         var starting = false
         var learningUntil: Date?
         var foreground: Foreground = .unasked
@@ -58,6 +67,24 @@ public final class PaneLauncherRegistry {
         var isBare: Bool {
             guard let rows, let promptRows else { return false }
             return rows <= promptRows
+        }
+
+        var holdsTypedText: Bool {
+            guard typed, let lastRow, let typedOverLastRow else { return false }
+            return lastRow != typedOverLastRow && lastRow.hasPrefix(typedOverLastRow)
+        }
+
+        var lineBackToWhereTypingBegan: Bool {
+            guard let lastRow, let typedOverLastRow else { return false }
+            return lastRow == typedOverLastRow
+        }
+
+        mutating func untype() {
+            typed = false
+            typedOver = nil
+            typedOverLastRow = nil
+            foreground = .unasked
+            failedAsks = 0
         }
 
         /// A count of 0 is the blank between an alt-screen switch and the
@@ -79,9 +106,24 @@ public final class PaneLauncherRegistry {
     /// The surface's count of non-empty rows on its ACTIVE screen, not its
     /// scrollback: a clear empties the screen and keeps the history, so a
     /// scrollback-wide count could never come back down. A repeat of the
-    /// last count is a repaint and changes nothing.
-    public func recordRows(_ pane: PaneID, rows: Int, at time: Date) {
+    /// last count is a repaint and changes nothing. `screen` fingerprints the
+    /// active screen's text, so a line typed and then erased reads as the
+    /// screen it started from even though the count never moved.
+    public func recordRows(
+        _ pane: PaneID, rows: Int, screen: Int? = nil, lastRow: String? = nil, at time: Date
+    ) {
         var state = panes[pane] ?? Pane()
+        if let screen {
+            state.screen = screen
+            state.lastRow = lastRow
+            if state.typed, state.navigation == nil {
+                let bareNow = state.promptRows.map { rows <= $0 } ?? false
+                if screen == state.typedOver || (bareNow && state.lineBackToWhereTypingBegan) {
+                    state.untype()
+                }
+            }
+            panes[pane] = state
+        }
         let previous = state.rows
         guard rows != previous else { return }
         state.rows = rows
@@ -110,8 +152,10 @@ public final class PaneLauncherRegistry {
             return
         }
         let bareHeight = state.promptRows ?? Self.unknownHeightCap
-        if rows < previous, rows <= bareHeight {
+        if rows < previous, rows <= bareHeight, !state.holdsTypedText {
             state.typed = false
+            state.typedOver = nil
+            state.typedOverLastRow = nil
             state.learnPrompt(rows)
             state.learningUntil = time.addingTimeInterval(Self.learningWindow)
         }
@@ -122,6 +166,10 @@ public final class PaneLauncherRegistry {
     public func recordKeystroke(_ pane: PaneID) {
         var state = panes[pane] ?? Pane()
         guard state.navigation == nil else { return }
+        if !state.typed {
+            state.typedOver = state.screen
+            state.typedOverLastRow = state.lastRow
+        }
         state.typed = true
         state.starting = false
         state.learningUntil = nil
@@ -142,15 +190,17 @@ public final class PaneLauncherRegistry {
         panes[pane] = state
     }
 
-    /// The key that asks the shell to clear: an explicit ask for a fresh
-    /// screen, so whatever was typed before it no longer counts, and herdr
-    /// is asked again.
+    /// The key that asks the shell to clear. It erases the old output, never
+    /// the line being typed: the shell redraws that line under a fresh
+    /// prompt. So it re-arms only a pane with nothing typed since the screen
+    /// last read bare; any other clear re-arms through `recordRows` once the
+    /// redrawn screen proves the line is empty.
     public func recordClearKey(_ pane: PaneID) {
         var state = panes[pane] ?? Pane()
         guard state.navigation == nil else { return }
-        state.typed = false
-        state.foreground = .unasked
-        state.failedAsks = 0
+        if state.typed, state.screen == state.typedOver {
+            state.untype()
+        }
         panes[pane] = state
     }
 
@@ -195,6 +245,8 @@ public final class PaneLauncherRegistry {
         var state = panes[pane] ?? Pane()
         state.navigation = Navigation(startedAt: time)
         state.typed = true
+        state.typedOver = nil
+        state.typedOverLastRow = nil
         state.starting = false
         state.learningUntil = nil
         panes[pane] = state

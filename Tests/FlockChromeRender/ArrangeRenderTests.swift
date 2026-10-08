@@ -299,7 +299,7 @@ private struct ArrangeGroundFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Void
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         ArrangeGroundSurface()
     }

@@ -289,7 +289,7 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
     private(set) var onUserInputHandlers: [PaneID: () -> Void] = [:]
     private(set) var onClearRequestedHandlers: [PaneID: () -> Void] = [:]
-    private(set) var onScreenActivityHandlers: [PaneID: (Int) -> Void] = [:]
+    private(set) var onScreenActivityHandlers: [PaneID: (ScreenActivity) -> Void] = [:]
     private var holdEnabled = false
     private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
 
@@ -305,7 +305,7 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Void
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         makeSurfaceCalls.append(pane)
         onUserInputHandlers[pane] = onUserInput
@@ -1107,7 +1107,7 @@ final class SessionViewModelTests: XCTestCase {
         let busyRows = try XCTUnwrap(factory.onScreenActivityHandlers[busy])
         let before = viewModel.launcherRegistryVersion
         for rows in [30, 31, 40, 12, 38] {
-            busyRows(rows)
+            busyRows(ScreenActivity(integerLiteral: rows))
         }
         XCTAssertEqual(viewModel.launcherRegistryVersion, before, "a pane with no launcher moved the seam")
 
