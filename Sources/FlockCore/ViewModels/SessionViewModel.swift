@@ -324,6 +324,9 @@ public final class SessionViewModel {
         if optimisticFocusedPaneID != nil, model?.focusedPaneID == optimisticFocusedPaneID {
             optimisticFocusedPaneID = nil
         }
+        if externalFocusWatch.observed(focus: model?.focusedPaneID, ownTarget: paneShownInOverview, at: now()) {
+            externalFocusMoves += 1
+        }
         landSelectionAfterClose(previous: previousModel)
         holdClosedPinOnScreen(previouslyShown, pin: shownPin, previous: previousModel)
         reconcileRenameTarget()
@@ -530,6 +533,7 @@ public final class SessionViewModel {
             if let left = oldValue, shownCardsHeldBack.remove(left) != nil { raiseHeldBackCard(for: left) }
             guard let pane = paneShownInOverview, isMainCanvasCovered, let record = model?.panes[pane] else { return }
             overviewMovedFocus = true
+            externalFocusWatch.flockQueued(pane)
             queueHerdrFocus(tab: record.tabID, pane: pane)
         }
     }
@@ -552,6 +556,22 @@ public final class SessionViewModel {
             } else {
                 giveBackWorkspacesFocus()
             }
+        }
+    }
+
+    /// Counts herdr focus moves made from outside flock. The window leaves
+    /// Overview and Arrange for each one, so the pane chosen elsewhere is the
+    /// one on screen and nothing gives the older focus back over it.
+    public private(set) var externalFocusMoves = 0
+    @ObservationIgnored private var externalFocusWatch = ExternalFocusWatch()
+
+    public func appLeftFront() {
+        externalFocusWatch.left(focus: model?.focusedPaneID)
+    }
+
+    public func appCameToFront() {
+        if externalFocusWatch.returned(focus: model?.focusedPaneID, ownTarget: paneShownInOverview, at: now()) {
+            externalFocusMoves += 1
         }
     }
 
