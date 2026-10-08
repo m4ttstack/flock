@@ -26,6 +26,14 @@ A top-bar workspace is a pin with a placement.
   an index counted among the destination placement's pins as drawn.
   `move(_:toInsertIndex:)` takes its index the same way, within the pin's own
   placement.
+- One tab only. A top-bar workspace is one view to glance at, so a
+  workspace with two or more tabs cannot move to the top bar, by menu or by
+  drag. The refusal is a notice, not an error: "Top-bar workspaces show a
+  single view, so they hold one tab. "<name>" has <n> tabs: close the extras,
+  then move it." An empty pin has no tabs and may move.
+- A top-bar workspace that gains a tab later (from herdr or a program) stays
+  put; the overlay shows its active tab, and its header says "<n> tabs: only
+  the active one shows here".
 - "Move to Top Bar" on an unpinned workspace pins it (name and folder as Pin
   does today) with `.topBar` placement, appended last. If its name is taken
   by another pin, it is refused the same way Pin is.
@@ -43,6 +51,9 @@ per-view change. `fullModel` stays unfiltered.
 - Focus inside a hidden workspace reads as none, as it does for flock-owned
   ones, so the grid never selects a top-bar workspace.
 - `RailSections` excludes `.topBar` pins from PINNED.
+- Pin reconciling and "is this pin open" read the session with only
+  flock-owned workspaces removed, never the filtered model, or a top-bar pin
+  would look closed and empty itself.
 - `WorkspaceIdentityStore.keys` still includes top-bar pins, so their symbol
   is never handed to another workspace.
 - Attention toasts are raised from the filtered model, so a top-bar
@@ -109,10 +120,13 @@ alike.
 
 - State: `TopBarOverlayStore` holds the open pin, or none. One open at a
   time; clicking another icon switches, clicking the open one closes.
-- Content: the workspace's active tab, `PaneCanvas` over `fullModel`'s
-  layout for it, attaching surfaces the way `RtModalPane` does. A compact
-  tab strip shows above it only when the workspace has 2+ tabs; choosing a
-  tab there focuses it in herdr.
+- Content: the workspace's active tab, laid out from its `LayoutSnapshot`
+  with `CanvasGeometry`, one `RtModalPane` per pane. Not `PaneCanvas`: that
+  reads the filtered model and carries the grid's drag, divider and focus
+  wiring. No tab strip (one tab; see Model).
+- Focus inside the overlay is local: clicking a pane gives it the keyboard.
+  Nothing is sent to herdr, so herdr's focus and the main view's selection
+  never move into a top-bar workspace.
 - Frame: a card inset from the content area, with a header showing symbol,
   name, the rt modal's `RtModalSizeControl`, and ✕. Background dimmed
   behind it. The card's box for each `RtModalSize` is the rt modal's, scaled
@@ -124,12 +138,14 @@ alike.
   `.medium`. Unpinning drops the pin's entry; moving it to the sidebar and
   back keeps it.
 - Focus: on open, keyboard focus goes to the active tab's focused pane.
-- Closing: Esc, ✕, a click on the dim, or the icon again. Surfaces return to
+- Closing: ✕, a click on the dim, or the icon again. Not Esc: keys belong
+  to the terminal, and dashboards use Esc themselves. Surfaces return to
   parked as the rt modal's do. Opening it closes the rt modal, the command
   palette and the switcher; opening any of those closes it.
-- Empty pin: clicking it creates the workspace in the pin's folder through
-  the empty pin row's path, then opens the overlay when the link confirms.
-  A failed create shows the error in the overlay card instead of a canvas.
+- Empty pin: clicking it opens the overlay with the pane loader and creates
+  the workspace in the pin's folder through the empty pin row's path, without
+  focusing it in herdr or moving the main view's selection. A failed create
+  closes the overlay; the create's notice says why.
 - A linked workspace that closes while open closes the overlay and leaves the
   cell empty.
 
@@ -143,6 +159,8 @@ command palette.
 FlockCore unit tests:
 
 - Decoding a stored pin without `placement` gives `.rail`.
+- Moving a two-tab workspace to the top bar is refused with the notice, by
+  menu and by drag; a one-tab workspace and an empty pin move.
 - `setPlacement` and `move` indices within each placement.
 - `visible(hiding:)` drops top-bar workspaces, their tabs, panes and layouts,
   and clears focus that sits in one.
@@ -164,4 +182,4 @@ FlockCore unit tests:
   window narrow enough to force the icon fallback.
 - The Settings window with the new section.
 - The overlay open over Workspaces with a one-pane workspace at Small and at
-  Large, and over Overview with a two-tab workspace at Medium.
+  Large, and over Overview with a two-pane split at Medium.
