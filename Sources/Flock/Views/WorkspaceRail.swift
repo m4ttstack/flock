@@ -242,7 +242,7 @@ struct WorkspaceRail: View {
             theme: theme,
             workspace: workspace,
             paneCount: viewModel.paneCount(for: workspace.workspaceID),
-            isSelected: workspace.workspaceID == viewModel.selectedWorkspaceID,
+            isSelected: workspace.workspaceID == viewModel.shownWorkspaceID,
             isRenaming: isRenaming,
             markKey: markKey,
             pickingSymbol: pickerBinding(workspace.workspaceID),
@@ -252,7 +252,7 @@ struct WorkspaceRail: View {
             },
             onCancelRename: { viewModel.cancelRename() },
             showsFill: drag.showsWorkspaceFill(
-                workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.selectedWorkspaceID
+                workspace.workspaceID, isCurrent: workspace.workspaceID == viewModel.shownWorkspaceID
             ),
             displacement: displacement,
             isGhosted: isGhosted,
@@ -287,6 +287,7 @@ struct WorkspaceRail: View {
         return EmptyPinRow(
             theme: theme,
             pin: pin,
+            isSelected: viewModel.shownEmptyPin == pin.id,
             isRenaming: isRenaming,
             pickingSymbol: pinPickerBinding(pin.id),
             onCommitRename: { text in
@@ -316,7 +317,7 @@ struct WorkspaceRail: View {
         switch NSEvent.chromeRowClick(NSApp.currentEvent) {
         case .select:
             let commandHeld = joinsSelection && NSEvent.modifierFlags.contains(.command)
-            if drag.clickWorkspace(workspace, commandHeld: commandHeld, current: viewModel.selectedWorkspaceID) {
+            if drag.clickWorkspace(workspace, commandHeld: commandHeld, current: viewModel.shownWorkspaceID) {
                 onSelect(workspace)
             }
         case .beginRename:
@@ -326,12 +327,12 @@ struct WorkspaceRail: View {
         }
     }
 
-    /// Reopens on the first click and renames on the second, by the rule
-    /// `handleClick` follows.
+    /// Shows the pin on the first click and renames on the second, by the
+    /// rule `handleClick` follows. Showing opens nothing.
     private func handleEmptyPinClick(_ pin: PinID) {
         switch NSEvent.chromeRowClick(NSApp.currentEvent) {
         case .select:
-            Task { await viewModel.reopen(pin) }
+            viewModel.show(emptyPin: pin)
         case .beginRename:
             renamingPin = pin
         case .ignore:
@@ -527,6 +528,7 @@ struct WorkspaceRow: View {
 struct EmptyPinRow: View {
     let theme: Theme
     let pin: PinnedWorkspace
+    var isSelected = false
     var isRenaming = false
     var pickingSymbol: Binding<Bool>?
     var onCommitRename: (String) -> Void = { _ in }
@@ -555,7 +557,7 @@ struct EmptyPinRow: View {
                 Spacer(minLength: 0)
             }
         }
-        .modifier(RailRowChrome(theme: theme, showsFill: false))
+        .modifier(RailRowChrome(theme: theme, showsFill: isSelected))
         .opacity(isGhosted ? DragVisuals.originOpacity : 1)
         .offset(y: displacement)
         .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: displacement)

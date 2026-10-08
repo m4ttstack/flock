@@ -182,7 +182,7 @@ struct PaneLauncherOverlay: View {
 /// One harness's button. `isHovering` is held here rather than lifted to the
 /// row so each button answers only for the pointer being over ITSELF; a row
 /// -level hover lights both buttons at once.
-private struct LauncherButton: View {
+struct LauncherButton: View {
     let theme: Theme
     let entry: HarnessEntry
     let shortcut: String?

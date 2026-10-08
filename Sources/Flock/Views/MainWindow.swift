@@ -51,16 +51,20 @@ struct MainWindow: View {
                         onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
                     )
                     VStack(spacing: 0) {
-                        TabStrip(
-                            theme: theme,
-                            viewModel: viewModel,
-                            workspace: viewModel.selectedWorkspaceID,
-                            tabs: viewModel.tabsForSelectedWorkspace,
-                            selectedTabID: viewModel.selectedTabID,
-                            herdrVersion: viewModel.model?.herdrVersion,
-                            onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
-                        )
-                        PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
+                        if let pin = viewModel.shownEmptyPin.flatMap(viewModel.pins.pin) {
+                            EmptyPinView(theme: theme, viewModel: viewModel, pin: pin)
+                        } else {
+                            TabStrip(
+                                theme: theme,
+                                viewModel: viewModel,
+                                workspace: viewModel.selectedWorkspaceID,
+                                tabs: viewModel.tabsForSelectedWorkspace,
+                                selectedTabID: viewModel.selectedTabID,
+                                herdrVersion: viewModel.model?.herdrVersion,
+                                onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
+                            )
+                            PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
+                        }
                     }
                     // On the tab area alone, so the rail stays clear and
                     // undimmed. The grid mounts its own over a focused pane.
@@ -130,6 +134,16 @@ struct MainWindow: View {
         }
         .onChange(of: viewModel.selectedTabID, initial: true) { _, id in
             if let id { tabSwitcher.note(id) }
+        }
+        // After the change settles: a pin made by a drop asks once the drop
+        // has finished, never from inside its handler.
+        .onChange(of: viewModel.pinAwaitingFolder) { _, id in
+            guard let id else { return }
+            DispatchQueue.main.async {
+                guard let pin = viewModel.pins.pin(id) else { return viewModel.answerPinFolder(id, with: nil) }
+                let folder = FolderPanel.choose(current: pin.folder, message: "Where should \"\(pin.name)\" open?")
+                viewModel.answerPinFolder(id, with: folder)
+            }
         }
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)

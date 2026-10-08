@@ -264,10 +264,16 @@ struct FlockApp: App {
         JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesModeStore)
     }
 
-    /// A new pane's launcher is up, so ⌘1 and on launch into it rather than
-    /// switching views.
+    /// A new pane's launcher or an empty pin's is up, so ⌘1 and on launch
+    /// into it rather than switching views.
     private var launcherOffered: Bool {
-        LauncherSlots.target(on: viewModel).map { viewModel.isPristineLauncherPane($0) } ?? false
+        shownEmptyPin != nil || LauncherSlots.target(on: viewModel).map { viewModel.isPristineLauncherPane($0) } ?? false
+    }
+
+    /// The empty pin on screen in Workspaces, which ⌘T and the launch keys
+    /// open; under Overview or Arrange none is.
+    private var shownEmptyPin: PinID? {
+        dragCoordinator.isGridShown ? nil : viewModel.shownEmptyPin
     }
 
     private var viewTabs: ViewTabNavigator {
@@ -408,11 +414,15 @@ struct FlockApp: App {
                 Divider()
                 // Disabled under an agent, where ⌘1 and on reach the pane's
                 // program as they did before.
-                let canLaunch = LauncherSlots.target(on: viewModel) != nil
+                let canLaunch = shownEmptyPin != nil || LauncherSlots.target(on: viewModel) != nil
                 Menu("Launch") {
                     ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
                         Button(LauncherSlots.title(for: entry)) {
-                            Task { await LauncherSlots.launchInFocusedPane(entry, on: viewModel) }
+                            if let pin = shownEmptyPin {
+                                Task { await EmptyPinLaunch.start(pin, with: entry, on: viewModel) }
+                            } else {
+                                Task { await LauncherSlots.launchInFocusedPane(entry, on: viewModel) }
+                            }
                         }
                         // ⌘1 and on are the views' keys except while a new
                         // pane is offering the launcher.
@@ -443,11 +453,15 @@ struct FlockApp: App {
             // nor the rail draws a control the chrome design never had.
             CommandGroup(replacing: .newItem) {
                 Button(ViewCommand.newTab.title) {
+                    if let pin = shownEmptyPin {
+                        Task { await EmptyPinLaunch.start(pin, with: ShellEntry.entry, on: viewModel) }
+                        return
+                    }
                     guard let workspace = viewModel.selectedWorkspaceID else { return }
                     Task { await viewModel.createTab(in: workspace) }
                 }
                 .keyboardShortcut(ViewCommand.newTab.shortcut)
-                .disabled(viewModel.selectedWorkspaceID == nil)
+                .disabled(viewModel.selectedWorkspaceID == nil && shownEmptyPin == nil)
                 .accessibilityIdentifier(ViewCommand.newTab.accessibilityIdentifier)
                 Button(ViewCommand.newWorkspace.title) {
                     Task { await viewModel.createWorkspace() }
