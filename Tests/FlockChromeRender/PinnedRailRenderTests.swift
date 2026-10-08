@@ -199,6 +199,9 @@ final class PinnedRailRenderTests: XCTestCase {
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pinned-rail-dragout-\(scheme).png"))
             }
             drag.release()
+            try await Task.sleep(for: .milliseconds(60))
+            let landing = try XCTUnwrap(drag.ghostTopLeft, "\(scheme): the ghost is still settling")
+            XCTAssertGreaterThan(landing.y, bar.minY - web.frame.height, "\(scheme): the ghost settles where the bar was, not at the top of PINNED")
         }
     }
 

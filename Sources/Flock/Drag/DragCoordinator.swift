@@ -757,6 +757,9 @@ final class DragCoordinator {
 
     private func end() {
         let landingTarget = target
+        // Read before the teardown clears the target: the bar the drag drew,
+        // which knows WORKSPACES starts below PINNED and its heading.
+        let landingBar = insertionMark?.bar
         let startedInRearrange = holdsRearrangeOpen
         teardown()
         finishWorkspaceSelection()
@@ -766,7 +769,7 @@ final class DragCoordinator {
         }
         let surfaces = surfaces
         let settleRect = landingTarget.flatMap { resolved in
-            gridLandingRect(for: resolved) ?? surfaces.flatMap { dropTargetRect(for: resolved, surfaces: $0) }
+            gridLandingRect(for: resolved) ?? landingBar ?? surfaces.flatMap { dropTargetRect(for: resolved, surfaces: $0) }
         }
         let flashRect = landingTarget.flatMap { resolved in
             gridLandingRect(for: resolved) ?? surfaces.flatMap { dropFlashRect(for: resolved, surfaces: $0) }
