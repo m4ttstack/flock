@@ -1883,3 +1883,12 @@ Run against a scratch herdr session (`scratch-session.sh`, seeded with `seed-lay
 - C: polling `pane.process_info` every 100ms through `sleep 1` never returned an empty `foreground_processes`. The one transitional answer at exit lists `starship` (rendering the prompt) in the shell's group; `isBusy` reads it as busy, so it is retried, never nil.
 - D: `rt` is on the scratch shell's PATH. While the picker is up the foreground lists `rt-ui` (its pid is not the shell's, though its group is), so it reads busy. Escape returns the pane to a bare 2-row prompt on its own; the Ctrl-L after the navigator is not what makes the pane bare.
 - Constants: unknownHeightCap 4, learningWindow 2s, tallestPrompt 8 hold for a plain prompt. Required change: the navigator sends `ctrl+l`.
+
+## Spike A findings, e2e run (2026-10-07)
+
+Throwaway `FlockUITests` case through `Scripts/e2e.sh`: cold launch, ⌘T for a new tab, wait for the launcher, press the claude slot's digit, read the pane. (The strip's empty-space click did not create a tab under XCUITest; ⌘T did, though it also failed to land in two of four runs.)
+
+- origin/main: the launcher showed on the fresh pane, ⌘2 launched claude, and the launcher log has one line (`launch claude in w1:p4: at prompt true`). From a cold launch with no menu opened, the ⌘ digit reached the Launch item, so XCUITest does not reproduce the fourteen silent days in Matt's log.
+- Branch: the launcher never showed on the fresh pane (30s), so ⌘1 switched views and nothing launched.
+- Cause, from temporary logging: `GHOSTTY_ACTION_RENDER` never arrives, neither surface-targeted (`GhosttySession.handle`) nor app-targeted (`GhosttyHost.handle`), across about 45s with two live shell panes. Other surface actions do arrive (tags 22, 25, 26, 46, 50). Row counting hangs off that action, so `recordRows` is never called, no prompt height is learned, and nothing is ever a candidate. The spec's premise that the surface counts rows on each render action is false here; main shows the launcher only because it uses provenance and never needed a count.
+- Consequence: Task 3's signal needs a different source before the branch can work, for example a per-surface timer that reads the active screen every 500ms while the surface is live and unparked, keeping the changed-count-only reporting.
