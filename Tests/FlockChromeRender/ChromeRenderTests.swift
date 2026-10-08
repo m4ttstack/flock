@@ -2678,9 +2678,8 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// The Settings window in both system appearances, from Notifications
-    /// down to Command Line. PNGs go to
-    /// `FLOCK_SETTINGS_RENDER_DIR`; the assertion is only that it draws.
+    /// Each Settings tab in both system appearances, each as tall as its
+    /// content. PNGs go to `FLOCK_SETTINGS_RENDER_DIR`.
     func testTheSettingsWindowDrawsInBothAppearances() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -2696,12 +2695,14 @@ final class ChromeRenderTests: XCTestCase {
         defer { UserDefaults().removePersistentDomain(forName: customSuite) }
         let customTab = StartingFolderStore(userDefaults: try XCTUnwrap(UserDefaults(suiteName: customSuite)))
         customTab.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
-        for (name, appearance, startingFolderStore) in [
-            ("light", NSAppearance.Name.aqua, StartingFolderStore(userDefaults: defaults)),
-            ("dark", NSAppearance.Name.darkAqua, StartingFolderStore(userDefaults: defaults)),
-            ("custom-tab-light", NSAppearance.Name.aqua, customTab),
-            ("custom-tab-dark", NSAppearance.Name.darkAqua, customTab),
-        ] {
+        var cases: [(name: String, appearance: NSAppearance.Name, folders: StartingFolderStore, tab: SettingsTab)] = []
+        for tab in SettingsTab.allCases {
+            cases.append(("\(tab.rawValue)-light", .aqua, StartingFolderStore(userDefaults: defaults), tab))
+            cases.append(("\(tab.rawValue)-dark", .darkAqua, StartingFolderStore(userDefaults: defaults), tab))
+        }
+        cases.append(("custom-tab-light", .aqua, customTab, .general))
+        cases.append(("custom-tab-dark", .darkAqua, customTab, .general))
+        for (name, appearance, startingFolderStore, tab) in cases {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
@@ -2715,23 +2716,23 @@ final class ChromeRenderTests: XCTestCase {
                     directory: FileManager.default.temporaryDirectory.appendingPathComponent("flock-cli-\(UUID().uuidString)"),
                     executablePath: "/Applications/Flock.app/Contents/MacOS/Flock",
                     name: "flock"
-                )
+                ),
+                tab: tab
             )
             let window = NSWindow(
-                contentRect: CGRect(x: 0, y: 0, width: 500, height: 640),
+                contentRect: CGRect(x: 0, y: 0, width: FlockSettingsView.width, height: 400),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false
             )
             window.isReleasedWhenClosed = false
             window.appearance = NSAppearance(named: appearance)
-            window.contentView = NSHostingView(rootView: view)
+            let host = NSHostingView(rootView: view)
+            window.contentView = host
+            window.setContentSize(host.fittingSize)
             window.orderFront(nil)
             await settle(window)
-            XCTAssertTrue(window.styleMask.contains(.resizable), "\(name): Settings cannot be resized")
             let content = window.contentRect(forFrameRect: window.frame).size
-            XCTAssertEqual(content.width, SettingsWindowSizer.width, "\(name): Settings is not its fixed width")
-            let screenRoom = (window.screen?.visibleFrame.height ?? SettingsWindowSizer.openHeight) - 40
-            XCTAssertEqual(content.height, min(SettingsWindowSizer.openHeight, screenRoom), accuracy: 1, "\(name): Settings did not open tall")
-            XCTAssertEqual(window.contentMaxSize.width, SettingsWindowSizer.width, "\(name): Settings can be widened")
+            XCTAssertEqual(content.width, FlockSettingsView.width, accuracy: 1, "\(name): Settings is not its fixed width")
+            XCTAssertLessThan(content.height, 700, "\(name): a tab is taller than a window should open")
             let image = try snapshot(window)
             XCTAssertGreaterThan(image.pixelsWide, 0)
             if let directory {

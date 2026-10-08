@@ -1,15 +1,43 @@
 import FlockCore
 import SwiftUI
 
+/// The Settings window's tabs, in toolbar order.
+enum SettingsTab: String, CaseIterable, Hashable {
+    case general, views, tools, herdr
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .views: "Views"
+        case .tools: "Tools"
+        case .herdr: "herdr"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .views: "square.grid.2x2"
+        case .tools: "wrench.and.screwdriver"
+        case .herdr: "terminal"
+        }
+    }
+}
+
 /// flock's Settings window (Cmd-,), in the system's own settings chrome
 /// rather than the app's. A settings window is one of the few surfaces a
-/// macOS user expects to look like every other app's, so this takes `Form`'s
-/// grouped style and the system appearance and none of flock's theme: a dark
-/// card floating in an oversized window read as a dialog that had escaped
-/// from somewhere else.
+/// macOS user expects to look like every other app's, so this takes the
+/// toolbar tabs, `Form`'s grouped style and the system appearance and none
+/// of flock's theme: a dark card floating in an oversized window read as a
+/// dialog that had escaped from somewhere else.
 ///
-/// Each setting is its own `Section`, never folded into another's.
+/// Each setting is its own `Section`, never folded into another's. Each tab
+/// is as tall as what it holds, so none scrolls.
 struct FlockSettingsView: View {
+    /// Wide enough that a setting's description and its control share a row
+    /// without the description wrapping to three lines.
+    static let width: CGFloat = 620
+
     let herdrMousePatchStore: HerdrMousePatchStore
     let notificationLifetimeStore: NotificationLifetimeStore
     let missionBottomLineStore: MissionBottomLineStore
@@ -20,26 +48,68 @@ struct FlockSettingsView: View {
     let rtModalTextSizeStore: RtModalTextSizeStore
     let commandLineToolStore: CommandLineToolStore
 
+    @State private var tab: SettingsTab
+
+    init(
+        herdrMousePatchStore: HerdrMousePatchStore, notificationLifetimeStore: NotificationLifetimeStore,
+        missionBottomLineStore: MissionBottomLineStore, overviewReturnStore: OverviewReturnStore,
+        oneTitleStore: OneTitleStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
+        startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
+        commandLineToolStore: CommandLineToolStore, tab: SettingsTab = .general
+    ) {
+        self.herdrMousePatchStore = herdrMousePatchStore
+        self.notificationLifetimeStore = notificationLifetimeStore
+        self.missionBottomLineStore = missionBottomLineStore
+        self.overviewReturnStore = overviewReturnStore
+        self.oneTitleStore = oneTitleStore
+        self.rearrangeAfterMoveStore = rearrangeAfterMoveStore
+        self.startingFolderStore = startingFolderStore
+        self.rtModalTextSizeStore = rtModalTextSizeStore
+        self.commandLineToolStore = commandLineToolStore
+        _tab = State(initialValue: tab)
+    }
+
     var body: some View {
-        Form {
-            StartingFolderSettingsSection(store: startingFolderStore)
-            NotificationSettingsSection(store: notificationLifetimeStore)
-            TitlesSettingsSection(store: oneTitleStore)
-            OverviewSettingsSection(bottomLineStore: missionBottomLineStore, returnStore: overviewReturnStore)
-            RearrangeSettingsSection(store: rearrangeAfterMoveStore)
-            RtModalTextSizeSection(store: rtModalTextSizeStore)
-            HerdrMousePatchRow(store: herdrMousePatchStore)
-            CommandLineToolSection(store: commandLineToolStore)
+        TabView(selection: $tab) {
+            pane {
+                StartingFolderSettingsSection(store: startingFolderStore)
+                NotificationSettingsSection(store: notificationLifetimeStore)
+                TitlesSettingsSection(store: oneTitleStore)
+            }
+            .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.symbol) }
+            .tag(SettingsTab.general)
+            pane {
+                OverviewSettingsSection(bottomLineStore: missionBottomLineStore, returnStore: overviewReturnStore)
+                RearrangeSettingsSection(store: rearrangeAfterMoveStore)
+            }
+            .tabItem { Label(SettingsTab.views.title, systemImage: SettingsTab.views.symbol) }
+            .tag(SettingsTab.views)
+            pane {
+                RtModalTextSizeSection(store: rtModalTextSizeStore)
+                CommandLineToolSection(store: commandLineToolStore)
+            }
+            .tabItem { Label(SettingsTab.tools.title, systemImage: SettingsTab.tools.symbol) }
+            .tag(SettingsTab.tools)
+            pane {
+                HerdrMousePatchRow(store: herdrMousePatchStore)
+            }
+            .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }
+            .tag(SettingsTab.herdr)
         }
-        .formStyle(.grouped)
-        // The width system settings panes settle near; the height follows
-        // the window, which `SettingsWindowSizer` makes resizable.
-        .frame(width: SettingsWindowSizer.width)
-        .frame(minHeight: SettingsWindowSizer.minHeight, maxHeight: .infinity)
-        .background(SettingsWindowSizer())
+        .background(SettingsWindowRegistration())
         .onAppear {
             herdrMousePatchStore.refresh()
             commandLineToolStore.refresh()
         }
+    }
+
+    /// One tab's sections, as tall as they are: a grouped form scrolls by
+    /// default and offers the window no height of its own.
+    private func pane<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        Form(content: content)
+            .formStyle(.grouped)
+            .scrollDisabled(true)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: Self.width)
     }
 }
