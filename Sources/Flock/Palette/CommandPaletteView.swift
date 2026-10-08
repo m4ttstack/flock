@@ -46,7 +46,7 @@ struct CommandPaletteView: View {
     private var scrim: some View {
         let isLight = ChromeRoles.isLight(panelBg: theme.palette.panelBg)
         return Color.black
-            .opacity(isLight ? ChromeMetrics.RtModal.lightBackdropOpacity : ChromeMetrics.RtModal.darkBackdropOpacity)
+            .opacity(isLight ? ChromeMetrics.Modal.lightBackdropOpacity : ChromeMetrics.Modal.darkBackdropOpacity)
             .contentShape(Rectangle())
             .onTapGesture { state.close() }
     }
