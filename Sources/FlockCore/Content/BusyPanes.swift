@@ -60,7 +60,7 @@ public struct BusyPanes: Equatable, Sendable {
         )
     }
 
-    private static func destroyed(
+    static func destroyed(
         by subject: CloseSubject, consequence: CloseConsequence, model: SessionModel
     ) -> [PaneRecord] {
         switch (subject, consequence) {

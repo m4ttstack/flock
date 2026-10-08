@@ -70,8 +70,10 @@ public enum CloseConsequence: Equatable, Sendable {
     /// mid-task, which is what `busy` answers. When both are true the prompt
     /// says both, because they are different losses: one destroys a container
     /// the user did not name, the other throws away work in progress.
-    public func confirmation(closing subject: CloseSubject, busy: BusyPanes = .none) -> CloseConfirmation? {
-        guard casualty != nil || !busy.isEmpty else { return nil }
+    public func confirmation(
+        closing subject: CloseSubject, busy: BusyPanes = .none, agents: AgentSessions = .none
+    ) -> CloseConfirmation? {
+        guard casualty != nil || !busy.isEmpty || !agents.isEmpty else { return nil }
         let escalation = casualty.map { _ in
             "This is its last \(subject.noun), so closing the \(subject.noun) closes \(taken(by: subject))."
         }
@@ -79,9 +81,10 @@ public enum CloseConsequence: Equatable, Sendable {
         return CloseConfirmation(
             subject: subject,
             title: casualty.map { "Close \($0.description)?" } ?? "Close this \(subject.noun)?",
-            message: ([escalation, interruption].compactMap { $0 } + ["A close cannot be undone."])
+            message: ([escalation, interruption, agents.sentence].compactMap { $0 } + ["A close cannot be undone."])
                 .joined(separator: " "),
-            confirmButtonTitle: casualty?.buttonTitle ?? "Close \(subject.noun.capitalized)"
+            confirmButtonTitle: casualty?.buttonTitle ?? "Close \(subject.noun.capitalized)",
+            warnsOfAgents: !agents.isEmpty
         )
     }
 
@@ -146,13 +149,17 @@ public struct CloseConfirmation: Equatable, Identifiable, Sendable {
     public let title: String
     public let message: String
     public let confirmButtonTitle: String
+    /// The prompt offers "Don't warn me next time", which turns off this
+    /// reason alone.
+    public let warnsOfAgents: Bool
 
     public var id: CloseSubject { subject }
 
-    public init(subject: CloseSubject, title: String, message: String, confirmButtonTitle: String) {
+    public init(subject: CloseSubject, title: String, message: String, confirmButtonTitle: String, warnsOfAgents: Bool = false) {
         self.subject = subject
         self.title = title
         self.message = message
         self.confirmButtonTitle = confirmButtonTitle
+        self.warnsOfAgents = warnsOfAgents
     }
 }

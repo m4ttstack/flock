@@ -182,6 +182,7 @@ public final class SessionViewModel {
     @ObservationIgnored private var lastChangeSeeds: [PaneID: PaneStatusHistory.Transition] = [:]
     /// Settings > Titles, read at each use; a view reading it observes the store.
     @ObservationIgnored private let oneTitleSetting: @MainActor () -> Bool
+    @ObservationIgnored private let agentCloseWarning: AgentCloseWarningStore?
     @ObservationIgnored private let navigationPollInterval: Duration
     /// Read at each create, so a change in Settings lands on the next one.
     @ObservationIgnored private let startingFolder: @MainActor (NewTerminalKind) -> StartingFolderChoice
@@ -210,6 +211,7 @@ public final class SessionViewModel {
         attentionToastArchive: AttentionToastArchive? = nil,
         paneLastChangeArchive: PaneLastChangeArchive? = nil,
         oneTitle: @escaping @MainActor () -> Bool = { false },
+        agentCloseWarning: AgentCloseWarningStore? = nil,
         navigationPollInterval: Duration = .milliseconds(300),
         launcherPollBackoff: [Duration] = PaneLauncherRegistry.defaultPollBackoff,
         backgroundWorkInterval: Duration = BackgroundWork.readInterval,
@@ -238,6 +240,7 @@ public final class SessionViewModel {
         self.paneLastChangeArchive = paneLastChangeArchive
         self.lastChangeSeeds = paneLastChangeArchive?.load() ?? [:]
         self.oneTitleSetting = oneTitle
+        self.agentCloseWarning = agentCloseWarning
         self.navigationPollInterval = navigationPollInterval
         self.paneLauncherRegistry = PaneLauncherRegistry(pollBackoff: launcherPollBackoff)
         self.backgroundWorkInterval = backgroundWorkInterval
@@ -1504,6 +1507,11 @@ public final class SessionViewModel {
         pendingClose = nil
     }
 
+    /// The close prompt's "Don't warn me next time".
+    public func stopWarningOnAgentCloses() {
+        agentCloseWarning?.select(false)
+    }
+
     /// Closes `pane`, asking first when herdr would take the tab or the
     /// workspace with it -- a close is irreversible, and Close Pane sits one
     /// modifier from Cut. One pane among siblings goes straight out with
@@ -1540,7 +1548,9 @@ public final class SessionViewModel {
                 consequence = .subjectOnly
             }
             let busy = BusyPanes(closing: subject, consequence: consequence, model: model)
-            if let confirmation = consequence.confirmation(closing: subject, busy: busy) {
+            let agents = agentCloseWarning?.active == true
+                ? AgentSessions(closing: subject, consequence: consequence, model: model) : .none
+            if let confirmation = consequence.confirmation(closing: subject, busy: busy, agents: agents) {
                 pendingClose = confirmation
                 return
             }
