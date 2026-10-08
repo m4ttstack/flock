@@ -167,7 +167,7 @@ enum LauncherSlots {
         if entry.id == NavigatorRoster.rtCd.id {
             await viewModel.launchNavigator(NavigatorRoster.command, in: pane)
         } else {
-            await viewModel.launchHarness(entry.binary, in: pane, pin: pin)
+            guard await viewModel.launchHarness(entry.binary, in: pane, pin: pin) else { return NSSound.beep() }
         }
     }
 }

@@ -1396,14 +1396,20 @@ public final class SessionViewModel {
     /// program enabled it (a shell at a prompt does), and a newline inside
     /// that bracket reaches the line editor as a literal newline rather than
     /// accept-line. `keys` is encoded outside the bracket.
+    ///
     /// `pin` names the pin an empty-pin launch opened, whose pane a snapshot
     /// may not carry yet; otherwise the pin is the one linked to the pane's
-    /// workspace.
-    public func launchHarness(_ binary: String, in pane: PaneID, pin: PinID? = nil) async {
+    /// workspace. False when the pane left its prompt while cswap was read.
+    @discardableResult
+    public func launchHarness(_ binary: String, in pane: PaneID, pin: PinID? = nil) async -> Bool {
         recordLauncherKeystroke(pane)
-        let owner = pin.flatMap(pins.pin) ?? model?.panes[pane].flatMap { pins.pin(linkedTo: $0.workspaceID) }
+        let owner = pin.flatMap(pins.pin) ?? userModel?.panes[pane].flatMap { pins.pin(linkedTo: $0.workspaceID) }
         let account = binary == ClaudeAccountLaunch.claudeBinary ? owner?.claudeAccount : nil
-        let accounts = account == nil ? nil : await cswapAccounts()
+        var accounts: [CswapAccount]?
+        if account != nil {
+            accounts = await cswapAccounts()
+            guard await isAtPrompt(pane) else { return false }
+        }
         let line = ClaudeAccountLaunch.line(binary: binary, account: account, accounts: accounts)
         if let owner, let missing = line.unavailableAccount {
             noticeSink(ClaudeAccountLaunch.notice(pinName: owner.name, account: missing))
@@ -1416,6 +1422,7 @@ public final class SessionViewModel {
                 "keys": .array([.string("Enter")]),
             ]
         )
+        return true
     }
 
     /// Asked of herdr at the moment of launching, never cached: a command

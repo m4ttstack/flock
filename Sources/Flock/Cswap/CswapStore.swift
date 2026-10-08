@@ -38,7 +38,14 @@ final class CswapStore {
         self.accounts = accounts
     }
 
+    /// Startup's read and an activation's can overlap; only the latest lands.
     func refresh() async {
-        accounts = await read()
+        generation += 1
+        let mine = generation
+        let result = await read()
+        guard mine == generation else { return }
+        accounts = result
     }
+
+    @ObservationIgnored private var generation = 0
 }

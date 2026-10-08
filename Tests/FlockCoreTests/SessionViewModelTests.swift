@@ -1056,16 +1056,19 @@ final class SessionViewModelTests: XCTestCase {
 
     @MainActor
     private func pinnedLaunch(
-        account: String?, accounts: [CswapAccount]?, binary: String = "claude", passPin: Bool = false
+        account: String?, accounts: [CswapAccount]?, binary: String = "claude", passPin: Bool = false,
+        placement: PinPlacement = .rail, foreground: StubForegroundClient.Answer = .idle
     ) async -> (typed: String?, notices: [String]) {
-        let client = StubSplitCommandClient()
+        let client = StubForegroundClient([foreground])
         var notices: [String] = []
         let viewModel = SessionViewModel(
             client: client, noticeSink: { notices.append($0) }, cswapAccounts: { accounts }
         )
         viewModel.update(model: makeModel(), connection: .live)
-        let pin = viewModel.pins.add(workspace: WorkspaceID(rawValue: "w1"), name: "acme", folder: "/acme", at: nil)!
+        let pin = viewModel.pins.add(workspace: WorkspaceID(rawValue: "w1"), name: "seed", folder: "/acme", at: nil)!
         viewModel.pins.setClaudeAccount(pin.id, to: account)
+        viewModel.pins.setPlacement(pin.id, to: placement, at: nil)
+        viewModel.update(model: makeModel(), connection: .live)
         let pane = PaneID(rawValue: passPin ? "w9:p1" : "w1:p1")
         await viewModel.launchHarness(binary, in: pane, pin: passPin ? pin.id : nil)
         let send = await client.calls.last { $0.method == "pane.send_input" }
@@ -1100,7 +1103,23 @@ final class SessionViewModelTests: XCTestCase {
     func testAnAccountCswapLacksLaunchesPlainClaudeAndSaysSo() async {
         let launch = await pinnedLaunch(account: "gone@acme.test", accounts: nil)
         XCTAssertEqual(launch.typed, "claude")
-        XCTAssertEqual(launch.notices, [ClaudeAccountLaunch.notice(pinName: "acme", account: "gone@acme.test")])
+        XCTAssertEqual(launch.notices, [ClaudeAccountLaunch.notice(pinName: "seed", account: "gone@acme.test")])
+    }
+
+    /// `model` hides a top-bar pin's workspace, so its panes are found in
+    /// `userModel`.
+    @MainActor
+    func testClaudeInATopBarPinRunsAsItsAccount() async {
+        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], placement: .topBar)
+        XCTAssertEqual(launch.typed, "cswap run 'dev@acme.test'")
+    }
+
+    /// Reading cswap is a wait during which a program can take the pane, and
+    /// a command typed then would be its input.
+    @MainActor
+    func testALaunchThatLostThePromptWhileReadingCswapTypesNothing() async {
+        let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], foreground: .busy)
+        XCTAssertNil(launch.typed)
     }
 
     @MainActor
