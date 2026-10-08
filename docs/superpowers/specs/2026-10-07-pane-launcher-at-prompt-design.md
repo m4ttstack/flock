@@ -58,11 +58,15 @@ a prompt painted over two frames, or starship's two startup warnings, count
 as the prompt. A keystroke closes the window early: `clear` followed by `ls`
 cannot teach the pane that `ls` output is a prompt.
 
-A pane first seen mid-life (after a Flock restart, or a pane herdr made) has
-no window. It learns `promptRows` from its first report at or below a cap of
-four rows, and otherwise waits for a drop. Four clears a two-line prompt
-plus starship's two warnings; a two-line prompt, one line of output and a
-new prompt is five, so a short command's output never passes as empty.
+The first report decides whether a window opens at all: at or below a cap of
+four rows it is a prompt coming up (a fresh pane's first frame, or a pane
+first seen mid-life, after a Flock restart or made by herdr, sitting at a
+bare prompt), and the window opens; above the cap it is content, and the
+pane waits for a drop. Four clears a two-line prompt plus starship's two
+warnings; a two-line prompt, one line of output and a new prompt is five, so
+a short command's output never passes as empty. Inside a window, a report
+above eight rows (taller than any prompt) is output and closes the window
+instead of teaching.
 
 ### Hiding and re-arming
 
@@ -133,15 +137,16 @@ closure. Ctrl-L is still recognized by `ClearKey`, but now only clears
 ### Where it lives
 
 `PaneLauncherRegistry` stays a pure, clock-injected state machine in
-FlockCore with these inputs: `recordRows(_:rows:at:)`, `recordKeystroke`,
-`recordClearKey(_:at:)`, `recordForegroundJob(_:idle: Bool?, at:)`,
-`recordNavigationStarted(_:at:)`, `recordNavigationEnded(_:at:)`,
-`forget(_:)`. Outputs: `isShowing(_:)`, `isNavigating(_:)`,
-`nextPollDelay(_:at:) -> Duration?` (nil when the pane is not a candidate),
-`occupiedRows(_:)`. `SessionViewModel` owns one poll task per candidate
-pane, started and restarted from the rows and keystroke seams the way
-navigation watches are owned today, and bumps `launcherRegistryVersion` on
-every answer that changes `isShowing`.
+FlockCore, constructed with its poll backoff so tests can shorten it. Inputs:
+`recordRows(_:rows:at:)`, `recordKeystroke(_:)`, `recordClearKey(_:)`,
+`recordForegroundJob(_:idle: Bool?, at:)` (which also ends a navigation),
+`recordNavigationStarted(_:at:)`, `forget(_:)`. Outputs: `isShowing(_:)`,
+`isNavigating(_:)`, `nextPollDelay(_:) -> Duration?` (nil when the pane is
+not a candidate, `.zero` to ask now), `occupiedRows(_:)`. `SessionViewModel`
+owns one poll task per candidate pane, started and restarted from the rows
+and keystroke seams the way navigation watches are owned today, and bumps
+`launcherRegistryVersion` on every answer that changes `isShowing` or the
+occupied rows.
 
 ## ⌘ digits and launch paths
 
