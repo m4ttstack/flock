@@ -29,7 +29,8 @@ public enum DragVisuals {
     public static let refusedZoneWash: Double = 0.10
     public static let refusedZoneStroke: Double = 0.6
     public static let refusedZoneLabelGap: CGFloat = 8
-    public static let refusedZoneLabelHeight: CGFloat = 16
+    /// Two lines of the reason, which wraps in a narrow rail.
+    public static let refusedZoneLabelHeight: CGFloat = 32
     /// How opaque a drag proxy's own surfaces are. A proxy is centered on the
     /// pointer and a tab's is the size of a thumbnail, so an opaque one
     /// covers the very target it is aimed at, the target's own drop wash

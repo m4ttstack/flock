@@ -70,11 +70,13 @@ private struct RefusedZone: View {
             // Below the slot: the ghost hangs over the slot itself, from the
             // pointer that is in it.
             .overlay(alignment: .topLeading) {
-                Label("Empty pins stay in Pinned", systemImage: "nosign")
+                Label("Pinned workspaces cannot be moved while empty", systemImage: "nosign")
                     .font(ChromeType.refusedZone)
                     .foregroundStyle(theme.red)
-                    .fixedSize()
-                    .padding(.leading, ChromeMetrics.WorkspaceRow.horizontalPadding)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
+                    .frame(width: rect.width, alignment: .leading)
                     .offset(y: rect.height + DragVisuals.refusedZoneLabelGap)
             }
             .frame(width: rect.width, height: rect.height)
