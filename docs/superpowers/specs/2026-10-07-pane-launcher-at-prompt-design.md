@@ -70,7 +70,7 @@ instead of teaching.
 
 ### Startup output on a pane flock created
 
-A pane flock just created (split, new tab, new workspace) is in startup until herdr first answers idle or a key is typed. During startup every row report is taken as the prompt height, with no cap and no window, and the pane stays a candidate, so herdr is asked with the usual backoff. The first idle answer with nothing typed ends startup and shows the launcher over whatever the shell printed on its way up: a fastfetch banner, a message of the day, a prompt of any height. Provenance is only this hint about where to start; it never decides whether the launcher may show.
+A pane flock just created (split, new tab, new workspace) is in startup until herdr first answers idle, a key is typed, or a navigator is started from the launcher. During startup every row report is taken as the prompt height, with no cap and no window, and the pane stays a candidate, so herdr is asked with the usual backoff. The first idle answer with nothing typed ends startup and shows the launcher over whatever the shell printed on its way up: a fastfetch banner, a message of the day, a prompt of any height. An idle answer that lands before the shell finishes printing ends startup early, and a banner that follows hides the launcher until the next clear. Accepted. Provenance is only this hint about where to start; it never decides whether the launcher may show.
 
 A pane first seen mid-life (after a Flock restart, or made outside flock) cannot be measured from the screen alone: a six-row screen may be a six-row prompt or a short prompt under output, and herdr's repaint strips the shell's prompt marks before flock sees them. It keeps the cap of four rows until its first clear, which teaches it the real height.
 
@@ -163,9 +163,11 @@ canvas's focused pane is showing the launcher, the digit launches that slot;
 otherwise it switches the view. `launcherOffered` is deleted. Slots 4 to 9
 have no view counterpart and keep ⌘4..⌘9 on their Launch items. The Launch
 submenu stays; its first three items show no key, while the overlay buttons
-and the palette rows keep showing ⌘1..⌘3 as hints. Digit dispatch is a pure
-function (`showing` and slot index in, `.launch` or `.view` out) so the
-SwiftUI wiring stays thin.
+and the palette rows keep showing ⌘1..⌘3 as hints. Only a key press is
+borrowed: picking Workspaces, Overview or Arrange from the menu with the
+mouse always switches the view. Digit dispatch is a pure function (`showing`,
+whether the action came from a key, and slot index in; `.launch` or `.view`
+out) so the SwiftUI wiring stays thin.
 
 ### One launch path
 
@@ -195,7 +197,9 @@ SwiftUI buttons get them) and the cell's matching tap guard become
 ## Overlay placement
 
 The overlay's top clearance follows the prompt: `occupiedRows` times the
-surface's cell height, plus one row, never less than today's 28 points. The
+surface's cell height, plus one row, never less than today's 28 points, and
+never so much that the button row no longer fits in the pane: on a pane
+shorter than its banner the buttons sit over the banner's last rows. The
 `GhosttyPaneSurface` protocol gains `cellHeight: CGFloat?` (nil before the
 first `GHOSTTY_ACTION_CELL_SIZE`), and the test fake returns a fixed value.
 Everything else about the overlay stays: the button row, hover and press

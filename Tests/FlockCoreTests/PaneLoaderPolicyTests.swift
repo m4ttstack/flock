@@ -96,13 +96,13 @@ final class PaneLoaderPolicyTests: XCTestCase {
         )
     }
 
-    func testTheLauncherShowsOnAPristinePaneOnceTheBadgeIsGone() {
+    func testAShowingLauncherDrawsOnceTheBadgeIsGone() {
         XCTAssertTrue(
             PaneLoaderPolicy.showsLauncherOverlay(isLauncherShowing: true, hasFirstFrame: true, badgeVisible: false)
         )
     }
 
-    func testAPaneThatIsNotPristineNeverShowsTheLauncher() {
+    func testAPaneTheRegistryHidesNeverDrawsTheLauncher() {
         XCTAssertFalse(
             PaneLoaderPolicy.showsLauncherOverlay(isLauncherShowing: false, hasFirstFrame: true, badgeVisible: false)
         )
