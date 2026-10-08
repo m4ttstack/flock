@@ -9,6 +9,9 @@ struct ChromeModal<Leading: View, Content: View, Footer: View>: View {
     let theme: Theme
     let size: ModalSize
     var footerHeight: CGFloat = 0
+    /// Where the card is centred and sized, in the backdrop's own space; the
+    /// whole backdrop when nil.
+    var cardArea: CGRect? = nil
     let onSize: (ModalSize) -> Void
     let onDismiss: () -> Void
     @ViewBuilder let leading: () -> Leading
@@ -22,10 +25,12 @@ struct ChromeModal<Leading: View, Content: View, Footer: View>: View {
     var body: some View {
         GeometryReader { proxy in
             let scale = displayScale > 0 ? displayScale : 2
+            let global = proxy.frame(in: .global).origin
+            let area = cardArea ?? CGRect(origin: .zero, size: proxy.size)
             let frame = Self.boxFrame(
-                in: proxy.size, origin: proxy.frame(in: .global).origin, scale: scale,
+                in: area.size, origin: CGPoint(x: global.x + area.minX, y: global.y + area.minY), scale: scale,
                 fraction: Metrics.sizeFraction(size)
-            )
+            ).offsetBy(dx: area.minX, dy: area.minY)
             ZStack(alignment: .topLeading) {
                 backdrop
                 card(size: frame.size, scale: scale)
@@ -84,12 +89,13 @@ struct ChromeModal<Leading: View, Content: View, Footer: View>: View {
 
 extension ChromeModal where Footer == EmptyView {
     init(
-        theme: Theme, size: ModalSize, onSize: @escaping (ModalSize) -> Void, onDismiss: @escaping () -> Void,
+        theme: Theme, size: ModalSize, cardArea: CGRect? = nil, onSize: @escaping (ModalSize) -> Void,
+        onDismiss: @escaping () -> Void,
         @ViewBuilder leading: @escaping () -> Leading,
         @ViewBuilder content: @escaping (_ area: CGSize, _ scale: CGFloat) -> Content
     ) {
         self.init(
-            theme: theme, size: size, onSize: onSize, onDismiss: onDismiss,
+            theme: theme, size: size, cardArea: cardArea, onSize: onSize, onDismiss: onDismiss,
             leading: leading, content: content, footer: { EmptyView() }
         )
     }

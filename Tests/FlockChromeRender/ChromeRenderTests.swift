@@ -3962,6 +3962,52 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// In Workspaces the top-bar overlay's card sits where the rt modal's
+    /// does, centred and sized on the tab area; its backdrop still dims the
+    /// rail.
+    func testTheTopBarOverlaysCardIsCentredOnTheTabArea() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            let viewModel = harness.viewModel
+            let model = try XCTUnwrap(viewModel.model)
+            let workspace = try XCTUnwrap(model.workspaces.first {
+                $0.workspaceID != viewModel.selectedWorkspaceID && (model.tabs[$0.workspaceID]?.count ?? 0) <= 1
+            }?.workspaceID, "the fixture needs a one-tab workspace that is not selected")
+            viewModel.moveToTopBar(workspace: workspace, at: nil)
+            let pin = try XCTUnwrap(viewModel.pins.pins(in: .topBar).first)
+            await viewModel.toggleTopBar(pin.id)
+            XCTAssertEqual(viewModel.topBarOverlay.openPin, pin.id)
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("top-bar-overlay-workspaces-\(id).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let height = try XCTUnwrap(window.contentView?.bounds.height)
+            let rail = harness.railWidth.width + ChromeMetrics.ruleWidth
+            let tabArea = CGRect(
+                x: rail, y: ChromeMetrics.TitleBar.height,
+                width: Self.windowSize.width - rail, height: height - ChromeMetrics.TitleBar.height
+            )
+            let box = ChromeModal<EmptyView, EmptyView, EmptyView>.boxFrame(
+                in: tabArea.size, origin: tabArea.origin, scale: window.backingScaleFactor,
+                fraction: ChromeMetrics.Modal.sizeFraction(.medium)
+            ).offsetBy(dx: tabArea.minX, dy: tabArea.minY)
+            let border = theme.palette.chromeRoles.paneBorder.hex
+            for (edge, point) in [
+                ("left", CGPoint(x: box.minX + 0.25, y: box.midY)), ("right", CGPoint(x: box.maxX - 0.75, y: box.midY)),
+                ("top", CGPoint(x: box.midX, y: box.minY + 0.25)), ("bottom", CGPoint(x: box.midX, y: box.maxY - 0.75)),
+            ] {
+                let ink = hex(image, point)
+                XCTAssertLessThanOrEqual(channelDistance(ink, border), 2, "\(id): the card's \(edge) edge drew \(ink)")
+            }
+            window.close()
+        }
+    }
+
     /// ⌥Tab's panel is ⌃Tab's over the selected workspace's tabs: the current
     /// tab on top, the last one used selected under it.
     func testTheTabSwitcherSelectsTheLastTabUnderTheCurrentOne() async throws {

@@ -81,6 +81,7 @@ struct MainWindow: View {
                     // On the tab area alone, so the rail stays clear and
                     // undimmed. The grid mounts its own over a focused pane.
                     .overlay { RtModalView(theme: theme, viewModel: viewModel) }
+                    .anchorPreference(key: TabAreaAnchor.self, value: .bounds) { $0 }
                     .overlay { CommandPaletteView(theme: theme, viewModel: viewModel) }
                     .overlay { SwitcherOverlay(theme: theme, viewModel: viewModel) }
                 }
@@ -89,9 +90,15 @@ struct MainWindow: View {
         .background(theme.chrome)
         // Below the title bar and over everything else, rail included, so it
         // opens from any view and its icon can close it again.
-        .overlay {
-            TopBarWorkspaceOverlay(theme: theme, viewModel: viewModel)
+        .overlayPreferenceValue(TabAreaAnchor.self) { tabArea in
+            // Mounted only while open: a reader over the whole window would
+            // otherwise sit over every click.
+            if viewModel.topBarOverlay.openPin != nil {
+                GeometryReader { proxy in
+                    TopBarWorkspaceOverlay(theme: theme, viewModel: viewModel, cardArea: tabArea.map { proxy[$0] })
+                }
                 .padding(.top, ChromeMetrics.TitleBar.height)
+            }
         }
         // Over the content rather than above it in the stack: the tab strip's
         // `NSScrollView` stretches up through the system title bar's safe
@@ -262,6 +269,16 @@ private struct TopBarRefusalAlert: ViewModifier {
         } message: { refusal in
             Text(refusal.message)
         }
+    }
+}
+
+/// The tab area's bounds, which the top-bar overlay centres its card on.
+/// Absent while the grid replaces the tab area.
+private struct TabAreaAnchor: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
     }
 }
 

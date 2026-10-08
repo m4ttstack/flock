@@ -7,6 +7,9 @@ import SwiftUI
 struct TopBarWorkspaceOverlay: View {
     let theme: Theme
     let viewModel: SessionViewModel
+    /// The tab area while Workspaces shows one, so the card sits where the rt
+    /// modal's does; the backdrop still covers the rail.
+    var cardArea: CGRect? = nil
 
     @Environment(TopBarOverlaySizeStore.self) private var sizes
     @Environment(TerminalTextSizeStore.self) private var textSize
@@ -14,7 +17,7 @@ struct TopBarWorkspaceOverlay: View {
     var body: some View {
         if let id = viewModel.topBarOverlay.openPin, let pin = viewModel.pins.pin(id) {
             ChromeModal(
-                theme: theme, size: sizes.size(for: id),
+                theme: theme, size: sizes.size(for: id), cardArea: cardArea,
                 onSize: { sizes.select($0, for: id) }, onDismiss: { viewModel.topBarOverlay.close() }
             ) {
                 TopBarOverlayTitle(theme: theme, pin: pin, tabCount: tabCount(of: pin))
