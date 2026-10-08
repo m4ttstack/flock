@@ -12,8 +12,10 @@ public enum DigitKeyDispatch {
     /// Workspaces, Overview, Arrange.
     public static let viewDigits = 3
 
-    public static func decide(launcherShowing: Bool, index: Int) -> Outcome {
-        if launcherShowing { return .launch(slot: index) }
+    /// `cameFromKey` is false for a mouse pick from the View menu: picking
+    /// "Overview" means Overview, so only a key press is ever borrowed.
+    public static func decide(launcherShowing: Bool, cameFromKey: Bool, index: Int) -> Outcome {
+        if launcherShowing && cameFromKey { return .launch(slot: index) }
         return index < viewDigits ? .view(index: index) : .none
     }
 }

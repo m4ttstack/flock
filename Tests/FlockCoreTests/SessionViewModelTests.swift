@@ -990,6 +990,31 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isLauncherShowing(newPane), "launching hides the overlay like a real keystroke would")
     }
 
+    /// The launcher hides before the send goes out, not when it answers, so a
+    /// second click during the round trip finds no button to press.
+    @MainActor
+    func testLaunchHarnessHidesTheLauncherBeforeTheSendAnswers() async throws {
+        let client = StubForegroundClient([.idle])
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory, launcherPollBackoff: [.milliseconds(1)])
+        let pane = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(pane)
+        try XCTUnwrap(factory.onScreenActivityHandlers[pane])(2)
+        try await XCTUnwrap(viewModel.promptWatches[pane]).value
+        XCTAssertTrue(viewModel.isLauncherShowing(pane))
+        await client.holdNext("pane.send_input")
+
+        let launch = Task { await viewModel.launchHarness("claude", in: pane) }
+        while await !client.calls.contains(where: { $0.method == "pane.send_input" }) {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertFalse(viewModel.isLauncherShowing(pane), "the button is still up while the send is in flight")
+
+        await client.release()
+        await launch.value
+        XCTAssertFalse(viewModel.isLauncherShowing(pane))
+    }
+
     /// A launcher click can land on a pane that is NOT the resolved-focused
     /// one (split right, click back into the original pane, then click the
     /// overlay on the new pane). Only the focused pane's surface accepts

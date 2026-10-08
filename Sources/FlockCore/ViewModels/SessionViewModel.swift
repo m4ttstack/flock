@@ -1272,9 +1272,9 @@ public final class SessionViewModel {
         }
     }
 
-    /// Sends `binary` to `pane` and submits it in one `send_input` call, then
-    /// hides the launcher for that pane at once, as a keystroke would, so a
-    /// second click before the program paints types nothing.
+    /// Hides the launcher for `pane` at once, as a keystroke would, then
+    /// sends `binary` and submits it in one `send_input` call. Hidden before
+    /// the send, so a second click during the round trip finds no button.
     ///
     /// The Enter rides `keys`, never a newline inside `text`: herdr wraps a
     /// non-empty `text` in a bracketed-paste sequence whenever the pane's
@@ -1282,6 +1282,7 @@ public final class SessionViewModel {
     /// that bracket reaches the line editor as a literal newline rather than
     /// accept-line. `keys` is encoded outside the bracket.
     public func launchHarness(_ binary: String, in pane: PaneID) async {
+        recordLauncherKeystroke(pane)
         _ = try? await client.requestRaw(
             "pane.send_input",
             [
@@ -1290,7 +1291,6 @@ public final class SessionViewModel {
                 "keys": .array([.string("Enter")]),
             ]
         )
-        recordLauncherKeystroke(pane)
     }
 
     /// Asked of herdr at the moment of launching, never cached: a command

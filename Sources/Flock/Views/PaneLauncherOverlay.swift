@@ -97,18 +97,29 @@ enum LauncherSlots {
         return LaunchTarget.pane(canvasPane: pane, agent: pane.flatMap { viewModel.model?.panes[$0]?.agent })
     }
 
-    /// A click on the overlay's button, a ⌘ digit, or a palette row: the
-    /// three ways a launch starts, named in the log so a dead key can be told
-    /// from a press herdr refused.
+    /// A click on the overlay's button, a ⌘ digit, a mouse pick from the
+    /// Launch menu, or a palette row: the ways a launch starts, named in the
+    /// log so a dead key can be told from a press herdr refused.
     enum LaunchPath: String {
-        case click, key, palette
+        case click, key, menu, palette
+    }
+
+    /// Whether the menu action now running was fired by its key equivalent
+    /// rather than picked with the mouse.
+    @MainActor
+    static var menuActionCameFromKey: Bool {
+        NSApp.currentEvent?.type == .keyDown
     }
 
     /// ⌘1 and on, and the palette's rows: the pane is read as the key lands,
-    /// never captured when the menu last rendered.
+    /// never captured when the menu last rendered. Every press writes one log
+    /// line, a press with no pane to launch in included.
     @MainActor
     static func launchInFocusedPane(_ entry: HarnessEntry, via path: LaunchPath, on viewModel: SessionViewModel) async {
-        guard let pane = target(on: viewModel) else { return }
+        guard let pane = target(on: viewModel) else {
+            log.notice("launch \(entry.id, privacy: .public) via \(path.rawValue, privacy: .public): no target")
+            return
+        }
         await launch(entry, in: pane, via: path, on: viewModel)
     }
 

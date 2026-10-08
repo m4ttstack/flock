@@ -406,7 +406,9 @@ struct FlockApp: App {
                 Menu("Launch") {
                     ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
                         Button(LauncherSlots.title(for: entry)) {
-                            Task { await LauncherSlots.launchInFocusedPane(entry, via: .key, on: viewModel) }
+                            // Read before the Task: the current event moves on.
+                            let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
+                            Task { await LauncherSlots.launchInFocusedPane(entry, via: path, on: viewModel) }
                         }
                         // The first three digits are the View menu's, which
                         // dispatch here while the launcher shows; slots past
@@ -547,8 +549,11 @@ struct FlockApp: App {
                         // Decided as the key lands, never by moving the key
                         // equivalent: a pane offering the launcher borrows
                         // the digit, and SwiftUI's menu refresh is not in
-                        // the loop.
-                        switch DigitKeyDispatch.decide(launcherShowing: viewModel.focusedPaneShowsLauncher, index: index) {
+                        // the loop. A mouse pick of a view always means it.
+                        switch DigitKeyDispatch.decide(
+                            launcherShowing: viewModel.focusedPaneShowsLauncher,
+                            cameFromKey: LauncherSlots.menuActionCameFromKey, index: index
+                        ) {
                         case .launch(let slot):
                             let slots = LauncherSlots.current()
                             guard slot < slots.count else { return viewTabs.choose(tab) }
