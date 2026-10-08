@@ -89,6 +89,7 @@ private struct EmptyPinMenu: ViewModifier {
                         if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens") {
                             viewModel.setPinFolder(pin.id, to: folder)
                         }
+                    case .moveToTopBar: viewModel.moveToTopBar(pin: pin.id, at: nil)
                     case .remove: viewModel.removePin(pin.id)
                     }
                 }
