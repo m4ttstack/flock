@@ -73,9 +73,18 @@ final class PaletteCatalogTests: XCTestCase {
 
     /// Over the rt modal the canvas has no focused pane, as the menus see it.
     func testWhileTheRtModalIsUpNoPaneCommandsAreListed() {
-        let listed = ids(PaletteContext(canvasPane: nil, neighbors: [.left, .right], rtModalUp: true, rtInstalled: true, rtCommands: rtRows))
+        let listed = ids(PaletteContext(canvasPane: nil, neighbors: [.left, .right], modalUp: true, rtInstalled: true, rtCommands: rtRows))
         XCTAssertFalse(listed.contains { $0.hasPrefix("pane.") })
         XCTAssertTrue(listed.contains("rt.glitter"))
+    }
+
+    func testWhileTheTopBarOverlayIsUpNothingActsOnTheHiddenSelection() {
+        let listed = ids(PaletteContext(
+            canvasPane: nil, neighbors: [.left, .right], modalUp: true, hasSelectedWorkspace: true, topBarOverlayUp: true
+        ))
+        XCTAssertFalse(listed.contains("pane.focuspaneleft"))
+        XCTAssertFalse(listed.contains { $0.hasPrefix("tab.") || $0.hasPrefix("workspace.") })
+        XCTAssertTrue(listed.contains("view.rearrangemode"))
     }
 
     func testLaunchersAreListedForAShellPaneButNotUnderAnAgent() {

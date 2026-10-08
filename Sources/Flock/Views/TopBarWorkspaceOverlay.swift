@@ -58,7 +58,7 @@ private struct TopBarOverlayTitle: View {
             if tabCount > 1 {
                 Text("\(tabCount) tabs: only the active one shows here")
                     .font(ChromeType.modalNote)
-                    .foregroundStyle(theme.textDim)
+                    .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }

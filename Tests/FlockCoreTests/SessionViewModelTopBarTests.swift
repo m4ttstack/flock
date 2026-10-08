@@ -238,6 +238,35 @@ final class SessionViewModelTopBarTests: XCTestCase {
         XCTAssertEqual(vm.canvasFocus(solo: shown), shown)
     }
 
+    func testTheMainViewsCommandsStandDownUnderTheOverlayOrTheRtModal() async {
+        let vm = viewModel()
+        vm.update(model: model([("w1", "acme"), ("w2", "dash")], focused: "w1"), connection: .live)
+        vm.moveToTopBar(workspace: w2, at: nil)
+        XCTAssertFalse(vm.modalIsUp)
+        let pin = vm.pins.pins(in: .topBar)[0]
+        await vm.toggleTopBar(pin.id)
+        XCTAssertTrue(vm.modalIsUp)
+        await vm.toggleTopBar(pin.id)
+        XCTAssertFalse(vm.modalIsUp)
+        vm.rt.modal = RtModal(itemID: "tok1", tabID: TabID(rawValue: "w1:t1"), serviceTabID: nil)
+        XCTAssertTrue(vm.modalIsUp)
+    }
+
+    /// herdr's workspace-created event may land before the create's reply.
+    func testAWorkspaceCreatedForAnEmptyPinNeverShowsInTheRail() async {
+        let holder = Box<SessionViewModel>()
+        let created = model([("w1", "acme"), ("wN", "shell")], focused: "w1")
+        let client = CreatingClient { holder.value?.update(model: created, connection: .live) }
+        let vm = viewModel(client: client)
+        holder.value = vm
+        vm.update(model: model([("w1", "acme"), ("w2", "dash")], focused: "w1"), connection: .live)
+        vm.moveToTopBar(workspace: w2, at: nil)
+        vm.update(model: model([("w1", "acme")], focused: "w1"), connection: .live)
+        await vm.toggleTopBar(vm.pins.pins(in: .topBar)[0].id)
+        XCTAssertEqual(vm.model?.workspaces.map(\.workspaceID), [w1])
+        XCTAssertEqual(vm.railSections(board: nil)?.workspaces.map(\.workspaceID), [w1])
+    }
+
     func testTogglingTheOpenPinClosesAndAnEmptiedPinClosesTheOverlay() async {
         let vm = viewModel()
         vm.update(model: model([("w1", "acme"), ("w2", "dash")]), connection: .live)

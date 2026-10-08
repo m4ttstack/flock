@@ -715,6 +715,10 @@ public final class SessionViewModel {
         return solo ?? resolvedFocusedPaneID
     }
 
+    /// Whether the rt modal or the top-bar overlay covers the main view, whose
+    /// selection and focus the window's commands would act on unseen.
+    public var modalIsUp: Bool { rt.modal != nil || topBarOverlay.openPin != nil }
+
     /// Whether the rt modal is drawn over a canvas: the main canvas draws any,
     /// a solo canvas only one opened from its own pane.
     public func rtModalIsOver(solo: PaneID?) -> Bool {
@@ -2080,6 +2084,7 @@ public final class SessionViewModel {
         // Read again past the await: a rename made while the create was out wins.
         guard let name = pins.pin(id)?.name else { return }
         pins.link(id, to: created.workspaceID)
+        if pins.pin(id)?.placement == .topBar { refreshVisibility() }
         await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, name)], label: "Rename workspace"), recordsUndo: false)
         if !folderIsThere {
             noticeSink("\"\(name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another.")

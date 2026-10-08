@@ -8,7 +8,8 @@ struct PaletteContext {
     var canvasPane: PaneID? = nil
     var focusedPaneZoomed = false
     var neighbors: Set<PaneDirection> = []
-    var rtModalUp = false
+    /// The rt modal or the top-bar overlay covers the main view.
+    var modalUp = false
     var rtInstalled = false
     var rtCommands: [RtCommandRow] = []
     var chatRows: [ChatMenuModel.Row]? = nil
@@ -19,6 +20,9 @@ struct PaletteContext {
     var hasSelectedWorkspace = false
     var hasNotifications = false
     var viewTab: ViewTab = .workspaces
+    /// The main view's selection is hidden behind the overlay, so nothing that
+    /// creates or closes in it is offered.
+    var topBarOverlayUp = false
 }
 
 enum PaletteAction {
@@ -88,7 +92,7 @@ enum PaletteCatalog {
             entry(.pane, "Rename Pane", shortcut: ShortcutLabel.text(key: .f2, modifiers: []), .paneMenu(.renamePane)),
         ]
         let directions = PaneDirectionCommand.all
-            .filter { context.neighbors.contains($0.direction) && !context.rtModalUp }
+            .filter { context.neighbors.contains($0.direction) && !context.modalUp }
             .map { entry(.pane, $0.title, shortcut: ShortcutLabel.text(key: $0.key, modifiers: $0.modifiers), .direction($0)) }
         return menu + extras + directions
     }
@@ -114,9 +118,11 @@ enum PaletteCatalog {
             .map { (.view, ViewCommand.show($0)) }
         commands += [(.view, .rearrangeMode), (.view, .allWorkspaces)]
         if context.hasNotifications { commands += [(.view, .openOldestNotification), (.view, .clearNotifications)] }
-        if context.hasSelectedWorkspace { commands += [(.tab, .newTab), (.tab, .closeTab)] }
-        commands.append((.workspace, .newWorkspace))
-        if context.hasSelectedWorkspace { commands.append((.workspace, .closeWorkspace)) }
+        if !context.topBarOverlayUp {
+            if context.hasSelectedWorkspace { commands += [(.tab, .newTab), (.tab, .closeTab)] }
+            commands.append((.workspace, .newWorkspace))
+            if context.hasSelectedWorkspace { commands.append((.workspace, .closeWorkspace)) }
+        }
         return commands.map { entry($0.0, $0.1.title, shortcut: shortcut($0.1), .view($0.1)) }
     }
 }
