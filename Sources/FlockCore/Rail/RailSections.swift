@@ -20,6 +20,11 @@ public struct RailSections: Equatable, Sendable {
     public let herds: [HerdRail.Herd]
     public let herdSummary: HerdRail.Summary?
 
+    /// Board's review workspaces and the herds' own, which Arrange leaves out
+    /// and Overview leaves out unless asked for.
+    public var reviewIDs: Set<WorkspaceID> { Set(board.map(\.workspaceID)) }
+    public var herdIDs: Set<WorkspaceID> { Set(herds.map(\.workspaceID)) }
+
     /// Board is drawn from what `HerdRail` leaves, so a label that names both
     /// a herd and a board role is the herd's. A workspace linked to a pin
     /// shows in PINNED alone.

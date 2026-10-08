@@ -5,6 +5,7 @@ import SwiftUI
 struct OverviewSettingsSection: View {
     let bottomLineStore: MissionBottomLineStore
     let returnStore: OverviewReturnStore
+    let inclusionStore: OverviewInclusionStore
 
     var body: some View {
         Section("Overview") {
@@ -26,6 +27,18 @@ struct OverviewSettingsSection: View {
                 Text("If you leave Overview with a pane open, what you see when you return.")
             }
             .accessibilityIdentifier("flock.settings.overviewReturn")
+            Toggle(isOn: Binding(get: { inclusionStore.includesReviews }, set: { inclusionStore.setIncludesReviews($0) })) {
+                Text("Include Board reviews")
+                Text("Review workspaces from Board appear in the lanes.")
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("flock.settings.overviewIncludesReviews")
+            Toggle(isOn: Binding(get: { inclusionStore.includesHerds }, set: { inclusionStore.setIncludesHerds($0) })) {
+                Text("Include herds")
+                Text("Each herd's agent workspaces appear in the lanes.")
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("flock.settings.overviewIncludesHerds")
         }
     }
 }

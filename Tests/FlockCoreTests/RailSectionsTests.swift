@@ -64,6 +64,12 @@ final class RailSectionsTests: XCTestCase {
 
     // MARK: - The split
 
+    func testReviewsAndHerdsAreNamedByTheirSections() {
+        let sections = RailSections(model: model(["flock", "🛹 Reviews", "herd: acme-batch"]), board: board)
+        XCTAssertEqual(sections.reviewIDs, [WorkspaceID(rawValue: "w2")])
+        XCTAssertEqual(sections.herdIDs, [WorkspaceID(rawValue: "w3")])
+    }
+
     func testBoardsWorkspacesLeaveTheRegularListForTheirOwnSection() {
         let sections = RailSections(model: model(["flock", "🛹 Reviews", "repo-tools", "🛹 Doctors"]), board: board)
         XCTAssertEqual(sections.workspaces.map(\.label), ["flock", "repo-tools"])

@@ -15,6 +15,7 @@ struct MissionControlView: View {
     @Environment(BoardStore.self) private var boardNames
     @Environment(WorkspaceIdentityStore.self) private var identityStore
     @Environment(HerdProgressStore.self) private var herdProgress
+    @Environment(OverviewInclusionStore.self) private var inclusion: OverviewInclusionStore?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// One space for every lane, so a card whose lane changes is the same
     /// view moving rather than one fading out and another in.
@@ -51,7 +52,10 @@ struct MissionControlView: View {
 
     /// The one place the board is built, for drawing and for the keys alike.
     private func makeBoard(now: Date) -> (MissionBoard, RailSections)? {
-        MissionBoard.make(viewModel: viewModel, board: boardNames, herdProgress: herdProgress, opensOlder: mode.opensOlder, opensUnknown: mode.opensUnknown, now: now)
+        MissionBoard.make(
+            viewModel: viewModel, board: boardNames, herdProgress: herdProgress, inclusion: inclusion,
+            opensOlder: mode.opensOlder, opensUnknown: mode.opensUnknown, now: now
+        )
     }
 
     private func resolveSelection(in board: MissionBoard) {
@@ -400,14 +404,14 @@ extension MissionBoard {
     /// The board as the app's stores hold it, for drawing and for the keys.
     @MainActor
     static func make(
-        viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore, opensOlder: Bool,
-        opensUnknown: Bool = false, now: Date
+        viewModel: SessionViewModel, board: BoardStore, herdProgress: HerdProgressStore, inclusion: OverviewInclusionStore? = nil,
+        opensOlder: Bool, opensUnknown: Bool = false, now: Date
     ) -> (MissionBoard, RailSections)? {
         guard let model = viewModel.model,
               let sections = viewModel.railSections(board: board.names, herdProgress: herdProgress.progress)
         else { return nil }
         let missionBoard = MissionBoard(
-            model: model, sections: sections, toasts: viewModel.attentionToasts,
+            model: model.without(workspaces: inclusion?.excluded(from: sections) ?? []), sections: sections, toasts: viewModel.attentionToasts,
             history: viewModel.statusHistory, backgroundWork: viewModel.backgroundWork, now: now, opensOlder: opensOlder,
             opensUnknown: opensUnknown, oneTitle: viewModel.oneTitle
         )

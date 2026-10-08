@@ -2709,6 +2709,7 @@ final class ChromeRenderTests: XCTestCase {
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
                 overviewReturnStore: OverviewReturnStore(userDefaults: defaults),
+                overviewInclusionStore: OverviewInclusionStore(userDefaults: defaults),
                 oneTitleStore: OneTitleStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,
@@ -2808,6 +2809,9 @@ final class ChromeRenderTests: XCTestCase {
         )
         try plist.write(to: bundle.appendingPathComponent("Contents/Info.plist"))
 
+        // Wide enough that the title clears the view tabs with the Overview
+        // badge up: narrower, it hides rather than overlap them.
+        let size = CGSize(width: Self.windowSize.width + 300, height: Self.windowSize.height)
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let watcher = DevBuildWatcher(bundleURL: bundle, runningStamp: "2026-09-22 22:40:00 fed9876")
@@ -2815,7 +2819,7 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertTrue(watcher.newerBuildReady, "\(scheme): a different stamp on disk is a newer build")
 
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            let window = harness.makeWindow(size: Self.windowSize, isDevBuild: true, devBuild: watcher)
+            let window = harness.makeWindow(size: size, isDevBuild: true, devBuild: watcher)
             await settle(window)
             let image = try snapshot(window)
             if let directory {
@@ -2824,9 +2828,9 @@ final class ChromeRenderTests: XCTestCase {
             }
             // The tag and the offer both paint in the theme's amber.
             let amber = theme.palette.yellow.hex
-            let titleBar = CGRect(x: 0, y: 0, width: Self.windowSize.width, height: ChromeMetrics.TitleBar.height)
-            let centre = CGRect(x: Self.windowSize.width / 2, y: 0, width: 60, height: ChromeMetrics.TitleBar.height)
-            let trailing = CGRect(x: Self.windowSize.width - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
+            let titleBar = CGRect(x: 0, y: 0, width: size.width, height: ChromeMetrics.TitleBar.height)
+            let centre = CGRect(x: size.width / 2, y: 0, width: 60, height: ChromeMetrics.TitleBar.height)
+            let trailing = CGRect(x: size.width - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
             XCTAssertGreaterThan(count(amber, in: centre, of: image), 0, "\(scheme): no DEV tag beside the title")
             XCTAssertGreaterThan(count(amber, in: trailing, of: image), 0, "\(scheme): no restart offer at the right")
             XCTAssertGreaterThan(count(amber, in: titleBar, of: image), 0)
@@ -5019,8 +5023,8 @@ extension ChromeRenderTests {
     }
 
     /// A focused pane is Overview's: its tab stays selected, choosing it again
-    /// keeps the pane, and choosing Arrange or Workspaces shows that view
-    /// while Overview keeps the pane to return to.
+    /// keeps the pane, and Arrange leaves it alone. Workspaces puts it down
+    /// unless Settings asks Overview to keep it.
     func testAFocusedPaneKeepsOverviewSelectedUntilArrangeIsChosen() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let navigator = ViewTabNavigator(drag: harness.drag, mode: harness.modeStore)
@@ -5038,7 +5042,13 @@ extension ChromeRenderTests {
         XCTAssertEqual(harness.drag.gridFocusedPane, pane, "Overview returns to the pane it had open")
         navigator.choose(.workspaces)
         XCTAssertFalse(harness.drag.isGridShown)
-        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "closing the grid keeps it too")
+        XCTAssertNil(harness.drag.gridFocusedPane, "coming back from Workspaces shows the lanes")
+
+        harness.drag.keepsOverviewPane = { true }
+        navigator.choose(.overview)
+        harness.drag.focusGridPane(pane)
+        navigator.choose(.workspaces)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "kept when Settings asks for the pane you had open")
     }
 
     /// Below the main window's minimum, "flock" and its DEV tag hide rather

@@ -60,6 +60,7 @@ struct FlockApp: App {
     @State private var allWorkspacesModeStore: AllWorkspacesModeStore
     @State private var missionBottomLineStore = MissionBottomLineStore()
     @State private var overviewReturnStore: OverviewReturnStore
+    @State private var overviewInclusionStore = OverviewInclusionStore()
     @State private var oneTitleStore: OneTitleStore
     @State private var workspaceIdentityStore: WorkspaceIdentityStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
@@ -349,6 +350,7 @@ struct FlockApp: App {
                 .environment(dragCoordinator)
                 .environment(allWorkspacesModeStore)
                 .environment(missionBottomLineStore)
+                .environment(overviewInclusionStore)
                 .environment(workspaceIdentityStore)
                 .environment(dividerDragCoordinator)
                 .environment(commandPalette)
@@ -658,6 +660,7 @@ struct FlockApp: App {
                 notificationLifetimeStore: notificationLifetimeStore,
                 missionBottomLineStore: missionBottomLineStore,
                 overviewReturnStore: overviewReturnStore,
+                overviewInclusionStore: overviewInclusionStore,
                 oneTitleStore: oneTitleStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,

@@ -45,7 +45,7 @@ struct AllWorkspacesGrid: View {
             if arrange == nil, let focused = drag.gridFocusedPane {
                 FocusedPaneView(theme: theme, viewModel: viewModel, pane: focused)
             } else {
-                header
+                gridHeader(workspaceCount: arrange?.inputs.islands.count ?? workspaces.count)
                 Rectangle()
                     .fill(theme.rule)
                     .frame(height: ChromeMetrics.ruleWidth)
@@ -261,9 +261,11 @@ struct AllWorkspacesGrid: View {
         return true
     }
 
-    private var header: some View {
+    /// Arrange counts the islands it draws, which leave Board and the herds
+    /// out.
+    private func gridHeader(workspaceCount: Int) -> some View {
         HStack(spacing: ChromeMetrics.Grid.headerSpacing) {
-            Text(workspaces.count == 1 ? "1 workspace" : "\(workspaces.count) workspaces")
+            Text(workspaceCount == 1 ? "1 workspace" : "\(workspaceCount) workspaces")
                 .font(ChromeType.gridCount)
                 .foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
@@ -300,8 +302,12 @@ struct AllWorkspacesGrid: View {
         let model = viewModel.model
         let sections = viewModel.railSections(board: boardNames.names, herdProgress: herdProgress.progress)
         let ranked = sections?.railOrder ?? []
-        let ordered = ranked.compactMap { id in workspaces.first { $0.workspaceID == id } }
-            + workspaces.filter { !ranked.contains($0.workspaceID) }
+        // Arrange is for the workspaces a person arranges: Board's and the
+        // herds' are run for them.
+        let leftOut = (sections?.reviewIDs ?? []).union(sections?.herdIDs ?? [])
+        let ordered = (ranked.compactMap { id in workspaces.first { $0.workspaceID == id } }
+            + workspaces.filter { !ranked.contains($0.workspaceID) })
+            .filter { !leftOut.contains($0.workspaceID) }
         let islands = ordered.map {
             IslandLayout.Island(id: $0.workspaceID, tabs: model?.tabs[$0.workspaceID]?.count ?? 1)
         }

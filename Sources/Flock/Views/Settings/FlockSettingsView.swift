@@ -44,6 +44,7 @@ struct FlockSettingsView: View {
     let notificationLifetimeStore: NotificationLifetimeStore
     let missionBottomLineStore: MissionBottomLineStore
     let overviewReturnStore: OverviewReturnStore
+    let overviewInclusionStore: OverviewInclusionStore
     let oneTitleStore: OneTitleStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
     let startingFolderStore: StartingFolderStore
@@ -56,6 +57,7 @@ struct FlockSettingsView: View {
     init(
         herdrMousePatchStore: HerdrMousePatchStore, notificationLifetimeStore: NotificationLifetimeStore,
         missionBottomLineStore: MissionBottomLineStore, overviewReturnStore: OverviewReturnStore,
+        overviewInclusionStore: OverviewInclusionStore,
         oneTitleStore: OneTitleStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, tab: SettingsTab = .general
@@ -64,6 +66,7 @@ struct FlockSettingsView: View {
         self.notificationLifetimeStore = notificationLifetimeStore
         self.missionBottomLineStore = missionBottomLineStore
         self.overviewReturnStore = overviewReturnStore
+        self.overviewInclusionStore = overviewInclusionStore
         self.oneTitleStore = oneTitleStore
         self.rearrangeAfterMoveStore = rearrangeAfterMoveStore
         self.startingFolderStore = startingFolderStore
@@ -83,7 +86,9 @@ struct FlockSettingsView: View {
             .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.symbol) }
             .tag(SettingsTab.general)
             pane(.views) {
-                OverviewSettingsSection(bottomLineStore: missionBottomLineStore, returnStore: overviewReturnStore)
+                OverviewSettingsSection(
+                    bottomLineStore: missionBottomLineStore, returnStore: overviewReturnStore, inclusionStore: overviewInclusionStore
+                )
                 RearrangeSettingsSection(store: rearrangeAfterMoveStore)
             }
             .tabItem { Label(SettingsTab.views.title, systemImage: SettingsTab.views.symbol) }

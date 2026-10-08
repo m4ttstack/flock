@@ -12,12 +12,25 @@ struct MainWindow: View {
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
     @Environment(AllWorkspacesModeStore.self) private var allWorkspacesMode
+    @Environment(BoardStore.self) private var boardStore
+    @Environment(HerdProgressStore.self) private var herdProgress
+    @Environment(OverviewInclusionStore.self) private var overviewInclusion: OverviewInclusionStore?
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
     var isDevBuild = BuildFlavor.isDev
 
     private var theme: Theme { themeStore.active }
+
+    /// What Overview's Blocked group holds, so the badge counts only panes
+    /// Overview shows.
+    private var blockedCount: Int {
+        guard let model = viewModel.model else { return 0 }
+        let excluded = overviewInclusion.flatMap { inclusion in
+            viewModel.railSections(board: boardStore.names, herdProgress: herdProgress.progress).map(inclusion.excluded(from:))
+        } ?? []
+        return MissionBoard.blockedCount(model: model.without(workspaces: excluded), toasts: viewModel.attentionToasts)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,7 +94,7 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild, blockedCount: viewModel.model.map { MissionBoard.blockedCount(model: $0, toasts: viewModel.attentionToasts) } ?? 0
+                isDevBuild: isDevBuild, blockedCount: blockedCount
             )
         }
         // What the rail's width is clamped against: a window too narrow for
