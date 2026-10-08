@@ -21,6 +21,7 @@ final class TopBarRenderTests: XCTestCase {
     private struct Hosted {
         let window: NSWindow
         let pins: [String: PinID]
+        let drag: DragCoordinator
     }
 
     private static let names = ["dash", "logs", "board"]
@@ -72,6 +73,49 @@ final class TopBarRenderTests: XCTestCase {
                 let rest = try XCTUnwrap(sample(image, CGPoint(x: cell("dash").minX + 3, y: board.minY + 4)))
                 XCTAssertLessThanOrEqual(distance(rest, roles.chrome), 2, "\(message): a closed cell draws no fill")
             }
+        }
+    }
+
+    /// `logs` picked up and carried over `dash`'s leading half: the gap opens
+    /// before `dash`, which slides along by `logs`' width, `board` stays, and
+    /// `logs` itself is left ghosted.
+    func testACellDraggedAlongTheBarOpensAGapThere() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let hosted = try await host(theme, width: 1100, label: .iconAndName)
+            defer { hosted.window.close() }
+            let drag = hosted.drag
+            drag.stripWorkspace = Self.main
+            let frames = drag.topBarFrames
+            XCTAssertEqual(frames.map(\.id), try Self.names.map { try XCTUnwrap(hosted.pins[$0]) }, scheme)
+            guard frames.count == 3 else { continue }
+            let dash = frames[0].frame, logs = frames[1].frame
+            XCTAssertNotNil(drag.topBarFrame, scheme)
+
+            drag.beginIfIdle(
+                .pin(try XCTUnwrap(hosted.pins["logs"])),
+                ghost: DragCoordinator.Ghost(title: "logs", symbol: "square.grid.2x2", originSize: logs.size),
+                at: CGPoint(x: logs.midX, y: logs.midY)
+            )
+            drag.move(to: CGPoint(x: dash.minX + 4, y: dash.midY))
+            XCTAssertEqual(drag.target, .topBar(insertIndex: 0), scheme)
+            XCTAssertEqual(drag.topBarDisplacement(at: 0), logs.width, accuracy: 0.5, "\(scheme): dash slides along")
+            XCTAssertEqual(drag.topBarDisplacement(at: 2), 0, "\(scheme): board stays")
+            let bar = try XCTUnwrap(drag.insertionMark?.bar, "\(scheme): the insertion bar shows in the title bar")
+            XCTAssertEqual(bar.midX, dash.minX, accuracy: 2, "\(scheme): the bar sits before dash: \(bar)")
+
+            for _ in 0..<6 {
+                hosted.window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTAssertEqual(drag.topBarFrames.map(\.frame), frames.map(\.frame), "\(scheme): resting frames hold under the slide")
+            if let directory {
+                try XCTUnwrap(try snapshot(hosted.window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("top-bar-drag-\(scheme).png"))
+            }
+            drag.release()
         }
     }
 
@@ -325,12 +369,16 @@ final class TopBarRenderTests: XCTestCase {
             commit: { subject, target in await viewModel.perform(subject: subject, target: target) },
             reveal: { _ in }
         )
+        let themeStore = ThemeStore(userDefaults: defaults)
+        themeStore.select(theme)
         let root = VStack(spacing: 0) {
             TitleBar(theme: theme, sessionLabel: "render", connectionState: .live, isDevBuild: false, viewModel: viewModel)
             Spacer(minLength: 0)
         }
         .frame(width: width, height: Self.height)
         .background(theme.chrome)
+        .overlay { DragLayer() }
+        .environment(themeStore)
         .environment(drag)
         .environment(AllWorkspacesModeStore(userDefaults: defaults))
         .environment(identity)
@@ -349,7 +397,7 @@ final class TopBarRenderTests: XCTestCase {
             window.contentView?.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(50))
         }
-        return Hosted(window: window, pins: pins)
+        return Hosted(window: window, pins: pins, drag: drag)
     }
 
     private func model(_ ids: [WorkspaceID]) -> SessionModel {

@@ -289,4 +289,55 @@ final class SessionViewModelTopBarTests: XCTestCase {
         vm.update(model: model([]), connection: .live)
         XCTAssertNil(vm.topBarStatus(of: vm.pins.pins(in: .topBar)[0]))
     }
+    func testDragsMovePinsBetweenTheBarAndPinnedAndRefuseTwoTabs() async {
+        var notices: [String] = []
+        let vm = viewModel(notices: { notices.append($0) })
+        vm.update(model: model([("w1", "acme"), ("w2", "dash"), ("w3", "logs")], tabs: ["w3": 2]), connection: .live)
+        vm.pin(workspace: w1)
+        vm.pin(workspace: w2)
+        vm.pin(workspace: WorkspaceID(rawValue: "w3"))
+        let ids = vm.pins.pins.map(\.id)
+        let up = await vm.perform(subject: .pin(ids[1]), target: .topBar(insertIndex: 0))
+        XCTAssertEqual(up, .committed)
+        XCTAssertEqual(vm.pins.pins(in: .topBar).map(\.name), ["dash"])
+        let refused = await vm.perform(subject: .pin(ids[2]), target: .topBar(insertIndex: 1))
+        XCTAssertEqual(refused, .noOp)
+        XCTAssertEqual(notices.count, 1)
+        let down = await vm.perform(subject: .pin(ids[1]), target: .pinnedRail(insertIndex: 0))
+        XCTAssertEqual(down, .committed)
+        XCTAssertEqual(vm.pins.pins(in: .rail).map(\.name), ["dash", "acme", "logs"])
+    }
+
+    func testDraggingACellAlongTheBarReordersItWithoutTheTabCheck() async {
+        let vm = viewModel()
+        vm.update(model: model([("w1", "acme"), ("w2", "dash")]), connection: .live)
+        vm.moveToTopBar(workspace: w1, at: nil)
+        vm.moveToTopBar(workspace: w2, at: nil)
+        let bar = vm.pins.pins(in: .topBar).map(\.id)
+        let moved = await vm.perform(subject: .pin(bar[1]), target: .topBar(insertIndex: 0))
+        XCTAssertEqual(moved, .committed)
+        XCTAssertEqual(vm.pins.pins(in: .topBar).map(\.name), ["dash", "acme"])
+        let same = await vm.perform(subject: .pin(bar[1]), target: .topBar(insertIndex: 1))
+        XCTAssertEqual(same, .noOp, "a cell dropped back in its own gap changes nothing")
+    }
+
+    func testACellDroppedAnywhereButTheBarOrPinnedCancels() async {
+        let executor = RecordingExecutor()
+        let vm = viewModel(executor: executor)
+        vm.update(model: model([("w1", "acme"), ("w2", "dash")]), connection: .live)
+        vm.moveToTopBar(workspace: w2, at: nil)
+        let pin = vm.pins.pins(in: .topBar)[0]
+        let targets: [DropTarget] = [
+            .workspaceRail(insertIndex: 0), .workspaceRail(insertIndex: 1), .workspaceThumbnail(w1),
+            .tabThumbnail(TabID(rawValue: "w1:t1")), .tabStrip(workspace: w1, insertIndex: 0), .newTab(w1),
+            .newWorkspace, .paneInterior(PaneID(rawValue: "w1:p1")), .paneEdge(PaneID(rawValue: "w1:p1"), .left),
+        ]
+        for target in targets {
+            let outcome = await vm.perform(subject: .pin(pin.id), target: target)
+            XCTAssertEqual(outcome, .noOp, "\(target)")
+            XCTAssertEqual(vm.pins.pin(pin.id)?.placement, .topBar, "\(target)")
+            XCTAssertEqual(vm.pins.pins.count, 1, "\(target)")
+        }
+        XCTAssertTrue(executor.plans.isEmpty)
+    }
 }

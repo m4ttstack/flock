@@ -37,6 +37,7 @@ struct TopBarWorkspaceStrip: View {
             }
             .reportsDragFrame { drag.setTopBarRegion($0) }
             .onChange(of: rows.map(\.pin.id), initial: true) { _, order in drag.setTopBarOrder(order) }
+            .onDisappear { drag.setTopBarOrder([]) }
             .overlay(alignment: .leading) {
                 if !rows.isEmpty {
                     Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
@@ -100,18 +101,15 @@ private struct TopBarCell: View {
     @Environment(DragCoordinator.self) private var drag
     @State private var picking = false
     @State private var renaming = false
+    @State private var isHovering = false
 
     private var pin: PinnedWorkspace { row.pin }
 
     var body: some View {
-        GridControlButton(
-            theme: theme, shape: AnyShape(Rectangle()),
-            restFill: isOpen ? theme.tabRest : .clear,
-            restForeground: isOpen ? theme.textStrong : theme.textDim,
-            action: { Task { await viewModel.toggleTopBar(pin.id) } }
-        ) {
-            TopBarCellLabel(theme: theme, viewModel: viewModel, row: row, showsName: showsName, isOpen: isOpen)
-        }
+        face
+        // A tap gesture rather than a Button: a Button also fires when a drag
+        // is released back over the cell it started on, toggling the overlay.
+        .onTapGesture { toggle() }
         .overlay(alignment: .trailing) {
             Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
         }
@@ -161,8 +159,30 @@ private struct TopBarCell: View {
             }
         }
         .help(pin.name)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(pin.name)
         .accessibilityIdentifier("flock.titleBar.topBar.\(pin.id.rawValue)")
-        .accessibilityAddTraits(isOpen ? .isSelected : [])
+        .accessibilityAddTraits(isOpen ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { toggle() }
+    }
+
+    /// `GridControlButton`'s rest and hover, without its press.
+    private var face: some View {
+        let appearance = GridControlAppearance.resolve(
+            theme: theme, restForeground: isOpen ? theme.textStrong : theme.textDim, isHovering: isHovering, isPressed: false
+        )
+        return TopBarCellLabel(theme: theme, viewModel: viewModel, row: row, showsName: showsName, isOpen: isOpen)
+            .foregroundStyle(appearance.foreground)
+            .background(
+                GridControlGround(
+                    theme: theme, shape: AnyShape(Rectangle()), restFill: isOpen ? theme.tabRest : .clear, appearance: appearance
+                )
+            )
+            .contentShape(Rectangle())
+            .fadingHover($isHovering)
+    }
+
+    private func toggle() {
+        Task { await viewModel.toggleTopBar(pin.id) }
     }
 }

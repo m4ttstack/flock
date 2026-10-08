@@ -1611,11 +1611,18 @@ public final class SessionViewModel {
             }
             return changed ? .committed : .noOp
         case let (.pin(id), .pinnedRail(index)):
-            let before = pins.pins.map(\.id)
-            movePin(id, toInsertIndex: index)
-            return pins.pins.map(\.id) == before ? .noOp : .committed
+            let before = pins.pins
+            if pins.pin(id)?.placement == .topBar { moveToSidebar(pin: id, at: index) } else { movePin(id, toInsertIndex: index) }
+            return pins.pins == before ? .noOp : .committed
+        case let (.pin(id), .topBar(index)):
+            guard let pin = pins.pin(id) else { return .noOp }
+            let before = pins.pins
+            if pin.placement == .topBar { movePin(id, toInsertIndex: index) } else { moveToTopBar(pin: id, at: index) }
+            return pins.pins == before ? .noOp : .committed
         case let (.pin(id), .workspaceRail(index)):
-            guard let workspace = pins.pin(id)?.workspace else { return .noOp }
+            // A top-bar cell goes back by way of PINNED, never straight among
+            // the workspaces.
+            guard let pin = pins.pin(id), pin.placement == .rail, let workspace = pin.workspace else { return .noOp }
             // herdr lands a move at either neighbouring slot where it already is,
             // so the planner sends a move that changes nothing; skip it.
             if let model = fullModel, let position = model.workspaces.firstIndex(where: { $0.workspaceID == workspace }) {
@@ -1634,7 +1641,7 @@ public final class SessionViewModel {
             guard outcome == .committed || outcome == .noOp else { return outcome }
             unpin(id)
             return .committed
-        case (.pin, _), (_, .pinnedRail):
+        case (.pin, _), (_, .pinnedRail), (_, .topBar):
             return .noOp
         default:
             return nil
@@ -2274,7 +2281,7 @@ extension DropTarget {
         case .paneEdge(let target, _), .paneInterior(let target):
             guard let from = model.panes[pane]?.tabID, let into = model.panes[target]?.tabID else { return false }
             return from != into
-        case .tabStrip, .workspaceRail, .pinnedRail:
+        case .tabStrip, .workspaceRail, .pinnedRail, .topBar:
             return false
         }
     }

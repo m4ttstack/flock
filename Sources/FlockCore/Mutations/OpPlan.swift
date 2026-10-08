@@ -12,6 +12,8 @@ public enum DropTarget: Equatable, Sendable {
     case newWorkspace
     case workspaceRail(insertIndex: Int)
     case pinnedRail(insertIndex: Int)
+    /// A pin's gap among the title bar's top-bar cells, left to right.
+    case topBar(insertIndex: Int)
 }
 
 /// What a drag gesture is carrying.

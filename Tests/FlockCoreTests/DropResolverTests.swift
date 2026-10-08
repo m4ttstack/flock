@@ -522,4 +522,45 @@ final class DropResolverTests: XCTestCase {
             "a pane over a live pin lands on its row"
         )
     }
+    func testAPinOverTheTopBarResolvesToAnInsertIndexAlongIt() throws {
+        let frames = [
+            PinItemFrame(id: PinID(rawValue: "a"), workspace: nil, frame: CGRect(x: 800, y: 0, width: 40, height: 38)),
+            PinItemFrame(id: PinID(rawValue: "b"), workspace: nil, frame: CGRect(x: 840, y: 0, width: 40, height: 38)),
+        ]
+        let surfaces = DropSurfaces(
+            canvas: try canvas(), stripWorkspace: WorkspaceID(rawValue: "w1"), tabFrames: [], workspaceFrames: [],
+            newTabZone: nil, newWorkspaceZone: nil, topBarFrames: frames, topBarFrame: CGRect(x: 800, y: 0, width: 80, height: 38)
+        )
+        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 805, y: 10), dragging: .pin(PinID(rawValue: "b")), surfaces: surfaces), .topBar(insertIndex: 0))
+        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 875, y: 10), dragging: .pin(PinID(rawValue: "a")), surfaces: surfaces), .topBar(insertIndex: 2))
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 805, y: 10), dragging: .workspace(WorkspaceID(rawValue: "w1")), surfaces: surfaces))
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 805, y: 10), dragging: .pane(PaneID(rawValue: "p1")), surfaces: surfaces))
+    }
+
+    func testTheTopBarAnswersBeforeTheGridAndTheRailBelowIt() throws {
+        let frames = [PinItemFrame(id: PinID(rawValue: "a"), workspace: nil, frame: CGRect(x: 0, y: 0, width: 40, height: 38))]
+        let grid = GridDropSurfaces(
+            viewport: CGRect(x: 0, y: 0, width: 400, height: 400), thumbnails: [],
+            cards: [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 0, width: 400, height: 400))]
+        )
+        let surfaces = DropSurfaces(
+            canvas: try canvas(), stripWorkspace: WorkspaceID(rawValue: "w1"), tabFrames: [],
+            workspaceFrames: [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 0, width: 200, height: 28))],
+            newTabZone: nil, newWorkspaceZone: nil, grid: grid,
+            topBarFrames: frames, topBarFrame: CGRect(x: 0, y: 0, width: 40, height: 38)
+        )
+        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 30, y: 10), dragging: .pin(PinID(rawValue: "b")), surfaces: surfaces), .topBar(insertIndex: 1))
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 30, y: 10), dragging: .tab(TabID(rawValue: "w1:t1")), surfaces: surfaces))
+    }
+
+    func testATopBarCellOverTheWorkspacesResolvesToNothing() throws {
+        let bar = [PinItemFrame(id: PinID(rawValue: "a"), workspace: WorkspaceID(rawValue: "w9"), frame: CGRect(x: 800, y: 0, width: 40, height: 38))]
+        let rail = [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 100, width: 200, height: 28))]
+        let surfaces = DropSurfaces(
+            canvas: try canvas(), stripWorkspace: WorkspaceID(rawValue: "w1"), tabFrames: [], workspaceFrames: rail,
+            railFrame: CGRect(x: 0, y: 60, width: 200, height: 300),
+            newTabZone: nil, newWorkspaceZone: nil, topBarFrames: bar, topBarFrame: CGRect(x: 800, y: 0, width: 40, height: 38)
+        )
+        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 10, y: 120), dragging: .pin(PinID(rawValue: "a")), surfaces: surfaces))
+    }
 }
