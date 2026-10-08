@@ -77,7 +77,7 @@ final class GhosttySession {
     /// from `flagsChanged`, and never for a bare Command combo -- see that
     /// call site). Set by `GhosttyControlSurfaceFactory.makeSurface` at
     /// creation, from `SessionViewModel`'s own `recordLauncherKeystroke`:
-    /// without this, a real keystroke into a pristine pane would never hide
+    /// without this, a real keystroke into a launcher pane would never hide
     /// the launcher overlay, leaving it hit-testable over live terminal
     /// output.
     var onUserInput: (() -> Void)?

@@ -64,7 +64,7 @@ struct RtModalPane: View {
                     surface: surface, grid: grid, theme: theme, isFocused: isFocused,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
                     rearrangeActive: false, rightClickMode: .programOnly,
-                    paneDragInProgress: false, isPristineLauncherPane: false,
+                    paneDragInProgress: false, isLauncherShowing: false,
                     editorIsOpen: editorIsOpen, onPrimaryClick: onFocus, menuProvider: { nil }, onBodyDragBegan: { _ in }
                 )
                 .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .topLeading)

@@ -151,11 +151,11 @@ public protocol GhosttyPaneFactory {
     /// `onUserInput` is handed to the surface so it can report real user
     /// input (a keystroke, not a bare modifier change) back up to
     /// `SessionViewModel` without `FlockCore` ever seeing the AppKit event
-    /// that triggered it -- the launcher-pristine contract's ghostty half of
+    /// that triggered it -- the launcher contract's ghostty half of
     /// `recordLauncherKeystroke`. Originating the closure here, at the
     /// factory call site, keeps that contract testable against a fake
     /// without any real NSView or NSEvent: a test can invoke it directly and
-    /// assert the pristine flag clears.
+    /// assert the launcher flag clears.
     ///
     /// `onScreenActivity` is the launcher's screen half: called with the
     /// surface's current non-empty active-screen row count whenever that

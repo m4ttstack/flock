@@ -39,7 +39,7 @@ enum HarnessRoster {
 
     /// A fresh directory scan each call (cheap: one `isExecutableFile` per
     /// candidate directory) rather than a cached result, so a harness
-    /// installed mid-session shows up the next time a pristine pane is
+    /// installed mid-session shows up the next time a launcher pane is
     /// created rather than only at process start.
     static func detected(pathEnvironment: String = ToolPath.resolved) -> [HarnessEntry] {
         known.filter { entry in
@@ -97,20 +97,32 @@ enum LauncherSlots {
         return LaunchTarget.pane(canvasPane: pane, agent: pane.flatMap { viewModel.model?.panes[$0]?.agent })
     }
 
-    /// ⌘1 and on, and the palette's rows: the pane is read as the key lands,
-    /// never captured when the menu last rendered, and herdr is asked then
-    /// whether its shell is at a prompt to type into.
-    @MainActor
-    static func launchInFocusedPane(_ entry: HarnessEntry, on viewModel: SessionViewModel) async {
-        guard let pane = target(on: viewModel) else { return }
-        let atPrompt = await viewModel.isAtPrompt(pane)
-        log.notice("launch \(entry.id, privacy: .public) in \(pane.rawValue, privacy: .public): at prompt \(atPrompt)")
-        guard atPrompt else { return NSSound.beep() }
-        await launch(entry, in: pane, on: viewModel)
+    /// A click on the overlay's button, a ⌘ digit, or a palette row: the
+    /// three ways a launch starts, named in the log so a dead key can be told
+    /// from a press herdr refused.
+    enum LaunchPath: String {
+        case click, key, palette
     }
 
+    /// ⌘1 and on, and the palette's rows: the pane is read as the key lands,
+    /// never captured when the menu last rendered.
     @MainActor
-    static func launch(_ entry: HarnessEntry, in pane: PaneID, on viewModel: SessionViewModel) async {
+    static func launchInFocusedPane(_ entry: HarnessEntry, via path: LaunchPath, on viewModel: SessionViewModel) async {
+        guard let pane = target(on: viewModel) else { return }
+        await launch(entry, in: pane, via: path, on: viewModel)
+    }
+
+    /// Every launch asks herdr whether the shell holds the pane's foreground
+    /// as it fires: the overlay was shown on an answer that may be stale by
+    /// the time of the click, and a command typed into anything but a shell
+    /// at its prompt reaches that program as input.
+    @MainActor
+    static func launch(_ entry: HarnessEntry, in pane: PaneID, via path: LaunchPath, on viewModel: SessionViewModel) async {
+        let atPrompt = await viewModel.isAtPrompt(pane)
+        log.notice(
+            "launch \(entry.id, privacy: .public) via \(path.rawValue, privacy: .public) in \(pane.rawValue, privacy: .public): at prompt \(atPrompt)"
+        )
+        guard atPrompt else { return NSSound.beep() }
         if entry.id == NavigatorRoster.rtCd.id {
             await viewModel.launchNavigator(NavigatorRoster.command, in: pane)
         } else {
@@ -119,7 +131,7 @@ enum LauncherSlots {
     }
 }
 
-/// Renders on a pristine flock-created pane: the bare shell prompt stays
+/// Renders on a pane showing the launcher: the bare shell prompt stays
 /// visible above (this view never covers it -- it only occupies the space
 /// below, via its own top spacer), the navigator when there is one and a
 /// button per detected harness centered in that space, and, only when a PATH

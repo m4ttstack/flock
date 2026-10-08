@@ -83,7 +83,7 @@ final class PaneLoaderPolicyTests: XCTestCase {
     /// the launcher's buttons work by sending the harness name as input.
     func testTheLauncherWaitsForTheBadgeToGo() {
         XCTAssertFalse(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, hasFirstFrame: true, badgeVisible: true)
+            PaneLoaderPolicy.showsLauncherOverlay(isLauncherShowing: true, hasFirstFrame: true, badgeVisible: true)
         )
     }
 
@@ -92,22 +92,22 @@ final class PaneLoaderPolicyTests: XCTestCase {
     /// arrived, then back once it left.
     func testTheLauncherWaitsForAFrameEvenBeforeTheBadgeArrives() {
         XCTAssertFalse(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, hasFirstFrame: false, badgeVisible: false)
+            PaneLoaderPolicy.showsLauncherOverlay(isLauncherShowing: true, hasFirstFrame: false, badgeVisible: false)
         )
     }
 
     func testTheLauncherShowsOnAPristinePaneOnceTheBadgeIsGone() {
         XCTAssertTrue(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: true, hasFirstFrame: true, badgeVisible: false)
+            PaneLoaderPolicy.showsLauncherOverlay(isLauncherShowing: true, hasFirstFrame: true, badgeVisible: false)
         )
     }
 
     func testAPaneThatIsNotPristineNeverShowsTheLauncher() {
         XCTAssertFalse(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: false, hasFirstFrame: true, badgeVisible: false)
+            PaneLoaderPolicy.showsLauncherOverlay(isLauncherShowing: false, hasFirstFrame: true, badgeVisible: false)
         )
         XCTAssertFalse(
-            PaneLoaderPolicy.showsLauncherOverlay(isPristineLauncherPane: false, hasFirstFrame: true, badgeVisible: true)
+            PaneLoaderPolicy.showsLauncherOverlay(isLauncherShowing: false, hasFirstFrame: true, badgeVisible: true)
         )
     }
 

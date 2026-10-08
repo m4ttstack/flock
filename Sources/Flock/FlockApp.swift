@@ -264,12 +264,6 @@ struct FlockApp: App {
         JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesModeStore)
     }
 
-    /// A new pane's launcher is up, so ⌘1 and on launch into it rather than
-    /// switching views.
-    private var launcherOffered: Bool {
-        LauncherSlots.target(on: viewModel).map { viewModel.isLauncherShowing($0) } ?? false
-    }
-
     private var viewTabs: ViewTabNavigator {
         ViewTabNavigator(drag: dragCoordinator, mode: allWorkspacesModeStore)
     }
@@ -412,11 +406,15 @@ struct FlockApp: App {
                 Menu("Launch") {
                     ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
                         Button(LauncherSlots.title(for: entry)) {
-                            Task { await LauncherSlots.launchInFocusedPane(entry, on: viewModel) }
+                            Task { await LauncherSlots.launchInFocusedPane(entry, via: .key, on: viewModel) }
                         }
-                        // ⌘1 and on are the views' keys except while a new
-                        // pane is offering the launcher.
-                        .keyboardShortcut(launcherOffered ? KeyboardShortcut(LauncherSlots.key(at: index), modifiers: .command) : nil)
+                        // The first three digits are the View menu's, which
+                        // dispatch here while the launcher shows; slots past
+                        // them carry their own key.
+                        .keyboardShortcut(
+                            index < DigitKeyDispatch.viewDigits
+                                ? nil : KeyboardShortcut(LauncherSlots.key(at: index), modifiers: .command)
+                        )
                         .disabled(!canLaunch)
                         .accessibilityIdentifier("flock.pane.launch.\(entry.id)")
                     }
@@ -543,10 +541,21 @@ struct FlockApp: App {
                 OptionAsAltMenu(store: optionAsAltStore)
                 ScrollSpeedMenu(store: scrollSpeedStore)
                 Divider()
-                ForEach(ViewTab.allCases, id: \.self) { tab in
+                ForEach(Array(ViewTab.allCases.enumerated()), id: \.element) { index, tab in
                     let command = ViewCommand.show(tab)
                     Button {
-                        viewTabs.choose(tab)
+                        // Decided as the key lands, never by moving the key
+                        // equivalent: a pane offering the launcher borrows
+                        // the digit, and SwiftUI's menu refresh is not in
+                        // the loop.
+                        switch DigitKeyDispatch.decide(launcherShowing: viewModel.focusedPaneShowsLauncher, index: index) {
+                        case .launch(let slot):
+                            let slots = LauncherSlots.current()
+                            guard slot < slots.count else { return viewTabs.choose(tab) }
+                            Task { await LauncherSlots.launchInFocusedPane(slots[slot], via: .key, on: viewModel) }
+                        case .view, .none:
+                            viewTabs.choose(tab)
+                        }
                     } label: {
                         if viewTabs.selected == tab {
                             Label(command.title, systemImage: "checkmark")
@@ -554,7 +563,7 @@ struct FlockApp: App {
                             Text(command.title)
                         }
                     }
-                    .keyboardShortcut(launcherOffered ? nil : command.shortcut)
+                    .keyboardShortcut(command.shortcut)
                     .accessibilityIdentifier(command.accessibilityIdentifier)
                 }
                 Divider()

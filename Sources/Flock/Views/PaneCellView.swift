@@ -814,7 +814,7 @@ struct PaneCellView: View {
                     rearrangeActive: rearrangeMode.active,
                     rightClickMode: viewModel.rightClicks.mode(for: pane.terminalID),
                     paneDragInProgress: drag.isPaneDragInFlight,
-                    isPristineLauncherPane: viewModel.isLauncherShowing(pane.paneID),
+                    isLauncherShowing: viewModel.isLauncherShowing(pane.paneID),
                     // Any open editor, not just this pane's own: the one
                     // being typed into is usually a tab's or a rail row's,
                     // and this pane is the focused one whose surface would
@@ -842,12 +842,12 @@ struct PaneCellView: View {
                 // only the focused pane holds AppKit key focus. send_input is
                 // focus-independent.
                 if PaneLoaderPolicy.showsLauncherOverlay(
-                    isPristineLauncherPane: viewModel.isLauncherShowing(pane.paneID),
+                    isLauncherShowing: viewModel.isLauncherShowing(pane.paneID),
                     hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
                 ) {
                     PaneLauncherOverlay(
                         theme: theme, entries: HarnessRoster.detected(), navigator: NavigatorRoster.detected(),
-                        onLaunch: { entry in Task { await LauncherSlots.launch(entry, in: pane.paneID, on: viewModel) } }
+                        onLaunch: { entry in Task { await LauncherSlots.launch(entry, in: pane.paneID, via: .click, on: viewModel) } }
                     )
                     .transition(.opacity)
                 }
@@ -855,7 +855,7 @@ struct PaneCellView: View {
             // While the launcher shows, the surface below claims no point at
             // all (`GhosttySurfaceView.hitTest`), which also removes ITS own
             // click-to-focus for the body OUTSIDE the button row -- this is
-            // that route's SwiftUI equivalent, pristine-only so an ordinary
+            // that route's SwiftUI equivalent, launcher-only so an ordinary
             // live pane keeps going through the AppKit path exactly as
             // before. Checked fresh per tap, not cached: the launcher can
             // hide (a keystroke, real output) between this view updating and
