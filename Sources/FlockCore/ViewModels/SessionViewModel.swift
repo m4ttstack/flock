@@ -1326,7 +1326,7 @@ public final class SessionViewModel {
         guard !Task.isCancelled else { return }
         _ = try? await client.requestRaw(
             "pane.send_keys",
-            ["pane_id": .string(pane.rawValue), "keys": .array([.string("C-l")])]
+            ["pane_id": .string(pane.rawValue), "keys": .array([.string("ctrl+l")])]
         )
         navigationWatches[pane] = nil
         launcherRegistryVersion += 1

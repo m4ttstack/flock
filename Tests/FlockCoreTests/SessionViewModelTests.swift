@@ -1187,7 +1187,7 @@ final class SessionViewModelTests: XCTestCase {
         let calls = await client.calls
         let keys = try XCTUnwrap(calls.last { $0.method == "pane.send_keys" })
         XCTAssertEqual(stringParam(keys.params, "pane_id"), "w1:p2")
-        XCTAssertEqual(stringArrayParam(keys.params, "keys"), ["C-l"])
+        XCTAssertEqual(stringArrayParam(keys.params, "keys"), ["ctrl+l"])
         XCTAssertNil(viewModel.navigationWatches[newPane])
         XCTAssertFalse(viewModel.isLauncherShowing(newPane), "the screen has not dropped yet")
         XCTAssertNil(viewModel.promptWatches[newPane], "the picker's screen is not bare: nothing to ask")
