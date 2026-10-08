@@ -43,6 +43,17 @@ public final class SessionViewModel {
     public let pins: PinnedWorkspaceStore
     public private(set) var selectedWorkspaceID: WorkspaceID?
     public private(set) var selectedTabID: TabID?
+    /// An empty pin the Workspaces view shows in place of the selected
+    /// workspace, which nothing reopens until the person picks how to start.
+    /// The selection underneath is kept so leaving the pin lands somewhere.
+    public private(set) var shownEmptyPin: PinID?
+    /// A pin just made, whose folder the person is asked to confirm.
+    public private(set) var pinFolderAsk: PinFolderAsk?
+    /// New pins whose shell folder is still being read. A folder chosen
+    /// outright meanwhile takes the pin out, and the read then neither
+    /// overwrites it nor asks.
+    @ObservationIgnored private var pinFolderReads: Set<PinID> = []
+    public var pinAwaitingFolder: PinID? { pinFolderAsk?.pin }
     public private(set) var optimisticFocusedPaneID: PaneID?
     public private(set) var lastLines: [PaneID: String] = [:]
     /// Arrange's tails, one per pane a tile has read.
@@ -132,7 +143,7 @@ public final class SessionViewModel {
     /// valve against attaching a pane the model never described at all.
     private var everKnownPaneIDs: Set<PaneID> = []
 
-    private let paneLauncherRegistry = PaneLauncherRegistry()
+    private let paneLauncherRegistry: PaneLauncherRegistry
     // Armed per visible pane on attach, disarmed on park and teardown, so a
     // pane's scroll feed lives exactly as long as something can show it.
     // `nil` when nothing was injected (a bare test double); the indicator
@@ -181,6 +192,9 @@ public final class SessionViewModel {
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
     @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
+    /// One per pane whose screen is bare and whose shell herdr has not yet
+    /// called idle, until it does or the pane stops being a candidate.
+    @ObservationIgnored var promptWatches: [PaneID: Task<Void, Never>] = [:]
 
     public init(
         client: any HerdrCommandClient,
@@ -197,6 +211,7 @@ public final class SessionViewModel {
         paneLastChangeArchive: PaneLastChangeArchive? = nil,
         oneTitle: @escaping @MainActor () -> Bool = { false },
         navigationPollInterval: Duration = .milliseconds(300),
+        launcherPollBackoff: [Duration] = PaneLauncherRegistry.defaultPollBackoff,
         backgroundWorkInterval: Duration = BackgroundWork.readInterval,
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
         homeDirectory: String = NSHomeDirectory(),
@@ -224,6 +239,7 @@ public final class SessionViewModel {
         self.lastChangeSeeds = paneLastChangeArchive?.load() ?? [:]
         self.oneTitleSetting = oneTitle
         self.navigationPollInterval = navigationPollInterval
+        self.paneLauncherRegistry = PaneLauncherRegistry(pollBackoff: launcherPollBackoff)
         self.backgroundWorkInterval = backgroundWorkInterval
         self.startingFolder = startingFolder
         self.homeDirectory = homeDirectory
@@ -265,6 +281,8 @@ public final class SessionViewModel {
         fullModel = newFullModel
         let user = newFullModel?.withoutFlockOwned
         userModel = user
+        let previouslyShown = shownWorkspaceID
+        let shownPin = previouslyShown.flatMap { pins.pin(linkedTo: $0)?.id }
         if connection == .live, let user {
             pins.reconcile(with: user, reopening: reopening) { RailSections.isRailRow(label: $0.label, board: nil) }
         }
@@ -296,6 +314,7 @@ public final class SessionViewModel {
             optimisticFocusedPaneID = nil
         }
         landSelectionAfterClose(previous: previousModel)
+        holdClosedPinOnScreen(previouslyShown, pin: shownPin, previous: previousModel)
         reconcileRenameTarget()
         refreshLayoutExports()
         reconcileClosedPanes()
@@ -307,7 +326,32 @@ public final class SessionViewModel {
             rightClicks.keepOnly(Set(fullModel.panes.values.compactMap(\.terminalID)))
             completedTabs.keepOnly(Set(fullModel.tabs.values.flatMap { $0.map(\.tabID) }))
         }
+        reconcileShownEmptyPin()
         closeTopBarOverlayIfGone()
+    }
+
+    /// The shown workspace closed and `pin`, a sidebar pin, held it: the pin
+    /// stays on screen, empty, rather than the view following herdr's focus
+    /// elsewhere. The pin is read before the pins reconcile, which unlinks
+    /// it. Gone from herdr, not just hidden: a workspace moved to the top bar
+    /// is still open.
+    private func holdClosedPinOnScreen(_ shown: WorkspaceID?, pin: PinID?, previous: SessionModel?) {
+        guard let shown, let pin, pins.pin(pin)?.placement == .rail, let userModel, let previous,
+              previous.workspaces.contains(where: { $0.workspaceID == shown }),
+              !userModel.workspaces.contains(where: { $0.workspaceID == shown })
+        else { return }
+        shownEmptyPin = pin
+    }
+
+    /// A shown pin that is gone stops standing in; one herdr has opened again
+    /// shows its workspace.
+    private func reconcileShownEmptyPin() {
+        guard let id = shownEmptyPin else { return }
+        guard let pin = pins.pin(id), pin.placement == .rail else {
+            shownEmptyPin = nil
+            return
+        }
+        if isOpen(pin), let workspace = pin.workspace { select(workspace: workspace) }
     }
 
     /// Moves the selection off a tab or workspace this update has closed, to
@@ -706,11 +750,16 @@ public final class SessionViewModel {
     /// The pane the main canvas draws as focused and lets take the keyboard.
     public var canvasFocusedPaneID: PaneID? { canvasFocus(solo: nil) }
 
+    /// The workspace the Workspaces view draws, which is none while an empty
+    /// pin stands in its place.
+    public var shownWorkspaceID: WorkspaceID? { shownEmptyPin == nil ? selectedWorkspaceID : nil }
+
     /// The pane a canvas draws as focused and lets take the keyboard: the
     /// main canvas's resolved focus, or a solo canvas's one pane. None while
     /// the rt modal is drawn over that canvas or the top-bar overlay over
     /// every canvas, since their own surfaces have it.
     public func canvasFocus(solo: PaneID?) -> PaneID? {
+        if solo == nil, shownEmptyPin != nil { return nil }
         guard topBarOverlay.openPin == nil, !rtModalIsOver(solo: solo) else { return nil }
         return solo ?? resolvedFocusedPaneID
     }
@@ -769,6 +818,7 @@ public final class SessionViewModel {
     }
 
     public func select(workspace id: WorkspaceID) {
+        shownEmptyPin = nil
         selectedWorkspaceID = id
         selectedTabID = model?.workspaces.first { $0.workspaceID == id }?.activeTabID
     }
@@ -777,6 +827,7 @@ public final class SessionViewModel {
     /// thumbnail), and the strip shows only the selected workspace's tabs, so
     /// its workspace is selected along with it.
     public func select(tab id: TabID) {
+        shownEmptyPin = nil
         if let owner = model?.tabs.first(where: { $0.value.contains { $0.tabID == id } })?.key, owner != selectedWorkspaceID {
             selectedWorkspaceID = owner
         }
@@ -1127,20 +1178,21 @@ public final class SessionViewModel {
             paneScrollSubscriber?.subscribe(pane: pane)
             return
         }
-        // All three closures are the launcher-pristine contract's ghostty
-        // half: see `GhosttyPaneFactory.makeSurface`'s doc comment. The
-        // screen-activity one hands back whether to keep reporting at all,
-        // because counting a surface's rows is a full buffer scan: it stays
-        // on only while the pane is still offering the launcher, or while a
-        // clear it was just asked for has yet to land.
+        // A surface can deliver a tick it queued before its teardown; a pane
+        // with no surface must not be re-created in the registry and polled.
         let surface = await factory.makeSurface(
             for: pane,
-            onUserInput: { [weak self] in self?.recordLauncherKeystroke(pane) },
-            onClearRequested: { [weak self] in self?.recordLauncherClearRequested(pane) },
-            onScreenActivity: { [weak self] nonEmptyRowCount in
-                guard let self, self.wantsLauncherScreenActivity(pane) else { return false }
-                self.recordLauncherScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount)
-                return self.wantsLauncherScreenActivity(pane)
+            onUserInput: { [weak self] in
+                guard let self, self.ghosttySurfaces[pane] != nil else { return }
+                self.recordLauncherKeystroke(pane)
+            },
+            onClearRequested: { [weak self] in
+                guard let self, self.ghosttySurfaces[pane] != nil else { return }
+                self.recordLauncherClearKey(pane)
+            },
+            onScreenActivity: { [weak self] activity in
+                guard let self, self.ghosttySurfaces[pane] != nil else { return }
+                self.recordLauncherRows(pane, rows: activity.rows, screen: activity.fingerprint, lastRow: activity.lastRow)
             }
         )
         ghosttySurfaces[pane] = surface
@@ -1173,97 +1225,148 @@ public final class SessionViewModel {
         let stale = Array(parkedPanes.prefix(overflow))
         parkedPanes.removeFirst(overflow)
         for pane in stale {
-            await teardownSurface(pane)
+            // The pane is still in herdr: what was typed into it and the
+            // prompt height it taught still hold when it comes back.
+            await teardownSurface(pane, forgetLauncherState: false)
         }
     }
 
     /// Tears `pane`'s surface down for real: the warm cap's own eviction, or
     /// herdr no longer reporting this pane at all (`reconcileClosedPanes`).
     /// Chained through `paneWork` like every other per-pane operation.
-    private func teardownSurface(_ pane: PaneID) async {
+    private func teardownSurface(_ pane: PaneID, forgetLauncherState: Bool = true) async {
         let previous = paneWork[pane]
         let task = Task { [weak self] in
             _ = await previous?.value
-            await self?.performTeardown(pane: pane)
+            await self?.performTeardown(pane: pane, forgetLauncherState: forgetLauncherState)
         }
         paneWork[pane] = task
         await task.value
     }
 
-    private func performTeardown(pane: PaneID) async {
+    private func performTeardown(pane: PaneID, forgetLauncherState: Bool) async {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
         paneScrollSubscriber?.unsubscribe(pane: pane)
         parkedPanes.removeAll { $0 == pane }
+        promptWatches[pane]?.cancel()
+        promptWatches[pane] = nil
+        navigationWatches[pane]?.cancel()
+        navigationWatches[pane] = nil
+        if forgetLauncherState {
+            paneLauncherRegistry.forget(pane)
+            launcherRegistryVersion += 1
+        }
         await surface.detach()
     }
 
-    // MARK: - new-pane harness launcher
+    // MARK: - harness launcher
 
     /// `PaneLauncherRegistry` is a plain (non-`@Observable`) class, so a
     /// mutation to it alone would never invalidate a SwiftUI view reading
-    /// `isPristineLauncherPane`. This counter is the observation seam: every
-    /// mutating call below bumps it, and `isPristineLauncherPane` reads it
+    /// it. This counter is the observation seam: every change below that
+    /// moves a pane's answer bumps it, and the readers below touch it
     /// (result discarded) purely to register that dependency.
     public private(set) var launcherRegistryVersion = 0
 
-    public func isPristineLauncherPane(_ pane: PaneID) -> Bool {
-        _ = launcherRegistryVersion
-        return paneLauncherRegistry.isPristine(pane)
+    /// The launcher item a key press just fired, lit as if pressed so the
+    /// press is seen before the launcher hides.
+    public struct LauncherFlash: Equatable {
+        public let pane: PaneID
+        public let slot: String
     }
 
-    /// On the key path: `GhosttySurfaceView.keyDown` calls this for every real
-    /// keystroke, so the seam is bumped only when the registry's answer
-    /// actually moved. Every visible pane cell's body depends on that seam
-    /// through `isPristineLauncherPane`, and the answer stops changing after
-    /// the pane's first keystroke -- for a pane flock never created it never
-    /// changes at all.
+    public private(set) var launcherFlash: LauncherFlash?
+
+    public func flashLauncherSlot(_ slot: String, in pane: PaneID) {
+        let flash = LauncherFlash(pane: pane, slot: slot)
+        launcherFlash = flash
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, self.launcherFlash == flash else { return }
+            self.launcherFlash = nil
+        }
+    }
+
+    public func isLauncherShowing(_ pane: PaneID) -> Bool {
+        _ = launcherRegistryVersion
+        return paneLauncherRegistry.isShowing(pane)
+    }
+
+    /// The rows the pane's screen holds, which the overlay keeps clear of.
+    public func launcherOccupiedRows(_ pane: PaneID) -> Int {
+        _ = launcherRegistryVersion
+        return paneLauncherRegistry.occupiedRows(pane)
+    }
+
+    /// Whether ⌘1 and on launch rather than switch views: the canvas's
+    /// focused pane, with no detected agent, is showing the launcher.
+    public var focusedPaneShowsLauncher: Bool {
+        let pane = canvasFocusedPaneID
+        guard let target = LaunchTarget.pane(canvasPane: pane, agent: pane.flatMap { model?.panes[$0]?.agent }) else {
+            return false
+        }
+        return isLauncherShowing(target)
+    }
+
+    /// On the key path: `GhosttySurfaceView.keyDown` calls this for every
+    /// real keystroke.
     public func recordLauncherKeystroke(_ pane: PaneID) {
-        let wasPristine = paneLauncherRegistry.isPristine(pane)
-        paneLauncherRegistry.recordKeystroke(pane)
-        guard wasPristine else { return }
-        launcherRegistryVersion += 1
+        launcherChange(pane) { $0.recordKeystroke(pane) }
     }
 
-    /// The launcher-pristine contract's screen-activity half: a pane whose
-    /// program prints real output, never typed into, also hides the
-    /// overlay. `nonEmptyRowCount` is the surface's own retained-screen
-    /// count (`GhosttySession.reportScreenActivityIfDue`); which counts are
-    /// the shell still starting up, and which are the pane in use, is
-    /// `PaneLauncherRegistry`'s answer.
-    public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
-        paneLauncherRegistry.recordScreenActivity(pane, nonEmptyRowCount: nonEmptyRowCount, at: now())
-        launcherRegistryVersion += 1
+    /// The key that asks the shell to clear, after the keystroke above.
+    public func recordLauncherClearKey(_ pane: PaneID) {
+        launcherChange(pane) { $0.recordClearKey(pane) }
     }
 
-    /// The pane was asked to clear its screen. This shows nothing by itself:
-    /// it opens the window in which the pane's screen dropping back to its
-    /// settled size means the clear landed and the launcher can be offered
-    /// again. A program that handled the key itself and repainted never makes
-    /// that drop, so it keeps the overlay away.
-    public func recordLauncherClearRequested(_ pane: PaneID) {
-        paneLauncherRegistry.recordClearRequested(pane, at: now())
-        launcherRegistryVersion += 1
+    /// The surface's non-empty active-screen row count, each time it changes.
+    public func recordLauncherRows(_ pane: PaneID, rows: Int, screen: Int? = nil, lastRow: String? = nil) {
+        launcherChange(pane) { $0.recordRows(pane, rows: rows, screen: screen, lastRow: lastRow, at: now()) }
     }
 
-    /// Whether this pane's surface should still be counting its rows for the
-    /// launcher. That count is a full buffer scan, so it is not left running
-    /// on panes whose answer can no longer change.
-    public func wantsLauncherScreenActivity(_ pane: PaneID) -> Bool {
-        _ = launcherRegistryVersion
-        return paneLauncherRegistry.wantsScreenActivity(pane, at: now())
+    /// Applies one registry mutation, bumps the observation seam only when a
+    /// reader would see a change (the pane's answer flipped, or the rows an
+    /// overlay on screen keeps clear of moved), and re-arms or cancels the
+    /// pane's herdr poll to match the registry's new question. Every visible
+    /// cell reads the seam, and a busy program's pane changes rows twice a
+    /// second.
+    private func launcherChange(_ pane: PaneID, _ mutate: (PaneLauncherRegistry) -> Void) {
+        let showingBefore = paneLauncherRegistry.isShowing(pane)
+        let rowsBefore = paneLauncherRegistry.occupiedRows(pane)
+        mutate(paneLauncherRegistry)
+        let showingAfter = paneLauncherRegistry.isShowing(pane)
+        let rowsMoved = rowsBefore != paneLauncherRegistry.occupiedRows(pane)
+        if showingBefore != showingAfter || (rowsMoved && showingAfter) {
+            launcherRegistryVersion += 1
+        }
+        schedulePromptPoll(pane)
     }
 
-    /// Sends `binary` to `pane` and submits it in one `send_input` call (the
-    /// overlay's click contract), then hides the launcher for that pane
-    /// immediately, same as a real keystroke would.
+    private func schedulePromptPoll(_ pane: PaneID) {
+        promptWatches[pane]?.cancel()
+        promptWatches[pane] = nil
+        guard let delay = paneLauncherRegistry.nextPollDelay(pane) else { return }
+        promptWatches[pane] = Task { [weak self] in
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            guard !Task.isCancelled, let self else { return }
+            let data = try? await self.client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
+            guard !Task.isCancelled else { return }
+            let idle = data.flatMap { PaneForegroundJob.isBusy(processInfoResponse: $0) }.map { !$0 }
+            self.launcherChange(pane) { $0.recordForegroundJob(pane, idle: idle, at: self.now()) }
+        }
+    }
+
+    /// Hides the launcher for `pane` at once, as a keystroke would, then
+    /// sends `binary` and submits it in one `send_input` call. Hidden before
+    /// the send, so a second click during the round trip finds no button.
     ///
     /// The Enter rides `keys`, never a newline inside `text`: herdr wraps a
     /// non-empty `text` in a bracketed-paste sequence whenever the pane's
     /// program enabled it (a shell at a prompt does), and a newline inside
     /// that bracket reaches the line editor as a literal newline rather than
-    /// accept-line, so the harness name would be typed and never run.
-    /// `keys` is encoded outside the bracket.
+    /// accept-line. `keys` is encoded outside the bracket.
     public func launchHarness(_ binary: String, in pane: PaneID) async {
+        recordLauncherKeystroke(pane)
         _ = try? await client.requestRaw(
             "pane.send_input",
             [
@@ -1272,7 +1375,6 @@ public final class SessionViewModel {
                 "keys": .array([.string("Enter")]),
             ]
         )
-        recordLauncherKeystroke(pane)
     }
 
     /// Asked of herdr at the moment of launching, never cached: a command
@@ -1287,15 +1389,14 @@ public final class SessionViewModel {
 
     /// Runs a navigator command (a directory picker such as `rt cd`) in
     /// `pane`, focused first because the picker takes keys the moment it
-    /// opens. The launcher steps aside while it runs and is offered again at
-    /// the prompt it leaves, found by polling `pane.process_info`: no herdr
-    /// event says a pane's shell is back at its prompt.
+    /// opens. The launcher steps aside while it runs; when the shell is back
+    /// at its prompt the pane is sent Ctrl-L, so the screen the picker left
+    /// drops to a bare prompt and the ordinary rule offers the launcher again.
     public func launchNavigator(_ command: String, in pane: PaneID) async {
         guard !paneLauncherRegistry.isNavigating(pane) else { return }
         // Before the round trips below: until this lands the button is still
         // on screen, and a second click would type the command twice.
-        paneLauncherRegistry.recordNavigationStarted(pane, at: now())
-        launcherRegistryVersion += 1
+        launcherChange(pane) { $0.recordNavigationStarted(pane, at: now()) }
         await jumpToHerdr(pane: pane)
         _ = try? await client.requestRaw(
             "pane.send_input",
@@ -1309,31 +1410,40 @@ public final class SessionViewModel {
         navigationWatches[pane] = Task { [weak self] in await self?.watchNavigation(in: pane) }
     }
 
+    /// Polls `pane.process_info` until the registry says the navigation is
+    /// over. An answer herdr cannot give (an error, an empty foreground list
+    /// as the picker exits) is retried on the next tick; only the pane going
+    /// away (`performTeardown` cancels this task) ends the watch early.
     private func watchNavigation(in pane: PaneID) async {
-        while !Task.isCancelled {
+        var sawPickerRun = false
+        while !Task.isCancelled, paneLauncherRegistry.isNavigating(pane) {
             try? await Task.sleep(for: navigationPollInterval)
             guard !Task.isCancelled else { return }
             let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
             guard !Task.isCancelled else { return }
-            guard let data, let busy = PaneForegroundJob.isBusy(processInfoResponse: data) else {
-                paneLauncherRegistry.forgetNavigation(pane)
-                navigationWatches[pane] = nil
-                return
-            }
-            paneLauncherRegistry.recordForegroundJob(pane, busy: busy, at: now())
-            guard !paneLauncherRegistry.isNavigating(pane) else { continue }
-            launcherRegistryVersion += 1
-            ghosttySurfaces[pane]?.resumeScreenActivityReporting()
-            navigationWatches[pane] = nil
-            return
+            let idle = data.flatMap { PaneForegroundJob.isBusy(processInfoResponse: $0) }.map { !$0 }
+            if idle == false { sawPickerRun = true }
+            paneLauncherRegistry.recordForegroundJob(pane, idle: idle, at: now())
         }
+        guard !Task.isCancelled else { return }
+        // A command never seen running failed on its way up; its error is
+        // the only answer to the click and must stay on screen.
+        if sawPickerRun {
+            _ = try? await client.requestRaw(
+                "pane.send_keys",
+                ["pane_id": .string(pane.rawValue), "keys": .array([.string("ctrl+l")])]
+            )
+        }
+        // Cancelled during the send: a later navigation may own the entry now.
+        guard !Task.isCancelled else { return }
+        navigationWatches[pane] = nil
+        launcherRegistryVersion += 1
+        schedulePromptPoll(pane)
     }
 
-    /// Splits `pane` rightward via `pane.split` and focuses the new pane,
-    /// registering it as flock-created so the launcher can show on it --
-    /// a "Split Right" context-menu command exercising the provenance
-    /// registry live. Starts where the New Pane setting says, `pane`'s own
-    /// folder by default.
+    /// Splits `pane` rightward via `pane.split` and focuses the new pane.
+    /// Starts where the New Pane setting says, `pane`'s own folder by
+    /// default.
     public func splitRight(from pane: PaneID) async {
         await performSplit(from: pane, direction: "right")
     }
@@ -1358,14 +1468,13 @@ public final class SessionViewModel {
     }
 
     /// flock's own half of the `focus: true` every create request carries:
-    /// the new pane is the input sink and the launcher's pristine pane from
-    /// the moment herdr answers, rather than from whenever its focus echo
-    /// arrives -- and if that echo never arrives, this is the only thing that
-    /// ever put the user in what they just made.
+    /// the new pane is the input sink from the moment herdr answers, rather
+    /// than from whenever its focus echo arrives, and if that echo never
+    /// arrives, this is the only thing that ever put the user in what they
+    /// just made.
     private func landIn(pane: PaneID) {
         optimisticFocusedPaneID = pane
-        paneLauncherRegistry.registerFlockCreated(pane)
-        launcherRegistryVersion += 1
+        launcherChange(pane) { $0.recordCreated(pane) }
     }
 
     /// The close herdr would escalate into a tab or a workspace, held while the
@@ -1831,6 +1940,48 @@ public final class SessionViewModel {
         let folder = PinFolders.firstPane(of: workspace, in: model) ?? homeDirectory
         guard let pin = pins.add(workspace: workspace, name: record.label, folder: folder, at: index) else { return }
         identity?.rekey(from: workspace.rawValue, to: pin.identityKey)
+        let pane = PinFolders.firstPaneID(of: workspace, in: model)
+        let started = pane.flatMap { model.panes[$0]?.cwd }
+        pinFolderReads.insert(pin.id)
+        Task { await askForFolder(pin.id, from: pane, recorded: folder, started: started) }
+    }
+
+    /// The model's folder is the one herdr last pushed, which a `cd` since
+    /// does not move; the shell's own folder, asked for now, is the guess
+    /// the person is asked to confirm, beside the folder it started in.
+    private func askForFolder(_ id: PinID, from pane: PaneID?, recorded: String, started: String?) async {
+        let live = await liveOnlyFolder(of: pane)
+        guard pinFolderReads.remove(id) != nil else { return }
+        if let live, pins.pin(id)?.folder == recorded {
+            pins.setFolder(id, to: live)
+        }
+        guard pins.pin(id) != nil else { return }
+        var choices = [PinFolderAsk.Choice(folder: live ?? recorded, reason: live == nil ? .shellLastSeen : .shellNow)]
+        if let started, started != choices[0].folder {
+            choices.append(PinFolderAsk.Choice(folder: started, reason: .shellStarted))
+        }
+        pinFolderAsk = PinFolderAsk(pin: id, choices: choices)
+    }
+
+    /// The person's answer to where a new pin opens; nil keeps the folder it
+    /// was made with.
+    public func answerPinFolder(_ id: PinID, with folder: String?) {
+        if pinAwaitingFolder == id { pinFolderAsk = nil }
+        if let folder { pins.setFolder(id, to: folder) }
+    }
+
+    /// Stands an empty sidebar pin in for the selected workspace. Opens
+    /// nothing. A top-bar pin opens over the view instead (`toggleTopBar`).
+    public func show(emptyPin id: PinID) {
+        guard let pin = pins.pin(id), pin.placement == .rail, !isOpen(pin) else { return }
+        shownEmptyPin = id
+    }
+
+    /// Opens the pin and shows its new workspace; the new workspace's first
+    /// pane, for a launch to run in.
+    @discardableResult
+    public func start(emptyPin id: PinID) async -> PaneID? {
+        await reopen(id)
     }
 
     public func unpin(_ id: PinID) {
@@ -1842,6 +1993,7 @@ public final class SessionViewModel {
     public func removePin(_ id: PinID) {
         guard let pin = pins.pin(id), !isOpen(pin) else { return }
         pins.remove(id)
+        reconcileShownEmptyPin()
     }
 
     public func movePin(_ id: PinID, toInsertIndex index: Int) {
@@ -1849,6 +2001,8 @@ public final class SessionViewModel {
     }
 
     public func setPinFolder(_ id: PinID, to folder: String) {
+        pinFolderReads.remove(id)
+        if pinAwaitingFolder == id { pinFolderAsk = nil }
         pins.setFolder(id, to: folder)
     }
 
@@ -2037,12 +2191,17 @@ public final class SessionViewModel {
     /// leader; the folder herdr last recorded when it cannot say.
     private func liveFolder(of pane: PaneID?) async -> String? {
         guard let pane else { return nil }
-        if let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)]),
-           let leaderCwd = PaneForegroundJob.snapshot(processInfoResponse: data)?.leaderCwd {
-            return leaderCwd
-        }
+        if let leaderCwd = await liveOnlyFolder(of: pane) { return leaderCwd }
         let record = fullModel?.panes[pane]
         return record?.foregroundCwd ?? record?.cwd
+    }
+
+    /// Where herdr says the pane's shell is now, and nothing else.
+    private func liveOnlyFolder(of pane: PaneID?) async -> String? {
+        guard let pane,
+              let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
+        else { return nil }
+        return PaneForegroundJob.snapshot(processInfoResponse: data)?.leaderCwd
     }
 
     /// Both create responses name the tab that was made and its root pane
@@ -2057,6 +2216,7 @@ public final class SessionViewModel {
             let data = try await client.requestRaw(method, params)
             guard let created = Self.extractCreatedTab(data) else { return nil }
             if lands {
+                shownEmptyPin = nil
                 selectedWorkspaceID = created.workspaceID
                 selectedTabID = created.tabID
                 landIn(pane: created.rootPaneID)
@@ -2075,23 +2235,25 @@ public final class SessionViewModel {
 
     /// A fresh shell in the pin's folder, renamed to the pin and linked to it by
     /// the id the create returns, never by name.
-    public func reopen(_ id: PinID, focus: Bool = true) async {
-        guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return }
+    @discardableResult
+    public func reopen(_ id: PinID, focus: Bool = true) async -> PaneID? {
+        guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return nil }
         reopening.insert(id)
         defer { reopening.remove(id) }
         let folderIsThere = folderExists(pin.folder)
         let params: [String: JSONValue] = [
             "focus": .bool(focus), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
         ]
-        guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)", lands: focus) else { return }
+        guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)", lands: focus) else { return nil }
         // Read again past the await: a rename made while the create was out wins.
-        guard let name = pins.pin(id)?.name else { return }
+        guard let name = pins.pin(id)?.name else { return nil }
         pins.link(id, to: created.workspaceID)
         if pins.pin(id)?.placement == .topBar { refreshVisibility() }
         await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, name)], label: "Rename workspace"), recordsUndo: false)
         if !folderIsThere {
             noticeSink("\"\(name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another.")
         }
+        return created.rootPaneID
     }
 
     /// Whether the pin's workspace is one herdr reports, which is when the rail

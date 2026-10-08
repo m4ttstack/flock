@@ -2678,9 +2678,8 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// The Settings window in both system appearances, from Notifications
-    /// down to Command Line. PNGs go to
-    /// `FLOCK_SETTINGS_RENDER_DIR`; the assertion is only that it draws.
+    /// Each Settings tab in both system appearances, all one size. PNGs go
+    /// to `FLOCK_SETTINGS_RENDER_DIR`.
     func testTheSettingsWindowDrawsInBothAppearances() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -2697,16 +2696,21 @@ final class ChromeRenderTests: XCTestCase {
         defer { UserDefaults().removePersistentDomain(forName: customSuite) }
         let customTab = StartingFolderStore(userDefaults: try XCTUnwrap(UserDefaults(suiteName: customSuite)))
         customTab.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
-        for (name, appearance, startingFolderStore) in [
-            ("light", NSAppearance.Name.aqua, StartingFolderStore(userDefaults: defaults)),
-            ("dark", NSAppearance.Name.darkAqua, StartingFolderStore(userDefaults: defaults)),
-            ("custom-tab-light", NSAppearance.Name.aqua, customTab),
-            ("custom-tab-dark", NSAppearance.Name.darkAqua, customTab),
-        ] {
+        var cases: [(name: String, appearance: NSAppearance.Name, folders: StartingFolderStore, tab: SettingsTab)] = []
+        for tab in SettingsTab.allCases {
+            cases.append(("\(tab.rawValue)-light", .aqua, StartingFolderStore(userDefaults: defaults), tab))
+            cases.append(("\(tab.rawValue)-dark", .darkAqua, StartingFolderStore(userDefaults: defaults), tab))
+        }
+        cases.append(("custom-tab-light", .aqua, customTab, .general))
+        cases.append(("custom-tab-dark", .darkAqua, customTab, .general))
+        var tabSizes: Set<CGSize> = []
+        for (name, appearance, startingFolderStore, tab) in cases {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
+                overviewReturnStore: OverviewReturnStore(userDefaults: defaults),
+                overviewInclusionStore: OverviewInclusionStore(userDefaults: defaults),
                 oneTitleStore: OneTitleStore(userDefaults: defaults),
                 topBarLabelStore: TopBarLabelStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
@@ -2716,23 +2720,24 @@ final class ChromeRenderTests: XCTestCase {
                     directory: FileManager.default.temporaryDirectory.appendingPathComponent("flock-cli-\(UUID().uuidString)"),
                     executablePath: "/Applications/Flock.app/Contents/MacOS/Flock",
                     name: "flock"
-                )
+                ),
+                herdrVersion: "0.9.3",
+                tab: tab
             )
             let window = NSWindow(
-                contentRect: CGRect(x: 0, y: 0, width: 500, height: 640),
+                contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false
             )
             window.isReleasedWhenClosed = false
             window.appearance = NSAppearance(named: appearance)
-            window.contentView = NSHostingView(rootView: view)
+            let host = NSHostingView(rootView: view)
+            window.contentView = host
+            window.setContentSize(host.fittingSize)
             window.orderFront(nil)
             await settle(window)
-            XCTAssertTrue(window.styleMask.contains(.resizable), "\(name): Settings cannot be resized")
             let content = window.contentRect(forFrameRect: window.frame).size
-            XCTAssertEqual(content.width, SettingsWindowSizer.width, "\(name): Settings is not its fixed width")
-            let screenRoom = (window.screen?.visibleFrame.height ?? SettingsWindowSizer.openHeight) - 40
-            XCTAssertEqual(content.height, min(SettingsWindowSizer.openHeight, screenRoom), accuracy: 1, "\(name): Settings did not open tall")
-            XCTAssertEqual(window.contentMaxSize.width, SettingsWindowSizer.width, "\(name): Settings can be widened")
+            XCTAssertEqual(content.width, FlockSettingsView.size.width, accuracy: 1, "\(name): Settings is not its fixed width")
+            tabSizes.insert(host.fittingSize)
             let image = try snapshot(window)
             XCTAssertGreaterThan(image.pixelsWide, 0)
             if let directory {
@@ -2741,6 +2746,7 @@ final class ChromeRenderTests: XCTestCase {
             }
             window.close()
         }
+        XCTAssertEqual(tabSizes.count, 1, "every tab is one size, so switching never moves the window: \(tabSizes)")
     }
 
     /// The unprompted mouse patch offer under the title bar. PNGs go to
@@ -2805,6 +2811,9 @@ final class ChromeRenderTests: XCTestCase {
         )
         try plist.write(to: bundle.appendingPathComponent("Contents/Info.plist"))
 
+        // Wide enough that the title clears the view tabs with the Overview
+        // badge up: narrower, it hides rather than overlap them.
+        let size = CGSize(width: Self.windowSize.width + 300, height: Self.windowSize.height)
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let watcher = DevBuildWatcher(bundleURL: bundle, runningStamp: "2026-09-22 22:40:00 fed9876")
@@ -2812,7 +2821,7 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertTrue(watcher.newerBuildReady, "\(scheme): a different stamp on disk is a newer build")
 
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            let window = harness.makeWindow(size: Self.windowSize, isDevBuild: true, devBuild: watcher)
+            let window = harness.makeWindow(size: size, isDevBuild: true, devBuild: watcher)
             await settle(window)
             let image = try snapshot(window)
             if let directory {
@@ -2821,9 +2830,9 @@ final class ChromeRenderTests: XCTestCase {
             }
             // The tag and the offer both paint in the theme's amber.
             let amber = theme.palette.yellow.hex
-            let titleBar = CGRect(x: 0, y: 0, width: Self.windowSize.width, height: ChromeMetrics.TitleBar.height)
-            let centre = CGRect(x: Self.windowSize.width / 2, y: 0, width: 60, height: ChromeMetrics.TitleBar.height)
-            let trailing = CGRect(x: Self.windowSize.width - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
+            let titleBar = CGRect(x: 0, y: 0, width: size.width, height: ChromeMetrics.TitleBar.height)
+            let centre = CGRect(x: size.width / 2, y: 0, width: 60, height: ChromeMetrics.TitleBar.height)
+            let trailing = CGRect(x: size.width - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
             XCTAssertGreaterThan(count(amber, in: centre, of: image), 0, "\(scheme): no DEV tag beside the title")
             XCTAssertGreaterThan(count(amber, in: trailing, of: image), 0, "\(scheme): no restart offer at the right")
             XCTAssertGreaterThan(count(amber, in: titleBar, of: image), 0)
@@ -2867,8 +2876,8 @@ final class ChromeRenderTests: XCTestCase {
     /// The grid covers the rail, so Arrange's dock floats in the corner the
     /// rail would hold, at the rail's width, with flock's notice and none of
     /// the attention cards, which are Overview's Needs you lane. Read against
-    /// the same grid with nothing to say: the notice's `chrome` ground
-    /// appears there, and the needs-input card's red does not.
+    /// the same grid with its cards and notice cleared: the notice's `chrome`
+    /// ground appears there, and the needs-input card's red does not.
     func testOverTheGridTheDockFloatsWhereTheRailWouldBe() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_DOCK_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
@@ -2880,9 +2889,13 @@ final class ChromeRenderTests: XCTestCase {
         var reds: [Int] = []
         var grounds: [Int] = []
         for withMessages in [false, true] {
-            let harness = withMessages
-                ? try await dockHarness(theme: theme, overflowing: false)
-                : try await Harness(theme: theme, model: try Fixture.herdModel())
+            // The same panes either way, so a red tile in the corner is in
+            // both reads and only the dock differs.
+            let harness = try await dockHarness(theme: theme, overflowing: false)
+            if !withMessages {
+                harness.viewModel.clearAttentionToasts()
+                if let notice = harness.toasts.current?.id { harness.toasts.dismiss(notice) }
+            }
             let window = harness.makeWindow(size: Self.gridWindowSize)
             await settle(window)
             harness.drag.toggleGrid()
@@ -4592,7 +4605,7 @@ private final class GroundSurface: GhosttyPaneSurface {
     func unpark() {}
     func releaseHerdrHold() {}
     func takeHerdrHold() {}
-    func resumeScreenActivityReporting() {}
+    var cellHeight: CGFloat? { 18 }
     var hasFirstFrame: Bool { true }
     var hasClaimedMouse: Bool { programHasMouse }
 }
@@ -4604,7 +4617,7 @@ private struct GroundSurfaceFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Bool
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         GroundSurface(programHasMouse: mouseHolders.contains(pane))
     }
@@ -5017,8 +5030,8 @@ extension ChromeRenderTests {
     }
 
     /// A focused pane is Overview's: its tab stays selected, choosing it again
-    /// keeps the pane, and choosing Arrange or Workspaces shows that view
-    /// while Overview keeps the pane to return to.
+    /// keeps the pane, and Arrange leaves it alone. Workspaces puts it down
+    /// unless Settings asks Overview to keep it.
     func testAFocusedPaneKeepsOverviewSelectedUntilArrangeIsChosen() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let navigator = ViewTabNavigator(drag: harness.drag, mode: harness.modeStore)
@@ -5036,7 +5049,13 @@ extension ChromeRenderTests {
         XCTAssertEqual(harness.drag.gridFocusedPane, pane, "Overview returns to the pane it had open")
         navigator.choose(.workspaces)
         XCTAssertFalse(harness.drag.isGridShown)
-        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "closing the grid keeps it too")
+        XCTAssertNil(harness.drag.gridFocusedPane, "coming back from Workspaces shows the lanes")
+
+        harness.drag.keepsOverviewPane = { true }
+        navigator.choose(.overview)
+        harness.drag.focusGridPane(pane)
+        navigator.choose(.workspaces)
+        XCTAssertEqual(harness.drag.gridFocusedPane, pane, "kept when Settings asks for the pane you had open")
     }
 
     /// Below the main window's minimum, "flock" and its DEV tag hide rather

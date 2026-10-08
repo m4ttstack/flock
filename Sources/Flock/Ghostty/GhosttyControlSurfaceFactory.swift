@@ -53,7 +53,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Bool
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         // `nil` when the FIFO cannot be created (`PaneControlChannel.init?`'s
         // documented failure case): the pane still resizes through its PTY,
@@ -176,14 +176,17 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     func detach() async {
         session.view?.removeFromSuperview()
         session.view = nil
+        session.stopScreenActivity()
     }
 
     func park() {
         session.setOccluded(true)
+        session.setParked(true)
     }
 
     func unpark() {
         session.setOccluded(false)
+        session.setParked(false)
     }
 
     func releaseHerdrHold() {
@@ -194,9 +197,7 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
         session.sendHold(.take)
     }
 
-    func resumeScreenActivityReporting() {
-        session.resumeScreenActivityReporting()
-    }
+    var cellHeight: CGFloat? { session.cellHeight }
 
     var hasFirstFrame: Bool { session.hasFirstFrame }
 

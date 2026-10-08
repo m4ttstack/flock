@@ -920,7 +920,7 @@ private final class GroundSurface: GhosttyPaneSurface {
     func unpark() {}
     func releaseHerdrHold() {}
     func takeHerdrHold() {}
-    func resumeScreenActivityReporting() {}
+    var cellHeight: CGFloat? { 18 }
     var hasFirstFrame: Bool { true }
     var hasClaimedMouse: Bool { mouseClaim.claimed }
     var programHasMouse: Bool { false }
@@ -933,7 +933,7 @@ private struct GroundSurfaceFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Bool
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         GroundSurface(mouseClaim: mouseClaim)
     }
@@ -948,7 +948,7 @@ private struct SessionSurfaceFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Bool
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         GhosttySessionSurfaceHandle(session: host.makeSession(
             paneID: pane,

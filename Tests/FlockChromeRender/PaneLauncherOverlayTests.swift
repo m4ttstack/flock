@@ -36,15 +36,37 @@ final class PaneLauncherOverlayTests: XCTestCase {
         let theme: Theme
         let entries: [HarnessEntry]
         let navigator: HarnessEntry?
+        var occupiedRows = 0
+        var cellHeight: CGFloat?
+        /// Paints `occupiedRows` lines of text where a terminal would, for
+        /// renders a person looks at. Off for tests that sample the ground.
+        var paintsRows = false
         let capture: (TerminalStandIn) -> Void
 
         var body: some View {
             ZStack {
                 theme.terminalGround
                 Terminal(capture: capture)
+                if paintsRows, let cellHeight {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(0..<occupiedRows, id: \.self) { row in
+                            Text(row == occupiedRows - 1 ? "~/src/acme $" : "acme banner line \(row + 1)")
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundStyle(theme.textStrong)
+                                .frame(height: cellHeight, alignment: .leading)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.leading, 6)
+                    // A fixed, clipped frame: rows past the pane's bottom must
+                    // not grow the stack the overlay measures.
+                    .frame(width: size.width, height: size.height, alignment: .topLeading)
+                    .clipped()
+                    .allowsHitTesting(false)
+                }
                 PaneLauncherOverlay(
                     theme: theme, entries: entries, navigator: navigator,
-                    onLaunch: { _ in }
+                    occupiedRows: occupiedRows, cellHeight: cellHeight, onLaunch: { _ in }
                 )
             }
             .frame(width: size.width, height: size.height)
@@ -115,33 +137,39 @@ final class PaneLauncherOverlayTests: XCTestCase {
             let probe = try await hostProbe(entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme)
             defer { probe.window.close() }
 
-            let image = try snapshot(probe.window)
+            let image = try snapshot(probe.window, scale: 4)
             if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("launcher-rt-cd-\(theme.id).png")
                 try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
             }
 
             var counts: [String: Int] = [:]
+            var pink = 0
             for y in 0..<image.pixelsHigh {
                 for x in 0..<image.pixelsWide {
                     counts[hex(image, x: x, y: y), default: 0] += 1
+                    if isNear(image, x: x, y: y, to: (0xFF, 0x6B, 0x9D)) { pink += 1 }
                 }
             }
             XCTAssertGreaterThan(counts["#161224", default: 0], 400, "\(theme.id): the badge's plum ground is not on screen")
-            XCTAssertGreaterThan(counts["#FF6B9D", default: 0], 20, "\(theme.id): the badge's pink letters are not on screen")
+            // Near, not exact: the 18pt badge's letters are thin enough that
+            // the offscreen text raster leaves no pixel wholly inside a stroke.
+            XCTAssertGreaterThan(pink, 20, "\(theme.id): the badge's pink letters are not on screen")
         }
     }
 
-    /// A pane wide enough for the row carries each button's ⌘ digit; the
-    /// 420pt probe the other tests use is the narrow case that drops them.
-    /// Writes both PNGs when `FLOCK_CHROME_RENDER_DIR` names a directory.
+    /// A pane wide enough for the bar carries each item's ⌘ digit; a 300pt
+    /// pane is the narrow case that drops them. Writes both PNGs when
+    /// `FLOCK_CHROME_RENDER_DIR` names a directory.
     func testAWidePaneShowsEachButtonsShortcutInDarkAndLightThemes() async throws {
         for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
             let wide = try await hostProbe(
                 entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, size: CGSize(width: 720, height: 300)
             )
             defer { wide.window.close() }
-            let narrow = try await hostProbe(entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme)
+            let narrow = try await hostProbe(
+                entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, size: CGSize(width: 300, height: 300)
+            )
             defer { narrow.window.close() }
 
             let image = try snapshot(wide.window)
@@ -163,7 +191,9 @@ final class PaneLauncherOverlayTests: XCTestCase {
         let probe = try await hostProbe(entries: HarnessRoster.known)
         defer { probe.window.close() }
 
-        let image = try snapshot(probe.window)
+        // At 2x the Blossom's lines on an 18pt badge are thinner than a
+        // pixel, so almost none is exactly its white.
+        let image = try snapshot(probe.window, scale: 4)
         if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
             let url = URL(fileURLWithPath: directory).appendingPathComponent("launcher-marks.png")
             try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
@@ -213,6 +243,18 @@ final class PaneLauncherOverlayTests: XCTestCase {
         return last - first
     }
 
+    /// Within 24 of `target` on every channel: close enough to take in a
+    /// thin stroke's anti-aliased core, far enough to leave out the Claude
+    /// mark's orange beside the pink.
+    private func isNear(_ image: NSBitmapImageRep, x: Int, y: Int, to target: (Int, Int, Int)) -> Bool {
+        guard let data = image.bitmapData else { return false }
+        let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
+        let tolerance = 24
+        return abs(Int(data[offset]) - target.0) <= tolerance
+            && abs(Int(data[offset + 1]) - target.1) <= tolerance
+            && abs(Int(data[offset + 2]) - target.2) <= tolerance
+    }
+
     private func hex(_ image: NSBitmapImageRep, x: Int, y: Int) -> String {
         guard let data = image.bitmapData else { return "?" }
         let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
@@ -244,12 +286,17 @@ final class PaneLauncherOverlayTests: XCTestCase {
             return claimed
         }
 
-        /// The claimed points grouped into horizontal runs, one per button.
+        /// The clickable runs across the middle of the claimed band, one per
+        /// item. Scanned at half a point rather than read off the 2pt grid:
+        /// the items sit 2pt apart, which a 2pt grid steps straight over.
         func runs(in claimed: [CGPoint]) -> [ClosedRange<CGFloat>] {
-            let xs = Set(claimed.map(\.x)).sorted()
+            let band = claimed.reduce(into: CGRect.null) { $0 = $0.union(CGRect(origin: $1, size: .zero)) }
+            guard !band.isNull else { return [] }
+            let step: CGFloat = 0.5
             var runs: [ClosedRange<CGFloat>] = []
-            for x in xs {
-                if let last = runs.last, x - last.upperBound <= 4 {
+            for x in stride(from: CGFloat(0), to: Probe.size.width, by: step)
+            where hitTest(CGPoint(x: x, y: band.midY)) !== terminal {
+                if let last = runs.last, x - last.upperBound <= step {
                     runs[runs.count - 1] = last.lowerBound...x
                 } else {
                     runs.append(x...x)
@@ -271,13 +318,139 @@ final class PaneLauncherOverlayTests: XCTestCase {
         }
     }
 
+    /// The clearance follows the rows the screen holds: one row of breathing
+    /// room above a four-row prompt at an 18pt cell is 90pt, and nothing on
+    /// the overlay may answer a click inside it.
+    func testTheClearanceFollowsTheOccupiedRows() async throws {
+        XCTAssertEqual(PaneLauncherOverlay.promptClearance(occupiedRows: 4, cellHeight: 18), 90)
+        XCTAssertEqual(
+            PaneLauncherOverlay.promptClearance(occupiedRows: 0, cellHeight: 18),
+            ChromeMetrics.Launcher.promptClearance,
+            "never less than the fixed clearance"
+        )
+        XCTAssertEqual(
+            PaneLauncherOverlay.promptClearance(occupiedRows: 4, cellHeight: nil),
+            ChromeMetrics.Launcher.promptClearance,
+            "no cell size yet: the fixed clearance"
+        )
+
+        let probe = try await hostProbe(entries: Self.entries, occupiedRows: 4, cellHeight: 18)
+        defer { probe.window.close() }
+        for y in stride(from: CGFloat(4), to: 90, by: 8) {
+            XCTAssertTrue(probe.hitTest(CGPoint(x: Probe.size.width / 2, y: y)) === probe.terminal, "an item sits inside the clearance at y=\(y)")
+        }
+        XCTAssertFalse(probe.pointsClaimedByTheOverlay().isEmpty, "the items still draw below the clearance")
+    }
+
+    /// Room below the prompt for the bar and 12pt either side: the bar sits
+    /// a third of the way down that room, clear of the prompt.
+    func testTheBarSitsBelowThePromptWhenItFitsThere() {
+        let bar = ChromeMetrics.Launcher.barHeight
+        XCTAssertEqual(PaneLauncherOverlay.barTop(clearance: 90, availableHeight: 300, barHeight: 40), 90 + 170 / 3, accuracy: 0.01)
+
+        let snug = 90 + bar + 2 * ChromeMetrics.Launcher.barMargin
+        XCTAssertEqual(
+            PaneLauncherOverlay.barTop(clearance: 90, availableHeight: snug, barHeight: bar),
+            90 + ChromeMetrics.Launcher.barMargin,
+            "exactly enough room still sits below the prompt"
+        )
+    }
+
+    /// Too little room below the prompt: the bar sits a third of the way down
+    /// the whole pane, over the text, rather than squeezing against the prompt
+    /// or the bottom.
+    func testTheBarSitsInThePaneWhenThePromptLeavesNoRoom() {
+        let bar = ChromeMetrics.Launcher.barHeight
+        let short = 90 + bar + 2 * ChromeMetrics.Launcher.barMargin - 1
+        XCTAssertEqual(PaneLauncherOverlay.barTop(clearance: 90, availableHeight: short, barHeight: bar), (short - bar) / 3, accuracy: 0.01)
+        XCTAssertEqual(
+            PaneLauncherOverlay.barTop(clearance: 414, availableHeight: 300, barHeight: 40), 260 / 3, accuracy: 0.01,
+            "a banner taller than the pane"
+        )
+        XCTAssertEqual(
+            PaneLauncherOverlay.barTop(clearance: 28, availableHeight: 20, barHeight: 40), 0,
+            "a pane shorter than the bar keeps its top edge on the pane"
+        )
+    }
+
+    /// A four-row prompt in a dark and a light theme. Writes both PNGs when
+    /// `FLOCK_CHROME_RENDER_DIR` names a directory.
+    func testAFourRowPromptKeepsTheButtonsBelowItInDarkAndLightThemes() async throws {
+        for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
+            let probe = try await hostProbe(
+                entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, occupiedRows: 4, cellHeight: 18
+            )
+            defer { probe.window.close() }
+            let image = try snapshot(probe.window)
+            write(image, named: "launcher-four-rows-\(theme.id).png")
+            let ground = hex(image, x: 2, y: 2)
+            let scale = image.pixelsWide / Int(Probe.size.width)
+            for y in stride(from: 4, to: 90 * scale, by: 16) {
+                XCTAssertEqual(hex(image, x: image.pixelsWide / 2, y: y), ground, "\(theme.id): something drew inside the clearance at y=\(y)")
+            }
+            // The bar centers in what the clearance leaves.
+            let rowCenter = (90 + (Int(Probe.size.height) - 90) / 2) * scale
+            XCTAssertTrue(
+                (0..<image.pixelsWide).contains { hex(image, x: $0, y: rowCenter) != ground },
+                "\(theme.id): nothing drew across the bar at y=\(rowCenter)"
+            )
+        }
+    }
+
+    /// 22 rows of startup banner at an 18pt cell would want 414pt of
+    /// clearance; on a 300pt pane the bar sits at the pane's optical center,
+    /// over the text, with every item still clickable.
+    func testABannerTallerThanThePaneSitsTheBarInThePane() async throws {
+        let probe = try await hostProbe(entries: Self.entries, occupiedRows: 22, cellHeight: 18)
+        defer { probe.window.close() }
+        let claimed = probe.pointsClaimedByTheOverlay()
+        XCTAssertEqual(probe.runs(in: claimed).count, Self.entries.count, "every item is clickable inside the pane")
+        let band = claimed.reduce(into: CGRect.null) { $0 = $0.union(CGRect(origin: $1, size: .zero)) }
+        XCTAssertLessThan(band.maxY, Probe.size.height, "the items run off the bottom: \(band)")
+        XCTAssertGreaterThan(band.height, ChromeMetrics.Launcher.itemHeight - 8, "the items are cut off: \(band)")
+        let bar = ChromeMetrics.Launcher.barHeight
+        let expectedMid = PaneLauncherOverlay.barTop(clearance: 414, availableHeight: Probe.size.height, barHeight: bar) + bar / 2
+        XCTAssertEqual(band.midY, expectedMid, accuracy: 3, "the bar is not at the pane's optical center: \(band)")
+    }
+
+    /// A two-row prompt, and a 22-row banner on a short pane, in a dark and
+    /// a light theme. Writes the PNGs when `FLOCK_CHROME_RENDER_DIR` names a
+    /// directory.
+    func testTwoRowAndShortBannerRendersInDarkAndLightThemes() async throws {
+        for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
+            for (name, rows) in [("two-rows", 2), ("banner-short", 22)] {
+                let probe = try await hostProbe(
+                    entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme,
+                    occupiedRows: rows, cellHeight: 18, paintsRows: true
+                )
+                defer { probe.window.close() }
+                let image = try snapshot(probe.window)
+                write(image, named: "launcher-\(name)-\(theme.id).png")
+                let claimed = probe.pointsClaimedByTheOverlay()
+                XCTAssertEqual(probe.runs(in: claimed).count, 3, "\(theme.id) \(name): rt cd and both harnesses stay clickable")
+                let band = claimed.reduce(into: CGRect.null) { $0 = $0.union(CGRect(origin: $1, size: .zero)) }
+                XCTAssertGreaterThan(
+                    band.height, ChromeMetrics.Launcher.itemHeight - 8, "\(theme.id) \(name): the items are cut off: \(band)"
+                )
+            }
+        }
+    }
+
+    private func write(_ image: NSBitmapImageRep, named name: String) {
+        guard let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty else { return }
+        let url = URL(fileURLWithPath: directory).appendingPathComponent(name)
+        XCTAssertNoThrow(try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url))
+    }
+
     private func hostProbe(
-        entries: [HarnessEntry], navigator: HarnessEntry? = nil, theme: Theme = Theme.builtins[0], size: CGSize = Probe.size
+        entries: [HarnessEntry], navigator: HarnessEntry? = nil, theme: Theme = Theme.builtins[0], size: CGSize = Probe.size,
+        occupiedRows: Int = 0, cellHeight: CGFloat? = nil, paintsRows: Bool = false
     ) async throws -> HostedProbe {
         ChromeType.install()
         var captured: TerminalStandIn?
         let hosting = NSHostingView(rootView: Probe(
-            size: size, theme: theme, entries: entries, navigator: navigator, capture: { captured = $0 }
+            size: size, theme: theme, entries: entries, navigator: navigator,
+            occupiedRows: occupiedRows, cellHeight: cellHeight, paintsRows: paintsRows, capture: { captured = $0 }
         ))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -311,61 +484,41 @@ final class NavigatorRosterTests: XCTestCase {
     }
 }
 
-/// These buttons shipped on `.plain`, which paints rest, hover and press
-/// identically: putting the pointer on one or clicking it changed nothing on
-/// screen, so it read as a label rather than a control. Each state has to be
-/// visibly different from the other two.
+/// An item has no fill at rest, so hover and press are the only feedback it
+/// gives: each state has to be visibly different from the other two, in a
+/// dark and a light theme.
 ///
-/// Asserted on the resolved appearance rather than on pixels because
+/// Asserted on the resolved fill rather than on pixels because
 /// `ButtonStyle.Configuration` cannot be constructed by a test and no test can
-/// move a real pointer over the view, which is why the flat version had no
-/// failing test to begin with.
+/// move a real pointer over the view.
 @MainActor
-final class LauncherButtonAppearanceTests: XCTestCase {
-    private let theme = Theme.builtins[0]
+final class LauncherBarStyleTests: XCTestCase {
+    private let themes = [Theme(.tokyoNight), Theme(.tokyoNightDay)]
 
-    private var rest: LauncherButtonAppearance {
-        LauncherButtonAppearance.resolve(theme: theme, isHovering: false, isPressed: false)
-    }
-
-    private var hovered: LauncherButtonAppearance {
-        LauncherButtonAppearance.resolve(theme: theme, isHovering: true, isPressed: false)
-    }
-
-    private var pressed: LauncherButtonAppearance {
-        LauncherButtonAppearance.resolve(theme: theme, isHovering: true, isPressed: true)
-    }
-
-    func testRestHoverAndPressAreThreeDifferentAppearances() {
-        XCTAssertNotEqual(rest, hovered, "hovering a launcher button must change how it is drawn")
-        XCTAssertNotEqual(hovered, pressed, "pressing a hovered launcher button must change how it is drawn")
-        XCTAssertNotEqual(rest, pressed)
-    }
-
-    /// Both halves move together, so a later edit cannot satisfy the test
-    /// above by moving one of them and leaving the button still reading flat.
-    func testHoverMovesBothTheFillAndTheBorder() {
-        XCTAssertNotEqual(rest.fill, hovered.fill)
-        XCTAssertNotEqual(rest.border, hovered.border)
-    }
-
-    func testOnlyAPressWashesAccentOverTheFillAndShrinksTheButton() {
-        XCTAssertEqual(rest.pressWash, 0)
-        XCTAssertEqual(hovered.pressWash, 0)
-        XCTAssertGreaterThan(pressed.pressWash, 0)
-
-        XCTAssertEqual(rest.scale, 1)
-        XCTAssertEqual(hovered.scale, 1)
-        XCTAssertLessThan(pressed.scale, 1)
+    func testRestHoverAndPressAreThreeDifferentFills() {
+        for theme in themes {
+            let style = LauncherBarStyle(theme: theme)
+            let rest = style.itemFill(isHovering: false, isPressed: false)
+            let hovered = style.itemFill(isHovering: true, isPressed: false)
+            let pressed = style.itemFill(isHovering: true, isPressed: true)
+            XCTAssertEqual(rest, .clear, "\(theme.id): an item at rest has no fill")
+            XCTAssertNotEqual(rest, hovered, "\(theme.id): hovering an item must change how it is drawn")
+            XCTAssertNotEqual(hovered, pressed, "\(theme.id): pressing a hovered item must change how it is drawn")
+        }
     }
 
     /// A press can begin without a hover ever being recorded (a click landing
     /// as the overlay appears under a stationary pointer), and it still has to
-    /// light up rather than stay at rest colours.
-    func testAPressWithoutHoverStillLightsTheButton() {
-        let pressedCold = LauncherButtonAppearance.resolve(theme: theme, isHovering: false, isPressed: true)
+    /// light up rather than stay at rest.
+    func testAPressWithoutHoverStillLightsTheItem() {
+        let style = LauncherBarStyle(theme: themes[0])
+        XCTAssertEqual(
+            style.itemFill(isHovering: false, isPressed: true), style.itemFill(isHovering: true, isPressed: true)
+        )
+    }
 
-        XCTAssertEqual(pressedCold.fill, hovered.fill)
-        XCTAssertGreaterThan(pressedCold.pressWash, 0)
+    func testDarkAndLightThemesAreToldApartByThePanel() {
+        XCTAssertTrue(LauncherBarStyle(theme: Theme(.tokyoNight)).isDark)
+        XCTAssertFalse(LauncherBarStyle(theme: Theme(.tokyoNightDay)).isDark)
     }
 }

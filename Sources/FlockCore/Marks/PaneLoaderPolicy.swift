@@ -66,8 +66,8 @@ public enum PaneLoaderPolicy {
         hasFirstFrame && !badgeVisible
     }
 
-    /// A fresh pane is both things at once: it has no first frame yet, and it
-    /// is a pristine pane the launcher wants to offer harnesses on.
+    /// A fresh pane is both things at once: it has no first frame yet, and
+    /// its registry answer may already say the launcher shows.
     ///
     /// They no longer collide on screen -- the badge is in a corner and the
     /// launcher holds the middle -- but a pane that has not painted has no
@@ -78,8 +78,8 @@ public enum PaneLoaderPolicy {
     /// It waits on the terminal being shown, not merely on the badge being
     /// down: inside the badge's appear delay the badge is down too, and
     /// buttons offered there vanish when it arrives and return when it goes.
-    public static func showsLauncherOverlay(isPristineLauncherPane: Bool, hasFirstFrame: Bool, badgeVisible: Bool) -> Bool {
-        isPristineLauncherPane && showsTerminalSurface(hasFirstFrame: hasFirstFrame, badgeVisible: badgeVisible)
+    public static func showsLauncherOverlay(isLauncherShowing: Bool, hasFirstFrame: Bool, badgeVisible: Bool) -> Bool {
+        isLauncherShowing && showsTerminalSurface(hasFirstFrame: hasFirstFrame, badgeVisible: badgeVisible)
     }
 
     /// Whether a pane shows the static status card instead of waiting on the

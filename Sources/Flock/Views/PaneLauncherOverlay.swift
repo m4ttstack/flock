@@ -14,6 +14,8 @@ struct HarnessEntry: Identifiable, Equatable {
     let monogramColor: Color
     var mark: HarnessMark?
     var monogramInk: Color = .white
+    /// An SF Symbol drawn in the badge in place of the monogram's letters.
+    var symbol: String? = nil
     var paletteName: String? = nil
     var paletteHint: String? = nil
 }
@@ -39,7 +41,7 @@ enum HarnessRoster {
 
     /// A fresh directory scan each call (cheap: one `isExecutableFile` per
     /// candidate directory) rather than a cached result, so a harness
-    /// installed mid-session shows up the next time a pristine pane is
+    /// installed mid-session shows up the next time a launcher pane is
     /// created rather than only at process start.
     static func detected(pathEnvironment: String = ToolPath.resolved) -> [HarnessEntry] {
         known.filter { entry in
@@ -53,7 +55,11 @@ enum HarnessRoster {
 /// where `rt` resolves on flock's startup PATH; the badge is rt's own pink on
 /// its plum ground.
 enum NavigatorRoster {
-    static let command = "rt cd"
+    /// `--repo` opens the picker across every repo even from inside one: a
+    /// pane offering the launcher is already in its folder, so the pick is
+    /// somewhere else.
+    static let command = "rt cd --repo"
+    static let title = "rt cd"
 
     static let rtCd = HarnessEntry(
         id: "rt-cd", binary: "rt", displayName: "cd", monogram: "rt",
@@ -86,7 +92,7 @@ enum LauncherSlots {
     }
 
     static func title(for entry: HarnessEntry) -> String {
-        entry.id == NavigatorRoster.rtCd.id ? NavigatorRoster.command : "Launch \(entry.displayName)"
+        entry.id == NavigatorRoster.rtCd.id ? NavigatorRoster.title : "Launch \(entry.displayName)"
     }
 
     private static let log = Logger(subsystem: "dev.mattstack.flock", category: "launcher")
@@ -97,20 +103,46 @@ enum LauncherSlots {
         return LaunchTarget.pane(canvasPane: pane, agent: pane.flatMap { viewModel.model?.panes[$0]?.agent })
     }
 
-    /// ⌘1 and on, and the palette's rows: the pane is read as the key lands,
-    /// never captured when the menu last rendered, and herdr is asked then
-    /// whether its shell is at a prompt to type into.
-    @MainActor
-    static func launchInFocusedPane(_ entry: HarnessEntry, on viewModel: SessionViewModel) async {
-        guard let pane = target(on: viewModel) else { return }
-        let atPrompt = await viewModel.isAtPrompt(pane)
-        log.notice("launch \(entry.id, privacy: .public) in \(pane.rawValue, privacy: .public): at prompt \(atPrompt)")
-        guard atPrompt else { return NSSound.beep() }
-        await launch(entry, in: pane, on: viewModel)
+    /// A click on the overlay's button, a ⌘ digit, a mouse pick from the
+    /// Launch menu, or a palette row: the ways a launch starts, named in the
+    /// log so a dead key can be told from a press herdr refused.
+    enum LaunchPath: String {
+        case click, key, menu, palette
     }
 
+    /// Whether the menu action now running was fired by its key equivalent
+    /// rather than picked with the mouse.
     @MainActor
-    static func launch(_ entry: HarnessEntry, in pane: PaneID, on viewModel: SessionViewModel) async {
+    static var menuActionCameFromKey: Bool {
+        NSApp.currentEvent?.type == .keyDown
+    }
+
+    /// ⌘1 and on, and the palette's rows: the pane is read as the key lands,
+    /// never captured when the menu last rendered. Every press writes one log
+    /// line, a press with no pane to launch in included.
+    @MainActor
+    static func launchInFocusedPane(_ entry: HarnessEntry, via path: LaunchPath, on viewModel: SessionViewModel) async {
+        guard let pane = target(on: viewModel) else {
+            log.notice("launch \(entry.id, privacy: .public) via \(path.rawValue, privacy: .public): no target")
+            return
+        }
+        await launch(entry, in: pane, via: path, on: viewModel)
+    }
+
+    /// Every launch asks herdr whether the shell holds the pane's foreground
+    /// as it fires: the overlay was shown on an answer that may be stale by
+    /// the time of the click, and a command typed into anything but a shell
+    /// at its prompt reaches that program as input.
+    @MainActor
+    static func launch(_ entry: HarnessEntry, in pane: PaneID, via path: LaunchPath, on viewModel: SessionViewModel) async {
+        if path != .click, viewModel.isLauncherShowing(pane) {
+            viewModel.flashLauncherSlot(entry.id, in: pane)
+        }
+        let atPrompt = await viewModel.isAtPrompt(pane)
+        log.notice(
+            "launch \(entry.id, privacy: .public) via \(path.rawValue, privacy: .public) in \(pane.rawValue, privacy: .public): at prompt \(atPrompt)"
+        )
+        guard atPrompt else { return NSSound.beep() }
         if entry.id == NavigatorRoster.rtCd.id {
             await viewModel.launchNavigator(NavigatorRoster.command, in: pane)
         } else {
@@ -119,96 +151,263 @@ enum LauncherSlots {
     }
 }
 
-/// Renders on a pristine flock-created pane: the bare shell prompt stays
-/// visible above (this view never covers it -- it only occupies the space
-/// below, via its own top spacer), the navigator when there is one and a
-/// button per detected harness centered in that space, and, only when a PATH
-/// resolved no harness at all, a dim line at the very bottom saying so
-/// (`LauncherHint`), rather than leaving an empty button row to be read as a
-/// pane with nothing to offer.
+/// Renders on a pane showing the launcher: one frosted bar holding the
+/// navigator when there is one and an item per detected harness, centered
+/// below the rows the screen holds when it fits there and over them when it
+/// does not, and, only when a PATH resolved no harness at all, a dim line
+/// directly below it saying so (`LauncherHint`), rather than leaving an empty
+/// bar to be read as a pane with nothing to offer.
 ///
-/// The buttons are the only thing here that answers the pointer: the spacers
-/// draw nothing and so claim nothing, and the hint opts itself out, which
-/// leaves every other click reaching the terminal underneath
+/// The items are the only thing here that answers the pointer: the bar's
+/// ground, its padding and the gaps between items opt out, as does the hint,
+/// which leaves every other click reaching the terminal underneath
 /// (plain-click-to-focus, or typing). `PaneLauncherOverlayTests` asserts both
 /// halves of that by hit-testing the real view.
 struct PaneLauncherOverlay: View {
     let theme: Theme
     let entries: [HarnessEntry]
     let navigator: HarnessEntry?
+    /// The rows the screen holds, which the bar sits below when it can.
+    let occupiedRows: Int
+    /// One terminal row in points; nil before the surface knows its cell size.
+    let cellHeight: CGFloat?
+    /// The slot a key press just fired, drawn pressed.
+    var flashedSlot: String? = nil
     let onLaunch: (HarnessEntry) -> Void
 
-    var body: some View {
-        VStack(spacing: ChromeMetrics.Launcher.spacing) {
-            Spacer(minLength: 0)
-            // A narrow pane drops the shortcut hints before it would wrap a
-            // harness name or push the row past its edges.
-            ViewThatFits(in: .horizontal) {
-                buttonRow(showsShortcuts: true)
-                buttonRow(showsShortcuts: false)
-            }
-            Spacer(minLength: 0)
-            if let hint = LauncherHint.text(detected: entries.map(\.binary), searched: HarnessRoster.known.map(\.binary)) {
-                Text(hint)
-                .font(ChromeType.launcherHint)
-                .foregroundStyle(theme.textLabel)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, ChromeMetrics.Launcher.hintHorizontalPadding)
-                .padding(.bottom, ChromeMetrics.Launcher.hintBottomPadding)
-                // Hit testing is off per drawn element, never on the stack
-                // around them: a disabled ancestor takes its whole subtree
-                // out of hit testing, and a descendant cannot opt back in.
-                .allowsHitTesting(false)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, ChromeMetrics.Launcher.promptClearance)
+    /// One row of breathing room below whatever the screen holds, and never
+    /// less than the fixed clearance a fresh pane gets before its cell size is
+    /// known.
+    static func promptClearance(occupiedRows: Int, cellHeight: CGFloat?) -> CGFloat {
+        let floor = ChromeMetrics.Launcher.promptClearance
+        guard let cellHeight, cellHeight > 0, occupiedRows > 0 else { return floor }
+        return max(floor, CGFloat(occupiedRows + 1) * cellHeight)
     }
 
-    private func buttonRow(showsShortcuts: Bool) -> some View {
-        HStack(spacing: ChromeMetrics.Launcher.buttonSpacing) {
-            let slots = LauncherSlots.ordered(navigator: navigator, entries: entries)
-            ForEach(Array(slots.enumerated()), id: \.element.id) { index, entry in
-                LauncherButton(
-                    theme: theme, entry: entry, shortcut: showsShortcuts ? LauncherSlots.shortcutLabel(at: index) : nil
-                ) {
-                    onLaunch(entry)
+    /// The bar's top edge, at the optical center (`barRise`) of the space below
+    /// the prompt when the bar and a `barMargin` either side fit there;
+    /// otherwise of the whole pane, where its blur covers the text behind it:
+    /// a startup banner
+    /// can be taller than the pane, and a bar pushed off the pane cannot be
+    /// clicked.
+    static func barTop(clearance: CGFloat, availableHeight: CGFloat, barHeight: CGFloat) -> CGFloat {
+        let rise = ChromeMetrics.Launcher.barRise
+        let below = availableHeight - clearance
+        guard below >= barHeight + 2 * ChromeMetrics.Launcher.barMargin else {
+            return max(0, (availableHeight - barHeight) * rise)
+        }
+        return clearance + max(ChromeMetrics.Launcher.barMargin, (below - barHeight) * rise)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            content.padding(.top, Self.barTop(
+                clearance: Self.promptClearance(occupiedRows: occupiedRows, cellHeight: cellHeight),
+                availableHeight: geometry.size.height, barHeight: ChromeMetrics.Launcher.barHeight
+            ))
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+        }
+    }
+
+    private var content: some View {
+        let style = LauncherBarStyle(theme: theme)
+        let slots = LauncherSlots.ordered(navigator: navigator, entries: entries)
+        return VStack(spacing: ChromeMetrics.Launcher.hintSpacing) {
+            if !slots.isEmpty {
+                // A narrow pane drops the key hints before it would wrap a
+                // harness name or push the bar past its edges.
+                ViewThatFits(in: .horizontal) {
+                    LauncherBar(style: style, slots: slots, showsShortcuts: true, flashedSlot: flashedSlot, onLaunch: onLaunch)
+                    LauncherBar(style: style, slots: slots, showsShortcuts: false, flashedSlot: flashedSlot, onLaunch: onLaunch)
                 }
+                .padding(.horizontal, ChromeMetrics.Launcher.barSideMargin)
+            }
+            if let hint = LauncherHint.text(detected: entries.map(\.binary), searched: HarnessRoster.known.map(\.binary)) {
+                Text(hint)
+                    .font(ChromeType.launcherHint)
+                    .foregroundStyle(style.keyHint)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, ChromeMetrics.Launcher.hintHorizontalPadding)
+                    // Hit testing is off per drawn element, never on the stack
+                    // around them: a disabled ancestor takes its whole subtree
+                    // out of hit testing, and a descendant cannot opt back in.
+                    .allowsHitTesting(false)
             }
         }
     }
 }
 
-/// One harness's button. `isHovering` is held here rather than lifted to the
-/// row so each button answers only for the pointer being over ITSELF; a row
-/// -level hover lights both buttons at once.
-private struct LauncherButton: View {
-    let theme: Theme
+/// The bar's colors for one theme, dark or light as the rest of the chrome
+/// decides it: by the luminance of the theme's panel.
+struct LauncherBarStyle: Equatable {
+    private typealias M = ChromeMetrics.Launcher
+
+    let isDark: Bool
+    let label: Color
+
+    init(theme: Theme) {
+        isDark = !ChromeRoles.isLight(panelBg: theme.palette.panelBg)
+        label = isDark ? Color(M.darkLabel) : theme.textStrong
+    }
+
+    var tint: Color {
+        isDark ? Color(M.darkTint).opacity(M.darkTintOpacity) : Color.white.opacity(M.lightTintOpacity)
+    }
+
+    var keyHint: Color {
+        isDark ? Color.white.opacity(M.darkKeyHintOpacity) : Color.black.opacity(M.lightKeyHintOpacity)
+    }
+
+    var innerStroke: Color {
+        isDark ? Color.white.opacity(M.darkInnerStrokeOpacity) : Color.black.opacity(M.lightInnerStrokeOpacity)
+    }
+
+    var hairlineShadow: Color {
+        Color.black.opacity(isDark ? M.darkHairlineShadowOpacity : M.lightHairlineShadowOpacity)
+    }
+
+    var dropShadow: Color {
+        Color.black.opacity(isDark ? M.darkDropShadowOpacity : M.lightDropShadowOpacity)
+    }
+
+    /// No fill at rest; a press lights an item whether or not a hover was
+    /// recorded first, since a click can land as the bar appears under a
+    /// stationary pointer.
+    func itemFill(isHovering: Bool, isPressed: Bool) -> Color {
+        let ink = isDark ? Color.white : Color.black
+        if isPressed { return ink.opacity(isDark ? M.darkPressedFill : M.lightPressedFill) }
+        if isHovering { return ink.opacity(isDark ? M.darkHoverFill : M.lightHoverFill) }
+        return .clear
+    }
+}
+
+/// The frosted bar alone, shared by a pane's launcher and an empty pin's.
+/// `leading` is an item ahead of the numbered slots with its own key hint.
+struct LauncherBar: View {
+    let style: LauncherBarStyle
+    let slots: [HarnessEntry]
+    let showsShortcuts: Bool
+    var flashedSlot: String? = nil
+    var leading: (entry: HarnessEntry, shortcut: String)? = nil
+    let onLaunch: (HarnessEntry) -> Void
+
+    var body: some View {
+        HStack(spacing: ChromeMetrics.Launcher.itemSpacing) {
+            if let leading {
+                LauncherItem(
+                    style: style, entry: leading.entry, shortcut: showsShortcuts ? leading.shortcut : nil, isFlashed: false
+                ) {
+                    onLaunch(leading.entry)
+                }
+            }
+            ForEach(Array(slots.enumerated()), id: \.element.id) { index, entry in
+                LauncherItem(
+                    style: style, entry: entry, shortcut: showsShortcuts ? LauncherSlots.shortcutLabel(at: index) : nil,
+                    isFlashed: flashedSlot == entry.id
+                ) {
+                    onLaunch(entry)
+                }
+            }
+        }
+        .padding(ChromeMetrics.Launcher.barPadding)
+        .background { LauncherBarGround(style: style).allowsHitTesting(false) }
+    }
+}
+
+/// Blur, tint, inner stroke and the two outer shadows. The shadows are cast
+/// by an opaque copy of the shape with its interior then cut away: a shadow
+/// cast by the translucent tint would be as faint as the tint, and one left
+/// under the bar would darken what the blur samples.
+private struct LauncherBarGround: View {
+    let style: LauncherBarStyle
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.Launcher.barCornerRadius, style: .continuous)
+        ZStack {
+            ZStack {
+                shape.fill(Color.black)
+                    .shadow(color: style.hairlineShadow, radius: ChromeMetrics.Launcher.hairlineShadowRadius)
+                shape.fill(Color.black)
+                    .shadow(
+                        color: style.dropShadow, radius: ChromeMetrics.Launcher.dropShadowRadius,
+                        y: ChromeMetrics.Launcher.dropShadowY
+                    )
+            }
+            .mask {
+                Rectangle()
+                    .padding(-ChromeMetrics.Launcher.shadowReach)
+                    .overlay(shape.blendMode(.destinationOut))
+                    .compositingGroup()
+            }
+            LauncherBlur(isDark: style.isDark, cornerRadius: ChromeMetrics.Launcher.barCornerRadius)
+                .clipShape(shape)
+            shape.fill(style.tint)
+            shape.strokeBorder(style.innerStroke, lineWidth: 1)
+        }
+    }
+}
+
+/// A behind-window blur would show the desktop; within-window blends what the
+/// window itself draws behind the bar, which is the pane's terminal surface.
+private struct LauncherBlur: NSViewRepresentable {
+    let isDark: Bool
+    let cornerRadius: CGFloat
+
+    func makeNSView(context: Context) -> PassThroughEffectView {
+        let view = PassThroughEffectView()
+        view.blendingMode = .withinWindow
+        view.material = .hudWindow
+        view.state = .active
+        view.wantsLayer = true
+        view.layer?.cornerCurve = .continuous
+        view.layer?.masksToBounds = true
+        return view
+    }
+
+    func updateNSView(_ view: PassThroughEffectView, context: Context) {
+        view.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        view.layer?.cornerRadius = cornerRadius
+    }
+}
+
+/// An `NSView` answers hit tests over its whole frame, which SwiftUI's
+/// `allowsHitTesting` does not reach; this one never does, so the bar's
+/// padding and the gaps between its items reach the terminal.
+private final class PassThroughEffectView: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// One slot's item. `isHovering` is held here rather than lifted to the bar
+/// so each item answers only for the pointer being over ITSELF; a bar-level
+/// hover lights every item at once.
+private struct LauncherItem: View {
+    let style: LauncherBarStyle
     let entry: HarnessEntry
     let shortcut: String?
+    let isFlashed: Bool
     let onLaunch: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Button(action: onLaunch) {
-            HStack(spacing: ChromeMetrics.Launcher.labelSpacing) {
+            HStack(spacing: ChromeMetrics.Launcher.itemContentSpacing) {
                 HarnessBadge(entry: entry)
                 Text(entry.displayName)
                     .font(ChromeType.launcherName)
-                    .foregroundStyle(theme.textStrong)
+                    .foregroundStyle(style.label)
                     .lineLimit(1)
                     .fixedSize()
                 if let shortcut {
                     Text(shortcut)
                         .font(ChromeType.launcherShortcut)
-                        .foregroundStyle(theme.textLabel)
+                        .foregroundStyle(style.keyHint)
                         .lineLimit(1)
                         .fixedSize()
                 }
             }
         }
-        .buttonStyle(LauncherButtonStyle(theme: theme, isHovering: isHovering))
+        .buttonStyle(LauncherItemStyle(style: style, isHovering: isHovering, isFlashed: isFlashed))
         .onHover { hovering in
             withAnimation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade)) { isHovering = hovering }
         }
@@ -216,54 +415,28 @@ private struct LauncherButton: View {
     }
 }
 
-/// What a launcher button looks like in one of its three states. Split out of
-/// the `ButtonStyle` because `ButtonStyle.Configuration` cannot be built by a
-/// test, so a style that reads `isPressed` inline has no assertable press
-/// state at all -- and "all three states look identical" is precisely the bug
-/// this replaced.
-struct LauncherButtonAppearance: Equatable {
-    let fill: Color
-    let border: Color
-    let pressWash: Double
-    let scale: CGFloat
-
-    static func resolve(theme: Theme, isHovering: Bool, isPressed: Bool) -> LauncherButtonAppearance {
-        let lit = isHovering || isPressed
-        return LauncherButtonAppearance(
-            fill: lit ? theme.selection : theme.tabRest,
-            border: lit ? theme.accent.opacity(ChromeMetrics.Launcher.hoverBorderAccent) : theme.rule,
-            pressWash: isPressed ? ChromeMetrics.Launcher.pressedAccent : 0,
-            scale: isPressed ? ChromeMetrics.Launcher.pressedScale : 1
-        )
-    }
-}
-
-/// Rest, hover and press as three visibly different states. `.plain` shipped
-/// here first, which draws all three identically: the button took a click and
-/// gave nothing back, so it read as decoration rather than a control.
-private struct LauncherButtonStyle: ButtonStyle {
-    let theme: Theme
+/// `ButtonStyle.Configuration` cannot be built by a test, so each state's
+/// fill is resolved by `LauncherBarStyle.itemFill`, where a test can assert
+/// that rest, hover and press differ.
+private struct LauncherItemStyle: ButtonStyle {
+    let style: LauncherBarStyle
     let isHovering: Bool
+    let isFlashed: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        let appearance = LauncherButtonAppearance.resolve(
-            theme: theme, isHovering: isHovering, isPressed: configuration.isPressed
-        )
-        let shape = RoundedRectangle(cornerRadius: ChromeRadius.control)
+        let isPressed = configuration.isPressed || isFlashed
+        let shape = RoundedRectangle(cornerRadius: ChromeMetrics.Launcher.itemCornerRadius, style: .continuous)
         return configuration.label
-            .padding(.horizontal, ChromeMetrics.Launcher.buttonHorizontalPadding)
-            .padding(.vertical, ChromeMetrics.Launcher.buttonVerticalPadding)
-            .background(
-                shape
-                    .fill(appearance.fill)
-                    .overlay(shape.fill(theme.accent).opacity(appearance.pressWash))
-            )
-            .overlay(shape.strokeBorder(appearance.border, lineWidth: 1))
-            .scaleEffect(appearance.scale)
+            .padding(.vertical, ChromeMetrics.Launcher.itemVerticalPadding)
+            .padding(.leading, ChromeMetrics.Launcher.itemLeadingPadding)
+            .padding(.trailing, ChromeMetrics.Launcher.itemTrailingPadding)
+            .background(shape.fill(style.itemFill(isHovering: isHovering, isPressed: isPressed)))
+            // With no fill at rest, only the glyphs would take a click.
+            .contentShape(shape)
             // Only the press animates here; the hover fade is driven from the
             // `onHover` that owns `isHovering`, since a ButtonStyle cannot see
             // that change coming.
-            .animation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade), value: configuration.isPressed)
+            .animation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade), value: isPressed)
     }
 }
 
@@ -275,7 +448,7 @@ private struct HarnessBadge: View {
         if let mark = entry.mark, mark.cgPath != nil {
             Circle()
                 .fill(Color(mark.ground))
-                .frame(width: ChromeMetrics.Launcher.monogram, height: ChromeMetrics.Launcher.monogram)
+                .frame(width: ChromeMetrics.Launcher.logo, height: ChromeMetrics.Launcher.logo)
                 .overlay(
                     MarkShape(mark: mark)
                         .fill(Color(mark.ink))
@@ -319,11 +492,17 @@ private struct MonogramBadge: View {
     var body: some View {
         Circle()
             .fill(entry.monogramColor)
-            .frame(width: ChromeMetrics.Launcher.monogram, height: ChromeMetrics.Launcher.monogram)
-            .overlay(
-                Text(entry.monogram)
-                    .font(ChromeType.launcherMonogram)
-                    .foregroundStyle(entry.monogramInk)
-            )
+            .frame(width: ChromeMetrics.Launcher.logo, height: ChromeMetrics.Launcher.logo)
+            .overlay {
+                if let symbol = entry.symbol {
+                    Image(systemName: symbol)
+                        .font(ChromeType.launcherSymbol)
+                        .foregroundStyle(entry.monogramInk)
+                } else {
+                    Text(entry.monogram)
+                        .font(ChromeType.launcherMonogram)
+                        .foregroundStyle(entry.monogramInk)
+                }
+            }
     }
 }

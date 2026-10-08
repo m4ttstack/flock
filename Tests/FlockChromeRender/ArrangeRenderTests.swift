@@ -116,8 +116,9 @@ final class ArrangeRenderTests: XCTestCase {
         }
     }
 
-    /// The five-tab herd zoomed, three tiles over two, in both schemes.
-    func testAZoomedHerdFillsTheCanvas() async throws {
+    /// Arrange is for the workspaces a person arranges: the herd, run for
+    /// them, has no island and takes no drop.
+    func testArrangeLeavesTheHerdOut() async throws {
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model())
@@ -125,13 +126,11 @@ final class ArrangeRenderTests: XCTestCase {
             await settle(window)
             arrange.drag.toggleGrid()
             await settle(window)
-            arrange.drag.zoomGrid(into: ArrangeFixture.herd)
-            await settle(window)
-            await settle(window)
-            try write(snapshot(window), "arrange-zoomed-herd-\(scheme).png")
-            XCTAssertEqual(arrange.drag.surfaces?.grid?.thumbnails.count, 5)
+            try write(snapshot(window), "arrange-no-herd-\(scheme).png")
+            let cards = try XCTUnwrap(arrange.drag.surfaces?.grid?.cards.map(\.id))
+            XCTAssertFalse(cards.isEmpty, "\(scheme): Arrange shows the other workspaces")
+            XCTAssertFalse(cards.contains(ArrangeFixture.herd), "\(scheme): the herd has an island in Arrange")
             arrange.drag.closeGrid()
-            XCTAssertNil(arrange.drag.gridZoomed, "\(scheme): closing Arrange kept the zoom")
             window.close()
         }
     }
@@ -289,7 +288,7 @@ private final class ArrangeGroundSurface: GhosttyPaneSurface {
     func unpark() {}
     func releaseHerdrHold() {}
     func takeHerdrHold() {}
-    func resumeScreenActivityReporting() {}
+    var cellHeight: CGFloat? { 18 }
     var hasFirstFrame: Bool { true }
     var hasClaimedMouse: Bool { false }
     var programHasMouse: Bool { false }
@@ -300,7 +299,7 @@ private struct ArrangeGroundFactory: GhosttyPaneFactory {
     func makeSurface(
         for pane: PaneID, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
-        onScreenActivity: @escaping (Int) -> Bool
+        onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         ArrangeGroundSurface()
     }

@@ -87,9 +87,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// impossible while a mouse button is held) from painting over it.
     var paneDragInProgress = false
     /// Set by `GhosttySurfaceRepresentable` from
-    /// `SessionViewModel.isPristineLauncherPane`. While true this view
+    /// `SessionViewModel.isLauncherShowing`. While true this view
     /// claims no point but a right-click's -- see `hitTest(_:)`.
-    var isPristineLauncherPane = false
+    var isLauncherShowing = false
     /// Set by `GhosttySurfaceRepresentable` from
     /// `SessionViewModel.renameTarget`. While true this view holds no first
     /// responder of its own and takes none -- see `syncFocusClaim()`.
@@ -97,7 +97,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// The find bar's frame in this view's TOP-LEFT space, or `nil` while it
     /// is closed. SwiftUI draws the bar above this view, so without the gap
     /// in `hitTest(_:)` its buttons would never see a click (the same trap
-    /// `isPristineLauncherPane` answers for the launcher).
+    /// `isLauncherShowing` answers for the launcher).
     var findBarFrame: CGRect?
     /// Where the matching mouse-DOWN actually sent a button, read back by the
     /// UP so it always replays the SAME destination -- never re-derived from
@@ -164,12 +164,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// `PaneLauncherOverlay` draws its button row in SwiftUI ABOVE this real
     /// `NSView`, and AppKit hit-testing hands a click to the frontmost NSView
     /// SUBVIEW under the point regardless of what SwiftUI painted over it --
-    /// so without this, a pristine pane's surface eats every click a
+    /// so without this, a launcher pane's surface eats every click a
     /// launcher button was meant to receive. Returning `nil` here makes the
     /// containing hosting view fall through to its own SwiftUI content for
     /// this whole view's bounds, buttons and the space around them alike.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if isPristineLauncherPane, !Self.pristinePaneTakes(NSApp.currentEvent?.type) { return nil }
+        if isLauncherShowing, !Self.launcherPaneTakes(NSApp.currentEvent?.type) { return nil }
         if let findBarFrame {
             let local = convert(point, from: superview)
             if findBarFrame.contains(CGPoint(x: local.x, y: bounds.height - local.y)) { return nil }
@@ -177,10 +177,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         return super.hitTest(point)
     }
 
-    /// The launcher's buttons are SwiftUI drawn above a pristine pane, so the
+    /// The launcher's buttons are SwiftUI drawn above a launcher pane, so the
     /// surface leaves them the pointer, except for a right-click: nothing up
     /// there has a menu, and the pane's lives here.
-    static func pristinePaneTakes(_ type: NSEvent.EventType?) -> Bool {
+    static func launcherPaneTakes(_ type: NSEvent.EventType?) -> Bool {
         type == .rightMouseDown || type == .rightMouseUp
     }
 
@@ -644,7 +644,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             command: event.modifierFlags.contains(.command),
             shift: event.modifierFlags.contains(.shift)
         ) {
-            session.resumeScreenActivityReporting()
             session.onClearRequested?()
         }
         keyTextAccumulator = []

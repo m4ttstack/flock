@@ -4,7 +4,7 @@ import SwiftUI
 /// The title bar's Workspaces | Overview | Arrange tabs.
 struct ViewTabBar: View {
     let theme: Theme
-    var needsYouCount = 0
+    var blockedCount = 0
     /// Per tab, for renders.
     var forced: [ViewTab: ControlInteraction] = [:]
 
@@ -20,7 +20,7 @@ struct ViewTabBar: View {
             ForEach(ViewTab.allCases, id: \.self) { tab in
                 ViewTabButton(
                     theme: theme, tab: tab, isSelected: tab == selected, hoverEnabled: !inert,
-                    badge: tab == .overview && selected != .overview ? needsYouCount : 0, forced: forced[tab]
+                    badge: tab == .overview && selected != .overview ? blockedCount : 0, forced: forced[tab]
                 ) { navigator.choose(tab) }
             }
         }
@@ -71,7 +71,7 @@ struct ViewTabButton: View {
                         .padding(.horizontal, ChromeMetrics.TitleBar.badgeHorizontalPadding)
                         .frame(minWidth: ChromeMetrics.TitleBar.badgeHeight, minHeight: ChromeMetrics.TitleBar.badgeHeight)
                         .background(theme.red.opacity(ChromeMetrics.TitleBar.badgeFillOpacity), in: Capsule())
-                        .accessibilityLabel("\(badge) need you")
+                        .accessibilityLabel("\(badge) blocked")
                 }
             }
             .padding(.horizontal, ChromeMetrics.TitleBar.tabHorizontalPadding)

@@ -270,6 +270,23 @@ public func resolveDropTarget(at point: CGPoint, dragging: DragSubject, surfaces
     return nil
 }
 
+/// Where an empty pin carried below PINNED would land among the workspaces
+/// if it could leave: the slot the rail opens and marks as refused. nil for
+/// any other subject, and anywhere but the rail outside PINNED.
+public func refusedDropTarget(at point: CGPoint, dragging: DragSubject, surfaces: DropSurfaces) -> DropTarget? {
+    guard surfaces.grid == nil, case .pin(let id) = dragging,
+          surfaces.pinnedFrames.contains(where: { $0.id == id && $0.workspace == nil })
+    else { return nil }
+    if let pinnedBounds = surfaces.pinnedFrame ?? unionRect(surfaces.pinnedFrames.map(\.frame)), pinnedBounds.contains(point) {
+        return nil
+    }
+    guard let railBounds = surfaces.railFrame ?? unionRect(surfaces.workspaceFrames.map(\.frame)), railBounds.contains(point)
+    else { return nil }
+    let centers = surfaces.workspaceFrames.map(\.frame.midY)
+    let y = clamp(point.y, to: surfaces.railViewport.map { ($0.minY, $0.maxY) })
+    return .workspaceRail(insertIndex: insertIndex(of: y, centers: centers))
+}
+
 /// The create-new zones, which only a pane may use: a pane is the only
 /// subject `GesturePlanner` can carry into a tab or a workspace that does not
 /// exist yet.

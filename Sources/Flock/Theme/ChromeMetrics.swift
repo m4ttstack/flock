@@ -155,7 +155,6 @@ enum ChromeMetrics {
         /// The design sets the protocol readout 1.5pt above the strip's
         /// center; the inset is twice that because the frame centers the
         /// padded label.
-        static let readoutBottomInset: CGFloat = 3
         /// How far the overflow hint runs in from an edge that hides tabs.
         static let edgeFadeWidth: CGFloat = 24
         /// What one notch of a classic wheel is worth, whose delta counts
@@ -589,8 +588,17 @@ enum ChromeMetrics {
         static let cornerRadius: CGFloat = ChromeRadius.container
         static let selectedFill: Double = 0.24
         static let selectedStroke: Double = 0.7
-        /// Eight cells and the gaps between them, plus the padding either side.
-        static let width: CGFloat = CGFloat(columns) * cellSize + CGFloat(columns - 1) * cellGap + 2 * padding
+        static let searchFill: Double = 0.06
+        static let searchGlyphGap: CGFloat = 6
+        static let emptyHeight: CGFloat = 60
+        /// Room right of the grid for the scroller, so it never sits over the
+        /// last column, and the scroller's clearance from the popover's edge.
+        static let scrollerGutter: CGFloat = 10
+        static let scrollerInset: CGFloat = 4
+        /// Eight cells and the gaps between them, the padding on the left,
+        /// and the scroller's gutter and inset on the right.
+        static let width: CGFloat = CGFloat(columns) * cellSize + CGFloat(columns - 1) * cellGap + padding
+            + scrollerGutter + scrollerInset
     }
 
     /// The ground a clickable workspace mark lifts on: this far past the glyph
@@ -768,29 +776,63 @@ enum ChromeMetrics {
     }
 
     enum Launcher {
-        static let spacing: CGFloat = 13
-        static let buttonSpacing: CGFloat = 15
-        static let labelSpacing: CGFloat = 10
-        static let buttonHorizontalPadding: CGFloat = 18
-        static let buttonVerticalPadding: CGFloat = 13
+        static let barPadding: CGFloat = 7
+        static let itemSpacing: CGFloat = 4
+        /// Concentric with the items inside it: their radius plus the
+        /// padding between them and the bar's edge.
+        static let barCornerRadius: CGFloat = itemCornerRadius + barPadding
+        static let itemContentSpacing: CGFloat = 10
+        static let itemVerticalPadding: CGFloat = 9
+        static let itemLeadingPadding: CGFloat = 10
+        static let itemTrailingPadding: CGFloat = 16
+        static let itemCornerRadius: CGFloat = ChromeRadius.container
+        static let logo: CGFloat = 26
+        /// An item's height: the logo is the tallest thing in its row.
+        static let itemHeight: CGFloat = logo + 2 * itemVerticalPadding
+        static let barHeight: CGFloat = itemHeight + 2 * barPadding
+        /// The room the bar needs above and below it to sit under the prompt
+        /// rather than over the pane's text.
+        static let barMargin: CGFloat = 12
+        /// The share of the free space above the bar: a third, the optical
+        /// center, which reads as centered where the true center reads low.
+        static let barRise: CGFloat = 1.0 / 3.0
+        /// Keeps the bar off the pane's side edges, and is what a narrow pane
+        /// measures against before it drops the key hints.
+        static let barSideMargin: CGFloat = 12
+        static let hintSpacing: CGFloat = 8
         static let hintHorizontalPadding: CGFloat = 20
-        static let hintBottomPadding: CGFloat = 10
-        static let monogram: CGFloat = 28
         /// Open space between a vendor mark and the edge of its badge, which
         /// OpenAI's terms for the Blossom ask for by name.
-        static let markInset: CGFloat = 6
+        static let markInset: CGFloat = 5
         /// Clears the prompt row a fresh shell prints above the launcher. It
         /// is measured against terminal rows, which the chrome scale leaves
         /// alone, so it is not scaled.
         static let promptClearance: CGFloat = 28
-        /// How far the border brightens toward the accent under the pointer.
-        /// The fill moving on its own reads as a shadow rather than a target,
-        /// which is what these buttons looked like with no hover state at all.
-        static let hoverBorderAccent: Double = 0.55
-        /// Wash of accent over the fill while a press is held, the same value
-        /// the rail's heading buttons use.
+        static let darkTint = RGB(0x3A, 0x3D, 0x52)
+        static let darkTintOpacity: Double = 0.25
+        static let lightTintOpacity: Double = 0.45
+        static let darkLabel = RGB(0xF2, 0xF3, 0xF7)
+        static let darkKeyHintOpacity: Double = 0.4
+        static let lightKeyHintOpacity: Double = 0.45
+        static let darkInnerStrokeOpacity: Double = 0.12
+        static let lightInnerStrokeOpacity: Double = 0.1
+        static let hairlineShadowRadius: CGFloat = 0.5
+        static let darkHairlineShadowOpacity: Double = 0.6
+        static let lightHairlineShadowOpacity: Double = 0.25
+        static let dropShadowRadius: CGFloat = 24
+        static let dropShadowY: CGFloat = 8
+        static let darkDropShadowOpacity: Double = 0.35
+        static let lightDropShadowOpacity: Double = 0.15
+        /// How far past the bar's edge the drop shadow is drawn before it is
+        /// cut off; past twice its radius it no longer reads.
+        static let shadowReach: CGFloat = 2 * dropShadowRadius + dropShadowY
+        static let darkHoverFill: Double = 0.1
+        static let lightHoverFill: Double = 0.06
+        static let darkPressedFill: Double = 0.16
+        static let lightPressedFill: Double = 0.1
+        /// Wash of accent over a fill while a press is held, which the grid's
+        /// controls share.
         static let pressedAccent: Double = 0.2
-        static let pressedScale: CGFloat = 0.97
         static let hoverFade: Double = 0.12
     }
 
