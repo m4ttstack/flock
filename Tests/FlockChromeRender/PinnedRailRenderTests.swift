@@ -329,6 +329,11 @@ final class PinnedRailRenderTests: XCTestCase {
             drag.move(to: CGPoint(x: empty.frame.midX, y: region.maxY + 51))
             try await settle(window)
             let refused = try XCTUnwrap(drag.refusedZone, "\(scheme): the slot is refused")
+            let ghost = try XCTUnwrap(drag.ghost)
+            XCTAssertEqual(
+                DragVisuals.ghostSize(forOrigin: ghost.originSize, bounds: ghost.bounds), empty.frame.size,
+                "\(scheme): a row's ghost is the row's own size"
+            )
             let carried = try snapshot(window)
             if let directory {
                 try XCTUnwrap(carried.representation(using: .png, properties: [:]))

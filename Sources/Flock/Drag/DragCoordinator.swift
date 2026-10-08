@@ -111,7 +111,9 @@ final class DragCoordinator {
         /// takes the ordinary bounds instead, whose floor is what keeps the
         /// proxy visible at all.
         var bounds: DragVisuals.GhostBounds {
-            if tabMiniature != nil, originSize.width > 0, originSize.height > 0 {
+            // A rail row is shorter than the ordinary floor, which would
+            // scale its proxy half again past the rail it came from.
+            if tabMiniature != nil || isRow, originSize.width > 0, originSize.height > 0 {
                 return DragVisuals.exactBounds(originSize)
             }
             return isCompact ? DragVisuals.compactGhostBounds : DragVisuals.ghostBounds

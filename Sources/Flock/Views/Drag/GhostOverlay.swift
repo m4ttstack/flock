@@ -86,7 +86,18 @@ struct GhostOverlay: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(compact ? ChromeMetrics.Ghost.compactPadding : ChromeMetrics.Ghost.padding)
+        .padding(insets)
+    }
+
+    /// A row's proxy is the row's own size, so it takes the row's side inset
+    /// and no more height than the row has.
+    private var insets: EdgeInsets {
+        if ghost.isRow {
+            let side = ChromeMetrics.WorkspaceRow.horizontalPadding
+            return EdgeInsets(top: 0, leading: side, bottom: 0, trailing: side)
+        }
+        let all = ghost.isCompact ? ChromeMetrics.Ghost.compactPadding : ChromeMetrics.Ghost.padding
+        return EdgeInsets(top: all, leading: all, bottom: all, trailing: all)
     }
 
     /// A proxy sized from a narrow mini pane has no room for a title, and it
