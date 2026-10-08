@@ -462,18 +462,22 @@ struct WorkspaceRail: View {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
                 let subject = drag.workspaceDragSubject(pressing: workspace.workspaceID)
-                let title = if case .workspaces(let block) = subject { "\(block.count) workspaces" } else { workspace.label }
+                let block = if case .workspaces(let block) = subject { block } else { [WorkspaceID]() }
                 drag.beginIfIdle(
                     subject,
                     ghost: DragCoordinator.Ghost(
-                        title: title,
-                        symbol: "square.grid.2x2",
-                        originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero
+                        title: block.isEmpty ? workspace.label : "\(block.count) workspaces",
+                        symbol: block.isEmpty ? identity.symbol(for: workspace.workspaceID.rawValue) ?? Self.blockSymbol : Self.blockSymbol,
+                        originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero,
+                        isRow: true
                     ),
                     at: value.startLocation
                 )
             }
     }
+
+    /// Several workspaces carried at once, which no one symbol stands for.
+    private static let blockSymbol = "square.grid.2x2"
 
     private func pinDrag(_ pin: PinnedWorkspace) -> some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
@@ -482,8 +486,9 @@ struct WorkspaceRail: View {
                     drag.pinDragSubject(pin.id),
                     ghost: DragCoordinator.Ghost(
                         title: pin.name,
-                        symbol: "square.grid.2x2",
-                        originSize: drag.pinFrames.first { $0.id == pin.id }?.frame.size ?? .zero
+                        symbol: identity.symbol(for: pin.identityKey) ?? Self.blockSymbol,
+                        originSize: drag.pinFrames.first { $0.id == pin.id }?.frame.size ?? .zero,
+                        isRow: true
                     ),
                     at: value.startLocation
                 )

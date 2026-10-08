@@ -15,7 +15,7 @@ struct GhostOverlay: View {
     var body: some View {
         let size = DragVisuals.ghostSize(forOrigin: ghost.originSize, bounds: ghost.bounds)
         content(size: size)
-            .frame(width: size.width, height: size.height, alignment: ghost.isCompact ? .leading : .topLeading)
+            .frame(width: size.width, height: size.height, alignment: ghost.isCompact || ghost.isRow ? .leading : .topLeading)
             // Translucent so the tab or row under the pointer stays readable
             // through the proxy while it is being targeted.
             .background(theme.chrome.opacity(DragVisuals.ghostOpacity), in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
@@ -82,7 +82,7 @@ struct GhostOverlay: View {
             }
             .foregroundStyle(theme.textStrong)
             .frame(maxWidth: .infinity, alignment: labelled ? .leading : .center)
-            if !compact {
+            if !compact, !ghost.isRow {
                 Spacer(minLength: 0)
             }
         }

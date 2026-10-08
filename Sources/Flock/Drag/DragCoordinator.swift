@@ -101,6 +101,9 @@ final class DragCoordinator {
         /// window-scale proxy would cover the thumbnail it is aimed at.
         var isCompact = false
         var tabMiniature: TabMiniature?
+        /// A rail row's proxy, which centres its mark and title the way the
+        /// row does.
+        var isRow = false
 
         /// A miniature is drawn at its own footprint: it stands for a
         /// thumbnail, so anything but one to one reads as the wrong tab. A
@@ -1499,11 +1502,12 @@ final class DragCoordinator {
             )
         }
         let draggingIndex = draggingWorkspaceIndex
-        return ReshuffleOffset.displacement(
+        let shift = ReshuffleOffset.displacement(
             forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex,
             extent: draggingIndex.map { ReshuffleOffset.advance(ofItemAt: $0, items: items, axis: .horizontal) }
                 ?? arrivingExtent(items: items)
         )
+        return shift > 0 ? shift + refusedReasonRoom : shift
     }
 
     func pinDisplacement(at index: Int) -> CGFloat {
@@ -1531,7 +1535,13 @@ final class DragCoordinator {
     /// of PINNED opens a gap in it.
     var workspacesGrowth: CGFloat {
         guard case .workspaceRail? = target ?? refusedTarget, case .pin? = activeSubject else { return 0 }
-        return arrivingExtent(items: workspaceFrames.map(\.frame))
+        return arrivingExtent(items: workspaceFrames.map(\.frame)) + refusedReasonRoom
+    }
+
+    /// The line the refused slot's reason takes below it, which the gap
+    /// makes room for so nothing below is drawn under it.
+    private var refusedReasonRoom: CGFloat {
+        refusedTarget == nil ? 0 : DragVisuals.refusedZoneLabelGap + DragVisuals.refusedZoneLabelHeight
     }
 
     /// What rows carried in from the rail's other list open: one row's pitch
