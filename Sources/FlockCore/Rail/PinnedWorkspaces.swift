@@ -30,16 +30,18 @@ public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
     /// not the workspace closing.
     public var confirmed: Bool
     public var placement: PinPlacement = .rail
+    /// The cswap account email Claude launches as here; nil for the current login.
+    public var claudeAccount: String?
 
     public var identityKey: String { "pin:\(id.rawValue)" }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, folder, workspace, syncedLabel, confirmed, placement
+        case id, name, folder, workspace, syncedLabel, confirmed, placement, claudeAccount
     }
 
     public init(
         id: PinID, name: String, folder: String, workspace: WorkspaceID?, syncedLabel: String?, confirmed: Bool,
-        placement: PinPlacement = .rail
+        placement: PinPlacement = .rail, claudeAccount: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -48,6 +50,7 @@ public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
         self.syncedLabel = syncedLabel
         self.confirmed = confirmed
         self.placement = placement
+        self.claudeAccount = claudeAccount
     }
 
     /// Pins stored before placement existed decode as rail pins.
@@ -60,6 +63,7 @@ public struct PinnedWorkspace: Equatable, Codable, Sendable, Identifiable {
         syncedLabel = try container.decodeIfPresent(String.self, forKey: .syncedLabel)
         confirmed = try container.decode(Bool.self, forKey: .confirmed)
         placement = try container.decodeIfPresent(PinPlacement.self, forKey: .placement) ?? .rail
+        claudeAccount = try container.decodeIfPresent(String.self, forKey: .claudeAccount)
     }
 }
 
@@ -246,6 +250,12 @@ public final class PinnedWorkspaceStore {
     public func setFolder(_ id: PinID, to folder: String) {
         guard let index = pins.firstIndex(where: { $0.id == id }) else { return }
         pins[index].folder = folder
+        save()
+    }
+
+    public func setClaudeAccount(_ id: PinID, to account: String?) {
+        guard let index = pins.firstIndex(where: { $0.id == id }), pins[index].claudeAccount != account else { return }
+        pins[index].claudeAccount = account
         save()
     }
 
