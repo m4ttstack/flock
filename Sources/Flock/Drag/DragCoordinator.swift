@@ -160,9 +160,12 @@ final class DragCoordinator {
     /// ghost's position is animated at all.
     private(set) var isSettling = false
     private(set) var landingFlash: LandingFlash?
-    /// The rail below PINNED while an empty pin is carried over it: it has
-    /// nothing in herdr to unpin, so the drop there is refused, and this is
-    /// drawn so the refusal is seen before the release springs it home.
+    /// Where an empty pin carried below PINNED would land among the
+    /// workspaces: it has nothing in herdr to unpin, so the rail opens the
+    /// slot as for a live pin and marks it refused, and the release springs
+    /// it home. Never `target`, which a release would commit.
+    private(set) var refusedTarget: DropTarget?
+    /// That slot, drawn as refused.
     private(set) var refusedZone: CGRect?
     /// True from a PANE drag's own start (past the movement threshold, never
     /// for a tab/workspace drag) until its teardown, settle animation
@@ -749,8 +752,12 @@ final class DragCoordinator {
 
     private func resolve(at point: CGPoint) {
         ghostTopLeft = ghostTopLeft(at: point)
-        let refused = emptyPinRefusal(at: point)
-        if refusedZone != refused { refusedZone = refused }
+        let refused = activeSubject.flatMap { subject in
+            surfaces.flatMap { refusedDropTarget(at: point, dragging: subject, surfaces: $0) }
+        }
+        if refusedTarget != refused { refusedTarget = refused }
+        let zone = refusedSlot()
+        if refusedZone != zone { refusedZone = zone }
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
         let resolved: DropTarget?
@@ -843,14 +850,20 @@ final class DragCoordinator {
         end()
     }
 
-    private func emptyPinRefusal(at point: CGPoint) -> CGRect? {
-        guard !grid.isShown, case .pin(let id)? = activeSubject, pinWorkspaces[id] == nil,
-              let viewport = railViewport, let pinned = pinnedFrame,
-              viewport.contains(point), point.y > pinned.maxY
-        else { return nil }
-        let inset = DragVisuals.refusedZoneInset
-        let top = pinned.maxY + inset
-        return CGRect(x: viewport.minX + inset, y: top, width: viewport.width - 2 * inset, height: max(0, viewport.maxY - top - inset))
+    /// The row-sized gap the refused slot opens: where the row now at its
+    /// index sat, below the last row, or the first row under the heading.
+    private func refusedSlot() -> CGRect? {
+        guard case .workspaceRail(let index)? = refusedTarget, let container = workspaceRailContainer else { return nil }
+        let rows = workspaceFrames.map(\.frame)
+        guard let row = rows.first ?? pinFrames.first?.frame else { return nil }
+        let top = if index < rows.count {
+            rows[index].minY
+        } else if let last = rows.last {
+            last.maxY + ChromeMetrics.Rail.rowGap
+        } else {
+            container.minY + InsertionBarGeometry.assumedGap
+        }
+        return CGRect(x: row.minX, y: top, width: row.width, height: row.height)
     }
 
     /// Everything that must stop the moment a drag stops, whatever ended it.
@@ -860,6 +873,7 @@ final class DragCoordinator {
         }
         stopAutoScroll()
         target = nil
+        refusedTarget = nil
         refusedZone = nil
         releaseRearrangeHold()
         // The one choke point every exit path (`end`, `cancel`, `abandon`)
@@ -1362,10 +1376,11 @@ final class DragCoordinator {
 
     func isDragging(pin: PinID) -> Bool { activeSubject == .pin(pin) }
 
-    /// A live pin is the one thing that can leave PINNED for WORKSPACES.
-    var isDraggingLivePin: Bool {
-        guard case .pin(let id)? = activeSubject else { return false }
-        return pinWorkspaces[id] != nil
+    /// A carried pin is headed for WORKSPACES or refused there; either way
+    /// the section shows, heading and all.
+    var isDraggingPin: Bool {
+        guard case .pin? = activeSubject else { return false }
+        return true
     }
 
     var insertionMark: InsertionMark? {
@@ -1474,7 +1489,7 @@ final class DragCoordinator {
     }
 
     func workspaceDisplacement(at index: Int) -> CGFloat {
-        guard case .workspaceRail(let insertIndex)? = target else { return 0 }
+        guard case .workspaceRail(let insertIndex)? = target ?? refusedTarget else { return 0 }
         let items = workspaceFrames.map(\.frame)
         if case .workspaces(let block)? = activeSubject {
             let members = Set(block)
@@ -1515,7 +1530,7 @@ final class DragCoordinator {
     /// The same slide for what sits below WORKSPACES, while a pin carried out
     /// of PINNED opens a gap in it.
     var workspacesGrowth: CGFloat {
-        guard case .workspaceRail? = target, case .pin? = activeSubject else { return 0 }
+        guard case .workspaceRail? = target ?? refusedTarget, case .pin? = activeSubject else { return 0 }
         return arrivingExtent(items: workspaceFrames.map(\.frame))
     }
 

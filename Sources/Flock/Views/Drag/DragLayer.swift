@@ -67,12 +67,15 @@ private struct RefusedZone: View {
         shape
             .fill(theme.red.opacity(DragVisuals.refusedZoneWash))
             .overlay(shape.strokeBorder(theme.red.opacity(DragVisuals.refusedZoneStroke), lineWidth: ChromeMetrics.ruleWidth))
-            // Centred: the pointer, and the ghost hanging from it, come in
-            // at the zone's top edge.
-            .overlay {
+            // Below the slot: the ghost hangs over the slot itself, from the
+            // pointer that is in it.
+            .overlay(alignment: .topLeading) {
                 Label("Empty pins stay in Pinned", systemImage: "nosign")
                     .font(ChromeType.refusedZone)
                     .foregroundStyle(theme.red)
+                    .fixedSize()
+                    .padding(.leading, ChromeMetrics.WorkspaceRow.horizontalPadding)
+                    .offset(y: rect.height + DragVisuals.refusedZoneLabelGap)
             }
             .frame(width: rect.width, height: rect.height)
             .offset(x: rect.minX, y: rect.minY)

@@ -52,8 +52,8 @@ struct WorkspaceRail: View {
                             pinnedSection(sections)
                         }
                         // A heading over no rows says nothing, except while a
-                        // live pin is carried and WORKSPACES is where it can go.
-                        if !workspaces.isEmpty || drag.isDraggingLivePin {
+                        // pin is carried and WORKSPACES is where it would go.
+                        if !workspaces.isEmpty || drag.isDraggingPin {
                             workspacesHeading
                                 .padding(.top, hasPins ? ChromeMetrics.RailSection.sectionGap : 0)
                         }

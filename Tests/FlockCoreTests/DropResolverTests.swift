@@ -522,4 +522,25 @@ final class DropResolverTests: XCTestCase {
             "a pane over a live pin lands on its row"
         )
     }
+
+    /// The slot an empty pin would take among the workspaces, which the rail
+    /// opens and marks as refused; nothing for any other subject or place.
+    func testAnEmptyPinAmongTheWorkspacesIsRefusedAtTheSlotItWouldTake() throws {
+        let pins = [
+            PinItemFrame(id: PinID(rawValue: "p1"), workspace: WorkspaceID(rawValue: "w9"), frame: CGRect(x: 0, y: 0, width: 200, height: 28)),
+            PinItemFrame(id: PinID(rawValue: "p2"), workspace: nil, frame: CGRect(x: 0, y: 30, width: 200, height: 28)),
+        ]
+        let rail = [WorkspaceItemFrame(id: WorkspaceID(rawValue: "w1"), frame: CGRect(x: 0, y: 100, width: 200, height: 28))]
+        let surfaces = DropSurfaces(
+            canvas: try canvas(), stripWorkspace: WorkspaceID(rawValue: "w1"), tabFrames: [], workspaceFrames: rail,
+            railFrame: CGRect(x: 0, y: 0, width: 200, height: 300),
+            newTabZone: nil, newWorkspaceZone: nil, pinnedFrames: pins, pinnedFrame: CGRect(x: 0, y: 0, width: 200, height: 60)
+        )
+        let empty = DragSubject.pin(PinID(rawValue: "p2"))
+        XCTAssertEqual(refusedDropTarget(at: CGPoint(x: 10, y: 90), dragging: empty, surfaces: surfaces), .workspaceRail(insertIndex: 0))
+        XCTAssertEqual(refusedDropTarget(at: CGPoint(x: 10, y: 250), dragging: empty, surfaces: surfaces), .workspaceRail(insertIndex: 1))
+        XCTAssertNil(refusedDropTarget(at: CGPoint(x: 10, y: 40), dragging: empty, surfaces: surfaces), "over PINNED it is a reorder")
+        XCTAssertNil(refusedDropTarget(at: CGPoint(x: 10, y: 120), dragging: .pin(PinID(rawValue: "p1")), surfaces: surfaces))
+        XCTAssertNil(refusedDropTarget(at: CGPoint(x: 10, y: 120), dragging: .workspace(WorkspaceID(rawValue: "w5")), surfaces: surfaces))
+    }
 }
