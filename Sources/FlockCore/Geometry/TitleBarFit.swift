@@ -12,4 +12,12 @@ public enum TitleBarFit {
         let titleMaxX = titleMinX + titleWidth
         return titleMinX >= leadingEdge + gap && titleMaxX <= barWidth - trailingWidth - gap
     }
+
+    /// Names are all or none: a strip that would not fit named between the
+    /// view tabs and the notices draws every cell as its icon alone.
+    public static func showsNames(
+        barWidth: CGFloat, leadingEdge: CGFloat, noticesWidth: CGFloat, namedStripWidth: CGFloat, gap: CGFloat
+    ) -> Bool {
+        barWidth - leadingEdge - noticesWidth - namedStripWidth >= gap
+    }
 }
