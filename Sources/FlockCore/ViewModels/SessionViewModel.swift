@@ -321,13 +321,15 @@ public final class SessionViewModel {
         closeTopBarOverlayIfGone()
     }
 
-    /// The shown workspace closed and `pin` held it: the pin stays on screen,
-    /// empty, rather than the view following herdr's focus elsewhere. The pin
-    /// is read before the pins reconcile, which unlinks it.
+    /// The shown workspace closed and `pin`, a sidebar pin, held it: the pin
+    /// stays on screen, empty, rather than the view following herdr's focus
+    /// elsewhere. The pin is read before the pins reconcile, which unlinks
+    /// it. Gone from herdr, not just hidden: a workspace moved to the top bar
+    /// is still open.
     private func holdClosedPinOnScreen(_ shown: WorkspaceID?, pin: PinID?, previous: SessionModel?) {
-        guard let shown, let pin, let model, let previous,
+        guard let shown, let pin, pins.pin(pin)?.placement == .rail, let userModel, let previous,
               previous.workspaces.contains(where: { $0.workspaceID == shown }),
-              !model.workspaces.contains(where: { $0.workspaceID == shown })
+              !userModel.workspaces.contains(where: { $0.workspaceID == shown })
         else { return }
         shownEmptyPin = pin
     }
@@ -336,7 +338,7 @@ public final class SessionViewModel {
     /// shows its workspace.
     private func reconcileShownEmptyPin() {
         guard let id = shownEmptyPin else { return }
-        guard let pin = pins.pin(id) else {
+        guard let pin = pins.pin(id), pin.placement == .rail else {
             shownEmptyPin = nil
             return
         }
