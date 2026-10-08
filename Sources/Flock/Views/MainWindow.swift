@@ -78,7 +78,7 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild, needsYouCount: viewModel.attentionToasts.toasts.count
+                isDevBuild: isDevBuild, needsYouCount: viewModel.attentionToasts.toasts.count, viewModel: viewModel
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -228,20 +228,40 @@ struct TitleBar: View {
     var needsYouCount = 0
     /// Per tab, for renders.
     var forcedTabs: [ViewTab: ControlInteraction] = [:]
+    /// Draws the top-bar workspaces; none without it.
+    var viewModel: SessionViewModel? = nil
 
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
+    @Environment(TopBarLabelStore.self) private var labels: TopBarLabelStore?
 
     @State private var barWidth: CGFloat = 0
     @State private var titleWidth: CGFloat = 0
     @State private var tabsMaxX: CGFloat = 0
     @State private var trailingWidth: CGFloat = 0
+    @State private var noticesWidth: CGFloat = 0
+    @State private var namedStripWidth: CGFloat = 0
 
     private var showsTitle: Bool {
         TitleBarFit.showsTitle(
             barWidth: barWidth, titleWidth: titleWidth, leadingEdge: tabsMaxX, trailingWidth: trailingWidth,
             gap: ChromeMetrics.TitleBar.titleClearance
         )
+    }
+
+    private var showsNames: Bool {
+        labels?.label == .iconAndName && TitleBarFit.showsNames(
+            barWidth: barWidth, leadingEdge: tabsMaxX, noticesWidth: noticesWidth,
+            namedStripWidth: namedStripWidth, gap: ChromeMetrics.TitleBar.titleClearance
+        )
+    }
+
+    private var hasTopBarWorkspaces: Bool {
+        viewModel?.railSections(board: nil)?.topBar.isEmpty == false
+    }
+
+    private var hasNotices: Bool {
+        devBuild?.newerBuildReady == true || noticeColor != nil
     }
 
     var body: some View {
@@ -278,14 +298,32 @@ struct TitleBar: View {
                 }
         }
         .overlay(alignment: .trailing) {
-            HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
-                if let devBuild, devBuild.newerBuildReady {
-                    RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
+            HStack(spacing: 0) {
+                if let viewModel, hasTopBarWorkspaces {
+                    TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: showsNames)
+                        .frame(height: ChromeMetrics.TitleBar.height)
+                        .fixedSize()
+                        // Measured named whatever is drawn, so the fit rule
+                        // reads the width names would need.
+                        .background {
+                            TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: true, measuring: true)
+                                .fixedSize()
+                                .hidden()
+                                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { namedStripWidth = $0 }
+                        }
                 }
-                connectionNotice
+                HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
+                    if let devBuild, devBuild.newerBuildReady {
+                        RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
+                    }
+                    connectionNotice
+                }
+                // Cells sit flush with the bar's edge when no notice follows them.
+                .padding(.leading, hasTopBarWorkspaces && hasNotices ? ChromeMetrics.TitleBar.noticeTrailingPadding : 0)
+                .padding(.trailing, hasTopBarWorkspaces && !hasNotices ? 0 : ChromeMetrics.TitleBar.noticeTrailingPadding)
+                .fixedSize()
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { noticesWidth = $0 }
             }
-            .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
-            .fixedSize()
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { trailingWidth = $0 }
         }
         .background(theme.chrome)

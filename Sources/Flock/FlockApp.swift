@@ -54,6 +54,8 @@ struct FlockApp: App {
     @State private var themeStore = ThemeStore()
     @State private var terminalTextSizeStore = TerminalTextSizeStore()
     @State private var rtModalSizeStore = RtModalSizeStore()
+    @State private var topBarLabelStore = TopBarLabelStore()
+    @State private var topBarOverlaySizeStore = TopBarOverlaySizeStore()
     @State private var rtModalTextSizeStore = RtModalTextSizeStore()
     @State private var optionAsAltStore = OptionAsAltStore()
     @State private var notificationLifetimeStore: NotificationLifetimeStore
@@ -324,6 +326,8 @@ struct FlockApp: App {
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
+                .environment(topBarLabelStore)
+                .environment(topBarOverlaySizeStore)
                 .environment(rtModalTextSizeStore)
                 .environment(optionAsAltStore)
                 .environment(railWidthStore)
@@ -639,6 +643,7 @@ struct FlockApp: App {
                 notificationLifetimeStore: notificationLifetimeStore,
                 missionBottomLineStore: missionBottomLineStore,
                 oneTitleStore: oneTitleStore,
+                topBarLabelStore: topBarLabelStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,

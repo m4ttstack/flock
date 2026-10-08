@@ -1518,3 +1518,17 @@ final class DragCoordinator {
         return pinFrames.firstIndex { $0.id == id }
     }
 }
+
+// MARK: - The title bar's top-bar strip
+
+extension DragCoordinator {
+    var topBarFrames: [PinItemFrame] { [] }
+
+    func topBarDisplacement(at index: Int) -> CGFloat { 0 }
+
+    func setTopBarFrame(_ frame: CGRect, for id: PinID) {}
+
+    func setTopBarRegion(_ frame: CGRect) {}
+
+    func setTopBarOrder(_ order: [PinID]) {}
+}

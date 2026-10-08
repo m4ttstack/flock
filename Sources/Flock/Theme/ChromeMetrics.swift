@@ -52,6 +52,10 @@ enum ChromeMetrics {
         static let tabGlyphSize: CGFloat = 12
         static let tabGlyphGap: CGFloat = 7
         static let tabUnderline: CGFloat = 2
+        static let topBarMark: CGFloat = tabGlyphSize + 2
+        static let topBarDot: CGFloat = 6
+        static let topBarCellPadding: CGFloat = tabHorizontalPadding
+        static let renameWidth: CGFloat = 200
         /// The least clearance the centred title keeps from either end's
         /// content before it hides. Small enough that "flock" and the DEV tag
         /// still fit beside the tabs at the main window's minimum width.
