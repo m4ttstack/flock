@@ -267,7 +267,7 @@ struct FlockApp: App {
     /// A new pane's launcher is up, so ⌘1 and on launch into it rather than
     /// switching views.
     private var launcherOffered: Bool {
-        LauncherSlots.target(on: viewModel).map { viewModel.isPristineLauncherPane($0) } ?? false
+        LauncherSlots.target(on: viewModel).map { viewModel.isLauncherShowing($0) } ?? false
     }
 
     private var viewTabs: ViewTabNavigator {

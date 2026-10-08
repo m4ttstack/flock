@@ -814,7 +814,7 @@ struct PaneCellView: View {
                     rearrangeActive: rearrangeMode.active,
                     rightClickMode: viewModel.rightClicks.mode(for: pane.terminalID),
                     paneDragInProgress: drag.isPaneDragInFlight,
-                    isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
+                    isPristineLauncherPane: viewModel.isLauncherShowing(pane.paneID),
                     // Any open editor, not just this pane's own: the one
                     // being typed into is usually a tab's or a rail row's,
                     // and this pane is the focused one whose surface would
@@ -842,7 +842,7 @@ struct PaneCellView: View {
                 // only the focused pane holds AppKit key focus. send_input is
                 // focus-independent.
                 if PaneLoaderPolicy.showsLauncherOverlay(
-                    isPristineLauncherPane: viewModel.isPristineLauncherPane(pane.paneID),
+                    isPristineLauncherPane: viewModel.isLauncherShowing(pane.paneID),
                     hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
                 ) {
                     PaneLauncherOverlay(
@@ -865,7 +865,7 @@ struct PaneCellView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-                guard !isFocused, viewModel.isPristineLauncherPane(pane.paneID) else { return }
+                guard !isFocused, viewModel.isLauncherShowing(pane.paneID) else { return }
                 focusInHerdr()
             }
             .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)

@@ -127,7 +127,7 @@ public final class SessionViewModel {
     /// valve against attaching a pane the model never described at all.
     private var everKnownPaneIDs: Set<PaneID> = []
 
-    private let paneLauncherRegistry = PaneLauncherRegistry()
+    private let paneLauncherRegistry: PaneLauncherRegistry
     // Armed per visible pane on attach, disarmed on park and teardown, so a
     // pane's scroll feed lives exactly as long as something can show it.
     // `nil` when nothing was injected (a bare test double); the indicator
@@ -176,6 +176,9 @@ public final class SessionViewModel {
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
     @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
+    /// One per pane whose screen is bare and whose shell herdr has not yet
+    /// called idle, until it does or the pane stops being a candidate.
+    @ObservationIgnored var promptWatches: [PaneID: Task<Void, Never>] = [:]
 
     public init(
         client: any HerdrCommandClient,
@@ -192,6 +195,7 @@ public final class SessionViewModel {
         paneLastChangeArchive: PaneLastChangeArchive? = nil,
         oneTitle: @escaping @MainActor () -> Bool = { false },
         navigationPollInterval: Duration = .milliseconds(300),
+        launcherPollBackoff: [Duration] = PaneLauncherRegistry.defaultPollBackoff,
         backgroundWorkInterval: Duration = BackgroundWork.readInterval,
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
         homeDirectory: String = NSHomeDirectory(),
@@ -219,6 +223,7 @@ public final class SessionViewModel {
         self.lastChangeSeeds = paneLastChangeArchive?.load() ?? [:]
         self.oneTitleSetting = oneTitle
         self.navigationPollInterval = navigationPollInterval
+        self.paneLauncherRegistry = PaneLauncherRegistry(pollBackoff: launcherPollBackoff)
         self.backgroundWorkInterval = backgroundWorkInterval
         self.startingFolder = startingFolder
         self.homeDirectory = homeDirectory
@@ -1112,17 +1117,11 @@ public final class SessionViewModel {
             paneScrollSubscriber?.subscribe(pane: pane)
             return
         }
-        // All three closures are the launcher-pristine contract's ghostty
-        // half: see `GhosttyPaneFactory.makeSurface`'s doc comment. The
-        // screen-activity one hands back whether to keep reporting at all,
-        // because counting a surface's rows is a full buffer scan: it stays
-        // on only while the pane is still offering the launcher, or while a
-        // clear it was just asked for has yet to land.
         let surface = await factory.makeSurface(
             for: pane,
             onUserInput: { [weak self] in self?.recordLauncherKeystroke(pane) },
-            onClearRequested: { [weak self] in self?.recordLauncherClearRequested(pane) },
-            onScreenActivity: { [weak self] rows in self?.recordLauncherScreenActivity(pane, nonEmptyRowCount: rows) }
+            onClearRequested: { [weak self] in self?.recordLauncherClearKey(pane) },
+            onScreenActivity: { [weak self] rows in self?.recordLauncherRows(pane, rows: rows) }
         )
         ghosttySurfaces[pane] = surface
         // Only the release is asserted here: a bridge spawns holding, so a
@@ -1175,75 +1174,97 @@ public final class SessionViewModel {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
         paneScrollSubscriber?.unsubscribe(pane: pane)
         parkedPanes.removeAll { $0 == pane }
+        promptWatches[pane]?.cancel()
+        promptWatches[pane] = nil
+        navigationWatches[pane]?.cancel()
+        navigationWatches[pane] = nil
+        paneLauncherRegistry.forget(pane)
+        launcherRegistryVersion += 1
         await surface.detach()
     }
 
-    // MARK: - new-pane harness launcher
+    // MARK: - harness launcher
 
     /// `PaneLauncherRegistry` is a plain (non-`@Observable`) class, so a
     /// mutation to it alone would never invalidate a SwiftUI view reading
-    /// `isPristineLauncherPane`. This counter is the observation seam: every
-    /// mutating call below bumps it, and `isPristineLauncherPane` reads it
+    /// it. This counter is the observation seam: every change below that
+    /// moves a pane's answer bumps it, and the readers below touch it
     /// (result discarded) purely to register that dependency.
     public private(set) var launcherRegistryVersion = 0
 
-    public func isPristineLauncherPane(_ pane: PaneID) -> Bool {
+    public func isLauncherShowing(_ pane: PaneID) -> Bool {
         _ = launcherRegistryVersion
         return paneLauncherRegistry.isShowing(pane)
     }
 
-    /// On the key path: `GhosttySurfaceView.keyDown` calls this for every real
-    /// keystroke, so the seam is bumped only when the registry's answer
-    /// actually moved. Every visible pane cell's body depends on that seam
-    /// through `isPristineLauncherPane`, and the answer stops changing after
-    /// the pane's first keystroke -- for a pane flock never created it never
-    /// changes at all.
-    public func recordLauncherKeystroke(_ pane: PaneID) {
-        let wasPristine = paneLauncherRegistry.isShowing(pane)
-        paneLauncherRegistry.recordKeystroke(pane)
-        guard wasPristine else { return }
-        launcherRegistryVersion += 1
-    }
-
-    /// The launcher-pristine contract's screen-activity half: a pane whose
-    /// program prints real output, never typed into, also hides the
-    /// overlay. `nonEmptyRowCount` is the surface's own retained-screen
-    /// count (`GhosttySession.reportScreenActivityIfDue`); which counts are
-    /// the shell still starting up, and which are the pane in use, is
-    /// `PaneLauncherRegistry`'s answer.
-    public func recordLauncherScreenActivity(_ pane: PaneID, nonEmptyRowCount: Int) {
-        paneLauncherRegistry.recordRows(pane, rows: nonEmptyRowCount, at: now())
-        launcherRegistryVersion += 1
-    }
-
-    /// The pane was asked to clear its screen. This shows nothing by itself:
-    /// it opens the window in which the pane's screen dropping back to its
-    /// settled size means the clear landed and the launcher can be offered
-    /// again. A program that handled the key itself and repainted never makes
-    /// that drop, so it keeps the overlay away.
-    public func recordLauncherClearRequested(_ pane: PaneID) {
-        paneLauncherRegistry.recordClearKey(pane)
-        launcherRegistryVersion += 1
-    }
-
-    /// Whether this pane's surface should still be counting its rows for the
-    /// launcher. That count is a full buffer scan, so it is not left running
-    /// on panes whose answer can no longer change.
-    public func wantsLauncherScreenActivity(_ pane: PaneID) -> Bool {
+    /// The rows the pane's screen holds, which the overlay keeps clear of.
+    public func launcherOccupiedRows(_ pane: PaneID) -> Int {
         _ = launcherRegistryVersion
-        return true
+        return paneLauncherRegistry.occupiedRows(pane)
     }
 
-    /// Sends `binary` to `pane` and submits it in one `send_input` call (the
-    /// overlay's click contract), then hides the launcher for that pane
-    /// immediately, same as a real keystroke would.
+    /// Whether ⌘1 and on launch rather than switch views: the canvas's
+    /// focused pane, with no detected agent, is showing the launcher.
+    public var focusedPaneShowsLauncher: Bool {
+        let pane = canvasFocusedPaneID
+        guard let target = LaunchTarget.pane(canvasPane: pane, agent: pane.flatMap { model?.panes[$0]?.agent }) else {
+            return false
+        }
+        return isLauncherShowing(target)
+    }
+
+    /// On the key path: `GhosttySurfaceView.keyDown` calls this for every
+    /// real keystroke.
+    public func recordLauncherKeystroke(_ pane: PaneID) {
+        launcherChange(pane) { $0.recordKeystroke(pane) }
+    }
+
+    /// The key that asks the shell to clear, after the keystroke above.
+    public func recordLauncherClearKey(_ pane: PaneID) {
+        launcherChange(pane) { $0.recordClearKey(pane) }
+    }
+
+    /// The surface's non-empty active-screen row count, each time it changes.
+    public func recordLauncherRows(_ pane: PaneID, rows: Int) {
+        launcherChange(pane) { $0.recordRows(pane, rows: rows, at: now()) }
+    }
+
+    /// Applies one registry mutation, bumps the observation seam when the
+    /// pane's answer or occupied rows moved, and re-arms or cancels the
+    /// pane's herdr poll to match the registry's new question.
+    private func launcherChange(_ pane: PaneID, _ mutate: (PaneLauncherRegistry) -> Void) {
+        let showingBefore = paneLauncherRegistry.isShowing(pane)
+        let rowsBefore = paneLauncherRegistry.occupiedRows(pane)
+        mutate(paneLauncherRegistry)
+        if showingBefore != paneLauncherRegistry.isShowing(pane) || rowsBefore != paneLauncherRegistry.occupiedRows(pane) {
+            launcherRegistryVersion += 1
+        }
+        schedulePromptPoll(pane)
+    }
+
+    private func schedulePromptPoll(_ pane: PaneID) {
+        promptWatches[pane]?.cancel()
+        promptWatches[pane] = nil
+        guard let delay = paneLauncherRegistry.nextPollDelay(pane) else { return }
+        promptWatches[pane] = Task { [weak self] in
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            guard !Task.isCancelled, let self else { return }
+            let data = try? await self.client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
+            guard !Task.isCancelled else { return }
+            let idle = data.flatMap { PaneForegroundJob.isBusy(processInfoResponse: $0) }.map { !$0 }
+            self.launcherChange(pane) { $0.recordForegroundJob(pane, idle: idle, at: self.now()) }
+        }
+    }
+
+    /// Sends `binary` to `pane` and submits it in one `send_input` call, then
+    /// hides the launcher for that pane at once, as a keystroke would, so a
+    /// second click before the program paints types nothing.
     ///
     /// The Enter rides `keys`, never a newline inside `text`: herdr wraps a
     /// non-empty `text` in a bracketed-paste sequence whenever the pane's
     /// program enabled it (a shell at a prompt does), and a newline inside
     /// that bracket reaches the line editor as a literal newline rather than
-    /// accept-line, so the harness name would be typed and never run.
-    /// `keys` is encoded outside the bracket.
+    /// accept-line. `keys` is encoded outside the bracket.
     public func launchHarness(_ binary: String, in pane: PaneID) async {
         _ = try? await client.requestRaw(
             "pane.send_input",
@@ -1268,15 +1289,14 @@ public final class SessionViewModel {
 
     /// Runs a navigator command (a directory picker such as `rt cd`) in
     /// `pane`, focused first because the picker takes keys the moment it
-    /// opens. The launcher steps aside while it runs and is offered again at
-    /// the prompt it leaves, found by polling `pane.process_info`: no herdr
-    /// event says a pane's shell is back at its prompt.
+    /// opens. The launcher steps aside while it runs; when the shell is back
+    /// at its prompt the pane is sent Ctrl-L, so the screen the picker left
+    /// drops to a bare prompt and the ordinary rule offers the launcher again.
     public func launchNavigator(_ command: String, in pane: PaneID) async {
         guard !paneLauncherRegistry.isNavigating(pane) else { return }
         // Before the round trips below: until this lands the button is still
         // on screen, and a second click would type the command twice.
-        paneLauncherRegistry.recordNavigationStarted(pane, at: now())
-        launcherRegistryVersion += 1
+        launcherChange(pane) { $0.recordNavigationStarted(pane, at: now()) }
         await jumpToHerdr(pane: pane)
         _ = try? await client.requestRaw(
             "pane.send_input",
@@ -1290,30 +1310,32 @@ public final class SessionViewModel {
         navigationWatches[pane] = Task { [weak self] in await self?.watchNavigation(in: pane) }
     }
 
+    /// Polls `pane.process_info` until the registry says the navigation is
+    /// over. An answer herdr cannot give (an error, an empty foreground list
+    /// as the picker exits) is retried on the next tick; only the pane going
+    /// away (`performTeardown` cancels this task) ends the watch early.
     private func watchNavigation(in pane: PaneID) async {
-        while !Task.isCancelled {
+        while !Task.isCancelled, paneLauncherRegistry.isNavigating(pane) {
             try? await Task.sleep(for: navigationPollInterval)
             guard !Task.isCancelled else { return }
             let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
             guard !Task.isCancelled else { return }
-            guard let data, let busy = PaneForegroundJob.isBusy(processInfoResponse: data) else {
-                paneLauncherRegistry.forget(pane)
-                navigationWatches[pane] = nil
-                return
-            }
-            paneLauncherRegistry.recordForegroundJob(pane, idle: !busy, at: now())
-            guard !paneLauncherRegistry.isNavigating(pane) else { continue }
-            launcherRegistryVersion += 1
-            navigationWatches[pane] = nil
-            return
+            let idle = data.flatMap { PaneForegroundJob.isBusy(processInfoResponse: $0) }.map { !$0 }
+            paneLauncherRegistry.recordForegroundJob(pane, idle: idle, at: now())
         }
+        guard !Task.isCancelled else { return }
+        _ = try? await client.requestRaw(
+            "pane.send_keys",
+            ["pane_id": .string(pane.rawValue), "keys": .array([.string("C-l")])]
+        )
+        navigationWatches[pane] = nil
+        launcherRegistryVersion += 1
+        schedulePromptPoll(pane)
     }
 
-    /// Splits `pane` rightward via `pane.split` and focuses the new pane,
-    /// registering it as flock-created so the launcher can show on it --
-    /// a "Split Right" context-menu command exercising the provenance
-    /// registry live. Starts where the New Pane setting says, `pane`'s own
-    /// folder by default.
+    /// Splits `pane` rightward via `pane.split` and focuses the new pane.
+    /// Starts where the New Pane setting says, `pane`'s own folder by
+    /// default.
     public func splitRight(from pane: PaneID) async {
         await performSplit(from: pane, direction: "right")
     }
@@ -1338,13 +1360,12 @@ public final class SessionViewModel {
     }
 
     /// flock's own half of the `focus: true` every create request carries:
-    /// the new pane is the input sink and the launcher's pristine pane from
-    /// the moment herdr answers, rather than from whenever its focus echo
-    /// arrives -- and if that echo never arrives, this is the only thing that
-    /// ever put the user in what they just made.
+    /// the new pane is the input sink from the moment herdr answers, rather
+    /// than from whenever its focus echo arrives, and if that echo never
+    /// arrives, this is the only thing that ever put the user in what they
+    /// just made.
     private func landIn(pane: PaneID) {
         optimisticFocusedPaneID = pane
-        launcherRegistryVersion += 1
     }
 
     /// The close herdr would escalate into a tab or a workspace, held while the
