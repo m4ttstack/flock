@@ -463,15 +463,17 @@ struct WorkspaceRail: View {
             .onChanged { value in
                 let subject = drag.workspaceDragSubject(pressing: workspace.workspaceID)
                 let block = if case .workspaces(let block) = subject { block } else { [WorkspaceID]() }
+                let row = drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame
                 drag.beginIfIdle(
                     subject,
                     ghost: DragCoordinator.Ghost(
                         title: block.isEmpty ? workspace.label : "\(block.count) workspaces",
                         symbol: block.isEmpty ? identity.symbol(for: workspace.workspaceID.rawValue) ?? Self.blockSymbol : Self.blockSymbol,
-                        originSize: drag.workspaceFrames.first { $0.id == workspace.workspaceID }?.frame.size ?? .zero,
+                        originSize: row?.size ?? .zero,
                         isRow: true
                     ),
-                    at: value.startLocation
+                    at: value.startLocation,
+                    home: row.map { DragCoordinator.DragHome(atStart: $0) }
                 )
             }
     }
@@ -482,15 +484,17 @@ struct WorkspaceRail: View {
     private func pinDrag(_ pin: PinnedWorkspace) -> some Gesture {
         DragGesture(minimumDistance: DragThreshold.movement, coordinateSpace: .named(DragSpace.name))
             .onChanged { value in
+                let row = drag.pinFrames.first { $0.id == pin.id }?.frame
                 drag.beginIfIdle(
                     drag.pinDragSubject(pin.id),
                     ghost: DragCoordinator.Ghost(
                         title: pin.name,
                         symbol: identity.symbol(for: pin.identityKey) ?? Self.blockSymbol,
-                        originSize: drag.pinFrames.first { $0.id == pin.id }?.frame.size ?? .zero,
+                        originSize: row?.size ?? .zero,
                         isRow: true
                     ),
-                    at: value.startLocation
+                    at: value.startLocation,
+                    home: row.map { DragCoordinator.DragHome(atStart: $0) }
                 )
             }
     }

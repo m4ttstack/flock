@@ -321,8 +321,13 @@ final class PinnedRailRenderTests: XCTestCase {
             drag.beginIfIdle(
                 .pin(empty.id),
                 ghost: DragCoordinator.Ghost(title: "acme", symbol: "cylinder.fill", originSize: empty.frame.size, isRow: true),
-                at: CGPoint(x: empty.frame.midX, y: empty.frame.midY)
+                at: CGPoint(x: empty.frame.midX, y: empty.frame.midY),
+                home: DragCoordinator.DragHome(atStart: empty.frame)
             )
+            XCTAssertEqual(drag.ghostTopLeft, empty.frame.origin, "\(scheme): the ghost starts over the row it came from")
+            drag.move(to: CGPoint(x: empty.frame.midX + 120, y: empty.frame.midY + 6))
+            XCTAssertEqual(drag.ghostTopLeft?.x, empty.frame.minX, "\(scheme): a row's ghost keeps to the rail")
+            XCTAssertEqual(drag.ghostTopLeft?.y, empty.frame.minY + 6, "\(scheme): and follows the pointer along it")
             try await settle(window)
             drag.move(to: CGPoint(x: empty.frame.midX, y: region.maxY + 50))
             try await settle(window)

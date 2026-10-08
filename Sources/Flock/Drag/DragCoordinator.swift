@@ -935,6 +935,12 @@ final class DragCoordinator {
     /// against one, so the pointer itself is the answer.
     private func ghostTopLeft(at point: CGPoint) -> CGPoint {
         guard let ghost else { return point }
+        // A rail row moves only along the rail: it starts over the row it was
+        // picked up from, keeps the row's left edge, and holds the height the
+        // pointer grabbed it at.
+        if ghost.isRow, let home = dragHome?.atStart {
+            return CGPoint(x: home.minX, y: point.y - (grabPoint.y - home.minY))
+        }
         return DragVisuals.ghostTopLeft(forCursor: point, ghostSize: ghostSize(ghost), anchor: ghostAnchor(ghost))
     }
 
