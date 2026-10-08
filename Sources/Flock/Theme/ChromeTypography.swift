@@ -157,10 +157,12 @@ enum ChromeType {
     static let hoverCardCopy = inter(11)
     static let hoverCardCopySymbol = Font.system(size: 9.5, weight: .medium)
 
-    static let launcherName = inter(16.5, .medium)
-    static let launcherMonogram = inter(14, .bold)
-    static let launcherHint = inter(11.5)
-    static let launcherShortcut = inter(12.5)
+    /// The launcher is a macOS-style frosted bar and is set in the system
+    /// face, not the chrome's Inter.
+    static let launcherName = Font.system(size: 13, weight: .medium)
+    static let launcherMonogram = inter(9, .bold)
+    static let launcherHint = Font.system(size: 11)
+    static let launcherShortcut = Font.system(size: 11, weight: .medium)
 
     static let toastSymbol = Font.system(size: 11, weight: .medium)
     static let toastMessage = inter(12)
