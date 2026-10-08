@@ -36,6 +36,17 @@ final class MissionLanesRenderTests: XCTestCase {
         }
     }
 
+    /// A signed-in pane's card ends with its handle, at the left.
+    func testASignedInCardShowsItsChatHandle() async throws {
+        let scenario = Scenario(name: "chat", blocked: 1, done: 1, working: 2, background: 1)
+        let pane = panes(scenario, only: .working)[0]
+        try await render(scenario, signedIn: [("@robin", pane)]) { theme, image, _ in
+            let card = try XCTUnwrap(MissionCardFrames.shared.frames[pane])
+            let corner = CGRect(x: card.minX, y: card.maxY - 34, width: 90, height: 34)
+            XCTAssertGreaterThan(self.count(theme.palette.green.hex, in: corner, of: image), 0, "\(theme.id): no handle on the card")
+        }
+    }
+
     func testASmallSubgroupKeepsItsHeightAndTheLargeOneTakesTheRest() async throws {
         let scenario = Scenario(name: "one-large", blocked: 1, done: 8, working: 8, background: 1)
         try await render(scenario) { theme, _, board in
@@ -99,7 +110,7 @@ final class MissionLanesRenderTests: XCTestCase {
     // MARK: - rendering
 
     private func render(
-        _ scenario: Scenario, check: (Theme, NSBitmapImageRep, MissionBoard) throws -> Void
+        _ scenario: Scenario, signedIn: [(handle: String, pane: PaneID)] = [], check: (Theme, NSBitmapImageRep, MissionBoard) throws -> Void
     ) async throws {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -131,6 +142,7 @@ final class MissionLanesRenderTests: XCTestCase {
                 toasts: ToastCenter(), rearrangeMode: RearrangeMode(),
                 commit: { _, _ in fatalError("a render never drops") }, reveal: { _ in }
             )
+            let chat = await SignedInPeek.store(signedIn)
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: Self.size), styleMask: [.borderless], backing: .buffered, defer: false
             )
@@ -144,6 +156,7 @@ final class MissionLanesRenderTests: XCTestCase {
                     .environment(board)
                     .environment(identity)
                     .environment(HerdProgressStore(sources: .unanswered))
+                    .environment(chat)
                     .frame(width: Self.size.width, height: Self.size.height)
             )
             defer { window.close() }

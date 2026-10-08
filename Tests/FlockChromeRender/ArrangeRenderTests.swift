@@ -40,6 +40,32 @@ final class ArrangeRenderTests: XCTestCase {
         }
     }
 
+    /// A signed-in pane's handle sits over the bottom right of its tile.
+    func testASignedInTileShowsItsChatHandle() async throws {
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model())
+            let chat = await SignedInPeek.store([("@robin", ArrangeFixture.apiClaude)])
+            let window = arrange.makeWindow(size: Self.windowSize, chat: chat)
+            await settle(window)
+            arrange.drag.toggleGrid()
+            await settle(window)
+            await settle(window)
+            let image = try snapshot(window)
+            try write(image, "arrange-chat-\(scheme).png")
+            let tile = try XCTUnwrap(arrange.drag.surfaces?.grid?.miniPaneFrame(of: ArrangeFixture.apiClaude))
+            let corner = CGRect(x: tile.maxX - 70, y: tile.maxY - 30, width: 70, height: 30)
+            XCTAssertTrue(contains(theme.palette.green.hex, in: corner, of: image), "\(scheme): no handle in the tile's corner")
+            window.close()
+        }
+    }
+
+    private func contains(_ hex: String, in rect: CGRect, of image: NSBitmapImageRep) -> Bool {
+        stride(from: rect.minX, to: rect.maxX, by: 0.5).contains { x in
+            stride(from: rect.minY, to: rect.maxY, by: 0.5).contains { y in self.hex(image, CGPoint(x: x, y: y)) == hex }
+        }
+    }
+
     /// The pixel at a point in window space, top-left origin.
     private func hex(_ image: NSBitmapImageRep, _ point: CGPoint) -> String {
         let x = Int(point.x * Self.scale), y = Int(point.y * Self.scale)
@@ -225,7 +251,7 @@ struct ArrangeHarness {
         viewModel.update(model: model, connection: .live)
     }
 
-    func makeWindow(size: CGSize, zoomPreview: CGFloat? = nil, dropReflow: CGFloat? = nil) -> NSWindow {
+    func makeWindow(size: CGSize, zoomPreview: CGFloat? = nil, dropReflow: CGFloat? = nil, chat: ChatStore? = nil) -> NSWindow {
         let themeStore = ThemeStore(userDefaults: defaults)
         themeStore.select(theme)
         let board = BoardStore(sources: .unconfigured, userDefaults: defaults)
@@ -253,7 +279,7 @@ struct ArrangeHarness {
         .environment(WorkspaceIdentityStore(userDefaults: defaults))
         .environment(TopBarOverlaySizeStore(userDefaults: defaults))
         .environment(DividerDragCoordinator(session: DividerDragSession(commit: { _, _, _ in })))
-        .environment(ChatStore(
+        .environment(chat ?? ChatStore(
             toasts: ToastCenter(), probe: { nil }, rtProbe: { true }, deckProbe: { true },
             makeRunner: { _ in ArrangeNoChat() }
         ))
@@ -272,6 +298,35 @@ struct ArrangeHarness {
         window.contentView = NSHostingView(rootView: root)
         window.contentView?.layoutSubtreeIfNeeded()
         return window
+    }
+}
+
+/// Answers every peek with the given panes signed in, under these handles.
+actor SignedInPeek: ChatRunning {
+    private let signedIn: [(handle: String, pane: PaneID)]
+
+    init(_ signedIn: [(handle: String, pane: PaneID)]) {
+        self.signedIn = signedIn
+    }
+
+    func run(_ verb: ChatVerb) async throws -> (stdout: Data, exitCode: Int32) {
+        guard case .peek = verb else { throw ChatFailure(message: "SignedInPeek only peeks") }
+        let buddies = signedIn.map {
+            #"{"handle":"\#($0.handle)","paneId":"\#($0.pane.rawValue)","status":"online","unread":0,"mentions":0}"#
+        }
+        return (Data(#"{"buddies":[\#(buddies.joined(separator: ","))],"rooms":[]}"#.utf8), 0)
+    }
+
+    /// A store already holding the launch peek's answer.
+    @MainActor
+    static func store(_ signedIn: [(handle: String, pane: PaneID)]) async -> ChatStore {
+        let runner = SignedInPeek(signedIn)
+        let store = ChatStore(
+            toasts: ToastCenter(), probe: { "/bin/echo" }, rtProbe: { true }, deckProbe: { true }, makeRunner: { _ in runner }
+        )
+        await store.probeTask.value
+        await store.peekTask?.value
+        return store
     }
 }
 

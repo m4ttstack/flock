@@ -16,6 +16,7 @@ struct MissionControlView: View {
     @Environment(WorkspaceIdentityStore.self) private var identityStore
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(OverviewInclusionStore.self) private var inclusion: OverviewInclusionStore?
+    @Environment(ChatStore.self) private var chatStore: ChatStore?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// One space for every lane, so a card whose lane changes is the same
     /// view moving rather than one fading out and another in.
@@ -254,6 +255,7 @@ struct MissionControlView: View {
             segments: viewModel.statusHistory.segments(of: card.paneID, at: now), now: now,
             isSelected: mode.missionSelection == card.paneID, isCooling: cooling,
             rename: rename(card.paneID),
+            chat: chatStore?.signedInBuddy(card.paneID),
             activate: { open(card.paneID) }
         )
         .contextMenu {

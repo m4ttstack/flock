@@ -15,6 +15,7 @@ struct AllWorkspacesGrid: View {
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(BoardStore.self) private var boardNames
     @Environment(HerdProgressStore.self) private var herdProgress
+    @Environment(ChatStore.self) private var chatStore: ChatStore?
     @State private var scrollPosition = ScrollPosition()
     /// The fit on screen. Written only while no drag is live, so the fit a
     /// drag starts with is the one it keeps (`IslandFitHold`).
@@ -62,6 +63,10 @@ struct AllWorkspacesGrid: View {
             refreshIdentities()
             drag.setGridOrder(order)
             drag.setGridOrder(zoomedOrder, layer: .zoomed)
+        }
+        // Agents sign in and out outside Flock, so each mode asks again.
+        .task(id: ChatRefreshKey(isAvailable: chatStore?.isAvailable == true, mode: shownMode)) {
+            await chatStore?.refreshBuddies()
         }
         .onChange(of: order) { drag.setGridOrder(order) }
         .onChange(of: zoomedOrder) { drag.setGridOrder(zoomedOrder, layer: .zoomed) }
@@ -283,6 +288,11 @@ struct AllWorkspacesGrid: View {
     }
 
     /// What Arrange draws: every workspace's island as the fit lays it out.
+    private struct ChatRefreshKey: Equatable {
+        let isAvailable: Bool
+        let mode: AllWorkspacesMode
+    }
+
     private struct Arrangement {
         struct Inputs: Equatable {
             let islands: [IslandLayout.Island]
@@ -665,6 +675,7 @@ private struct TabThumbnail: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.arrangeTiles) private var tiles
     @Environment(\.dropReflowPreviewProgress) private var reflowHeld
+    @Environment(ChatStore.self) private var chatStore: ChatStore?
     @State private var isOverThumbnail = false
     @State private var hoveredPane: PaneID?
     @GestureState private var pressed: ThumbnailPart?
@@ -948,7 +959,8 @@ private struct TabThumbnail: View {
                         isSelected: drag.gridSelection == pane.paneID,
                         isActive: drag.gridSelection == pane.paneID && drag.activeSubject == nil,
                         interaction: interaction(of: .pane(pane.paneID)),
-                        detail: tileBody(pane, box: placed.frame.size)
+                        detail: tileBody(pane, box: placed.frame.size),
+                        chat: chatStore?.signedInBuddy(pane.paneID)
                     )
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.minX, y: placed.frame.minY)
@@ -1106,6 +1118,9 @@ struct MiniPane: View {
     /// Drawn in place of the status word and title: the pane's own output,
     /// for a box large enough to read it (`ArrangeTileBody`).
     var detail: AnyView? = nil
+    /// Who the pane is signed in to chat as, pinned over its bottom right
+    /// corner while the box is large enough to read.
+    var chat: ChatBuddy? = nil
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: ChromeRadius.control)
@@ -1138,6 +1153,13 @@ struct MiniPane: View {
         .clipShape(shape)
         .overlay {
             if let wash = statusWash { shape.fill(wash).opacity(ChromeMetrics.Grid.statusWashOpacity).allowsHitTesting(false) }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if detail != nil, let chat {
+                ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
+                    .padding(ChromeMetrics.Grid.chatPillInset)
+                    .allowsHitTesting(false)
+            }
         }
         .overlay(GridStateWash(theme: theme, shape: AnyShape(shape), interaction: interaction, isActive: isActive ?? isSelected))
         .overlay(

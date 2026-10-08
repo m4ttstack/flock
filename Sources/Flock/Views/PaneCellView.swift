@@ -523,7 +523,7 @@ struct PaneCellView: View {
             EmptyView()
         case .signedOut:
             Button(action: { openChatPopover() }) {
-                chatGlyph(color: theme.overlay0)
+                ChatGlyph(color: theme.overlay0)
                     .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
                     .frame(width: ChromeMetrics.ChatButton.signedOutSize.width, height: ChromeMetrics.ChatButton.signedOutSize.height)
                     .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.surface0)))
@@ -534,35 +534,8 @@ struct PaneCellView: View {
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
         case let .signedIn(name, unread):
             Button(action: { openChatPopover() }) {
-                HStack(spacing: ChromeMetrics.ChatButton.gap) {
-                    // `fixedSize` as well as no width: a name is never
-                    // shortened, so it has to refuse to compress even when
-                    // the legend row runs out of room. What gives instead is
-                    // the pane title, which truncates.
-                    Text(name)
-                        .font(ChromeType.chatButtonHandle)
-                        .foregroundStyle(theme.green)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .frame(height: ChromeMetrics.ChatButton.handleHeight, alignment: .leading)
-                    chatGlyph(color: theme.green)
-                        .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
-                    if unread > 0 {
-                        Text("\(unread)")
-                            .font(ChromeType.chatButtonHandle)
-                            .foregroundStyle(theme.text)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(height: ChromeMetrics.ChatButton.countHeight, alignment: .leading)
-                    }
-                }
-                .padding(.vertical, ChromeMetrics.ChatButton.verticalPadding)
-                .padding(.horizontal, ChromeMetrics.ChatButton.horizontalPadding)
-                .frame(height: ChromeMetrics.ChatButton.signedInHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.selectionBg))
-                )
-                .hoverWash(theme, cornerRadius: ChromeMetrics.ChatButton.cornerRadius)
+                ChatHandlePill(theme: theme, name: name, unread: unread)
+                    .hoverWash(theme, cornerRadius: ChromeMetrics.ChatButton.cornerRadius)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(unread > 0 ? "Chat: \(name), \(unread) unread" : "Chat: \(name)")
@@ -605,15 +578,6 @@ struct PaneCellView: View {
             guard let url = await chatStore.viewerURL(room: nil) else { return }
             NSWorkspace.shared.open(url)
         }
-    }
-
-    /// `bubble.left.fill` sized to its own measured box rather than a point
-    /// size, so the rendered glyph matches the design's icon box exactly.
-    private func chatGlyph(color: Color) -> some View {
-        Image(systemName: "bubble.left.fill")
-            .resizable()
-            .scaledToFit()
-            .foregroundStyle(color)
     }
 
     /// The popover sits on `RtButton` as a whole, for the chat button's

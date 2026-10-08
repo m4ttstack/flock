@@ -22,6 +22,8 @@ struct MissionCardView: View {
     /// Set while this card's pane is being renamed: the title becomes the
     /// rename field, and the card stops being a button so clicks reach it.
     var rename: PaneRename?
+    /// Who the pane is signed in to chat as; nil draws no chat row.
+    var chat: ChatBuddy?
     let activate: () -> Void
 
     @State private var isHovering = false
@@ -94,6 +96,9 @@ struct MissionCardView: View {
                 StatusTimeline(theme: theme, segments: segments)
                     .frame(minWidth: M.timelineMinimumWidth, maxWidth: M.timelineWidth)
                     .frame(height: M.timelineHeight)
+            }
+            if let chat {
+                ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
             }
         }
         .padding(.vertical, M.cardVerticalPadding)

@@ -25,6 +25,7 @@ extension ChromeMetrics.Grid {
     static let tileTailMinSize: CGFloat = 5.5
     static let tileTailMaxSize: CGFloat = 9.5
     static let zoomedTileTailMaxSize: CGFloat = 11.5
+    static let chatPillInset: CGFloat = 5
 }
 
 extension ChromeMetrics.Grid {
