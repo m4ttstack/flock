@@ -41,6 +41,39 @@ final class ScreenActivityTimerTests: XCTestCase {
         XCTAssertEqual(reports, [1], "blank and whitespace rows do not count, and a repeat says nothing")
     }
 
+    func testABlankScreenIsNotReportedBeforeTheFirstRealCount() throws {
+        let session = try makeSession()
+        var reports: [Int] = []
+        var screen: [String] = []
+        session.screenRowsOverride = { screen }
+        session.onScreenActivity = { reports.append($0) }
+
+        session.tickScreenActivity()
+        screen = ["", "  "]
+        session.tickScreenActivity()
+        XCTAssertEqual(reports, [], "a surface that has not painted yet says nothing")
+
+        screen = ["prompt"]
+        session.tickScreenActivity()
+        XCTAssertEqual(reports, [1])
+    }
+
+    func testAStoppedSessionStaysSilentAfterUnparking() throws {
+        let session = try makeSession()
+        var reports: [Int] = []
+        var screen = ["prompt"]
+        session.screenRowsOverride = { screen }
+        session.onScreenActivity = { reports.append($0) }
+        session.tickScreenActivity()
+
+        session.stopScreenActivity()
+        session.setParked(false)
+        screen = ["prompt", "output"]
+        session.tickScreenActivity()
+
+        XCTAssertEqual(reports, [1])
+    }
+
     func testAParkedSessionDoesNotReportUntilItIsUnparked() throws {
         let session = try makeSession()
         var reports: [Int] = []
