@@ -176,14 +176,17 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     func detach() async {
         session.view?.removeFromSuperview()
         session.view = nil
+        session.stopScreenActivity()
     }
 
     func park() {
         session.setOccluded(true)
+        session.setParked(true)
     }
 
     func unpark() {
         session.setOccluded(false)
+        session.setParked(false)
     }
 
     func releaseHerdrHold() {
