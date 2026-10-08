@@ -169,7 +169,18 @@ final class PinnedRailRenderTests: XCTestCase {
             XCTAssertNil(drag.workspacesHeading, "\(scheme): an empty pin's drag shows no WORKSPACES heading")
             drag.move(to: below)
             XCTAssertNil(drag.target, "\(scheme): an empty pin has nowhere to go among the workspaces")
+            let refused = try XCTUnwrap(drag.refusedZone, "\(scheme): the rail below PINNED says the drop is refused")
+            XCTAssertGreaterThan(refused.minY, region.maxY, "\(scheme): the refusal sits below PINNED")
+            try await settle(hosted.window)
+            if let directory {
+                try XCTUnwrap(try snapshot(hosted.window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pinned-rail-refused-\(scheme).png"))
+            }
+            drag.move(to: CGPoint(x: web.frame.midX, y: web.frame.midY))
+            XCTAssertNil(drag.refusedZone, "\(scheme): over PINNED nothing is refused")
+            drag.move(to: below)
             drag.release()
+            XCTAssertNil(drag.refusedZone, "\(scheme): the refusal goes with the drag")
             try await Task.sleep(for: .seconds(DragVisuals.settleDuration + 0.1))
 
             drag.beginIfIdle(

@@ -21,6 +21,10 @@ struct DragLayer: View {
                 targetOutline(highlight)
                     .transition(.opacity)
             }
+            if let refused = drag.refusedZone {
+                RefusedZone(theme: theme, rect: refused)
+                    .transition(.opacity)
+            }
             if let flash = drag.landingFlash {
                 LandingFlash(theme: theme, rect: flash.rect)
                     .id(flash.id)
@@ -40,12 +44,36 @@ struct DragLayer: View {
         .allowsHitTesting(false)
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: drag.insertionMark)
         .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: drag.targetHighlight)
+        .animation(.easeOut(duration: DragVisuals.previewCrossfadeDuration), value: drag.refusedZone)
     }
 
     private func targetOutline(_ rect: CGRect) -> some View {
         RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
             .fill(theme.accent.opacity(0.14))
             .overlay(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(theme.accent, lineWidth: 1))
+            .frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
+    }
+}
+
+/// Where a carried item cannot land, said in place: a wash and outline in
+/// the blocked colour, with the reason inside.
+private struct RefusedZone: View {
+    let theme: Theme
+    let rect: CGRect
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.surface)
+        shape
+            .fill(theme.red.opacity(DragVisuals.refusedZoneWash))
+            .overlay(shape.strokeBorder(theme.red.opacity(DragVisuals.refusedZoneStroke), lineWidth: ChromeMetrics.ruleWidth))
+            // Centred: the pointer, and the ghost hanging from it, come in
+            // at the zone's top edge.
+            .overlay {
+                Label("Empty pins stay in Pinned", systemImage: "nosign")
+                    .font(ChromeType.refusedZone)
+                    .foregroundStyle(theme.red)
+            }
             .frame(width: rect.width, height: rect.height)
             .offset(x: rect.minX, y: rect.minY)
     }

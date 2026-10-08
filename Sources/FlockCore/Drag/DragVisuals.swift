@@ -24,6 +24,11 @@ public enum DragVisuals {
     /// The accent laid over whatever a pane drop is aimed at: the canvas
     /// preview and a targeted grid thumbnail.
     public static let dropWashOpacity: Double = 0.22
+    /// A refused zone: lighter than a drop wash, since it marks where the
+    /// drag will not go rather than where it will.
+    public static let refusedZoneWash: Double = 0.10
+    public static let refusedZoneStroke: Double = 0.6
+    public static let refusedZoneInset: CGFloat = 6
     /// How opaque a drag proxy's own surfaces are. A proxy is centered on the
     /// pointer and a tab's is the size of a thumbnail, so an opaque one
     /// covers the very target it is aimed at, the target's own drop wash

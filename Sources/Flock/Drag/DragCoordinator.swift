@@ -160,6 +160,10 @@ final class DragCoordinator {
     /// ghost's position is animated at all.
     private(set) var isSettling = false
     private(set) var landingFlash: LandingFlash?
+    /// The rail below PINNED while an empty pin is carried over it: it has
+    /// nothing in herdr to unpin, so the drop there is refused, and this is
+    /// drawn so the refusal is seen before the release springs it home.
+    private(set) var refusedZone: CGRect?
     /// True from a PANE drag's own start (past the movement threshold, never
     /// for a tab/workspace drag) until its teardown, settle animation
     /// excluded. A dedicated flag rather than `activeSubject != nil`: that
@@ -745,6 +749,8 @@ final class DragCoordinator {
 
     private func resolve(at point: CGPoint) {
         ghostTopLeft = ghostTopLeft(at: point)
+        let refused = emptyPinRefusal(at: point)
+        if refusedZone != refused { refusedZone = refused }
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
         let resolved: DropTarget?
@@ -837,6 +843,16 @@ final class DragCoordinator {
         end()
     }
 
+    private func emptyPinRefusal(at point: CGPoint) -> CGRect? {
+        guard !grid.isShown, case .pin(let id)? = activeSubject, pinWorkspaces[id] == nil,
+              let viewport = railViewport, let pinned = pinnedFrame,
+              viewport.contains(point), point.y > pinned.maxY
+        else { return nil }
+        let inset = DragVisuals.refusedZoneInset
+        let top = pinned.maxY + inset
+        return CGRect(x: viewport.minX + inset, y: top, width: viewport.width - 2 * inset, height: max(0, viewport.maxY - top - inset))
+    }
+
     /// Everything that must stop the moment a drag stops, whatever ended it.
     private func teardown(keepingMonitors: Bool = false) {
         if !keepingMonitors {
@@ -844,6 +860,7 @@ final class DragCoordinator {
         }
         stopAutoScroll()
         target = nil
+        refusedZone = nil
         releaseRearrangeHold()
         // The one choke point every exit path (`end`, `cancel`, `abandon`)
         // runs through, so the pop is always paired with the push above --
