@@ -844,13 +844,13 @@ struct PaneCellView: View {
                 if PaneLoaderPolicy.showsLauncherOverlay(
                     // A key press hides the launcher as it launches; the lit
                     // item stays on screen until its flash ends.
-                    isLauncherShowing: viewModel.isLauncherShowing(pane.paneID) || viewModel.launcherFlash?.pane == pane.paneID,
+                    isLauncherShowing: viewModel.isLauncherShowing(pane.paneID) || viewModel.flashedLauncherSlot(on: .pane(pane.paneID)) != nil,
                     hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
                 ) {
                     PaneLauncherOverlay(
                         theme: theme, entries: HarnessRoster.detected(), navigator: NavigatorRoster.detected(),
                         occupiedRows: viewModel.launcherOccupiedRows(pane.paneID), cellHeight: ghosttySurface.cellHeight,
-                        flashedSlot: viewModel.launcherFlash.flatMap { $0.pane == pane.paneID ? $0.slot : nil },
+                        flashedSlot: viewModel.flashedLauncherSlot(on: .pane(pane.paneID)),
                         onLaunch: { entry in Task { await LauncherSlots.launch(entry, in: pane.paneID, via: .click, on: viewModel) } }
                     )
                     .transition(.opacity)

@@ -1285,15 +1285,26 @@ public final class SessionViewModel {
 
     /// The launcher item a key press just fired, lit as if pressed so the
     /// press is seen before the launcher hides.
+    /// A pane's launcher, or an empty pin's, which has no pane until the
+    /// launch it flashes for has made one.
+    public enum LauncherFlashTarget: Equatable {
+        case pane(PaneID)
+        case pin(PinID)
+    }
+
     public struct LauncherFlash: Equatable {
-        public let pane: PaneID
+        public let target: LauncherFlashTarget
         public let slot: String
     }
 
     public private(set) var launcherFlash: LauncherFlash?
 
-    public func flashLauncherSlot(_ slot: String, in pane: PaneID) {
-        let flash = LauncherFlash(pane: pane, slot: slot)
+    public func flashedLauncherSlot(on target: LauncherFlashTarget) -> String? {
+        launcherFlash.flatMap { $0.target == target ? $0.slot : nil }
+    }
+
+    public func flashLauncherSlot(_ slot: String, on target: LauncherFlashTarget) {
+        let flash = LauncherFlash(target: target, slot: slot)
         launcherFlash = flash
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))

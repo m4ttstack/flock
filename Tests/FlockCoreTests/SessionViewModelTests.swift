@@ -1076,6 +1076,15 @@ final class SessionViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testAFlashLightsOnlyTheLauncherItWasFiredOn() {
+        let viewModel = SessionViewModel(client: StubForegroundClient([.idle]))
+        let pin = PinID(rawValue: "pin-acme")
+        viewModel.flashLauncherSlot("claude", on: .pin(pin))
+        XCTAssertEqual(viewModel.flashedLauncherSlot(on: .pin(pin)), "claude")
+        XCTAssertNil(viewModel.flashedLauncherSlot(on: .pane(PaneID(rawValue: "w1:p1"))))
+    }
+
+    @MainActor
     func testAFreshPaneThatNeverReachesItsPromptGivesUp() async {
         let client = StubForegroundClient([.busy])
         let viewModel = SessionViewModel(client: client, freshPanePromptPoll: .milliseconds(1))

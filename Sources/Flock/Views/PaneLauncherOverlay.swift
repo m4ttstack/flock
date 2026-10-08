@@ -117,6 +117,25 @@ enum LauncherSlots {
         NSApp.currentEvent?.type == .keyDown
     }
 
+    /// A launch from the menu bar or a digit: into the shown empty pin when
+    /// there is one, else the focused pane.
+    @MainActor
+    static func launch(_ entry: HarnessEntry, via path: LaunchPath, emptyPin: PinID?, on viewModel: SessionViewModel) async {
+        if let emptyPin {
+            await EmptyPinLaunch.start(emptyPin, with: entry, via: path, on: viewModel)
+        } else {
+            await launchInFocusedPane(entry, via: path, on: viewModel)
+        }
+    }
+
+    /// A key press or menu pick flashes the item it fired; a click has
+    /// already drawn its own press.
+    @MainActor
+    static func flash(_ entry: HarnessEntry, via path: LaunchPath, on target: SessionViewModel.LauncherFlashTarget, viewModel: SessionViewModel) {
+        guard path != .click else { return }
+        viewModel.flashLauncherSlot(entry.id, on: target)
+    }
+
     /// ⌘1 and on, and the palette's rows: the pane is read as the key lands,
     /// never captured when the menu last rendered. Every press writes one log
     /// line, a press with no pane to launch in included.
@@ -135,8 +154,8 @@ enum LauncherSlots {
     /// at its prompt reaches that program as input.
     @MainActor
     static func launch(_ entry: HarnessEntry, in pane: PaneID, via path: LaunchPath, on viewModel: SessionViewModel) async {
-        if path != .click, viewModel.isLauncherShowing(pane) {
-            viewModel.flashLauncherSlot(entry.id, in: pane)
+        if viewModel.isLauncherShowing(pane) {
+            flash(entry, via: path, on: .pane(pane), viewModel: viewModel)
         }
         let atPrompt = await viewModel.isAtPrompt(pane)
         log.notice(
@@ -295,7 +314,8 @@ struct LauncherBar: View {
         HStack(spacing: ChromeMetrics.Launcher.itemSpacing) {
             if let leading {
                 LauncherItem(
-                    style: style, entry: leading.entry, shortcut: showsShortcuts ? leading.shortcut : nil, isFlashed: false
+                    style: style, entry: leading.entry, shortcut: showsShortcuts ? leading.shortcut : nil,
+                    isFlashed: flashedSlot == leading.entry.id
                 ) {
                     onLaunch(leading.entry)
                 }

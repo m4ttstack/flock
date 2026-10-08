@@ -437,16 +437,13 @@ struct FlockApp: App {
                         Button(LauncherSlots.title(for: entry)) {
                             // Read before the Task: the current event moves on.
                             let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
-                            if let pin = shownEmptyPin {
-                                Task { await EmptyPinLaunch.start(pin, with: entry, on: viewModel) }
-                                return
-                            }
+                            let pin = shownEmptyPin
                             // A key only borrows the launcher that is drawn:
                             // otherwise it would type into a line in progress.
-                            if path == .key, dragCoordinator.isGridShown || !viewModel.focusedPaneShowsLauncher {
+                            if pin == nil, path == .key, dragCoordinator.isGridShown || !viewModel.focusedPaneShowsLauncher {
                                 return NSSound.beep()
                             }
-                            Task { await LauncherSlots.launchInFocusedPane(entry, via: path, on: viewModel) }
+                            Task { await LauncherSlots.launch(entry, via: path, emptyPin: pin, on: viewModel) }
                         }
                         // The first three digits are the View menu's, which
                         // dispatch here while the launcher shows; slots past
@@ -482,7 +479,8 @@ struct FlockApp: App {
             CommandGroup(replacing: .newItem) {
                 Button(ViewCommand.newTab.title) {
                     if let pin = shownEmptyPin {
-                        Task { await EmptyPinLaunch.start(pin, with: ShellEntry.entry, on: viewModel) }
+                        let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
+                        Task { await EmptyPinLaunch.start(pin, with: ShellEntry.entry, via: path, on: viewModel) }
                         return
                     }
                     guard let workspace = viewModel.selectedWorkspaceID else { return }
@@ -606,11 +604,8 @@ struct FlockApp: App {
                         case .launch(let slot):
                             let slots = LauncherSlots.current()
                             guard slot < slots.count else { return viewTabs.choose(tab) }
-                            if let pin = shownEmptyPin {
-                                Task { await EmptyPinLaunch.start(pin, with: slots[slot], on: viewModel) }
-                            } else {
-                                Task { await LauncherSlots.launchInFocusedPane(slots[slot], via: .key, on: viewModel) }
-                            }
+                            let pin = shownEmptyPin
+                            Task { await LauncherSlots.launch(slots[slot], via: .key, emptyPin: pin, on: viewModel) }
                         case .view, .none:
                             viewTabs.choose(tab)
                         }

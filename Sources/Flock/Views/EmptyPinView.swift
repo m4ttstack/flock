@@ -19,7 +19,10 @@ enum EmptyPinLaunch {
     /// nothing run; marking the pane typed into puts its own launcher away,
     /// since the person has already chosen.
     @MainActor
-    static func start(_ pin: PinID, with entry: HarnessEntry, on viewModel: SessionViewModel) async {
+    static func start(
+        _ pin: PinID, with entry: HarnessEntry, via path: LauncherSlots.LaunchPath, on viewModel: SessionViewModel
+    ) async {
+        LauncherSlots.flash(entry, via: path, on: .pin(pin), viewModel: viewModel)
         guard let pane = await viewModel.start(emptyPin: pin) else { return }
         if entry.id == ShellEntry.entry.id {
             viewModel.recordLauncherKeystroke(pane)
@@ -70,7 +73,7 @@ struct EmptyPinView: View {
         .focusEffectDisabled()
         .focused($isFocused)
         .onKeyPress(.return, phases: .down) { _ in
-            launch(ShellEntry.entry)
+            launch(ShellEntry.entry, via: .key)
             return .handled
         }
         .onAppear { isFocused = true }
@@ -81,11 +84,12 @@ struct EmptyPinView: View {
     private func launcher(showsShortcuts: Bool) -> some View {
         LauncherBar(
             style: LauncherBarStyle(theme: theme), slots: LauncherSlots.current(), showsShortcuts: showsShortcuts,
-            leading: (ShellEntry.entry, ShellEntry.shortcutLabel), onLaunch: launch
+            flashedSlot: viewModel.flashedLauncherSlot(on: .pin(pin.id)),
+            leading: (ShellEntry.entry, ShellEntry.shortcutLabel), onLaunch: { launch($0, via: .click) }
         )
     }
 
-    private func launch(_ entry: HarnessEntry) {
-        Task { await EmptyPinLaunch.start(pin.id, with: entry, on: viewModel) }
+    private func launch(_ entry: HarnessEntry, via path: LauncherSlots.LaunchPath) {
+        Task { await EmptyPinLaunch.start(pin.id, with: entry, via: path, on: viewModel) }
     }
 }
