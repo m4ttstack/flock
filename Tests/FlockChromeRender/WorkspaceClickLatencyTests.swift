@@ -216,6 +216,7 @@ private struct Harness {
             .environment(AllWorkspacesModeStore(userDefaults: missionDefaults))
             .environment(MissionBottomLineStore(userDefaults: missionDefaults))
             .environment(WorkspaceIdentityStore(userDefaults: missionDefaults))
+            .environment(TopBarOverlaySizeStore(userDefaults: missionDefaults))
             .environment(dividerDrag)
             .environment(chatStore)
             .environment(optionAsAlt)

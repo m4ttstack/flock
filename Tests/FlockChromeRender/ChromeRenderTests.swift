@@ -4505,6 +4505,7 @@ private struct Harness {
             .environment(modeStore)
             .environment(MissionBottomLineStore(userDefaults: modeDefaults))
             .environment(WorkspaceIdentityStore(userDefaults: modeDefaults))
+            .environment(TopBarOverlaySizeStore(userDefaults: modeDefaults))
             .environment(dividerDrag)
             .environment(chatStore)
             .environment(optionAsAlt)
