@@ -204,6 +204,7 @@ struct MainWindow: View {
         } message: { pending in
             Text(pending.message)
         }
+        .modifier(TopBarRefusalAlert(viewModel: viewModel))
         // The same confirmation the settings row raises, hosted here too so
         // the banner's Install is the identical action rather than a shortcut
         // around it. Naming the exact path being replaced is the point of it,
@@ -222,6 +223,27 @@ struct MainWindow: View {
             Button("Cancel", role: .cancel) { herdrMousePatchStore.cancelPendingConfirmation() }
         } message: { pending in
             Text(pending.confirmation.message)
+        }
+    }
+}
+
+private struct TopBarRefusalAlert: ViewModifier {
+    let viewModel: SessionViewModel
+
+    func body(content: Content) -> some View {
+        content.alert(
+            viewModel.topBarRefusal?.title ?? "",
+            isPresented: Binding(
+                get: { viewModel.topBarRefusal != nil },
+                set: { shown in if !shown { viewModel.dismissTopBarRefusal() } }
+            ),
+            presenting: viewModel.topBarRefusal
+        ) { _ in
+            Button("OK") { viewModel.dismissTopBarRefusal() }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("flock.topBar.refusal.ok")
+        } message: { refusal in
+            Text(refusal.message)
         }
     }
 }

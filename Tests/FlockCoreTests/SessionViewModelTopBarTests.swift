@@ -108,14 +108,17 @@ final class SessionViewModelTopBarTests: XCTestCase {
         XCTAssertEqual(vm.railSections(board: nil)?.topBar.first?.record?.workspaceID, w2)
     }
 
-    func testAWorkspaceWithTwoTabsIsRefusedWithTheNotice() {
+    func testAWorkspaceWithTwoTabsIsRefusedWithAnAlert() {
         var notices: [String] = []
         let vm = viewModel(notices: { notices.append($0) })
         vm.update(model: model([("w1", "acme"), ("w2", "dash")], tabs: ["w2": 2]), connection: .live)
         vm.moveToTopBar(workspace: w2, at: nil)
         XCTAssertTrue(vm.pins.pins.isEmpty)
-        XCTAssertEqual(notices, [SessionViewModel.topBarTabLimitNotice(name: "dash", tabs: 2)])
-        XCTAssertTrue(notices[0].contains("one tab"))
+        XCTAssertEqual(vm.topBarRefusal, TopBarRefusal(name: "dash", tabs: 2))
+        XCTAssertTrue(vm.topBarRefusal?.message.contains("one tab") ?? false)
+        XCTAssertEqual(notices, [], "the refusal is an alert, not a notice")
+        vm.dismissTopBarRefusal()
+        XCTAssertNil(vm.topBarRefusal)
     }
 
     func testARailPinWithTwoTabsIsRefusedAndStaysInTheRail() {
@@ -126,7 +129,8 @@ final class SessionViewModelTopBarTests: XCTestCase {
         let pin = vm.pins.pins[0]
         vm.moveToTopBar(pin: pin.id, at: nil)
         XCTAssertEqual(vm.pins.pin(pin.id)?.placement, .rail)
-        XCTAssertEqual(notices.count, 1)
+        XCTAssertEqual(vm.topBarRefusal, TopBarRefusal(name: "dash", tabs: 3))
+        XCTAssertEqual(notices, [])
     }
 
     func testAnEmptyPinMayMoveToTheTopBar() {
@@ -331,7 +335,8 @@ final class SessionViewModelTopBarTests: XCTestCase {
         XCTAssertEqual(vm.pins.pins(in: .topBar).map(\.name), ["dash"])
         let refused = await vm.perform(subject: .pin(ids[2]), target: .topBar(insertIndex: 1))
         XCTAssertEqual(refused, .noOp)
-        XCTAssertEqual(notices.count, 1)
+        XCTAssertEqual(vm.topBarRefusal, TopBarRefusal(name: "logs", tabs: 2))
+        XCTAssertEqual(notices, [])
         let down = await vm.perform(subject: .pin(ids[1]), target: .pinnedRail(insertIndex: 0))
         XCTAssertEqual(down, .committed)
         XCTAssertEqual(vm.pins.pins(in: .rail).map(\.name), ["dash", "acme", "logs"])

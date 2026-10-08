@@ -1879,14 +1879,17 @@ public final class SessionViewModel {
         if pin.workspace == nil, !reopening.contains(id) { topBarOverlay.close() }
     }
 
-    public nonisolated static func topBarTabLimitNotice(name: String, tabs: Int) -> String {
-        "Top-bar workspaces show a single view, so they hold one tab. \"\(name)\" has \(tabs) tabs: close the extras, then move it."
+    /// Held while the window shows the alert for a refused move.
+    public private(set) var topBarRefusal: TopBarRefusal?
+
+    public func dismissTopBarRefusal() {
+        topBarRefusal = nil
     }
 
-    /// False, after posting the notice, when `workspace` has more than one tab.
+    /// False, after raising the alert, when `workspace` has more than one tab.
     private func passesTopBarTabLimit(_ workspace: WorkspaceID?, name: String) -> Bool {
         guard let workspace, let count = userModel?.tabs[workspace]?.count, count > 1 else { return true }
-        noticeSink(Self.topBarTabLimitNotice(name: name, tabs: count))
+        topBarRefusal = TopBarRefusal(name: name, tabs: count)
         return false
     }
 
