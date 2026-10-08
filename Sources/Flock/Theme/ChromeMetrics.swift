@@ -770,12 +770,14 @@ enum ChromeMetrics {
     enum Launcher {
         static let barPadding: CGFloat = 7
         static let itemSpacing: CGFloat = 4
-        static let barCornerRadius: CGFloat = 18
+        /// Concentric with the items inside it: their radius plus the
+        /// padding between them and the bar's edge.
+        static let barCornerRadius: CGFloat = itemCornerRadius + barPadding
         static let itemContentSpacing: CGFloat = 10
         static let itemVerticalPadding: CGFloat = 9
         static let itemLeadingPadding: CGFloat = 10
         static let itemTrailingPadding: CGFloat = 16
-        static let itemCornerRadius: CGFloat = 11
+        static let itemCornerRadius: CGFloat = ChromeRadius.container
         static let logo: CGFloat = 26
         /// An item's height: the logo is the tallest thing in its row.
         static let itemHeight: CGFloat = logo + 2 * itemVerticalPadding
