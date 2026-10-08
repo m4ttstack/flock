@@ -61,6 +61,8 @@ struct FlockApp: App {
     @State private var notificationLifetimeStore: NotificationLifetimeStore
     @State private var allWorkspacesModeStore: AllWorkspacesModeStore
     @State private var missionBottomLineStore = MissionBottomLineStore()
+    @State private var overviewReturnStore: OverviewReturnStore
+    @State private var overviewInclusionStore = OverviewInclusionStore()
     @State private var oneTitleStore: OneTitleStore
     @State private var workspaceIdentityStore: WorkspaceIdentityStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
@@ -232,7 +234,9 @@ struct FlockApp: App {
         _rearrangeMode = State(initialValue: rearrangeMode)
         let boardStore = BoardStore()
         _boardStore = State(initialValue: boardStore)
-        _dragCoordinator = State(initialValue: DragCoordinator(
+        let overviewReturnStore = OverviewReturnStore()
+        _overviewReturnStore = State(initialValue: overviewReturnStore)
+        let dragCoordinator = DragCoordinator(
             toasts: toastCenter,
             rearrangeMode: rearrangeMode,
             commit: { subject, target in await viewModel.perform(subject: subject, target: target, board: boardStore.names) },
@@ -253,7 +257,9 @@ struct FlockApp: App {
             },
             gridClosed: { viewModel.isMainCanvasCovered = false },
             gridHoldsEscape: { viewModel.renameTarget != nil || viewModel.paneShownInOverview != nil }
-        ))
+        )
+        dragCoordinator.keepsOverviewPane = { overviewReturnStore.active == .openPane }
+        _dragCoordinator = State(initialValue: dragCoordinator)
         let dividerDragSession = DividerDragSession(
             commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }
         )
@@ -264,6 +270,12 @@ struct FlockApp: App {
 
     private var navigator: JumpNavigator {
         JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesModeStore)
+    }
+
+    /// The empty pin on screen in Workspaces, which ⌘T and the launch keys
+    /// open; under Overview or Arrange none is.
+    private var shownEmptyPin: PinID? {
+        dragCoordinator.isGridShown ? nil : viewModel.shownEmptyPin
     }
 
     private var viewTabs: ViewTabNavigator {
@@ -336,6 +348,7 @@ struct FlockApp: App {
                 .environment(dragCoordinator)
                 .environment(allWorkspacesModeStore)
                 .environment(missionBottomLineStore)
+                .environment(overviewInclusionStore)
                 .environment(workspaceIdentityStore)
                 .environment(dividerDragCoordinator)
                 .environment(commandPalette)
@@ -406,12 +419,16 @@ struct FlockApp: App {
                 Divider()
                 // Disabled under an agent, where ⌘1 and on reach the pane's
                 // program as they did before.
-                let canLaunch = LauncherSlots.target(on: viewModel) != nil
+                let canLaunch = shownEmptyPin != nil || LauncherSlots.target(on: viewModel) != nil
                 Menu("Launch") {
                     ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
                         Button(LauncherSlots.title(for: entry)) {
                             // Read before the Task: the current event moves on.
                             let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
+                            if let pin = shownEmptyPin {
+                                Task { await EmptyPinLaunch.start(pin, with: entry, on: viewModel) }
+                                return
+                            }
                             // A key only borrows the launcher that is drawn:
                             // otherwise it would type into a line in progress.
                             if path == .key, dragCoordinator.isGridShown || !viewModel.focusedPaneShowsLauncher {
@@ -452,11 +469,15 @@ struct FlockApp: App {
             // nor the rail draws a control the chrome design never had.
             CommandGroup(replacing: .newItem) {
                 Button(ViewCommand.newTab.title) {
+                    if let pin = shownEmptyPin {
+                        Task { await EmptyPinLaunch.start(pin, with: ShellEntry.entry, on: viewModel) }
+                        return
+                    }
                     guard let workspace = viewModel.selectedWorkspaceID else { return }
                     Task { await viewModel.createTab(in: workspace) }
                 }
                 .keyboardShortcut(ViewCommand.newTab.shortcut)
-                .disabled(viewModel.selectedWorkspaceID == nil || viewModel.topBarOverlay.openPin != nil)
+                .disabled((viewModel.selectedWorkspaceID == nil && shownEmptyPin == nil) || viewModel.topBarOverlay.openPin != nil)
                 .accessibilityIdentifier(ViewCommand.newTab.accessibilityIdentifier)
                 Button(ViewCommand.newWorkspace.title) {
                     Task { await viewModel.createWorkspace() }
@@ -563,13 +584,18 @@ struct FlockApp: App {
                         // Overview and Arrange hide the panes, so no launcher
                         // is on screen to borrow the digit.
                         switch DigitKeyDispatch.decide(
-                            launcherShowing: !dragCoordinator.isGridShown && viewModel.focusedPaneShowsLauncher,
+                            launcherShowing: shownEmptyPin != nil
+                                || (!dragCoordinator.isGridShown && viewModel.focusedPaneShowsLauncher),
                             cameFromKey: LauncherSlots.menuActionCameFromKey, index: index
                         ) {
                         case .launch(let slot):
                             let slots = LauncherSlots.current()
                             guard slot < slots.count else { return viewTabs.choose(tab) }
-                            Task { await LauncherSlots.launchInFocusedPane(slots[slot], via: .key, on: viewModel) }
+                            if let pin = shownEmptyPin {
+                                Task { await EmptyPinLaunch.start(pin, with: slots[slot], on: viewModel) }
+                            } else {
+                                Task { await LauncherSlots.launchInFocusedPane(slots[slot], via: .key, on: viewModel) }
+                            }
                         case .view, .none:
                             viewTabs.choose(tab)
                         }
@@ -664,15 +690,18 @@ struct FlockApp: App {
                 herdrMousePatchStore: herdrMousePatchStore,
                 notificationLifetimeStore: notificationLifetimeStore,
                 missionBottomLineStore: missionBottomLineStore,
+                overviewReturnStore: overviewReturnStore,
+                overviewInclusionStore: overviewInclusionStore,
                 oneTitleStore: oneTitleStore,
                 topBarLabelStore: topBarLabelStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,
-                commandLineToolStore: commandLineToolStore
+                commandLineToolStore: commandLineToolStore,
+                herdrVersion: viewModel.model?.herdrVersion
             )
         }
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
     }
 
     private func focusedPaneButton(_ command: FocusedPaneCommand) -> some View {

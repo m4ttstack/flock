@@ -1,7 +1,8 @@
 import FlockCore
 import SwiftUI
 
-/// The one row flock's settings show about herdr's mouse support: whichever
+/// The version of herdr flock is connected to, then the one row flock's
+/// settings show about herdr's mouse support: whichever
 /// of the six states `HerdrMousePatchDecision` found, its explanation, and
 /// the single action (if any) that state offers. Install and Restore both gate
 /// behind the same confirmation dialog, driven by the store rather than local
@@ -13,9 +14,16 @@ import SwiftUI
 /// secondary line, which is where macOS puts exactly that kind of text.
 struct HerdrMousePatchRow: View {
     let store: HerdrMousePatchStore
+    /// nil while flock is not connected to herdr.
+    var herdrVersion: String? = nil
 
     var body: some View {
         Section(HerdrMousePatchCopy.heading) {
+            LabeledContent("Version") {
+                Text(herdrVersion.map { "v\($0)" } ?? "Not connected")
+                    .textSelection(.enabled)
+            }
+            .accessibilityIdentifier("flock.settings.herdrVersion")
             LabeledContent {
                 actionButton
             } label: {

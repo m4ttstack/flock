@@ -23,6 +23,12 @@ public struct RailSections: Equatable, Sendable {
     public let herds: [HerdRail.Herd]
     public let herdSummary: HerdRail.Summary?
 
+    /// Board's review workspaces and the herds' own, which Arrange leaves out
+    /// and Overview leaves out unless asked for. Pinned ones included: a pin
+    /// moves a workspace's row, not what it is.
+    public let reviewIDs: Set<WorkspaceID>
+    public let herdIDs: Set<WorkspaceID>
+
     /// Board is drawn from what `HerdRail` leaves, so a label that names both
     /// a herd and a board role is the herd's. A workspace linked to a pin
     /// shows in that pin's row alone: PINNED for a rail pin, the title bar
@@ -44,6 +50,8 @@ public struct RailSections: Equatable, Sendable {
         let linked = Set((pinned + topBar).compactMap { $0.record?.workspaceID })
         workspaces = herdRail.workspaces.filter { !labels.contains($0.label) && !linked.contains($0.workspaceID) }
         board = labels.flatMap { label in herdRail.workspaces.filter { $0.label == label && !linked.contains($0.workspaceID) } }
+        reviewIDs = Set(herdRail.workspaces.filter { labels.contains($0.label) }.map(\.workspaceID))
+        herdIDs = Set(herdRail.herds.map(\.workspaceID))
         herds = herdRail.herds.filter { !linked.contains($0.workspaceID) }
         herdSummary = HerdRail.summary(of: herds)
     }

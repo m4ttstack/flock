@@ -164,6 +164,19 @@ enum ChromeType {
     static let launcherMonogram = inter(12, .bold)
     static let launcherHint = Font.system(size: 13)
     static let launcherShortcut = Font.system(size: 13, weight: .medium)
+    static let launcherSymbol = Font.system(size: 14, weight: .semibold)
+
+    static let emptyPinName = inter(22, .semibold)
+    static let emptyPinFolder = mono(12.5)
+    static let emptyPinCaption = inter(12)
+
+    static let symbolSearchGlyph = Font.system(size: 11, weight: .medium)
+    static let refusedZone = inter(12, .semibold)
+    static let pinFolderGlyph = Font.system(size: 10.5, weight: .semibold)
+    static let pinFolderTitle = inter(12.5, .semibold)
+    static let pinFolderPath = mono(12)
+    static let pinFolderReason = inter(11)
+    static let pinFolderOther = inter(12.5)
 
     static let toastSymbol = Font.system(size: 11, weight: .medium)
     static let toastMessage = inter(12)

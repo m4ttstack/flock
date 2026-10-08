@@ -101,6 +101,9 @@ final class DragCoordinator {
         /// window-scale proxy would cover the thumbnail it is aimed at.
         var isCompact = false
         var tabMiniature: TabMiniature?
+        /// A rail row's proxy, which centres its mark and title the way the
+        /// row does.
+        var isRow = false
 
         /// A miniature is drawn at its own footprint: it stands for a
         /// thumbnail, so anything but one to one reads as the wrong tab. A
@@ -108,7 +111,9 @@ final class DragCoordinator {
         /// takes the ordinary bounds instead, whose floor is what keeps the
         /// proxy visible at all.
         var bounds: DragVisuals.GhostBounds {
-            if tabMiniature != nil, originSize.width > 0, originSize.height > 0 {
+            // A rail row is shorter than the ordinary floor, which would
+            // scale its proxy half again past the rail it came from.
+            if tabMiniature != nil || isRow, originSize.width > 0, originSize.height > 0 {
                 return DragVisuals.exactBounds(originSize)
             }
             return isCompact ? DragVisuals.compactGhostBounds : DragVisuals.ghostBounds
@@ -160,6 +165,13 @@ final class DragCoordinator {
     /// ghost's position is animated at all.
     private(set) var isSettling = false
     private(set) var landingFlash: LandingFlash?
+    /// Where an empty pin carried below PINNED would land among the
+    /// workspaces: it has nothing in herdr to unpin, so the rail opens the
+    /// slot as for a live pin and marks it refused, and the release springs
+    /// it home. Never `target`, which a release would commit.
+    private(set) var refusedTarget: DropTarget?
+    /// That slot, drawn as refused.
+    private(set) var refusedZone: CGRect?
     /// True from a PANE drag's own start (past the movement threshold, never
     /// for a tab/workspace drag) until its teardown, settle animation
     /// excluded. A dedicated flag rather than `activeSubject != nil`: that
@@ -176,9 +188,6 @@ final class DragCoordinator {
     var canvas = CanvasGeometry.empty
     var stripWorkspace: WorkspaceID?
     var stripFrame: CGRect?
-    /// Where the strip's trailing readout begins, which is as far right as the
-    /// new-tab zone may reach.
-    var stripTrailingLimit: CGFloat?
     var railFrame: CGRect?
     /// Which edge of the strip hints at tabs scrolled out of view. Written
     /// only on an actual change (see `setStripScroll`), so a scroll that
@@ -197,7 +206,7 @@ final class DragCoordinator {
         let firstComplete = frames.first { stripCompleteTabs.contains($0.id) }
         return DropZones.trailing(
             in: stripFrame, itemsEndingAt: frames.last { !stripCompleteTabs.contains($0.id) }?.frame.maxX,
-            before: firstComplete?.frame.minX ?? stripTrailingLimit ?? stripFrame.maxX
+            before: firstComplete?.frame.minX ?? stripFrame.maxX
         )
     }
     var stripCompleteTabs: Set<TabID> = []
@@ -333,6 +342,9 @@ final class DragCoordinator {
     private(set) var isGridShown = false
     private(set) var gridSelectedPane: PaneID?
     private(set) var gridFocusedPane: PaneID?
+    /// Settings > Overview, read as the grid changes so a new choice holds
+    /// from the next close on.
+    @ObservationIgnored var keepsOverviewPane: @MainActor () -> Bool = { false }
     private(set) var gridZoomed: WorkspaceID?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var flashTask: Task<Void, Never>?
@@ -754,6 +766,12 @@ final class DragCoordinator {
 
     private func resolve(at point: CGPoint) {
         ghostTopLeft = ghostTopLeft(at: point)
+        let refused = activeSubject.flatMap { subject in
+            surfaces.flatMap { refusedDropTarget(at: point, dragging: subject, surfaces: $0) }
+        }
+        if refusedTarget != refused { refusedTarget = refused }
+        let zone = refusedSlot()
+        if refusedZone != zone { refusedZone = zone }
         guard let surfaces else { return }
         controller.moved(to: point, surfaces: surfaces)
         let resolved: DropTarget?
@@ -769,6 +787,9 @@ final class DragCoordinator {
 
     private func end() {
         let landingTarget = target
+        // Read before the teardown clears the target: the bar the drag drew,
+        // which knows WORKSPACES starts below PINNED and its heading.
+        let landingBar = insertionMark?.bar
         let startedInRearrange = holdsRearrangeOpen
         teardown()
         finishWorkspaceSelection()
@@ -778,7 +799,7 @@ final class DragCoordinator {
         }
         let surfaces = surfaces
         let settleRect = landingTarget.flatMap { resolved in
-            gridLandingRect(for: resolved) ?? surfaces.flatMap { dropTargetRect(for: resolved, surfaces: $0) }
+            gridLandingRect(for: resolved) ?? landingBar ?? surfaces.flatMap { dropTargetRect(for: resolved, surfaces: $0) }
         }
         let flashRect = landingTarget.flatMap { resolved in
             gridLandingRect(for: resolved) ?? surfaces.flatMap { dropFlashRect(for: resolved, surfaces: $0) }
@@ -843,6 +864,22 @@ final class DragCoordinator {
         end()
     }
 
+    /// The row-sized gap the refused slot opens: where the row now at its
+    /// index sat, below the last row, or the first row under the heading.
+    private func refusedSlot() -> CGRect? {
+        guard case .workspaceRail(let index)? = refusedTarget, let container = workspaceRailContainer else { return nil }
+        let rows = workspaceFrames.map(\.frame)
+        guard let row = rows.first ?? pinFrames.first?.frame else { return nil }
+        let top = if index < rows.count {
+            rows[index].minY
+        } else if let last = rows.last {
+            last.maxY + ChromeMetrics.Rail.rowGap
+        } else {
+            container.minY + InsertionBarGeometry.assumedGap
+        }
+        return CGRect(x: row.minX, y: top, width: row.width, height: row.height)
+    }
+
     /// Everything that must stop the moment a drag stops, whatever ended it.
     private func teardown(keepingMonitors: Bool = false) {
         if !keepingMonitors {
@@ -850,6 +887,8 @@ final class DragCoordinator {
         }
         stopAutoScroll()
         target = nil
+        refusedTarget = nil
+        refusedZone = nil
         releaseRearrangeHold()
         // The one choke point every exit path (`end`, `cancel`, `abandon`)
         // runs through, so the pop is always paired with the push above --
@@ -905,6 +944,12 @@ final class DragCoordinator {
     /// against one, so the pointer itself is the answer.
     private func ghostTopLeft(at point: CGPoint) -> CGPoint {
         guard let ghost else { return point }
+        // A rail row moves only along the rail: it starts over the row it was
+        // picked up from, keeps the row's left edge, and holds the height the
+        // pointer grabbed it at.
+        if ghost.isRow, let home = dragHome?.atStart {
+            return CGPoint(x: home.minX, y: point.y - (grabPoint.y - home.minY))
+        }
         return DragVisuals.ghostTopLeft(forCursor: point, ghostSize: ghostSize(ghost), anchor: ghostAnchor(ghost))
     }
 
@@ -1303,6 +1348,7 @@ final class DragCoordinator {
     /// preview opening never re-renders the cards or the window.
     @discardableResult
     func updateGrid<Result>(_ change: (inout AllWorkspacesGridState) -> Result) -> Result {
+        grid.keepsFocusedPane = keepsOverviewPane()
         let result = change(&grid)
         // The strip is unmounted under a shown grid, so it observes no
         // selection change while one is up and never asks for the reveal that
@@ -1350,10 +1396,11 @@ final class DragCoordinator {
 
     func isDragging(pin: PinID) -> Bool { activeSubject == .pin(pin) }
 
-    /// A live pin is the one thing that can leave PINNED for WORKSPACES.
-    var isDraggingLivePin: Bool {
-        guard case .pin(let id)? = activeSubject else { return false }
-        return pinWorkspaces[id] != nil
+    /// A carried pin is headed for WORKSPACES or refused there; either way
+    /// the section shows, heading and all.
+    var isDraggingPin: Bool {
+        guard case .pin? = activeSubject else { return false }
+        return true
     }
 
     var insertionMark: InsertionMark? {
@@ -1470,7 +1517,7 @@ final class DragCoordinator {
     }
 
     func workspaceDisplacement(at index: Int) -> CGFloat {
-        guard case .workspaceRail(let insertIndex)? = target else { return 0 }
+        guard case .workspaceRail(let insertIndex)? = target ?? refusedTarget else { return 0 }
         let items = workspaceFrames.map(\.frame)
         if case .workspaces(let block)? = activeSubject {
             let members = Set(block)
@@ -1480,11 +1527,12 @@ final class DragCoordinator {
             )
         }
         let draggingIndex = draggingWorkspaceIndex
-        return ReshuffleOffset.displacement(
+        let shift = ReshuffleOffset.displacement(
             forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex,
             extent: draggingIndex.map { ReshuffleOffset.advance(ofItemAt: $0, items: items, axis: .horizontal) }
                 ?? arrivingExtent(items: items)
         )
+        return shift > 0 ? shift + refusedReasonRoom : shift
     }
 
     func pinDisplacement(at index: Int) -> CGFloat {
@@ -1511,8 +1559,14 @@ final class DragCoordinator {
     /// The same slide for what sits below WORKSPACES, while a pin carried out
     /// of PINNED opens a gap in it.
     var workspacesGrowth: CGFloat {
-        guard case .workspaceRail? = target, case .pin? = activeSubject else { return 0 }
-        return arrivingExtent(items: workspaceFrames.map(\.frame))
+        guard case .workspaceRail? = target ?? refusedTarget, case .pin? = activeSubject else { return 0 }
+        return arrivingExtent(items: workspaceFrames.map(\.frame)) + refusedReasonRoom
+    }
+
+    /// The line the refused slot's reason takes below it, which the gap
+    /// makes room for so nothing below is drawn under it.
+    private var refusedReasonRoom: CGFloat {
+        refusedTarget == nil ? 0 : DragVisuals.refusedZoneLabelGap + DragVisuals.refusedZoneLabelHeight
     }
 
     /// What rows carried in from the rail's other list open: one row's pitch

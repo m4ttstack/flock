@@ -15,7 +15,7 @@ struct GhostOverlay: View {
     var body: some View {
         let size = DragVisuals.ghostSize(forOrigin: ghost.originSize, bounds: ghost.bounds)
         content(size: size)
-            .frame(width: size.width, height: size.height, alignment: ghost.isCompact ? .leading : .topLeading)
+            .frame(width: size.width, height: size.height, alignment: ghost.isCompact || ghost.isRow ? .leading : .topLeading)
             // Translucent so the tab or row under the pointer stays readable
             // through the proxy while it is being targeted.
             .background(theme.chrome.opacity(DragVisuals.ghostOpacity), in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
@@ -82,11 +82,24 @@ struct GhostOverlay: View {
             }
             .foregroundStyle(theme.textStrong)
             .frame(maxWidth: .infinity, alignment: labelled ? .leading : .center)
-            if !compact {
+            if !compact, !ghost.isRow {
                 Spacer(minLength: 0)
             }
         }
-        .padding(compact ? ChromeMetrics.Ghost.compactPadding : ChromeMetrics.Ghost.padding)
+        .padding(insets)
+    }
+
+    /// A row's proxy is the row's own size, so it takes the row's side inset
+    /// and no more height than the row has. Its symbol starts where the
+    /// row's does, past the slot the row keeps for its status dot.
+    private var insets: EdgeInsets {
+        if ghost.isRow {
+            let side = ChromeMetrics.WorkspaceRow.horizontalPadding
+            let leading = side + ChromeMetrics.WorkspaceRow.statusDot + ChromeMetrics.WorkspaceRow.spacing
+            return EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: side)
+        }
+        let all = ghost.isCompact ? ChromeMetrics.Ghost.compactPadding : ChromeMetrics.Ghost.padding
+        return EdgeInsets(top: all, leading: all, bottom: all, trailing: all)
     }
 
     /// A proxy sized from a narrow mini pane has no room for a title, and it

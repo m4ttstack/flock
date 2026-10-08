@@ -14,6 +14,8 @@ struct HarnessEntry: Identifiable, Equatable {
     let monogramColor: Color
     var mark: HarnessMark?
     var monogramInk: Color = .white
+    /// An SF Symbol drawn in the badge in place of the monogram's letters.
+    var symbol: String? = nil
     var paletteName: String? = nil
     var paletteHint: String? = nil
 }
@@ -279,15 +281,25 @@ struct LauncherBarStyle: Equatable {
     }
 }
 
-private struct LauncherBar: View {
+/// The frosted bar alone, shared by a pane's launcher and an empty pin's.
+/// `leading` is an item ahead of the numbered slots with its own key hint.
+struct LauncherBar: View {
     let style: LauncherBarStyle
     let slots: [HarnessEntry]
     let showsShortcuts: Bool
-    let flashedSlot: String?
+    var flashedSlot: String? = nil
+    var leading: (entry: HarnessEntry, shortcut: String)? = nil
     let onLaunch: (HarnessEntry) -> Void
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Launcher.itemSpacing) {
+            if let leading {
+                LauncherItem(
+                    style: style, entry: leading.entry, shortcut: showsShortcuts ? leading.shortcut : nil, isFlashed: false
+                ) {
+                    onLaunch(leading.entry)
+                }
+            }
             ForEach(Array(slots.enumerated()), id: \.element.id) { index, entry in
                 LauncherItem(
                     style: style, entry: entry, shortcut: showsShortcuts ? LauncherSlots.shortcutLabel(at: index) : nil,
@@ -481,10 +493,16 @@ private struct MonogramBadge: View {
         Circle()
             .fill(entry.monogramColor)
             .frame(width: ChromeMetrics.Launcher.logo, height: ChromeMetrics.Launcher.logo)
-            .overlay(
-                Text(entry.monogram)
-                    .font(ChromeType.launcherMonogram)
-                    .foregroundStyle(entry.monogramInk)
-            )
+            .overlay {
+                if let symbol = entry.symbol {
+                    Image(systemName: symbol)
+                        .font(ChromeType.launcherSymbol)
+                        .foregroundStyle(entry.monogramInk)
+                } else {
+                    Text(entry.monogram)
+                        .font(ChromeType.launcherMonogram)
+                        .foregroundStyle(entry.monogramInk)
+                }
+            }
     }
 }

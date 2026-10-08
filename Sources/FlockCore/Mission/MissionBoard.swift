@@ -202,6 +202,14 @@ public struct MissionBoard: Equatable, Sendable {
         )
     }
 
+    /// How many panes Blocked holds, without building the board.
+    public static func blockedCount(model: SessionModel, toasts: AttentionToastStack) -> Int {
+        let toasted = Set(toasts.toasts.map(\.paneID))
+        let carded = toasts.toasts.filter { $0.status == .blocked && model.panes[$0.paneID] != nil }.count
+        let uncarded = model.panes.values.filter { !toasted.contains($0.paneID) && $0.agentStatus == .blocked }.count
+        return carded + uncarded
+    }
+
     static func workspaceNames(model: SessionModel, sections: RailSections) -> [WorkspaceID: String] {
         var names: [WorkspaceID: String] = Dictionary(model.workspaces.map { ($0.workspaceID, $0.label) }, uniquingKeysWith: { first, _ in first })
         for herd in sections.herds {

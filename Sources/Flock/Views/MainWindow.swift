@@ -12,12 +12,25 @@ struct MainWindow: View {
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
     @Environment(AllWorkspacesModeStore.self) private var allWorkspacesMode
+    @Environment(BoardStore.self) private var boardStore
+    @Environment(HerdProgressStore.self) private var herdProgress
+    @Environment(OverviewInclusionStore.self) private var overviewInclusion: OverviewInclusionStore?
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
     var isDevBuild = BuildFlavor.isDev
 
     private var theme: Theme { themeStore.active }
+
+    /// What Overview's Blocked group holds, so the badge counts only panes
+    /// Overview shows.
+    private var blockedCount: Int {
+        guard let model = viewModel.model else { return 0 }
+        let excluded = overviewInclusion.flatMap { inclusion in
+            viewModel.railSections(board: boardStore.names, herdProgress: herdProgress.progress).map(inclusion.excluded(from:))
+        } ?? []
+        return MissionBoard.blockedCount(model: model.hiding(excluded), toasts: viewModel.attentionToasts)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,16 +64,19 @@ struct MainWindow: View {
                         onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
                     )
                     VStack(spacing: 0) {
-                        TabStrip(
-                            theme: theme,
-                            viewModel: viewModel,
-                            workspace: viewModel.selectedWorkspaceID,
-                            tabs: viewModel.tabsForSelectedWorkspace,
-                            selectedTabID: viewModel.selectedTabID,
-                            herdrVersion: viewModel.model?.herdrVersion,
-                            onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
-                        )
-                        PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
+                        if let pin = viewModel.shownEmptyPin.flatMap(viewModel.pins.pin) {
+                            EmptyPinView(theme: theme, viewModel: viewModel, pin: pin)
+                        } else {
+                            TabStrip(
+                                theme: theme,
+                                viewModel: viewModel,
+                                workspace: viewModel.selectedWorkspaceID,
+                                tabs: viewModel.tabsForSelectedWorkspace,
+                                selectedTabID: viewModel.selectedTabID,
+                                onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
+                            )
+                            PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
+                        }
                     }
                     // On the tab area alone, so the rail stays clear and
                     // undimmed. The grid mounts its own over a focused pane.
@@ -84,7 +100,7 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild, needsYouCount: viewModel.attentionToasts.toasts.count, viewModel: viewModel
+                isDevBuild: isDevBuild, blockedCount: blockedCount, viewModel: viewModel
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -138,6 +154,7 @@ struct MainWindow: View {
         .onChange(of: viewModel.selectedTabID, initial: true) { _, id in
             if let id { tabSwitcher.note(id) }
         }
+
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.chrome))
@@ -281,7 +298,7 @@ struct TitleBar: View {
     let connectionState: ConnectionState
     let isDevBuild: Bool
     /// Overview's tab shows it while Overview is not the view shown.
-    var needsYouCount = 0
+    var blockedCount = 0
     /// Per tab, for renders.
     var forcedTabs: [ViewTab: ControlInteraction] = [:]
     /// Draws the top-bar workspaces; none without it.
@@ -345,7 +362,7 @@ struct TitleBar: View {
         // Over the mouse area, which would otherwise take the tabs' and the
         // restart pill's clicks for a title-bar drag.
         .overlay(alignment: .bottomLeading) {
-            ViewTabBar(theme: theme, needsYouCount: needsYouCount, forced: forcedTabs)
+            ViewTabBar(theme: theme, blockedCount: blockedCount, forced: forcedTabs)
                 .frame(height: ChromeMetrics.TitleBar.height)
                 .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
                 .fixedSize(horizontal: true, vertical: false)

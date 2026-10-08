@@ -132,11 +132,13 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
     /// The mini pane a click selected: outlined, and what Return opens. It
     /// stays until something else is selected or it is put down.
     public private(set) var selected: PaneID?
-    /// The pane Overview has opened in its focused view. Overview's own
-    /// place: it survives the grid closing, Arrange being shown and a drag,
-    /// so returning to Overview returns to it. Only going back, or the pane
-    /// closing, ends it.
+    /// The pane Overview has opened in its focused view. It survives Arrange
+    /// being shown and a drag; the grid closing ends it unless
+    /// `keepsFocusedPane`, as do going back and the pane closing.
     public private(set) var focused: PaneID?
+    /// Settings > Overview: whether leaving for Workspaces keeps the open
+    /// pane for the next visit, rather than opening on the lanes.
+    public var keepsFocusedPane = false
     /// The workspace Arrange has zoomed into, its island alone filling the
     /// canvas. Never kept past the grid closing: Arrange always opens on
     /// every workspace.
@@ -179,6 +181,7 @@ public struct AllWorkspacesGridState: Equatable, Sendable {
         isShown = false
         selected = nil
         zoomed = nil
+        if !keepsFocusedPane { focused = nil }
     }
 
     public mutating func toggle() {
