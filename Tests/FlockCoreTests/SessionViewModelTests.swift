@@ -331,6 +331,17 @@ private final class FakePaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
 
 /// `makeModel` plus one layout for `w1:t1` placing `w1:p1` at `rect` inside
 /// a 120x40 area, so a test can move the pane's cell rect between updates.
+/// Pins, then lets the new pin's folder question finish: it reads the
+/// shell's folder from herdr, and a test counting requests starts after it.
+@MainActor
+private func pinSettled(_ viewModel: SessionViewModel, _ workspace: WorkspaceID) async {
+    viewModel.pin(workspace: workspace)
+    for _ in 0..<500 where viewModel.pinAwaitingFolder == nil {
+        try? await Task.sleep(for: .milliseconds(2))
+    }
+    if let pin = viewModel.pinAwaitingFolder { viewModel.answerPinFolder(pin, with: nil) }
+}
+
 private func makeModel(paneRect rect: CellRect) -> SessionModel {
     var model = makeModel()
     model.layouts[TabID(rawValue: "w1:t1")] = LayoutSnapshot(
@@ -2949,7 +2960,8 @@ final class SessionViewModelTests: XCTestCase {
         let viewModel = SessionViewModel(client: client, planExecutor: executor, folderExists: { _ in true })
         viewModel.update(model: makeModel(), connection: .live)
         let workspace = viewModel.model!.workspaces[0].workspaceID
-        viewModel.pin(workspace: workspace)
+        await pinSettled(viewModel, workspace)
+        let before = await client.calls.count
         let pin = viewModel.pins.pins[0]
         var gone = makeModel()
         gone.workspaces.removeAll()
@@ -2957,7 +2969,7 @@ final class SessionViewModelTests: XCTestCase {
 
         await viewModel.reopen(pin.id)
 
-        let calls = await client.calls
+        let calls = Array(await client.calls.dropFirst(before))
         XCTAssertEqual(calls.map(\.method), ["workspace.create"])
         XCTAssertEqual(stringParam(calls[0].params, "cwd"), pin.folder)
         XCTAssertEqual(boolParam(calls[0].params, "focus"), true)
@@ -2974,7 +2986,8 @@ final class SessionViewModelTests: XCTestCase {
             homeDirectory: "/Users/acme", folderExists: { _ in false }
         )
         viewModel.update(model: makeModel(), connection: .live)
-        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        await pinSettled(viewModel, viewModel.model!.workspaces[0].workspaceID)
+        let before = await client.calls.count
         let pin = viewModel.pins.pins[0]
         var gone = makeModel()
         gone.workspaces.removeAll()
@@ -2982,7 +2995,7 @@ final class SessionViewModelTests: XCTestCase {
 
         await viewModel.reopen(pin.id)
 
-        let calls = await client.calls
+        let calls = Array(await client.calls.dropFirst(before))
         XCTAssertEqual(stringParam(calls[0].params, "cwd"), "/Users/acme")
         XCTAssertEqual(notices.messages, ["\"\(pin.name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another."])
     }
@@ -2992,7 +3005,8 @@ final class SessionViewModelTests: XCTestCase {
         let client = RecordingCommandClient()
         let viewModel = SessionViewModel(client: client, planExecutor: FakePlanExecutor(), folderExists: { _ in true })
         viewModel.update(model: makeModel(), connection: .live)
-        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        await pinSettled(viewModel, viewModel.model!.workspaces[0].workspaceID)
+        let before = await client.calls.count
         let pin = viewModel.pins.pins[0]
         var gone = makeModel()
         gone.workspaces.removeAll()
@@ -3006,7 +3020,7 @@ final class SessionViewModelTests: XCTestCase {
         await client.releaseNext()
         _ = await first
 
-        let calls = await client.calls
+        let calls = Array(await client.calls.dropFirst(before))
         XCTAssertEqual(calls.map(\.method), ["workspace.create"])
     }
 
@@ -3018,7 +3032,7 @@ final class SessionViewModelTests: XCTestCase {
             folderExists: { _ in true }
         )
         viewModel.update(model: makeModel(), connection: .live)
-        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        await pinSettled(viewModel, viewModel.model!.workspaces[0].workspaceID)
         let pin = viewModel.pins.pins[0]
         var gone = makeModel()
         gone.workspaces.removeAll()
@@ -3038,7 +3052,7 @@ final class SessionViewModelTests: XCTestCase {
         let executor = FakePlanExecutor()
         let viewModel = SessionViewModel(client: client, planExecutor: executor, folderExists: { _ in true })
         viewModel.update(model: makeModel(), connection: .live)
-        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        await pinSettled(viewModel, viewModel.model!.workspaces[0].workspaceID)
         let pin = viewModel.pins.pins[0]
         var gone = makeModel()
         gone.workspaces.removeAll()
@@ -3064,7 +3078,8 @@ final class SessionViewModelTests: XCTestCase {
         let client = StubCreateCommandClient(workspaceID: "w9", tabID: "w9:t1", paneID: "w9:p1")
         let viewModel = SessionViewModel(client: client, planExecutor: FakePlanExecutor(), folderExists: { _ in true })
         viewModel.update(model: makeModel(), connection: .live)
-        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        await pinSettled(viewModel, viewModel.model!.workspaces[0].workspaceID)
+        let before = await client.calls.count
         let pin = viewModel.pins.pins[0]
         var gone = makeModel()
         gone.workspaces.removeAll()
@@ -3079,7 +3094,7 @@ final class SessionViewModelTests: XCTestCase {
         )
 
         await viewModel.reopen(pin.id)
-        let calls = await client.calls
+        let calls = Array(await client.calls.dropFirst(before))
         XCTAssertEqual(calls.map(\.method), ["workspace.create", "workspace.create"], "a click on the empty row reopens")
 
         viewModel.update(model: gone, connection: .live)
@@ -3095,9 +3110,10 @@ final class SessionViewModelTests: XCTestCase {
         let client = RecordingCommandClient()
         let viewModel = SessionViewModel(client: client, folderExists: { _ in true })
         viewModel.update(model: makeModel(), connection: .live)
-        viewModel.pin(workspace: viewModel.model!.workspaces[0].workspaceID)
+        await pinSettled(viewModel, viewModel.model!.workspaces[0].workspaceID)
+        let before = await client.calls.count
         await viewModel.reopen(viewModel.pins.pins[0].id)
-        let calls = await client.calls
+        let calls = Array(await client.calls.dropFirst(before))
         XCTAssertEqual(calls.count, 0)
     }
 }
