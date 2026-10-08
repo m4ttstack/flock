@@ -1122,6 +1122,32 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNil(launch.typed)
     }
 
+    /// The launch recorded a keystroke it never typed; left in place, a bare
+    /// prompt would show no launcher until the person types.
+    @MainActor
+    func testALaunchAbortedWhileReadingCswapGivesTheLauncherBack() async throws {
+        let client = StubForegroundClient([.idle, .busy, .idle])
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(
+            client: client, ghosttyFactory: factory, launcherPollBackoff: [.milliseconds(1)],
+            cswapAccounts: { [Self.acmeAccount] }
+        )
+        viewModel.update(model: makeModel(), connection: .live)
+        let pin = viewModel.pins.add(workspace: WorkspaceID(rawValue: "w1"), name: "seed", folder: "/acme", at: nil)!
+        viewModel.pins.setClaudeAccount(pin.id, to: "dev@acme.test")
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane)
+        try XCTUnwrap(factory.onScreenActivityHandlers[pane])(2)
+        try await XCTUnwrap(viewModel.promptWatches[pane]).value
+        XCTAssertTrue(viewModel.isLauncherShowing(pane))
+
+        let launched = await viewModel.launchHarness("claude", in: pane)
+
+        XCTAssertFalse(launched)
+        if let watch = viewModel.promptWatches[pane] { await watch.value }
+        XCTAssertTrue(viewModel.isLauncherShowing(pane))
+    }
+
     @MainActor
     func testCodexIgnoresThePinsAccount() async {
         let launch = await pinnedLaunch(account: "dev@acme.test", accounts: [Self.acmeAccount], binary: "codex")

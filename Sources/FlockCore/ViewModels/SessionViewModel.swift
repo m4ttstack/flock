@@ -1408,7 +1408,11 @@ public final class SessionViewModel {
         var accounts: [CswapAccount]?
         if account != nil {
             accounts = await cswapAccounts()
-            guard await isAtPrompt(pane) else { return false }
+            guard await isAtPrompt(pane) else {
+                // Takes back the keystroke recorded above, which was never typed.
+                recordLauncherClearKey(pane)
+                return false
+            }
         }
         let line = ClaudeAccountLaunch.line(binary: binary, account: account, accounts: accounts)
         if let owner, let missing = line.unavailableAccount {
