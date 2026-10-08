@@ -805,9 +805,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
 
     func characterIndex(for point: NSPoint) -> Int { 0 }
 
+    /// macOS anchors the input-source bubble and an input method's candidate
+    /// window to this rect, so it must be the cursor cell: the whole view
+    /// leaves the bubble parked at the pane's bottom-left corner.
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         guard let window else { return .zero }
-        return window.convertToScreen(convert(bounds, to: nil))
+        guard let cursor = session.imeCursorRect() else { return window.convertToScreen(convert(bounds, to: nil)) }
+        // libghostty's y is the cursor's bottom edge measured from the top.
+        let local = NSRect(x: cursor.minX, y: bounds.height - cursor.minY, width: cursor.width, height: cursor.height)
+        return window.convertToScreen(convert(local, to: nil))
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {

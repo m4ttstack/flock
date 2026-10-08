@@ -313,6 +313,14 @@ final class GhosttySession {
         ghostty_surface_refresh(surface)
     }
 
+    /// The cursor cell in the surface's points, origin top-left.
+    func imeCursorRect() -> CGRect? {
+        guard let surface else { return nil }
+        var x = 0.0, y = 0.0, width = 0.0, height = 0.0
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
     /// The in-progress text of an input method. `nil` clears it.
     func setMarkedText(_ text: String?) {
         guard let surface else { return }
