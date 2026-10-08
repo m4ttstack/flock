@@ -36,16 +36,37 @@ final class PaneLauncherOverlayTests: XCTestCase {
         let theme: Theme
         let entries: [HarnessEntry]
         let navigator: HarnessEntry?
-        var promptClearance: CGFloat = ChromeMetrics.Launcher.promptClearance
+        var occupiedRows = 0
+        var cellHeight: CGFloat?
+        /// Paints `occupiedRows` lines of text where a terminal would, for
+        /// renders a person looks at. Off for tests that sample the ground.
+        var paintsRows = false
         let capture: (TerminalStandIn) -> Void
 
         var body: some View {
             ZStack {
                 theme.terminalGround
                 Terminal(capture: capture)
+                if paintsRows, let cellHeight {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(0..<occupiedRows, id: \.self) { row in
+                            Text(row == occupiedRows - 1 ? "~/src/acme $" : "acme banner line \(row + 1)")
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundStyle(theme.textStrong)
+                                .frame(height: cellHeight, alignment: .leading)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.leading, 6)
+                    // A fixed, clipped frame: rows past the pane's bottom must
+                    // not grow the stack the overlay measures.
+                    .frame(width: size.width, height: size.height, alignment: .topLeading)
+                    .clipped()
+                    .allowsHitTesting(false)
+                }
                 PaneLauncherOverlay(
                     theme: theme, entries: entries, navigator: navigator,
-                    promptClearance: promptClearance, onLaunch: { _ in }
+                    occupiedRows: occupiedRows, cellHeight: cellHeight, onLaunch: { _ in }
                 )
             }
             .frame(width: size.width, height: size.height)
@@ -276,17 +297,19 @@ final class PaneLauncherOverlayTests: XCTestCase {
     /// room above a four-row prompt at an 18pt cell is 90pt, and nothing on
     /// the overlay may answer a click inside it.
     func testTheClearanceFollowsTheOccupiedRows() async throws {
-        XCTAssertEqual(PaneLauncherOverlay.promptClearance(occupiedRows: 4, cellHeight: 18), 90)
+        XCTAssertEqual(PaneLauncherOverlay.promptClearance(occupiedRows: 4, cellHeight: 18, availableHeight: 300), 90)
         XCTAssertEqual(
-            PaneLauncherOverlay.promptClearance(occupiedRows: 0, cellHeight: 18), ChromeMetrics.Launcher.promptClearance,
+            PaneLauncherOverlay.promptClearance(occupiedRows: 0, cellHeight: 18, availableHeight: 300),
+            ChromeMetrics.Launcher.promptClearance,
             "never less than the fixed clearance"
         )
         XCTAssertEqual(
-            PaneLauncherOverlay.promptClearance(occupiedRows: 4, cellHeight: nil), ChromeMetrics.Launcher.promptClearance,
+            PaneLauncherOverlay.promptClearance(occupiedRows: 4, cellHeight: nil, availableHeight: 300),
+            ChromeMetrics.Launcher.promptClearance,
             "no cell size yet: the fixed clearance"
         )
 
-        let probe = try await hostProbe(entries: Self.entries, promptClearance: 90)
+        let probe = try await hostProbe(entries: Self.entries, occupiedRows: 4, cellHeight: 18)
         defer { probe.window.close() }
         for y in stride(from: CGFloat(4), to: 90, by: 8) {
             XCTAssertTrue(probe.hitTest(CGPoint(x: Probe.size.width / 2, y: y)) === probe.terminal, "a button sits inside the clearance at y=\(y)")
@@ -299,31 +322,88 @@ final class PaneLauncherOverlayTests: XCTestCase {
     func testAFourRowPromptKeepsTheButtonsBelowItInDarkAndLightThemes() async throws {
         for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
             let probe = try await hostProbe(
-                entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, promptClearance: 90
+                entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, occupiedRows: 4, cellHeight: 18
             )
             defer { probe.window.close() }
             let image = try snapshot(probe.window)
-            if let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty {
-                let url = URL(fileURLWithPath: directory).appendingPathComponent("launcher-four-rows-\(theme.id).png")
-                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
-            }
+            write(image, named: "launcher-four-rows-\(theme.id).png")
             let ground = hex(image, x: 2, y: 2)
-            let scale = 2
+            let scale = image.pixelsWide / Int(Probe.size.width)
             for y in stride(from: 4, to: 90 * scale, by: 16) {
                 XCTAssertEqual(hex(image, x: image.pixelsWide / 2, y: y), ground, "\(theme.id): something drew inside the clearance at y=\(y)")
+            }
+            // The stack below the clearance centers the row in what is left.
+            let rowCenter = (90 + (Int(Probe.size.height) - 90) / 2) * scale
+            XCTAssertTrue(
+                (0..<image.pixelsWide).contains { hex(image, x: $0, y: rowCenter) != ground },
+                "\(theme.id): nothing drew across the button row at y=\(rowCenter)"
+            )
+        }
+    }
+
+    /// 22 rows of startup banner at an 18pt cell would want 414pt of
+    /// clearance; on a 300pt pane the button row must still fit inside it.
+    func testABannerTallerThanThePaneStillLeavesRoomForTheButtons() async throws {
+        let clearance = PaneLauncherOverlay.promptClearance(occupiedRows: 22, cellHeight: 18, availableHeight: 300)
+        XCTAssertGreaterThanOrEqual(clearance, ChromeMetrics.Launcher.promptClearance)
+        XCTAssertLessThanOrEqual(
+            clearance + ChromeMetrics.Launcher.buttonRowHeight + 2 * ChromeMetrics.Launcher.spacing, 300,
+            "the button row no longer fits below \(clearance)pt of clearance"
+        )
+        XCTAssertEqual(
+            PaneLauncherOverlay.promptClearance(occupiedRows: 22, cellHeight: 18, availableHeight: 40),
+            ChromeMetrics.Launcher.promptClearance,
+            "a pane too short for anything still keeps the floor"
+        )
+
+        let probe = try await hostProbe(entries: Self.entries, occupiedRows: 22, cellHeight: 18)
+        defer { probe.window.close() }
+        let claimed = probe.pointsClaimedByTheOverlay()
+        XCTAssertEqual(probe.runs(in: claimed).count, Self.entries.count, "every button is clickable inside the pane")
+        let band = claimed.reduce(into: CGRect.null) { $0 = $0.union(CGRect(origin: $1, size: .zero)) }
+        XCTAssertLessThan(band.maxY, Probe.size.height, "the buttons run off the bottom: \(band)")
+        XCTAssertGreaterThan(band.height, ChromeMetrics.Launcher.buttonRowHeight - 8, "the buttons are cut off: \(band)")
+        XCTAssertGreaterThan(band.minY, ChromeMetrics.Launcher.promptClearance, "the buttons climbed into the floor: \(band)")
+    }
+
+    /// A two-row prompt, and a 22-row banner on a short pane, in a dark and
+    /// a light theme. Writes the PNGs when `FLOCK_CHROME_RENDER_DIR` names a
+    /// directory.
+    func testTwoRowAndShortBannerRendersInDarkAndLightThemes() async throws {
+        for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
+            for (name, rows) in [("two-rows", 2), ("banner-short", 22)] {
+                let probe = try await hostProbe(
+                    entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme,
+                    occupiedRows: rows, cellHeight: 18, paintsRows: true
+                )
+                defer { probe.window.close() }
+                let image = try snapshot(probe.window)
+                write(image, named: "launcher-\(name)-\(theme.id).png")
+                let claimed = probe.pointsClaimedByTheOverlay()
+                XCTAssertEqual(probe.runs(in: claimed).count, 3, "\(theme.id) \(name): rt cd and both harnesses stay clickable")
+                let band = claimed.reduce(into: CGRect.null) { $0 = $0.union(CGRect(origin: $1, size: .zero)) }
+                XCTAssertGreaterThan(
+                    band.height, ChromeMetrics.Launcher.buttonRowHeight - 8, "\(theme.id) \(name): the buttons are cut off: \(band)"
+                )
             }
         }
     }
 
+    private func write(_ image: NSBitmapImageRep, named name: String) {
+        guard let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !directory.isEmpty else { return }
+        let url = URL(fileURLWithPath: directory).appendingPathComponent(name)
+        XCTAssertNoThrow(try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url))
+    }
+
     private func hostProbe(
         entries: [HarnessEntry], navigator: HarnessEntry? = nil, theme: Theme = Theme.builtins[0], size: CGSize = Probe.size,
-        promptClearance: CGFloat = ChromeMetrics.Launcher.promptClearance
+        occupiedRows: Int = 0, cellHeight: CGFloat? = nil, paintsRows: Bool = false
     ) async throws -> HostedProbe {
         ChromeType.install()
         var captured: TerminalStandIn?
         let hosting = NSHostingView(rootView: Probe(
             size: size, theme: theme, entries: entries, navigator: navigator,
-            promptClearance: promptClearance, capture: { captured = $0 }
+            occupiedRows: occupiedRows, cellHeight: cellHeight, paintsRows: paintsRows, capture: { captured = $0 }
         ))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),

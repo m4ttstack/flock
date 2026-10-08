@@ -148,18 +148,34 @@ struct PaneLauncherOverlay: View {
     let theme: Theme
     let entries: [HarnessEntry]
     let navigator: HarnessEntry?
-    /// Points kept clear at the top so the buttons never sit on the prompt.
-    let promptClearance: CGFloat
+    /// The rows the screen holds, which the buttons sit below.
+    let occupiedRows: Int
+    /// One terminal row in points; nil before the surface knows its cell size.
+    let cellHeight: CGFloat?
     let onLaunch: (HarnessEntry) -> Void
 
-    /// One row above whatever the screen holds, never less than the fixed
-    /// clearance a fresh pane gets before its cell size is known.
-    static func promptClearance(occupiedRows: Int, cellHeight: CGFloat?) -> CGFloat {
-        guard let cellHeight, cellHeight > 0, occupiedRows > 0 else { return ChromeMetrics.Launcher.promptClearance }
-        return max(ChromeMetrics.Launcher.promptClearance, CGFloat(occupiedRows + 1) * cellHeight)
+    /// One row above whatever the screen holds, but never so much that the
+    /// button row and the stack's spacing around it no longer fit in
+    /// `availableHeight`: a startup banner can be taller than the pane, and
+    /// buttons drawn over its last rows still work where buttons pushed off
+    /// the pane do not. Never less than the fixed clearance a fresh pane gets
+    /// before its cell size is known.
+    static func promptClearance(occupiedRows: Int, cellHeight: CGFloat?, availableHeight: CGFloat) -> CGFloat {
+        let floor = ChromeMetrics.Launcher.promptClearance
+        guard let cellHeight, cellHeight > 0, occupiedRows > 0 else { return floor }
+        let ceiling = availableHeight - ChromeMetrics.Launcher.buttonRowHeight - 2 * ChromeMetrics.Launcher.spacing
+        return max(floor, min(CGFloat(occupiedRows + 1) * cellHeight, ceiling))
     }
 
     var body: some View {
+        GeometryReader { geometry in
+            content.padding(.top, Self.promptClearance(
+                occupiedRows: occupiedRows, cellHeight: cellHeight, availableHeight: geometry.size.height
+            ))
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: ChromeMetrics.Launcher.spacing) {
             Spacer(minLength: 0)
             // A narrow pane drops the shortcut hints before it would wrap a
@@ -183,7 +199,6 @@ struct PaneLauncherOverlay: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, promptClearance)
     }
 
     private func buttonRow(showsShortcuts: Bool) -> some View {

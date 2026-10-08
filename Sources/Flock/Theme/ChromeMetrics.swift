@@ -749,6 +749,8 @@ enum ChromeMetrics {
         static let hintHorizontalPadding: CGFloat = 20
         static let hintBottomPadding: CGFloat = 10
         static let monogram: CGFloat = 28
+        /// A button's height: the badge is the tallest thing in its label.
+        static let buttonRowHeight: CGFloat = monogram + 2 * buttonVerticalPadding
         /// Open space between a vendor mark and the edge of its badge, which
         /// OpenAI's terms for the Blossom ask for by name.
         static let markInset: CGFloat = 6

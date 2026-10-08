@@ -847,9 +847,7 @@ struct PaneCellView: View {
                 ) {
                     PaneLauncherOverlay(
                         theme: theme, entries: HarnessRoster.detected(), navigator: NavigatorRoster.detected(),
-                        promptClearance: PaneLauncherOverlay.promptClearance(
-                            occupiedRows: viewModel.launcherOccupiedRows(pane.paneID), cellHeight: ghosttySurface.cellHeight
-                        ),
+                        occupiedRows: viewModel.launcherOccupiedRows(pane.paneID), cellHeight: ghosttySurface.cellHeight,
                         onLaunch: { entry in Task { await LauncherSlots.launch(entry, in: pane.paneID, via: .click, on: viewModel) } }
                     )
                     .transition(.opacity)
