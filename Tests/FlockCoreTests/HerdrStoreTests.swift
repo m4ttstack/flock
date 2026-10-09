@@ -428,6 +428,72 @@ final class HerdrStoreTests: XCTestCase {
         guard case .failure = await task.value else { return XCTFail("expected the rename to fail the plan") }
     }
 
+    /// Without a snapshot to resync from, the pre-plan model is the fallback,
+    /// and every real change since then is replayed onto it: the plan's own
+    /// landed move and another client's rename alike.
+    @MainActor
+    func testAFailedResnapshotKeepsEveryRealChangeSinceThePlanStarted() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: crossWorkspaceMoveResultJSON)
+        fake.failNext(method: "tab.rename", code: "tab_not_found", message: "gone")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let release = fake.holdNext(method: "tab.rename")
+        let plan = OpPlan(ops: [
+            .movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil),
+            .renameTab(TabID(rawValue: "w2:t1"), "renamed"),
+        ], label: "Move")
+        let task = Task { await store.execute(plan) }
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "tab.rename" } }
+        fake.pushEventLine(#"{"data":{"type":"workspace_renamed","workspace_id":"w2","label":"foreign"}}"#)
+        try await waitUntil { store.model?.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w2") }?.label == "foreign" }
+        fake.failNext(method: "session.snapshot", code: "busy", message: "try later")
+        release()
+        guard case .failure = await task.value else { return XCTFail("expected the rename to fail the plan") }
+
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w2:p2")]?.tabID, TabID(rawValue: "w2:t1"))
+        XCTAssertNil(store.model?.panes[PaneID(rawValue: "w1:p2")])
+        XCTAssertEqual(store.model?.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w2") }?.label, "foreign")
+    }
+
+    /// A response belongs to the moment herdr answered it; once a newer plan
+    /// has published its overlay, the live events are what order the two.
+    @MainActor
+    func testAResponseLandingAfterANewerPlanStartedIsLeftToTheLiveEvents() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: crossWorkspaceMoveResultJSON)
+        fake.respond(to: "workspace.rename", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let release = fake.holdNext(method: "pane.move")
+        let move = Task {
+            await store.execute(OpPlan(ops: [
+                .movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil),
+            ], label: "Move"))
+        }
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "pane.move" } }
+        _ = await store.execute(OpPlan(ops: [.renameWorkspace(WorkspaceID(rawValue: "w1"), "newer")], label: "Rename"))
+        release()
+        _ = await move.value
+
+        XCTAssertEqual(
+            store.model?.layouts[TabID(rawValue: "w1:t1")]?.panes.map(\.paneID), [PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")]
+        )
+        XCTAssertEqual(store.model?.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w1") }?.label, "newer")
+    }
+
     @MainActor
     func testOverlayRevertsOnTimeoutWhenNoConvergenceEventArrives() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }

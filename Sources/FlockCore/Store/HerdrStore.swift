@@ -71,7 +71,10 @@ public final class HerdrStore {
     // fired before the first converged) can never stomp the newer overlay.
     private var overlayGeneration = 0
     private var pendingConvergence: PendingConvergence?
-    private var landedByGeneration: [Int: [HerdrEvent]] = [:]
+    /// Every real event applied since each open plan captured its pre-plan
+    /// model, its own landed responses and other clients' changes alike, in
+    /// order: what a failed resnapshot replays onto that model.
+    private var appliedSincePlanStart: [Int: [HerdrEvent]] = [:]
     private var convergenceContinuation: (generation: Int, continuation: CheckedContinuation<Bool, Never>)?
     private var resolvedConvergence: [Int: Bool] = [:]
     private var isStopped = false
@@ -165,33 +168,39 @@ public final class HerdrStore {
             armConvergence(kinds: kinds, generation: generation, intermediateWorkspaceOrders: prediction.intermediateWorkspaceOrders)
         }
 
+        appliedSincePlanStart[generation] = []
+
         Self.moveLog.log("plan #\(generation) \(plan.label, privacy: .public): \(String(describing: plan.ops), privacy: .public)")
         let engine = MutationEngine(client: HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout))
         let result = await engine.execute(plan, model: baseModel) { [weak self] events in
+            guard let self, self.overlayGeneration == generation else { return }
             for event in events {
                 if let summary = event.logSummary {
                     Self.moveLog.log("plan #\(generation) landed \(summary, privacy: .public)")
                 }
-                self?.landedByGeneration[generation, default: []].append(event)
-                self?.applyLiveEvent(event, logged: false)
+                self.applyLiveEvent(event, logged: false)
             }
         }
-        let landed = landedByGeneration.removeValue(forKey: generation) ?? []
 
         switch result {
         case .success:
             Self.moveLog.log("plan #\(generation) succeeded")
-            guard !kinds.isEmpty else { break }
+            guard !kinds.isEmpty else {
+                appliedSincePlanStart[generation] = nil
+                break
+            }
             Task { [weak self] in
                 guard let self else { return }
+                defer { self.appliedSincePlanStart[generation] = nil }
                 let matched = await self.awaitConvergenceResolution(generation: generation, timeout: self.overlayConvergenceTimeout)
                 guard !matched else { return }
                 Self.moveLog.error("plan #\(generation) never confirmed; reverting")
-                await self.revertAndResnapshot(fallback: baseModel, landed: landed, generation: generation)
+                await self.revertAndResnapshot(fallback: baseModel, generation: generation)
             }
         case .failure(let failure):
             Self.moveLog.error("plan #\(generation) failed \(failure.code, privacy: .public): \(failure.message, privacy: .public)")
-            await revertAndResnapshot(fallback: baseModel, landed: landed, generation: generation)
+            await revertAndResnapshot(fallback: baseModel, generation: generation)
+            appliedSincePlanStart[generation] = nil
         }
         return result
     }
@@ -281,9 +290,9 @@ public final class HerdrStore {
 
     /// The overlay stays up until the snapshot answers: reverting first would
     /// show every landed move undone for a round trip. Without a snapshot the
-    /// pre-plan model is the fallback, with what the plan's own responses
-    /// proved happened replayed onto it.
-    private func revertAndResnapshot(fallback: SessionModel, landed: [HerdrEvent], generation: Int) async {
+    /// pre-plan model is the fallback, with every real event since replayed
+    /// onto it: only the plan's unconfirmed predictions are dropped.
+    private func revertAndResnapshot(fallback: SessionModel, generation: Int) async {
         discardConvergence(generation)
         guard !isStopped, overlayGeneration == generation else { return }
         let client = HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout)
@@ -293,9 +302,10 @@ public final class HerdrStore {
             Self.moveLog.log("plan #\(generation) resnapshot installed")
             model = SessionModel(snapshot: snapshot)
         } else {
-            Self.moveLog.error("plan #\(generation) resnapshot failed; showing the pre-plan model and \(landed.count) landed events")
+            let replay = appliedSincePlanStart[generation] ?? []
+            Self.moveLog.error("plan #\(generation) resnapshot failed; replaying \(replay.count) events onto the pre-plan model")
             var reverted = fallback
-            for event in landed {
+            for event in replay {
                 apply(event, to: &reverted)
             }
             model = reverted
@@ -772,6 +782,9 @@ public final class HerdrStore {
         guard var current = model else { return }
         if logged, let summary = event.logSummary {
             Self.moveLog.log("event \(summary, privacy: .public)")
+        }
+        for generation in appliedSincePlanStart.keys {
+            appliedSincePlanStart[generation]?.append(event)
         }
         // Dropped, never applied: one of the plan's own steps would flash the
         // rail back through an order the overlay has already passed. Nothing
