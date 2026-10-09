@@ -57,9 +57,7 @@ struct ViewTabButton: View {
                 // An explicit square rather than a font glyph: a glyph's
                 // layout box carries the font's descent and sits the drawing
                 // low.
-                Image(systemName: tab.symbolName)
-                    .resizable()
-                    .scaledToFit()
+                ViewTabGlyph(tab: tab)
                     .frame(width: ChromeMetrics.TitleBar.tabGlyphSize, height: ChromeMetrics.TitleBar.tabGlyphSize)
                     .foregroundStyle(isSelected ? theme.accent : theme.textLabel)
                 Text(tab.title)

@@ -158,8 +158,9 @@ final class GridControlHoverRenderTests: XCTestCase {
                     card(.working, index)
                     card(.blocked, index)
                     HStack(spacing: 0) {
+                        ViewTabButton(theme: theme, tab: .workspaces, isSelected: true, forced: interaction, action: {})
                         ViewTabButton(theme: theme, tab: .overview, isSelected: false, badge: 3, forced: interaction, action: {})
-                        ViewTabButton(theme: theme, tab: .arrange, isSelected: true, forced: interaction, action: {})
+                        ViewTabButton(theme: theme, tab: .arrange, isSelected: false, forced: interaction, action: {})
                     }
                     .frame(height: ChromeMetrics.TitleBar.height)
                     .fixedSize()
