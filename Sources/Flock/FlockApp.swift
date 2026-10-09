@@ -253,7 +253,7 @@ struct FlockApp: App {
                 switch target {
                 case .tabThumbnail(let id): viewModel.select(tab: id)
                 case .workspaceThumbnail(let id): viewModel.select(workspace: id)
-                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .workspaceRail, .pinnedRail, .topBar: break
+                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .emptyPin, .workspaceRail, .pinnedRail, .topBar: break
                 }
             },
             // Repo and branch are read again each time the view opens.

@@ -53,13 +53,13 @@ final class MoveToMenuTests: XCTestCase {
 
         let entries = MoveToMenu.entries(for: PaneID(rawValue: "w1:p1"), model: model)
 
-        XCTAssertEqual(entries.first?.label, "Tab: release")
+        XCTAssertEqual(entries.first?.label, "release")
     }
 
     func testEntriesListsOtherTabsThenOtherWorkspacesThenTheTwoNewItems() {
         let entries = MoveToMenu.entries(for: PaneID(rawValue: "w1:p1"), model: canonicalFixture())
 
-        XCTAssertEqual(entries.map(\.label), ["Tab: second", "Workspace: two", "New Tab", "New Workspace"])
+        XCTAssertEqual(entries.map(\.label), ["second", "two", "New Tab", "New Workspace"])
         XCTAssertEqual(entries.map(\.target), [
             .tabThumbnail(TabID(rawValue: "w1:t2")),
             .workspaceThumbnail(WorkspaceID(rawValue: "w2")),
@@ -78,6 +78,49 @@ final class MoveToMenuTests: XCTestCase {
         let entries = MoveToMenu.entries(for: PaneID(rawValue: "ghost"), model: canonicalFixture())
 
         XCTAssertEqual(entries, [])
+    }
+
+    /// w2 is pinned as "pinned two", and "notes" is a pin with nothing open.
+    private func pinnedSections(_ model: SessionModel) -> RailSections {
+        RailSections(model: model, board: nil, pins: [
+            PinnedWorkspace(id: PinID(rawValue: "a"), name: "pinned two", folder: "/acme", workspace: WorkspaceID(rawValue: "w2"), syncedLabel: "two", confirmed: true),
+            PinnedWorkspace(id: PinID(rawValue: "b"), name: "notes", folder: "/acme", workspace: nil, syncedLabel: nil, confirmed: false),
+        ])
+    }
+
+    func testWithTheRailTheWorkspacesFollowItsPinsAndAnEmptyPinIsATarget() {
+        let model = canonicalFixture()
+        let entries = MoveToMenu.entries(for: PaneID(rawValue: "w1:p1"), model: model, sections: pinnedSections(model))
+        let workspaces = entries.filter { $0.group == .workspaces }
+
+        XCTAssertEqual(workspaces.map(\.label), ["pinned two", "notes"])
+        XCTAssertEqual(workspaces.map(\.target), [.workspaceThumbnail(WorkspaceID(rawValue: "w2")), .emptyPin(PinID(rawValue: "b"))])
+        XCTAssertEqual(workspaces.map(\.identityKey), ["pin:a", "pin:b"])
+    }
+
+    func testBoardsReviewWorkspacesAndHerdsAreNotTargets() {
+        var model = canonicalFixture()
+        model.workspaces += [
+            workspaceRecord("w3", activeTab: "w3:t1", label: "reviews"),
+            workspaceRecord("w4", activeTab: "w4:t1", label: "\(HerdWorkspace.labelPrefix)upgrade"),
+        ]
+        let sections = RailSections(model: model, board: .defaults)
+
+        let entries = MoveToMenu.entries(for: PaneID(rawValue: "w1:p1"), model: model, sections: sections)
+
+        XCTAssertEqual(entries.filter { $0.group == .workspaces }.map(\.label), ["two"])
+    }
+
+    func testTheMenuGroupsTabsAndWorkspacesUnderHeadersAndSetsTheCreateRowsApart() throws {
+        let model = canonicalFixture()
+        let entries = PaneMenuModel.entries(
+            for: PaneID(rawValue: "w1:p1"), model: model, focusedPane: nil, sections: pinnedSections(model)
+        )
+        let submenu = try XCTUnwrap(entries.first { $0.accessibilityIdentifier == "flock.pane.menu.moveTo" }?.submenu)
+
+        XCTAssertEqual(submenu.map(\.role), [.header, .item, .header, .item, .item, .separator, .item, .item])
+        XCTAssertEqual(submenu.map(\.label), ["Tabs", "second", "Workspaces", "pinned two", "notes", "", "New Tab", "New Workspace"])
+        XCTAssertEqual(submenu[4].action, .moveTo(.emptyPin(PinID(rawValue: "b"))))
     }
 
     func testSwapTargetIsPaneInteriorOfTheFocusedPaneWhenSameTabAndNotFocused() {

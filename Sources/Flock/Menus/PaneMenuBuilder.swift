@@ -9,29 +9,43 @@ import FlockCore
 /// submenu for a tab or workspace that has since gone away.
 @MainActor
 enum PaneMenuBuilder {
-    static func menu(for paneID: PaneID, viewModel: SessionViewModel, solo: Bool = false) -> NSMenu? {
+    static func menu(
+        for paneID: PaneID, viewModel: SessionViewModel, solo: Bool = false, sections: RailSections? = nil,
+        symbols: PaneMenuSymbols = PaneMenuSymbols(identity: nil)
+    ) -> NSMenu? {
         guard let model = viewModel.model else { return nil }
         let entries = PaneMenuModel.entries(
-            for: paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: solo, oneTitle: viewModel.oneTitle
+            for: paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: solo, oneTitle: viewModel.oneTitle,
+            sections: sections
         )
         let target = PaneMenuActionTarget(paneID: paneID, viewModel: viewModel)
         let menu = PaneContextMenu(actionTarget: target)
         for entry in entries {
-            menu.addItem(makeMenuItem(for: entry, target: target))
+            menu.addItem(makeMenuItem(for: entry, target: target, symbols: symbols))
         }
         return menu
     }
 
-    private static func makeMenuItem(for entry: PaneMenuEntry, target: PaneMenuActionTarget) -> NSMenuItem {
-        let menuItem = NSMenuItem(title: entry.label, action: nil, keyEquivalent: "")
+    private static func makeMenuItem(for entry: PaneMenuEntry, target: PaneMenuActionTarget, symbols: PaneMenuSymbols) -> NSMenuItem {
+        let menuItem: NSMenuItem
+        switch entry.role {
+        case .separator:
+            return .separator()
+        case .header:
+            menuItem = .sectionHeader(title: entry.label)
+        case .item:
+            menuItem = NSMenuItem(title: entry.label, action: nil, keyEquivalent: "")
+            menuItem.image = symbols.image(for: entry.identityKey)
+        }
         menuItem.identifier = NSUserInterfaceItemIdentifier(entry.accessibilityIdentifier)
         menuItem.setAccessibilityIdentifier(entry.accessibilityIdentifier)
+        guard entry.role == .item else { return menuItem }
         menuItem.isEnabled = entry.enabled
 
         if let submenuEntries = entry.submenu {
             let submenu = NSMenu(title: entry.label)
             for submenuEntry in submenuEntries {
-                submenu.addItem(makeMenuItem(for: submenuEntry, target: target))
+                submenu.addItem(makeMenuItem(for: submenuEntry, target: target, symbols: symbols))
             }
             menuItem.submenu = submenu
         } else {
@@ -40,6 +54,17 @@ enum PaneMenuBuilder {
             menuItem.representedObject = entry.action
         }
         return menuItem
+    }
+}
+
+/// The symbol the rail draws for a row's identity key.
+@MainActor
+struct PaneMenuSymbols {
+    let identity: WorkspaceIdentityStore?
+
+    func image(for key: String?) -> NSImage? {
+        guard let key, let name = identity?.symbol(for: key) else { return nil }
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 }
 

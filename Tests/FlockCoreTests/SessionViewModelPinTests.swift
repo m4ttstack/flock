@@ -375,6 +375,34 @@ final class SessionViewModelPinTests: XCTestCase {
         XCTAssertEqual(viewModel.pins.pins.count, 1)
     }
 
+    func testAPaneDroppedOnAnEmptyPinOpensItsWorkspaceAndThePinTakesIt() async {
+        let executor = RecordingExecutor()
+        let (viewModel, _) = viewModel(executor: executor)
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+        viewModel.update(model: model([("w2", "web")]), connection: .live)
+        let pin = viewModel.pins.pins[0].id
+
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w2:p1")), target: .emptyPin(pin))
+
+        XCTAssertEqual(outcome, .committed)
+        XCTAssertEqual(executor.plans.first?.ops, [.movePaneToNewWorkspace(PaneID(rawValue: "w2:p1"), label: "acme", tabLabel: "zsh")])
+        viewModel.update(model: model([("w3", "acme")]), connection: .live)
+        XCTAssertEqual(viewModel.pins.pin(pin)?.workspace, WorkspaceID(rawValue: "w3"))
+    }
+
+    func testADropOnAPinThatIsOpenIsANoOp() async {
+        let executor = RecordingExecutor()
+        let (viewModel, _) = viewModel(executor: executor)
+        viewModel.update(model: model([("w1", "acme"), ("w2", "web")]), connection: .live)
+        viewModel.pin(workspace: WorkspaceID(rawValue: "w1"))
+
+        let outcome = await viewModel.perform(subject: .pane(PaneID(rawValue: "w2:p1")), target: .emptyPin(viewModel.pins.pins[0].id))
+
+        XCTAssertEqual(outcome, .noOp)
+        XCTAssertEqual(executor.plans, [])
+    }
+
     func testAPinDroppedAmongWorkspacesIsPlannedAgainstTheRailThatWasDrawn() async {
         let executor = RecordingExecutor()
         let (viewModel, _) = viewModel(executor: executor)

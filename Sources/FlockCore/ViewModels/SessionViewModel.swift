@@ -1665,28 +1665,35 @@ public final class SessionViewModel {
     /// `UndoJournal.runExclusively`) so it can never interleave with an
     /// in-flight `perform`/`undo`/`redo`.
     private func sendPaneClose(_ pane: PaneID) async {
-        guard let planExecutor else {
-            _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
-            return
+        let successor = resolvedFocusedPaneID == pane ? model.flatMap { CloseFocus.successor(of: pane, model: $0) } : nil
+        var closed = false
+        if let planExecutor {
+            if let undoJournal {
+                await undoJournal.runExclusively { [noticeSink] in
+                    closed = await Self.closePane(pane, executor: planExecutor, notify: noticeSink, record: undoJournal.record)
+                }
+            } else {
+                closed = await Self.closePane(pane, executor: planExecutor, notify: noticeSink) { _ in }
+            }
+        } else {
+            closed = (try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])) != nil
         }
-        guard let undoJournal else {
-            await Self.closePane(pane, executor: planExecutor, notify: noticeSink) { _ in }
-            return
-        }
-        await undoJournal.runExclusively { [noticeSink] in
-            await Self.closePane(pane, executor: planExecutor, notify: noticeSink, record: undoJournal.record)
-        }
+        if optimisticFocusedPaneID == pane { optimisticFocusedPaneID = nil }
+        guard closed, let successor, model?.panes[successor] != nil else { return }
+        await jumpToHerdr(pane: successor)
     }
 
     private static func closePane(
         _ pane: PaneID, executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void
-    ) async {
+    ) async -> Bool {
         let result = await executor.execute(OpPlan(ops: [.closePane(pane)], label: "Close pane"))
         switch result {
         case .success(let executed):
             record(executed)
+            return true
         case .failure(let failure):
             notify("Close pane failed: \(failure.message)")
+            return false
         }
     }
 
@@ -1772,13 +1779,14 @@ public final class SessionViewModel {
     /// `pinned` nil reads the live pins at plan time; a caller that is about to
     /// change them passes the set the rail was drawn with.
     private func performPlanned(
-        subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames?, pinned: Set<WorkspaceID>?
+        subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames?, pinned: Set<WorkspaceID>?,
+        emptyPins: [PinID: String] = [:]
     ) async -> DragOutcome {
         guard planExecutor != nil else { return .notAttempted }
         guard let undoJournal else {
             guard let model = fullModel, let planExecutor else { return .notAttempted }
             return await Self.perform(
-                subject: subject, target: target, model: model, board: board, pinned: pinned ?? pinnedWorkspaces, executor: planExecutor, notify: noticeSink,
+                subject: subject, target: target, model: model, board: board, pinned: pinned ?? pinnedWorkspaces, emptyPins: emptyPins, executor: planExecutor, notify: noticeSink,
                 record: { _ in }, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
@@ -1791,7 +1799,7 @@ public final class SessionViewModel {
         await undoJournal.runExclusively { [weak self] in
             guard let self, let model = self.fullModel, let planExecutor = self.planExecutor else { return }
             outcome = await Self.perform(
-                subject: subject, target: target, model: model, board: board, pinned: pinned ?? self.pinnedWorkspaces, executor: planExecutor, notify: self.noticeSink,
+                subject: subject, target: target, model: model, board: board, pinned: pinned ?? self.pinnedWorkspaces, emptyPins: emptyPins, executor: planExecutor, notify: self.noticeSink,
                 record: undoJournal.record, follow: { [weak self] pane in await self?.jumpToHerdr(pane: pane) }
             )
         }
@@ -1861,7 +1869,14 @@ public final class SessionViewModel {
             guard outcome == .committed || outcome == .noOp else { return outcome }
             unpin(id)
             return .committed
-        case (.pin, _), (_, .pinnedRail), (_, .topBar):
+        case let (.pane, .emptyPin(id)), let (.tab, .emptyPin(id)):
+            // Opened by the move itself: the workspace it makes carries the
+            // pin's name, and `reconcile` links the pin to it by that name.
+            guard let pin = pins.pin(id), pin.placement == .rail, !isOpen(pin), !reopening.contains(id) else { return .noOp }
+            return await performPlanned(
+                subject: subject, target: target, board: board, pinned: nil, emptyPins: [id: pin.name]
+            )
+        case (.pin, _), (_, .pinnedRail), (_, .topBar), (_, .emptyPin):
             return .noOp
         default:
             return nil
@@ -1870,10 +1885,10 @@ public final class SessionViewModel {
 
     private static func perform(
         subject: DragSubject, target: DropTarget, model: SessionModel, board: BoardWorkspaceNames?,
-        pinned: Set<WorkspaceID>, executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void,
+        pinned: Set<WorkspaceID>, emptyPins: [PinID: String], executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void,
         follow: @MainActor (PaneID) async -> Void
     ) async -> DragOutcome {
-        switch plan(dragging: subject, onto: target, model: model, board: board, pinned: pinned) {
+        switch plan(dragging: subject, onto: target, model: model, board: board, pinned: pinned, emptyPins: emptyPins) {
         case .failure(.noOp):
             return .noOp
         case .failure(.invalidCombination):
@@ -2553,7 +2568,7 @@ extension DropTarget {
     /// answer and not the target's shape alone.
     func takesThePaneOffItsTab(_ pane: PaneID, model: SessionModel) -> Bool {
         switch self {
-        case .tabThumbnail, .newTab, .workspaceThumbnail, .newWorkspace:
+        case .tabThumbnail, .newTab, .workspaceThumbnail, .newWorkspace, .emptyPin:
             return true
         case .paneEdge(let target, _), .paneInterior(let target):
             guard let from = model.panes[pane]?.tabID, let into = model.panes[target]?.tabID else { return false }

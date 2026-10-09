@@ -2118,6 +2118,40 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(executor.executedPlans, [OpPlan(ops: [.closePane(PaneID(rawValue: "w1:p1"))], label: "Close pane")])
     }
 
+    @MainActor
+    func testClosingTheFocusedPaneFocusesThePaneBesideIt() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client, planExecutor: FakePlanExecutor())
+        var model = makeModelWithAPaneInASecondTab()
+        model.layouts[TabID(rawValue: "w1:t1")] = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"), zoomed: false,
+            area: CellRect(x: 0, y: 0, width: 80, height: 24), focusedPaneID: PaneID(rawValue: "w1:p1"),
+            panes: [
+                PaneRect(paneID: PaneID(rawValue: "w1:p1"), focused: true, rect: CellRect(x: 0, y: 0, width: 40, height: 24)),
+                PaneRect(paneID: PaneID(rawValue: "w1:p2"), focused: false, rect: CellRect(x: 40, y: 0, width: 40, height: 24)),
+            ],
+            splits: [SplitInfo(id: "s1", direction: .right, ratio: 0.5, rect: CellRect(x: 0, y: 0, width: 80, height: 24))]
+        )
+        viewModel.update(model: model, connection: .live)
+
+        await viewModel.closePane(PaneID(rawValue: "w1:p1"))
+
+        let focusCall = await client.calls.first { $0.method == "pane.focus" }
+        XCTAssertEqual(stringParam(focusCall?.params ?? [:], "pane_id"), "w1:p2")
+    }
+
+    @MainActor
+    func testClosingAPaneThatIsNotFocusedLeavesFocusAlone() async {
+        let client = RecordingCommandClient()
+        let viewModel = SessionViewModel(client: client, planExecutor: FakePlanExecutor())
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        await viewModel.closePane(PaneID(rawValue: "w1:p2"))
+
+        let calls = await client.calls
+        XCTAssertFalse(calls.contains { $0.method == "pane.focus" })
+    }
+
     /// `w1:p3` is the only pane of `w1:t2`, so herdr would take the tab with
     /// it, and a close cannot be undone.
     @MainActor

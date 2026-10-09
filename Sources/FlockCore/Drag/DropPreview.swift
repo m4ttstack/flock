@@ -67,7 +67,7 @@ public enum DropPreview {
                 return DropPreviewFrames(incoming: box(incomingRect(in: frame, edge: .right)))
             }
             return DropPreviewFrames(incoming: box(frame))
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .pinnedRail, .topBar:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .emptyPin, .workspaceRail, .pinnedRail, .topBar:
             return nil
         }
     }
@@ -102,7 +102,7 @@ public enum DropPreview {
             return replacingLeaf(targetPane, in: root) { existing in
                 split(incoming: .pane(ExportedLayoutPane(paneID: pane)), existing: existing, on: .right)
             }
-        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .workspaceRail, .pinnedRail, .topBar:
+        case .tabStrip, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .emptyPin, .workspaceRail, .pinnedRail, .topBar:
             return nil
         }
     }
@@ -195,7 +195,7 @@ public func dropFlashRect(for target: DropTarget, surfaces: DropSurfaces) -> CGR
     switch target {
     case .tabStrip, .workspaceRail, .pinnedRail, .topBar:
         return nil
-    case .paneEdge, .paneInterior, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
+    case .paneEdge, .paneInterior, .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .emptyPin:
         return dropTargetRect(for: target, surfaces: surfaces)
     }
 }
@@ -237,6 +237,8 @@ public func dropTargetRect(for target: DropTarget, surfaces: DropSurfaces) -> CG
         return surfaces.newTabZone
     case .newWorkspace:
         return surfaces.newWorkspaceZone
+    case .emptyPin(let pin):
+        return surfaces.pinnedFrames.first { $0.id == pin }?.frame
     case .tabStrip(_, let insertIndex):
         // A reorder inside the grid is the same target, but the strip is
         // unmounted under a shown grid and its last frames sit wherever the

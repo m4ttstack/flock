@@ -97,6 +97,8 @@ struct PaneCellView: View {
     @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(\.paneCellRole) private var role
+    @Environment(WorkspaceIdentityStore.self) private var identity: WorkspaceIdentityStore?
+    @Environment(BoardStore.self) private var board: BoardStore?
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
@@ -317,8 +319,14 @@ struct PaneCellView: View {
         guard let model = viewModel.model else { return [] }
         return PaneMenuModel.entries(
             for: pane.paneID, model: model, focusedPane: viewModel.resolvedFocusedPaneID, solo: role == .solo,
-            oneTitle: viewModel.oneTitle
+            oneTitle: viewModel.oneTitle, sections: menuSections
         )
+    }
+
+    /// The rail as drawn, so "Move to..." lists workspaces in its order and
+    /// under its names.
+    private var menuSections: RailSections? {
+        viewModel.railSections(board: board?.names)
     }
 
     /// The bordered terminal box. The content is pinned to exactly the
@@ -785,7 +793,12 @@ struct PaneCellView: View {
                     // otherwise take the keystrokes.
                     editorIsOpen: editorIsOpen,
                     onPrimaryClick: { focusInHerdr() },
-                    menuProvider: { PaneMenuBuilder.menu(for: pane.paneID, viewModel: viewModel, solo: role == .solo) },
+                    menuProvider: {
+                        PaneMenuBuilder.menu(
+                            for: pane.paneID, viewModel: viewModel, solo: role == .solo, sections: menuSections,
+                            symbols: PaneMenuSymbols(identity: identity)
+                        )
+                    },
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }
@@ -884,9 +897,15 @@ struct PaneCellView: View {
     /// ghostty branch's real `NSMenu` builds the equivalent row itself, in
     /// `PaneMenuBuilder`.
     private func paneMenuButton(_ entry: PaneMenuEntry) -> some View {
-        Button(entry.label) {
+        Button {
             guard let action = entry.action else { return }
             Task { await action.perform(paneID: pane.paneID, on: viewModel) }
+        } label: {
+            if let image = PaneMenuSymbols(identity: identity).image(for: entry.identityKey) {
+                Label { Text(entry.label) } icon: { Image(nsImage: image) }
+            } else {
+                Text(entry.label)
+            }
         }
         .disabled(!entry.enabled)
         .accessibilityIdentifier(entry.accessibilityIdentifier)
@@ -945,7 +964,11 @@ private struct PaneMenuModifier<Leaf: View>: ViewModifier {
                 if let submenu = entry.submenu {
                     Menu(entry.label) {
                         ForEach(submenu, id: \.accessibilityIdentifier) { subEntry in
-                            leaf(subEntry)
+                            switch subEntry.role {
+                            case .header: Text(subEntry.label)
+                            case .separator: Divider()
+                            case .item: leaf(subEntry)
+                            }
                         }
                     }
                     .accessibilityIdentifier(entry.accessibilityIdentifier)
