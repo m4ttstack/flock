@@ -10,6 +10,9 @@ public enum DropTarget: Equatable, Sendable {
     case workspaceThumbnail(WorkspaceID)
     case newTab(WorkspaceID)
     case newWorkspace
+    /// A rail pin with no workspace open in herdr; a drop opens it with what
+    /// was dropped.
+    case emptyPin(PinID)
     case workspaceRail(insertIndex: Int)
     case pinnedRail(insertIndex: Int)
     /// A pin's gap among the title bar's top-bar cells, left to right.

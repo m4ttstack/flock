@@ -500,7 +500,9 @@ final class DropResolverTests: XCTestCase {
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 40), dragging: .workspace(WorkspaceID(rawValue: "w5")), surfaces: surfaces), .pinnedRail(insertIndex: 1))
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 50), dragging: .pin(PinID(rawValue: "p1")), surfaces: surfaces), .pinnedRail(insertIndex: 2))
         XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 5), dragging: .pane(PaneID(rawValue: "w5:p1")), surfaces: surfaces), .workspaceThumbnail(WorkspaceID(rawValue: "w1")))
-        XCTAssertNil(resolveDropTarget(at: CGPoint(x: 10, y: 35), dragging: .pane(PaneID(rawValue: "w5:p1")), surfaces: surfaces), "an empty pin holds no panes")
+        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 35), dragging: .pane(PaneID(rawValue: "w5:p1")), surfaces: surfaces), .emptyPin(PinID(rawValue: "p2")))
+        XCTAssertEqual(resolveDropTarget(at: CGPoint(x: 10, y: 35), dragging: .tab(TabID(rawValue: "w5:t1")), surfaces: surfaces), .emptyPin(PinID(rawValue: "p2")))
+        XCTAssertEqual(dropTargetRect(for: .emptyPin(PinID(rawValue: "p2")), surfaces: surfaces), pins[1].frame)
     }
 
     func testOnlyALivePinCanBeDraggedOutAmongTheWorkspaces() throws {

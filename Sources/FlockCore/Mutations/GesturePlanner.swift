@@ -3,10 +3,12 @@ import Foundation
 /// Turns one drag gesture into an ordered `OpPlan` against `model`, per the
 /// design spec's verb table. Pure: no I/O, no herdr calls -- the executor is
 /// the only thing that runs `ops` for real. `board` is only read to place a
-/// rail slot, whose rows leave Board's workspaces out.
+/// rail slot, whose rows leave Board's workspaces out. `emptyPins` names each
+/// empty pin a drop may open; the workspace a drop makes takes the pin's name,
+/// which is how the pin finds it.
 public func plan(
     dragging subject: DragSubject, onto target: DropTarget, model: SessionModel, board: BoardWorkspaceNames? = nil,
-    pinned: Set<WorkspaceID> = []
+    pinned: Set<WorkspaceID> = [], emptyPins: [PinID: String] = [:]
 ) -> Result<OpPlan, PlanError> {
     switch (subject, target) {
     case let (.pane(pane), .paneEdge(t, edge)):
@@ -27,11 +29,19 @@ public func plan(
     case let (.pane(pane), .newWorkspace):
         return planPaneToNewWorkspace(pane: pane, model: model)
 
+    case let (.pane(pane), .emptyPin(pin)):
+        guard let name = emptyPins[pin] else { return .failure(.invalidCombination) }
+        return planPaneToNewWorkspace(pane: pane, label: name, model: model)
+
     case let (.tab(tab), .tabStrip(workspace, insertIndex)):
         return planTabReorder(tab: tab, workspace: workspace, insertIndex: insertIndex, model: model)
 
     case let (.tab(tab), .workspaceThumbnail(workspace)):
-        return planTabMigration(tab: tab, workspace: workspace, model: model)
+        return planTabMigration(tab: tab, into: .workspace(workspace), model: model)
+
+    case let (.tab(tab), .emptyPin(pin)):
+        guard let name = emptyPins[pin] else { return .failure(.invalidCombination) }
+        return planTabMigration(tab: tab, into: .newWorkspace(label: name), model: model)
 
     // The rail's slot counts only the rows it drags, which leave Board's
     // workspaces, herds and pinned workspaces out.
@@ -165,12 +175,12 @@ private func planPaneToNewTab(pane: PaneID, workspace: WorkspaceID, model: Sessi
     ))
 }
 
-private func planPaneToNewWorkspace(pane: PaneID, model: SessionModel) -> Result<OpPlan, PlanError> {
+private func planPaneToNewWorkspace(pane: PaneID, label: String? = nil, model: SessionModel) -> Result<OpPlan, PlanError> {
     guard let subjectRecord = model.panes[pane] else {
         return .failure(.invalidCombination)
     }
     return .success(OpPlan(
-        ops: [.movePaneToNewWorkspace(pane, label: nil, tabLabel: nameLeavingWith(pane, record: subjectRecord, model: model))],
+        ops: [.movePaneToNewWorkspace(pane, label: label, tabLabel: nameLeavingWith(pane, record: subjectRecord, model: model))],
         label: "Move pane to new workspace",
         needsUnzoom: unzoomList(model: model, source: subjectRecord.tabID, destination: nil)
     ))
@@ -206,7 +216,12 @@ private func planTabReorder(tab: TabID, workspace: WorkspaceID, insertIndex: Int
     ))
 }
 
-/// Migrates every pane of `tab` into a new tab in `workspace`, replaying the
+private enum MigrationDestination {
+    case workspace(WorkspaceID)
+    case newWorkspace(label: String)
+}
+
+/// Migrates every pane of `tab` into a new tab of `destination`, replaying the
 /// source tab's split shape via a sequence of single-pane splits.
 ///
 /// Traversal contract: reconstruct `tab`'s split layout as a binary tree
@@ -228,23 +243,31 @@ private func planTabReorder(tab: TabID, workspace: WorkspaceID, insertIndex: Int
 /// turns one existing single-pane region into two, so a subtree with more
 /// than one leaf cannot be materialized in one op regardless of how deep it
 /// nests in the source tree.
-private func planTabMigration(tab: TabID, workspace: WorkspaceID, model: SessionModel) -> Result<OpPlan, PlanError> {
-    guard model.workspaces.contains(where: { $0.workspaceID == workspace }) else {
-        return .failure(.invalidCombination)
-    }
-    // Already there. Replaying the shape into a fresh tab of the same
-    // workspace would destroy and rebuild the tab for no move at all.
-    guard model.tabs[workspace]?.contains(where: { $0.tabID == tab }) != true else {
-        return .failure(.noOp)
+private func planTabMigration(tab: TabID, into destination: MigrationDestination, model: SessionModel) -> Result<OpPlan, PlanError> {
+    if case .workspace(let workspace) = destination {
+        guard model.workspaces.contains(where: { $0.workspaceID == workspace }) else {
+            return .failure(.invalidCombination)
+        }
+        // Already there. Replaying the shape into a fresh tab of the same
+        // workspace would destroy and rebuild the tab for no move at all.
+        guard model.tabs[workspace]?.contains(where: { $0.tabID == tab }) != true else {
+            return .failure(.noOp)
+        }
     }
     guard let layout = model.layouts[tab], !layout.panes.isEmpty,
           let tree = SplitTree.build(from: layout) else {
         return .failure(.invalidCombination)
     }
 
-    var ops: [PrimitiveOp] = [
-        .movePaneToNewTab(tree.leftmostPaneID, workspace: workspace, label: carriedName(ofTab: tab, model: model)),
-    ]
+    let tabName = carriedName(ofTab: tab, model: model)
+    let first: PrimitiveOp
+    switch destination {
+    case .workspace(let workspace):
+        first = .movePaneToNewTab(tree.leftmostPaneID, workspace: workspace, label: tabName)
+    case .newWorkspace(let label):
+        first = .movePaneToNewWorkspace(tree.leftmostPaneID, label: label, tabLabel: tabName)
+    }
+    var ops: [PrimitiveOp] = [first]
     let destinationTab = TabID.planPlaceholder(createdByStep: 0)
     let rootAnchor = PaneID.planPlaceholder(movedByStep: 0)
     materialize(tree, anchor: rootAnchor, destinationTab: destinationTab, ops: &ops)

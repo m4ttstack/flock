@@ -318,6 +318,43 @@ final class GesturePlannerTests: XCTestCase {
         ])
     }
 
+    func testATabDroppedOnAnEmptyPinOpensAWorkspaceNamedForThePin() {
+        let twoPaneModel = model(
+            workspaces: [workspaceRecord("w1", activeTab: "w1:t1")],
+            tabs: [tabRecord("w1:t1", workspace: "w1", paneCount: 2)],
+            panes: [paneRecord("w1:p1", workspace: "w1", tab: "w1:t1", focused: true), paneRecord("w1:p2", workspace: "w1", tab: "w1:t1")],
+            layouts: [layout(
+                workspace: "w1", tab: "w1:t1", area: rect(0, 0, 80, 24), focusedPane: "w1:p1",
+                panes: [paneRect("w1:p1", rect(0, 0, 40, 24), focused: true), paneRect("w1:p2", rect(40, 0, 40, 24))],
+                splits: [splitInfo("s1", .right, 0.5, rect(0, 0, 80, 24))]
+            )]
+        )
+        let pin = PinID(rawValue: "pin1")
+        let result = plan(
+            dragging: .tab(TabID(rawValue: "w1:t1")), onto: .emptyPin(pin), model: twoPaneModel, emptyPins: [pin: "notes"]
+        )
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops, [
+            .movePaneToNewWorkspace(PaneID(rawValue: "w1:p1"), label: "notes", tabLabel: nil),
+            .movePaneToTab(
+                PaneID(rawValue: "w1:p2"), tab: TabID.planPlaceholder(createdByStep: 0),
+                target: PaneID.planPlaceholder(movedByStep: 0), split: .right, ratio: 0.5
+            ),
+        ])
+    }
+
+    func testAPaneDroppedOnAnEmptyPinOpensAWorkspaceNamedForThePin() {
+        let pin = PinID(rawValue: "pin1")
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .emptyPin(pin), model: twoTabModel(), emptyPins: [pin: "notes"])
+        guard let opPlan = expectPlan(result) else { return }
+        XCTAssertEqual(opPlan.ops.last, .movePaneToNewWorkspace(PaneID(rawValue: "w1:p1"), label: "notes", tabLabel: nil))
+    }
+
+    func testAPinTheCallerDidNotNameIsNoTarget() {
+        let result = plan(dragging: .pane(PaneID(rawValue: "w1:p1")), onto: .emptyPin(PinID(rawValue: "pin1")), model: twoTabModel())
+        guard case .failure(.invalidCombination) = result else { return XCTFail("\(result)") }
+    }
+
     /// A migration is composed of pane moves, so the destination tab is one
     /// the plan creates. The name the user gave the source tab has to be
     /// asked for by that first op, or the new tab is born unnamed.
@@ -762,6 +799,7 @@ final class GesturePlannerTests: XCTestCase {
         case .workspaceThumbnail: "workspaceThumbnail"
         case .newTab: "newTab"
         case .newWorkspace: "newWorkspace"
+        case .emptyPin: "emptyPin"
         case .workspaceRail: "workspaceRail"
         case .pinnedRail: "pinnedRail"
         case .topBar: "topBar"

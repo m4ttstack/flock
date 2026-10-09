@@ -112,7 +112,7 @@ public struct GridDropSurfaces: Equatable, Sendable {
 
 public struct PinItemFrame: Equatable, Sendable {
     public let id: PinID
-    /// nil for an empty pin, which no pane or tab can land on.
+    /// nil for an empty pin, which a pane or tab dropped on opens.
     public let workspace: WorkspaceID?
     public let frame: CGRect
 
@@ -380,9 +380,9 @@ private func resolvePinned(at point: CGPoint, dragging: DragSubject, surfaces: D
     switch dragging {
     case .pane, .tab:
         guard surfaces.railViewport?.contains(point) ?? true,
-              let workspace = surfaces.pinnedFrames.first(where: { $0.frame.contains(point) })?.workspace
+              let hit = surfaces.pinnedFrames.first(where: { $0.frame.contains(point) })
         else { return nil }
-        return .workspaceThumbnail(workspace)
+        return hit.workspace.map { .workspaceThumbnail($0) } ?? .emptyPin(hit.id)
     case .workspace, .workspaces, .pin:
         let centers = surfaces.pinnedFrames.map(\.frame.midY)
         let y = clamp(point.y, to: surfaces.railViewport.map { ($0.minY, $0.maxY) })

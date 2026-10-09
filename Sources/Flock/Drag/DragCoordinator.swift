@@ -429,7 +429,6 @@ final class DragCoordinator {
         workspaceItems.onScreen.map { WorkspaceItemFrame(id: $0.id, frame: $0.frame) }
     }
 
-    /// An empty pin carries no workspace, so no pane or tab can land on it.
     var pinFrames: [PinItemFrame] {
         pinItems.onScreen.map { PinItemFrame(id: $0.id, workspace: pinWorkspaces[$0.id], frame: $0.frame) }
     }
@@ -1459,7 +1458,7 @@ final class DragCoordinator {
         // thumbnail or card, and an accent outline on the card.
         guard !grid.isShown else { return nil }
         switch target {
-        case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace:
+        case .tabThumbnail, .workspaceThumbnail, .newTab, .newWorkspace, .emptyPin:
             return dropTargetRect(for: target, surfaces: surfaces)
         case .paneEdge, .paneInterior, .tabStrip, .workspaceRail, .pinnedRail, .topBar:
             return nil
