@@ -1665,28 +1665,35 @@ public final class SessionViewModel {
     /// `UndoJournal.runExclusively`) so it can never interleave with an
     /// in-flight `perform`/`undo`/`redo`.
     private func sendPaneClose(_ pane: PaneID) async {
-        guard let planExecutor else {
-            _ = try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])
-            return
+        let successor = resolvedFocusedPaneID == pane ? model.flatMap { CloseFocus.successor(of: pane, model: $0) } : nil
+        var closed = false
+        if let planExecutor {
+            if let undoJournal {
+                await undoJournal.runExclusively { [noticeSink] in
+                    closed = await Self.closePane(pane, executor: planExecutor, notify: noticeSink, record: undoJournal.record)
+                }
+            } else {
+                closed = await Self.closePane(pane, executor: planExecutor, notify: noticeSink) { _ in }
+            }
+        } else {
+            closed = (try? await client.requestRaw("pane.close", ["pane_id": .string(pane.rawValue)])) != nil
         }
-        guard let undoJournal else {
-            await Self.closePane(pane, executor: planExecutor, notify: noticeSink) { _ in }
-            return
-        }
-        await undoJournal.runExclusively { [noticeSink] in
-            await Self.closePane(pane, executor: planExecutor, notify: noticeSink, record: undoJournal.record)
-        }
+        if optimisticFocusedPaneID == pane { optimisticFocusedPaneID = nil }
+        guard closed, let successor, model?.panes[successor] != nil else { return }
+        await jumpToHerdr(pane: successor)
     }
 
     private static func closePane(
         _ pane: PaneID, executor: any PlanExecuting, notify: @MainActor (String) -> Void, record: @MainActor (ExecutedPlan) -> Void
-    ) async {
+    ) async -> Bool {
         let result = await executor.execute(OpPlan(ops: [.closePane(pane)], label: "Close pane"))
         switch result {
         case .success(let executed):
             record(executed)
+            return true
         case .failure(let failure):
             notify("Close pane failed: \(failure.message)")
+            return false
         }
     }
 
