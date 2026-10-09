@@ -40,6 +40,35 @@ public enum HerdrEvent: Sendable {
     case unknown(type: String)
 }
 
+extension HerdrEvent {
+    /// Nil for the chatty kinds (focus, scroll, status) that never move a pane.
+    var logSummary: String? {
+        switch self {
+        case .layoutUpdated(let layout):
+            "layout \(layout.tabID.rawValue) panes=\(layout.panes.map(\.paneID.rawValue))"
+        case .paneMoved(let moved):
+            "moved \(moved.previousPaneID.rawValue)(\(moved.previousTabID.rawValue)) -> \(moved.pane.paneID.rawValue)(\(moved.pane.tabID.rawValue))"
+                + (moved.closedTabID.map { " closed=\($0.rawValue)" } ?? "")
+        case .paneCreated(let pane):
+            "pane created \(pane.paneID.rawValue) in \(pane.tabID.rawValue)"
+        case .paneClosed(let pane):
+            "pane closed \(pane.rawValue)"
+        case .paneExited(let pane):
+            "pane exited \(pane.rawValue)"
+        case .tabCreated(let tab):
+            "tab created \(tab.tabID.rawValue)"
+        case .tabClosed(let tab):
+            "tab closed \(tab.rawValue)"
+        case .workspaceCreated(let workspace):
+            "workspace created \(workspace.workspaceID.rawValue)"
+        case .workspaceClosed(let workspace):
+            "workspace closed \(workspace.rawValue)"
+        default:
+            nil
+        }
+    }
+}
+
 extension HerdrDecoder {
     /// Every field optional: one payload shape serves every event type, and a
     /// case whose fields don't decode falls through to `.unknown` rather than throwing.

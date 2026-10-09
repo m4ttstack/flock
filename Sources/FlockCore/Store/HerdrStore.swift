@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 public enum ConnectionState: Equatable, Sendable {
     case connecting
@@ -55,6 +56,10 @@ public final class HerdrStore {
     /// Passed to every `HerdrClient` this store makes, so a test can drive the
     /// no-answer path without waiting out the real deadline.
     private let requestTimeout: Duration
+
+    /// `log show --predicate 'subsystem == "dev.mattstack.flock" && category == "moves"'`
+    /// replays what a move did to the model, step by step.
+    static let moveLog = Logger(subsystem: "dev.mattstack.flock", category: "moves")
 
     private var runLoopTask: Task<Void, Never>?
     private var activeSubscribeSocket: LineSocket?
@@ -160,23 +165,30 @@ public final class HerdrStore {
             armConvergence(kinds: kinds, generation: generation, intermediateWorkspaceOrders: prediction.intermediateWorkspaceOrders)
         }
 
+        Self.moveLog.log("plan #\(generation) \(plan.label, privacy: .public): \(String(describing: plan.ops), privacy: .public)")
         let engine = MutationEngine(client: HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout))
         let result = await engine.execute(plan, model: baseModel) { [weak self] events in
             for event in events {
-                self?.applyLiveEvent(event)
+                if let summary = event.logSummary {
+                    Self.moveLog.log("plan #\(generation) landed \(summary, privacy: .public)")
+                }
+                self?.applyLiveEvent(event, logged: false)
             }
         }
 
         switch result {
         case .success:
+            Self.moveLog.log("plan #\(generation) succeeded")
             guard !kinds.isEmpty else { break }
             Task { [weak self] in
                 guard let self else { return }
                 let matched = await self.awaitConvergenceResolution(generation: generation, timeout: self.overlayConvergenceTimeout)
                 guard !matched else { return }
+                Self.moveLog.error("plan #\(generation) never confirmed; reverting")
                 await self.revertAndResnapshot(fallback: baseModel, generation: generation)
             }
-        case .failure:
+        case .failure(let failure):
+            Self.moveLog.error("plan #\(generation) failed \(failure.code, privacy: .public): \(failure.message, privacy: .public)")
             await revertAndResnapshot(fallback: baseModel, generation: generation)
         }
         return result
@@ -272,8 +284,12 @@ public final class HerdrStore {
         let client = HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout)
         guard let line = try? await client.requestRaw("session.snapshot", [:]),
               let snapshot = try? HerdrDecoder.snapshot(fromResponseLine: line)
-        else { return }
+        else {
+            Self.moveLog.error("plan #\(generation) resnapshot failed; showing the pre-plan model")
+            return
+        }
         guard !isStopped, overlayGeneration == generation else { return }
+        Self.moveLog.log("plan #\(generation) resnapshot installed")
         model = SessionModel(snapshot: snapshot)
     }
 
@@ -743,8 +759,11 @@ public final class HerdrStore {
         applyLiveEvent(.paneAgentStatusChanged(pane, status))
     }
 
-    private func applyLiveEvent(_ event: HerdrEvent) {
+    private func applyLiveEvent(_ event: HerdrEvent, logged: Bool = true) {
         guard var current = model else { return }
+        if logged, let summary = event.logSummary {
+            Self.moveLog.log("event \(summary, privacy: .public)")
+        }
         // Dropped, never applied: one of the plan's own steps would flash the
         // rail back through an order the overlay has already passed. Nothing
         // is lost, since the plan's next reorder event carries the full
@@ -765,6 +784,7 @@ public final class HerdrStore {
             try await Task.sleep(for: resnapshotInterval)
             let line = try await client.requestRaw("session.snapshot", [:])
             model = SessionModel(snapshot: try HerdrDecoder.snapshot(fromResponseLine: line))
+            Self.moveLog.log("periodic resnapshot installed")
         }
     }
 
