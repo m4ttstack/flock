@@ -323,6 +323,23 @@ public struct ExportedLayoutDescription: Decodable, Equatable, Sendable {
         case focusedPaneID = "focused_pane_id"
         case root
     }
+
+    /// The tree is fetched a round trip after the `layout.updated` that made
+    /// it stale, so a pane move leaves it naming panes the tab no longer
+    /// holds, or missing one it just gained, until the refetch lands. Drawn
+    /// from in that window, the moved pane shows in both tabs.
+    public func describes(_ layout: LayoutSnapshot) -> Bool {
+        tabID == layout.tabID && Set(root.paneIDs) == Set(layout.panes.map { Optional($0.paneID) })
+    }
+}
+
+extension ExportedLayoutNode {
+    var paneIDs: [PaneID?] {
+        switch self {
+        case .pane(let pane): [pane.paneID]
+        case .split(_, _, let first, let second): first.paneIDs + second.paneIDs
+        }
+    }
 }
 
 /// A tab's geometry-relevant fingerprint: area, each pane's placement, and
