@@ -161,6 +161,23 @@ final class GhosttyThemeConfigTests: XCTestCase {
         XCTAssertTrue(lines.contains("clipboard-read = deny"), "missing clipboard-read = deny in:\n\(text)")
     }
 
+    /// A pane is a mirror of a herdr pane, so wiping it locally leaves a TUI
+    /// that repaints only changed cells as scattered fragments. ⌘K reaches a
+    /// surface whenever the palette's menu item is disabled (over the grid).
+    func testConfigTextUnbindsClearScreen() {
+        let colors = GhosttyThemeColors(
+            background: color(0, 0, 0),
+            foreground: color(255, 255, 255),
+            ansi: Array(repeating: color(0, 0, 0), count: 16)
+        )
+        let text = GhosttyThemeConfig.configText(
+            colors: colors, commandArgv: ["/path/to/Flock"], fontFamily: "Menlo", fontSizePoints: 13.0,
+            optionAsAlt: .left
+        )
+        let lines = text.split(separator: "\n").map(String.init)
+        XCTAssertTrue(lines.contains("keybind = super+k=unbind"), "missing keybind = super+k=unbind in:\n\(text)")
+    }
+
     /// The scratch config zeroes libghostty's default 2px grid padding: the
     /// mouse-to-cell conversion divides the raw view point from origin 0, so
     /// any padding would shift every click toward the previous cell.

@@ -125,6 +125,9 @@ public enum GhosttyThemeConfig {
             + "keybind = super+plus=unbind\n"
             + "keybind = super+-=unbind\n"
             + "keybind = super+0=unbind\n"
+            // The pane mirrors a herdr pane, so clearing it locally leaves a
+            // TUI that repaints only changed cells as scattered fragments.
+            + "keybind = super+k=unbind\n"
             + "command = shell:\(command)\n"
     }
 
