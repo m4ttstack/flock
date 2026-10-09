@@ -41,7 +41,7 @@ public enum DropPreview {
         func box(_ frame: CGRect) -> CGRect {
             PaneBox.frame(in: frame, dividerThickness: dividerThickness)
         }
-        if composition == .tiled, let exported, exported.tabID == layout.tabID,
+        if composition == .tiled, let exported, exported.describes(layout),
            let previewRoot = root(exported.root, dropping: paneID, onto: target) {
             let geometry = CanvasGeometry(
                 exportedRoot: previewRoot, area: layout.area, tabID: layout.tabID,

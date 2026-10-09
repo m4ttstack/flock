@@ -117,6 +117,22 @@ public final class SessionViewModel {
     // that reactivity per cell.
     @ObservationIgnored
     private var ghosttySurfaces: [PaneID: any GhosttyPaneSurface] = [:]
+    /// Who each surface is, by the terminal its bridge is attached to: a move
+    /// into another workspace renumbers the pane but not the terminal, and
+    /// the bridge keeps streaming it. The surface's callbacks read `pane`
+    /// here rather than capturing the id they were made under.
+    private final class SurfaceIdentity {
+        var pane: PaneID
+        var terminal: TerminalID?
+
+        init(pane: PaneID, terminal: TerminalID?) {
+            self.pane = pane
+            self.terminal = terminal
+        }
+    }
+
+    @ObservationIgnored
+    private var surfaceIdentities: [PaneID: SurfaceIdentity] = [:]
     /// Parked panes (detached from the visible set but kept warm), oldest
     /// park first -- the eviction order `evictWarmPanesIfNeeded` reads once
     /// the cap is exceeded. A pane leaves this list the moment it is
@@ -197,6 +213,19 @@ public final class SessionViewModel {
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
     @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
+    /// The pane each navigation watch asks herdr about. A move into another
+    /// workspace renumbers it mid-watch, and the watch must carry on under
+    /// the new id: restarted, it would forget it saw the picker run and skip
+    /// the Ctrl-L that brings the launcher back.
+    private final class WatchedPane {
+        var id: PaneID
+
+        init(_ id: PaneID) {
+            self.id = id
+        }
+    }
+
+    @ObservationIgnored private var navigationTargets: [PaneID: WatchedPane] = [:]
     /// One per pane whose screen is bare and whose shell herdr has not yet
     /// called idle, until it does or the pane stops being a candidate.
     @ObservationIgnored var promptWatches: [PaneID: Task<Void, Never>] = [:]
@@ -717,8 +746,19 @@ public final class SessionViewModel {
     /// `paneWork` like every other surface operation (`teardownSurface`),
     /// so this can never race an in-flight attach/park for the same pane.
     private func reconcileClosedPanes() {
-        let known = Set((fullModel?.panes ?? [:]).keys)
+        let panes = fullModel?.panes ?? [:]
+        let known = Set(panes.keys)
         everKnownPaneIDs.formUnion(known)
+        for (pane, identity) in surfaceIdentities where identity.terminal == nil {
+            identity.terminal = panes[pane]?.terminalID
+        }
+        let paneByTerminal = Dictionary(
+            panes.values.compactMap { record in record.terminalID.map { ($0, record.paneID) } }, uniquingKeysWith: { first, _ in first }
+        )
+        for pane in ghosttySurfaces.keys where !known.contains(pane) {
+            guard let terminal = surfaceIdentities[pane]?.terminal, let renamed = paneByTerminal[terminal] else { continue }
+            rekeySurface(pane, to: renamed)
+        }
         let gone = ghosttySurfaces.keys.filter { everKnownPaneIDs.contains($0) && !known.contains($0) }
         guard !gone.isEmpty else {
             pendingClosedPaneTeardown = nil
@@ -730,6 +770,45 @@ public final class SessionViewModel {
                 await self.teardownSurface(pane)
             }
         }
+    }
+
+    /// Hands `pane`'s surface, bridge and all, to the id herdr renumbered it
+    /// to, so the cell under the new id finds it warm instead of attaching a
+    /// second bridge to the same terminal. Synchronous, on the model update
+    /// that reports the move, so the new cell's first read already sees it.
+    /// The launcher's polls ask herdr by pane id: a pending prompt poll
+    /// restarts under the new id, and a navigation watch carries on there.
+    private func rekeySurface(_ pane: PaneID, to newPane: PaneID) {
+        guard ghosttySurfaces[newPane] == nil, let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
+        ghosttySurfaces[newPane] = surface
+        if let identity = surfaceIdentities.removeValue(forKey: pane) {
+            identity.pane = newPane
+            surfaceIdentities[newPane] = identity
+        }
+        if let work = paneWork.removeValue(forKey: pane) {
+            paneWork[newPane] = work
+        }
+        let wasParked = parkedPanes.contains(pane)
+        parkedPanes = parkedPanes.map { $0 == pane ? newPane : $0 }
+        paneScrollSubscriber?.unsubscribe(pane: pane)
+        if !wasParked {
+            paneScrollSubscriber?.subscribe(pane: newPane)
+        }
+        paneLauncherRegistry.rekey(pane, to: newPane)
+        launcherRegistryVersion += 1
+        if let watch = promptWatches.removeValue(forKey: pane) {
+            watch.cancel()
+            schedulePromptPoll(newPane)
+        }
+        if let watch = navigationWatches.removeValue(forKey: pane) {
+            navigationWatches[newPane] = watch
+        }
+        if let target = navigationTargets.removeValue(forKey: pane) {
+            target.id = newPane
+            navigationTargets[newPane] = target
+        }
+        surface.rekey(to: newPane)
+        HerdrStore.moveLog.log("surface \(pane.rawValue, privacy: .public) handed to \(newPane.rawValue, privacy: .public)")
     }
 
     /// Lets a test await the exact closed-pane teardown a preceding
@@ -1233,22 +1312,26 @@ public final class SessionViewModel {
         }
         // A surface can deliver a tick it queued before its teardown; a pane
         // with no surface must not be re-created in the registry and polled.
+        let terminal = fullModel?.panes[pane]?.terminalID
+        let identity = SurfaceIdentity(pane: pane, terminal: terminal)
         let surface = await factory.makeSurface(
             for: pane,
+            bridgeTarget: terminal?.rawValue ?? pane.rawValue,
             onUserInput: { [weak self] in
-                guard let self, self.ghosttySurfaces[pane] != nil else { return }
-                self.recordLauncherKeystroke(pane)
+                guard let self, self.surfaceIdentities[identity.pane] === identity else { return }
+                self.recordLauncherKeystroke(identity.pane)
             },
             onClearRequested: { [weak self] in
-                guard let self, self.ghosttySurfaces[pane] != nil else { return }
-                self.recordLauncherClearKey(pane)
+                guard let self, self.surfaceIdentities[identity.pane] === identity else { return }
+                self.recordLauncherClearKey(identity.pane)
             },
             onScreenActivity: { [weak self] activity in
-                guard let self, self.ghosttySurfaces[pane] != nil else { return }
-                self.recordLauncherRows(pane, rows: activity.rows, screen: activity.fingerprint, lastRow: activity.lastRow)
+                guard let self, self.surfaceIdentities[identity.pane] === identity else { return }
+                self.recordLauncherRows(identity.pane, rows: activity.rows, screen: activity.fingerprint, lastRow: activity.lastRow)
             }
         )
         ghosttySurfaces[pane] = surface
+        surfaceIdentities[pane] = identity
         // Only the release is asserted here: a bridge spawns holding, so a
         // take at registration would be a command every cold attach sends for
         // nothing.
@@ -1299,12 +1382,14 @@ public final class SessionViewModel {
 
     private func performTeardown(pane: PaneID, forgetLauncherState: Bool) async {
         guard let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
+        surfaceIdentities[pane] = nil
         paneScrollSubscriber?.unsubscribe(pane: pane)
         parkedPanes.removeAll { $0 == pane }
         promptWatches[pane]?.cancel()
         promptWatches[pane] = nil
         navigationWatches[pane]?.cancel()
         navigationWatches[pane] = nil
+        navigationTargets[pane] = nil
         if forgetLauncherState {
             paneLauncherRegistry.forget(pane)
             launcherRegistryVersion += 1
@@ -1507,23 +1592,25 @@ public final class SessionViewModel {
             ]
         )
         navigationWatches[pane]?.cancel()
-        navigationWatches[pane] = Task { [weak self] in await self?.watchNavigation(in: pane) }
+        let target = WatchedPane(pane)
+        navigationTargets[pane] = target
+        navigationWatches[pane] = Task { [weak self] in await self?.watchNavigation(of: target) }
     }
 
     /// Polls `pane.process_info` until the registry says the navigation is
     /// over. An answer herdr cannot give (an error, an empty foreground list
     /// as the picker exits) is retried on the next tick; only the pane going
     /// away (`performTeardown` cancels this task) ends the watch early.
-    private func watchNavigation(in pane: PaneID) async {
+    private func watchNavigation(of target: WatchedPane) async {
         var sawPickerRun = false
-        while !Task.isCancelled, paneLauncherRegistry.isNavigating(pane) {
+        while !Task.isCancelled, paneLauncherRegistry.isNavigating(target.id) {
             try? await Task.sleep(for: navigationPollInterval)
             guard !Task.isCancelled else { return }
-            let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
+            let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(target.id.rawValue)])
             guard !Task.isCancelled else { return }
             let idle = data.flatMap { PaneForegroundJob.isBusy(processInfoResponse: $0) }.map { !$0 }
             if idle == false { sawPickerRun = true }
-            paneLauncherRegistry.recordForegroundJob(pane, idle: idle, at: now())
+            paneLauncherRegistry.recordForegroundJob(target.id, idle: idle, at: now())
         }
         guard !Task.isCancelled else { return }
         // A command never seen running failed on its way up; its error is
@@ -1531,14 +1618,15 @@ public final class SessionViewModel {
         if sawPickerRun {
             _ = try? await client.requestRaw(
                 "pane.send_keys",
-                ["pane_id": .string(pane.rawValue), "keys": .array([.string("ctrl+l")])]
+                ["pane_id": .string(target.id.rawValue), "keys": .array([.string("ctrl+l")])]
             )
         }
         // Cancelled during the send: a later navigation may own the entry now.
         guard !Task.isCancelled else { return }
-        navigationWatches[pane] = nil
+        navigationWatches[target.id] = nil
+        navigationTargets[target.id] = nil
         launcherRegistryVersion += 1
-        schedulePromptPoll(pane)
+        schedulePromptPoll(target.id)
     }
 
     /// Splits `pane` rightward via `pane.split` and focuses the new pane.

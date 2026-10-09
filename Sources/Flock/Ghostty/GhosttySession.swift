@@ -42,9 +42,9 @@ final class GhosttySession {
 
     let host: GhosttyHost
     /// This surface's pane, the way `write_clipboard_cb` identifies which
-    /// pane's whisper toast to show: resolved once here at construction,
+    /// pane's whisper toast to show: set at construction and by a rekey,
     /// never re-derived from the surface pointer at callback time.
-    let paneID: PaneID
+    var paneID: PaneID
     let state = State()
     let search = TerminalSearch()
     private(set) var configuration: Launch

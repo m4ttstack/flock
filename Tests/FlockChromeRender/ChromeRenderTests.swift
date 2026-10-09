@@ -4786,7 +4786,7 @@ private struct GroundSurfaceFactory: GhosttyPaneFactory {
     var mouseHolders: Set<PaneID> = []
 
     func makeSurface(
-        for pane: PaneID, onUserInput: @escaping () -> Void,
+        for pane: PaneID, bridgeTarget: String, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {

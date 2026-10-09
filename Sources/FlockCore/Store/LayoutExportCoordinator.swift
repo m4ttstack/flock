@@ -108,12 +108,19 @@ public final class LayoutExportCoordinator {
         if priorSignature == signature { return }
         do {
             let exported = try await client.layoutExport(tabID: tabID)
-            guard !Task.isCancelled, signatures[tabID] == priorSignature else { return }
+            guard !Task.isCancelled, signatures[tabID] == priorSignature else {
+                HerdrStore.moveLog.log("export \(tabID.rawValue, privacy: .public) superseded")
+                return
+            }
+            HerdrStore.moveLog.log(
+                "export \(tabID.rawValue, privacy: .public) cached panes=\(exported.root.paneIDs.map { $0?.rawValue ?? "?" }, privacy: .public)"
+            )
             exportedLayouts[tabID] = exported
             fallbackTabs.remove(tabID)
             signatures[tabID] = signature
         } catch {
             guard !Task.isCancelled, signatures[tabID] == priorSignature else { return }
+            HerdrStore.moveLog.error("export \(tabID.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             exportedLayouts[tabID] = nil
             fallbackTabs.insert(tabID)
         }

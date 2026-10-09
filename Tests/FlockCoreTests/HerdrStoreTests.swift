@@ -42,6 +42,18 @@ private func twoTabSnapshotWithTerminalResultJSON() -> String {
     """#
 }
 
+/// `w1:t1` split over `w1:p1`/`w1:p2`, and a second workspace holding `w2:p1`.
+private func twoWorkspaceSnapshotResultJSON() -> String {
+    #"""
+    {"type":"session_snapshot","snapshot":{"version":"0.9.3","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"one","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"two","number":2,"active_tab_id":"w2:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"t1","number":1,"pane_count":2,"agent_status":"unknown"},{"tab_id":"w2:t1","workspace_id":"w2","label":"t1","number":1,"pane_count":1,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w1:p2","terminal_id":"term_b2","workspace_id":"w1","tab_id":"w1:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"},{"pane_id":"w2:p1","workspace_id":"w2","tab_id":"w2:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"}],"layouts":[{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":10},"focused_pane_id":"w1:p1","panes":[{"pane_id":"w1:p1","focused":true,"rect":{"x":0,"y":0,"width":10,"height":10}},{"pane_id":"w1:p2","focused":false,"rect":{"x":10,"y":0,"width":10,"height":10}}],"splits":[{"id":"s1","direction":"right","ratio":0.5,"rect":{"x":0,"y":0,"width":20,"height":10}}]},{"workspace_id":"w2","tab_id":"w2:t1","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":10},"focused_pane_id":"w2:p1","panes":[{"pane_id":"w2:p1","focused":true,"rect":{"x":0,"y":0,"width":20,"height":10}}],"splits":[]}]}}
+    """#
+}
+
+/// herdr 0.9.3's answer to moving `w1:p2` into `w2:t1`: the pane is renumbered
+/// into its new workspace and both tabs' layouts ride the response.
+private let crossWorkspaceMoveResultJSON =
+    #"{"move_result":{"changed":true,"previous_pane_id":"w1:p2","previous_workspace_id":"w1","previous_tab_id":"w1:t1","pane":{"pane_id":"w2:p2","terminal_id":"term_b2","workspace_id":"w2","tab_id":"w2:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"},"source_layout":{"workspace_id":"w1","tab_id":"w1:t1","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":10},"focused_pane_id":"w1:p1","panes":[{"pane_id":"w1:p1","focused":true,"rect":{"x":0,"y":0,"width":20,"height":10}}],"splits":[]},"target_layout":{"workspace_id":"w2","tab_id":"w2:t1","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":10},"focused_pane_id":"w2:p1","panes":[{"pane_id":"w2:p1","focused":true,"rect":{"x":0,"y":0,"width":10,"height":10}},{"pane_id":"w2:p2","focused":false,"rect":{"x":10,"y":0,"width":10,"height":10}}],"splits":[{"id":"s1","direction":"right","ratio":0.5,"rect":{"x":0,"y":0,"width":20,"height":10}}]},"focused_pane_id":"w2:p1"}}"#
+
 private let paneMovedToT2EventLine =
     #"{"data":{"type":"pane_moved","pane":{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t2","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"},"previous_pane_id":"w1:p1","previous_workspace_id":"w1","previous_tab_id":"w1:t1"}}"#
 
@@ -352,6 +364,134 @@ final class HerdrStoreTests: XCTestCase {
         // mean the convergence event failed to cancel it.
         try await Task.sleep(nanoseconds: 250_000_000)
         XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w1:p1")]?.tabID, TabID(rawValue: "w1:t2"), "a matching live event must keep the overlay, not revert it")
+    }
+
+    /// herdr's subscribers poll every 100ms, so its events trail the response
+    /// that already carries the move's outcome.
+    @MainActor
+    func testAMoveLandsFromItsResponseWithoutWaitingForEvents() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: crossWorkspaceMoveResultJSON)
+
+        let store = HerdrStore(socketPath: fake.socketPath, overlayConvergenceTimeout: .milliseconds(50))
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let plan = OpPlan(ops: [.movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil)], label: "Move")
+        guard case .success = await store.execute(plan) else { return XCTFail("expected the plan to succeed") }
+
+        func assertLanded(_ when: String) {
+            let model = store.model
+            XCTAssertNil(model?.panes[PaneID(rawValue: "w1:p2")], when)
+            XCTAssertEqual(model?.panes[PaneID(rawValue: "w2:p2")]?.tabID, TabID(rawValue: "w2:t1"), when)
+            XCTAssertEqual(model?.layouts[TabID(rawValue: "w1:t1")]?.panes.map(\.paneID), [PaneID(rawValue: "w1:p1")], when)
+            XCTAssertEqual(
+                model?.layouts[TabID(rawValue: "w2:t1")]?.panes.map(\.paneID), [PaneID(rawValue: "w2:p1"), PaneID(rawValue: "w2:p2")], when
+            )
+        }
+        assertLanded("as the response lands")
+        try await Task.sleep(nanoseconds: 250_000_000)
+        assertLanded("past the convergence timeout: the response confirmed the move")
+    }
+
+    /// A plan that fails after a move landed resnapshots. Until that answers,
+    /// the move stays on screen: the pre-plan model would show the pane back
+    /// where it started, and a failed snapshot would leave it there.
+    @MainActor
+    func testAFailureAfterAMoveLandedKeepsTheMoveWhileItResnapshots() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: crossWorkspaceMoveResultJSON)
+        fake.failNext(method: "tab.rename", code: "tab_not_found", message: "gone")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let movedID = PaneID(rawValue: "w2:p2")
+        let hold = fake.holdNext(method: "session.snapshot")
+        let plan = OpPlan(ops: [
+            .movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil),
+            .renameTab(TabID(rawValue: "w2:t1"), "renamed"),
+        ], label: "Move")
+        let task = Task { await store.execute(plan) }
+        try await waitUntil { fake.receivedRequests.filter { $0.method == "session.snapshot" }.count == 2 }
+
+        XCTAssertEqual(store.model?.panes[movedID]?.tabID, TabID(rawValue: "w2:t1"))
+        XCTAssertNil(store.model?.panes[PaneID(rawValue: "w1:p2")])
+        hold()
+        guard case .failure = await task.value else { return XCTFail("expected the rename to fail the plan") }
+    }
+
+    /// Without a snapshot to resync from, the pre-plan model is the fallback,
+    /// and every real change since then is replayed onto it: the plan's own
+    /// landed move and another client's rename alike.
+    @MainActor
+    func testAFailedResnapshotKeepsEveryRealChangeSinceThePlanStarted() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: crossWorkspaceMoveResultJSON)
+        fake.failNext(method: "tab.rename", code: "tab_not_found", message: "gone")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let release = fake.holdNext(method: "tab.rename")
+        let plan = OpPlan(ops: [
+            .movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil),
+            .renameTab(TabID(rawValue: "w2:t1"), "renamed"),
+        ], label: "Move")
+        let task = Task { await store.execute(plan) }
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "tab.rename" } }
+        fake.pushEventLine(#"{"data":{"type":"workspace_renamed","workspace_id":"w2","label":"foreign"}}"#)
+        try await waitUntil { store.model?.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w2") }?.label == "foreign" }
+        fake.failNext(method: "session.snapshot", code: "busy", message: "try later")
+        release()
+        guard case .failure = await task.value else { return XCTFail("expected the rename to fail the plan") }
+
+        XCTAssertEqual(store.model?.panes[PaneID(rawValue: "w2:p2")]?.tabID, TabID(rawValue: "w2:t1"))
+        XCTAssertNil(store.model?.panes[PaneID(rawValue: "w1:p2")])
+        XCTAssertEqual(store.model?.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w2") }?.label, "foreign")
+    }
+
+    /// A response belongs to the moment herdr answered it; once a newer plan
+    /// has published its overlay, the live events are what order the two.
+    @MainActor
+    func testAResponseLandingAfterANewerPlanStartedIsLeftToTheLiveEvents() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: crossWorkspaceMoveResultJSON)
+        fake.respond(to: "workspace.rename", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let release = fake.holdNext(method: "pane.move")
+        let move = Task {
+            await store.execute(OpPlan(ops: [
+                .movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil),
+            ], label: "Move"))
+        }
+        try await waitUntil { fake.receivedRequests.contains { $0.method == "pane.move" } }
+        _ = await store.execute(OpPlan(ops: [.renameWorkspace(WorkspaceID(rawValue: "w1"), "newer")], label: "Rename"))
+        release()
+        _ = await move.value
+
+        XCTAssertEqual(
+            store.model?.layouts[TabID(rawValue: "w1:t1")]?.panes.map(\.paneID), [PaneID(rawValue: "w1:p1"), PaneID(rawValue: "w1:p2")]
+        )
+        XCTAssertEqual(store.model?.workspaces.first { $0.workspaceID == WorkspaceID(rawValue: "w1") }?.label, "newer")
     }
 
     @MainActor

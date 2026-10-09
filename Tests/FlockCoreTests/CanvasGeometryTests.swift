@@ -217,6 +217,64 @@ final class CanvasGeometryTests: XCTestCase {
     /// A zoomed copy of the fixture's two-pane tab: herdr keeps reporting both
     /// panes at their split rects and flips `zoomed` alone, so the composition
     /// is the only thing that says one pane is holding the tab open.
+    private func twoPaneExport(of layout: LayoutSnapshot) -> ExportedLayoutDescription {
+        ExportedLayoutDescription(
+            workspaceID: layout.workspaceID, tabID: layout.tabID, zoomed: false, focusedPaneID: PaneID(rawValue: "w1:p1"),
+            root: .split(
+                direction: .right, ratio: 0.5,
+                first: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "w1:p1"))),
+                second: .pane(ExportedLayoutPane(paneID: PaneID(rawValue: "w1:p2")))
+            )
+        )
+    }
+
+    /// The tab after `w1:p2` moved out: herdr's `layout.updated` lands before
+    /// the coordinator's `layout.export` refetch does.
+    func testAnExportStillHoldingAPaneThatMovedOutIsNotDrawn() throws {
+        let tiled = try layout(splitCount: 1)
+        let p1 = PaneID(rawValue: "w1:p1")
+        let left = LayoutSnapshot(
+            workspaceID: tiled.workspaceID, tabID: tiled.tabID, zoomed: false, area: tiled.area, focusedPaneID: p1,
+            panes: [PaneRect(paneID: p1, focused: true, rect: tiled.area)], splits: []
+        )
+
+        let geometry = CanvasGeometry.resolved(
+            layout: left, exported: twoPaneExport(of: tiled), grid: grid(filling: CGSize(width: 600, height: 300))
+        )
+
+        XCTAssertEqual(Set(geometry.paneFrames.keys), [p1])
+        XCTAssertEqual(geometry.paneFrames[p1]?.width ?? 0, 600, accuracy: 1)
+    }
+
+    func testAPaneThatMovedInIsDrawnBeforeTheExportCatchesUp() throws {
+        let tiled = try layout(splitCount: 1)
+        let p1 = PaneID(rawValue: "w1:p1")
+        let stale = ExportedLayoutDescription(
+            workspaceID: tiled.workspaceID, tabID: tiled.tabID, zoomed: false, focusedPaneID: p1,
+            root: .pane(ExportedLayoutPane(paneID: p1))
+        )
+
+        let geometry = CanvasGeometry.resolved(layout: tiled, exported: stale, grid: grid(filling: CGSize(width: 600, height: 300)))
+
+        XCTAssertEqual(Set(geometry.paneFrames.keys), Set(tiled.panes.map(\.paneID)))
+    }
+
+    func testAnExportDescribesOnlyALayoutWithTheSamePanes() throws {
+        let tiled = try layout(splitCount: 1)
+        let export = twoPaneExport(of: tiled)
+        XCTAssertTrue(export.describes(tiled))
+
+        var moved = tiled
+        moved.panes.removeLast()
+        XCTAssertFalse(export.describes(moved))
+
+        let otherTab = LayoutSnapshot(
+            workspaceID: tiled.workspaceID, tabID: TabID(rawValue: "w1:t9"), zoomed: false, area: tiled.area,
+            focusedPaneID: tiled.focusedPaneID, panes: tiled.panes, splits: tiled.splits
+        )
+        XCTAssertFalse(export.describes(otherTab))
+    }
+
     private func zoomedTwoPaneLayout(focused: PaneID) throws -> LayoutSnapshot {
         let tiled = try layout(splitCount: 1)
         return LayoutSnapshot(

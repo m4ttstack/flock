@@ -446,9 +446,11 @@ private func ghosttyHostConfirmReadClipboard(
         ghostty_surface_complete_clipboard_request(surface, pointer, state, true)
     }
     if disposition == .deny {
-        clipboardLog.notice(
-            "denied a clipboard read for pane \(session.paneID.rawValue, privacy: .public) and completed it empty"
-        )
+        Task { @MainActor in
+            clipboardLog.notice(
+                "denied a clipboard read for pane \(session.paneID.rawValue, privacy: .public) and completed it empty"
+            )
+        }
     }
 }
 

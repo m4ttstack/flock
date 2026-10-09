@@ -3,7 +3,7 @@ import FlockCore
 
 /// Adapts `GhosttyHost` to `SessionViewModel`'s renderer-agnostic
 /// `GhosttyPaneFactory` seam: builds the bridge's argv (this same app
-/// binary, re-invoked with `--bridge <pane> --socket <path>`, per
+/// binary, re-invoked with `--bridge <target> --socket <path>`, per
 /// `Sources/Flock/main.swift`'s dispatch) and asks the host for a session.
 ///
 /// `--herdr-bin` carries the herdr binary the bridge is to spawn, resolved
@@ -51,7 +51,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     }
 
     func makeSurface(
-        for pane: PaneID, onUserInput: @escaping () -> Void,
+        for pane: PaneID, bridgeTarget: String, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
@@ -80,7 +80,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         }
         let argv = BridgeOptions.argv(
             executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0],
-            target: pane.rawValue,
+            target: bridgeTarget,
             socketPath: socketPath,
             herdrBinary: herdrBinary,
             controlPipe: channel?.path,
@@ -203,4 +203,8 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
 
     var hasClaimedMouse: Bool { session.hasClaimedMouse }
     var programHasMouse: Bool { session.mouseCaptureEnabled }
+
+    func rekey(to pane: PaneID) {
+        session.paneID = pane
+    }
 }

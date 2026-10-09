@@ -44,15 +44,23 @@ public enum PrimitiveOp: Equatable, Sendable {
 /// cross-workspace move assigns a new one). `createdTabID`/`createdWorkspaceID`
 /// are populated only when the destination created one (`movePaneToNewTab`,
 /// `movePaneToNewWorkspace`); every other case returns all three nil.
+///
+/// `landed` is what the response itself proves happened, as the events herdr
+/// will later send for it: its subscribers poll every 100ms, so applying
+/// these is how a move shows on the frame its response arrives.
 public struct OpResult: Sendable {
     public let movedPaneNewID: PaneID?
     public let createdTabID: TabID?
     public let createdWorkspaceID: WorkspaceID?
+    public let landed: [HerdrEvent]
 
-    public init(movedPaneNewID: PaneID? = nil, createdTabID: TabID? = nil, createdWorkspaceID: WorkspaceID? = nil) {
+    public init(
+        movedPaneNewID: PaneID? = nil, createdTabID: TabID? = nil, createdWorkspaceID: WorkspaceID? = nil, landed: [HerdrEvent] = []
+    ) {
         self.movedPaneNewID = movedPaneNewID
         self.createdTabID = createdTabID
         self.createdWorkspaceID = createdWorkspaceID
+        self.landed = landed
     }
 }
 

@@ -163,7 +163,7 @@ public enum MiniPaneLayout {
     private static func landing(
         _ arriving: Arrival, in layout: LayoutSnapshot, exported: ExportedLayoutDescription?, grid: CanvasGrid, gap: CGFloat
     ) -> [PaneID: CGRect] {
-        if let exported, exported.tabID == layout.tabID,
+        if let exported, exported.describes(layout),
            let root = DropPreview.root(exported.root, dropping: arriving.pane, onto: arriving.target) {
             return CanvasGeometry(
                 exportedRoot: root, area: layout.area, tabID: layout.tabID, grid: grid, dividerThickness: gap

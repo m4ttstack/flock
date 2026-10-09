@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 public enum ConnectionState: Equatable, Sendable {
     case connecting
@@ -56,6 +57,10 @@ public final class HerdrStore {
     /// no-answer path without waiting out the real deadline.
     private let requestTimeout: Duration
 
+    /// `log show --predicate 'subsystem == "dev.mattstack.flock" && category == "moves"'`
+    /// replays what a move did to the model, step by step.
+    static let moveLog = Logger(subsystem: "dev.mattstack.flock", category: "moves")
+
     private var runLoopTask: Task<Void, Never>?
     private var activeSubscribeSocket: LineSocket?
     private var reconnectAttempt = 0
@@ -66,6 +71,10 @@ public final class HerdrStore {
     // fired before the first converged) can never stomp the newer overlay.
     private var overlayGeneration = 0
     private var pendingConvergence: PendingConvergence?
+    /// Every real event applied since each open plan captured its pre-plan
+    /// model, its own landed responses and other clients' changes alike, in
+    /// order: what a failed resnapshot replays onto that model.
+    private var appliedSincePlanStart: [Int: [HerdrEvent]] = [:]
     private var convergenceContinuation: (generation: Int, continuation: CheckedContinuation<Bool, Never>)?
     private var resolvedConvergence: [Int: Bool] = [:]
     private var isStopped = false
@@ -125,7 +134,7 @@ public final class HerdrStore {
     /// Predicts the plan's outcome into a copy of `model` (see
     /// `predictedModel`; it updates pane/tab/workspace records but not
     /// `LayoutSnapshot` geometry, so the canvas itself still waits for the
-    /// real `layout.updated` event) and publishes that overlay before
+    /// layouts a move's response carries) and publishes that overlay before
     /// running the real plan. The convergence watch is armed synchronously,
     /// before the wire round trip even starts, since herdr's subscriber
     /// polls independently and a confirming event can land during the round
@@ -134,11 +143,10 @@ public final class HerdrStore {
     /// whose ops produce no waitable convergence kind at all arms nothing
     /// and simply trusts the response.
     ///
-    /// Failure, or a watch that times out, reverts to the pre-overlay model
-    /// and asks for a fresh snapshot -- a failure can still have partially
-    /// applied real changes on herdr's side, so a plain revert to the
-    /// pre-plan model would hide those; the re-snapshot is what actually
-    /// resyncs.
+    /// Failure, or a watch that times out, replaces the overlay with a fresh
+    /// snapshot -- a failure can still have partially applied real changes
+    /// on herdr's side, so a plain revert to the pre-plan model would hide
+    /// those; the re-snapshot is what actually resyncs.
     public func execute(_ plan: OpPlan) async -> Result<ExecutedPlan, OpFailure> {
         guard !plan.ops.isEmpty else {
             return .success(ExecutedPlan(plan: plan, inverse: OpPlan(ops: [], label: plan.label)))
@@ -160,20 +168,39 @@ public final class HerdrStore {
             armConvergence(kinds: kinds, generation: generation, intermediateWorkspaceOrders: prediction.intermediateWorkspaceOrders)
         }
 
+        appliedSincePlanStart[generation] = []
+
+        Self.moveLog.log("plan #\(generation) \(plan.label, privacy: .public): \(String(describing: plan.ops), privacy: .public)")
         let engine = MutationEngine(client: HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout))
-        let result = await engine.execute(plan, model: baseModel)
+        let result = await engine.execute(plan, model: baseModel) { [weak self] events in
+            guard let self, self.overlayGeneration == generation else { return }
+            for event in events {
+                if let summary = event.logSummary {
+                    Self.moveLog.log("plan #\(generation) landed \(summary, privacy: .public)")
+                }
+                self.applyLiveEvent(event, logged: false)
+            }
+        }
 
         switch result {
         case .success:
-            guard !kinds.isEmpty else { break }
+            Self.moveLog.log("plan #\(generation) succeeded")
+            guard !kinds.isEmpty else {
+                appliedSincePlanStart[generation] = nil
+                break
+            }
             Task { [weak self] in
                 guard let self else { return }
+                defer { self.appliedSincePlanStart[generation] = nil }
                 let matched = await self.awaitConvergenceResolution(generation: generation, timeout: self.overlayConvergenceTimeout)
                 guard !matched else { return }
+                Self.moveLog.error("plan #\(generation) never confirmed; reverting")
                 await self.revertAndResnapshot(fallback: baseModel, generation: generation)
             }
-        case .failure:
+        case .failure(let failure):
+            Self.moveLog.error("plan #\(generation) failed \(failure.code, privacy: .public): \(failure.message, privacy: .public)")
             await revertAndResnapshot(fallback: baseModel, generation: generation)
+            appliedSincePlanStart[generation] = nil
         }
         return result
     }
@@ -261,16 +288,28 @@ public final class HerdrStore {
         }
     }
 
+    /// The overlay stays up until the snapshot answers: reverting first would
+    /// show every landed move undone for a round trip. Without a snapshot the
+    /// pre-plan model is the fallback, with every real event since replayed
+    /// onto it: only the plan's unconfirmed predictions are dropped.
     private func revertAndResnapshot(fallback: SessionModel, generation: Int) async {
         discardConvergence(generation)
         guard !isStopped, overlayGeneration == generation else { return }
-        model = fallback
         let client = HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout)
-        guard let line = try? await client.requestRaw("session.snapshot", [:]),
-              let snapshot = try? HerdrDecoder.snapshot(fromResponseLine: line)
-        else { return }
+        let snapshot = try? HerdrDecoder.snapshot(fromResponseLine: await client.requestRaw("session.snapshot", [:]))
         guard !isStopped, overlayGeneration == generation else { return }
-        model = SessionModel(snapshot: snapshot)
+        if let snapshot {
+            Self.moveLog.log("plan #\(generation) resnapshot installed")
+            model = SessionModel(snapshot: snapshot)
+        } else {
+            let replay = appliedSincePlanStart[generation] ?? []
+            Self.moveLog.error("plan #\(generation) resnapshot failed; replaying \(replay.count) events onto the pre-plan model")
+            var reverted = fallback
+            for event in replay {
+                apply(event, to: &reverted)
+            }
+            model = reverted
+        }
     }
 
     /// Every op this plan will run mapped to the live event family that
@@ -347,7 +386,7 @@ public final class HerdrStore {
     /// own `.paneMoved` case exactly -- but that reducer does not touch
     /// `LayoutSnapshot.panes`/`splits` either, so neither does this
     /// prediction. The canvas, which reads layout geometry, still waits for
-    /// the real `layout.updated` event that follows; only pane/tab/workspace
+    /// the layouts the move's response carries; only pane/tab/workspace
     /// record state (tab strips, pane lists, sidebar membership) reflects
     /// the overlay on the same frame as the call.
     ///
@@ -739,8 +778,14 @@ public final class HerdrStore {
         applyLiveEvent(.paneAgentStatusChanged(pane, status))
     }
 
-    private func applyLiveEvent(_ event: HerdrEvent) {
+    private func applyLiveEvent(_ event: HerdrEvent, logged: Bool = true) {
         guard var current = model else { return }
+        if logged, let summary = event.logSummary {
+            Self.moveLog.log("event \(summary, privacy: .public)")
+        }
+        for generation in appliedSincePlanStart.keys {
+            appliedSincePlanStart[generation]?.append(event)
+        }
         // Dropped, never applied: one of the plan's own steps would flash the
         // rail back through an order the overlay has already passed. Nothing
         // is lost, since the plan's next reorder event carries the full
@@ -761,6 +806,7 @@ public final class HerdrStore {
             try await Task.sleep(for: resnapshotInterval)
             let line = try await client.requestRaw("session.snapshot", [:])
             model = SessionModel(snapshot: try HerdrDecoder.snapshot(fromResponseLine: line))
+            Self.moveLog.log("periodic resnapshot installed")
         }
     }
 

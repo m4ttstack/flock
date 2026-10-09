@@ -140,6 +140,15 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// Whether the pane's program has the mouse now, so a plain right-click in
     /// the focused pane is the program's (see `RightClickDisposition`).
     var programHasMouse: Bool { get }
+
+    /// herdr renumbered the pane (a move into another workspace). Its bridge
+    /// stays attached to the same terminal, so only the id it reports under
+    /// changes.
+    func rekey(to pane: PaneID)
+}
+
+public extension GhosttyPaneSurface {
+    func rekey(to pane: PaneID) {}
 }
 
 /// Creates a `GhosttyPaneSurface` for one pane. Implemented in the app
@@ -162,8 +171,12 @@ public protocol GhosttyPaneFactory {
     /// `onClearRequested`
     /// fires on the key that asks the pane to clear its screen, after
     /// `onUserInput` for the same event.
+    ///
+    /// `bridgeTarget` is what the bridge hands `herdr terminal session
+    /// control`: the pane's terminal id where known, which outlives a move
+    /// into another workspace, where the pane id does not.
     func makeSurface(
-        for pane: PaneID, onUserInput: @escaping () -> Void,
+        for pane: PaneID, bridgeTarget: String, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface

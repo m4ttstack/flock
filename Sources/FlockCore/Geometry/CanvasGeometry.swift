@@ -252,7 +252,7 @@ public struct CanvasGeometry: Equatable, Sendable {
         if case .zoomed(let held) = composition {
             return CanvasGeometry(paneFrames: [held: grid.frame(for: layout.area, area: layout.area)], dividers: [])
         }
-        if let exported, exported.tabID == layout.tabID {
+        if let exported, exported.describes(layout) {
             let paths = splitPaths(splits: layout.splits, area: layout.area)
             var ratios: [[Bool]: Double] = [:]
             for split in layout.splits {

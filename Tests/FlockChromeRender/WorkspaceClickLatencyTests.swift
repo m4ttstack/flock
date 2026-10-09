@@ -95,7 +95,7 @@ final class WorkspaceClickLatencyTests: XCTestCase {
         for index in 0..<12 {
             let before = DispatchTime.now().uptimeNanoseconds
             let surface = await factory.makeSurface(
-                for: PaneID(rawValue: "w9:p\(index)"), onUserInput: {}, onClearRequested: {},
+                for: PaneID(rawValue: "w9:p\(index)"), bridgeTarget: "w9:p\(index)", onUserInput: {}, onClearRequested: {},
                 onScreenActivity: { _ in }
             )
             samples.append(Double(DispatchTime.now().uptimeNanoseconds - before) / 1_000_000)
@@ -310,7 +310,7 @@ private final class GroundSurface: GhosttyPaneSurface {
 @MainActor
 private struct GroundFactory: GhosttyPaneFactory {
     func makeSurface(
-        for pane: PaneID, onUserInput: @escaping () -> Void,
+        for pane: PaneID, bridgeTarget: String, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
