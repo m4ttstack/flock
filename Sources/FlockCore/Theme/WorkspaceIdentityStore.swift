@@ -8,7 +8,7 @@ import Observation
 @Observable
 public final class WorkspaceIdentityStore {
     public static let defaultsKey = "flock.workspaceSymbol"
-    public static let boardKey = "section:board"
+    public nonisolated static let boardKey = "section:board"
 
     public private(set) var assigned: [String: String]
     public private(set) var overrides: [String: String]

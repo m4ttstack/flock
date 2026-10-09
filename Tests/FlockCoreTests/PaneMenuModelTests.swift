@@ -164,7 +164,9 @@ final class PaneMenuModelTests: XCTestCase {
 
     func testMoveToSubmenuMirrorsMoveToMenuEntries() {
         let entries = PaneMenuModel.entries(for: PaneID(rawValue: "w1:p1"), model: canonicalFixture(), focusedPane: nil)
-        let moveTo = entries.first { $0.accessibilityIdentifier == "flock.pane.menu.moveTo" }
+        let moveTo = entries.first { $0.accessibilityIdentifier == "flock.pane.menu.moveTo" }.map { row in
+            PaneMenuEntry(label: row.label, action: row.action, accessibilityIdentifier: row.accessibilityIdentifier, enabled: row.enabled, submenu: row.submenu?.filter { $0.role == .item })
+        }
         let expected = MoveToMenu.entries(for: PaneID(rawValue: "w1:p1"), model: canonicalFixture())
 
         XCTAssertEqual(moveTo?.submenu?.map(\.label), expected.map(\.label))
@@ -175,7 +177,9 @@ final class PaneMenuModelTests: XCTestCase {
 
     func testMoveToIsDisabledWithAnEmptySubmenuWhenThePaneIsNotInTheModel() {
         let entries = PaneMenuModel.entries(for: PaneID(rawValue: "ghost"), model: canonicalFixture(), focusedPane: nil)
-        let moveTo = entries.first { $0.accessibilityIdentifier == "flock.pane.menu.moveTo" }
+        let moveTo = entries.first { $0.accessibilityIdentifier == "flock.pane.menu.moveTo" }.map { row in
+            PaneMenuEntry(label: row.label, action: row.action, accessibilityIdentifier: row.accessibilityIdentifier, enabled: row.enabled, submenu: row.submenu?.filter { $0.role == .item })
+        }
 
         XCTAssertEqual(moveTo?.submenu, [])
         XCTAssertEqual(moveTo?.enabled, false)
@@ -200,7 +204,9 @@ final class PaneMenuModelTests: XCTestCase {
 
     func testSubmenuParentRowsCarryNoAction() {
         let entries = PaneMenuModel.entries(for: PaneID(rawValue: "w1:p1"), model: canonicalFixture(), focusedPane: nil)
-        let moveTo = entries.first { $0.accessibilityIdentifier == "flock.pane.menu.moveTo" }
+        let moveTo = entries.first { $0.accessibilityIdentifier == "flock.pane.menu.moveTo" }.map { row in
+            PaneMenuEntry(label: row.label, action: row.action, accessibilityIdentifier: row.accessibilityIdentifier, enabled: row.enabled, submenu: row.submenu?.filter { $0.role == .item })
+        }
 
         XCTAssertNil(moveTo?.action)
     }

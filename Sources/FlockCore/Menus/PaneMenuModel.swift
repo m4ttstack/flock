@@ -18,23 +18,36 @@ public enum PaneMenuAction: Equatable, Sendable {
 
 /// One row of the pane context menu. `submenu` is non-nil only on the
 /// "Move to..." row; every other row leaves it `nil`. `action` is `nil` only
-/// on a submenu-parent row, which a real menu never invokes directly.
+/// on a submenu-parent row, a header or a separator, which a real menu never
+/// invokes directly.
 public struct PaneMenuEntry: Equatable, Sendable {
+    public enum Role: Equatable, Sendable {
+        case item
+        /// Names the group of rows below it.
+        case header
+        case separator
+    }
+
     public let label: String
     public let action: PaneMenuAction?
     public let accessibilityIdentifier: String
     public let enabled: Bool
     public let submenu: [PaneMenuEntry]?
+    public let role: Role
+    /// The `WorkspaceIdentityStore` key whose symbol the row shows.
+    public let identityKey: String?
 
     public init(
         label: String, action: PaneMenuAction?, accessibilityIdentifier: String,
-        enabled: Bool = true, submenu: [PaneMenuEntry]? = nil
+        enabled: Bool = true, submenu: [PaneMenuEntry]? = nil, role: Role = .item, identityKey: String? = nil
     ) {
         self.label = label
         self.action = action
         self.accessibilityIdentifier = accessibilityIdentifier
         self.enabled = enabled
         self.submenu = submenu
+        self.role = role
+        self.identityKey = identityKey
     }
 }
 
@@ -66,9 +79,10 @@ public enum PaneMenuModel {
     /// `solo` is a pane shown alone, away from its tab: only the rows that
     /// neither change the tab around it nor move herdr's focus.
     public static func entries(
-        for pane: PaneID, model: SessionModel, focusedPane: PaneID?, solo: Bool, oneTitle: Bool = false
+        for pane: PaneID, model: SessionModel, focusedPane: PaneID?, solo: Bool, oneTitle: Bool = false,
+        sections: RailSections? = nil
     ) -> [PaneMenuEntry] {
-        let all = entries(for: pane, model: model, focusedPane: focusedPane, oneTitle: oneTitle)
+        let all = entries(for: pane, model: model, focusedPane: focusedPane, oneTitle: oneTitle, sections: sections)
         guard solo else { return all }
         return all.filter { [.renamePane, .clearPaneName, .closePane].contains($0.action) }
     }
@@ -77,7 +91,7 @@ public enum PaneMenuModel {
     /// (`PaneNaming.renameTarget`), and Clear Pane Name is left out there: it
     /// would clear a label nothing draws.
     public static func entries(
-        for pane: PaneID, model: SessionModel, focusedPane: PaneID?, oneTitle: Bool = false
+        for pane: PaneID, model: SessionModel, focusedPane: PaneID?, oneTitle: Bool = false, sections: RailSections? = nil
     ) -> [PaneMenuEntry] {
         var entries: [PaneMenuEntry] = [PaneMenuEntry(
             label: "Rename Pane", action: .renamePane, accessibilityIdentifier: "flock.pane.menu.rename"
@@ -108,9 +122,7 @@ public enum PaneMenuModel {
             label: isZoomed(pane, model: model) ? "Unzoom" : "Zoom", action: .zoom, accessibilityIdentifier: "flock.pane.menu.zoom"
         ))
 
-        let moveToEntries = MoveToMenu.entries(for: pane, model: model).map { entry in
-            PaneMenuEntry(label: entry.label, action: .moveTo(entry.target), accessibilityIdentifier: entry.accessibilityIdentifier)
-        }
+        let moveToEntries = moveToRows(MoveToMenu.entries(for: pane, model: model, sections: sections))
         entries.append(PaneMenuEntry(
             label: "Move to...", action: nil, accessibilityIdentifier: "flock.pane.menu.moveTo",
             enabled: !moveToEntries.isEmpty, submenu: moveToEntries
@@ -121,6 +133,39 @@ public enum PaneMenuModel {
         ))
 
         return entries
+    }
+
+    /// Each group of rows under a header naming it; the create rows after a
+    /// separator.
+    static func moveToRows(_ entries: [MoveToEntry]) -> [PaneMenuEntry] {
+        var rows: [PaneMenuEntry] = []
+        var group: MoveToEntry.Group?
+        for entry in entries {
+            if entry.group != group {
+                switch entry.group {
+                case .tabs:
+                    rows.append(PaneMenuEntry(
+                        label: "Tabs", action: nil, accessibilityIdentifier: "flock.pane.menu.moveTo.header.tabs", role: .header
+                    ))
+                case .workspaces:
+                    rows.append(PaneMenuEntry(
+                        label: "Workspaces", action: nil, accessibilityIdentifier: "flock.pane.menu.moveTo.header.workspaces", role: .header
+                    ))
+                case .create where group != nil:
+                    rows.append(PaneMenuEntry(
+                        label: "", action: nil, accessibilityIdentifier: "flock.pane.menu.moveTo.separator", role: .separator
+                    ))
+                case .create:
+                    break
+                }
+                group = entry.group
+            }
+            rows.append(PaneMenuEntry(
+                label: entry.label, action: .moveTo(entry.target), accessibilityIdentifier: entry.accessibilityIdentifier,
+                identityKey: entry.identityKey
+            ))
+        }
+        return rows
     }
 
     /// herdr zooms a tab, not a pane, so every pane of a zoomed tab reads as
