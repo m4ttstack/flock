@@ -235,6 +235,7 @@ private final class NoticeRecorder {
 @MainActor
 private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Sendable {
     let pane: PaneID
+    private(set) var rekeys: [PaneID] = []
     private(set) var detachCallCount = 0
     private(set) var parkCallCount = 0
     private(set) var unparkCallCount = 0
@@ -272,6 +273,10 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
         holdCalls.append(.take)
     }
 
+    func rekey(to pane: PaneID) {
+        rekeys.append(pane)
+    }
+
     var cellHeight: CGFloat? = 18
 }
 
@@ -286,6 +291,7 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
 @MainActor
 private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     private(set) var makeSurfaceCalls: [PaneID] = []
+    private(set) var bridgeTargets: [PaneID: String] = [:]
     private(set) var surfaces: [PaneID: FakeGhosttyPaneSurface] = [:]
     private(set) var onUserInputHandlers: [PaneID: () -> Void] = [:]
     private(set) var onClearRequestedHandlers: [PaneID: () -> Void] = [:]
@@ -303,11 +309,12 @@ private final class FakeGhosttyPaneFactory: GhosttyPaneFactory {
     }
 
     func makeSurface(
-        for pane: PaneID, onUserInput: @escaping () -> Void,
+        for pane: PaneID, bridgeTarget: String, onUserInput: @escaping () -> Void,
         onClearRequested: @escaping () -> Void,
         onScreenActivity: @escaping (ScreenActivity) -> Void
     ) async -> any GhosttyPaneSurface {
         makeSurfaceCalls.append(pane)
+        bridgeTargets[pane] = bridgeTarget
         onUserInputHandlers[pane] = onUserInput
         onClearRequestedHandlers[pane] = onClearRequested
         onScreenActivityHandlers[pane] = onScreenActivity
@@ -406,6 +413,27 @@ private func makeModelWithAPaneInASecondTab() -> SessionModel {
             focused: false, agentStatus: .unknown, revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp"
         )
     }
+    return model
+}
+
+/// `makeModel` plus `pane` in `tab` of `workspace`, attached to `term_moving`.
+private func makeModel(holding pane: String, in workspace: String, tab: String) -> SessionModel {
+    var model = makeModel()
+    let workspaceID = WorkspaceID(rawValue: workspace)
+    if !model.workspaces.contains(where: { $0.workspaceID == workspaceID }) {
+        model.workspaces.append(WorkspaceRecord(
+            workspaceID: workspaceID, label: workspace, number: 2, activeTabID: TabID(rawValue: tab), agentStatus: .unknown
+        ))
+        model.tabs[workspaceID] = [TabRecord(
+            tabID: TabID(rawValue: tab), workspaceID: workspaceID, label: "1", number: 1, paneCount: 1, agentStatus: .unknown
+        )]
+    }
+    var record = PaneRecord(
+        paneID: PaneID(rawValue: pane), workspaceID: workspaceID, tabID: TabID(rawValue: tab),
+        focused: false, agentStatus: .unknown, revision: 0, terminalTitleStripped: nil, label: nil, cwd: "/tmp"
+    )
+    record.terminalID = TerminalID(rawValue: "term_moving")
+    model.panes[record.paneID] = record
     return model
 }
 
@@ -1307,6 +1335,37 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(waiting.isCancelled)
         XCTAssertNil(viewModel.promptWatches[pane])
         XCTAssertFalse(viewModel.isLauncherShowing(pane))
+    }
+
+    /// A move into another workspace renumbers the pane, and its bridge keeps
+    /// streaming the same terminal, so the surface follows the new id rather
+    /// than being torn down and rebuilt.
+    @MainActor
+    func testAPaneRenumberedByAMoveKeepsItsSurface() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: StubForegroundClient([.busy]), ghosttyFactory: factory, launcherPollBackoff: [.seconds(60)])
+        let before = PaneID(rawValue: "w1:p2")
+        let after = PaneID(rawValue: "w2:p2")
+        viewModel.update(model: makeModel(holding: "w1:p2", in: "w1", tab: "w1:t1"), connection: .live)
+        _ = await viewModel.attachPane(before)
+        XCTAssertEqual(factory.bridgeTargets[before], "term_moving")
+
+        viewModel.update(model: makeModel(holding: "w2:p2", in: "w2", tab: "w2:t1"), connection: .live)
+        await viewModel.waitForClosedPaneTeardown()
+
+        let surface = try XCTUnwrap(factory.surfaces[before])
+        XCTAssertTrue(viewModel.ghosttySurface(for: after) === surface)
+        XCTAssertNil(viewModel.ghosttySurface(for: before))
+        XCTAssertEqual(surface.detachCallCount, 0)
+        XCTAssertEqual(surface.rekeys, [after])
+
+        await viewModel.detachPane(before)
+        _ = await viewModel.attachPane(after)
+        XCTAssertEqual(factory.makeSurfaceCalls, [before], "the new id reused the surface")
+
+        try XCTUnwrap(factory.onScreenActivityHandlers[before])(2)
+        XCTAssertNotNil(viewModel.promptWatches[after], "the surface's reports follow it to the new id")
+        XCTAssertNil(viewModel.promptWatches[before])
     }
 
     /// A pane herdr closes mid-poll: the registry forgets it and the sleeping

@@ -278,6 +278,11 @@ public final class PaneLauncherRegistry {
         panes[pane] = nil
     }
 
+    /// The same terminal under a new pane id (a move into another workspace).
+    public func rekey(_ pane: PaneID, to newPane: PaneID) {
+        panes[newPane] = panes.removeValue(forKey: pane)
+    }
+
     public func isShowing(_ pane: PaneID) -> Bool {
         guard let state = panes[pane], isCandidate(state) else { return false }
         return state.foreground == .idle
