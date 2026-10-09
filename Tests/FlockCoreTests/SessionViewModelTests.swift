@@ -1368,27 +1368,34 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.promptWatches[before])
     }
 
-    /// The navigator's watch asks herdr by pane id; left on the old one, the
-    /// launcher would stay hidden after the picker exits.
+    /// The picker was seen running, then the pane moved into another
+    /// workspace, then the picker exited: the same watch carries on under the
+    /// new id and still owes the Ctrl-L that brings the launcher back.
     @MainActor
     func testARenumberedPaneKeepsWatchingItsNavigator() async throws {
+        let client = StubForegroundClient([.busy, .idle])
         let factory = FakeGhosttyPaneFactory()
-        let viewModel = SessionViewModel(
-            client: StubForegroundClient([.busy]), ghosttyFactory: factory, navigationPollInterval: .seconds(60)
-        )
+        let viewModel = SessionViewModel(client: client, ghosttyFactory: factory, navigationPollInterval: .milliseconds(1))
         let before = PaneID(rawValue: "w1:p2")
         let after = PaneID(rawValue: "w2:p2")
         viewModel.update(model: makeModel(holding: "w1:p2", in: "w1", tab: "w1:t1"), connection: .live)
         _ = await viewModel.attachPane(before)
+        await client.holdNext("pane.process_info")
         await viewModel.launchNavigator("rt cd", in: before)
-        let first = try XCTUnwrap(viewModel.navigationWatches[before])
+        let watch = try XCTUnwrap(viewModel.navigationWatches[before])
+        while await !client.calls.contains(where: { $0.method == "pane.process_info" }) {
+            try await Task.sleep(for: .milliseconds(1))
+        }
 
         viewModel.update(model: makeModel(holding: "w2:p2", in: "w2", tab: "w2:t1"), connection: .live)
-
-        XCTAssertTrue(first.isCancelled)
         XCTAssertNil(viewModel.navigationWatches[before])
-        let moved = try XCTUnwrap(viewModel.navigationWatches[after])
-        moved.cancel()
+        XCTAssertEqual(viewModel.navigationWatches[after], watch, "the running watch moved, not a fresh one")
+        await client.release()
+        await watch.value
+
+        let clears = await client.calls.filter { $0.method == "pane.send_keys" }
+        XCTAssertEqual(clears.map { stringParam($0.params, "pane_id") }, ["w2:p2"])
+        XCTAssertNil(viewModel.navigationWatches[after])
     }
 
     /// A pane herdr closes mid-poll: the registry forgets it and the sleeping

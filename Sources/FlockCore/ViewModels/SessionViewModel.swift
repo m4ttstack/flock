@@ -213,6 +213,19 @@ public final class SessionViewModel {
     /// One per pane running a navigator command, until its shell is back at
     /// the prompt.
     @ObservationIgnored var navigationWatches: [PaneID: Task<Void, Never>] = [:]
+    /// The pane each navigation watch asks herdr about. A move into another
+    /// workspace renumbers it mid-watch, and the watch must carry on under
+    /// the new id: restarted, it would forget it saw the picker run and skip
+    /// the Ctrl-L that brings the launcher back.
+    private final class WatchedPane {
+        var id: PaneID
+
+        init(_ id: PaneID) {
+            self.id = id
+        }
+    }
+
+    @ObservationIgnored private var navigationTargets: [PaneID: WatchedPane] = [:]
     /// One per pane whose screen is bare and whose shell herdr has not yet
     /// called idle, until it does or the pane stops being a candidate.
     @ObservationIgnored var promptWatches: [PaneID: Task<Void, Never>] = [:]
@@ -763,8 +776,8 @@ public final class SessionViewModel {
     /// to, so the cell under the new id finds it warm instead of attaching a
     /// second bridge to the same terminal. Synchronous, on the model update
     /// that reports the move, so the new cell's first read already sees it.
-    /// The launcher's polls ask herdr by pane id, so a running one restarts
-    /// under the new id.
+    /// The launcher's polls ask herdr by pane id: a pending prompt poll
+    /// restarts under the new id, and a navigation watch carries on there.
     private func rekeySurface(_ pane: PaneID, to newPane: PaneID) {
         guard ghosttySurfaces[newPane] == nil, let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
         ghosttySurfaces[newPane] = surface
@@ -788,8 +801,11 @@ public final class SessionViewModel {
             schedulePromptPoll(newPane)
         }
         if let watch = navigationWatches.removeValue(forKey: pane) {
-            watch.cancel()
-            navigationWatches[newPane] = Task { [weak self] in await self?.watchNavigation(in: newPane) }
+            navigationWatches[newPane] = watch
+        }
+        if let target = navigationTargets.removeValue(forKey: pane) {
+            target.id = newPane
+            navigationTargets[newPane] = target
         }
         surface.rekey(to: newPane)
         HerdrStore.moveLog.log("surface \(pane.rawValue, privacy: .public) handed to \(newPane.rawValue, privacy: .public)")
@@ -1373,6 +1389,7 @@ public final class SessionViewModel {
         promptWatches[pane] = nil
         navigationWatches[pane]?.cancel()
         navigationWatches[pane] = nil
+        navigationTargets[pane] = nil
         if forgetLauncherState {
             paneLauncherRegistry.forget(pane)
             launcherRegistryVersion += 1
@@ -1575,23 +1592,25 @@ public final class SessionViewModel {
             ]
         )
         navigationWatches[pane]?.cancel()
-        navigationWatches[pane] = Task { [weak self] in await self?.watchNavigation(in: pane) }
+        let target = WatchedPane(pane)
+        navigationTargets[pane] = target
+        navigationWatches[pane] = Task { [weak self] in await self?.watchNavigation(of: target) }
     }
 
     /// Polls `pane.process_info` until the registry says the navigation is
     /// over. An answer herdr cannot give (an error, an empty foreground list
     /// as the picker exits) is retried on the next tick; only the pane going
     /// away (`performTeardown` cancels this task) ends the watch early.
-    private func watchNavigation(in pane: PaneID) async {
+    private func watchNavigation(of target: WatchedPane) async {
         var sawPickerRun = false
-        while !Task.isCancelled, paneLauncherRegistry.isNavigating(pane) {
+        while !Task.isCancelled, paneLauncherRegistry.isNavigating(target.id) {
             try? await Task.sleep(for: navigationPollInterval)
             guard !Task.isCancelled else { return }
-            let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(pane.rawValue)])
+            let data = try? await client.requestRaw("pane.process_info", ["pane_id": .string(target.id.rawValue)])
             guard !Task.isCancelled else { return }
             let idle = data.flatMap { PaneForegroundJob.isBusy(processInfoResponse: $0) }.map { !$0 }
             if idle == false { sawPickerRun = true }
-            paneLauncherRegistry.recordForegroundJob(pane, idle: idle, at: now())
+            paneLauncherRegistry.recordForegroundJob(target.id, idle: idle, at: now())
         }
         guard !Task.isCancelled else { return }
         // A command never seen running failed on its way up; its error is
@@ -1599,14 +1618,15 @@ public final class SessionViewModel {
         if sawPickerRun {
             _ = try? await client.requestRaw(
                 "pane.send_keys",
-                ["pane_id": .string(pane.rawValue), "keys": .array([.string("ctrl+l")])]
+                ["pane_id": .string(target.id.rawValue), "keys": .array([.string("ctrl+l")])]
             )
         }
         // Cancelled during the send: a later navigation may own the entry now.
         guard !Task.isCancelled else { return }
-        navigationWatches[pane] = nil
+        navigationWatches[target.id] = nil
+        navigationTargets[target.id] = nil
         launcherRegistryVersion += 1
-        schedulePromptPoll(pane)
+        schedulePromptPoll(target.id)
     }
 
     /// Splits `pane` rightward via `pane.split` and focuses the new pane.
