@@ -2131,6 +2131,37 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// ⌘K over a pane opened from Overview draws the palette over that pane,
+    /// offering the focused view's own keys, and going back to the board
+    /// closes it.
+    func testThePaletteOpensOverTheFocusedPaneAndClosesWithIt() async throws {
+        for (id, file) in [("tokyo-night", "focused-palette-dark.png"), ("tokyo-night-day", "focused-palette-light.png")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let (harness, window) = try await focusedOverview(theme: theme, client: MethodRecordingClient())
+            let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+            navigator.open(pane: GridFixture.buildPane)
+            await settle(window)
+            XCTAssertEqual(navigator.paletteSurface, .overviewPane, "\(id)")
+            harness.palette.open()
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap({ $0.isEmpty ? nil : $0 }) {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
+            }
+            XCTAssertTrue(rankedRows(harness).contains { $0.command.id == "view.backtooverview" }, "\(id)")
+            XCTAssertFalse(rankedRows(harness).contains { $0.command.id == "pane.splitright" }, "\(id)")
+            XCTAssertNotNil(
+                firstPoint(in: CGRect(origin: .zero, size: Self.gridWindowSize), matching: theme.palette.chromeRoles.selection.hex, of: image),
+                "\(id): no selected palette row drawn"
+            )
+            navigator.backToOverview()
+            await settle(window)
+            XCTAssertFalse(harness.palette.isOpen, "\(id): the palette outlived its pane")
+            window.close()
+        }
+    }
+
     /// Back from the focused view is Overview's lanes, with the card that was
     /// open selected.
     func testBackFromTheFocusedPaneSelectsItsCard() async throws {
@@ -4411,7 +4442,11 @@ final class ChromeRenderTests: XCTestCase {
     /// way `CommandPaletteView` builds them.
     private func rankedRows(_ harness: Harness) -> [PaletteRanking.Row] {
         let entries = PaletteCatalog.entries(
-            in: .current(viewModel: harness.viewModel, chatStore: harness.chatStore, rtInstalled: RtAvailability.installed)
+            in: .current(
+                viewModel: harness.viewModel,
+                navigator: JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore),
+                chatStore: harness.chatStore, rtInstalled: RtAvailability.installed
+            )
         )
         return PaletteRanking.rows(commands: entries.map(\.command), query: harness.palette.query, recents: harness.paletteRecents.ids)
     }

@@ -13,6 +13,9 @@ struct FocusedPaneCommand: Equatable, Sendable {
     let modifiers: EventModifiers
     let action: PaneMenuAction
     let accessibilityIdentifier: String
+    /// Overview's pane is drawn alone, so a split or zoom there would change
+    /// a layout no one can see.
+    let paletteSurfaces: Set<PaletteSurface>
 
     var shortcut: KeyboardShortcut { KeyboardShortcut(KeyEquivalent(key), modifiers: modifiers) }
 
@@ -21,23 +24,27 @@ struct FocusedPaneCommand: Equatable, Sendable {
     /// `ArrangeShortcut` left them free for this.
     static let splitRight = FocusedPaneCommand(
         title: "Split Right", key: "d", modifiers: .command,
-        action: .splitRight, accessibilityIdentifier: "flock.pane.splitRight"
+        action: .splitRight, accessibilityIdentifier: "flock.pane.splitRight",
+        paletteSurfaces: [.workspaces]
     )
     static let splitDown = FocusedPaneCommand(
         title: "Split Down", key: "d", modifiers: [.command, .shift],
-        action: .splitDown, accessibilityIdentifier: "flock.pane.splitDown"
+        action: .splitDown, accessibilityIdentifier: "flock.pane.splitDown",
+        paletteSurfaces: [.workspaces]
     )
     /// Shift-Command-Return is ghostty's macOS default for
     /// `toggle_split_zoom`, on the same reasoning as the split keys.
     static let zoom = FocusedPaneCommand(
         title: "Zoom Pane", key: "\r", modifiers: [.command, .shift],
-        action: .zoom, accessibilityIdentifier: "flock.pane.zoomPane"
+        action: .zoom, accessibilityIdentifier: "flock.pane.zoomPane",
+        paletteSurfaces: [.workspaces]
     )
     /// Command-W is ghostty's `close_surface`; the File menu's Close Tab and
     /// Close Workspace are its Shift and Option+Shift steps outward.
     static let closePane = FocusedPaneCommand(
         title: "Close Pane", key: "w", modifiers: .command,
-        action: .closePane, accessibilityIdentifier: "flock.file.closePane"
+        action: .closePane, accessibilityIdentifier: "flock.file.closePane",
+        paletteSurfaces: [.workspaces, .overviewPane]
     )
 
     static let all: [FocusedPaneCommand] = [splitRight, splitDown, zoom, closePane]

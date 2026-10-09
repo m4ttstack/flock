@@ -53,6 +53,19 @@ enum ViewCommand: String, CaseIterable {
         }
     }
 
+    /// Creating and closing act on the Workspaces selection, so they stay on
+    /// Workspaces; the focused view's own keys stay on it.
+    var paletteSurfaces: Set<PaletteSurface> {
+        switch self {
+        case .showWorkspaces, .showOverview, .showArrange:
+            PaletteSurface.everywhere.subtracting(PaletteSurface.surfaces(of: viewTab ?? .workspaces))
+        case .newTab, .newWorkspace, .closeTab, .closeWorkspace, .rearrangeMode, .allWorkspaces: [.workspaces]
+        case .openOldestNotification, .clearNotifications: PaletteSurface.everywhere
+        case .backToOverview, .openNextCard: [.overviewPane]
+        case .commandPalette: []
+        }
+    }
+
     var viewTab: ViewTab? {
         switch self {
         case .showWorkspaces: .workspaces

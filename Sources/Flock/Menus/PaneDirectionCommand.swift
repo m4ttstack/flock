@@ -18,6 +18,9 @@ struct PaneDirectionCommand {
     /// What the row reads inside its family's submenu.
     let directionName: String
 
+    /// A neighbor exists only in a drawn layout, which Overview's lone pane is not.
+    static let paletteSurfaces: Set<PaletteSurface> = [.workspaces]
+
     /// Every pane family sits on Command+Option, as Ghostty's split focus
     /// does: Shift adds move, Control adds swap. Command+Control+arrow alone
     /// is the strip's and the rail's. None is claimed by the system.

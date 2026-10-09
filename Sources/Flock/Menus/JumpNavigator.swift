@@ -17,6 +17,13 @@ struct JumpNavigator {
 
     var isFocusedInOverview: Bool { isInMissionControl && drag.gridFocusedPane != nil }
 
+    var paletteSurface: PaletteSurface {
+        PaletteSurface.current(
+            gridShown: drag.isGridShown, shownMode: mode.shown(dragInFlight: drag.activeSubject != nil),
+            paneShownInOverview: drag.gridFocusedPane != nil
+        )
+    }
+
     func openOldest() {
         if isInMissionControl {
             if let pane = viewModel.oldestAttentionPane { focus(pane) }
