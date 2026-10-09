@@ -54,7 +54,8 @@ final class BackgroundWorkTests: XCTestCase {
     func testEveryCountedPillLabelIsTheReason() {
         for label in [
             "3 background tasks", "1 background task", "1 local agent", "2 local agents", "1 team", "2 MCP tasks",
-            "1 background dynamic workflow", "2 Artifact comment monitors",
+            "1 background dynamic workflow", "2 background dynamic workflows", "3 teams", "1 MCP task",
+            "1 Artifact comment monitor", "2 Artifact comment monitors",
         ] {
             let screen = FooterFixture.screen("  ⏵⏵ auto mode on · \(label) · ← for agents")
             XCTAssertEqual(BackgroundWork.reason(in: screen), label)
