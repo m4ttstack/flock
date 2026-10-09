@@ -34,6 +34,41 @@ final class HerdrOpsTests: XCTestCase {
         XCTAssertNil(result.createdWorkspaceID)
     }
 
+    /// herdr 0.9.3 moving a tab's last pane out: the emptied tab closes, so
+    /// there is no source layout, only the target's and the closed tab id.
+    func testAMoveThatEmptiesItsTabLandsTheTargetLayoutAndTheClose() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.move", withResultJSON: #"""
+            {"move_result":{"changed":true,"previous_pane_id":"w1:p1","previous_workspace_id":"w1","previous_tab_id":"w1:t1","pane":{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t2","focused":false,"agent_status":"unknown","revision":0,"cwd":"/tmp"},"target_layout":{"workspace_id":"w1","tab_id":"w1:t2","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":10},"focused_pane_id":"w1:p2","panes":[{"pane_id":"w1:p2","focused":true,"rect":{"x":0,"y":0,"width":20,"height":5}},{"pane_id":"w1:p1","focused":false,"rect":{"x":0,"y":5,"width":20,"height":5}}],"splits":[{"id":"s1","direction":"down","ratio":0.5,"rect":{"x":0,"y":0,"width":20,"height":10}}]},"closed_tab_id":"w1:t1","focused_pane_id":"w1:p2"}}
+            """#)
+        let client = HerdrClient(socketPath: fake.socketPath)
+
+        let result = try await client.perform(.movePaneToTab(
+            PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .down, ratio: nil
+        ))
+
+        XCTAssertEqual(result.landed.count, 2)
+        guard case .layoutUpdated(let layout) = result.landed.first, case .paneMoved(let moved) = result.landed.last else {
+            return XCTFail("expected the target layout, then the move")
+        }
+        XCTAssertEqual(layout.tabID, TabID(rawValue: "w1:t2"))
+        XCTAssertEqual(moved.pane.tabID, TabID(rawValue: "w1:t2"))
+        XCTAssertEqual(moved.closedTabID, TabID(rawValue: "w1:t1"))
+    }
+
+    func testASparseMoveResponseLandsNothing() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "pane.move", withResultJSON: #"{"move_result":{"pane":{"pane_id":"w1:p9"}}}"#)
+        let client = HerdrClient(socketPath: fake.socketPath)
+
+        let result = try await client.perform(.movePaneToTab(
+            PaneID(rawValue: "w1:p1"), tab: TabID(rawValue: "w1:t2"), target: nil, split: .down, ratio: nil
+        ))
+
+        XCTAssertEqual(result.movedPaneNewID, PaneID(rawValue: "w1:p9"))
+        XCTAssertTrue(result.landed.isEmpty)
+    }
+
     /// `target: nil` is the one legitimate omission: it tells herdr to pick
     /// the destination tab's own focused pane (tab-thumbnail drops).
     func testMovePaneToTabWithNilTargetOmitsTargetPaneIDAndRatio() async throws {

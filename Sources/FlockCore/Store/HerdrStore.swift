@@ -125,7 +125,7 @@ public final class HerdrStore {
     /// Predicts the plan's outcome into a copy of `model` (see
     /// `predictedModel`; it updates pane/tab/workspace records but not
     /// `LayoutSnapshot` geometry, so the canvas itself still waits for the
-    /// real `layout.updated` event) and publishes that overlay before
+    /// layouts a move's response carries) and publishes that overlay before
     /// running the real plan. The convergence watch is armed synchronously,
     /// before the wire round trip even starts, since herdr's subscriber
     /// polls independently and a confirming event can land during the round
@@ -161,7 +161,11 @@ public final class HerdrStore {
         }
 
         let engine = MutationEngine(client: HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout))
-        let result = await engine.execute(plan, model: baseModel)
+        let result = await engine.execute(plan, model: baseModel) { [weak self] events in
+            for event in events {
+                self?.applyLiveEvent(event)
+            }
+        }
 
         switch result {
         case .success:
@@ -347,7 +351,7 @@ public final class HerdrStore {
     /// own `.paneMoved` case exactly -- but that reducer does not touch
     /// `LayoutSnapshot.panes`/`splits` either, so neither does this
     /// prediction. The canvas, which reads layout geometry, still waits for
-    /// the real `layout.updated` event that follows; only pane/tab/workspace
+    /// the layouts the move's response carries; only pane/tab/workspace
     /// record state (tab strips, pane lists, sidebar membership) reflects
     /// the overlay on the same frame as the call.
     ///

@@ -129,7 +129,8 @@ extension HerdrClient {
         return OpResult(
             movedPaneNewID: result.pane.paneID,
             createdTabID: result.createdTab?.tabID,
-            createdWorkspaceID: result.createdWorkspace?.workspaceID
+            createdWorkspaceID: result.createdWorkspace?.workspaceID,
+            landed: result.landedEvents
         )
     }
 
@@ -360,11 +361,50 @@ private struct PaneMoveResultWire: Decodable, Sendable {
     let pane: PaneRef
     let createdTab: CreatedTabRef?
     let createdWorkspace: CreatedWorkspaceRef?
+    /// The whole records, read leniently: the ids above are all a later op
+    /// needs, so a response too sparse to replay as events still drives the
+    /// plan and leaves the store to the live events.
+    let landedEvents: [HerdrEvent]
 
     enum CodingKeys: String, CodingKey {
         case reason, pane
         case createdTab = "created_tab"
         case createdWorkspace = "created_workspace"
+        case previousPaneID = "previous_pane_id"
+        case previousWorkspaceID = "previous_workspace_id"
+        case previousTabID = "previous_tab_id"
+        case sourceLayout = "source_layout"
+        case targetLayout = "target_layout"
+        case closedTabID = "closed_tab_id"
+        case closedWorkspaceID = "closed_workspace_id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        pane = try container.decode(PaneRef.self, forKey: .pane)
+        createdTab = try container.decodeIfPresent(CreatedTabRef.self, forKey: .createdTab)
+        createdWorkspace = try container.decodeIfPresent(CreatedWorkspaceRef.self, forKey: .createdWorkspace)
+        landedEvents = Self.landedEvents(in: container)
+    }
+
+    /// In herdr's own order: both layouts, then the move.
+    private static func landedEvents(in container: KeyedDecodingContainer<CodingKeys>) -> [HerdrEvent] {
+        guard let pane = try? container.decode(PaneRecord.self, forKey: .pane),
+              let previousPaneID = try? container.decode(PaneID.self, forKey: .previousPaneID),
+              let previousWorkspaceID = try? container.decode(WorkspaceID.self, forKey: .previousWorkspaceID),
+              let previousTabID = try? container.decode(TabID.self, forKey: .previousTabID),
+              let target = try? container.decode(LayoutSnapshot.self, forKey: .targetLayout)
+        else { return [] }
+        let source = try? container.decodeIfPresent(LayoutSnapshot.self, forKey: .sourceLayout)
+        let moved = PaneMovedPayload(
+            previousPaneID: previousPaneID, previousWorkspaceID: previousWorkspaceID, previousTabID: previousTabID, pane: pane,
+            createdTab: try? container.decodeIfPresent(TabRecord.self, forKey: .createdTab),
+            createdWorkspace: try? container.decodeIfPresent(WorkspaceRecord.self, forKey: .createdWorkspace),
+            closedTabID: try? container.decodeIfPresent(TabID.self, forKey: .closedTabID),
+            closedWorkspaceID: try? container.decodeIfPresent(WorkspaceID.self, forKey: .closedWorkspaceID)
+        )
+        return (source.map { [HerdrEvent.layoutUpdated($0)] } ?? []) + [.layoutUpdated(target), .paneMoved(moved)]
     }
 }
 

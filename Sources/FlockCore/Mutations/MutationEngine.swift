@@ -76,7 +76,11 @@ public actor MutationEngine {
         self.client = client
     }
 
-    public func execute(_ plan: OpPlan, model: SessionModel) async -> Result<ExecutedPlan, OpFailure> {
+    /// `onLanded` gets each op's `OpResult.landed` as its response arrives,
+    /// before the next op goes out.
+    public func execute(
+        _ plan: OpPlan, model: SessionModel, onLanded: @escaping @MainActor @Sendable ([HerdrEvent]) -> Void = { _ in }
+    ) async -> Result<ExecutedPlan, OpFailure> {
         var executed: [PrimitiveOp] = []
         var irreversible: [PrimitiveOp] = []
         var tracker = MoveTracker()
@@ -137,6 +141,9 @@ public actor MutationEngine {
                 let result = try await client.perform(op)
                 results[index] = result
                 executed.append(op)
+                if !result.landed.isEmpty {
+                    await onLanded(result.landed)
+                }
 
                 if let source = Self.sourcePane(of: op) {
                     if let newID = result.movedPaneNewID, source == trackedFocusID {
