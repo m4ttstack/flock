@@ -27,6 +27,7 @@ struct FocusedPaneView: View {
                 .frame(height: ChromeMetrics.ruleWidth)
             PaneCanvas(theme: theme, viewModel: viewModel, layout: layout, solo: pane)
                 .overlay { RtModalView(theme: theme, viewModel: viewModel, solo: pane) }
+                .overlay { CommandPaletteView(theme: theme, viewModel: viewModel) }
         }
         // The pane's own modal goes with it: left open, it would pop up over
         // the main window the next time that mounts its own.
