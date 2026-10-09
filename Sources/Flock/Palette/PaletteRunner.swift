@@ -4,7 +4,7 @@ import SwiftUI
 extension PaletteContext {
     /// This moment, read the way each command's own menu item or button reads it.
     @MainActor
-    static func current(viewModel: SessionViewModel, chatStore: ChatStore, rtInstalled: Bool) -> PaletteContext {
+    static func current(viewModel: SessionViewModel, chatStore: ChatStore, rtInstalled: Bool, devRebuild: DevRebuild? = nil) -> PaletteContext {
         let focused = viewModel.resolvedFocusedPaneID
         let record = focused.flatMap { viewModel.model?.panes[$0] }
         let terminal = record?.terminalID
@@ -26,7 +26,8 @@ extension PaletteContext {
             programHasMouse: focused.flatMap { viewModel.ghosttySurface(for: $0) }?.programHasMouse ?? false,
             hasSelectedWorkspace: viewModel.selectedWorkspaceID != nil,
             hasNotifications: !viewModel.attentionToasts.isEmpty,
-            topBarOverlayUp: viewModel.topBarOverlay.openPin != nil
+            topBarOverlayUp: viewModel.topBarOverlay.openPin != nil,
+            canRebuildDev: devRebuild.map { !$0.isBuilding } ?? false
         )
     }
 }
@@ -39,6 +40,7 @@ struct PaletteRunner {
     let rearrangeMode: RearrangeMode
     let dragCoordinator: DragCoordinator
     let modeStore: AllWorkspacesModeStore
+    var devRebuild: DevRebuild?
 
     func run(_ action: PaletteAction) {
         switch action {
@@ -62,6 +64,8 @@ struct PaletteRunner {
             viewModel.toggleFocusedPaneRightClicks()
         case .launch(let entry):
             Task { await LauncherSlots.launchInFocusedPane(entry, via: .palette, on: viewModel) }
+        case .rebuildDev:
+            Task { await devRebuild?.start() }
         case .view(let command):
             switch command {
             case .newTab:

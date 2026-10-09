@@ -2856,6 +2856,48 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// Rebuild Flock Dev's two pills in the restart offer's place: a rebuild
+    /// halfway through its estimate, and one that failed. PNGs go to
+    /// `FLOCK_DEV_RENDER_DIR`.
+    func testARebuildShowsItsProgressThenItsFailureWhereTheRestartOfferGoes() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_DEV_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let size = CGSize(width: Self.windowSize.width + 300, height: Self.windowSize.height)
+        let states: [(String, DevRebuild.State)] = [
+            ("building", .building(started: Date().addingTimeInterval(-60), expected: 120)),
+            ("failed", .failed(log: URL(fileURLWithPath: "/tmp/dev-rebuild.log"))),
+        ]
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let trailing = CGRect(x: size.width - 220, y: 0, width: 220, height: ChromeMetrics.TitleBar.height)
+            let idleWindow = try await Harness(theme: theme, model: try Fixture.herdModel())
+                .makeWindow(size: size, isDevBuild: true, devRebuild: DevRebuild(notice: { _ in }))
+            await settle(idleWindow)
+            let idleChrome = count(theme.palette.chromeRoles.chrome.hex, in: trailing, of: try snapshot(idleWindow))
+            idleWindow.close()
+            for (name, state) in states {
+                let rebuild = DevRebuild(state: state, notice: { _ in })
+                let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
+                let window = harness.makeWindow(size: size, isDevBuild: true, devRebuild: rebuild)
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("dev-rebuild-\(name)-\(scheme)-\(id).png"))
+                }
+                if name == "failed" {
+                    XCTAssertGreaterThan(count(theme.palette.red.hex, in: trailing, of: image), 0, "\(scheme): no failed pill at the right")
+                } else {
+                    let chrome = theme.palette.chromeRoles.chrome.hex
+                    XCTAssertLessThan(
+                        count(chrome, in: trailing, of: image), idleChrome,
+                        "\(scheme): the building pill covers none of the bar's right end"
+                    )
+                }
+                window.close()
+            }
+        }
+    }
+
     func testTheSameStampOnDiskOffersNoRestart() throws {
         let builds = FileManager.default.temporaryDirectory.appendingPathComponent("flock-dev-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: builds) }
@@ -4556,7 +4598,7 @@ private struct Harness {
     }
 
     func makeWindow(
-        size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil,
+        size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil, devRebuild: DevRebuild? = nil,
         herdrMousePatchStore: HerdrMousePatchStore? = nil
     ) -> NSWindow {
         // The default resolves to no herdr, so the patch banner stays off and
@@ -4569,6 +4611,7 @@ private struct Harness {
             isDevBuild: isDevBuild
         )
             .environment(devBuild)
+            .environment(devRebuild)
         return host(root, size: size)
     }
 

@@ -74,6 +74,7 @@ struct FlockApp: App {
     @State private var boardStore: BoardStore
     @State private var cswapStore = CswapStore()
     @State private var devBuildWatcher: DevBuildWatcher? = BuildFlavor.isDev ? DevBuildWatcher() : nil
+    @State private var devRebuild: DevRebuild?
     @State private var herdProgressStore = HerdProgressStore()
     @State private var toastCenter: ToastCenter
     @State private var chatStore: ChatStore
@@ -156,6 +157,7 @@ struct FlockApp: App {
         _workspaceIdentityStore = State(initialValue: workspaceIdentityStore)
         let toastCenter = ToastCenter()
         _toastCenter = State(initialValue: toastCenter)
+        _devRebuild = State(initialValue: BuildFlavor.isDev ? DevRebuild(notice: { toastCenter.show($0, kind: .info) }) : nil)
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
         // main actor via its `probeTask`; nothing here reads it synchronously.
         let chatStore = ChatStore(toasts: toastCenter)
@@ -355,6 +357,7 @@ struct FlockApp: App {
                 .environment(boardStore)
                 .environment(cswapStore)
                 .environment(devBuildWatcher)
+                .environment(devRebuild)
                 .environment(herdProgressStore)
                 .environment(toastCenter)
                 .environment(chatStore)

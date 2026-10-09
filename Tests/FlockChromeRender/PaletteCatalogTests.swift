@@ -20,6 +20,11 @@ final class PaletteCatalogTests: XCTestCase {
         XCTAssertFalse(listed.contains("view.jumpback"))
     }
 
+    func testRebuildFlockDevIsOfferedOnlyWhenARebuildCanStart() {
+        XCTAssertTrue(ids(PaletteContext(canRebuildDev: true)).contains("view.rebuildflockdev"))
+        XCTAssertFalse(ids(PaletteContext()).contains("view.rebuildflockdev"), "the release app, or a rebuild already running")
+    }
+
     func testTheOtherViewsAreListedWithTheirKeys() {
         let entries = PaletteCatalog.entries(in: PaletteContext())
         let shortcut = { (id: String) in entries.first { $0.command.id == id }?.command.shortcut }

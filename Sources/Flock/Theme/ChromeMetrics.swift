@@ -42,6 +42,8 @@ enum ChromeMetrics {
         static let restartGlyphSpacing: CGFloat = 4
         static let restartHorizontalPadding: CGFloat = 8
         static let restartVerticalPadding: CGFloat = 2.5
+        static let rebuildTrackOpacity: Double = 0.18
+        static let rebuildFillOpacity: Double = 0.5
         /// Clears the standard window buttons, which sit at the bar's
         /// leading edge.
         static let tabsLeadingInset: CGFloat = 86

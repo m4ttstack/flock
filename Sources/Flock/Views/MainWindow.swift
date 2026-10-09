@@ -372,6 +372,7 @@ struct TitleBar: View {
 
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
+    @Environment(DevRebuild.self) private var devRebuild: DevRebuild?
     @Environment(TopBarLabelStore.self) private var labels: TopBarLabelStore?
 
     @State private var barWidth: CGFloat = 0
@@ -400,7 +401,7 @@ struct TitleBar: View {
     }
 
     private var hasNotices: Bool {
-        devBuild?.newerBuildReady == true || noticeColor != nil
+        devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil
     }
 
     var body: some View {
@@ -454,6 +455,8 @@ struct TitleBar: View {
                 HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
                     if let devBuild, devBuild.newerBuildReady {
                         RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
+                    } else if let devRebuild {
+                        DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
                     }
                     connectionNotice
                 }

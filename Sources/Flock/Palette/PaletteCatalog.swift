@@ -23,6 +23,8 @@ struct PaletteContext {
     /// The main view's selection is hidden behind the overlay, so nothing that
     /// creates or closes in it is offered.
     var topBarOverlayUp = false
+    /// Flock Dev with no rebuild already running.
+    var canRebuildDev = false
 }
 
 enum PaletteAction {
@@ -33,6 +35,7 @@ enum PaletteAction {
     case toggleRightClicks
     case view(ViewCommand)
     case launch(HarnessEntry)
+    case rebuildDev
 }
 
 struct PaletteEntry {
@@ -123,6 +126,8 @@ enum PaletteCatalog {
             commands.append((.workspace, .newWorkspace))
             if context.hasSelectedWorkspace { commands.append((.workspace, .closeWorkspace)) }
         }
-        return commands.map { entry($0.0, $0.1.title, shortcut: shortcut($0.1), .view($0.1)) }
+        let rebuild = context.canRebuildDev
+            ? [entry(.view, "Rebuild Flock Dev", hint: "from main", .rebuildDev)] : []
+        return commands.map { entry($0.0, $0.1.title, shortcut: shortcut($0.1), .view($0.1)) } + rebuild
     }
 }

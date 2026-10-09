@@ -14,6 +14,7 @@ struct CommandPaletteView: View {
     @Environment(RearrangeMode.self) private var rearrangeMode
     @Environment(DragCoordinator.self) private var dragCoordinator
     @Environment(AllWorkspacesModeStore.self) private var modeStore
+    @Environment(DevRebuild.self) private var devRebuild: DevRebuild?
     @FocusState private var searchFocused: Bool
 
     var rtInstalled = RtAvailability.installed
@@ -25,7 +26,7 @@ struct CommandPaletteView: View {
     var body: some View {
         if state.isOpen {
             let entries = PaletteCatalog.entries(
-                in: .current(viewModel: viewModel, chatStore: chatStore, rtInstalled: rtInstalled)
+                in: .current(viewModel: viewModel, chatStore: chatStore, rtInstalled: rtInstalled, devRebuild: devRebuild)
             )
             let rows = PaletteRanking.rows(commands: entries.map(\.command), query: state.query, recents: recents.ids)
             GeometryReader { proxy in
@@ -211,7 +212,10 @@ struct CommandPaletteView: View {
         guard rows.indices.contains(index), let entry = entries.first(where: { $0.command.id == rows[index].command.id }) else { return }
         state.close()
         recents.record(entry.command.id)
-        PaletteRunner(viewModel: viewModel, chatStore: chatStore, rearrangeMode: rearrangeMode, dragCoordinator: dragCoordinator, modeStore: modeStore)
-            .run(entry.action)
+        PaletteRunner(
+            viewModel: viewModel, chatStore: chatStore, rearrangeMode: rearrangeMode, dragCoordinator: dragCoordinator,
+            modeStore: modeStore, devRebuild: devRebuild
+        )
+        .run(entry.action)
     }
 }
