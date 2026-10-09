@@ -1368,6 +1368,29 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.promptWatches[before])
     }
 
+    /// The navigator's watch asks herdr by pane id; left on the old one, the
+    /// launcher would stay hidden after the picker exits.
+    @MainActor
+    func testARenumberedPaneKeepsWatchingItsNavigator() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(
+            client: StubForegroundClient([.busy]), ghosttyFactory: factory, navigationPollInterval: .seconds(60)
+        )
+        let before = PaneID(rawValue: "w1:p2")
+        let after = PaneID(rawValue: "w2:p2")
+        viewModel.update(model: makeModel(holding: "w1:p2", in: "w1", tab: "w1:t1"), connection: .live)
+        _ = await viewModel.attachPane(before)
+        await viewModel.launchNavigator("rt cd", in: before)
+        let first = try XCTUnwrap(viewModel.navigationWatches[before])
+
+        viewModel.update(model: makeModel(holding: "w2:p2", in: "w2", tab: "w2:t1"), connection: .live)
+
+        XCTAssertTrue(first.isCancelled)
+        XCTAssertNil(viewModel.navigationWatches[before])
+        let moved = try XCTUnwrap(viewModel.navigationWatches[after])
+        moved.cancel()
+    }
+
     /// A pane herdr closes mid-poll: the registry forgets it and the sleeping
     /// task never asks herdr about it again.
     @MainActor

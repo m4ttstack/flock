@@ -763,8 +763,8 @@ public final class SessionViewModel {
     /// to, so the cell under the new id finds it warm instead of attaching a
     /// second bridge to the same terminal. Synchronous, on the model update
     /// that reports the move, so the new cell's first read already sees it.
-    /// The launcher's polls ask herdr by pane id, so they stop here and arm
-    /// again on the surface's next screen report.
+    /// The launcher's polls ask herdr by pane id, so a running one restarts
+    /// under the new id.
     private func rekeySurface(_ pane: PaneID, to newPane: PaneID) {
         guard ghosttySurfaces[newPane] == nil, let surface = ghosttySurfaces.removeValue(forKey: pane) else { return }
         ghosttySurfaces[newPane] = surface
@@ -781,10 +781,16 @@ public final class SessionViewModel {
         if !wasParked {
             paneScrollSubscriber?.subscribe(pane: newPane)
         }
-        promptWatches.removeValue(forKey: pane)?.cancel()
-        navigationWatches.removeValue(forKey: pane)?.cancel()
         paneLauncherRegistry.rekey(pane, to: newPane)
         launcherRegistryVersion += 1
+        if let watch = promptWatches.removeValue(forKey: pane) {
+            watch.cancel()
+            schedulePromptPoll(newPane)
+        }
+        if let watch = navigationWatches.removeValue(forKey: pane) {
+            watch.cancel()
+            navigationWatches[newPane] = Task { [weak self] in await self?.watchNavigation(in: newPane) }
+        }
         surface.rekey(to: newPane)
         HerdrStore.moveLog.log("surface \(pane.rawValue, privacy: .public) handed to \(newPane.rawValue, privacy: .public)")
     }
