@@ -51,6 +51,32 @@ final class BackgroundWorkTests: XCTestCase {
         XCTAssertEqual(BackgroundWork.reason(in: FooterFixture.monitors), "2 monitors")
     }
 
+    func testEveryCountedPillLabelIsTheReason() {
+        for label in [
+            "3 background tasks", "1 background task", "1 local agent", "2 local agents", "1 team", "2 MCP tasks",
+            "1 background dynamic workflow", "2 Artifact comment monitors",
+        ] {
+            let screen = FooterFixture.screen("  ⏵⏵ auto mode on · \(label) · ← for agents")
+            XCTAssertEqual(BackgroundWork.reason(in: screen), label)
+        }
+    }
+
+    func testAPillWithoutACountOrRunningElsewhereIsNoWork() {
+        for label in ["✢ 1 cloud session", "✢ 2 remote dynamic workflows", "dreaming", "auto-mode scan", "memory import 2/5"] {
+            XCTAssertNil(BackgroundWork.reason(in: FooterFixture.screen("  ⏵⏵ auto mode on · \(label) · ← for agents")), label)
+        }
+    }
+
+    func testOtherSessionsWaitingOnInputAreNotThisPanesWork() {
+        XCTAssertNil(BackgroundWork.reason(in: FooterFixture.screen("  ⏵⏵ auto mode on · ← 1 agent")))
+        XCTAssertNil(BackgroundWork.reason(in: FooterFixture.screen("  ⏵⏵ auto mode on · ← 2 done")))
+        XCTAssertEqual(
+            BackgroundWork.reason(in: FooterFixture.screen("  ⏵⏵ auto mode on · 3 background tasks · ← 1 agent")),
+            "3 background tasks"
+        )
+        XCTAssertEqual(BackgroundWork.reason(in: FooterFixture.screen("  ⏵⏵ auto mode on · 1 shell · ← 1 agent")), "1 shell")
+    }
+
     func testAPlainFooterHasNoReason() {
         XCTAssertNil(BackgroundWork.reason(in: FooterFixture.plain))
     }

@@ -71,7 +71,7 @@ final class BackgroundWorkRenderTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let cards = [
             card(.idle, background: "1 shell", title: "Watch the acme CI run", minutes: 3, theme: theme),
-            card(.done, background: "1 shell, 1 monitor", title: "Wait on the acme review", minutes: 12, theme: theme),
+            card(.done, background: "3 background tasks", title: "Wait on the acme review", minutes: 12, theme: theme),
             card(.working, title: "Refactor the request pipeline", minutes: 5, theme: theme),
             card(.idle, title: "Idle at the prompt", minutes: 40, theme: theme),
             card(.done, title: "Finished the acme migration", minutes: 2, theme: theme),
@@ -110,7 +110,7 @@ final class BackgroundWorkRenderTests: XCTestCase {
         VStack(spacing: 0) {
             TabHandleStrip(theme: theme, title: "api", status: .idle, isBackground: true, isFocusedTab: false)
             HStack(spacing: ChromeMetrics.Grid.miniPaneGap) {
-                MiniPane(theme: theme, title: "claude", status: .idle, backgroundWork: "1 shell")
+                MiniPane(theme: theme, title: "claude", status: .idle, backgroundWork: "3 background tasks")
                 MiniPane(theme: theme, title: "zsh", status: .idle)
             }
             .padding(ChromeMetrics.Grid.thumbnailPadding)

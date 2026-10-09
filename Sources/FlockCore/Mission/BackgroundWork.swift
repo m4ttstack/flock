@@ -14,16 +14,23 @@ public enum BackgroundWork {
         pane.agent == ChatButtonModel.claudeAgent && (pane.agentStatus == .idle || pane.agentStatus == .done)
     }
 
-    /// The footer's own words for the work, `1 shell` or `1 shell, 1 monitor`,
-    /// or `1 subagent` from the agents panel; nil for a footer that counts
-    /// none. Only rows below the last rule are read: that rule is the bottom
-    /// of the prompt box, so a transcript line quoting "2 shells" never counts.
+    /// The footer's own words for the work, `1 shell`, `1 shell, 1 monitor` or
+    /// `3 background tasks`, or `1 subagent` from the agents panel; nil for a
+    /// footer that counts none. Only rows below the last rule are read: that
+    /// rule is the bottom of the prompt box, so a transcript line quoting
+    /// "2 shells" never counts.
     public static func reason(in screen: String) -> String? {
         let lines = screen.components(separatedBy: "\n")
         guard let rule = lines.lastIndex(where: { $0.wholeMatch(of: /\s*─{10,}\s*/) != nil }) else { return nil }
         let footer = lines[(rule + 1)...]
+        // Claude Code's background-task pill names one kind of task
+        // (`2 shells, 1 monitor`, `1 local agent`, `1 MCP task`) and falls back
+        // to `N background tasks` for a mix. Cloud sessions run elsewhere and
+        // dreaming or a scan carries no count, so neither matches; nor does
+        // `← 1 agent`, which counts other sessions waiting on input.
+        let counted = /\b[1-9]\d* (?:shells?|(?:Artifact comment )?monitors?|local agents?|teams?|MCP tasks?|background (?:tasks?|dynamic workflows?))\b/
         for line in footer {
-            let segment = line.components(separatedBy: " · ").first { $0.contains(/\b[1-9]\d* (?:shells?|monitors?)\b/) }
+            let segment = line.components(separatedBy: " · ").first { $0.contains(counted) }
             if let segment { return segment.trimmingCharacters(in: .whitespaces) }
         }
         // The agents panel is drawn only while a subagent runs: `⏺ main`,
