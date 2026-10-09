@@ -71,6 +71,7 @@ public final class HerdrStore {
     // fired before the first converged) can never stomp the newer overlay.
     private var overlayGeneration = 0
     private var pendingConvergence: PendingConvergence?
+    private var landedByGeneration: [Int: [HerdrEvent]] = [:]
     private var convergenceContinuation: (generation: Int, continuation: CheckedContinuation<Bool, Never>)?
     private var resolvedConvergence: [Int: Bool] = [:]
     private var isStopped = false
@@ -139,11 +140,10 @@ public final class HerdrStore {
     /// whose ops produce no waitable convergence kind at all arms nothing
     /// and simply trusts the response.
     ///
-    /// Failure, or a watch that times out, reverts to the pre-overlay model
-    /// and asks for a fresh snapshot -- a failure can still have partially
-    /// applied real changes on herdr's side, so a plain revert to the
-    /// pre-plan model would hide those; the re-snapshot is what actually
-    /// resyncs.
+    /// Failure, or a watch that times out, replaces the overlay with a fresh
+    /// snapshot -- a failure can still have partially applied real changes
+    /// on herdr's side, so a plain revert to the pre-plan model would hide
+    /// those; the re-snapshot is what actually resyncs.
     public func execute(_ plan: OpPlan) async -> Result<ExecutedPlan, OpFailure> {
         guard !plan.ops.isEmpty else {
             return .success(ExecutedPlan(plan: plan, inverse: OpPlan(ops: [], label: plan.label)))
@@ -172,9 +172,11 @@ public final class HerdrStore {
                 if let summary = event.logSummary {
                     Self.moveLog.log("plan #\(generation) landed \(summary, privacy: .public)")
                 }
+                self?.landedByGeneration[generation, default: []].append(event)
                 self?.applyLiveEvent(event, logged: false)
             }
         }
+        let landed = landedByGeneration.removeValue(forKey: generation) ?? []
 
         switch result {
         case .success:
@@ -185,11 +187,11 @@ public final class HerdrStore {
                 let matched = await self.awaitConvergenceResolution(generation: generation, timeout: self.overlayConvergenceTimeout)
                 guard !matched else { return }
                 Self.moveLog.error("plan #\(generation) never confirmed; reverting")
-                await self.revertAndResnapshot(fallback: baseModel, generation: generation)
+                await self.revertAndResnapshot(fallback: baseModel, landed: landed, generation: generation)
             }
         case .failure(let failure):
             Self.moveLog.error("plan #\(generation) failed \(failure.code, privacy: .public): \(failure.message, privacy: .public)")
-            await revertAndResnapshot(fallback: baseModel, generation: generation)
+            await revertAndResnapshot(fallback: baseModel, landed: landed, generation: generation)
         }
         return result
     }
@@ -277,20 +279,27 @@ public final class HerdrStore {
         }
     }
 
-    private func revertAndResnapshot(fallback: SessionModel, generation: Int) async {
+    /// The overlay stays up until the snapshot answers: reverting first would
+    /// show every landed move undone for a round trip. Without a snapshot the
+    /// pre-plan model is the fallback, with what the plan's own responses
+    /// proved happened replayed onto it.
+    private func revertAndResnapshot(fallback: SessionModel, landed: [HerdrEvent], generation: Int) async {
         discardConvergence(generation)
         guard !isStopped, overlayGeneration == generation else { return }
-        model = fallback
         let client = HerdrClient(socketPath: socketPath, requestTimeout: requestTimeout)
-        guard let line = try? await client.requestRaw("session.snapshot", [:]),
-              let snapshot = try? HerdrDecoder.snapshot(fromResponseLine: line)
-        else {
-            Self.moveLog.error("plan #\(generation) resnapshot failed; showing the pre-plan model")
-            return
-        }
+        let snapshot = try? HerdrDecoder.snapshot(fromResponseLine: await client.requestRaw("session.snapshot", [:]))
         guard !isStopped, overlayGeneration == generation else { return }
-        Self.moveLog.log("plan #\(generation) resnapshot installed")
-        model = SessionModel(snapshot: snapshot)
+        if let snapshot {
+            Self.moveLog.log("plan #\(generation) resnapshot installed")
+            model = SessionModel(snapshot: snapshot)
+        } else {
+            Self.moveLog.error("plan #\(generation) resnapshot failed; showing the pre-plan model and \(landed.count) landed events")
+            var reverted = fallback
+            for event in landed {
+                apply(event, to: &reverted)
+            }
+            model = reverted
+        }
     }
 
     /// Every op this plan will run mapped to the live event family that

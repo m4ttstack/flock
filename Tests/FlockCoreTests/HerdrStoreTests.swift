@@ -397,6 +397,37 @@ final class HerdrStoreTests: XCTestCase {
         assertLanded("past the convergence timeout: the response confirmed the move")
     }
 
+    /// A plan that fails after a move landed resnapshots. Until that answers,
+    /// the move stays on screen: the pre-plan model would show the pane back
+    /// where it started, and a failed snapshot would leave it there.
+    @MainActor
+    func testAFailureAfterAMoveLandedKeepsTheMoveWhileItResnapshots() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "pane.move", withResultJSON: crossWorkspaceMoveResultJSON)
+        fake.failNext(method: "tab.rename", code: "tab_not_found", message: "gone")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let movedID = PaneID(rawValue: "w2:p2")
+        let hold = fake.holdNext(method: "session.snapshot")
+        let plan = OpPlan(ops: [
+            .movePaneToTab(PaneID(rawValue: "w1:p2"), tab: TabID(rawValue: "w2:t1"), target: nil, split: .right, ratio: nil),
+            .renameTab(TabID(rawValue: "w2:t1"), "renamed"),
+        ], label: "Move")
+        let task = Task { await store.execute(plan) }
+        try await waitUntil { fake.receivedRequests.filter { $0.method == "session.snapshot" }.count == 2 }
+
+        XCTAssertEqual(store.model?.panes[movedID]?.tabID, TabID(rawValue: "w2:t1"))
+        XCTAssertNil(store.model?.panes[PaneID(rawValue: "w1:p2")])
+        hold()
+        guard case .failure = await task.value else { return XCTFail("expected the rename to fail the plan") }
+    }
+
     @MainActor
     func testOverlayRevertsOnTimeoutWhenNoConvergenceEventArrives() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
