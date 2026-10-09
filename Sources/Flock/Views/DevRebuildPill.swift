@@ -29,10 +29,11 @@ struct DevRebuildPill: View {
             .background {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(theme.yellow.opacity(ChromeMetrics.TitleBar.rebuildTrackOpacity))
-                        Capsule().fill(theme.yellow.opacity(ChromeMetrics.TitleBar.rebuildFillOpacity))
+                        Rectangle().fill(theme.yellow.opacity(ChromeMetrics.TitleBar.rebuildTrackOpacity))
+                        Rectangle().fill(theme.yellow.opacity(ChromeMetrics.TitleBar.rebuildFillOpacity))
                             .frame(width: geometry.size.width * progress)
                     }
+                    .clipShape(Capsule())
                 }
             }
             .animation(.linear(duration: 0.5), value: progress)
