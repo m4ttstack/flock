@@ -4,12 +4,15 @@ import SwiftUI
 extension PaletteContext {
     /// This moment, read the way each command's own menu item or button reads it.
     @MainActor
-    static func current(viewModel: SessionViewModel, chatStore: ChatStore, rtInstalled: Bool, devRebuild: DevRebuild? = nil) -> PaletteContext {
-        let focused = viewModel.resolvedFocusedPaneID
+    static func current(
+        viewModel: SessionViewModel, navigator: JumpNavigator, chatStore: ChatStore, rtInstalled: Bool, devRebuild: DevRebuild? = nil
+    ) -> PaletteContext {
+        let focused = viewModel.shownFocusedPaneID
         let record = focused.flatMap { viewModel.model?.panes[$0] }
         let terminal = record?.terminalID
         return PaletteContext(
-            canvasPane: viewModel.canvasFocusedPaneID,
+            surface: navigator.paletteSurface,
+            pane: focused,
             focusedPaneZoomed: viewModel.canvasFocusedPaneIsZoomed,
             neighbors: Set(PaneDirection.allCases.filter { viewModel.focusedPaneHasNeighbor(toward: $0) }),
             modalUp: viewModel.modalIsUp,
@@ -26,6 +29,7 @@ extension PaletteContext {
             programHasMouse: focused.flatMap { viewModel.ghosttySurface(for: $0) }?.programHasMouse ?? false,
             hasSelectedWorkspace: viewModel.selectedWorkspaceID != nil,
             hasNotifications: !viewModel.attentionToasts.isEmpty,
+            hasNextCard: navigator.nextCard != nil,
             topBarOverlayUp: viewModel.topBarOverlay.openPin != nil,
             canRebuildDev: devRebuild.map { !$0.isBuilding } ?? false
         )
@@ -45,7 +49,7 @@ struct PaletteRunner {
     func run(_ action: PaletteAction) {
         switch action {
         case .paneMenu(let paneAction):
-            guard let pane = viewModel.canvasFocusedPaneID else { return }
+            guard let pane = viewModel.shownFocusedPaneID else { return }
             Task { await paneAction.perform(paneID: pane, on: viewModel) }
         case .direction(let command):
             Task {
@@ -56,9 +60,10 @@ struct PaletteRunner {
                 }
             }
         case .chat(let item):
-            item.perform(chatStore: chatStore, viewModel: viewModel)
+            guard let pane = viewModel.shownFocusedPaneID else { return }
+            item.perform(chatStore: chatStore, pane: pane)
         case .rt(let kind):
-            guard let pane = viewModel.resolvedFocusedPaneID, let record = viewModel.fullModel?.panes[pane] else { return }
+            guard let pane = viewModel.shownFocusedPaneID, let record = viewModel.fullModel?.panes[pane] else { return }
             Task { await viewModel.rt.open(kind, from: record) }
         case .toggleRightClicks:
             viewModel.toggleFocusedPaneRightClicks()

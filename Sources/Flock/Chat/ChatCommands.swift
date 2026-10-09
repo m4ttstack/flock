@@ -119,6 +119,11 @@ extension ChatMenuItem {
     @MainActor
     func perform(chatStore: ChatStore, viewModel: SessionViewModel) {
         guard let pane = viewModel.resolvedFocusedPaneID else { return }
+        perform(chatStore: chatStore, pane: pane)
+    }
+
+    @MainActor
+    func perform(chatStore: ChatStore, pane: PaneID) {
         switch self {
         case .chatPanel:
             chatStore.requestPopover(for: pane)

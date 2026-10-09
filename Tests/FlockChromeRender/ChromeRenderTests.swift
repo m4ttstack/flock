@@ -4411,7 +4411,11 @@ final class ChromeRenderTests: XCTestCase {
     /// way `CommandPaletteView` builds them.
     private func rankedRows(_ harness: Harness) -> [PaletteRanking.Row] {
         let entries = PaletteCatalog.entries(
-            in: .current(viewModel: harness.viewModel, chatStore: harness.chatStore, rtInstalled: RtAvailability.installed)
+            in: .current(
+                viewModel: harness.viewModel,
+                navigator: JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore),
+                chatStore: harness.chatStore, rtInstalled: RtAvailability.installed
+            )
         )
         return PaletteRanking.rows(commands: entries.map(\.command), query: harness.palette.query, recents: harness.paletteRecents.ids)
     }

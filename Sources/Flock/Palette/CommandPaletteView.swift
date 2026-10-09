@@ -26,7 +26,10 @@ struct CommandPaletteView: View {
     var body: some View {
         if state.isOpen {
             let entries = PaletteCatalog.entries(
-                in: .current(viewModel: viewModel, chatStore: chatStore, rtInstalled: rtInstalled, devRebuild: devRebuild)
+                in: .current(
+                    viewModel: viewModel, navigator: JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore),
+                    chatStore: chatStore, rtInstalled: rtInstalled, devRebuild: devRebuild
+                )
             )
             let rows = PaletteRanking.rows(commands: entries.map(\.command), query: state.query, recents: recents.ids)
             GeometryReader { proxy in

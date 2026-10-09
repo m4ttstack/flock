@@ -22,6 +22,10 @@ struct MainWindow: View {
 
     private var theme: Theme { themeStore.active }
 
+    private var paletteSurface: PaletteSurface {
+        JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesMode).paletteSurface
+    }
+
     /// What Overview's Blocked group holds, so the badge counts only panes
     /// Overview shows.
     private var blockedCount: Int {
@@ -79,7 +83,8 @@ struct MainWindow: View {
                         }
                     }
                     // On the tab area alone, so the rail stays clear and
-                    // undimmed. The grid mounts its own over a focused pane.
+                    // undimmed. The grid mounts its own (rt modal and
+                    // palette) over a focused pane.
                     .overlay { RtModalView(theme: theme, viewModel: viewModel) }
                     .anchorPreference(key: TabAreaAnchor.self, value: .bounds) { $0 }
                     .overlay { CommandPaletteView(theme: theme, viewModel: viewModel) }
@@ -130,12 +135,13 @@ struct MainWindow: View {
         // AppKit event location be converted into it.
         .background(DragSpaceAnchor(coordinator: dragCoordinator))
         .overlay { DragLayer() }
-        // Here, where both always render: the grid replaces the tab area the
-        // palette draws over, and a rename editor on the live rail needs the
-        // Return and Esc the palette would take.
+        // Here, where both always render: each surface mounts its own
+        // palette, and a rename editor on the live rail needs the Return and
+        // Esc the palette would take.
         .onChange(of: dragCoordinator.isGridShown) { _, shown in
-            if shown { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
+            if shown { switcher.cancel(); tabSwitcher.cancel() }
         }
+        .onChange(of: paletteSurface) { commandPalette.close() }
         .modifier(TopBarOverlayExclusion(viewModel: viewModel))
         // Here, where it runs once whichever view draws the stack: the dock,
         // or mission control's Needs you lane, which has no dock. It runs for

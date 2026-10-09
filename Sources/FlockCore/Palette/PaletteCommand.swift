@@ -14,12 +14,17 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
     public let shortcut: String?
     /// Searchable, and drawn where a shortcut would be when there is none.
     public let hint: String?
+    public let surfaces: Set<PaletteSurface>
 
-    public init(id: String, namespace: PaletteNamespace, name: String, shortcut: String? = nil, hint: String? = nil) {
+    public init(
+        id: String, namespace: PaletteNamespace, name: String, shortcut: String? = nil, hint: String? = nil,
+        surfaces: Set<PaletteSurface> = PaletteSurface.everywhere
+    ) {
         self.id = id
         self.namespace = namespace
         self.name = name
         self.shortcut = shortcut
         self.hint = hint
+        self.surfaces = surfaces
     }
 }
