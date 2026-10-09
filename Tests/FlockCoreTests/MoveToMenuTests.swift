@@ -98,6 +98,19 @@ final class MoveToMenuTests: XCTestCase {
         XCTAssertEqual(workspaces.map(\.identityKey), ["pin:a", "pin:b"])
     }
 
+    func testBoardsReviewWorkspacesAndHerdsAreNotTargets() {
+        var model = canonicalFixture()
+        model.workspaces += [
+            workspaceRecord("w3", activeTab: "w3:t1", label: "reviews"),
+            workspaceRecord("w4", activeTab: "w4:t1", label: "\(HerdWorkspace.labelPrefix)upgrade"),
+        ]
+        let sections = RailSections(model: model, board: .defaults)
+
+        let entries = MoveToMenu.entries(for: PaneID(rawValue: "w1:p1"), model: model, sections: sections)
+
+        XCTAssertEqual(entries.filter { $0.group == .workspaces }.map(\.label), ["two"])
+    }
+
     func testTheMenuGroupsTabsAndWorkspacesUnderHeadersAndSetsTheCreateRowsApart() throws {
         let model = canonicalFixture()
         let entries = PaneMenuModel.entries(

@@ -11,7 +11,7 @@ import FlockCore
 enum PaneMenuBuilder {
     static func menu(
         for paneID: PaneID, viewModel: SessionViewModel, solo: Bool = false, sections: RailSections? = nil,
-        symbols: PaneMenuSymbols = PaneMenuSymbols(identity: nil, boardLogo: nil)
+        symbols: PaneMenuSymbols = PaneMenuSymbols(identity: nil)
     ) -> NSMenu? {
         guard let model = viewModel.model else { return nil }
         let entries = PaneMenuModel.entries(
@@ -57,21 +57,13 @@ enum PaneMenuBuilder {
     }
 }
 
-/// The mark the rail draws for a row's identity key: Board's logo for its
-/// workspaces, the chosen symbol for every other.
+/// The symbol the rail draws for a row's identity key.
 @MainActor
 struct PaneMenuSymbols {
     let identity: WorkspaceIdentityStore?
-    let boardLogo: NSImage?
 
     func image(for key: String?) -> NSImage? {
-        guard let key else { return nil }
-        if key == WorkspaceIdentityStore.boardKey, let boardLogo {
-            let logo = boardLogo.copy() as? NSImage
-            logo?.size = NSSize(width: 16, height: 16)
-            return logo
-        }
-        guard let name = identity?.symbol(for: key) else { return nil }
+        guard let key, let name = identity?.symbol(for: key) else { return nil }
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 }

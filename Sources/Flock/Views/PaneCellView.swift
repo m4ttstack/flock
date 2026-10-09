@@ -796,7 +796,7 @@ struct PaneCellView: View {
                     menuProvider: {
                         PaneMenuBuilder.menu(
                             for: pane.paneID, viewModel: viewModel, solo: role == .solo, sections: menuSections,
-                            symbols: PaneMenuSymbols(identity: identity, boardLogo: board?.logo)
+                            symbols: PaneMenuSymbols(identity: identity)
                         )
                     },
                     onBodyDragBegan: handleBodyDragBegan
@@ -901,7 +901,7 @@ struct PaneCellView: View {
             guard let action = entry.action else { return }
             Task { await action.perform(paneID: pane.paneID, on: viewModel) }
         } label: {
-            if let image = PaneMenuSymbols(identity: identity, boardLogo: board?.logo).image(for: entry.identityKey) {
+            if let image = PaneMenuSymbols(identity: identity).image(for: entry.identityKey) {
                 Label { Text(entry.label) } icon: { Image(nsImage: image) }
             } else {
                 Text(entry.label)

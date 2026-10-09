@@ -13,7 +13,7 @@ public struct MoveToEntry: Equatable, Sendable {
     public let accessibilityIdentifier: String
     public let group: Group
     /// The `WorkspaceIdentityStore` key whose symbol marks a workspace row;
-    /// nil for a row with none (a tab, a herd, a create row).
+    /// nil for a tab or a create row.
     public let identityKey: String?
 
     public init(label: String, target: DropTarget, accessibilityIdentifier: String, group: Group, identityKey: String? = nil) {
@@ -36,7 +36,8 @@ public enum MoveToMenu {
     /// in `model` at all.
     ///
     /// With `sections`, workspaces are listed in rail order and named as the
-    /// rail names them, empty rail pins included; without, in herdr's order.
+    /// rail names them, empty rail pins included, and Board's review
+    /// workspaces and the herds' are left out; without, in herdr's order.
     public static func entries(for pane: PaneID, model: SessionModel, sections: RailSections? = nil) -> [MoveToEntry] {
         guard let record = model.panes[pane] else { return [] }
         var entries: [MoveToEntry] = []
@@ -89,19 +90,18 @@ public enum MoveToMenu {
         guard let sections else {
             return model.workspaces.map { row($0, key: $0.workspaceID.rawValue) }
         }
-        var rows: [WorkspaceRow] = sections.pinned.map { pinned in
+        let setAside = sections.reviewIDs.union(sections.herdIDs)
+        var rows: [WorkspaceRow] = sections.pinned.compactMap { pinned in
             guard let record = pinned.record else {
                 return WorkspaceRow(
                     workspace: nil, label: pinned.pin.name, target: .emptyPin(pinned.pin.id),
                     identifier: pinned.pin.identityKey, identityKey: pinned.pin.identityKey
                 )
             }
+            guard !setAside.contains(record.workspaceID) else { return nil }
             return row(record, label: pinned.pin.name, key: pinned.pin.identityKey)
         }
-        rows += sections.workspaces.map { row($0, key: $0.workspaceID.rawValue) }
-        rows += sections.board.map { row($0, key: WorkspaceIdentityStore.boardKey) }
-        let records = Dictionary(model.workspaces.map { ($0.workspaceID, $0) }, uniquingKeysWith: { first, _ in first })
-        rows += sections.herds.compactMap { herd in records[herd.workspaceID].map { row($0, label: herd.name, key: nil) } }
+        rows += sections.workspaces.filter { !setAside.contains($0.workspaceID) }.map { row($0, key: $0.workspaceID.rawValue) }
         return rows
     }
 
