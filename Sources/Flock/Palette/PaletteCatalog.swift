@@ -114,8 +114,12 @@ enum PaletteCatalog {
                     on: PaneDirectionCommand.paletteSurfaces, .direction($0)
                 )
             }
-        return menu + extras + directions
+        // Last, since the first row is selected on open and Return would run it.
+        let (closes, others) = (menu.filter { $0.command.id == closeID }, menu.filter { $0.command.id != closeID })
+        return others + extras + directions + closes
     }
+
+    private static let closeID = id(.pane, FocusedPaneCommand.closePane.title)
 
     private static func chat(_ context: PaletteContext) -> [PaletteEntry] {
         guard let rows = context.chatRows, context.focusedAgent == ChatButtonModel.claudeAgent else { return [] }

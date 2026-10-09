@@ -44,6 +44,15 @@ final class PaletteCatalogTests: XCTestCase {
         XCTAssertFalse(listed.contains { $0.hasPrefix("tab.") || $0.hasPrefix("workspace.") })
     }
 
+    /// The first row is selected when the palette opens, so ⌘K then Return
+    /// must never close the pane on any surface.
+    func testClosePaneIsTheLastPaneRow() {
+        for surface in [PaletteSurface.workspaces, .overviewPane] {
+            let paneRows = ids(PaletteContext(surface: surface, pane: pane, neighbors: [.left])).filter { $0.hasPrefix("pane.") }
+            XCTAssertEqual(paneRows.last, "pane.closepane", "\(surface)")
+        }
+    }
+
     func testEveryRowIsOfferedOnlyOnASurfaceItNames() {
         let context = PaletteContext(
             pane: pane, neighbors: Set(PaneDirection.allCases), rtInstalled: true, rtCommands: rtRows, chatRows: chatRows,
