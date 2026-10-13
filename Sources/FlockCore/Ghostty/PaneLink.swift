@@ -16,14 +16,13 @@ public enum PaneLink: Equatable {
         _ text: String?, folder: String?, home: String, exists: (String) -> Bool
     ) -> PaneLink? {
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        var candidate = text
         if text.hasPrefix("file://") {
-            guard let path = URL(string: text)?.path, exists(path) else { return nil }
-            return .file(URL(fileURLWithPath: path))
-        }
-        if text.range(of: #"^[A-Za-z][A-Za-z0-9+.\-]*://|^mailto:"#, options: .regularExpression) != nil {
+            guard let path = String(text.dropFirst("file://".count)).removingPercentEncoding else { return nil }
+            candidate = path
+        } else if text.range(of: #"^[A-Za-z][A-Za-z0-9+.\-]*://|^mailto:"#, options: .regularExpression) != nil {
             return URL(string: text).map(PaneLink.web)
         }
-        var candidate = text
         while true {
             guard let path = absolutePath(candidate, folder: folder, home: home) else { return nil }
             if exists(path) { return .file(URL(fileURLWithPath: path)) }

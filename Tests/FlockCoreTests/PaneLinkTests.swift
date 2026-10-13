@@ -68,6 +68,8 @@ final class PaneLinkTests: XCTestCase {
 
     func testAFileAddressIsAFile() {
         XCTAssertEqual(resolve("file:///tmp/report.html", existing: ["/tmp/report.html"]), file("/tmp/report.html"))
+        XCTAssertEqual(resolve("file:///tmp/report.html:12", existing: ["/tmp/report.html"]), file("/tmp/report.html"))
+        XCTAssertEqual(resolve("file:///tmp/my%20report.html.", existing: ["/tmp/my report.html"]), file("/tmp/my report.html"))
     }
 
     /// `URL(string:)` reads `main.swift:12` as an address with the scheme
