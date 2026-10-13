@@ -132,6 +132,67 @@ final class PaneLinkTests: XCTestCase {
         XCTAssertNil(PaneLink.address(inRow: "", column: 0))
     }
 
+    // MARK: - A link on a row
+
+    private func match(_ row: String, _ column: Int, existing: Set<String>) -> PaneLink.Match? {
+        PaneLink.match(inRow: row, column: column, folder: folder, home: home, handled: { $0.scheme == "vscode" }) {
+            existing.contains($0)
+        }
+    }
+
+    /// libghostty reads the whole of this as one path.
+    func testAPathEndsWhereTheCommandAfterItBegins() {
+        let line = "~/Documents/src && git pull && bun run ui:build"
+        let found = match(line, 4, existing: ["/Users/acme/Documents/src"])
+        XCTAssertEqual(found, PaneLink.Match(link: file("/Users/acme/Documents/src"), columns: 0..<15))
+        XCTAssertNil(match(line, 20, existing: ["/Users/acme/Documents/src"]))
+    }
+
+    func testAPathMayHoldSpaces() {
+        let line = "see ~/Library/Application Support/acme/log.txt for more"
+        let path = "/Users/acme/Library/Application Support/acme/log.txt"
+        let found = match(line, 28, existing: [path])
+        XCTAssertEqual(found, PaneLink.Match(link: file(path), columns: 4..<46))
+    }
+
+    func testTheLongestPathOnDiskWins() {
+        let line = "/tmp/a b"
+        XCTAssertEqual(match(line, 2, existing: ["/tmp/a", "/tmp/a b"])?.columns, 0..<8)
+    }
+
+    func testARelativePathIsOneWord() {
+        let line = "- M3, first report: m3-exit/sheet.html (new)"
+        let path = "/Users/acme/work/app/m3-exit/sheet.html"
+        XCTAssertEqual(match(line, 25, existing: [path]), PaneLink.Match(link: file(path), columns: 20..<38))
+    }
+
+    func testAPositionAndBracketsAreOutsideThePath() {
+        let line = "at (Sources/main.swift:12)."
+        let path = "/Users/acme/work/app/Sources/main.swift"
+        XCTAssertEqual(match(line, 10, existing: [path])?.columns, 4..<22)
+        XCTAssertNil(match(line, 23, existing: [path]))
+    }
+
+    func testAPathThatIsNotOnDiskIsNoLink() {
+        XCTAssertNil(match("~/gone/sheet.html and/or more", 3, existing: []))
+        XCTAssertNil(match("~/gone/sheet.html and/or more", 20, existing: []))
+    }
+
+    func testASlashAloneIsNoLink() {
+        XCTAssertNil(match("a / b // c", 2, existing: ["/"]))
+        XCTAssertNil(match("a / b // c", 6, existing: ["/"]))
+    }
+
+    func testAnAddressInAnySchemeIsALink() {
+        let line = "open vscode://file/tmp/x, then https://example.com."
+        XCTAssertEqual(
+            match(line, 8, existing: []),
+            PaneLink.Match(link: .web(URL(string: "vscode://file/tmp/x")!), columns: 5..<24)
+        )
+        XCTAssertEqual(match(line, 35, existing: [])?.link, .web(URL(string: "https://example.com")!))
+        XCTAssertNil(match("zed://file/tmp/x", 3, existing: []))
+    }
+
     func testNothingHoveredIsNothing() {
         XCTAssertNil(resolve(nil, existing: []))
         XCTAssertNil(resolve("", existing: []))

@@ -10,6 +10,14 @@ import Observation
 final class LinkChipModel {
     private(set) var chip: LinkChip?
     private(set) var flash: LinkChip.Action?
+    /// Under the link the pointer is on, in the pane's top-left space. flock
+    /// draws it: libghostty underlines what its own matcher takes for a
+    /// link, which is not what `PaneLink.match` does.
+    private(set) var underline: CGRect?
+
+    func underline(_ rect: CGRect?) {
+        if rect != underline { underline = rect }
+    }
     /// The chip as drawn, in the pane's top-left space. The surface under it
     /// reads this to leave the chip's clicks and hovers alone.
     @ObservationIgnored var frame: CGRect?

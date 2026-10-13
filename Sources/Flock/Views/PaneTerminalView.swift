@@ -118,6 +118,15 @@ struct GhosttyPaneTerminalView: View {
             }
         }
         .overlay(alignment: .topLeading) {
+            if let line = session?.linkChip.underline {
+                Rectangle()
+                    .fill(theme.accent)
+                    .frame(width: line.width, height: line.height)
+                    .offset(x: line.minX, y: line.minY)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .topLeading) {
             if let session, let chip = session.linkChip.chip {
                 linkChip(chip, in: session)
             }
