@@ -379,7 +379,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
                 rightButtonRoute = nil
                 let menu = NSMenu()
                 linkMenuItems(for: link).forEach(menu.addItem)
-                NSMenu.popUpContextMenu(menu, with: event, for: self)
+                // Not `popUpContextMenu`: this view takes text input, and to
+                // a context menu on one macOS adds its own AutoFill row.
+                menu.popUp(positioning: nil, at: convert(event.locationInWindow, from: nil), in: self)
                 return
             }
             requestWindowFirstResponder()
