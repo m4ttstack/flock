@@ -209,6 +209,14 @@ final class PaneLinkTests: XCTestCase {
         XCTAssertNil(match("zed://file/tmp/x", 3, existing: []))
     }
 
+    func testAnAddressKeepsABracketedTail() {
+        let line = "  https://example.com/wiki/Rust_(game)"
+        let whole = PaneLink.Match(link: .web(URL(string: "https://example.com/wiki/Rust_(game)")!), columns: 2..<38)
+        XCTAssertEqual(match(line, 2, existing: []), whole)
+        XCTAssertEqual(match(line, 30, existing: []), whole)
+        XCTAssertEqual(match(line, 37, existing: []), whole)
+    }
+
     func testNothingHoveredIsNothing() {
         XCTAssertNil(resolve(nil, existing: []))
         XCTAssertNil(resolve("", existing: []))

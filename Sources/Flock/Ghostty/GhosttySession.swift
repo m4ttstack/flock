@@ -626,8 +626,7 @@ final class GhosttySession {
 
     /// The cell the pointer is over, counted from the surface's top left.
     private var hoverCell: (column: Int, row: Int)?
-    /// One row read per cell crossed, not per pointer move.
-    private var scannedMatch: (column: Int, row: Int, match: PaneLink.Match?)?
+    private var scannedMatch: (column: Int, row: Int, line: String, match: PaneLink.Match?)?
 
     private func noteHover(at position: CGPoint, in view: NSView) {
         guard let cell = state.cellSize, cell.width > 0, cell.height > 0 else {
@@ -638,35 +637,34 @@ final class GhosttySession {
             column: Int(position.x * scale) / cell.width,
             row: Int((view.bounds.height - position.y) * scale) / cell.height
         )
-        if let hoverCell, hoverCell == next { return }
         hoverCell = next
+        startLinkPoll()
     }
 
-    /// A redraw is the only word that the screen changed, and one comes for
-    /// every frame of streaming output, so the look is taken once the burst
-    /// has had this long, and only with the pointer over the pane.
-    private static let linkRecheckDelay: Duration = .milliseconds(100)
-    private var linkRecheck: Task<Void, Never>?
+    /// Text moves under a pointer that does not, and libghostty says nothing
+    /// a surface can hear when it does, so the row under the pointer is read
+    /// again this often for as long as the pointer is over the pane.
+    private static let linkPollInterval: Duration = .milliseconds(150)
+    private var linkPoll: Task<Void, Never>?
 
-    private func scheduleLinkRecheck() {
-        guard hoverCell != nil, linkRecheck == nil else { return }
-        linkRecheck = Task { [weak self] in
-            try? await Task.sleep(for: Self.linkRecheckDelay)
-            guard let self else { return }
-            self.linkRecheck = nil
-            self.scannedMatch = nil
-            self.view?.refreshLinkHover()
+    private func startLinkPoll() {
+        guard linkPoll == nil else { return }
+        linkPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.linkPollInterval)
+                guard let self, self.hoverCell != nil else { break }
+                self.view?.refreshLinkHover()
+            }
+            self?.linkPoll = nil
         }
     }
 
     /// The link under the pointer, by flock's own reading of the one row it
     /// is on (`PaneLink.match`). A link wrapped onto a second row is found
-    /// only up to the wrap.
+    /// only up to the wrap. The disk is asked only when the row's text or
+    /// the cell has changed since the last look.
     var hoveredMatch: PaneLink.Match? {
         guard let surface, let cell = hoverCell, cell.column >= 0, cell.row >= 0 else { return nil }
-        if let scannedMatch, scannedMatch.column == cell.column, scannedMatch.row == cell.row {
-            return scannedMatch.match
-        }
         let size = ghostty_surface_size(surface)
         guard size.columns > 0, cell.row < Int(size.rows) else { return nil }
         let row = UInt32(cell.row)
@@ -676,20 +674,22 @@ final class GhosttySession {
                 tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: UInt32(size.columns) - 1, y: row),
             rectangle: false)
         var text = ghostty_text_s()
-        var found: PaneLink.Match?
+        var line = ""
         if ghostty_surface_read_text(surface, selection, &text) {
-            if text.text_len > 0 {
-                found = PaneLink.match(
-                    inRow: String(cString: text.text), column: cell.column,
-                    folder: linkFolder?(), home: NSHomeDirectory(),
-                    handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
-                ) {
-                    FileManager.default.fileExists(atPath: $0)
-                }
-            }
+            if text.text_len > 0 { line = String(cString: text.text) }
             ghostty_surface_free_text(surface, &text)
         }
-        scannedMatch = (cell.column, cell.row, found)
+        if let scannedMatch, scannedMatch.column == cell.column, scannedMatch.row == cell.row,
+           scannedMatch.line == line {
+            return scannedMatch.match
+        }
+        let found = PaneLink.match(
+            inRow: line, column: cell.column, folder: linkFolder?(), home: NSHomeDirectory(),
+            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
+        ) {
+            FileManager.default.fileExists(atPath: $0)
+        }
+        scannedMatch = (cell.column, cell.row, line, found)
         return found
     }
 
@@ -859,7 +859,6 @@ final class GhosttySession {
         switch action.tag {
         case GHOSTTY_ACTION_RENDER:
             requestRender()
-            scheduleLinkRecheck()
         case GHOSTTY_ACTION_SET_TITLE:
             state.title = text
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
