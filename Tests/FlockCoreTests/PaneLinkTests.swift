@@ -28,6 +28,11 @@ final class PaneLinkTests: XCTestCase {
         XCTAssertNil(resolve("vscode://file/Users/acme/notes.md", existing: []))
     }
 
+    func testAnAddressWithoutSlashesIsStillAnAddress() {
+        let link = PaneLink.resolve("ssh:acme.example.com", folder: folder, home: home, handled: { _ in true }) { _ in false }
+        XCTAssertEqual(link, .web(URL(string: "ssh:acme.example.com")!))
+    }
+
     func testAnAddressSomeAppOpensIsALink() {
         let link = PaneLink.resolve("vscode://file/notes.md", folder: folder, home: home, handled: { $0.scheme == "vscode" }) { _ in
             false

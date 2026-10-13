@@ -23,7 +23,7 @@ public enum PaneLink: Equatable {
         if text.hasPrefix("file://") {
             guard let path = String(text.dropFirst("file://".count)).removingPercentEncoding else { return nil }
             candidate = path
-        } else if text.range(of: #"^[A-Za-z][A-Za-z0-9+.\-]*://|^mailto:"#, options: .regularExpression) != nil {
+        } else if text.range(of: Self.address, options: [.regularExpression, .caseInsensitive]) != nil {
             guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
                   LinkTrust.builtIn.contains(scheme) || handled(url)
             else { return nil }
@@ -36,6 +36,11 @@ public enum PaneLink: Equatable {
             candidate = shorter
         }
     }
+
+    /// Anything with `://`, and the schemes libghostty's matcher takes
+    /// without it. A bare `name:` is left to the paths: `main.swift:12` is a
+    /// file and a line.
+    private static let address = #"^[a-z][a-z0-9+.\-]*://|^(mailto|ssh|tel|magnet|news):"#
 
     private static func absolutePath(_ path: String, folder: String?, home: String) -> String? {
         let joined: String
