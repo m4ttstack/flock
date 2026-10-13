@@ -19,6 +19,22 @@ final class PaneLinkTests: XCTestCase {
         XCTAssertEqual(resolve("https://example.com/a?b=1", existing: []), .web(URL(string: "https://example.com/a?b=1")!))
     }
 
+    func testAMailAddressOpens() {
+        XCTAssertEqual(resolve("mailto:sam@example.com", existing: []), .web(URL(string: "mailto:sam@example.com")!))
+    }
+
+    /// A program in the pane chooses what it prints, and a click must not
+    /// let it choose which app that text is handed to.
+    func testAnAddressForSomeOtherAppIsNothing() {
+        XCTAssertNil(resolve("x-man-page://ls", existing: []))
+        XCTAssertNil(resolve("vscode://file/Users/acme/notes.md", existing: []))
+        XCTAssertNil(resolve("ssh://acme.example.com", existing: []))
+    }
+
+    func testTheSchemeIsReadWithoutRegardToCase() {
+        XCTAssertEqual(resolve("HTTPS://example.com", existing: []), .web(URL(string: "HTTPS://example.com")!))
+    }
+
     func testATildePathIsUnderHome() {
         let path = "/Users/acme/.cache/runs/sheet.html"
         XCTAssertEqual(resolve("~/.cache/runs/sheet.html", existing: [path]), file(path))

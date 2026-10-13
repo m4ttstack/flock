@@ -21,7 +21,10 @@ public enum PaneLink: Equatable {
             guard let path = String(text.dropFirst("file://".count)).removingPercentEncoding else { return nil }
             candidate = path
         } else if text.range(of: #"^[A-Za-z][A-Za-z0-9+.\-]*://|^mailto:"#, options: .regularExpression) != nil {
-            return URL(string: text).map(PaneLink.web)
+            guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
+                  openableSchemes.contains(scheme)
+            else { return nil }
+            return .web(url)
         }
         while true {
             guard let path = absolutePath(candidate, folder: folder, home: home) else { return nil }
@@ -30,6 +33,10 @@ public enum PaneLink: Equatable {
             candidate = shorter
         }
     }
+
+    /// Any other scheme hands text a pane's program printed to whichever
+    /// app registered for it.
+    private static let openableSchemes: Set<String> = ["http", "https", "mailto"]
 
     private static func absolutePath(_ path: String, folder: String?, home: String) -> String? {
         let joined: String

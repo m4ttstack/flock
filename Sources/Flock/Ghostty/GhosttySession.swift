@@ -615,9 +615,24 @@ final class GhosttySession {
         }
     }
 
+    /// A file that opening would run (an app, or anything executable) is
+    /// shown in Finder instead: the path came from whatever the pane's
+    /// program printed, and a click on text must not start a program.
     func open(_ link: PaneLink) {
         switch link {
-        case .file(let url), .web(let url): NSWorkspace.shared.open(url)
+        case .web(let url):
+            NSWorkspace.shared.open(url)
+        case .file(let url):
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            let runs = isDirectory.boolValue
+                ? NSWorkspace.shared.isFilePackage(atPath: url.path)
+                : FileManager.default.isExecutableFile(atPath: url.path)
+            if runs {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } else {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 
