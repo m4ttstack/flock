@@ -6,21 +6,22 @@ import SwiftUI
 struct LinkChipView: View {
     let theme: Theme
     let link: PaneLink
+    var flash: LinkChip.Action?
     let onOpen: () -> Void
     let onReveal: () -> Void
     let onCopy: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
-            LinkChipButton(theme: theme, title: "Open", symbol: "arrow.up.right", id: "open", action: onOpen)
+            LinkChipButton(theme: theme, title: "Open", symbol: "arrow.up.right", id: "open", lit: flash == .open, action: onOpen)
             Rectangle()
                 .fill(theme.rule)
                 .frame(width: ChromeMetrics.ruleWidth, height: ChromeMetrics.LinkChip.dividerHeight)
             switch link {
             case .file:
-                LinkChipButton(theme: theme, title: "Reveal", symbol: "folder", id: "reveal", action: onReveal)
+                LinkChipButton(theme: theme, title: "Reveal", symbol: "folder", id: "reveal", lit: flash == .second, action: onReveal)
             case .web:
-                LinkChipButton(theme: theme, title: "Copy", symbol: "doc.on.doc", id: "copy", action: onCopy)
+                LinkChipButton(theme: theme, title: "Copy", symbol: "doc.on.doc", id: "copy", lit: flash == .second, action: onCopy)
             }
         }
         .frame(height: ChromeMetrics.LinkChip.height)
@@ -42,6 +43,7 @@ private struct LinkChipButton: View {
     let title: String
     let symbol: String
     let id: String
+    let lit: Bool
     let action: () -> Void
 
     @State private var isHovering = false
@@ -58,7 +60,14 @@ private struct LinkChipButton: View {
             }
             .padding(.horizontal, ChromeMetrics.LinkChip.horizontalPadding)
             .frame(maxHeight: .infinity)
-            .background { if isHovering { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.LinkChip.cornerRadius) } }
+            .background {
+                if lit {
+                    RoundedRectangle(cornerRadius: ChromeMetrics.LinkChip.cornerRadius)
+                        .fill(theme.accent.opacity(ChromeMetrics.LinkChip.flashOpacity))
+                } else if isHovering {
+                    HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.LinkChip.cornerRadius)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

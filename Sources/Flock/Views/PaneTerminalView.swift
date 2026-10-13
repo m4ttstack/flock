@@ -136,21 +136,21 @@ struct GhosttyPaneTerminalView: View {
                 )
             }
             LinkChipView(
-                theme: theme, link: chip.link,
+                theme: theme, link: chip.link, flash: session.linkChip.flash,
                 onOpen: {
                     session.open(chip.link)
-                    session.linkChip.dismiss()
+                    session.linkChip.act(.open, on: chip.link, anchor: chip.anchor)
                 },
                 onReveal: {
                     if case .file(let url) = chip.link { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                    session.linkChip.dismiss()
+                    session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
                 },
                 onCopy: {
                     if case .web(let url) = chip.link {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(url.absoluteString, forType: .string)
                     }
-                    session.linkChip.dismiss()
+                    session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
                 }
             )
             .onHover { session.linkChip.chipHover($0) }

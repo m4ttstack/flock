@@ -226,6 +226,8 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 9
         static let symbolGap: CGFloat = 4
         static let dividerHeight: CGFloat = 12
+        /// The accent over a button whose action was just taken.
+        static let flashOpacity: Double = 0.35
         static let shadowRadius: CGFloat = 6
         /// Between the chip and the line its link is on.
         static let gap: CGFloat = 3

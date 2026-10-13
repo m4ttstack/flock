@@ -276,7 +276,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// steals AppKit's first-responder status out from under whichever pane
     /// truly holds it right now.
     override func mouseDown(with event: NSEvent) {
-        session.linkChip.dismiss()
         // Checked before anything is routed: while rearranging, the whole
         // pane is a drag surface, so an unfocused pane's first click starts a
         // drag rather than firing `onPrimaryClick`'s real `pane.focus` RPC. At
@@ -285,10 +284,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if PaneGrabRegion.bodyArmsDrag(at: topLeftPoint(event), in: topLeftBounds, rearrangeActive: rearrangeActive) {
             pendingGrab = PendingGrab(origin: topLeftPoint(event))
             leftButtonRoute = nil
+            session.linkChip.dismiss()
             return
         }
         guard wantsFocus else {
             leftButtonRoute = nil
+            session.linkChip.dismiss()
             onPrimaryClick?()
             return
         }
@@ -304,6 +305,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             leftButtonRoute = nil
             return
         }
+        session.linkChip.dismiss()
         leftButtonRoute = sendButtonDown(.left, event: event)
     }
 
@@ -331,6 +333,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if let press = pendingLinkClick {
             pendingLinkClick = nil
             session.open(press.link)
+            if let anchor = linkAnchor(at: topLeftPoint(press.down)) {
+                session.linkChip.act(.open, on: press.link, anchor: anchor)
+            }
             return
         }
         sendButtonUp(.left, event: event, route: leftButtonRoute)
@@ -486,15 +491,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         let point = topLeftPoint(event)
         if session.linkChip.frame?.contains(point) == true { return }
         session.sendHoverPosition(event)
-        guard !paneDragInProgress, !isLauncherShowing, let cell = cellSizeInPoints() else {
+        guard !paneDragInProgress, !isLauncherShowing, let anchor = linkAnchor(at: point) else {
             session.linkChip.dismiss()
             return
         }
+        session.linkChip.hover(session.hoveredLink, anchor: anchor)
+    }
+
+    private func linkAnchor(at point: CGPoint) -> LinkChip.Anchor? {
+        guard let cell = cellSizeInPoints() else { return nil }
         let lineTop = (point.y / cell.height).rounded(.down) * cell.height
-        session.linkChip.hover(
-            session.hoveredLink,
-            anchor: LinkChip.Anchor(x: point.x, lineTop: lineTop, lineBottom: lineTop + cell.height)
-        )
+        return LinkChip.Anchor(x: point.x, lineTop: lineTop, lineBottom: lineTop + cell.height)
     }
 
     /// A drag belongs to whatever its button's DOWN decided, kept in step
@@ -513,6 +520,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if let press = pendingLinkClick {
             guard DragThreshold.passed(from: topLeftPoint(press.down), to: topLeftPoint(event)) else { return }
             pendingLinkClick = nil
+            session.linkChip.dismiss()
             leftButtonRoute = sendButtonDown(.left, event: press.down)
         }
         sendDrag(.left, event: event, route: leftButtonRoute)

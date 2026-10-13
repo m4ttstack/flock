@@ -125,6 +125,38 @@ final class LinkChipTests: XCTestCase {
         XCTAssertNil(state.chip(at: at(1)))
     }
 
+    // MARK: - An action taken
+
+    func testAnActionLightsItsButtonThenTheChipGoes() {
+        var state = resting(on: sheet)
+        state.act(.second, on: sheet, anchor: anchor(), now: at(1))
+        XCTAssertEqual(state.flash(at: at(1.34)), .second)
+        XCTAssertNotNil(state.chip(at: at(1.34)))
+        XCTAssertNil(state.chip(at: at(1.35)))
+        XCTAssertNil(state.flash(at: at(1.35)))
+    }
+
+    func testTheChipSaysSoWhereItAlreadyIs() {
+        var state = resting(on: sheet)
+        state.act(.open, on: sheet, anchor: anchor(x: 400), now: at(1))
+        XCTAssertEqual(state.chip(at: at(1))?.anchor.x, 200)
+    }
+
+    func testAClickBeforeTheRestIsOverBringsTheChipUpToSaySo() {
+        var state = resting(on: sheet)
+        state.act(.open, on: sheet, anchor: anchor(x: 400), now: at(0.1))
+        XCTAssertEqual(state.chip(at: at(0.1))?.anchor.x, 400)
+        XCTAssertEqual(state.flash(at: at(0.1)), .open)
+    }
+
+    func testThePointerStillOnTheLinkDoesNotBringTheChipBackAfterAnAction() {
+        var state = resting(on: sheet)
+        state.act(.open, on: sheet, anchor: anchor(), now: at(1))
+        state.hover(sheet, anchor: anchor(), now: at(1.1))
+        state.hover(sheet, anchor: anchor(), now: at(2))
+        XCTAssertNil(state.chip(at: at(60)))
+    }
+
     // MARK: - Placement
 
     private let chip = CGSize(width: 120, height: 22)

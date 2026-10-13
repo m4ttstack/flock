@@ -17,6 +17,7 @@ final class LinkChipRenderTests: XCTestCase {
     private struct Probe: View {
         let theme: Theme
         let link: PaneLink
+        var flash: LinkChip.Action?
 
         var body: some View {
             let lines = [
@@ -37,7 +38,7 @@ final class LinkChipRenderTests: XCTestCase {
                     }
                 }
                 .padding(.leading, 8)
-                LinkChipView(theme: theme, link: link, onOpen: {}, onReveal: {}, onCopy: {})
+                LinkChipView(theme: theme, link: link, flash: flash, onOpen: {}, onReveal: {}, onCopy: {})
                     .offset(x: LinkChipRenderTests.origin.x, y: LinkChipRenderTests.origin.y)
             }
             .frame(width: LinkChipRenderTests.paneSize.width, height: LinkChipRenderTests.paneSize.height)
@@ -51,9 +52,11 @@ final class LinkChipRenderTests: XCTestCase {
         )
     }
 
-    private func render(theme: Theme, link: PaneLink, name: String) async throws -> NSBitmapImageRep {
+    private func render(
+        theme: Theme, link: PaneLink, flash: LinkChip.Action? = nil, name: String
+    ) async throws -> NSBitmapImageRep {
         ChromeType.install()
-        let hosting = NSHostingView(rootView: Probe(theme: theme, link: link))
+        let hosting = NSHostingView(rootView: Probe(theme: theme, link: link, flash: flash))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Self.paneSize),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
@@ -110,6 +113,21 @@ final class LinkChipRenderTests: XCTestCase {
     func testTheFileChipInALightTheme() async throws {
         let light = try XCTUnwrap(Theme.builtins.first { $0.id == ThemePalette.tokyoNightDay.id })
         try assertTheChipStandsOffTheTerminal(await render(theme: light, link: file, name: "file-light"))
+    }
+
+    /// A lit button is the accent over the chip's ground, so it has to differ
+    /// from the same button at rest.
+    func testATakenActionLightsItsButtonInBothThemes() async throws {
+        let light = try XCTUnwrap(Theme.builtins.first { $0.id == ThemePalette.tokyoNightDay.id })
+        for (theme, name) in [(Theme.tokyoNight, "dark"), (light, "light")] {
+            let rest = try await render(theme: theme, link: file, name: "file-\(name)")
+            let lit = try await render(theme: theme, link: file, flash: .open, name: "file-lit-\(name)")
+            let y = Self.origin.y + 4
+            XCTAssertNotEqual(
+                try pixel(lit, x: Self.origin.x + 6, y: y), try pixel(rest, x: Self.origin.x + 6, y: y),
+                "\(name): the taken action's button looks the same as at rest"
+            )
+        }
     }
 
     func testTheAddressChipInADarkTheme() async throws {

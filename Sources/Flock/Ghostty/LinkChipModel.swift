@@ -9,6 +9,7 @@ import Observation
 @Observable
 final class LinkChipModel {
     private(set) var chip: LinkChip?
+    private(set) var flash: LinkChip.Action?
     /// The chip as drawn, in the pane's top-left space. The surface under it
     /// reads this to leave the chip's clicks and hovers alone.
     @ObservationIgnored var frame: CGRect?
@@ -27,6 +28,10 @@ final class LinkChipModel {
         change { $0.chipHover(inside, now: $1) }
     }
 
+    func act(_ action: LinkChip.Action, on link: PaneLink, anchor: LinkChip.Anchor) {
+        change { $0.act(action, on: link, anchor: anchor, now: $1) }
+    }
+
     func dismiss() {
         change { state, _ in state.dismiss() }
     }
@@ -41,6 +46,8 @@ final class LinkChipModel {
         state.tick(now)
         let next = state.chip(at: now)
         if next != chip { chip = next }
+        let lit = state.flash(at: now)
+        if lit != flash { flash = lit }
         if next == nil { frame = nil }
         wake?.cancel()
         guard let deadline = state.deadline else { return }
