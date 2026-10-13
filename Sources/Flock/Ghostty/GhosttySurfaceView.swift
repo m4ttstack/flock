@@ -370,6 +370,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             super.rightMouseDown(with: event)
             session.sendMousePosition(event)
         case .forwardToPane:
+            // The program's right-click, except on a link, which is flock's
+            // to offer: the link's own actions and none of the pane's, since
+            // the pane's menu is what Option asks for here.
+            session.probeLink(at: event)
+            if let link = session.hoveredLink {
+                rightButtonDownDisposition = .suppressed
+                rightButtonRoute = nil
+                let menu = NSMenu()
+                linkMenuItems(for: link).forEach(menu.addItem)
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
+                return
+            }
             requestWindowFirstResponder()
             rightButtonRoute = sendButtonDown(.right, event: event)
         case .suppressed:
