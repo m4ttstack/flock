@@ -9,7 +9,7 @@ import Observation
 public enum RightClickDisposition: Equatable, Sendable {
     /// Present herdr's own action menu (Split/Close/...): `GhosttySurfaceView`
     /// hands the event back to the responder chain, which asks it for a menu
-    /// via `menu(for:)` (built by its `paneMenuProvider`).
+    /// via `paneMenu()` (built by its `paneMenuProvider`).
     case menu
     /// Send the click into the pane's own program. `GhosttySurfaceView`
     /// routes it through `MouseForwarding`, which turns it into a

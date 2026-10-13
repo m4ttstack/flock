@@ -45,7 +45,7 @@ struct GhosttyPaneTerminalView: View {
     /// no purpose (see `GhosttySurfaceView.mouseDown`'s own gate).
     let onPrimaryClick: () -> Void
     /// Builds this pane's right-click `NSMenu` on demand -- see
-    /// `GhosttySurfaceView.menu(for:)`, the only place it is actually called.
+    /// `GhosttySurfaceView.paneMenu()`, the only place it is actually called.
     let menuProvider: () -> NSMenu?
     /// The pane's current folder, which a relative path printed in it is
     /// relative to. Read at the click, never at render.

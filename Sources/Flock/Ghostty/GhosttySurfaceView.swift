@@ -20,7 +20,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// changes, so it has to be seen outside libghostty as well.
     var onPrimaryClick: (() -> Void)?
 
-    /// Builds the pane's right-click menu on demand, read by `menu(for:)`.
+    /// Builds the pane's right-click menu on demand, read by `paneMenu()`.
     /// `nil` (a placeholder host view with no pane context) means no menu.
     var paneMenuProvider: (() -> NSMenu?)?
 
@@ -349,10 +349,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// focused pane whose app has claimed the mouse routes it by
     /// `rightClickMode`, with Option taking the other route; a plain shell
     /// (capture off) or any pane that is not flock's focused one gets the
-    /// menu. The menu itself comes from `menu(for:)` below (built by
-    /// `paneMenuProvider`), reached by handing the event back to the
-    /// responder chain (`super`);
-    /// libghostty's own context menu is never shown here.
+    /// menu. The menu itself is `paneMenu()` below (built by
+    /// `paneMenuProvider`); libghostty's own context menu is never shown
+    /// here.
     override func rightMouseDown(with event: NSEvent) {
         session.linkChip.dismiss()
         let disposition = RightClickDisposition.decide(
@@ -367,7 +366,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         case .menu:
             rightButtonRoute = nil
             session.probeLink(at: event)
-            super.rightMouseDown(with: event)
+            popUp(paneMenu(), at: event)
             session.sendMousePosition(event)
         case .forwardToPane:
             // The program's right-click, except on a link, which is flock's
@@ -379,9 +378,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
                 rightButtonRoute = nil
                 let menu = NSMenu()
                 linkMenuItems(for: link).forEach(menu.addItem)
-                // Not `popUpContextMenu`: this view takes text input, and to
-                // a context menu on one macOS adds its own AutoFill row.
-                menu.popUp(positioning: nil, at: convert(event.locationInWindow, from: nil), in: self)
+                popUp(menu, at: event)
                 return
             }
             requestWindowFirstResponder()
@@ -391,10 +388,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
     }
 
+    /// Shown as a plain pop-up, never through AppKit's context-menu road
+    /// (`super.rightMouseDown`, `popUpContextMenu`): this view takes text
+    /// input, and to a context menu on one macOS adds its own AutoFill row.
+    private func popUp(_ menu: NSMenu?, at event: NSEvent) {
+        menu?.popUp(positioning: nil, at: convert(event.locationInWindow, from: nil), in: self)
+    }
+
     override func rightMouseUp(with event: NSEvent) {
         switch rightButtonDownDisposition {
         case .menu:
-            super.rightMouseUp(with: event)
+            break
         case .forwardToPane:
             sendButtonUp(.right, event: event, route: rightButtonRoute)
         case .suppressed:
@@ -403,12 +407,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         rightButtonRoute = nil
     }
 
-    /// Supplies the `.menu`-disposition right-click's `NSMenu`: AppKit calls
-    /// this itself once `rightMouseDown`'s `super` call reaches the
-    /// responder-chain context-menu machinery. Every pane is this view, so
-    /// without this override AppKit gets `nil` here (the `NSView` default)
-    /// and no menu, and no `.contextMenu`, ever appears.
-    override func menu(for event: NSEvent) -> NSMenu? {
+    /// The `.menu`-disposition right-click's menu: the pane's own rows, led
+    /// by the link's when the click landed on one.
+    private func paneMenu() -> NSMenu? {
         guard let menu = paneMenuProvider?() else { return nil }
         if let link = session.hoveredLink {
             for (index, item) in (linkMenuItems(for: link) + [.separator()]).enumerated() {
