@@ -642,6 +642,23 @@ final class GhosttySession {
         hoverCell = next
     }
 
+    /// A redraw is the only word that the screen changed, and one comes for
+    /// every frame of streaming output, so the look is taken once the burst
+    /// has had this long, and only with the pointer over the pane.
+    private static let linkRecheckDelay: Duration = .milliseconds(100)
+    private var linkRecheck: Task<Void, Never>?
+
+    private func scheduleLinkRecheck() {
+        guard hoverCell != nil, linkRecheck == nil else { return }
+        linkRecheck = Task { [weak self] in
+            try? await Task.sleep(for: Self.linkRecheckDelay)
+            guard let self else { return }
+            self.linkRecheck = nil
+            self.scannedMatch = nil
+            self.view?.refreshLinkHover()
+        }
+    }
+
     /// The link under the pointer, by flock's own reading of the one row it
     /// is on (`PaneLink.match`). A link wrapped onto a second row is found
     /// only up to the wrap.
@@ -842,6 +859,7 @@ final class GhosttySession {
         switch action.tag {
         case GHOSTTY_ACTION_RENDER:
             requestRender()
+            scheduleLinkRecheck()
         case GHOSTTY_ACTION_SET_TITLE:
             state.title = text
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:

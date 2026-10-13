@@ -131,6 +131,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     }
     private var pendingLinkClick: PendingLinkClick?
     private var overLink = false
+    /// Where the pointer last was over the terminal, in top-left space; nil
+    /// once it has left the pane.
+    private var hoverPoint: CGPoint?
     private var rightButtonRoute: ButtonRoute?
     private(set) var rightButtonDownDisposition: RightClickDisposition = .menu
     private var otherButtonRoutes: [Int: ButtonRoute] = [:]
@@ -468,6 +471,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     override func mouseExited(with event: NSEvent) {
         session.sendMouseExit(modifiers: event.modifierFlags)
         session.linkChip.pointerLeftPane()
+        hoverPoint = nil
         setOverLink(nil)
     }
 
@@ -510,6 +514,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         let chip = session.linkChip.frame?.insetBy(dx: 0, dy: -ChromeMetrics.LinkChip.gap)
         if chip?.contains(point) == true { return }
         session.sendHoverPosition(event)
+        hoverPoint = point
+        updateLink(at: point)
+    }
+
+    /// The pane drew again, and the text under a pointer that has not moved
+    /// may no longer be the link it was.
+    func refreshLinkHover() {
+        guard let hoverPoint, !rearrangeActive else { return }
+        updateLink(at: hoverPoint)
+    }
+
+    private func updateLink(at point: CGPoint) {
         guard !paneDragInProgress, !isLauncherShowing, let anchor = linkAnchor(at: point),
               let cell = cellSizeInPoints()
         else {
