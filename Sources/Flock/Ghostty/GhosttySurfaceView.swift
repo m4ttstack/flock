@@ -503,11 +503,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// Feeds the pointer to the link matcher, the underline and the chip, in
     /// a pane whose program has the mouse too: the hover is flock's, and
     /// libghostty reports nothing to a program from here. A move over the
-    /// chip itself is the chip's, or the hover would follow the pointer onto
-    /// whatever text the chip covers.
+    /// chip, or the gap between it and its link, is the chip's, or the hover
+    /// would follow the pointer onto whatever text the chip covers.
     private func trackLink(_ event: NSEvent) {
         let point = topLeftPoint(event)
-        if session.linkChip.frame?.contains(point) == true { return }
+        let chip = session.linkChip.frame?.insetBy(dx: 0, dy: -ChromeMetrics.LinkChip.gap)
+        if chip?.contains(point) == true { return }
         session.sendHoverPosition(event)
         guard !paneDragInProgress, !isLauncherShowing, let anchor = linkAnchor(at: point),
               let cell = cellSizeInPoints()

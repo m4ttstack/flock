@@ -67,6 +67,10 @@ public struct LinkChipState {
 
     private var phase = Phase.idle
     private var pointerOnChip = false
+    /// Another link the pointer is on while a chip is up. It waits out the
+    /// chip's grace instead of replacing it: the way from a link to its chip
+    /// runs across the row above, which may hold a link of its own.
+    private var waiting: (link: PaneLink, anchor: LinkChip.Anchor, since: Date)?
 
     public init() {}
 
@@ -74,6 +78,7 @@ public struct LinkChipState {
     public mutating func hover(_ link: PaneLink?, anchor: LinkChip.Anchor, now: Date) {
         settle(now)
         guard let link else {
+            waiting = nil
             switch phase {
             case .shown(let chip, nil): phase = .shown(chip, leftAt: now)
             case .shown, .acted: break
@@ -83,7 +88,12 @@ public struct LinkChipState {
         }
         switch phase {
         case .resting(link, _, let since): phase = .resting(link, anchor, since: since)
-        case .shown(let chip, _) where chip.link == link: phase = .shown(chip, leftAt: nil)
+        case .shown(let chip, _) where chip.link == link:
+            phase = .shown(chip, leftAt: nil)
+            waiting = nil
+        case .shown(let chip, let leftAt):
+            phase = .shown(chip, leftAt: leftAt ?? now)
+            waiting = (link, anchor, waiting?.link == link ? waiting?.since ?? now : now)
         case .dismissed(link), .acted: break
         default: phase = .resting(link, anchor, since: now)
         }
@@ -95,6 +105,7 @@ public struct LinkChipState {
         pointerOnChip = inside
         guard case .shown(let chip, _) = phase else { return }
         phase = .shown(chip, leftAt: inside ? nil : now)
+        if inside { waiting = nil }
     }
 
     /// `action` was taken on `link`, by its chip or by a click on the link
@@ -106,6 +117,7 @@ public struct LinkChipState {
         if case .shown(let shown, _) = phase, shown.link == link { chip = shown }
         phase = .acted(chip, action, until: now.addingTimeInterval(Self.flash))
         pointerOnChip = false
+        waiting = nil
     }
 
     /// A key, a click elsewhere, or a scroll.
@@ -116,6 +128,7 @@ public struct LinkChipState {
         case .idle, .dismissed: break
         }
         pointerOnChip = false
+        waiting = nil
     }
 
     /// Applies whatever time alone has changed, which moves `deadline` on.
@@ -150,12 +163,13 @@ public struct LinkChipState {
     }
 
     private mutating func settle(_ now: Date) {
+        if case .shown(_, let leftAt?) = phase, !pointerOnChip, now >= leftAt.addingTimeInterval(Self.grace) {
+            phase = waiting.map { .resting($0.link, $0.anchor, since: $0.since) } ?? .idle
+            waiting = nil
+        }
         if case .resting(let link, let anchor, let since) = phase, now >= since.addingTimeInterval(Self.rest) {
             phase = .shown(LinkChip(link: link, anchor: anchor), leftAt: nil)
             pointerOnChip = false
-        }
-        if case .shown(_, let leftAt?) = phase, !pointerOnChip, now >= leftAt.addingTimeInterval(Self.grace) {
-            phase = .idle
         }
         if case .acted(let chip, _, let until) = phase, now >= until {
             phase = .dismissed(chip.link)
