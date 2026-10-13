@@ -130,6 +130,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         let down: NSEvent
     }
     private var pendingLinkClick: PendingLinkClick?
+    private var overLink = false
+    /// Where the pointer last was over the terminal, in top-left space; nil
+    /// once it has left the pane.
+    private var hoverPoint: CGPoint?
     private var rightButtonRoute: ButtonRoute?
     private(set) var rightButtonDownDisposition: RightClickDisposition = .menu
     private var otherButtonRoutes: [Int: ButtonRoute] = [:]
@@ -309,16 +313,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         leftButtonRoute = sendButtonDown(.left, event: event)
     }
 
-    /// Asked afresh at the press: libghostty looks for a link only when the
-    /// pointer moves, and the text under a still pointer may have scrolled.
+    /// Asked afresh at the press: the text under a still pointer may have
+    /// scrolled since the last move read it.
     /// Shift, Control and Option presses are a selection's, and a second
     /// press of a double click selects a word.
     private func linkUnderPress(_ event: NSEvent) -> PaneLink? {
         guard !rearrangeActive, event.clickCount == 1,
               event.modifierFlags.isDisjoint(with: [.shift, .control, .option])
         else { return nil }
-        session.sendHoverPosition(event)
-        return session.hoveredLink
+        return session.link(at: event)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -365,15 +368,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         switch disposition {
         case .menu:
             rightButtonRoute = nil
-            session.probeLink(at: event)
-            popUp(paneMenu(), at: event)
-            session.sendMousePosition(event)
+            popUp(paneMenu(leadingWith: session.link(at: event)), at: event)
         case .forwardToPane:
             // The program's right-click, except on a link, which is flock's
             // to offer: the link's own actions and none of the pane's, since
             // the pane's menu is what Option asks for here.
-            session.probeLink(at: event)
-            if let link = session.hoveredLink {
+            if let link = session.link(at: event) {
                 rightButtonDownDisposition = .suppressed
                 rightButtonRoute = nil
                 let menu = NSMenu()
@@ -409,9 +409,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
 
     /// The `.menu`-disposition right-click's menu: the pane's own rows, led
     /// by the link's when the click landed on one.
-    private func paneMenu() -> NSMenu? {
+    private func paneMenu(leadingWith link: PaneLink?) -> NSMenu? {
         guard let menu = paneMenuProvider?() else { return nil }
-        if let link = session.hoveredLink {
+        if let link {
             for (index, item) in (linkMenuItems(for: link) + [.separator()]).enumerated() {
                 menu.insertItem(item, at: index)
             }
@@ -471,6 +471,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     override func mouseExited(with event: NSEvent) {
         session.sendMouseExit(modifiers: event.modifierFlags)
         session.linkChip.pointerLeftPane()
+        hoverPoint = nil
+        setOverLink(nil)
     }
 
     /// Under capture the app owns the pointer, so motion becomes a
@@ -487,8 +489,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         // the open hand is re-asserted here or anything that set another
         // cursor mid-hover would stick.
         guard !rearrangeActive else {
-            applyPaneCursor()
             session.linkChip.dismiss()
+            setOverLink(nil)
+            applyPaneCursor()
             return
         }
         switch mouseDecision(kind: .moved, button: nil, event: event) {
@@ -501,20 +504,54 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
     }
 
-    /// Feeds the pointer to libghostty's link matcher and the chip, in a
-    /// pane whose program has the mouse too: the hover is flock's, and
+    /// Feeds the pointer to the link matcher, the underline and the chip, in
+    /// a pane whose program has the mouse too: the hover is flock's, and
     /// libghostty reports nothing to a program from here. A move over the
-    /// chip itself is the chip's, or the hover would follow the pointer onto
-    /// whatever text the chip covers.
+    /// chip, or the gap between it and its link, is the chip's, or the hover
+    /// would follow the pointer onto whatever text the chip covers.
     private func trackLink(_ event: NSEvent) {
         let point = topLeftPoint(event)
-        if session.linkChip.frame?.contains(point) == true { return }
+        let chip = session.linkChip.frame?.insetBy(dx: 0, dy: -ChromeMetrics.LinkChip.gap)
+        if chip?.contains(point) == true { return }
         session.sendHoverPosition(event)
-        guard !paneDragInProgress, !isLauncherShowing, let anchor = linkAnchor(at: point) else {
+        hoverPoint = point
+        updateLink(at: point)
+    }
+
+    /// The pane drew again, and the text under a pointer that has not moved
+    /// may no longer be the link it was.
+    func refreshLinkHover() {
+        guard let hoverPoint, !rearrangeActive else { return }
+        updateLink(at: hoverPoint)
+    }
+
+    private func updateLink(at point: CGPoint) {
+        guard !paneDragInProgress, !isLauncherShowing, let anchor = linkAnchor(at: point),
+              let cell = cellSizeInPoints()
+        else {
             session.linkChip.dismiss()
+            setOverLink(nil)
             return
         }
-        session.linkChip.hover(session.hoveredLink, anchor: anchor)
+        let match = session.hoveredMatch
+        session.linkChip.hover(match?.link, anchor: anchor)
+        setOverLink(match.map {
+            CGRect(
+                x: CGFloat($0.columns.lowerBound) * cell.width,
+                y: anchor.lineBottom - ChromeMetrics.LinkChip.underlineRise,
+                width: CGFloat($0.columns.count) * cell.width,
+                height: ChromeMetrics.LinkChip.underlineHeight
+            )
+        })
+    }
+
+    /// The underline and the pointing hand go together: both say a click
+    /// here opens something.
+    private func setOverLink(_ underline: CGRect?) {
+        session.linkChip.underline(underline)
+        guard overLink != (underline != nil) else { return }
+        overLink = underline != nil
+        applyPaneCursor()
     }
 
     private func linkAnchor(at point: CGPoint) -> LinkChip.Anchor? {
@@ -570,6 +607,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// program further than it moved herdr's viewport would read as a bug.
     override func scrollWheel(with event: NSEvent) {
         session.linkChip.dismiss()
+        setOverLink(nil)
         guard let cell = cellSizeInPoints() else {
             scrollAccumulator.reset()
             return
@@ -749,6 +787,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     override func keyDown(with event: NSEvent) {
         guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
         session.linkChip.dismiss()
+        setOverLink(nil)
         // `keyDown` (never `flagsChanged`) is by construction real key input,
         // not a bare modifier change -- the one exception is a Command combo
         // (the system's to handle, not a sign the user started typing into
@@ -1038,7 +1077,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         // already withholds `sendMousePosition` during rearrange, so this
         // guard mostly matters for a shape callback that fires from
         // something other than pointer motion.
-        guard !rearrangeActive, !paneDragInProgress else { return }
+        guard !rearrangeActive, !paneDragInProgress, !overLink else { return }
         cursor.set()
     }
 
@@ -1057,7 +1096,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         case .openHand:
             NSCursor.openHand.set()
         case .passthrough:
-            (lastLibghosttyCursor ?? NSCursor.arrow).set()
+            (overLink ? NSCursor.pointingHand : lastLibghosttyCursor ?? NSCursor.arrow).set()
         }
     }
 

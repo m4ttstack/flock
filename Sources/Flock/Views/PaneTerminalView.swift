@@ -118,9 +118,27 @@ struct GhosttyPaneTerminalView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if let session, let chip = session.linkChip.chip {
-                linkChip(chip, in: session)
+            if let line = session?.linkChip.underline {
+                Rectangle()
+                    .fill(theme.accent)
+                    .frame(width: line.width, height: line.height)
+                    .offset(x: line.minX, y: line.minY)
+                    .allowsHitTesting(false)
             }
+        }
+        .overlay(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                if let session, let chip = session.linkChip.chip {
+                    linkChip(chip, in: session)
+                        .transition(.opacity.combined(with: .offset(y: ChromeMetrics.LinkChip.fadeRise)))
+                }
+            }
+            .animation(
+                session?.linkChip.chip == nil
+                    ? .easeIn(duration: ChromeMetrics.LinkChip.fadeOut)
+                    : .easeOut(duration: ChromeMetrics.LinkChip.fade),
+                value: session?.linkChip.chip
+            )
         }
         .coordinateSpace(name: Self.space)
     }

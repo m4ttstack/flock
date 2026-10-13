@@ -9,6 +9,9 @@ final class LinkChipTests: XCTestCase {
     private let sheet = PaneLink.file(URL(fileURLWithPath: "/Users/acme/sheet.html"))
     private let notes = PaneLink.file(URL(fileURLWithPath: "/Users/acme/notes.md"))
 
+    private let rest = LinkChipState.rest
+    private let grace = LinkChipState.grace
+
     private func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
 
     private func anchor(x: CGFloat = 200) -> LinkChip.Anchor {
@@ -25,17 +28,17 @@ final class LinkChipTests: XCTestCase {
 
     func testNothingShowsBeforeThePointerHasRested() {
         let state = resting(on: sheet)
-        XCTAssertNil(state.chip(at: at(0.29)))
-        XCTAssertEqual(state.deadline, at(LinkChipState.rest))
+        XCTAssertNil(state.chip(at: at(rest - 0.01)))
+        XCTAssertEqual(state.deadline, at(rest))
     }
 
     func testTheChipComesUpAfterTheRest() {
-        XCTAssertEqual(resting(on: sheet).chip(at: at(0.3))?.link, sheet)
+        XCTAssertEqual(resting(on: sheet).chip(at: at(rest))?.link, sheet)
     }
 
     func testARestThatHasEndedLeavesNothingToWaitFor() {
         var state = resting(on: sheet)
-        state.tick(at(0.3))
+        state.tick(at(rest))
         XCTAssertNil(state.deadline)
     }
 
@@ -48,22 +51,22 @@ final class LinkChipTests: XCTestCase {
 
     func testMovingAlongTheSameLinkKeepsTheRest() {
         var state = resting(on: sheet)
-        state.hover(sheet, anchor: anchor(x: 260), now: at(0.2))
-        XCTAssertEqual(state.chip(at: at(0.3))?.anchor.x, 260)
+        state.hover(sheet, anchor: anchor(x: 260), now: at(rest - 0.1))
+        XCTAssertEqual(state.chip(at: at(rest))?.anchor.x, 260)
     }
 
     func testAnotherLinkStartsItsOwnRest() {
         var state = resting(on: sheet)
         state.hover(notes, anchor: anchor(), now: at(0.2))
-        XCTAssertNil(state.chip(at: at(0.4)))
-        XCTAssertEqual(state.chip(at: at(0.5))?.link, notes)
+        XCTAssertNil(state.chip(at: at(rest + 0.1)))
+        XCTAssertEqual(state.chip(at: at(rest + 0.2))?.link, notes)
     }
 
     /// The pointer is on its way to the chip, which must not slide off.
     func testTheChipStaysWhereItCameUp() {
         var state = resting(on: sheet)
-        state.hover(sheet, anchor: anchor(x: 320), now: at(0.5))
-        XCTAssertEqual(state.chip(at: at(0.5))?.anchor.x, 200)
+        state.hover(sheet, anchor: anchor(x: 320), now: at(rest + 0.2))
+        XCTAssertEqual(state.chip(at: at(rest + 0.2))?.anchor.x, 200)
     }
 
     // MARK: - Leaving
@@ -71,8 +74,8 @@ final class LinkChipTests: XCTestCase {
     func testTheChipOutlivesThePointerLeavingItsLink() {
         var state = resting(on: sheet)
         state.hover(nil, anchor: anchor(), now: at(1))
-        XCTAssertNotNil(state.chip(at: at(1.29)))
-        XCTAssertNil(state.chip(at: at(1.3)))
+        XCTAssertNotNil(state.chip(at: at(1 + grace - 0.01)))
+        XCTAssertNil(state.chip(at: at(1 + grace)))
     }
 
     func testThePointerOnTheChipHoldsIt() {
@@ -88,8 +91,8 @@ final class LinkChipTests: XCTestCase {
         state.hover(nil, anchor: anchor(), now: at(1))
         state.chipHover(true, now: at(1.1))
         state.chipHover(false, now: at(5))
-        XCTAssertNotNil(state.chip(at: at(5.2)))
-        XCTAssertNil(state.chip(at: at(5.3)))
+        XCTAssertNotNil(state.chip(at: at(5 + grace - 0.01)))
+        XCTAssertNil(state.chip(at: at(5 + grace)))
     }
 
     func testComingBackToTheLinkKeepsTheChip() {
@@ -97,6 +100,38 @@ final class LinkChipTests: XCTestCase {
         state.hover(nil, anchor: anchor(), now: at(1))
         state.hover(sheet, anchor: anchor(), now: at(1.2))
         XCTAssertNotNil(state.chip(at: at(60)))
+    }
+
+    /// The way from a link up to its chip crosses the row above.
+    func testAnotherLinkOnTheWayToTheChipDoesNotTakeIt() {
+        var state = resting(on: sheet)
+        state.hover(sheet, anchor: anchor(), now: at(1))
+        state.hover(notes, anchor: anchor(), now: at(1.05))
+        XCTAssertEqual(state.chip(at: at(1.05))?.link, sheet)
+        state.chipHover(true, now: at(1.1))
+        XCTAssertEqual(state.chip(at: at(60))?.link, sheet)
+    }
+
+    func testStayingOnAnotherLinkBringsItsOwnChip() {
+        var state = resting(on: sheet)
+        state.hover(sheet, anchor: anchor(), now: at(1))
+        state.hover(notes, anchor: anchor(x: 90), now: at(1.05))
+        XCTAssertEqual(state.chip(at: at(1.05 + grace - 0.01))?.link, sheet)
+        XCTAssertEqual(state.chip(at: at(1.05 + max(rest, grace))), LinkChip(link: notes, anchor: anchor(x: 90)))
+    }
+
+    func testBackAndForthBetweenALinkAndItsChipKeepsTheChip() {
+        var state = resting(on: sheet)
+        state.hover(sheet, anchor: anchor(), now: at(1))
+        for round in 0..<3 {
+            let time = 2 + Double(round)
+            state.hover(notes, anchor: anchor(), now: at(time))
+            state.chipHover(true, now: at(time + 0.1))
+            state.chipHover(false, now: at(time + 0.5))
+            state.hover(notes, anchor: anchor(), now: at(time + 0.55))
+            state.hover(sheet, anchor: anchor(), now: at(time + 0.6))
+            XCTAssertEqual(state.chip(at: at(time + 0.9))?.link, sheet, "round \(round)")
+        }
     }
 
     // MARK: - Sent away
@@ -116,7 +151,7 @@ final class LinkChipTests: XCTestCase {
         state.dismiss()
         state.hover(nil, anchor: anchor(), now: at(2))
         state.hover(sheet, anchor: anchor(), now: at(3))
-        XCTAssertEqual(state.chip(at: at(3.3))?.link, sheet)
+        XCTAssertEqual(state.chip(at: at(3 + rest))?.link, sheet)
     }
 
     func testAKeyDuringTheRestCancelsIt() {

@@ -83,6 +83,7 @@ final class GhosttySession {
     var onUserInput: (() -> Void)?
     /// The folder a relative path printed in this pane is relative to.
     var linkFolder: (() -> String?)?
+    var linkTrust: LinkTrustStore?
     /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
     /// clear its screen, AFTER `onUserInput` for the same event: clearing is
     /// still typing, so the keystroke lands first and the clear is what
@@ -365,22 +366,17 @@ final class GhosttySession {
         )
     }
 
-    /// A pointer move with no button down, sent as if Command were held:
-    /// libghostty matches and reports a link only under that modifier, and
-    /// the chip is offered on a plain hover. A real Shift, Control or Option
-    /// is left alone, since each means something else to a selection.
+    /// A pointer move with no button down: libghostty's, and the cell
+    /// `hoveredMatch` reads.
     func sendHoverPosition(_ event: NSEvent) {
-        guard let surface, let view else { return }
-        let position = view.convert(event.locationInWindow, from: nil)
-        var mods = translate(event.modifierFlags)
-        if event.modifierFlags.isDisjoint(with: [.shift, .control, .option]) {
-            mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SUPER.rawValue)
-        }
-        ghostty_surface_mouse_pos(surface, position.x, view.bounds.height - position.y, mods)
+        guard let view else { return }
+        noteHover(at: view.convert(event.locationInWindow, from: nil), in: view)
+        sendMousePosition(event)
     }
 
     func sendMouseExit(modifiers: NSEvent.ModifierFlags) {
         guard let surface else { return }
+        hoverCell = nil
         ghostty_surface_mouse_pos(surface, -1, -1, translate(modifiers))
     }
 
@@ -426,6 +422,9 @@ final class GhosttySession {
     func setParked(_ parked: Bool) {
         guard parked != isParked else { return }
         isParked = parked
+        // A pane taken off screen by a key gets no mouse exit, and its link
+        // poll runs for as long as it believes the pointer is over it.
+        if parked { hoverCell = nil }
         restartScreenActivityTimer()
         if !parked { tickScreenActivity() }
     }
@@ -596,7 +595,12 @@ final class GhosttySession {
 
     /// What the link under the pointer points at, nil over plain text and
     /// over a path that names nothing on disk.
-    var hoveredLink: PaneLink? {
+    var hoveredLink: PaneLink? { hoveredMatch?.link ?? reportedLink }
+
+    /// What libghostty says is under the pointer, which it says only while
+    /// Command is held (`probeLink` holds it for a moment). It alone knows
+    /// an OSC 8 hyperlink, whose address is not in the text.
+    private var reportedLink: PaneLink? {
         guard let text = state.hoveredLinkURL, !text.isEmpty else { return nil }
         if let resolvedHover, resolvedHover.text == text { return resolvedHover.link }
         let link = link(for: text)
@@ -607,10 +611,97 @@ final class GhosttySession {
     /// One hover asks on every pointer move, and each answer costs a stat.
     private var resolvedHover: (text: String, link: PaneLink?)?
 
+    /// The link under the press at `event`: flock's own match, or failing
+    /// that libghostty's, asked with Command held for just the asking so its
+    /// underline never shows.
+    func link(at event: NSEvent) -> PaneLink? {
+        guard let view else { return nil }
+        noteHover(at: view.convert(event.locationInWindow, from: nil), in: view)
+        scannedMatch = nil
+        if let match = hoveredMatch { return match.link }
+        probeLink(at: event)
+        let link = reportedLink
+        sendMousePosition(event)
+        return link
+    }
+
     let linkChip = LinkChipModel()
 
+    /// The cell the pointer is over, counted from the surface's top left.
+    private var hoverCell: (column: Int, row: Int)?
+    private var scannedMatch: (column: Int, row: Int, line: String, folder: String?, match: PaneLink.Match?)?
+
+    private func noteHover(at position: CGPoint, in view: NSView) {
+        guard let cell = state.cellSize, cell.width > 0, cell.height > 0 else {
+            hoverCell = nil
+            return
+        }
+        let next = (
+            column: Int(position.x * scale) / cell.width,
+            row: Int((view.bounds.height - position.y) * scale) / cell.height
+        )
+        hoverCell = next
+        startLinkPoll()
+    }
+
+    /// Text moves under a pointer that does not, and libghostty says nothing
+    /// a surface can hear when it does, so the row under the pointer is read
+    /// again this often for as long as the pointer is over the pane.
+    private static let linkPollInterval: Duration = .milliseconds(150)
+    private var linkPoll: Task<Void, Never>?
+
+    private func startLinkPoll() {
+        guard linkPoll == nil else { return }
+        linkPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.linkPollInterval)
+                guard let self, self.hoverCell != nil else { break }
+                self.view?.refreshLinkHover()
+            }
+            self?.linkPoll = nil
+        }
+    }
+
+    /// The link under the pointer, by flock's own reading of the one row it
+    /// is on (`PaneLink.match`). A link wrapped onto a second row is found
+    /// only up to the wrap. The disk is asked only when the row's text, the
+    /// cell or the pane's folder has changed since the last look.
+    var hoveredMatch: PaneLink.Match? {
+        guard let surface, let cell = hoverCell, cell.column >= 0, cell.row >= 0 else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard size.columns > 0, cell.row < Int(size.rows) else { return nil }
+        let row = UInt32(cell.row)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: row),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: UInt32(size.columns) - 1, y: row),
+            rectangle: false)
+        var text = ghostty_text_s()
+        var line = ""
+        if ghostty_surface_read_text(surface, selection, &text) {
+            if text.text_len > 0 { line = String(cString: text.text) }
+            ghostty_surface_free_text(surface, &text)
+        }
+        let folder = linkFolder?()
+        if let scannedMatch, scannedMatch.column == cell.column, scannedMatch.row == cell.row,
+           scannedMatch.line == line, scannedMatch.folder == folder {
+            return scannedMatch.match
+        }
+        let found = PaneLink.match(
+            inRow: line, column: cell.column, folder: folder, home: NSHomeDirectory(),
+            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
+        ) {
+            FileManager.default.fileExists(atPath: $0)
+        }
+        scannedMatch = (cell.column, cell.row, line, folder, found)
+        return found
+    }
+
     func link(for text: String?) -> PaneLink? {
-        PaneLink.resolve(text, folder: linkFolder?(), home: NSHomeDirectory()) {
+        PaneLink.resolve(
+            text, folder: linkFolder?(), home: NSHomeDirectory(),
+            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
+        ) {
             FileManager.default.fileExists(atPath: $0)
         }
     }
@@ -621,7 +712,11 @@ final class GhosttySession {
     func open(_ link: PaneLink) {
         switch link {
         case .web(let url):
-            NSWorkspace.shared.open(url)
+            if (linkTrust?.trust ?? LinkTrust()).trusts(url) {
+                NSWorkspace.shared.open(url)
+            } else {
+                askToOpen(url)
+            }
         case .file(let url):
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
@@ -636,12 +731,38 @@ final class GhosttySession {
         }
     }
 
+    /// The first open of an address that reaches some other app. Its
+    /// checkbox is the only way a scheme joins the trust list.
+    private func askToOpen(_ url: URL) {
+        guard let window = view?.window, let scheme = url.scheme?.lowercased(),
+              let app = NSWorkspace.shared.urlForApplication(toOpen: url)
+        else { return }
+        let alert = NSAlert()
+        alert.messageText = "Open this link in \(FileManager.default.displayName(atPath: app.path))?"
+        alert.informativeText = String(url.absoluteString.prefix(Self.promptAddressLimit))
+        alert.addButton(withTitle: "Open")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Always open \(scheme) links"
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            if alert.suppressionButton?.state == .on {
+                self?.linkTrust?.trust(scheme)
+            }
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// An address is a program's to print at any length, and an alert grows
+    /// to fit its text.
+    private static let promptAddressLimit = 300
+
     /// Asks libghostty what link sits under `event`'s point, as if Command
     /// were held: it reports a path or address match only under that
-    /// modifier. The answer is in `hoveredLink` by the time this returns,
+    /// modifier. The answer is in `reportedLink` by the time this returns,
     /// because `ghosttyHostAction` handles a main-thread hover report inline.
     /// `sendMousePosition` with the event's real modifiers undoes it.
-    func probeLink(at event: NSEvent) {
+    private func probeLink(at event: NSEvent) {
         guard let surface, let view else { return }
         let position = view.convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, position.x, view.bounds.height - position.y, GHOSTTY_MODS_SUPER)

@@ -226,6 +226,14 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 9
         static let symbolGap: CGFloat = 4
         static let dividerHeight: CGFloat = 12
+        static let underlineHeight: CGFloat = 1
+        /// The chip fades in and out, rising this far as it comes. It goes
+        /// faster than it comes: by then the pointer is somewhere else.
+        static let fade: Double = 0.14
+        static let fadeOut: Double = 0.07
+        static let fadeRise: CGFloat = 3
+        /// Up from the bottom of the link's line to its underline.
+        static let underlineRise: CGFloat = 2
         /// The accent over a button whose action was just taken.
         static let flashOpacity: Double = 0.35
         static let shadowRadius: CGFloat = 6
