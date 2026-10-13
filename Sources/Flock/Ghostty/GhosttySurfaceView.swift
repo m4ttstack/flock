@@ -122,6 +122,14 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         var isDragging = false
     }
     private var pendingGrab: PendingGrab?
+    /// A press on a link, held back from the terminal and the pane's program
+    /// until it is known to be a click or a drag: the up opens the link, and
+    /// a drag replays `down` first so a selection can still start on a link.
+    private struct PendingLinkClick {
+        let link: PaneLink
+        let down: NSEvent
+    }
+    private var pendingLinkClick: PendingLinkClick?
     private var rightButtonRoute: ButtonRoute?
     private(set) var rightButtonDownDisposition: RightClickDisposition = .menu
     private var otherButtonRoutes: [Int: ButtonRoute] = [:]
@@ -291,7 +299,24 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if !rearrangeActive {
             requestWindowFirstResponder()
         }
+        if let link = linkUnderPress(event) {
+            pendingLinkClick = PendingLinkClick(link: link, down: event)
+            leftButtonRoute = nil
+            return
+        }
         leftButtonRoute = sendButtonDown(.left, event: event)
+    }
+
+    /// Asked afresh at the press: libghostty looks for a link only when the
+    /// pointer moves, and the text under a still pointer may have scrolled.
+    /// Shift, Control and Option presses are a selection's, and a second
+    /// press of a double click selects a word.
+    private func linkUnderPress(_ event: NSEvent) -> PaneLink? {
+        guard !rearrangeActive, event.clickCount == 1,
+              event.modifierFlags.isDisjoint(with: [.shift, .control, .option])
+        else { return nil }
+        session.sendHoverPosition(event)
+        return session.hoveredLink
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -301,6 +326,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         // coordinator's own monitor, not here.
         if pendingGrab != nil {
             pendingGrab = nil
+            return
+        }
+        if let press = pendingLinkClick {
+            pendingLinkClick = nil
+            session.open(press.link)
             return
         }
         sendButtonUp(.left, event: event, route: leftButtonRoute)
@@ -479,6 +509,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
                 onBodyDragBegan?(grab.origin)
             }
             return
+        }
+        if let press = pendingLinkClick {
+            guard DragThreshold.passed(from: topLeftPoint(press.down), to: topLeftPoint(event)) else { return }
+            pendingLinkClick = nil
+            leftButtonRoute = sendButtonDown(.left, event: press.down)
         }
         sendDrag(.left, event: event, route: leftButtonRoute)
     }
