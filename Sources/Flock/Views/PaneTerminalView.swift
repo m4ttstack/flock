@@ -127,9 +127,13 @@ struct GhosttyPaneTerminalView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if let session, let chip = session.linkChip.chip {
-                linkChip(chip, in: session)
+            ZStack(alignment: .topLeading) {
+                if let session, let chip = session.linkChip.chip {
+                    linkChip(chip, in: session)
+                        .transition(.opacity.combined(with: .offset(y: ChromeMetrics.LinkChip.fadeRise)))
+                }
             }
+            .animation(.easeOut(duration: ChromeMetrics.LinkChip.fade), value: session?.linkChip.chip)
         }
         .coordinateSpace(name: Self.space)
     }

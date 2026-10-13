@@ -47,7 +47,7 @@ public struct LinkChip: Equatable {
 /// holds no timer; `deadline` says when the answer next changes by itself.
 public struct LinkChipState {
     /// How long the pointer rests on a link before the chip comes up.
-    public static let rest: TimeInterval = 0.75
+    public static let rest: TimeInterval = 0.5
     /// How long the chip outlives the pointer leaving its link, which is the
     /// time the pointer has to reach it.
     public static let grace: TimeInterval = 0.3
