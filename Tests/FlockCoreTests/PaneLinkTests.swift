@@ -104,6 +104,34 @@ final class PaneLinkTests: XCTestCase {
         XCTAssertEqual(resolve("main.swift:12", existing: [path]), file(path))
     }
 
+    // MARK: - An address on a row
+
+    private let row = "open (vscode://file/Users/acme/notes.md:12) or zed://file/tmp/a.txt, then stop."
+
+    func testTheAddressUnderTheColumnIsFound() {
+        XCTAssertEqual(PaneLink.address(inRow: row, column: 6), "vscode://file/Users/acme/notes.md:12")
+        XCTAssertEqual(PaneLink.address(inRow: row, column: 40), "vscode://file/Users/acme/notes.md:12")
+        XCTAssertEqual(PaneLink.address(inRow: row, column: 50), "zed://file/tmp/a.txt")
+    }
+
+    func testTextAroundAnAddressIsNotOne() {
+        XCTAssertNil(PaneLink.address(inRow: row, column: 0))
+        XCTAssertNil(PaneLink.address(inRow: row, column: 5))
+        XCTAssertNil(PaneLink.address(inRow: row, column: 42))
+        XCTAssertNil(PaneLink.address(inRow: row, column: 75))
+        XCTAssertNil(PaneLink.address(inRow: row, column: 500))
+    }
+
+    func testABracketTheAddressOpenedIsKept() {
+        let wiki = "see https://example.com/wiki/Rust_(game)."
+        XCTAssertEqual(PaneLink.address(inRow: wiki, column: 10), "https://example.com/wiki/Rust_(game)")
+    }
+
+    func testARowWithNoAddressHasNone() {
+        XCTAssertNil(PaneLink.address(inRow: "Sources/main.swift:12 and ~/notes.md", column: 3))
+        XCTAssertNil(PaneLink.address(inRow: "", column: 0))
+    }
+
     func testNothingHoveredIsNothing() {
         XCTAssertNil(resolve(nil, existing: []))
         XCTAssertNil(resolve("", existing: []))

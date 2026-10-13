@@ -373,6 +373,7 @@ final class GhosttySession {
     func sendHoverPosition(_ event: NSEvent) {
         guard let surface, let view else { return }
         let position = view.convert(event.locationInWindow, from: nil)
+        noteHover(at: position, in: view)
         var mods = translate(event.modifierFlags)
         if event.modifierFlags.isDisjoint(with: [.shift, .control, .option]) {
             mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SUPER.rawValue)
@@ -382,6 +383,7 @@ final class GhosttySession {
 
     func sendMouseExit(modifiers: NSEvent.ModifierFlags) {
         guard let surface else { return }
+        hoverCell = nil
         ghostty_surface_mouse_pos(surface, -1, -1, translate(modifiers))
     }
 
@@ -598,7 +600,8 @@ final class GhosttySession {
     /// What the link under the pointer points at, nil over plain text and
     /// over a path that names nothing on disk.
     var hoveredLink: PaneLink? {
-        guard let text = state.hoveredLinkURL, !text.isEmpty else { return nil }
+        let reported = state.hoveredLinkURL.flatMap { $0.isEmpty ? nil : $0 }
+        guard let text = reported ?? addressUnderPointer() else { return nil }
         if let resolvedHover, resolvedHover.text == text { return resolvedHover.link }
         let link = link(for: text)
         resolvedHover = (text, link)
@@ -609,6 +612,52 @@ final class GhosttySession {
     private var resolvedHover: (text: String, link: PaneLink?)?
 
     let linkChip = LinkChipModel()
+
+    /// The cell the pointer is over, counted from the surface's top left.
+    private var hoverCell: (column: Int, row: Int)?
+    /// One row read per cell crossed, not per pointer move.
+    private var scannedAddress: (column: Int, row: Int, text: String?)?
+
+    private func noteHover(at position: CGPoint, in view: NSView) {
+        guard let cell = state.cellSize, cell.width > 0, cell.height > 0 else {
+            hoverCell = nil
+            return
+        }
+        let next = (
+            column: Int(position.x * scale) / cell.width,
+            row: Int((view.bounds.height - position.y) * scale) / cell.height
+        )
+        if let hoverCell, hoverCell == next { return }
+        hoverCell = next
+    }
+
+    /// What libghostty's matcher passes over: an address in a scheme it does
+    /// not list. Read from the one row under the pointer, so an address
+    /// wrapped onto a second row is found only up to the wrap.
+    private func addressUnderPointer() -> String? {
+        guard let surface, let cell = hoverCell, cell.column >= 0, cell.row >= 0 else { return nil }
+        if let scannedAddress, scannedAddress.column == cell.column, scannedAddress.row == cell.row {
+            return scannedAddress.text
+        }
+        let size = ghostty_surface_size(surface)
+        guard size.columns > 0, cell.row < Int(size.rows) else { return nil }
+        let row = UInt32(cell.row)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: row),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: UInt32(size.columns) - 1, y: row),
+            rectangle: false)
+        var text = ghostty_text_s()
+        var found: String?
+        if ghostty_surface_read_text(surface, selection, &text) {
+            if text.text_len > 0 {
+                found = PaneLink.address(inRow: String(cString: text.text), column: cell.column)
+            }
+            ghostty_surface_free_text(surface, &text)
+        }
+        scannedAddress = (cell.column, cell.row, found)
+        return found
+    }
 
     func link(for text: String?) -> PaneLink? {
         PaneLink.resolve(
@@ -678,6 +727,8 @@ final class GhosttySession {
     func probeLink(at event: NSEvent) {
         guard let surface, let view else { return }
         let position = view.convert(event.locationInWindow, from: nil)
+        noteHover(at: position, in: view)
+        scannedAddress = nil
         ghostty_surface_mouse_pos(surface, position.x, view.bounds.height - position.y, GHOSTTY_MODS_SUPER)
     }
 

@@ -37,6 +37,32 @@ public enum PaneLink: Equatable {
         }
     }
 
+    /// The `scheme://` address `column` falls in on one row of a pane's text,
+    /// for the schemes libghostty's own matcher does not know (it takes a
+    /// fixed list, and `vscode://` is not on it). Sentence punctuation after
+    /// the address is left off, and so is a bracket that closes one opened
+    /// before it.
+    public static func address(inRow row: String, column: Int) -> String? {
+        let pattern = #"[A-Za-z][A-Za-z0-9+.\-]*://[^\s<>"'`]+"#
+        var search = row.startIndex..<row.endIndex
+        while let found = row.range(of: pattern, options: .regularExpression, range: search) {
+            var match = row[found]
+            while let last = match.last, ".,;:!?".contains(last) || closesNothing(last, in: match) {
+                match = match.dropLast()
+            }
+            let start = row.distance(from: row.startIndex, to: match.startIndex)
+            if (start..<start + match.count).contains(column) { return String(match) }
+            search = found.upperBound..<row.endIndex
+        }
+        return nil
+    }
+
+    private static func closesNothing(_ last: Character, in match: Substring) -> Bool {
+        let pairs: [Character: Character] = [")": "(", "]": "[", "}": "{"]
+        guard let opener = pairs[last] else { return false }
+        return match.filter { $0 == last }.count > match.filter { $0 == opener }.count
+    }
+
     /// Anything with `://`, and the schemes libghostty's matcher takes
     /// without it. A bare `name:` is left to the paths: `main.swift:12` is a
     /// file and a line.

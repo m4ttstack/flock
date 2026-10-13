@@ -317,7 +317,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         guard !rearrangeActive, event.clickCount == 1,
               event.modifierFlags.isDisjoint(with: [.shift, .control, .option])
         else { return nil }
-        session.sendHoverPosition(event)
+        session.probeLink(at: event)
         return session.hoveredLink
     }
 
