@@ -65,6 +65,7 @@ struct FlockApp: App {
     @State private var overviewInclusionStore = OverviewInclusionStore()
     @State private var oneTitleStore: OneTitleStore
     @State private var agentCloseWarningStore: AgentCloseWarningStore
+    @State private var linkTrustStore: LinkTrustStore
     @State private var workspaceIdentityStore: WorkspaceIdentityStore
     @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
     @State private var startingFolderStore: StartingFolderStore
@@ -150,6 +151,8 @@ struct FlockApp: App {
         _optionAsAltStore = State(initialValue: optionAsAltStore)
         let scrollSpeedStore = ScrollSpeedStore()
         _scrollSpeedStore = State(initialValue: scrollSpeedStore)
+        let linkTrustStore = LinkTrustStore()
+        _linkTrustStore = State(initialValue: linkTrustStore)
         let notificationLifetimeStore = NotificationLifetimeStore()
         _notificationLifetimeStore = State(initialValue: notificationLifetimeStore)
         _allWorkspacesModeStore = State(initialValue: AllWorkspacesModeStore())
@@ -183,7 +186,8 @@ struct FlockApp: App {
                 themeColors: { themeStore.active.ghosttyThemeColors() },
                 fontSizePoints: { terminalTextSizeStore.points },
                 optionAsAlt: { optionAsAltStore.active },
-                scrollSpeed: { scrollSpeedStore.active }
+                scrollSpeed: { scrollSpeedStore.active },
+                linkTrust: linkTrustStore
             )
         }
         // Pane-scoped scroll state rides one subscription connection per
@@ -720,6 +724,7 @@ struct FlockApp: App {
                 overviewInclusionStore: overviewInclusionStore,
                 oneTitleStore: oneTitleStore,
                 agentCloseWarningStore: agentCloseWarningStore,
+                linkTrustStore: linkTrustStore,
                 topBarLabelStore: topBarLabelStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
                 startingFolderStore: startingFolderStore,

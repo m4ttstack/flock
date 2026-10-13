@@ -83,6 +83,7 @@ final class GhosttySession {
     var onUserInput: (() -> Void)?
     /// The folder a relative path printed in this pane is relative to.
     var linkFolder: (() -> String?)?
+    var linkTrust: LinkTrustStore?
     /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
     /// clear its screen, AFTER `onUserInput` for the same event: clearing is
     /// still typing, so the keystroke lands first and the clear is what
@@ -610,7 +611,10 @@ final class GhosttySession {
     let linkChip = LinkChipModel()
 
     func link(for text: String?) -> PaneLink? {
-        PaneLink.resolve(text, folder: linkFolder?(), home: NSHomeDirectory()) {
+        PaneLink.resolve(
+            text, folder: linkFolder?(), home: NSHomeDirectory(),
+            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
+        ) {
             FileManager.default.fileExists(atPath: $0)
         }
     }
@@ -621,7 +625,11 @@ final class GhosttySession {
     func open(_ link: PaneLink) {
         switch link {
         case .web(let url):
-            NSWorkspace.shared.open(url)
+            if (linkTrust?.trust ?? LinkTrust()).trusts(url) {
+                NSWorkspace.shared.open(url)
+            } else {
+                askToOpen(url)
+            }
         case .file(let url):
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
@@ -635,6 +643,32 @@ final class GhosttySession {
             }
         }
     }
+
+    /// The first open of an address that reaches some other app. Its
+    /// checkbox is the only way a scheme joins the trust list.
+    private func askToOpen(_ url: URL) {
+        guard let window = view?.window, let scheme = url.scheme?.lowercased(),
+              let app = NSWorkspace.shared.urlForApplication(toOpen: url)
+        else { return }
+        let alert = NSAlert()
+        alert.messageText = "Open this link in \(FileManager.default.displayName(atPath: app.path))?"
+        alert.informativeText = String(url.absoluteString.prefix(Self.promptAddressLimit))
+        alert.addButton(withTitle: "Open")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Always open \(scheme) links"
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            if alert.suppressionButton?.state == .on {
+                self?.linkTrust?.trust(scheme)
+            }
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// An address is a program's to print at any length, and an alert grows
+    /// to fit its text.
+    private static let promptAddressLimit = 300
 
     /// Asks libghostty what link sits under `event`'s point, as if Command
     /// were held: it reports a path or address match only under that

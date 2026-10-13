@@ -11,9 +11,12 @@ public enum PaneLink: Equatable {
     /// `folder` is the pane's, as herdr knows it.
     ///
     /// A path that names nothing on disk resolves to nothing, since the
-    /// matcher also takes prose that merely contains a slash.
+    /// matcher also takes prose that merely contains a slash. So does an
+    /// address no app is `handled` by; whether one that is may open without
+    /// asking is `LinkTrust`'s.
     public static func resolve(
-        _ text: String?, folder: String?, home: String, exists: (String) -> Bool
+        _ text: String?, folder: String?, home: String, handled: (URL) -> Bool = { _ in false },
+        exists: (String) -> Bool
     ) -> PaneLink? {
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         var candidate = text
@@ -22,7 +25,7 @@ public enum PaneLink: Equatable {
             candidate = path
         } else if text.range(of: #"^[A-Za-z][A-Za-z0-9+.\-]*://|^mailto:"#, options: .regularExpression) != nil {
             guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
-                  openableSchemes.contains(scheme)
+                  LinkTrust.builtIn.contains(scheme) || handled(url)
             else { return nil }
             return .web(url)
         }
@@ -33,10 +36,6 @@ public enum PaneLink: Equatable {
             candidate = shorter
         }
     }
-
-    /// Any other scheme hands text a pane's program printed to whichever
-    /// app registered for it.
-    private static let openableSchemes: Set<String> = ["http", "https", "mailto"]
 
     private static func absolutePath(_ path: String, folder: String?, home: String) -> String? {
         let joined: String

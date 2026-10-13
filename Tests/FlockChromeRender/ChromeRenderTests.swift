@@ -2739,6 +2739,8 @@ final class ChromeRenderTests: XCTestCase {
         cases.append(("custom-tab-light", .aqua, customTab, .general))
         cases.append(("custom-tab-dark", .darkAqua, customTab, .general))
         var tabSizes: Set<CGSize> = []
+        let linkTrustStore = LinkTrustStore(userDefaults: defaults)
+        linkTrustStore.trust("vscode")
         for (name, appearance, startingFolderStore, tab) in cases {
             let view = FlockSettingsView(
                 herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
@@ -2748,6 +2750,7 @@ final class ChromeRenderTests: XCTestCase {
                 overviewInclusionStore: OverviewInclusionStore(userDefaults: defaults),
                 oneTitleStore: OneTitleStore(userDefaults: defaults),
                 agentCloseWarningStore: AgentCloseWarningStore(userDefaults: defaults),
+                linkTrustStore: linkTrustStore,
                 topBarLabelStore: TopBarLabelStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,

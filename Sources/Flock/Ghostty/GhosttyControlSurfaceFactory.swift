@@ -32,6 +32,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     /// Handed to the session rather than read here: unlike the others, the
     /// answer is wanted at wheel time, not at creation.
     private let scrollSpeed: () -> ScrollSpeed
+    private let linkTrust: LinkTrustStore?
 
     init(
         host: GhosttyHost, socketPath: String,
@@ -39,7 +40,8 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         themeColors: @escaping () -> GhosttyThemeColors,
         fontSizePoints: @escaping () -> Double,
         optionAsAlt: @escaping () -> OptionAsAlt,
-        scrollSpeed: @escaping () -> ScrollSpeed
+        scrollSpeed: @escaping () -> ScrollSpeed,
+        linkTrust: LinkTrustStore? = nil
     ) {
         self.host = host
         self.socketPath = socketPath
@@ -48,6 +50,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         self.fontSizePoints = fontSizePoints
         self.optionAsAlt = optionAsAlt
         self.scrollSpeed = scrollSpeed
+        self.linkTrust = linkTrust
     }
 
     func makeSurface(
@@ -94,6 +97,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
             )
         )
         session.onUserInput = onUserInput
+        session.linkTrust = linkTrust
         session.onClearRequested = onClearRequested
         session.onScreenActivity = onScreenActivity
         session.scrollSpeed = scrollSpeed

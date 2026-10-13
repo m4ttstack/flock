@@ -23,12 +23,16 @@ final class PaneLinkTests: XCTestCase {
         XCTAssertEqual(resolve("mailto:sam@example.com", existing: []), .web(URL(string: "mailto:sam@example.com")!))
     }
 
-    /// A program in the pane chooses what it prints, and a click must not
-    /// let it choose which app that text is handed to.
-    func testAnAddressForSomeOtherAppIsNothing() {
+    func testAnAddressNoAppOpensIsNothing() {
         XCTAssertNil(resolve("x-man-page://ls", existing: []))
         XCTAssertNil(resolve("vscode://file/Users/acme/notes.md", existing: []))
-        XCTAssertNil(resolve("ssh://acme.example.com", existing: []))
+    }
+
+    func testAnAddressSomeAppOpensIsALink() {
+        let link = PaneLink.resolve("vscode://file/notes.md", folder: folder, home: home, handled: { $0.scheme == "vscode" }) { _ in
+            false
+        }
+        XCTAssertEqual(link, .web(URL(string: "vscode://file/notes.md")!))
     }
 
     func testTheSchemeIsReadWithoutRegardToCase() {
