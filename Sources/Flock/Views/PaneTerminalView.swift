@@ -133,7 +133,12 @@ struct GhosttyPaneTerminalView: View {
                         .transition(.opacity.combined(with: .offset(y: ChromeMetrics.LinkChip.fadeRise)))
                 }
             }
-            .animation(.easeOut(duration: ChromeMetrics.LinkChip.fade), value: session?.linkChip.chip)
+            .animation(
+                session?.linkChip.chip == nil
+                    ? .easeIn(duration: ChromeMetrics.LinkChip.fadeOut)
+                    : .easeOut(duration: ChromeMetrics.LinkChip.fade),
+                value: session?.linkChip.chip
+            )
         }
         .coordinateSpace(name: Self.space)
     }

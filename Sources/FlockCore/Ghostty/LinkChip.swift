@@ -50,7 +50,7 @@ public struct LinkChipState {
     public static let rest: TimeInterval = 0.5
     /// How long the chip outlives the pointer leaving its link, which is the
     /// time the pointer has to reach it.
-    public static let grace: TimeInterval = 0.3
+    public static let grace: TimeInterval = 0.15
     /// How long the chip stays, its button lit, after an action was taken.
     public static let flash: TimeInterval = 0.15
 
