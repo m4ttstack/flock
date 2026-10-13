@@ -81,6 +81,8 @@ final class GhosttySession {
     /// the launcher overlay, leaving it hit-testable over live terminal
     /// output.
     var onUserInput: (() -> Void)?
+    /// The folder a relative path printed in this pane is relative to.
+    var linkFolder: (() -> String?)?
     /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
     /// clear its screen, AFTER `onUserInput` for the same event: clearing is
     /// still typing, so the keystroke lands first and the clear is what
@@ -578,9 +580,31 @@ final class GhosttySession {
         )
     }
 
-    func openHoveredLink() {
-        guard let url = state.hoveredLinkURL, let value = URL(string: url) else { return }
-        NSWorkspace.shared.open(value)
+    /// What the link under the pointer points at, nil over plain text and
+    /// over a path that names nothing on disk.
+    var hoveredLink: PaneLink? { link(for: state.hoveredLinkURL) }
+
+    func link(for text: String?) -> PaneLink? {
+        PaneLink.resolve(text, folder: linkFolder?(), home: NSHomeDirectory()) {
+            FileManager.default.fileExists(atPath: $0)
+        }
+    }
+
+    func open(_ link: PaneLink) {
+        switch link {
+        case .file(let url), .web(let url): NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Asks libghostty what link sits under `event`'s point, as if Command
+    /// were held: it reports a path or address match only under that
+    /// modifier. The answer is in `hoveredLink` by the time this returns,
+    /// because `ghosttyHostAction` handles a main-thread hover report inline.
+    /// `sendMousePosition` with the event's real modifiers undoes it.
+    func probeLink(at event: NSEvent) {
+        guard let surface, let view else { return }
+        let position = view.convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, position.x, view.bounds.height - position.y, GHOSTTY_MODS_SUPER)
     }
 
     func searchFor(_ needle: String) {
@@ -683,8 +707,8 @@ final class GhosttySession {
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             state.hoveredLinkURL = text
         case GHOSTTY_ACTION_OPEN_URL:
-            if let text, let value = URL(string: text) {
-                NSWorkspace.shared.open(value)
+            if let link = link(for: text) {
+                open(link)
             }
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             view?.applyCursor(for: action.action.mouse_shape)

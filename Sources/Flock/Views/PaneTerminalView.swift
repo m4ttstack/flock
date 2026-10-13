@@ -47,6 +47,9 @@ struct GhosttyPaneTerminalView: View {
     /// Builds this pane's right-click `NSMenu` on demand -- see
     /// `GhosttySurfaceView.menu(for:)`, the only place it is actually called.
     let menuProvider: () -> NSMenu?
+    /// The pane's current folder, which a relative path printed in it is
+    /// relative to. Read at the click, never at render.
+    let linkFolder: () -> String?
     /// A grab that became a drag in the pane body, with its point in the
     /// body's own top-left space -- the caller adds the body's own origin to
     /// reach the drag space. Called once, at the start; the drag itself
@@ -64,6 +67,7 @@ struct GhosttyPaneTerminalView: View {
         paneDragInProgress: Bool = false, isLauncherShowing: Bool = false,
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
+        linkFolder: @escaping () -> String? = { nil },
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
         self.surface = surface
@@ -79,6 +83,7 @@ struct GhosttyPaneTerminalView: View {
         self.editorIsOpen = editorIsOpen
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
+        self.linkFolder = linkFolder
         self.onBodyDragBegan = onBodyDragBegan
     }
 
@@ -97,7 +102,8 @@ struct GhosttyPaneTerminalView: View {
                 // keyboard, this pane's terminal must not take it back.
                 editorIsOpen: editorIsOpen || search?.fieldHasFocus == true,
                 findBarFrame: findBarOpen ? findBarFrame : nil,
-                onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
+                onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, linkFolder: linkFolder,
+                onBodyDragBegan: onBodyDragBegan
             )
             if let session, let search, findBarOpen {
                 TerminalFindBar(
@@ -135,6 +141,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     var findBarFrame: CGRect?
     var onPrimaryClick: () -> Void = {}
     var menuProvider: () -> NSMenu? = { nil }
+    var linkFolder: () -> String? = { nil }
     var onBodyDragBegan: (CGPoint) -> Void = { _ in }
 
     final class Coordinator {
@@ -172,6 +179,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             return PlaceholderGhosttyHostView(background: theme.terminalGround)
         }
         let session = handle.session
+        session.linkFolder = linkFolder
         session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
         if let existingView = session.view {
             // unparked here, synchronously, rather than waiting for
@@ -226,6 +234,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let ghosttyView = nsView as? GhosttySurfaceView else { return }
+        ghosttyView.session.linkFolder = linkFolder
         ghosttyView.session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
         if context.coordinator.lastAppliedThemeID != theme.id
             || context.coordinator.lastAppliedFontSize != fontSizePoints

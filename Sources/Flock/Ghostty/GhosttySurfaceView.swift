@@ -330,7 +330,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         switch disposition {
         case .menu:
             rightButtonRoute = nil
+            session.probeLink(at: event)
             super.rightMouseDown(with: event)
+            session.sendMousePosition(event)
         case .forwardToPane:
             requestWindowFirstResponder()
             rightButtonRoute = sendButtonDown(.right, event: event)
@@ -357,7 +359,35 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// without this override AppKit gets `nil` here (the `NSView` default)
     /// and no menu, and no `.contextMenu`, ever appears.
     override func menu(for event: NSEvent) -> NSMenu? {
-        paneMenuProvider?()
+        guard let menu = paneMenuProvider?() else { return nil }
+        if let link = session.hoveredLink {
+            for (index, item) in (linkMenuItems(for: link) + [.separator()]).enumerated() {
+                menu.insertItem(item, at: index)
+            }
+        }
+        return menu
+    }
+
+    /// Each item carries the link it was built for: the pointer leaves the
+    /// link, and the hover state with it, the moment it enters the menu.
+    private func linkMenuItems(for link: PaneLink) -> [NSMenuItem] {
+        let rows: [(String, Selector)]
+        switch link {
+        case .file:
+            rows = [
+                ("Open File", #selector(openLink(_:))),
+                ("Reveal in Finder", #selector(revealLink(_:))),
+                ("Copy Path", #selector(copyLink(_:))),
+            ]
+        case .web:
+            rows = [("Open Link", #selector(openLink(_:))), ("Copy Link", #selector(copyLink(_:)))]
+        }
+        return rows.map { title, action in
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = link
+            return item
+        }
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -744,14 +774,23 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         return NSTextFinder.Action(rawValue: tag)
     }
 
-    @objc func openHoveredLink(_ sender: Any?) {
-        session.openHoveredLink()
+    @objc func openLink(_ sender: Any?) {
+        guard let link = (sender as? NSMenuItem)?.representedObject as? PaneLink else { return }
+        session.open(link)
     }
 
-    @objc func copyHoveredLink(_ sender: Any?) {
-        guard let url = session.state.hoveredLinkURL, !url.isEmpty else { return }
+    @objc func revealLink(_ sender: Any?) {
+        guard case .file(let url)? = (sender as? NSMenuItem)?.representedObject as? PaneLink else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc func copyLink(_ sender: Any?) {
+        guard let link = (sender as? NSMenuItem)?.representedObject as? PaneLink else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url, forType: .string)
+        switch link {
+        case .file(let url): NSPasteboard.general.setString(url.path, forType: .string)
+        case .web(let url): NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        }
     }
 
     /// Reached only through `NSMenuItemValidation`: without the conformance
@@ -1051,8 +1090,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             return NSPasteboard.general.offersPasteText
         case #selector(selectAll(_:)):
             return true
-        case #selector(openHoveredLink(_:)), #selector(copyHoveredLink(_:)):
-            return session.state.hoveredLinkURL?.isEmpty == false
+        case #selector(openLink(_:)), #selector(revealLink(_:)), #selector(copyLink(_:)):
+            return true
         default:
             return false
         }

@@ -369,6 +369,13 @@ private func ghosttyHostAction(
     // Its strings are copied here for the same reason, and the reason is
     // worse: they are freed rather than merely unowned. See `actionText(from:)`.
     let text = actionText(from: action)
+    // `GhosttySession.probeLink` reads the answer as soon as its own call
+    // into libghostty returns, and a hover report is only ever raised inside
+    // such a call, so handling it here keeps every one of them in order.
+    if action.tag == GHOSTTY_ACTION_MOUSE_OVER_LINK, Thread.isMainThread {
+        MainActor.assumeIsolated { session?.handle(action, text: text) }
+        return true
+    }
     Task { @MainActor in
         switch target.tag {
         case GHOSTTY_TARGET_SURFACE:
