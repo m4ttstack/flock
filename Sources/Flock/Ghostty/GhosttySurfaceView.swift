@@ -419,21 +419,25 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// Each item carries the link it was built for: the pointer leaves the
     /// link, and the hover state with it, the moment it enters the menu.
     private func linkMenuItems(for link: PaneLink) -> [NSMenuItem] {
-        let rows: [(String, Selector)]
+        let rows: [(String, String, Selector)]
         switch link {
         case .file:
             rows = [
-                ("Open File", #selector(openLink(_:))),
-                ("Reveal in Finder", #selector(revealLink(_:))),
-                ("Copy Path", #selector(copyLink(_:))),
+                ("Open File", "arrow.up.right.square", #selector(openLink(_:))),
+                ("Reveal in Finder", "folder", #selector(revealLink(_:))),
+                ("Copy Path", "doc.on.doc", #selector(copyLink(_:))),
             ]
         case .web:
-            rows = [("Open Link", #selector(openLink(_:))), ("Copy Link", #selector(copyLink(_:)))]
+            rows = [
+                ("Open Link", "arrow.up.right.square", #selector(openLink(_:))),
+                ("Copy Link", "link", #selector(copyLink(_:))),
+            ]
         }
-        return rows.map { title, action in
+        return rows.map { title, symbol, action in
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = link
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             return item
         }
     }
