@@ -422,6 +422,9 @@ final class GhosttySession {
     func setParked(_ parked: Bool) {
         guard parked != isParked else { return }
         isParked = parked
+        // A pane taken off screen by a key gets no mouse exit, and its link
+        // poll runs for as long as it believes the pointer is over it.
+        if parked { hoverCell = nil }
         restartScreenActivityTimer()
         if !parked { tickScreenActivity() }
     }
@@ -626,7 +629,7 @@ final class GhosttySession {
 
     /// The cell the pointer is over, counted from the surface's top left.
     private var hoverCell: (column: Int, row: Int)?
-    private var scannedMatch: (column: Int, row: Int, line: String, match: PaneLink.Match?)?
+    private var scannedMatch: (column: Int, row: Int, line: String, folder: String?, match: PaneLink.Match?)?
 
     private func noteHover(at position: CGPoint, in view: NSView) {
         guard let cell = state.cellSize, cell.width > 0, cell.height > 0 else {
@@ -661,8 +664,8 @@ final class GhosttySession {
 
     /// The link under the pointer, by flock's own reading of the one row it
     /// is on (`PaneLink.match`). A link wrapped onto a second row is found
-    /// only up to the wrap. The disk is asked only when the row's text or
-    /// the cell has changed since the last look.
+    /// only up to the wrap. The disk is asked only when the row's text, the
+    /// cell or the pane's folder has changed since the last look.
     var hoveredMatch: PaneLink.Match? {
         guard let surface, let cell = hoverCell, cell.column >= 0, cell.row >= 0 else { return nil }
         let size = ghostty_surface_size(surface)
@@ -679,17 +682,18 @@ final class GhosttySession {
             if text.text_len > 0 { line = String(cString: text.text) }
             ghostty_surface_free_text(surface, &text)
         }
+        let folder = linkFolder?()
         if let scannedMatch, scannedMatch.column == cell.column, scannedMatch.row == cell.row,
-           scannedMatch.line == line {
+           scannedMatch.line == line, scannedMatch.folder == folder {
             return scannedMatch.match
         }
         let found = PaneLink.match(
-            inRow: line, column: cell.column, folder: linkFolder?(), home: NSHomeDirectory(),
+            inRow: line, column: cell.column, folder: folder, home: NSHomeDirectory(),
             handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
         ) {
             FileManager.default.fileExists(atPath: $0)
         }
-        scannedMatch = (cell.column, cell.row, line, found)
+        scannedMatch = (cell.column, cell.row, line, folder, found)
         return found
     }
 
