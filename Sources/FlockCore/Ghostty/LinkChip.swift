@@ -52,7 +52,7 @@ public struct LinkChipState {
     /// time the pointer has to reach it.
     public static let grace: TimeInterval = 0.3
     /// How long the chip stays, its button lit, after an action was taken.
-    public static let flash: TimeInterval = 0.35
+    public static let flash: TimeInterval = 0.15
 
     private enum Phase {
         case idle

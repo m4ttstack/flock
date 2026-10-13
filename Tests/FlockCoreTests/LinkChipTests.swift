@@ -130,10 +130,11 @@ final class LinkChipTests: XCTestCase {
     func testAnActionLightsItsButtonThenTheChipGoes() {
         var state = resting(on: sheet)
         state.act(.second, on: sheet, anchor: anchor(), now: at(1))
-        XCTAssertEqual(state.flash(at: at(1.34)), .second)
-        XCTAssertNotNil(state.chip(at: at(1.34)))
-        XCTAssertNil(state.chip(at: at(1.35)))
-        XCTAssertNil(state.flash(at: at(1.35)))
+        let over = 1 + LinkChipState.flash
+        XCTAssertEqual(state.flash(at: at(over - 0.01)), .second)
+        XCTAssertNotNil(state.chip(at: at(over - 0.01)))
+        XCTAssertNil(state.chip(at: at(over)))
+        XCTAssertNil(state.flash(at: at(over)))
     }
 
     func testTheChipSaysSoWhereItAlreadyIs() {
@@ -152,7 +153,7 @@ final class LinkChipTests: XCTestCase {
     func testThePointerStillOnTheLinkDoesNotBringTheChipBackAfterAnAction() {
         var state = resting(on: sheet)
         state.act(.open, on: sheet, anchor: anchor(), now: at(1))
-        state.hover(sheet, anchor: anchor(), now: at(1.1))
+        state.hover(sheet, anchor: anchor(), now: at(1.05))
         state.hover(sheet, anchor: anchor(), now: at(2))
         XCTAssertNil(state.chip(at: at(60)))
     }
