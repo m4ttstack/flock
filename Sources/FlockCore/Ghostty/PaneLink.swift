@@ -28,11 +28,44 @@ public enum PaneLink: Equatable {
     /// `vscode://`.
     ///
     /// A path is the longest run of words, from one that starts a path, that
-    /// names something on disk. Columns count characters, so a row holding
-    /// double-width text is matched a cell or two off.
+    /// names something on disk. `column` and the match's columns count the
+    /// terminal's cells, of which an emoji or a CJK character takes two.
     public static func match(
         inRow row: String, column: Int, folder: String?, home: String,
         handled: (URL) -> Bool = { _ in false }, exists: (String) -> Bool
+    ) -> Match? {
+        var cellStarts: [Int] = []
+        var cells = 0
+        for character in row {
+            cellStarts.append(cells)
+            cells += cellWidth(of: character)
+        }
+        cellStarts.append(cells)
+        guard column >= 0, column < cells, let index = cellStarts.lastIndex(where: { $0 <= column }) else { return nil }
+        return match(inRow: row, character: index, folder: folder, home: home, handled: handled, exists: exists)
+            .map { Match(link: $0.link, columns: cellStarts[$0.columns.lowerBound]..<cellStarts[$0.columns.upperBound]) }
+    }
+
+    /// Two for what a terminal draws double width: emoji shown as pictures,
+    /// and the East Asian wide and fullwidth blocks.
+    static func cellWidth(of character: Character) -> Int {
+        guard let scalar = character.unicodeScalars.first else { return 1 }
+        if scalar.properties.isEmojiPresentation { return 2 }
+        if scalar.properties.isEmoji, character.unicodeScalars.contains(where: { $0.value == 0xFE0F }) { return 2 }
+        switch scalar.value {
+        case 0x1100...0x115F, 0x2E80...0xA4CF, 0xAC00...0xD7A3, 0xF900...0xFAFF, 0xFE30...0xFE4F,
+             0xFF00...0xFF60, 0xFFE0...0xFFE6, 0x1F300...0x1FAFF, 0x20000...0x3FFFD:
+            return 2
+        default:
+            return 1
+        }
+    }
+
+    /// `match(inRow:column:)` with `column` and the answer's columns counted
+    /// in characters.
+    private static func match(
+        inRow row: String, character column: Int, folder: String?, home: String,
+        handled: (URL) -> Bool, exists: (String) -> Bool
     ) -> Match? {
         for (text, start) in addresses(inRow: row) where (start..<start + text.count).contains(column) {
             return resolve(text, folder: folder, home: home, handled: handled, exists: exists)

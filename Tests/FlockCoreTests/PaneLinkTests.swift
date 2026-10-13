@@ -148,6 +148,22 @@ final class PaneLinkTests: XCTestCase {
         XCTAssertNil(match(line, 20, existing: ["/Users/acme/Documents/src"]))
     }
 
+    /// The terminal counts cells, and a picture emoji is two of them.
+    func testColumnsCountCellsNotCharacters() {
+        let line = "\u{1F4A5} cd ~/Documents/src && git pull"
+        let found = match(line, 7, existing: ["/Users/acme/Documents/src"])
+        XCTAssertEqual(found?.columns, 6..<21)
+        XCTAssertNil(match(line, 5, existing: ["/Users/acme/Documents/src"]))
+        XCTAssertNil(match(line, 21, existing: ["/Users/acme/Documents/src"]))
+    }
+
+    func testWideTextIsTwoCellsACharacter() {
+        XCTAssertEqual(PaneLink.cellWidth(of: "a"), 1)
+        XCTAssertEqual(PaneLink.cellWidth(of: "\u{1F4A5}"), 2)
+        XCTAssertEqual(PaneLink.cellWidth(of: "\u{6F22}"), 2)
+        XCTAssertEqual(PaneLink.cellWidth(of: "\u{2713}"), 1)
+    }
+
     func testAPathMayHoldSpaces() {
         let line = "see ~/Library/Application Support/acme/log.txt for more"
         let path = "/Users/acme/Library/Application Support/acme/log.txt"
