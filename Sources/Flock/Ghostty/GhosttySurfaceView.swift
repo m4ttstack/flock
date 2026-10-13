@@ -170,10 +170,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// this whole view's bounds, buttons and the space around them alike.
     override func hitTest(_ point: NSPoint) -> NSView? {
         if isLauncherShowing, !Self.launcherPaneTakes(NSApp.currentEvent?.type) { return nil }
-        if let findBarFrame {
-            let local = convert(point, from: superview)
-            if findBarFrame.contains(CGPoint(x: local.x, y: bounds.height - local.y)) { return nil }
-        }
+        let local = convert(point, from: superview)
+        let topLeft = CGPoint(x: local.x, y: bounds.height - local.y)
+        if findBarFrame?.contains(topLeft) == true || session.linkChip.frame?.contains(topLeft) == true { return nil }
         return super.hitTest(point)
     }
 
@@ -269,6 +268,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// steals AppKit's first-responder status out from under whichever pane
     /// truly holds it right now.
     override func mouseDown(with event: NSEvent) {
+        session.linkChip.dismiss()
         // Checked before anything is routed: while rearranging, the whole
         // pane is a drag surface, so an unfocused pane's first click starts a
         // drag rather than firing `onPrimaryClick`'s real `pane.focus` RPC. At
@@ -319,6 +319,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// responder chain (`super`);
     /// libghostty's own context menu is never shown here.
     override func rightMouseDown(with event: NSEvent) {
+        session.linkChip.dismiss()
         let disposition = RightClickDisposition.decide(
             optionHeld: event.modifierFlags.contains(.option),
             captureEnabled: session.mouseCaptureEnabled,
@@ -410,9 +411,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             applyPaneCursor()
             return
         }
-        session.sendMousePosition(event)
+        trackLink(event)
     }
-    override func mouseExited(with event: NSEvent) { session.sendMouseExit(modifiers: event.modifierFlags) }
+
+    override func mouseExited(with event: NSEvent) {
+        session.sendMouseExit(modifiers: event.modifierFlags)
+        session.linkChip.pointerLeftPane()
+    }
 
     /// Under capture the app owns the pointer, so motion becomes a
     /// `terminal.mouse` moved line (herdr drops it unless the app enabled
@@ -429,14 +434,37 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         // cursor mid-hover would stick.
         guard !rearrangeActive else {
             applyPaneCursor()
+            session.linkChip.dismiss()
             return
         }
         switch mouseDecision(kind: .moved, button: nil, event: event) {
-        case .toApp(let command): session.sendPaneMouse(command)
+        case .toApp(let command):
+            session.sendPaneMouse(command)
+            trackLink(event)
         // `.toHerdrScroll` is unreachable for `.moved` (`decide` only ever
         // returns it for a scroll kind), kept here only for exhaustiveness.
-        case .toSurface, .drop, .toHerdrScroll: session.sendMousePosition(event)
+        case .toSurface, .drop, .toHerdrScroll: trackLink(event)
         }
+    }
+
+    /// Feeds the pointer to libghostty's link matcher and the chip, in a
+    /// pane whose program has the mouse too: the hover is flock's, and
+    /// libghostty reports nothing to a program from here. A move over the
+    /// chip itself is the chip's, or the hover would follow the pointer onto
+    /// whatever text the chip covers.
+    private func trackLink(_ event: NSEvent) {
+        let point = topLeftPoint(event)
+        if session.linkChip.frame?.contains(point) == true { return }
+        session.sendHoverPosition(event)
+        guard !paneDragInProgress, !isLauncherShowing, let cell = cellSizeInPoints() else {
+            session.linkChip.dismiss()
+            return
+        }
+        let lineTop = (point.y / cell.height).rounded(.down) * cell.height
+        session.linkChip.hover(
+            session.hoveredLink,
+            anchor: LinkChip.Anchor(x: point.x, lineTop: lineTop, lineBottom: lineTop + cell.height)
+        )
     }
 
     /// A drag belongs to whatever its button's DOWN decided, kept in step
@@ -479,6 +507,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// of that fork, so both routes carry it: a wheel that moved one pane's
     /// program further than it moved herdr's viewport would read as a bug.
     override func scrollWheel(with event: NSEvent) {
+        session.linkChip.dismiss()
         guard let cell = cellSizeInPoints() else {
             scrollAccumulator.reset()
             return
@@ -657,6 +686,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// navigation) this view does not control.
     override func keyDown(with event: NSEvent) {
         guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
+        session.linkChip.dismiss()
         // `keyDown` (never `flagsChanged`) is by construction real key input,
         // not a bare modifier change -- the one exception is a Command combo
         // (the system's to handle, not a sign the user started typing into

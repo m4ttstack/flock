@@ -33,6 +33,12 @@ final class LinkChipTests: XCTestCase {
         XCTAssertEqual(resting(on: sheet).chip(at: at(0.3))?.link, sheet)
     }
 
+    func testARestThatHasEndedLeavesNothingToWaitFor() {
+        var state = resting(on: sheet)
+        state.tick(at(0.3))
+        XCTAssertNil(state.deadline)
+    }
+
     func testAPassOverALinkShowsNothing() {
         var state = resting(on: sheet)
         state.hover(nil, anchor: anchor(), now: at(0.1))

@@ -365,6 +365,20 @@ final class GhosttySession {
         )
     }
 
+    /// A pointer move with no button down, sent as if Command were held:
+    /// libghostty matches and reports a link only under that modifier, and
+    /// the chip is offered on a plain hover. A real Shift, Control or Option
+    /// is left alone, since each means something else to a selection.
+    func sendHoverPosition(_ event: NSEvent) {
+        guard let surface, let view else { return }
+        let position = view.convert(event.locationInWindow, from: nil)
+        var mods = translate(event.modifierFlags)
+        if event.modifierFlags.isDisjoint(with: [.shift, .control, .option]) {
+            mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SUPER.rawValue)
+        }
+        ghostty_surface_mouse_pos(surface, position.x, view.bounds.height - position.y, mods)
+    }
+
     func sendMouseExit(modifiers: NSEvent.ModifierFlags) {
         guard let surface else { return }
         ghostty_surface_mouse_pos(surface, -1, -1, translate(modifiers))
@@ -582,7 +596,18 @@ final class GhosttySession {
 
     /// What the link under the pointer points at, nil over plain text and
     /// over a path that names nothing on disk.
-    var hoveredLink: PaneLink? { link(for: state.hoveredLinkURL) }
+    var hoveredLink: PaneLink? {
+        guard let text = state.hoveredLinkURL, !text.isEmpty else { return nil }
+        if let resolvedHover, resolvedHover.text == text { return resolvedHover.link }
+        let link = link(for: text)
+        resolvedHover = (text, link)
+        return link
+    }
+
+    /// One hover asks on every pointer move, and each answer costs a stat.
+    private var resolvedHover: (text: String, link: PaneLink?)?
+
+    let linkChip = LinkChipModel()
 
     func link(for text: String?) -> PaneLink? {
         PaneLink.resolve(text, folder: linkFolder?(), home: NSHomeDirectory()) {

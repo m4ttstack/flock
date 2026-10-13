@@ -219,6 +219,20 @@ enum ChromeMetrics {
         static let symbol: CGFloat = 11
     }
 
+    /// The chip over a link the pointer rested on in a pane.
+    enum LinkChip {
+        static let height: CGFloat = 22
+        static let cornerRadius: CGFloat = ChromeRadius.control
+        static let horizontalPadding: CGFloat = 9
+        static let symbolGap: CGFloat = 4
+        static let dividerHeight: CGFloat = 12
+        static let shadowRadius: CGFloat = 6
+        /// Between the chip and the line its link is on.
+        static let gap: CGFloat = 3
+        /// Between the chip and the pane's edge.
+        static let inset: CGFloat = 4
+    }
+
     /// A pane's find bar, pinned to the terminal's top trailing corner.
     enum FindBar {
         static let inset: CGFloat = 8

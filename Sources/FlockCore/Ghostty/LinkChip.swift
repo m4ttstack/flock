@@ -96,6 +96,11 @@ public struct LinkChipState {
         pointerOnChip = false
     }
 
+    /// Applies whatever time alone has changed, which moves `deadline` on.
+    public mutating func tick(_ now: Date) {
+        settle(now)
+    }
+
     public func chip(at now: Date) -> LinkChip? {
         var settled = self
         settled.settle(now)

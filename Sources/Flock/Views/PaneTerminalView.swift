@@ -57,6 +57,7 @@ struct GhosttyPaneTerminalView: View {
     let onBodyDragBegan: (CGPoint) -> Void
 
     @State private var findBarFrame: CGRect?
+    @State private var linkChipSize: CGSize?
 
     private static let space = "flock.pane.terminal"
 
@@ -116,7 +117,50 @@ struct GhosttyPaneTerminalView: View {
                 .padding(ChromeMetrics.FindBar.inset)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if let session, let chip = session.linkChip.chip {
+                linkChip(chip, in: session)
+            }
+        }
         .coordinateSpace(name: Self.space)
+    }
+
+    /// Measured before it is placed: where the chip goes depends on its own
+    /// size, so the first pass lays it out unseen.
+    private func linkChip(_ chip: LinkChip, in session: GhosttySession) -> some View {
+        GeometryReader { pane in
+            let origin = linkChipSize.map {
+                LinkChip.origin(
+                    for: chip.anchor, chip: $0, pane: pane.size,
+                    gap: ChromeMetrics.LinkChip.gap, inset: ChromeMetrics.LinkChip.inset
+                )
+            }
+            LinkChipView(
+                theme: theme, link: chip.link,
+                onOpen: {
+                    session.open(chip.link)
+                    session.linkChip.dismiss()
+                },
+                onReveal: {
+                    if case .file(let url) = chip.link { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    session.linkChip.dismiss()
+                },
+                onCopy: {
+                    if case .web(let url) = chip.link {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                    }
+                    session.linkChip.dismiss()
+                }
+            )
+            .onHover { session.linkChip.chipHover($0) }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { linkChipSize = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
+                session.linkChip.frame = $0
+            }
+            .offset(x: origin?.x ?? 0, y: origin?.y ?? 0)
+            .opacity(origin == nil ? 0 : 1)
+        }
     }
 }
 
