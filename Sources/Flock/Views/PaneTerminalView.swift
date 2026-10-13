@@ -45,8 +45,11 @@ struct GhosttyPaneTerminalView: View {
     /// no purpose (see `GhosttySurfaceView.mouseDown`'s own gate).
     let onPrimaryClick: () -> Void
     /// Builds this pane's right-click `NSMenu` on demand -- see
-    /// `GhosttySurfaceView.menu(for:)`, the only place it is actually called.
+    /// `GhosttySurfaceView.paneMenu()`, the only place it is actually called.
     let menuProvider: () -> NSMenu?
+    /// The pane's current folder, which a relative path printed in it is
+    /// relative to. Read at the click, never at render.
+    let linkFolder: () -> String?
     /// A grab that became a drag in the pane body, with its point in the
     /// body's own top-left space -- the caller adds the body's own origin to
     /// reach the drag space. Called once, at the start; the drag itself
@@ -54,6 +57,7 @@ struct GhosttyPaneTerminalView: View {
     let onBodyDragBegan: (CGPoint) -> Void
 
     @State private var findBarFrame: CGRect?
+    @State private var linkChipSize: CGSize?
 
     private static let space = "flock.pane.terminal"
 
@@ -64,6 +68,7 @@ struct GhosttyPaneTerminalView: View {
         paneDragInProgress: Bool = false, isLauncherShowing: Bool = false,
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
+        linkFolder: @escaping () -> String? = { nil },
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
         self.surface = surface
@@ -79,6 +84,7 @@ struct GhosttyPaneTerminalView: View {
         self.editorIsOpen = editorIsOpen
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
+        self.linkFolder = linkFolder
         self.onBodyDragBegan = onBodyDragBegan
     }
 
@@ -97,7 +103,8 @@ struct GhosttyPaneTerminalView: View {
                 // keyboard, this pane's terminal must not take it back.
                 editorIsOpen: editorIsOpen || search?.fieldHasFocus == true,
                 findBarFrame: findBarOpen ? findBarFrame : nil,
-                onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, onBodyDragBegan: onBodyDragBegan
+                onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, linkFolder: linkFolder,
+                onBodyDragBegan: onBodyDragBegan
             )
             if let session, let search, findBarOpen {
                 TerminalFindBar(
@@ -110,7 +117,50 @@ struct GhosttyPaneTerminalView: View {
                 .padding(ChromeMetrics.FindBar.inset)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if let session, let chip = session.linkChip.chip {
+                linkChip(chip, in: session)
+            }
+        }
         .coordinateSpace(name: Self.space)
+    }
+
+    /// Measured before it is placed: where the chip goes depends on its own
+    /// size, so the first pass lays it out unseen.
+    private func linkChip(_ chip: LinkChip, in session: GhosttySession) -> some View {
+        GeometryReader { pane in
+            let origin = linkChipSize.map {
+                LinkChip.origin(
+                    for: chip.anchor, chip: $0, pane: pane.size,
+                    gap: ChromeMetrics.LinkChip.gap, inset: ChromeMetrics.LinkChip.inset
+                )
+            }
+            LinkChipView(
+                theme: theme, link: chip.link, flash: session.linkChip.flash,
+                onOpen: {
+                    session.open(chip.link)
+                    session.linkChip.act(.open, on: chip.link, anchor: chip.anchor)
+                },
+                onReveal: {
+                    if case .file(let url) = chip.link { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
+                },
+                onCopy: {
+                    if case .web(let url) = chip.link {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                    }
+                    session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
+                }
+            )
+            .onHover { session.linkChip.chipHover($0) }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { linkChipSize = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
+                session.linkChip.frame = $0
+            }
+            .offset(x: origin?.x ?? 0, y: origin?.y ?? 0)
+            .opacity(origin == nil ? 0 : 1)
+        }
     }
 }
 
@@ -135,6 +185,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     var findBarFrame: CGRect?
     var onPrimaryClick: () -> Void = {}
     var menuProvider: () -> NSMenu? = { nil }
+    var linkFolder: () -> String? = { nil }
     var onBodyDragBegan: (CGPoint) -> Void = { _ in }
 
     final class Coordinator {
@@ -172,6 +223,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             return PlaceholderGhosttyHostView(background: theme.terminalGround)
         }
         let session = handle.session
+        session.linkFolder = linkFolder
         session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
         if let existingView = session.view {
             // unparked here, synchronously, rather than waiting for
@@ -226,6 +278,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let ghosttyView = nsView as? GhosttySurfaceView else { return }
+        ghosttyView.session.linkFolder = linkFolder
         ghosttyView.session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
         if context.coordinator.lastAppliedThemeID != theme.id
             || context.coordinator.lastAppliedFontSize != fontSizePoints

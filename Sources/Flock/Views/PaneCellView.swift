@@ -799,6 +799,9 @@ struct PaneCellView: View {
                             symbols: PaneMenuSymbols(identity: identity)
                         )
                     },
+                    linkFolder: { [weak viewModel] in
+                        viewModel?.model?.panes[pane.paneID].map { $0.foregroundCwd ?? $0.cwd }
+                    },
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }
