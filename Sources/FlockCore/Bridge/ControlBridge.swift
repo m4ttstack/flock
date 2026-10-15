@@ -821,9 +821,16 @@ final class BridgeChildSupervisor: @unchecked Sendable {
                 lock.unlock()
                 continue
             }
-            let reading = hold.reading(
-                fromTake: child.fromTake, childAge: exitedAt.timeIntervalSince(child.startedAt)
-            )
+            // A take claims the hold before its child replaces `current`, since
+            // the spawn runs outside the lock, so the hold alone would read a
+            // released child's late-observed exit as the pane dying. A release
+            // since this child's spawn moved the epoch on, and makes it the
+            // release's exit whatever the hold says now.
+            let reading: BridgeHoldState.ChildExit = child.epoch != holdEpoch
+                ? .expectedRelease
+                : hold.reading(
+                    fromTake: child.fromTake, childAge: exitedAt.timeIntervalSince(child.startedAt)
+                )
             if reading == .bridgeIsFinished {
                 exitStatus = child.process.terminationStatus
                 finished = true
