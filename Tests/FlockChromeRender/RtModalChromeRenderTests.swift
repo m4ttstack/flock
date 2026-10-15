@@ -378,7 +378,9 @@ final class RtModalChromeRenderTests: XCTestCase {
 
             let id = try XCTUnwrap(viewModel.rt.modal?.itemID)
             viewModel.rt.items[id]?.started = true
-            viewModel.rt.items[id]?.startedAt = Date()
+            // An hour ahead, so the ceiling cannot pass during the waits below
+            // however slow the machine: this is about the claim alone.
+            viewModel.rt.items[id]?.startedAt = Date().addingTimeInterval(3600)
             await settle(window)
             let started = try snapshot(window)
             XCTAssertGreaterThan(markPixels(in: started, area), 40, "\(label): the loader left before the program drew")
@@ -420,10 +422,16 @@ final class RtModalChromeRenderTests: XCTestCase {
         let area = paneArea(in: window)
 
         let id = try XCTUnwrap(viewModel.rt.modal?.itemID)
+        let startedAt = Date()
         viewModel.rt.items[id]?.started = true
-        viewModel.rt.items[id]?.startedAt = Date()
+        viewModel.rt.items[id]?.startedAt = startedAt
         await settle(window)
-        XCTAssertGreaterThan(markPixels(in: try snapshot(window), area), 40, "the loader left before the ceiling")
+        // The deadline is real time, and a starved machine can spend it all in
+        // the settle above. Nothing between this check and the snapshot yields
+        // the main actor, so a deadline still ahead here is ahead in the snapshot.
+        if Date().timeIntervalSince(startedAt) < RtModalLoaderPolicy.ceiling {
+            XCTAssertGreaterThan(markPixels(in: try snapshot(window), area), 40, "the loader left before the ceiling")
+        }
 
         try await Task.sleep(for: .seconds(RtModalLoaderPolicy.ceiling + 1))
         await settle(window)

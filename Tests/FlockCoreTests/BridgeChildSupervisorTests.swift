@@ -23,9 +23,14 @@ final class BridgeChildSupervisorTests: XCTestCase {
         private(set) var pids: [pid_t] = []
         /// Where each child's stdin is copied to, one file per child.
         private(set) var sinks: [URL] = []
+        /// How long every spawn after the first stalls before its child runs:
+        /// a slow fork, which is what holds a take's spawn open long enough
+        /// for the watcher to wake on the released child inside it.
+        private let retakeSpawnDelay: TimeInterval
 
-        init(scripts: [String]) {
+        init(scripts: [String], retakeSpawnDelay: TimeInterval = 0) {
             self.scripts = scripts
+            self.retakeSpawnDelay = retakeSpawnDelay
         }
 
         func spawn(_ size: PTYSize) -> BridgeChildSupervisor.Spawned? {
@@ -35,7 +40,9 @@ final class BridgeChildSupervisorTests: XCTestCase {
                 .appendingPathComponent("flock-supervisor-\(UUID().uuidString).sink")
             spawns.append(size)
             sinks.append(sink)
+            let isRetake = spawns.count > 1
             lock.unlock()
+            if isRetake, retakeSpawnDelay > 0 { usleep(useconds_t(retakeSpawnDelay * 1_000_000)) }
 
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -474,6 +481,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
             )
             supervisor.handle(.take)
             waitUntil("round \(round)'s retake") { spawner.spawnCount == round + 1 }
+            XCTAssertFalse(supervisor.isFinished, "round \(round): the retake ended the bridge")
             waitUntil("round \(round)'s new child to be running") { spawner.isRunning(round) }
             XCTAssertEqual(
                 spawner.liveCount, 1,
@@ -482,6 +490,27 @@ final class BridgeChildSupervisorTests: XCTestCase {
         }
         XCTAssertFalse(supervisor.isFinished)
         XCTAssertEqual(spawner.spawns, Array(repeating: PTYSize(cols: 80, rows: 24), count: 3))
+    }
+
+    /// A take spawns outside the lock, so the watcher can wake on the released
+    /// child's exit after the take has claimed the hold but before the new
+    /// child is current. That exit is still the release's, and must neither end
+    /// the bridge nor end the child the take is starting.
+    func testAReleasedChildsExitObservedDuringTheRetakesSpawnLeavesTheRetakeRunning() {
+        let spawner = Spawner(scripts: [], retakeSpawnDelay: 0.15)
+        defer { spawner.terminateAll() }
+        let supervisor = makeSupervisor(spawner: spawner).supervisor
+
+        supervisor.handle(.release)
+        waitUntil("the released child to exit") { !spawner.isRunning(0) }
+        supervisor.handle(.take)
+
+        XCTAssertFalse(supervisor.isFinished, "the released child's exit ended the bridge")
+        waitUntil("the retake's child to be running") { spawner.isRunning(1) }
+        // Long enough for a watcher that misread the exit to have ended it.
+        usleep(200_000)
+        XCTAssertTrue(spawner.isRunning(1), "the retake's child was ended as it started")
+        XCTAssertFalse(supervisor.isFinished)
     }
 
     /// A repeated command decides nothing, so a duplicated line cannot leave
