@@ -7,7 +7,7 @@ import CoreGraphics
 /// truncates there instead.
 public enum TabWidth {
     public static let minimum: CGFloat = 100
-    public static let maximum: CGFloat = 240
+    public static let maximum: CGFloat = 400
     public static let compactMinimum: CGFloat = 72
     public static let compactMaximum: CGFloat = 110
 

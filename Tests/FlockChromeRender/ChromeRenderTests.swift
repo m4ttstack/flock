@@ -1194,7 +1194,8 @@ final class ChromeRenderTests: XCTestCase {
         let harness = try await Harness(
             theme: .tokyoNight, model: try Fixture.model(flockTabLabels: ["x", "web", "claude", long])
         )
-        let window = harness.makeWindow(size: Self.windowSize)
+        // Wide enough that a tab at the maximum ends inside the strip's viewport.
+        let window = harness.makeWindow(size: CGSize(width: 1100, height: Self.windowSize.height))
         await settle(window)
         let image = try snapshot(window)
         if let directory {
