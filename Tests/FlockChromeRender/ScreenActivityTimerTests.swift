@@ -86,8 +86,10 @@ final class ScreenActivityTimerTests: XCTestCase {
         session.onScreenActivity = { reports.append($0.rows) }
 
         // `run(mode:before:)` can return after any one source fires, so it
-        // is driven until the deadline.
-        let deadline = Date().addingTimeInterval(GhosttySession.screenActivityInterval * 2.5)
+        // is driven until the deadline. The loop ends at the first report, so
+        // the deadline only bounds a timer that never fires in this mode, and
+        // is wide enough that a starved machine's late first fire still lands.
+        let deadline = Date().addingTimeInterval(GhosttySession.screenActivityInterval * 20)
         while reports.isEmpty, Date() < deadline {
             _ = RunLoop.main.run(mode: .eventTracking, before: deadline)
         }
