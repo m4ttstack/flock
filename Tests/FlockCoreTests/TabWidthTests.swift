@@ -37,14 +37,14 @@ final class TabWidthTests: XCTestCase {
     }
 
     func testATitleTooWideForTheMaximumStopsThereAndTruncatesInstead() {
-        XCTAssertEqual(width(title: 400), TabWidth.maximum)
+        XCTAssertEqual(width(title: 600), TabWidth.maximum)
     }
 
     /// Both bounds meet the fit exactly, so no title is given a tab with
     /// room it cannot use or a tab that clips what it just measured.
     func testEachBoundMeetsTheFitExactly() {
         XCTAssertEqual(width(title: 64), TabWidth.minimum)
-        XCTAssertEqual(width(title: 204), TabWidth.maximum)
+        XCTAssertEqual(width(title: 364), TabWidth.maximum)
     }
 
     /// A compact tab (a complete one nobody is looking at) keeps narrower
