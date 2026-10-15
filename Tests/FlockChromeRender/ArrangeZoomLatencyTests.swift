@@ -121,22 +121,37 @@ final class ArrangeZoomLatencyTests: XCTestCase {
 
     /// Twelve workspaces, so the grid a zoom out brings back is a full one.
     /// The cost is read against the four-workspace fixture in the same run:
-    /// a zoom may scale with the grid, but a zoom out that rebuilt every
-    /// workspace's tiles would grow past a small multiple of it.
+    /// a zoom may scale with the grid, but not faster than it.
+    ///
+    /// The two grids are measured turn about, so a runner's load lands on both
+    /// alike, and compared by their fastest frames: load only ever adds time,
+    /// so the minimum is the sample nearest the work itself.
     func testZoomFirstFrameCostWithTwelveWorkspaces() async throws {
-        let base = try await zoomCosts(extra: 0)
-        let full = try await zoomCosts(extra: 8)
-        report("4 workspaces zoom in: first frame drawn", base.inFrames)
-        report("4 workspaces zoom out: first frame drawn", base.outFrames)
-        report("12 workspaces zoom in: first frame drawn", full.inFrames)
-        report("12 workspaces zoom out: first frame drawn", full.outFrames)
-        let baseIn = median(base.inFrames)
-        let baseOut = median(base.outFrames)
-        // Three times the workspaces; linear growth is 3x, with room for noise.
-        XCTAssertLessThan(median(full.inFrames), baseIn * 4 + 20, "a zoom in grows faster than the grid")
-        XCTAssertLessThan(median(full.outFrames), baseOut * 4 + 20, "a zoom out grows faster than the grid")
-        XCTAssertLessThan(median(full.inFrames), Self.grossCeiling)
-        XCTAssertLessThan(median(full.outFrames), Self.grossCeiling)
+        let base = try await openArrange(extra: 0)
+        defer { base.window.close() }
+        let full = try await openArrange(extra: 8)
+        defer { full.window.close() }
+        var baseCosts = ZoomCosts()
+        var fullCosts = ZoomCosts()
+        for _ in 0..<Self.iterations {
+            try await zoomOnce(base, into: &baseCosts)
+            try await zoomOnce(full, into: &fullCosts)
+        }
+        report("4 workspaces zoom in: first frame drawn", baseCosts.inFrames)
+        report("4 workspaces zoom out: first frame drawn", baseCosts.outFrames)
+        report("12 workspaces zoom in: first frame drawn", fullCosts.inFrames)
+        report("12 workspaces zoom out: first frame drawn", fullCosts.outFrames)
+        let baseIn = try XCTUnwrap(baseCosts.inFrames.min())
+        let baseOut = try XCTUnwrap(baseCosts.outFrames.min())
+        let fullIn = try XCTUnwrap(fullCosts.inFrames.min())
+        let fullOut = try XCTUnwrap(fullCosts.outFrames.min())
+        // The twelve-workspace fixture has about 3.4x the tiles, so linear
+        // growth is 3.4x and 5x leaves room for noise. This catches a cost
+        // that grows faster than the grid, not a linear one made larger.
+        XCTAssertLessThan(fullIn, baseIn * 5 + 20, "a zoom in grows faster than the grid")
+        XCTAssertLessThan(fullOut, baseOut * 5 + 20, "a zoom out grows faster than the grid")
+        XCTAssertLessThan(fullIn, Self.grossCeiling)
+        XCTAssertLessThan(fullOut, Self.grossCeiling)
     }
 
     /// How long one click on the zoomed island's close control waits before
@@ -234,28 +249,31 @@ final class ArrangeZoomLatencyTests: XCTestCase {
         return Open(harness: harness, window: window)
     }
 
-    private func zoomCosts(extra: Int) async throws -> (inFrames: [Double], outFrames: [Double]) {
-        let arrange = try await openArrange(extra: extra)
-        let window = arrange.window
-        let content = try XCTUnwrap(window.contentView)
+    private struct ZoomCosts {
         var inFrames: [Double] = []
         var outFrames: [Double] = []
-        for _ in 0..<Self.iterations {
-            let start = DispatchTime.now().uptimeNanoseconds
-            arrange.harness.drag.zoomGrid(into: ArrangeFixture.api)
-            content.layoutSubtreeIfNeeded()
-            content.displayIfNeeded()
-            inFrames.append(Self.ms(start, DispatchTime.now().uptimeNanoseconds))
-            await settle(window)
-            let outStart = DispatchTime.now().uptimeNanoseconds
-            arrange.harness.drag.updateGrid { $0.escape() }
-            content.layoutSubtreeIfNeeded()
-            content.displayIfNeeded()
-            outFrames.append(Self.ms(outStart, DispatchTime.now().uptimeNanoseconds))
-            await settle(window)
-        }
-        window.close()
-        return (inFrames, outFrames)
+    }
+
+    /// One zoom in and back out, each timed to its first frame drawn. The two
+    /// grids' windows open at one origin, so the one measured is brought to
+    /// the front first: an occluded window is drawn differently.
+    private func zoomOnce(_ arrange: Open, into costs: inout ZoomCosts) async throws {
+        let window = arrange.window
+        let content = try XCTUnwrap(window.contentView)
+        window.orderFront(nil)
+        await settle(window)
+        let start = DispatchTime.now().uptimeNanoseconds
+        arrange.harness.drag.zoomGrid(into: ArrangeFixture.api)
+        content.layoutSubtreeIfNeeded()
+        content.displayIfNeeded()
+        costs.inFrames.append(Self.ms(start, DispatchTime.now().uptimeNanoseconds))
+        await settle(window)
+        let outStart = DispatchTime.now().uptimeNanoseconds
+        arrange.harness.drag.updateGrid { $0.escape() }
+        content.layoutSubtreeIfNeeded()
+        content.displayIfNeeded()
+        costs.outFrames.append(Self.ms(outStart, DispatchTime.now().uptimeNanoseconds))
+        await settle(window)
     }
 
     private func pressKey(_ window: NSWindow, keyCode: UInt16, characters: String) {
