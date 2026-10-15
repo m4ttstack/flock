@@ -165,4 +165,33 @@ final class StartingFolderCreateTests: XCTestCase {
         let created = await client.call("tab.create")
         XCTAssertEqual(cwd(created), repo)
     }
+
+    @MainActor
+    func testANewTabInAPinnedWorkspaceStartsInThePinsFolder() async throws {
+        let notes = root.appendingPathComponent("notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+        let client = FolderClient(leaderCwd: root.appendingPathComponent("elsewhere").path)
+        let viewModel = makeViewModel(client: client, [.tab: StartingFolderChoice(folder: .mainCheckout)])
+        viewModel.pins.add(workspace: WorkspaceID(rawValue: "w1"), name: "notes", folder: notes.path, at: nil)
+
+        await viewModel.createTab(in: WorkspaceID(rawValue: "w1"))
+
+        let created = await client.call("tab.create")
+        XCTAssertEqual(cwd(created), notes.path)
+        let processInfoCalls = await client.count("pane.process_info")
+        XCTAssertEqual(processInfoCalls, 0, "the pin's folder is known without asking herdr")
+    }
+
+    @MainActor
+    func testANewTabInAPinWhoseFolderIsGoneFollowsTheSetting() async throws {
+        let (repo, worktree) = try makeRepoAndWorktree()
+        let client = FolderClient(leaderCwd: worktree)
+        let viewModel = makeViewModel(client: client, [.tab: StartingFolderChoice(folder: .mainCheckout)])
+        viewModel.pins.add(workspace: WorkspaceID(rawValue: "w1"), name: "gone", folder: root.appendingPathComponent("gone").path, at: nil)
+
+        await viewModel.createTab(in: WorkspaceID(rawValue: "w1"))
+
+        let created = await client.call("tab.create")
+        XCTAssertEqual(cwd(created), repo)
+    }
 }
