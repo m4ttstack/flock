@@ -2363,12 +2363,21 @@ public final class SessionViewModel {
     /// the strip and rail create from a zone that draws nothing, so a
     /// swallowed failure is indistinguishable from a click that missed, and
     /// the natural retry spawns a second real shell.
+    ///
+    /// A pinned workspace's folder is where every shell in it is meant to
+    /// start, so it beats the Settings rule for the tab; the rule only decides
+    /// for unpinned workspaces and for a pin whose folder is gone.
     public func createTab(in workspace: WorkspaceID) async {
         var params: [String: JSONValue] = ["workspace_id": .string(workspace.rawValue), "focus": .bool(true)]
-        if let cwd = await startingCwd(for: .tab, from: resolvedFocusedPaneID) {
+        if let cwd = await startingCwd(forTabIn: workspace) {
             params["cwd"] = .string(cwd)
         }
         await create("tab.create", params, label: "New tab")
+    }
+
+    private func startingCwd(forTabIn workspace: WorkspaceID) async -> String? {
+        if let folder = pins.pin(linkedTo: workspace)?.folder, folderExists(folder) { return folder }
+        return await startingCwd(for: .tab, from: resolvedFocusedPaneID)
     }
 
     /// `source_workspace_id` is what herdr reads the new workspace's cwd
