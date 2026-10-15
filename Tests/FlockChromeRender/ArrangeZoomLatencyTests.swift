@@ -20,6 +20,10 @@ final class ArrangeZoomLatencyTests: XCTestCase {
     /// About 6x the slowest local median (68 ms), over the 124 ms a shared CI
     /// runner has measured.
     private static let grossCeiling = 400.0
+    /// For the fastest twelve-workspace zoom out, which redraws the grid and
+    /// rebuilds none of it: about 5x the 37 to 43 ms a shared CI runner has
+    /// measured, under the 260 ms a zoom that rebuilt every island took locally.
+    private static let zoomOutCeiling = 200.0
 
     /// Space in, Esc out: the state moves inside the key's own dispatch, so
     /// all of the wait is the frame that follows.
@@ -147,11 +151,12 @@ final class ArrangeZoomLatencyTests: XCTestCase {
         let fullOut = try XCTUnwrap(fullCosts.outFrames.min())
         // The twelve-workspace fixture has about 3.4x the tiles, so linear
         // growth is 3.4x and 5x leaves room for noise. This catches a cost
-        // that grows faster than the grid, not a linear one made larger.
+        // that grows faster than the grid; the zoom out's own ceiling catches
+        // a linear one made larger, which keeps the ratio.
         XCTAssertLessThan(fullIn, baseIn * 5 + 20, "a zoom in grows faster than the grid")
         XCTAssertLessThan(fullOut, baseOut * 5 + 20, "a zoom out grows faster than the grid")
         XCTAssertLessThan(fullIn, Self.grossCeiling)
-        XCTAssertLessThan(fullOut, Self.grossCeiling)
+        XCTAssertLessThan(fullOut, Self.zoomOutCeiling, "a zoom out rebuilt the grid it only had to bring back")
     }
 
     /// How long one click on the zoomed island's close control waits before
