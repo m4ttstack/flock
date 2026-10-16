@@ -32,7 +32,7 @@ struct HerdrUpdateSection: View {
                             .font(.system(.body, design: .monospaced))
                             .textSelection(.enabled)
                             .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: ChromeRadius.control))
                         Button("Copy") {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(notice.command, forType: .string)
