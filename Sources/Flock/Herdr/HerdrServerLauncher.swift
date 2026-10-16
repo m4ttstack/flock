@@ -12,9 +12,13 @@ enum HerdrServerLauncher {
 
     /// flock's child environment minus `RT_BATCH`: every pane's shell
     /// inherits the server's, and rt would run non-interactive in all of them.
+    /// `HERDR_MACOS_SERVER_CONTEXT=user` is what herdr's own client sets: setsid
+    /// alone leaves the server in flock's Mach bootstrap context. herdr removes
+    /// the variable at startup, so panes never see it.
     static func environment(from base: [String: String]) -> [String: String] {
         var environment = base
         environment.removeValue(forKey: "RT_BATCH")
+        environment["HERDR_MACOS_SERVER_CONTEXT"] = "user"
         return environment
     }
 
