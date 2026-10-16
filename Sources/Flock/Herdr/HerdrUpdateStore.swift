@@ -84,7 +84,7 @@ final class HerdrUpdateStore {
     func confirmUpdate() {
         guard pendingUpdate != nil else { return }
         pendingUpdate = nil
-        patchStore.refresh()
+        patchStore.reprobe()
         guard updatePhase == .idle, canRunUpdate, !isBlockedByPatchInstall,
               let binaryPath = patchStore.binaryPath, let target = latest else { return }
         let patchWasInstalled: Bool = if case .installed = patchStore.state { true } else { false }
@@ -101,7 +101,7 @@ final class HerdrUpdateStore {
             case .failed(let message):
                 updateError = message
             case .updated:
-                patchStore.refresh()
+                patchStore.reprobe()
                 let reinstalled = patchWasInstalled ? await patchStore.reinstallAfterUpdate() : false
                 patchStore.noteHerdrUpdated(patchReinstalled: reinstalled)
                 updatedTo = target

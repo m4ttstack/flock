@@ -1,6 +1,7 @@
 import CryptoKit
 import FlockCore
 import Foundation
+import Observation
 import XCTest
 
 /// Every path is a throwaway temp file standing in for herdr; nothing here
@@ -33,15 +34,27 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func makeStore(catalogued: Bool = true, body: Data? = nil) -> HerdrMousePatchStore {
+    private final class ProbeCounter {
+        var count = 0
+    }
+
+    private func makeStore(catalogued: Bool = true, body: Data? = nil, probes: ProbeCounter? = nil) -> HerdrMousePatchStore {
         let sha = SHA256.hash(data: patched).map { String(format: "%02x", $0) }.joined()
         return HerdrMousePatchStore(
             resolveBinaryPath: { [binaryPath] in binaryPath },
             catalog: { catalogued ? HerdrMousePatchEntry(version: $0, sha256: sha) : nil },
             downloader: HerdrMousePatchDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"), transport: FileTransport(body: body ?? patched)
-            )
+            ),
+            probe: { path, fileManager in
+                probes?.count += 1
+                return HerdrMousePatchInstaller.probe(binaryPath: path, fileManager: fileManager)
+            }
         )
+    }
+
+    private func touch(_ path: String, at date: Date) throws {
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: path)
     }
 
     private func confirmAndWait(_ store: HerdrMousePatchStore) async {
@@ -222,5 +235,66 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         store.refresh()
 
         XCTAssertEqual(store.state, .supportedByHerdr)
+    }
+
+    /// Activation refreshes; reading 20 MB of herdr each time froze the window.
+    func testARefreshWithNothingChangedDoesNotReadHerdrAgain() {
+        let probes = ProbeCounter()
+        let store = makeStore(probes: probes)
+        XCTAssertEqual(probes.count, 1)
+
+        store.refresh()
+        store.refresh()
+
+        XCTAssertEqual(probes.count, 1)
+        XCTAssertEqual(store.state, .patchable(installPath: binaryPath, version: "0.9.1"))
+    }
+
+    func testARefreshAfterHerdrIsTouchedReadsItAgain() throws {
+        let probes = ProbeCounter()
+        let store = makeStore(probes: probes)
+
+        try touch(binaryPath, at: Date(timeIntervalSince1970: 1_000_000))
+        store.refresh()
+        XCTAssertEqual(probes.count, 2)
+
+        try Data("herdr 0.9.1 unpatched build".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
+        store.refresh()
+        XCTAssertEqual(probes.count, 3, "a backup appearing beside herdr is a change too")
+    }
+
+    /// Install, revert and update know they changed the binary, so they
+    /// never trust stat fields a fast write could leave equal.
+    func testAReprobeReadsHerdrEvenWhenNothingLooksChanged() {
+        let probes = ProbeCounter()
+        let store = makeStore(probes: probes)
+
+        store.reprobe()
+
+        XCTAssertEqual(probes.count, 2)
+    }
+
+    func testARefreshThatFindsTheSameAnswerDoesNotRedrawTheRow() throws {
+        let store = makeStore()
+        let changed = ChangeFlag()
+        withObservationTracking {
+            _ = store.state
+            _ = store.binaryPath
+        } onChange: {
+            changed.set()
+        }
+
+        try touch(binaryPath, at: Date(timeIntervalSince1970: 2_000_000))
+        store.refresh()
+        store.reprobe()
+
+        XCTAssertFalse(changed.isSet)
+    }
+
+    private final class ChangeFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        var isSet: Bool { lock.withLock { value } }
+        func set() { lock.withLock { value = true } }
     }
 }

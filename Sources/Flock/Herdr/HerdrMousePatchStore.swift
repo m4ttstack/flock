@@ -4,10 +4,9 @@ import Observation
 
 /// Drives the herdr settings row: resolves the installed herdr the same way
 /// `HerdrToolStore` does, probes its bytes, and maps the probe through
-/// FlockCore's pure decision matrix. Re-derives everything from disk on
-/// every `refresh()` rather than caching across a herdr upgrade, since a
-/// binary replaced out from under a stale answer is the ordinary case this
-/// exists to notice.
+/// FlockCore's pure decision matrix. A binary replaced out from under a
+/// stale answer is the ordinary case this exists to notice, so `refresh()`
+/// re-probes whenever the file's identity on disk has moved.
 @MainActor
 @Observable
 final class HerdrMousePatchStore {
@@ -42,6 +41,21 @@ final class HerdrMousePatchStore {
     @ObservationIgnored private let downloader: HerdrMousePatchDownloader
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let probe: (String, FileManager) -> HerdrMousePatchInstaller.Probe
+    @ObservationIgnored private var lastProbed: BinaryFingerprint?
+
+    /// The probe reads all of herdr (over 20 MB) on the main actor, and the
+    /// app calls `refresh()` on every activation; these stat fields change
+    /// whenever anything the probe reports could have.
+    struct BinaryFingerprint: Equatable {
+        let resolvedPath: String
+        let inode: Int?
+        let size: Int?
+        let modified: Date?
+        let backupModified: Date?
+        let backupExists: Bool
+        let isWritable: Bool
+    }
 
     /// The herdr version the banner was last waved away for. Stored rather
     /// than held in memory because the whole point is that it outlives the
@@ -53,13 +67,17 @@ final class HerdrMousePatchStore {
         catalog: @escaping (String) -> HerdrMousePatchEntry? = HerdrMousePatchCatalog.entry(for:),
         downloader: HerdrMousePatchDownloader = .standard,
         fileManager: FileManager = .default,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        probe: @escaping (String, FileManager) -> HerdrMousePatchInstaller.Probe = {
+            HerdrMousePatchInstaller.probe(binaryPath: $0, fileManager: $1)
+        }
     ) {
         self.resolveBinaryPath = resolveBinaryPath
         self.catalog = catalog
         self.downloader = downloader
         self.fileManager = fileManager
         self.defaults = defaults
+        self.probe = probe
         refresh()
     }
 
@@ -89,24 +107,55 @@ final class HerdrMousePatchStore {
         defaults.set(version, forKey: Self.dismissedVersionKey)
     }
 
-    /// Re-probes the binary on disk. Called on init, whenever the settings
-    /// row appears, the app becomes active or the server's herdr version
-    /// changes, since herdr can be upgraded or reverted by hand between one
-    /// look and the next.
+    /// Re-probes the binary when its fingerprint moved since the last probe.
+    /// Called on init, whenever the settings row appears, the app becomes
+    /// active or the server's herdr version changes, since herdr can be
+    /// upgraded or reverted by hand between one look and the next.
     func refresh() {
-        binaryPath = resolveBinaryPath()
-        guard let binaryPath else {
-            state = nil
+        refresh(force: false)
+    }
+
+    /// Re-probes unconditionally: after flock itself changed the binary, a
+    /// write inside the stat fields' resolution must not be missed.
+    func reprobe() {
+        refresh(force: true)
+    }
+
+    private func refresh(force: Bool) {
+        let resolved = resolveBinaryPath()
+        if binaryPath != resolved { binaryPath = resolved }
+        guard let resolved else {
+            lastProbed = nil
+            if state != nil { state = nil }
             return
         }
-        let probe = HerdrMousePatchInstaller.probe(binaryPath: binaryPath, fileManager: fileManager)
-        state = HerdrMousePatchDecision.decide(
+        let fingerprint = fingerprint(of: resolved)
+        if !force, fingerprint == lastProbed { return }
+        let probe = probe(resolved, fileManager)
+        lastProbed = fingerprint
+        let decided = HerdrMousePatchDecision.decide(
             hasVerbs: probe.hasVerbs,
             hasBackup: probe.hasBackup,
             version: probe.version.flatMap { catalog($0) == nil ? nil : $0 },
             isWritable: probe.isWritable,
-            installPath: binaryPath,
-            backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)
+            installPath: resolved,
+            backupPath: HerdrMousePatchInstaller.backupPath(for: resolved)
+        )
+        if state != decided { state = decided }
+    }
+
+    private func fingerprint(of binaryPath: String) -> BinaryFingerprint {
+        let resolved = URL(fileURLWithPath: binaryPath).resolvingSymlinksInPath().path
+        let attributes = try? fileManager.attributesOfItem(atPath: resolved)
+        let backup = try? fileManager.attributesOfItem(atPath: HerdrMousePatchInstaller.backupPath(for: binaryPath))
+        return BinaryFingerprint(
+            resolvedPath: resolved,
+            inode: (attributes?[.systemFileNumber] as? NSNumber)?.intValue,
+            size: (attributes?[.size] as? NSNumber)?.intValue,
+            modified: attributes?[.modificationDate] as? Date,
+            backupModified: backup?[.modificationDate] as? Date,
+            backupExists: backup != nil,
+            isWritable: fileManager.isWritableFile(atPath: URL(fileURLWithPath: binaryPath).deletingLastPathComponent().path)
         )
     }
 
@@ -170,13 +219,13 @@ final class HerdrMousePatchStore {
     private func performInstall(startedFromBanner: Bool) {
         guard case .patchable(_, let version) = state, let binaryPath = resolveBinaryPath(),
               let entry = catalog(version) else {
-            refresh()
+            reprobe()
             return
         }
         let throttle = HerdrPatchProgressThrottle()
         phase = .downloading(0)
         installTask = Task { [downloader, fileManager] in
-            defer { phase = .idle; refresh() }
+            defer { phase = .idle; reprobe() }
             do {
                 let artifact = try await downloader.fetch(entry) { fraction in
                     guard throttle.shouldReport(fraction) else { return }
@@ -185,8 +234,8 @@ final class HerdrMousePatchStore {
                 // `herdr update` can replace the binary while the download
                 // runs; the patch fetched for the old version must not land
                 // over the new one.
-                let probe = HerdrMousePatchInstaller.probe(binaryPath: binaryPath, fileManager: fileManager)
-                guard probe.version == version, !probe.hasVerbs else { throw HerdrChanged() }
+                let current = probe(binaryPath, fileManager)
+                guard current.version == version, !current.hasVerbs else { throw HerdrChanged() }
                 phase = .installing
                 try HerdrMousePatchInstaller.install(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
                 restartReason = .installed
@@ -208,7 +257,7 @@ final class HerdrMousePatchStore {
         } catch {
             lastErrorMessage = Self.message(for: error)
         }
-        refresh()
+        reprobe()
     }
 
     private static func message(for error: Error) -> String {
