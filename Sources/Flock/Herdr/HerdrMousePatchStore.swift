@@ -64,10 +64,18 @@ final class HerdrMousePatchStore {
         )
     }
 
+    /// An install begun from the banner that failed. The banner stays up to
+    /// say so even when the failure left herdr no longer patchable, which
+    /// would otherwise take the banner away with no word on what happened.
+    private(set) var bannerErrorMessage: String?
+
+    var showsBanner: Bool { shouldOfferBanner || bannerErrorMessage != nil }
+
     /// Wave the banner away for this herdr version. The settings row is
     /// unaffected and still offers Install: this silences the unprompted
     /// offer, it does not withdraw the feature.
     func dismissBannerOffer() {
+        bannerErrorMessage = nil
         guard case .patchable(_, let version) = state else { return }
         defaults.set(version, forKey: Self.dismissedVersionKey)
     }
@@ -115,6 +123,7 @@ final class HerdrMousePatchStore {
         guard let pending = pendingConfirmation else { return }
         pendingConfirmation = nil
         lastErrorMessage = nil
+        bannerErrorMessage = nil
         switch pending.action {
         case .install: performInstall()
         case .revert: performRevert()
@@ -127,21 +136,33 @@ final class HerdrMousePatchStore {
             refresh()
             return
         }
+        let startedFromBanner = shouldOfferBanner
+        let throttle = HerdrPatchProgressThrottle()
         phase = .downloading(0)
         installTask = Task { [downloader, fileManager] in
             defer { phase = .idle; refresh() }
             do {
                 let artifact = try await downloader.fetch(entry) { fraction in
+                    guard throttle.shouldReport(fraction) else { return }
                     Task { @MainActor in if case .downloading = self.phase { self.phase = .downloading(fraction) } }
                 }
+                // `herdr update` can replace the binary while the download
+                // runs; the patch fetched for the old version must not land
+                // over the new one.
+                let probe = HerdrMousePatchInstaller.probe(binaryPath: binaryPath, fileManager: fileManager)
+                guard probe.version == version, !probe.hasVerbs else { throw HerdrChanged() }
                 phase = .installing
                 try HerdrMousePatchInstaller.install(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
                 restartReason = .installed
             } catch {
-                lastErrorMessage = Self.message(for: error)
+                let message = Self.message(for: error)
+                lastErrorMessage = message
+                if startedFromBanner { bannerErrorMessage = message }
             }
         }
     }
+
+    private struct HerdrChanged: Error {}
 
     private func performRevert() {
         guard let binaryPath = resolveBinaryPath() else { return }
@@ -176,6 +197,8 @@ final class HerdrMousePatchStore {
             return "Couldn't download the patch. Check your connection and try again."
         case HerdrMousePatchDownloader.Failure.checksumMismatch:
             return "The download didn't match what flock expected. Nothing was changed."
+        case is HerdrChanged:
+            return "herdr changed while the patch downloaded. Nothing was changed."
         default:
             return "Something went wrong."
         }

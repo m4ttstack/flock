@@ -119,6 +119,39 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         XCTAssertEqual(store.phase, .idle)
     }
 
+    private struct UpdatingTransport: HerdrPatchTransport {
+        let body: Data
+        let binaryPath: String
+        let newer: Data
+        func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+            try newer.write(to: URL(fileURLWithPath: binaryPath))
+            try body.write(to: destination)
+        }
+    }
+
+    /// `herdr update` run during the download replaces the binary the patch
+    /// was fetched for; the older patch must not land over the newer herdr.
+    func testAHerdrUpdatedMidDownloadIsLeftAlone() async throws {
+        let newer = Data("herdr 0.9.6 unpatched build".utf8)
+        let sha = SHA256.hash(data: patched).map { String(format: "%02x", $0) }.joined()
+        let store = HerdrMousePatchStore(
+            resolveBinaryPath: { [binaryPath] in binaryPath },
+            catalog: { HerdrMousePatchEntry(version: $0, sha256: sha) },
+            downloader: HerdrMousePatchDownloader(
+                cacheDirectory: root.appendingPathComponent("cache"),
+                transport: UpdatingTransport(body: patched, binaryPath: binaryPath, newer: newer)
+            )
+        )
+        store.requestInstall()
+        await confirmAndWait(store)
+
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: binaryPath)), newer)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
+        XCTAssertEqual(store.lastErrorMessage, "herdr changed while the patch downloaded. Nothing was changed.")
+        XCTAssertNil(store.restartReason)
+        XCTAssertEqual(store.phase, .idle)
+    }
+
     func testCancelPendingConfirmationLeavesTheBinaryUntouched() {
         let store = makeStore()
         store.requestInstall()

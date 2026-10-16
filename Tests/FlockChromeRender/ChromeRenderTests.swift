@@ -2869,6 +2869,68 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The banner after Install is confirmed: progress in place of the pill
+    /// while the patch downloads, then the failure in red with Install back
+    /// for a retry. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
+    func testTheMousePatchBannerShowsDownloadProgressThenTheFailure() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let herdrDir = FileManager.default.temporaryDirectory.appendingPathComponent("flock-banner-busy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: herdrDir) }
+        try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
+        let herdr = herdrDir.appendingPathComponent("herdr").path
+        try Data("herdr 0.9.3 terminal.mouse".utf8).write(to: URL(fileURLWithPath: herdr))
+        let bannerSuite = "flock-banner-busy-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: bannerSuite))
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: bannerSuite) }
+        let pillBand = CGRect(x: Self.windowSize.width - 90, y: ChromeMetrics.TitleBar.height, width: 90, height: 40)
+        let trailingBand = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 40)
+        let messageBand = CGRect(x: 0, y: ChromeMetrics.TitleBar.height, width: Self.windowSize.width / 2, height: 40)
+
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
+            for stage in ["downloading", "failed"] {
+                let transport: HerdrPatchTransport = stage == "downloading"
+                    ? HangingTransport() : BytesTransport(body: Data("<html>Not Found</html>".utf8))
+                let store = HerdrMousePatchStore(
+                    resolveBinaryPath: { herdr },
+                    catalog: { HerdrMousePatchEntry(version: $0, sha256: String(repeating: "0", count: 64)) },
+                    downloader: HerdrMousePatchDownloader(
+                        cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)-\(stage)"), transport: transport
+                    ),
+                    defaults: defaults
+                )
+                store.requestInstall()
+                store.confirmPendingAction()
+                defer { store.installTask?.cancel() }
+                if stage == "failed" { await store.installTask?.value }
+                let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("mouse-banner-\(stage)-\(scheme)-\(id).png"))
+                }
+                if stage == "downloading" {
+                    XCTAssertEqual(store.phase, .downloading(0.4), "\(scheme): the banner is not mid-download")
+                    // A 96 x 6 bar 40% filled is under 1000 accent pixels at 2x; the pill is several thousand.
+                    let accent = count(theme.palette.accent.hex, in: trailingBand, of: image)
+                    XCTAssertGreaterThan(accent, 300, "\(scheme): no accent progress bar")
+                    XCTAssertLessThan(accent, 1500, "\(scheme): the Install pill is still drawn")
+                } else {
+                    XCTAssertEqual(store.bannerErrorMessage, "The download didn't match what flock expected. Nothing was changed.")
+                    XCTAssertGreaterThan(
+                        count(theme.palette.red.hex, in: messageBand, of: image), 20, "\(scheme): the failure is not drawn in red"
+                    )
+                    XCTAssertGreaterThan(
+                        count(theme.palette.accent.hex, in: pillBand, of: image), 200, "\(scheme): Install is not back for a retry"
+                    )
+                }
+                window.close()
+            }
+        }
+    }
+
     /// The herdr row while a patch downloads. PNGs go to `FLOCK_SETTINGS_RENDER_DIR`.
     func testTheHerdrRowShowsDownloadProgress() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }

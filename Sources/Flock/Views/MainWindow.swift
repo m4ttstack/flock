@@ -46,7 +46,7 @@ struct MainWindow: View {
             // to at all outranks an optional capability of one that works.
             if let reason = herdrMousePatchStore.restartReason {
                 HerdrMousePatchRestartBanner(theme: theme, reason: reason)
-            } else if herdrMousePatchStore.shouldOfferBanner {
+            } else if herdrMousePatchStore.showsBanner {
                 HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
             }
             if dragCoordinator.isGridShown {
@@ -571,27 +571,76 @@ private struct HerdrMousePatchBanner: View {
             Image(systemName: "cursorarrow.click")
                 .font(ChromeType.bannerSymbol)
                 .foregroundStyle(theme.accent)
-            Text(HerdrMousePatchOffer.bannerHeadline)
-                .font(ChromeType.banner)
-                .foregroundStyle(theme.textStrong)
-            Text(HerdrMousePatchOffer.bannerDetail)
-                .font(ChromeType.banner)
-                .foregroundStyle(theme.textLabel)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if let message = store.bannerErrorMessage {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.red)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityIdentifier("flock.herdrMousePatch.banner.error")
+            } else {
+                Text(HerdrMousePatchOffer.bannerHeadline)
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.textStrong)
+                Text(HerdrMousePatchOffer.bannerDetail)
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             Spacer(minLength: ChromeMetrics.Banner.spacing)
-            Button(HerdrMousePatchOffer.bannerDismissTitle) { store.dismissBannerOffer() }
-                .buttonStyle(.plain)
-                .font(ChromeType.banner)
-                .foregroundStyle(theme.textLabel)
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
-            BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall() }
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
+            trailing
         }
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
         .boundedBackground(theme.accent.opacity(0.12))
         .accessibilityIdentifier("flock.herdrMousePatch.banner")
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        switch store.phase {
+        case .downloading(let fraction):
+            busy("Downloading...", fraction: fraction)
+        case .installing:
+            busy("Installing...", fraction: 1)
+        case .idle:
+            Button(HerdrMousePatchOffer.bannerDismissTitle) { store.dismissBannerOffer() }
+                .buttonStyle(.plain)
+                .font(ChromeType.banner)
+                .foregroundStyle(theme.textLabel)
+                .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
+            if case .patchable = store.state {
+                BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall() }
+                    .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
+            }
+        }
+    }
+
+    /// Drawn rather than a `ProgressView`: AppKit paints a linear bar gray in
+    /// a window that is not key, whatever its tint. The hidden pill holds the
+    /// banner at the height it has with Install showing.
+    private func busy(_ title: String, fraction: Double) -> some View {
+        ZStack(alignment: .trailing) {
+            BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) {}
+                .hidden()
+            HStack(spacing: ChromeMetrics.Banner.spacing) {
+                Text(title)
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.textLabel)
+                Capsule()
+                    .fill(theme.accent.opacity(0.25))
+                    .frame(width: 96, height: 6)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(theme.accent)
+                            .frame(width: 96 * min(max(fraction, 0), 1), height: 6)
+                    }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(Text("\(Int(fraction * 100)) percent"))
+        .accessibilityIdentifier("flock.herdrMousePatch.banner.progress")
     }
 }
 
