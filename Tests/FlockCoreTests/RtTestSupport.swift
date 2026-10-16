@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 @testable import FlockCore
 
 /// A herdr snapshot in plain values: one visible workspace holding the pane
@@ -133,6 +134,13 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
     func moveLinkedPane(to newID: String) {
         locked {
             if let index = fixture.panes.firstIndex(where: { $0.id == "w1:p1" }) { fixture.panes[index].id = newID }
+        }
+    }
+
+    /// What a herdr handoff does to a pane: same pane id, new terminal.
+    func renumberTerminal(of pane: String, to terminal: String) {
+        locked {
+            if let index = fixture.panes.firstIndex(where: { $0.id == pane }) { fixture.panes[index].terminal = terminal }
         }
     }
 
@@ -302,10 +310,13 @@ final class TokenSource {
 }
 
 @MainActor
-func makeCoordinator(_ world: FakeRtWorld, tokens: [String] = ["tok1", "tok2", "tok3"], notices: NoticeLog? = nil) -> RtCoordinator {
+func makeCoordinator(
+    _ world: FakeRtWorld, tokens: [String] = ["tok1", "tok2", "tok3"], notices: NoticeLog? = nil,
+    linkedPanes: RtLinkedPanes = scratchLinkedPanes()
+) -> RtCoordinator {
     let source = TokenSource(tokens)
     return RtCoordinator(
-        client: world, files: world,
+        client: world, files: world, linkedPanes: linkedPanes,
         config: .init(
             pollInterval: .milliseconds(1), confirmDelay: .milliseconds(5), shutdownTimeout: .milliseconds(500),
             shellWait: .milliseconds(20), missLimit: 3, fileDirectory: rtTestDirectory
@@ -313,6 +324,42 @@ func makeCoordinator(_ world: FakeRtWorld, tokens: [String] = ["tok1", "tok2", "
         makeToken: { source.next() },
         notice: { notices?.lines.append($0) }
     )
+}
+
+/// A defaults suite of its own per call, so no test reads another's links,
+/// removed when the test that made it finishes.
+@MainActor
+func scratchLinkedPanes() -> RtLinkedPanes {
+    let suite = "flock-rt-linked-panes-\(UUID().uuidString)"
+    ScratchSuiteSweeper.shared.add(suite)
+    return RtLinkedPanes(defaults: UserDefaults(suiteName: suite)!)
+}
+
+/// `makeCoordinator` makes its suite in a default argument, where no test
+/// case is in reach for a `defer` or `addTeardownBlock`; this is the
+/// tearDown every such test shares.
+@MainActor
+private final class ScratchSuiteSweeper: NSObject, XCTestObservation {
+    static let shared: ScratchSuiteSweeper = {
+        let sweeper = ScratchSuiteSweeper()
+        XCTestObservationCenter.shared.addTestObserver(sweeper)
+        return sweeper
+    }()
+
+    private var suites: [String] = []
+
+    func add(_ suite: String) {
+        suites.append(suite)
+    }
+
+    nonisolated func testCaseDidFinish(_ testCase: XCTestCase) {
+        MainActor.assumeIsolated {
+            for suite in suites {
+                UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+            }
+            suites.removeAll()
+        }
+    }
 }
 
 let rtTestDirectory = URL(fileURLWithPath: "/flock-rt-test", isDirectory: true)

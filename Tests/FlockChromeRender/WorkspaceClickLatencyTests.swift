@@ -200,7 +200,7 @@ private struct Harness {
         let root = MainWindow(
             viewModel: viewModel,
             sessionLabel: "latency",
-            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil })
+            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil })
         )
             .environment(themeStore)
             .environment(textSize)

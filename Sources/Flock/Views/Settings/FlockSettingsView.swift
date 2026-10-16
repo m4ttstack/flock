@@ -54,8 +54,9 @@ struct FlockSettingsView: View {
     let rtModalTextSizeStore: RtModalTextSizeStore
     let commandLineToolStore: CommandLineToolStore
     let herdrVersion: String?
+    let herdrUpdateStore: HerdrUpdateStore?
 
-    @State private var tab: SettingsTab
+    @Bindable var selection: SettingsTabSelection
 
     init(
         herdrMousePatchStore: HerdrMousePatchStore, notificationLifetimeStore: NotificationLifetimeStore,
@@ -63,7 +64,8 @@ struct FlockSettingsView: View {
         overviewInclusionStore: OverviewInclusionStore,
         oneTitleStore: OneTitleStore, agentCloseWarningStore: AgentCloseWarningStore, linkTrustStore: LinkTrustStore, topBarLabelStore: TopBarLabelStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
-        commandLineToolStore: CommandLineToolStore, herdrVersion: String?, tab: SettingsTab = .general
+        commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
+        tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
     ) {
         self.herdrMousePatchStore = herdrMousePatchStore
         self.notificationLifetimeStore = notificationLifetimeStore
@@ -79,11 +81,12 @@ struct FlockSettingsView: View {
         self.rtModalTextSizeStore = rtModalTextSizeStore
         self.commandLineToolStore = commandLineToolStore
         self.herdrVersion = herdrVersion
-        _tab = State(initialValue: tab)
+        self.herdrUpdateStore = herdrUpdateStore
+        _selection = Bindable(selection ?? SettingsTabSelection(tab: tab))
     }
 
     var body: some View {
-        TabView(selection: $tab) {
+        TabView(selection: $selection.tab) {
             pane(.general) {
                 StartingFolderSettingsSection(store: startingFolderStore)
                 NotificationSettingsSection(store: notificationLifetimeStore)
@@ -109,6 +112,9 @@ struct FlockSettingsView: View {
             .tabItem { Label(SettingsTab.tools.title, systemImage: SettingsTab.tools.symbol) }
             .tag(SettingsTab.tools)
             pane(.herdr) {
+                if let herdrUpdateStore {
+                    HerdrUpdateSection(store: herdrUpdateStore)
+                }
                 HerdrMousePatchRow(store: herdrMousePatchStore, herdrVersion: herdrVersion)
             }
             .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }
@@ -118,6 +124,7 @@ struct FlockSettingsView: View {
         .onAppear {
             herdrMousePatchStore.refresh()
             commandLineToolStore.refresh()
+            Task { await herdrUpdateStore?.checkIfDue() }
         }
     }
 

@@ -18,6 +18,7 @@ public struct Theme: Identifiable, Equatable, Sendable {
     public let red: Color
     public let blue: Color
     public let teal: Color
+    public let peach: Color
     public let surface1: Color
     public let surfaceDim: Color
     public let overlay0: Color
@@ -59,6 +60,7 @@ public struct Theme: Identifiable, Equatable, Sendable {
         red = Color(palette.red)
         blue = Color(palette.blue)
         teal = Color(palette.teal)
+        peach = Color(palette.peach)
         surface1 = Color(palette.surface1)
         surfaceDim = Color(palette.surfaceDim)
         overlay0 = Color(palette.overlay0)

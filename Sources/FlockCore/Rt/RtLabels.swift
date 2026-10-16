@@ -7,6 +7,10 @@ public enum RtKind: String, Sendable, CaseIterable {
 /// How flock marks what it owns in herdr. The workspace label is the whole
 /// test for "hidden from every surface"; a tab label links the tab to the pane
 /// that opened it, by that pane's terminal, and names its files by token.
+///
+/// The tab label stays exactly three parts: every older flock parses it that
+/// way and tears down a link whose label it cannot read. Anything more a
+/// link records lives in `RtLinkedPanes`.
 public enum RtLabels {
     public static let sharedWorkspace = "flock:rt"
     public static let runnerWorkspacePrefix = "flock:rt runner "

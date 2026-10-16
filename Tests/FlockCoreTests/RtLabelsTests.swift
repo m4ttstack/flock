@@ -20,6 +20,26 @@ final class RtLabelsTests: XCTestCase {
         XCTAssertEqual(RtLabels.tabLink(fromLabel: "run term_18c2f0a1 3f2a"), link)
     }
 
+    /// The parser every flock released before pane ids were recorded,
+    /// frozen here: one that cannot read a label tears its link down.
+    private func olderFlockParse(_ label: String) -> (kind: String, terminal: String, token: String)? {
+        let parts = label.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3, RtKind(rawValue: parts[0]) != nil, !parts[1].isEmpty, !parts[2].isEmpty else {
+            return nil
+        }
+        return (parts[0], parts[1], parts[2])
+    }
+
+    func testEveryLabelThisBuildWritesReadsInAnOlderFlock() throws {
+        for kind in RtKind.allCases {
+            let label = RtLabels.tabLabel(RtLabels.TabLink(kind: kind, terminal: TerminalID(rawValue: "term_b7"), token: "9c1e"))
+            let parsed = try XCTUnwrap(olderFlockParse(label), "an older flock cannot read \(label)")
+            XCTAssertEqual(parsed.kind, kind.rawValue)
+            XCTAssertEqual(parsed.terminal, "term_b7")
+            XCTAssertEqual(parsed.token, "9c1e")
+        }
+    }
+
     func testAnythingElseIsNotALink() {
         XCTAssertNil(RtLabels.tabLink(fromLabel: "zsh"))
         XCTAssertNil(RtLabels.tabLink(fromLabel: "run term_a1"))

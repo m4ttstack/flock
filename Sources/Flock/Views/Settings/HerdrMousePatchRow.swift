@@ -33,10 +33,11 @@ struct HerdrMousePatchRow: View {
             if let reason = store.restartReason {
                 LabeledContent {
                     Button(HerdrMousePatchCopy.restartActionTitle) { AppRelaunch.relaunch() }
+                        .disabled(!HerdrMousePatchCopy.offersRestart(for: reason))
                         .accessibilityIdentifier("flock.settings.herdrMousePatch.restart")
                 } label: {
                     Text(HerdrMousePatchCopy.restartHeadline(for: reason))
-                    Text(HerdrMousePatchCopy.restartDetail)
+                    Text(HerdrMousePatchCopy.restartDetail(for: reason))
                 }
             }
             if let message = store.lastErrorMessage {
@@ -46,13 +47,13 @@ struct HerdrMousePatchRow: View {
             }
         }
         .confirmationDialog(
-            store.pendingConfirmation?.confirmation.title ?? "",
+            ownConfirmation?.confirmation.title ?? "",
             isPresented: Binding(
-                get: { store.pendingConfirmation != nil },
+                get: { ownConfirmation != nil },
                 set: { shown in if !shown { store.cancelPendingConfirmation() } }
             ),
             titleVisibility: .visible,
-            presenting: store.pendingConfirmation
+            presenting: ownConfirmation
         ) { pending in
             Button(pending.confirmation.confirmButtonTitle) {
                 store.confirmPendingAction()
@@ -67,16 +68,30 @@ struct HerdrMousePatchRow: View {
 
     @ViewBuilder
     private var actionButton: some View {
-        if let state = store.state, let title = HerdrMousePatchCopy.actionTitle(for: state) {
-            Button(title) {
-                switch state {
-                case .patchable: store.requestInstall()
-                case .installed: store.requestRevert()
-                case .supportedByHerdr, .artifactUnavailable, .notWritable, .unsupportedVersion: break
+        switch store.phase {
+        case .downloading(let fraction):
+            ProgressView(value: fraction) { Text("Downloading...") }
+                .frame(width: 120)
+                .accessibilityIdentifier("flock.settings.herdrMousePatch.progress")
+        case .installing:
+            ProgressView().controlSize(.small)
+        case .idle:
+            if !store.herdrUpdateInProgress, let state = store.state, let title = HerdrMousePatchCopy.actionTitle(for: state) {
+                Button(title) {
+                    switch state {
+                    case .patchable: store.requestInstall(source: .settings)
+                    case .installed: store.requestRevert(source: .settings)
+                    case .supportedByHerdr, .notWritable, .unsupportedVersion: break
+                    }
                 }
+                .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
             }
-            .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
         }
+    }
+
+    /// The main window's banner presents its own requests.
+    private var ownConfirmation: HerdrMousePatchStore.PendingConfirmation? {
+        store.pendingConfirmation.flatMap { $0.source == .settings ? $0 : nil }
     }
 
     private var bodyText: String {

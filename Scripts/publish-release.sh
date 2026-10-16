@@ -98,7 +98,7 @@ grep -q 'sparkle:format="markdown"' "$APPCAST" \
   || fail "$APPCAST carries no release notes; run Scripts/make-appcast.sh $RELEASE_DIR $VERSION"
 
 # Read before this release's own tag exists, so it names the one before.
-PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
 BODY="$UNPACKED/notes.md"
 cp "$NOTES" "$BODY"
 if [ -n "$PREVIOUS_TAG" ]; then

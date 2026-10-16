@@ -9,7 +9,6 @@ Vendor/GhosttyKit.xcframework/
 Vendor/zig/
 Vendor/libghostty.version
 Vendor/Sparkle/
-Sources/Flock/Resources/herdr-mouse-patch-*
 Sources/Flock/Resources/herdr-chat*
 __pycache__/
 *.pyc

@@ -32,11 +32,7 @@ final class HerdrMousePatchCopyTests: XCTestCase {
     func testUnsupportedVersionOffersNoActionAndNamesTheSupportedVersion() {
         XCTAssertNil(HerdrMousePatchCopy.actionTitle(for: .unsupportedVersion))
         let body = HerdrMousePatchCopy.body(for: .unsupportedVersion)
-        XCTAssertTrue(body.contains("herdr 0.9.1, 0.9.2 and 0.9.3 only"))
-    }
-
-    func testArtifactUnavailableOffersNoAction() {
-        XCTAssertNil(HerdrMousePatchCopy.actionTitle(for: .artifactUnavailable(installPath: installPath, version: "0.9.2")))
+        XCTAssertTrue(body.contains("0.9.5"))
     }
 
     /// The install confirmation is the one line the spec insists on: it must

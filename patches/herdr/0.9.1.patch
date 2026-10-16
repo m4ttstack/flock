@@ -1,0 +1,370 @@
+diff --git a/docs/next/website/src/content/docs/cli-reference.mdx b/docs/next/website/src/content/docs/cli-reference.mdx
+index 9f61d02d..3385196b 100644
+--- a/docs/next/website/src/content/docs/cli-reference.mdx
++++ b/docs/next/website/src/content/docs/cli-reference.mdx
+@@ -372,10 +372,17 @@ herdr terminal title clear
+ Detach from direct attach with `ctrl+b q`. Send literal `ctrl+b` with `ctrl+b ctrl+b`.
+ `terminal session control` opens a writable live terminal stream for a pane,
+ terminal, or agent target. It prints the same newline-delimited
+-`terminal.frame` and `terminal.closed` records as observe mode. It reads
+-newline-delimited JSON commands on stdin: `terminal.input`, `terminal.resize`,
+-`terminal.scroll`, and `terminal.release`. One controller can own a terminal at
+-a time; use `--takeover` to replace it.
++`terminal.frame` and `terminal.closed` records as observe mode, plus a
++`terminal.mouse_capture` record (`enabled`, `sgr_pixels`) whenever the pane
++application turns mouse reporting on or off. It reads newline-delimited JSON
++commands on stdin: `terminal.input`, `terminal.resize`, `terminal.scroll`,
++`terminal.mouse`, and `terminal.release`. `terminal.mouse` carries `kind`
++(`down`, `up`, `drag`, `moved`, `scroll_up`, `scroll_down`, `scroll_left`,
++`scroll_right`), `button` (`left`, `middle`, `right`; required for `down`, `up`,
++and `drag`), zero-based `column` and `row`, optional crossterm `modifiers` bits,
++and optional `lines` for scroll kinds; Herdr encodes it for the pane's own mouse
++mode. One controller can own a terminal at a time; use `--takeover` to replace
++it.
+ `terminal session observe` opens a read-only live terminal stream for a pane,
+ terminal, or agent target. It prints newline-delimited JSON `terminal.frame`
+ records with base64-encoded ANSI bytes, then a `terminal.closed` record when
+diff --git a/docs/next/website/src/content/docs/persistence-remote.mdx b/docs/next/website/src/content/docs/persistence-remote.mdx
+index 4f42cef5..aaf7c28d 100644
+--- a/docs/next/website/src/content/docs/persistence-remote.mdx
++++ b/docs/next/website/src/content/docs/persistence-remote.mdx
+@@ -152,8 +152,10 @@ For an interactive bridge, use a writable terminal session controller:
+ herdr terminal session control w1:p1 --takeover --cols 120 --rows 40
+ ```
+ 
+-Control mode prints the same newline-delimited frame records and reads
+-newline-delimited JSON commands on stdin. `terminal.input` sends text or
+-base64 bytes, `terminal.resize` changes the controller viewport,
+-`terminal.scroll` scrolls the attached viewport, and `terminal.release` closes
+-the controller. Only one controller owns input and resize at a time.
++Control mode prints the same newline-delimited frame records, plus
++`terminal.mouse_capture` whenever the pane application toggles mouse
++reporting, and reads newline-delimited JSON commands on stdin. `terminal.input`
++sends text or base64 bytes, `terminal.resize` changes the controller viewport,
++`terminal.scroll` scrolls the attached viewport, `terminal.mouse` delivers one
++structured mouse event at a zero-based cell, and `terminal.release` closes the
++controller. Only one controller owns input and resize at a time.
+diff --git a/src/client/mod.rs b/src/client/mod.rs
+index cb465096..ecf319a3 100644
+--- a/src/client/mod.rs
++++ b/src/client/mod.rs
+@@ -119,7 +119,7 @@ use notifications::{handle_notify, handle_shell_notification_effects};
+ #[cfg(test)]
+ use notifications::{handle_notify_with_notifiers, sound_from_notify_message};
+ #[cfg(test)]
+-use terminal_sessions::terminal_control_command_from_json;
++use terminal_sessions::{terminal_control_command_from_json, terminal_session_mouse_capture_line};
+ 
+ #[cfg(unix)]
+ use std::collections::HashMap;
+@@ -138,7 +138,10 @@ use crate::ipc::LocalStream;
+ use crate::protocol::render_ansi;
+ use crate::protocol::{self, ClientMessage, FrameData, ServerMessage, MAX_GRAPHICS_FRAME_SIZE};
+ #[cfg(test)]
+-use crate::protocol::{AttachScrollDirection, AttachScrollSource, NotifyKind};
++use crate::protocol::{
++    AttachScrollDirection, AttachScrollSource, ClientMouseButton, ClientMouseKind,
++    ClientMousePosition, NotifyKind,
++};
+ use crate::server::socket_paths::client_socket_path;
+ 
+ fn run_client_with_mode(
+diff --git a/src/client/terminal_sessions.rs b/src/client/terminal_sessions.rs
+index c7328efd..d5283b12 100644
+--- a/src/client/terminal_sessions.rs
++++ b/src/client/terminal_sessions.rs
+@@ -7,8 +7,8 @@ use tracing::info;
+ 
+ use crate::ipc::LocalStream;
+ use crate::protocol::{
+-    self, AttachScrollDirection, AttachScrollSource, ClientMessage, RenderEncoding, ServerMessage,
+-    MAX_GRAPHICS_FRAME_SIZE,
++    self, AttachScrollDirection, AttachScrollSource, ClientMessage, ClientMouseButton,
++    ClientMouseKind, ClientMousePosition, RenderEncoding, ServerMessage, MAX_GRAPHICS_FRAME_SIZE,
+ };
+ use crate::server::socket_paths::client_socket_path;
+ 
+@@ -148,6 +148,15 @@ fn write_terminal_session_output(mut stream: LocalStream) -> io::Result<()> {
+                 stdout.flush()?;
+                 return Ok(());
+             }
++            Ok(ServerMessage::MouseCapture {
++                enabled,
++                sgr_pixels,
++            }) => {
++                let line = terminal_session_mouse_capture_line(enabled, sgr_pixels);
++                serde_json::to_writer(&mut stdout, &line)?;
++                stdout.write_all(b"\n")?;
++                stdout.flush()?;
++            }
+             Ok(ServerMessage::Graphics { .. }) => {}
+             Ok(_) => {}
+             Err(protocol::FramingError::UnexpectedEof) => return Ok(()),
+@@ -186,10 +195,41 @@ enum TerminalControlCommand {
+         #[serde(default)]
+         modifiers: u8,
+     },
++    /// `column`/`row` are zero-based cells; the server drops an event whose
++    /// cell lies outside the attached terminal's current size.
++    #[serde(rename = "terminal.mouse")]
++    Mouse {
++        kind: TerminalControlMouseKind,
++        #[serde(default)]
++        button: Option<TerminalControlMouseButton>,
++        column: u16,
++        row: u16,
++        #[serde(default)]
++        modifiers: u8,
++        #[serde(default = "default_mouse_lines")]
++        lines: u16,
++    },
+     #[serde(rename = "terminal.release")]
+     Release {},
+ }
+ 
++fn default_mouse_lines() -> u16 {
++    1
++}
++
++/// The `terminal.mouse_capture` record a control client prints whenever the
++/// server reports whether the attached pane wants mouse input.
++pub(super) fn terminal_session_mouse_capture_line(
++    enabled: bool,
++    sgr_pixels: bool,
++) -> serde_json::Value {
++    serde_json::json!({
++        "type": "terminal.mouse_capture",
++        "enabled": enabled,
++        "sgr_pixels": sgr_pixels,
++    })
++}
++
+ #[derive(Clone, Copy, serde::Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ enum TerminalControlScrollDirection {
+@@ -197,6 +237,37 @@ enum TerminalControlScrollDirection {
+     Down,
+ }
+ 
++#[derive(Clone, Copy, serde::Deserialize)]
++#[serde(rename_all = "snake_case")]
++enum TerminalControlMouseKind {
++    Down,
++    Up,
++    Drag,
++    Moved,
++    ScrollUp,
++    ScrollDown,
++    ScrollLeft,
++    ScrollRight,
++}
++
++#[derive(Clone, Copy, serde::Deserialize)]
++#[serde(rename_all = "snake_case")]
++enum TerminalControlMouseButton {
++    Left,
++    Middle,
++    Right,
++}
++
++impl TerminalControlMouseButton {
++    fn to_wire(self) -> ClientMouseButton {
++        match self {
++            Self::Left => ClientMouseButton::Left,
++            Self::Middle => ClientMouseButton::Middle,
++            Self::Right => ClientMouseButton::Right,
++        }
++    }
++}
++
+ #[derive(Clone, Copy, Default, serde::Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ enum TerminalControlScrollSource {
+@@ -272,6 +343,40 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
+                 modifiers,
+             })
+         }
++        TerminalControlCommand::Mouse {
++            kind,
++            button,
++            column,
++            row,
++            modifiers,
++            lines,
++        } => {
++            if lines == 0 {
++                return Err("terminal.mouse lines must be greater than 0".into());
++            }
++            let required_button = |kind_name: &str| {
++                button
++                    .map(TerminalControlMouseButton::to_wire)
++                    .ok_or_else(|| format!("terminal.mouse {kind_name} requires a button"))
++            };
++            let kind = match kind {
++                TerminalControlMouseKind::Down => ClientMouseKind::Down(required_button("down")?),
++                TerminalControlMouseKind::Up => ClientMouseKind::Up(required_button("up")?),
++                TerminalControlMouseKind::Drag => ClientMouseKind::Drag(required_button("drag")?),
++                TerminalControlMouseKind::Moved => ClientMouseKind::Moved,
++                TerminalControlMouseKind::ScrollUp => ClientMouseKind::ScrollUp,
++                TerminalControlMouseKind::ScrollDown => ClientMouseKind::ScrollDown,
++                TerminalControlMouseKind::ScrollLeft => ClientMouseKind::ScrollLeft,
++                TerminalControlMouseKind::ScrollRight => ClientMouseKind::ScrollRight,
++            };
++            Ok(ClientMessage::AttachMouse {
++                kind,
++                position: ClientMousePosition::Cell { column, row },
++                geometry: None,
++                modifiers,
++                lines,
++            })
++        }
+         TerminalControlCommand::Release {} => Ok(ClientMessage::Detach),
+     }
+ }
+diff --git a/src/client/tests/mod.rs b/src/client/tests/mod.rs
+index 1072bd30..3bfa843c 100644
+--- a/src/client/tests/mod.rs
++++ b/src/client/tests/mod.rs
+@@ -891,6 +891,142 @@ fn terminal_control_scroll_command_maps_to_attach_scroll() {
+     assert_eq!(lines, 3);
+ }
+ 
++#[test]
++fn terminal_control_mouse_command_maps_button_kinds_to_attach_mouse() {
++    for (kind, expected) in [
++        ("down", ClientMouseKind::Down(ClientMouseButton::Right)),
++        ("up", ClientMouseKind::Up(ClientMouseButton::Right)),
++        ("drag", ClientMouseKind::Drag(ClientMouseButton::Right)),
++    ] {
++        let action = terminal_control_command_from_json(&format!(
++            r#"{{"type":"terminal.mouse","kind":"{kind}","button":"right","column":9,"row":4,"modifiers":2}}"#
++        ))
++        .unwrap();
++        let ClientMessage::AttachMouse {
++            kind,
++            position,
++            geometry,
++            modifiers,
++            lines,
++        } = action
++        else {
++            panic!("expected attach mouse command");
++        };
++        assert_eq!(kind, expected);
++        assert_eq!(position, ClientMousePosition::Cell { column: 9, row: 4 });
++        assert_eq!(geometry, None);
++        assert_eq!(modifiers, 2);
++        assert_eq!(lines, 1);
++    }
++}
++
++#[test]
++fn terminal_control_mouse_command_maps_buttonless_kinds_and_lines() {
++    for (kind, expected) in [
++        ("moved", ClientMouseKind::Moved),
++        ("scroll_up", ClientMouseKind::ScrollUp),
++        ("scroll_down", ClientMouseKind::ScrollDown),
++        ("scroll_left", ClientMouseKind::ScrollLeft),
++        ("scroll_right", ClientMouseKind::ScrollRight),
++    ] {
++        let action = terminal_control_command_from_json(&format!(
++            r#"{{"type":"terminal.mouse","kind":"{kind}","column":0,"row":0,"lines":3}}"#
++        ))
++        .unwrap();
++        let ClientMessage::AttachMouse {
++            kind,
++            position,
++            modifiers,
++            lines,
++            ..
++        } = action
++        else {
++            panic!("expected attach mouse command");
++        };
++        assert_eq!(kind, expected);
++        assert_eq!(position, ClientMousePosition::Cell { column: 0, row: 0 });
++        assert_eq!(modifiers, 0);
++        assert_eq!(lines, 3);
++    }
++}
++
++#[test]
++fn terminal_control_mouse_command_accepts_every_button_name() {
++    for (name, expected) in [
++        ("left", ClientMouseButton::Left),
++        ("middle", ClientMouseButton::Middle),
++        ("right", ClientMouseButton::Right),
++    ] {
++        let action = terminal_control_command_from_json(&format!(
++            r#"{{"type":"terminal.mouse","kind":"down","button":"{name}","column":1,"row":1}}"#
++        ))
++        .unwrap();
++        let ClientMessage::AttachMouse { kind, .. } = action else {
++            panic!("expected attach mouse command");
++        };
++        assert_eq!(kind, ClientMouseKind::Down(expected));
++    }
++}
++
++#[test]
++fn terminal_control_mouse_command_rejects_missing_button_and_bad_names() {
++    let err = terminal_control_command_from_json(
++        r#"{"type":"terminal.mouse","kind":"down","column":1,"row":1}"#,
++    )
++    .unwrap_err();
++    assert_eq!(err, "terminal.mouse down requires a button");
++
++    let err = terminal_control_command_from_json(
++        r#"{"type":"terminal.mouse","kind":"drag","column":1,"row":1}"#,
++    )
++    .unwrap_err();
++    assert_eq!(err, "terminal.mouse drag requires a button");
++
++    let err = terminal_control_command_from_json(
++        r#"{"type":"terminal.mouse","kind":"tap","button":"left","column":1,"row":1}"#,
++    )
++    .unwrap_err();
++    assert!(
++        err.starts_with("invalid json command: unknown variant `tap`"),
++        "{err}"
++    );
++
++    let err = terminal_control_command_from_json(
++        r#"{"type":"terminal.mouse","kind":"down","button":"back","column":1,"row":1}"#,
++    )
++    .unwrap_err();
++    assert!(
++        err.starts_with("invalid json command: unknown variant `back`"),
++        "{err}"
++    );
++
++    let err = terminal_control_command_from_json(
++        r#"{"type":"terminal.mouse","kind":"scroll_up","column":1,"row":1,"lines":0}"#,
++    )
++    .unwrap_err();
++    assert_eq!(err, "terminal.mouse lines must be greater than 0");
++}
++
++#[test]
++fn terminal_session_mouse_capture_line_carries_both_flags() {
++    assert_eq!(
++        terminal_session_mouse_capture_line(true, false),
++        serde_json::json!({
++            "type": "terminal.mouse_capture",
++            "enabled": true,
++            "sgr_pixels": false,
++        })
++    );
++    assert_eq!(
++        terminal_session_mouse_capture_line(false, true),
++        serde_json::json!({
++            "type": "terminal.mouse_capture",
++            "enabled": false,
++            "sgr_pixels": true,
++        })
++    );
++}
++
+ #[test]
+ fn forward_clipboard_uses_local_clipboard_path() {
+     let _guard = env_lock().lock().unwrap();

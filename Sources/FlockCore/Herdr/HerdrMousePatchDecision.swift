@@ -12,17 +12,13 @@ public enum HerdrMousePatchRowState: Equatable, Sendable {
     /// flock's patch is the reason the verbs are present. `backupPath` is
     /// where the original sits, and is what Revert restores.
     case installed(backupPath: String)
-    /// Not yet patched, but this herdr is the one version this build covers,
-    /// the location is writable, and a prebuilt artifact is on hand.
+    /// Not yet patched, but this herdr is a version the catalogue covers and
+    /// the location is writable.
     case patchable(installPath: String, version: String)
-    /// This build carries no prebuilt patch for the version installed, even
-    /// though it would otherwise be covered -- the ordinary state on a fresh
-    /// clone, since the artifact is gitignored.
-    case artifactUnavailable(installPath: String, version: String)
     /// The install location is not writable by this user. Never crossed with
     /// an admin prompt: a herdr flock cannot write is left alone.
     case notWritable(installPath: String)
-    /// This herdr is not the one version this build's patch was made for.
+    /// No catalogue entry for this herdr: older than the first patch, or newer than this flock knows.
     case unsupportedVersion
 }
 
@@ -35,7 +31,6 @@ public enum HerdrMousePatchDecision {
         hasBackup: Bool,
         version: String?,
         isWritable: Bool,
-        artifactAvailable: Bool,
         installPath: String,
         backupPath: String
     ) -> HerdrMousePatchRowState {
@@ -47,9 +42,6 @@ public enum HerdrMousePatchDecision {
         }
         guard let version else {
             return .unsupportedVersion
-        }
-        if !artifactAvailable {
-            return .artifactUnavailable(installPath: installPath, version: version)
         }
         return .patchable(installPath: installPath, version: version)
     }

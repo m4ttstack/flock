@@ -148,9 +148,9 @@ xcodegen
 # silently and is only visible much later.
 #
 # Idempotent by --force: the artifacts are gitignored and rebuilt by
-# Scripts/build-herdr-patch.sh and Scripts/build-herdr-chat.sh, so each
-# arrives unsigned (or linker-signed ad-hoc) every time it is made.
-for binary in Sources/Flock/Resources/herdr-mouse-patch-* Sources/Flock/Resources/herdr-chat; do
+# Scripts/build-herdr-chat.sh, so it arrives unsigned (or linker-signed
+# ad-hoc) every time it is made.
+for binary in Sources/Flock/Resources/herdr-chat; do
   case "$binary" in
     *.txt|*.LICENSE|*'*') continue ;;
   esac

@@ -3,7 +3,8 @@ import Observation
 
 /// Every rt command flock runs off the canvas: nav, glitter, run and runner,
 /// each in a herdr pane flock owns (`RtLabels`), shown in the one modal and
-/// linked to the pane it was opened from by that pane's terminal.
+/// linked to the pane it was opened from by that pane's terminal, or across a
+/// herdr handoff by its pane id (`RtLinkedPanes`).
 ///
 /// A command's life is `RtLifecycle`'s; this class carries out each outcome
 /// over herdr (`RtHerdr`) and the two files the typed line writes
@@ -46,6 +47,7 @@ public final class RtCoordinator {
 
     let herdr: RtHerdr
     let files: any RtFileStore
+    let linkedPanes: RtLinkedPanes
     let config: Config
     let now: @MainActor () -> Date
     let makeToken: @MainActor () -> String
@@ -76,6 +78,7 @@ public final class RtCoordinator {
     public init(
         client: any HerdrCommandClient,
         files: any RtFileStore = DiskRtFileStore(),
+        linkedPanes: RtLinkedPanes = RtLinkedPanes(),
         config: Config = Config(),
         now: @escaping @MainActor () -> Date = { Date() },
         makeToken: @escaping @MainActor () -> String = { String(UUID().uuidString.prefix(8)).lowercased() },
@@ -83,6 +86,7 @@ public final class RtCoordinator {
     ) {
         herdr = RtHerdr(client: client)
         self.files = files
+        self.linkedPanes = linkedPanes
         self.config = config
         self.now = now
         self.makeToken = makeToken
@@ -171,8 +175,9 @@ public final class RtCoordinator {
             items[token] = RtItem(
                 id: token, kind: kind, linked: terminal, workspaceID: host.workspaceID, tabID: host.tabID,
                 firstPaneID: host.rootPaneID, title: kind.defaultTitle, folder: folder,
-                isRunning: true, started: false, strip: nil
+                isRunning: true, started: false, strip: nil, linkedPane: pane.paneID
             )
+            linkedPanes.record(pane.paneID, for: token)
             lifecycles[token] = RtLifecycle(kind: kind, startedAt: now())
             openedOrder.append(token)
             if reveal { await show(token) }
@@ -471,6 +476,7 @@ public final class RtCoordinator {
         watches[id] = nil
         misses[id] = nil
         openedOrder.removeAll { $0 == id }
+        linkedPanes.forget(id)
         if modal?.itemID == id { modal = nil }
         let paths = RtFilePaths(token: id, directory: config.fileDirectory)
         files.delete(paths.out)
