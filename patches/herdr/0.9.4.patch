@@ -1,0 +1,99 @@
+diff --git a/src/client/terminal_sessions.rs b/src/client/terminal_sessions.rs
+index aeecbf47..50a6ffbc 100644
+--- a/src/client/terminal_sessions.rs
++++ b/src/client/terminal_sessions.rs
+@@ -149,6 +149,15 @@ fn write_terminal_session_output(mut stream: LocalStream) -> io::Result<()> {
+                 stdout.flush()?;
+                 return Ok(());
+             }
++            Ok(ServerMessage::MouseCapture {
++                enabled,
++                sgr_pixels,
++            }) => {
++                let line = terminal_session_mouse_capture_line(enabled, sgr_pixels);
++                serde_json::to_writer(&mut stdout, &line)?;
++                stdout.write_all(b"\n")?;
++                stdout.flush()?;
++            }
+             Ok(ServerMessage::Graphics { .. }) => {}
+             Ok(_) => {}
+             Err(protocol::FramingError::UnexpectedEof) => return Ok(()),
+@@ -189,6 +198,7 @@ enum TerminalControlCommand {
+     },
+     #[serde(rename = "terminal.mouse")]
+     Mouse {
++        #[serde(alias = "kind")]
+         action: TerminalControlMouseAction,
+         #[serde(default)]
+         button: TerminalControlMouseButton,
+@@ -196,6 +206,8 @@ enum TerminalControlCommand {
+         row: u16,
+         #[serde(default)]
+         modifiers: u8,
++        #[serde(default = "default_mouse_lines")]
++        lines: u16,
+     },
+     #[serde(rename = "terminal.release")]
+     Release {},
+@@ -207,7 +219,29 @@ enum TerminalControlMouseAction {
+     Down,
+     Up,
+     Drag,
++    #[serde(alias = "moved")]
+     Move,
++    ScrollUp,
++    ScrollDown,
++    ScrollLeft,
++    ScrollRight,
++}
++
++fn default_mouse_lines() -> u16 {
++    1
++}
++
++/// The `terminal.mouse_capture` record a control client prints whenever the
++/// server reports whether the attached pane wants mouse input.
++pub(super) fn terminal_session_mouse_capture_line(
++    enabled: bool,
++    sgr_pixels: bool,
++) -> serde_json::Value {
++    serde_json::json!({
++        "type": "terminal.mouse_capture",
++        "enabled": enabled,
++        "sgr_pixels": sgr_pixels,
++    })
+ }
+ 
+ #[derive(Clone, Copy, Default, serde::Deserialize)]
+@@ -307,7 +341,11 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
+             column,
+             row,
+             modifiers,
++            lines,
+         } => {
++            if lines == 0 {
++                return Err("terminal.mouse lines must be greater than 0".into());
++            }
+             let button = match button {
+                 TerminalControlMouseButton::Left => ClientMouseButton::Left,
+                 TerminalControlMouseButton::Right => ClientMouseButton::Right,
+@@ -318,6 +356,10 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
+                 TerminalControlMouseAction::Up => ClientMouseKind::Up(button),
+                 TerminalControlMouseAction::Drag => ClientMouseKind::Drag(button),
+                 TerminalControlMouseAction::Move => ClientMouseKind::Moved,
++                TerminalControlMouseAction::ScrollUp => ClientMouseKind::ScrollUp,
++                TerminalControlMouseAction::ScrollDown => ClientMouseKind::ScrollDown,
++                TerminalControlMouseAction::ScrollLeft => ClientMouseKind::ScrollLeft,
++                TerminalControlMouseAction::ScrollRight => ClientMouseKind::ScrollRight,
+             };
+             // The server encodes the event for the pane's mouse mode and drops it
+             // when the application has not enabled mouse reporting.
+@@ -326,7 +368,7 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
+                 position: ClientMousePosition::Cell { column, row },
+                 geometry: None,
+                 modifiers,
+-                lines: 1,
++                lines,
+             })
+         }
+         TerminalControlCommand::Release {} => Ok(ClientMessage::Detach),
