@@ -51,6 +51,13 @@ final class NoHerdrScreenTests: XCTestCase {
         XCTAssertEqual(environment["HERDR_SOCKET_PATH"], "/tmp/h.sock")
     }
 
+    /// herdr's own client sets this when it starts a server; without it the
+    /// server stays in the launching app's bootstrap context.
+    func testTheServerAsksHerdrForThePerUserServiceContext() {
+        let environment = HerdrServerLauncher.environment(from: ["PATH": "/usr/bin"])
+        XCTAssertEqual(environment["HERDR_MACOS_SERVER_CONTEXT"], "user")
+    }
+
     func testRendersOverTheThemesChromeWithNoButtonByDefault() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for theme in [Theme.tokyoNight, Theme.builtins.first { $0.id == "one-light" }!] {
