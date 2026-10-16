@@ -48,13 +48,19 @@ final class HerdrMousePatchStore {
     /// app calls `refresh()` on every activation; these stat fields change
     /// whenever anything the probe reports could have.
     struct BinaryFingerprint: Equatable {
+        let binary: FileIdentity
+        let backupModified: Date?
+        let backupExists: Bool
+        let isWritable: Bool
+    }
+
+    /// herdr installs an update by renaming a new file over the old one,
+    /// which always changes the inode; size and mtime catch a rewrite in place.
+    struct FileIdentity: Equatable {
         let resolvedPath: String
         let inode: Int?
         let size: Int?
         let modified: Date?
-        let backupModified: Date?
-        let backupExists: Bool
-        let isWritable: Bool
     }
 
     /// The herdr version the banner was last waved away for. Stored rather
@@ -144,15 +150,26 @@ final class HerdrMousePatchStore {
         if state != decided { state = decided }
     }
 
-    private func fingerprint(of binaryPath: String) -> BinaryFingerprint {
+    /// The herdr on disk right now, for telling whether a run replaced it.
+    func binaryIdentity() -> FileIdentity? {
+        resolveBinaryPath().map(identity(of:))
+    }
+
+    private func identity(of binaryPath: String) -> FileIdentity {
         let resolved = URL(fileURLWithPath: binaryPath).resolvingSymlinksInPath().path
         let attributes = try? fileManager.attributesOfItem(atPath: resolved)
-        let backup = try? fileManager.attributesOfItem(atPath: HerdrMousePatchInstaller.backupPath(for: binaryPath))
-        return BinaryFingerprint(
+        return FileIdentity(
             resolvedPath: resolved,
             inode: (attributes?[.systemFileNumber] as? NSNumber)?.intValue,
             size: (attributes?[.size] as? NSNumber)?.intValue,
-            modified: attributes?[.modificationDate] as? Date,
+            modified: attributes?[.modificationDate] as? Date
+        )
+    }
+
+    private func fingerprint(of binaryPath: String) -> BinaryFingerprint {
+        let backup = try? fileManager.attributesOfItem(atPath: HerdrMousePatchInstaller.backupPath(for: binaryPath))
+        return BinaryFingerprint(
+            binary: identity(of: binaryPath),
             backupModified: backup?[.modificationDate] as? Date,
             backupExists: backup != nil,
             isWritable: fileManager.isWritableFile(atPath: URL(fileURLWithPath: binaryPath).deletingLastPathComponent().path)
@@ -187,8 +204,8 @@ final class HerdrMousePatchStore {
         return false
     }
 
-    func noteHerdrUpdated(patchReinstalled: Bool) {
-        restartReason = .herdrUpdated(patchReinstalled: patchReinstalled)
+    func noteHerdrUpdated(_ patch: HerdrMousePatchCopy.PatchAfterUpdate) {
+        restartReason = .herdrUpdated(patch)
     }
 
     func beginHerdrUpdate() {

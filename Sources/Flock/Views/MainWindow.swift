@@ -416,7 +416,7 @@ struct TitleBar: View {
 
     private var hasNotices: Bool {
         devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil
-            || herdrUpdate?.notice != nil
+            || herdrUpdate?.displayedNotice != nil
     }
 
     var body: some View {
@@ -473,7 +473,7 @@ struct TitleBar: View {
                     } else if let devRebuild {
                         DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
                     }
-                    if let notice = herdrUpdate?.notice {
+                    if let notice = herdrUpdate?.displayedNotice {
                         HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
                             settingsSelection?.tab = .herdr
                             openSettings()
@@ -667,8 +667,13 @@ private struct HerdrMousePatchRestartBanner: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: ChromeMetrics.Banner.spacing)
-            BannerPillButton(theme: theme, title: HerdrMousePatchCopy.restartActionTitle) { AppRelaunch.relaunch() }
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.restart")
+            if HerdrMousePatchCopy.offersRestart(for: reason) {
+                BannerPillButton(theme: theme, title: HerdrMousePatchCopy.restartActionTitle) { AppRelaunch.relaunch() }
+                    .accessibilityIdentifier("flock.herdrMousePatch.banner.restart")
+            } else {
+                BannerPillButton(theme: theme, title: HerdrMousePatchCopy.restartActionTitle) {}
+                    .hidden()
+            }
         }
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)

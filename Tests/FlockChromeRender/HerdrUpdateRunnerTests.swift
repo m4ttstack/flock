@@ -19,7 +19,7 @@ final class HerdrUpdateRunnerTests: XCTestCase {
         XCTAssertNotEqual(result.status, 0)
         XCTAssertEqual(result.output, "timed out")
         XCTAssertEqual(
-            HerdrUpdateRun.outcome(status: result.status, output: result.output), .failed("herdr couldn't update: timed out")
+            HerdrUpdateRun.outcome(status: result.status, output: result.output, binaryChanged: false), .failed("herdr couldn't update: timed out")
         )
     }
 

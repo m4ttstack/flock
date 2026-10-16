@@ -9,7 +9,7 @@ struct HerdrUpdateSection: View {
     let store: HerdrUpdateStore
 
     var body: some View {
-        if let notice = store.notice {
+        if let notice = store.displayedNotice {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Label {

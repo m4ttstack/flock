@@ -37,27 +37,44 @@ public enum HerdrMousePatchCopy {
     /// Every pane's bridge is a herdr process started from the binary that was
     /// on disk at launch, so a swap only reaches panes once Flock restarts.
     /// `herdrUpdated` is the same restart for a different reason: `--handoff`
-    /// starts a new server while every bridge still talks to the old one.
+    /// starts a new server while every bridge still talks to the old one, so
+    /// it is raised the moment the handoff lands, before any reinstall.
     public enum RestartReason: Equatable, Sendable {
         case installed, restored
-        case herdrUpdated(patchReinstalled: Bool)
+        case herdrUpdated(PatchAfterUpdate)
+    }
+
+    /// `untouched`: flock's patch was not on the replaced herdr, or there is
+    /// no patch for the new one, so the update put nothing back.
+    public enum PatchAfterUpdate: Equatable, Sendable {
+        case untouched, reinstalling, reinstalled, reinstallFailed
     }
 
     public static func restartHeadline(for reason: RestartReason) -> String {
         switch reason {
         case .installed: "Mouse support is installed"
         case .restored: "The original herdr is restored"
-        case .herdrUpdated(let reinstalled):
-            reinstalled ? "herdr is updated and mouse support reinstalled" : "herdr is updated"
+        case .herdrUpdated(.reinstalled): "herdr is updated and mouse support reinstalled"
+        case .herdrUpdated: "herdr is updated"
         }
     }
 
     public static func restartDetail(for reason: RestartReason) -> String {
         switch reason {
         case .installed, .restored: "Restart Flock so your panes pick it up."
+        case .herdrUpdated(.reinstalling): "Reinstalling mouse support, then restart Flock so your panes reconnect."
+        case .herdrUpdated(.reinstallFailed):
+            "Mouse support couldn't be reinstalled; see Settings. Restart Flock so your panes reconnect."
         case .herdrUpdated: "Restart Flock so your panes reconnect."
         }
     }
+
+    /// A restart mid-reinstall would come back without the patch the update
+    /// promised to put back.
+    public static func offersRestart(for reason: RestartReason) -> Bool {
+        reason != .herdrUpdated(.reinstalling)
+    }
+
     public static let restartActionTitle = "Restart Flock"
 
     public static func actionTitle(for state: HerdrMousePatchRowState) -> String? {

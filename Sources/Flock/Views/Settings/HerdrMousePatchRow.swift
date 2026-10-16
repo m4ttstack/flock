@@ -33,6 +33,7 @@ struct HerdrMousePatchRow: View {
             if let reason = store.restartReason {
                 LabeledContent {
                     Button(HerdrMousePatchCopy.restartActionTitle) { AppRelaunch.relaunch() }
+                        .disabled(!HerdrMousePatchCopy.offersRestart(for: reason))
                         .accessibilityIdentifier("flock.settings.herdrMousePatch.restart")
                 } label: {
                     Text(HerdrMousePatchCopy.restartHeadline(for: reason))

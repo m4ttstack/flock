@@ -8,8 +8,8 @@ import XCTest
 /// runs a binary, reaches the network or touches the owner's real install.
 @MainActor
 final class HerdrMousePatchStoreTests: XCTestCase {
-    private var root: URL!
-    private var binaryPath: String!
+    nonisolated(unsafe) private var root: URL!
+    nonisolated(unsafe) private var binaryPath: String!
 
     private final class FileTransport: HerdrPatchTransport, @unchecked Sendable {
         var body: Data

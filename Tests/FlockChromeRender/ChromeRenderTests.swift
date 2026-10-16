@@ -36,8 +36,8 @@ private struct RewritingHerdrRunner: HerdrCommandRunner {
     let path: String
     let bytes: Data
     func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-        try? bytes.write(to: URL(fileURLWithPath: path))
-        return (0, "installed v0.9.5\n")
+        try? bytes.write(to: URL(fileURLWithPath: path), options: .atomic)
+        return (0, "installed 0.9.5\nlive handoff complete for session default; pane processes should still be running.\n")
     }
 }
 
@@ -5472,8 +5472,9 @@ extension ChromeRenderTests {
         }
     }
 
-    /// The restart prompt once flock has updated herdr and put the patch back
-    /// on the new version. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
+    /// The restart prompt once flock has updated herdr: with the patch put
+    /// back, with the reinstall failed, and mid-reinstall with no Restart
+    /// pill yet. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
     func testTheRestartBannerAfterAHerdrUpdate() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let band = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 60)
@@ -5501,21 +5502,30 @@ extension ChromeRenderTests {
             update.requestUpdate()
             update.confirmUpdate()
             await update.updateTask?.value
-            XCTAssertEqual(patch.restartReason, .herdrUpdated(patchReinstalled: true), "\(scheme): the reinstall did not land")
+            XCTAssertEqual(patch.restartReason, .herdrUpdated(.reinstalled), "\(scheme): the reinstall did not land")
 
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: patch)
-            await settle(window)
-            let image = try snapshot(window)
-            if let directory {
-                try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herdr-updated-banner-\(scheme)-\(id).png"))
+            let cases: [(String, HerdrMousePatchCopy.PatchAfterUpdate)] = [
+                ("reinstalled", .reinstalled), ("reinstall-failed", .reinstallFailed), ("reinstalling", .reinstalling),
+            ]
+            for (kind, after) in cases {
+                patch.noteHerdrUpdated(after)
+                let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: patch)
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herdr-updated-banner-\(kind)-\(scheme).png"))
+                }
+                let accent = count(theme.palette.accent.hex, in: band, of: image)
+                if after == .reinstalling {
+                    XCTAssertEqual(accent, 0, "\(scheme): a Restart Flock pill mid-reinstall")
+                } else {
+                    XCTAssertGreaterThan(accent, 200, "\(scheme): no Restart Flock pill at the right after \(kind)")
+                }
+                window.close()
             }
-            XCTAssertGreaterThan(
-                count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme): no Restart Flock pill at the right"
-            )
-            window.close()
         }
     }
 
