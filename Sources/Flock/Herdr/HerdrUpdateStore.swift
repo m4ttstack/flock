@@ -121,18 +121,26 @@ final class HerdrUpdateStore {
                     updateError = HerdrUpdateRun.notHandedOffMessage
                     return
                 }
-                let handoff = await runner.run(
-                    binaryPath, HerdrUpdateRun.liveHandoffArguments(binaryPath: binaryPath, expectedVersion: onDisk)
-                )
-                guard HerdrUpdateRun.handedOff(status: handoff.status, output: handoff.output) else {
-                    updateError = HerdrUpdateRun.serverBehindMessage
-                    return
-                }
-                await finishHandoff(to: onDisk, patchWasInstalled: patchWasInstalled)
+                await handOffServer(binaryPath: binaryPath, to: onDisk, patchWasInstalled: patchWasInstalled)
+            case .installedWithoutHandoff(let installed):
+                await handOffServer(binaryPath: binaryPath, to: installed ?? target, patchWasInstalled: patchWasInstalled)
             case .updated:
                 await finishHandoff(to: target, patchWasInstalled: patchWasInstalled)
             }
         }
+    }
+
+    /// The binary on disk is newer than the running server and herdr did not
+    /// hand off; only herdr's own handoff line counts as one having happened.
+    private func handOffServer(binaryPath: String, to version: String, patchWasInstalled: Bool) async {
+        let handoff = await runner.run(
+            binaryPath, HerdrUpdateRun.liveHandoffArguments(binaryPath: binaryPath, expectedVersion: version)
+        )
+        guard HerdrUpdateRun.handedOff(status: handoff.status, output: handoff.output) else {
+            updateError = HerdrUpdateRun.serverBehindMessage
+            return
+        }
+        await finishHandoff(to: version, patchWasInstalled: patchWasInstalled)
     }
 
     /// Every bridge lost its server in the handoff, so the restart prompt

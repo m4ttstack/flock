@@ -50,9 +50,18 @@ final class HerdrUpdateRunTests: XCTestCase {
         XCTAssertEqual(HerdrUpdateRun.outcome(status: 0, output: handoffOutput, binaryChanged: false), .updated)
     }
 
-    func testANewBinaryOnDiskIsAnUpdateWithoutAHandoffLine() {
-        let output = "checking stable channel for updates...\ndownloading 0.9.6...\ndownloaded 0.9.6\ninstalled 0.9.6\n"
-        XCTAssertEqual(HerdrUpdateRun.outcome(status: 0, output: output, binaryChanged: true), .updated)
+    /// A new binary is not a handoff: herdr installs it and still leaves the
+    /// old server running when it cannot ask to stop it.
+    func testANewBinaryWithoutAHandoffLineIsNotAnUpdate() {
+        let output = """
+            downloaded 0.9.6
+            installed 0.9.6
+            live handoff failed for session default: timed out
+            not stopping the old server from a non-interactive update; run `herdr server stop` when you are ready.
+
+            """
+        XCTAssertEqual(HerdrUpdateRun.outcome(status: 0, output: output, binaryChanged: true), .installedWithoutHandoff("0.9.6"))
+        XCTAssertEqual(HerdrUpdateRun.outcome(status: 0, output: "", binaryChanged: true), .installedWithoutHandoff(nil))
     }
 
     /// A handoff that errored but left the updated server running is herdr's

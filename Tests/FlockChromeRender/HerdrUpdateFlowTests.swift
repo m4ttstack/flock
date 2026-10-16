@@ -18,17 +18,20 @@ final class HerdrUpdateFlowTests: XCTestCase {
     private let newStock = Data("herdr 0.9.5 unpatched build".utf8)
     private let newPatched = Data("herdr 0.9.5 terminal.mouse_capture patched build".utf8)
 
+    /// herdr's lines for an install that handed the server off.
+    nonisolated private static let handedOff = "installed 0.9.5\nlive handoff complete for session default; pane processes should still be running.\n"
+
     /// Answers each run with the next scripted reply, the last one repeating.
     private final class StubRunner: HerdrCommandRunner, @unchecked Sendable {
         struct Reply {
             var status: Int32 = 0
-            var output = "installed 0.9.5\n"
+            var output = HerdrUpdateFlowTests.handedOff
             var effect: () -> Void = {}
         }
         var calls: [[String]] = []
         private var replies: [Reply]
         init(_ replies: [Reply]) { self.replies = replies }
-        convenience init(status: Int32 = 0, output: String = "installed 0.9.5\n", effect: @escaping () -> Void = {}) {
+        convenience init(status: Int32 = 0, output: String = HerdrUpdateFlowTests.handedOff, effect: @escaping () -> Void = {}) {
             self.init([Reply(status: status, output: output, effect: effect)])
         }
         func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
@@ -311,6 +314,56 @@ final class HerdrUpdateFlowTests: XCTestCase {
         XCTAssertEqual(transport.downloads, 0)
         XCTAssertEqual(contents(binaryPath), oldPatched)
         XCTAssertNotNil(update.notice)
+    }
+
+    /// herdr's output when it installs but will not stop the old server
+    /// without a terminal (`src/update.rs`, v0.9.5).
+    private let installedNotHandedOff = """
+        installed 0.9.5
+        live handoff failed for session default: timed out
+        not stopping the old server from a non-interactive update; run `herdr server stop` when you are ready.
+
+        """
+
+    /// A new binary alone is not an update: the old server keeps running the
+    /// binary it started from, so flock hands it off before asking for a restart.
+    func testANewBinaryWithoutAHandoffHandsTheServerOffThenReinstalls() async throws {
+        try installOldPatch()
+        let runner = StubRunner([
+            .init(output: installedNotHandedOff, effect: installing(newStock)),
+            .init(output: "live handoff complete; server log: /tmp/acme/herdr-server.log\n"),
+        ])
+        let (update, patch) = await makeStores(runner: runner, transport: CountingTransport(body: newPatched))
+
+        await confirmAndWait(update)
+
+        XCTAssertEqual(runner.calls, [
+            [binaryPath, "update", "--handoff"],
+            [binaryPath, "server", "live-handoff", "--import-exe", binaryPath, "--expected-version", "0.9.5"],
+        ])
+        XCTAssertNil(update.updateError)
+        XCTAssertEqual(patch.restartReason, .herdrUpdated(.reinstalled))
+        XCTAssertEqual(contents(binaryPath), newPatched)
+    }
+
+    func testANewBinaryWhoseServerHandoffFailsAsksForAServerRestart() async throws {
+        try installOldPatch()
+        let runner = StubRunner([
+            .init(output: installedNotHandedOff, effect: installing(newStock)),
+            .init(status: 1, output: #"{"error":{"code":"handoff_failed","message":"timed out"}}"#),
+        ])
+        let transport = CountingTransport(body: newPatched)
+        let (update, patch) = await makeStores(runner: runner, transport: transport)
+
+        await confirmAndWait(update)
+
+        XCTAssertEqual(runner.calls.count, 2)
+        XCTAssertEqual(
+            update.updateError,
+            "herdr is already updated on disk but the running server is older. Restart herdr's server to finish."
+        )
+        XCTAssertNil(patch.restartReason)
+        XCTAssertEqual(transport.downloads, 0)
     }
 
     func testAFailedUpdateShowsHerdrsLastLineAndChangesNothing() async throws {

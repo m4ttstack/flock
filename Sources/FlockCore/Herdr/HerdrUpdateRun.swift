@@ -11,8 +11,12 @@ public enum HerdrUpdateRun {
     public static let pillTitle = "Updating herdr"
 
     public enum Outcome: Equatable, Sendable {
-        /// The running server handed off, or the binary on disk was replaced.
+        /// herdr printed that the running server handed off.
         case updated
+        /// herdr replaced the binary on disk but the server did not hand off
+        /// (it declines to stop an old server without a terminal). Carries
+        /// the version from herdr's `installed X` line, when it printed one.
+        case installedWithoutHandoff(String?)
         /// herdr found nothing newer; carries the version of the binary on
         /// disk, which a server started earlier can still be behind.
         case alreadyUpToDate(String)
@@ -30,6 +34,7 @@ public enum HerdrUpdateRun {
     /// errored but left the new server running says the second.
     private static let handoffLinePrefixes = ["live handoff complete", "the updated server is running for "]
     private static let upToDatePrefix = "already up to date ("
+    private static let installedPrefix = "installed "
 
     /// `server live-handoff` reads no stdin. `--import-exe` hands off to the
     /// binary flock resolved rather than whatever path the old server was
@@ -61,8 +66,15 @@ public enum HerdrUpdateRun {
     /// sentence it is quoted into.
     public static func outcome(status: Int32, output: String, binaryChanged: Bool) -> Outcome {
         guard status == 0 else { return failure(status: status, output: output) }
-        if binaryChanged || handedOff(status: status, output: output) { return .updated }
-        if let line = lines(output).first(where: { $0.hasPrefix(upToDatePrefix) && $0.hasSuffix(")") }) {
+        if handedOff(status: status, output: output) { return .updated }
+        let all = lines(output)
+        if binaryChanged {
+            let versions = all.filter { $0.hasPrefix(installedPrefix) }
+                .map { String($0.dropFirst(installedPrefix.count)) }
+                .filter { !$0.isEmpty && !$0.contains(" ") }
+            return .installedWithoutHandoff(versions.last)
+        }
+        if let line = all.first(where: { $0.hasPrefix(upToDatePrefix) && $0.hasSuffix(")") }) {
             return .alreadyUpToDate(String(line.dropFirst(upToDatePrefix.count).dropLast()))
         }
         return .notHandedOff

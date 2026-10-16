@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 @testable import FlockCore
 
 /// A herdr snapshot in plain values: one visible workspace holding the pane
@@ -325,12 +326,40 @@ func makeCoordinator(
     )
 }
 
-/// A defaults suite of its own per call, so no test reads another's links.
+/// A defaults suite of its own per call, so no test reads another's links,
+/// removed when the test that made it finishes.
+@MainActor
 func scratchLinkedPanes() -> RtLinkedPanes {
     let suite = "flock-rt-linked-panes-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suite)!
-    defaults.removePersistentDomain(forName: suite)
-    return RtLinkedPanes(defaults: defaults)
+    ScratchSuiteSweeper.shared.add(suite)
+    return RtLinkedPanes(defaults: UserDefaults(suiteName: suite)!)
+}
+
+/// `makeCoordinator` makes its suite in a default argument, where no test
+/// case is in reach for a `defer` or `addTeardownBlock`; this is the
+/// tearDown every such test shares.
+@MainActor
+private final class ScratchSuiteSweeper: NSObject, XCTestObservation {
+    static let shared: ScratchSuiteSweeper = {
+        let sweeper = ScratchSuiteSweeper()
+        XCTestObservationCenter.shared.addTestObserver(sweeper)
+        return sweeper
+    }()
+
+    private var suites: [String] = []
+
+    func add(_ suite: String) {
+        suites.append(suite)
+    }
+
+    nonisolated func testCaseDidFinish(_ testCase: XCTestCase) {
+        MainActor.assumeIsolated {
+            for suite in suites {
+                UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+            }
+            suites.removeAll()
+        }
+    }
 }
 
 let rtTestDirectory = URL(fileURLWithPath: "/flock-rt-test", isDirectory: true)
