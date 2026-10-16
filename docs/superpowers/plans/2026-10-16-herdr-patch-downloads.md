@@ -1459,3 +1459,54 @@ No code unless something breaks.
 - [ ] **Step 3:** With Matt: his herdr is a patched 0.9.3 (`~/.local/bin/herdr`, backup beside it). Settings > herdr should show the update note for 0.9.5 with "reinstall it here afterwards" (0.9.5 is catalogued), and the neutral pill in the title bar. Matt runs `herdr update --handoff`; Settings then shows Install for 0.9.5; Install downloads, verifies and installs; Restart Flock; mouse works in a pane.
 - [ ] **Step 4:** Warning path without a real 0.9.6: covered by the Task 7 renders; note in the PR that the live warning appears only once herdr ships a version past the catalog.
 - [ ] **Step 5:** Push and open the PR per the repo flow (CodeRabbit, CI green, merge on Matt's confirmation).
+
+### Task 9: flock runs the herdr update (spec section 3a)
+
+Added after the live run. Step 5 of Task 8 waits until this lands and Matt has re-run the live check.
+
+**Files:**
+- Create: `Sources/FlockCore/Herdr/HerdrUpdateRun.swift` (pure: copy, outcome mapping), `Sources/Flock/Herdr/HerdrUpdateRunner.swift` (process runner protocol + `Process` implementation), tests `Tests/FlockCoreTests/HerdrUpdateRunTests.swift`, `Tests/FlockChromeRender/HerdrUpdateFlowTests.swift`
+- Modify: `Sources/Flock/Herdr/HerdrUpdateStore.swift`, `Sources/Flock/Herdr/HerdrMousePatchStore.swift`, `Sources/FlockCore/Herdr/HerdrMousePatchCopy.swift` (`RestartReason`), `Sources/Flock/Views/Settings/HerdrUpdateSection.swift`, `Sources/Flock/Views/HerdrUpdatePill.swift`, `Sources/Flock/Views/MainWindow.swift` (restart banner copy, confirmation presenter), `Sources/Flock/Views/Settings/HerdrMousePatchRow.swift` (confirmation presenter), `Sources/Flock/FlockApp.swift` (refresh triggers), `Tests/FlockChromeRender/ChromeRenderTests.swift`
+
+**Interfaces:**
+- Consumes: `HerdrUpdateNotice` (`isWarning`, `command`, `latest` via pattern), `HerdrInstallKind.isHomebrew`, `HerdrMousePatchStore` (`state`, `binaryPath`, `refresh()`, install path), `ToolPath.childEnvironment()`.
+- Produces:
+
+```swift
+protocol HerdrCommandRunner: Sendable {
+    /// Runs `executable` with `arguments`; returns exit status and combined output.
+    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String)
+}
+// HerdrUpdateStore gains:
+enum UpdatePhase: Equatable { case idle, updating }
+private(set) var updatePhase: UpdatePhase
+private(set) var updateError: String?
+private(set) var pendingUpdate: HerdrMousePatchCopy.Confirmation?
+func requestUpdate()            // no-op for Homebrew, nil notice, or updatePhase != .idle
+func confirmUpdate()            // starts updateTask
+func cancelUpdate()
+var updateTask: Task<Void, Never>?   // internal, tests await it
+// RestartReason gains: case herdrUpdated(patchReinstalled: Bool)
+// PendingConfirmation gains a `source: Source` (.banner | .settings); requestInstall/requestRevert take it.
+```
+
+**Behaviour (copy verbatim from spec section 3a):**
+
+1. Update button: `HerdrUpdateSection` shows a prominent "Update herdr" button above the copyable command when the notice's install is not Homebrew. The command row and Copy stay. Homebrew: unchanged, copy-only. While `updatePhase == .updating` the button is replaced by a small spinner and "Updating herdr...", and the pill (same capsule colours) reads "Updating herdr". `updateError` shows under the command as "herdr couldn't update: <last non-empty output line>".
+2. Confirmation (presented by `HerdrUpdateSection` only): title "Update herdr to X?", message "flock runs herdr update --handoff. Your panes keep running; Flock restarts afterwards to reconnect them." plus, for `.breaksMouse`, " Mouse support turns off until a flock update adds a patch for X." Confirm button "Update".
+3. Run: `runner.run(binaryPath, ["update", "--handoff"])` with the child environment. Non-zero status sets `updateError` and stops. Read herdr's own `update` command in `/Users/matt/Documents/GitHub/herdr` (read-only) to confirm it runs non-interactively with `--handoff` and what it prints; if it would prompt, stop and report NEEDS_CONTEXT.
+4. Success: `patchStore.refresh()`. If the patch was `.installed` before the run and the catalog has the new version, call a new `HerdrMousePatchStore.reinstallAfterUpdate()` that skips confirmation and runs the same download, verify, re-probe and install path. A backup beside herdr at this point belongs to the version just replaced: remove it before installing (the installer refuses when one exists), and only when the current binary has no verbs. Then set `restartReason = .herdrUpdated(patchReinstalled: <installed ok>)`. If the patch was not installed, or no catalog entry, set `.herdrUpdated(patchReinstalled: false)`. A reinstall failure keeps its usual `lastErrorMessage` and still sets `.herdrUpdated(patchReinstalled: false)`.
+5. Restart banner copy: `.herdrUpdated(false)` headline "herdr is updated"; `.herdrUpdated(true)` "herdr is updated and mouse support reinstalled"; detail for both "Restart Flock so your panes reconnect."; action "Restart Flock" (existing).
+6. Fresh state: `FlockApp` calls `herdrMousePatchStore.refresh()` on `NSApplication.didBecomeActiveNotification` (next to the update check) and whenever `viewModel.model?.herdrVersion` changes (`.onChange`).
+7. Double confirm: each surface presents a confirmation only when `pendingConfirmation?.source` is its own. The banner passes `.banner`, the Settings row `.settings`.
+
+**Tests (hermetic; stub runner, stub transport, temp files):**
+- FlockCore: confirmation copy for plain and warning; last-non-empty-line extraction for the error.
+- Flow: success with patch installed and catalogued new version (stub runner rewrites the temp herdr to unpatched new-version bytes, keeps a stale backup) ends with the patched new bytes on disk, the stale backup replaced by the new stock binary, `restartReason == .herdrUpdated(patchReinstalled: true)`; success without patch ends `.herdrUpdated(false)` and no download; non-zero exit sets `updateError` and leaves the binary untouched; `requestUpdate` is a no-op for a Homebrew path and while updating; a second `requestUpdate` during a run is ignored.
+- Store: `requestInstall(source: .banner)` sets `pendingConfirmation?.source == .banner`.
+- Renders (`FLOCK_SETTINGS_RENDER_DIR`, `FLOCK_CHROME_RENDER_DIR`, dark and light): Settings herdr tab with the Update button (note and warning), the updating state, an update error; title bar pill "Updating herdr"; restart banner for `.herdrUpdated(true)`.
+
+- [ ] **Step 1:** Write the tests, run them, see them fail to compile.
+- [ ] **Step 2:** Implement, run the targeted tests to green, `xcodebuild build -scheme Flock`.
+- [ ] **Step 3:** Render, look at every PNG, fix what reads wrong.
+- [ ] **Step 4:** Commit: `herdr update: flock runs the update, reinstalls the patch, asks once to restart`.

@@ -195,6 +195,38 @@ Clicking it opens Settings on the herdr tab (`SettingsTab.herdr`). It shows
 exactly when the note does and has no dismiss of its own; it goes away when
 herdr is updated.
 
+## 3a. flock runs the update (added after the live run)
+
+Running the command by hand left two rough edges: the patch row kept saying
+"On" because nothing re-checked herdr, and every pane went unresponsive
+because `--handoff` starts a new server while flock's bridges still point at
+the old one. So flock runs the update itself and sequences what follows.
+
+- The note and the warning gain an **Update herdr** button. The copyable
+  command stays beneath it as a fallback. Homebrew installs keep the
+  copy-only `brew upgrade herdr` line and no button.
+- One confirmation, every time: title "Update herdr to X?", message "flock
+  runs herdr update --handoff. Your panes keep running; Flock restarts
+  afterwards to reconnect them." In the warning case the message adds "Mouse
+  support turns off until a flock update adds a patch for X."
+- flock runs `<resolved herdr> update --handoff` with
+  `ToolPath.childEnvironment()`. While it runs, the section shows
+  "Updating herdr..." with a spinner and the pill reads "Updating herdr".
+  A non-zero exit shows "herdr couldn't update: <last line of its output>"
+  in the section; nothing else changes.
+- On success the patch store refreshes. If flock's patch was installed and
+  the catalog has the new version, flock downloads, verifies and installs it
+  straight away with no second confirmation (the update confirmation already
+  said so: the plain note's reinstall line is the promise).
+- Then one restart prompt, reusing the mouse patch restart banner:
+  "herdr is updated" (or "herdr is updated and mouse support reinstalled"),
+  "Restart Flock so your panes reconnect.", action "Restart Flock".
+- The patch row re-checks herdr whenever the app becomes active and whenever
+  the connected server's `herdrVersion` changes, so a hand-run update no
+  longer leaves it stale.
+- A confirmation is presented only by the surface that asked for it (banner
+  or Settings row), never both.
+
 ## 4. Testing
 
 All hermetic: no network, no herdr, no real binaries.
@@ -227,6 +259,6 @@ All hermetic: no network, no herdr, no real binaries.
 ## Out of scope
 
 - x86_64 patches.
-- Running `herdr update` from flock.
+- Running `brew upgrade herdr` from flock.
 - A remote or signed catalog.
 - Retiring old patch versions.
