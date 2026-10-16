@@ -154,8 +154,12 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
 
     // MARK: - probe
 
+    private func probe(versionOutput: String? = "herdr 0.9.1\n") -> HerdrMousePatchInstaller.Probe {
+        HerdrMousePatchInstaller.probe(binaryPath: binaryPath, readVersionOutput: { _ in versionOutput })
+    }
+
     func testProbeOfAPlainUnpatchedBinaryIsPatchableShaped() {
-        let probe = HerdrMousePatchInstaller.probe(binaryPath: binaryPath)
+        let probe = probe()
 
         XCTAssertFalse(probe.hasVerbs)
         XCTAssertFalse(probe.hasBackup)
@@ -167,20 +171,37 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
     func testProbeAfterInstallShowsVerbsAndBackup() throws {
         try HerdrMousePatchInstaller.install(artifactPath: artifactPath, binaryPath: binaryPath)
 
-        let probe = HerdrMousePatchInstaller.probe(binaryPath: binaryPath)
+        let probe = probe()
 
         XCTAssertTrue(probe.hasVerbs)
         XCTAssertTrue(probe.hasBackup)
     }
 
-    func testProbeReportsVersionSupportFromTheBinarysOwnBytes() throws {
-        try Data("herdr 0.9.1".utf8).write(to: URL(fileURLWithPath: binaryPath))
-        XCTAssertEqual(HerdrMousePatchInstaller.probe(binaryPath: binaryPath).version, "0.9.1")
+    func testProbeReportsTheVersionHerdrPrints() {
+        var asked: String?
+        let probe = HerdrMousePatchInstaller.probe(binaryPath: binaryPath, readVersionOutput: { path in
+            asked = path
+            return "herdr 0.9.2\n"
+        })
 
-        try Data("herdr 0.9.2".utf8).write(to: URL(fileURLWithPath: binaryPath))
-        XCTAssertEqual(HerdrMousePatchInstaller.probe(binaryPath: binaryPath).version, "0.9.2")
+        XCTAssertEqual(probe.version, "0.9.2")
+        XCTAssertEqual(asked, binaryPath)
+        XCTAssertNil(self.probe(versionOutput: "herdr 0.10.0\n").version)
+    }
 
-        try Data("herdr 0.10.0".utf8).write(to: URL(fileURLWithPath: binaryPath))
-        XCTAssertNil(HerdrMousePatchInstaller.probe(binaryPath: binaryPath).version)
+    /// A newer herdr can name an older catalogued version in its own bytes;
+    /// only what it prints for `--version` counts.
+    func testAnUncataloguedHerdrNamingACataloguedVersionInItsBytesIsUnsupported() throws {
+        try Data("herdr 0.9.6 ... compatible with 0.9.5 ... acme-0.9.1/src/lib.rs".utf8)
+            .write(to: URL(fileURLWithPath: binaryPath))
+
+        XCTAssertNil(probe(versionOutput: "herdr 0.9.6\n").version)
+    }
+
+    func testAReaderFailureIsUnsupported() throws {
+        try Data("herdr 0.9.5".utf8).write(to: URL(fileURLWithPath: binaryPath))
+
+        XCTAssertNil(probe(versionOutput: nil).version)
+        XCTAssertNil(probe(versionOutput: "zsh: exec format error").version)
     }
 }

@@ -2883,7 +2883,8 @@ final class ChromeRenderTests: XCTestCase {
                 downloader: HerdrMousePatchDownloader(
                     cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)"), transport: BytesTransport(body: patched)
                 ),
-                defaults: defaults
+                defaults: defaults,
+                readVersionOutput: HerdrVersionFixture.read
             )
             XCTAssertTrue(store.shouldOfferBanner, "\(scheme): a plain herdr 0.9.3 should be offered the patch")
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
@@ -2938,7 +2939,8 @@ final class ChromeRenderTests: XCTestCase {
                     downloader: HerdrMousePatchDownloader(
                         cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)-\(stage)"), transport: transport
                     ),
-                    defaults: defaults
+                    defaults: defaults,
+                    readVersionOutput: HerdrVersionFixture.read
                 )
                 store.requestInstall(source: .banner)
                 store.confirmPendingAction()
@@ -2986,7 +2988,8 @@ final class ChromeRenderTests: XCTestCase {
                 catalog: { HerdrMousePatchEntry(version: $0, sha256: String(repeating: "0", count: 64)) },
                 downloader: HerdrMousePatchDownloader(
                     cacheDirectory: root.appendingPathComponent("cache"), transport: HangingTransport()
-                )
+                ),
+                readVersionOutput: HerdrVersionFixture.read
             )
             store.requestInstall(source: .settings)
             store.confirmPendingAction()
@@ -5492,7 +5495,8 @@ extension ChromeRenderTests {
                 catalog: { HerdrMousePatchEntry(version: $0, sha256: newPatchedSHA) },
                 downloader: HerdrMousePatchDownloader(
                     cacheDirectory: root.appendingPathComponent("cache"), transport: BytesTransport(body: newPatched)
-                )
+                ),
+                readVersionOutput: HerdrVersionFixture.read
             )
             let update = HerdrUpdateStore(
                 patchStore: patch, installedVersion: { "0.9.4" }, fetchLatest: { "0.9.5" },
@@ -5550,7 +5554,7 @@ extension ChromeRenderTests {
         } else {
             try Data("herdr 0.9.5".utf8).write(to: URL(fileURLWithPath: herdr))
         }
-        let patch = HerdrMousePatchStore(resolveBinaryPath: { herdr })
+        let patch = HerdrMousePatchStore(resolveBinaryPath: { herdr }, readVersionOutput: HerdrVersionFixture.read)
         let update = HerdrUpdateStore(
             patchStore: patch, installedVersion: { "0.9.5" }, fetchLatest: { "0.9.6" }, runner: runner
         )

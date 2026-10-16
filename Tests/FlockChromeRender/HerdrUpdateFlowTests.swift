@@ -104,7 +104,8 @@ final class HerdrUpdateFlowTests: XCTestCase {
         let patch = HerdrMousePatchStore(
             resolveBinaryPath: { [binaryPath] in binaryPath },
             catalog: { version in shas[version].map { HerdrMousePatchEntry(version: version, sha256: $0) } },
-            downloader: HerdrMousePatchDownloader(cacheDirectory: root.appendingPathComponent("cache"), transport: transport)
+            downloader: HerdrMousePatchDownloader(cacheDirectory: root.appendingPathComponent("cache"), transport: transport),
+            readVersionOutput: HerdrVersionFixture.read
         )
         let update = HerdrUpdateStore(
             patchStore: patch, installedVersion: { running }, fetchLatest: { "0.9.5" }, runner: runner

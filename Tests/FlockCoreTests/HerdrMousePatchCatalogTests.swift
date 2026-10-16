@@ -33,6 +33,6 @@ final class HerdrMousePatchCatalogTests: XCTestCase {
 
     /// A herdr newer than this flock must never be read as an older one.
     func testANewerHerdrIsNotDetectedAsACataloguedVersion() {
-        XCTAssertNil(HerdrMousePatchVersion.detect(in: Data("herdr 0.9.6 build".utf8)))
+        XCTAssertNil(HerdrMousePatchVersion.supportedVersion(fromVersionOutput: "herdr 0.9.6\n"))
     }
 }

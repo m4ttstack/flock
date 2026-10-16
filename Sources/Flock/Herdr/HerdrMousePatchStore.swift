@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 /// Drives the herdr settings row: resolves the installed herdr the same way
-/// `HerdrToolStore` does, probes its bytes, and maps the probe through
+/// `HerdrToolStore` does, probes its bytes and `--version`, and maps the probe through
 /// FlockCore's pure decision matrix. A binary replaced out from under a
 /// stale answer is the ordinary case this exists to notice, so `refresh()`
 /// re-probes whenever the file's identity on disk has moved.
@@ -44,8 +44,8 @@ final class HerdrMousePatchStore {
     @ObservationIgnored private let probe: (String, FileManager) -> HerdrMousePatchInstaller.Probe
     @ObservationIgnored private var lastProbed: BinaryFingerprint?
 
-    /// The probe reads all of herdr (over 20 MB) on the main actor, and the
-    /// app calls `refresh()` on every activation; these stat fields change
+    /// The probe reads all of herdr (over 20 MB) and runs it on the main
+    /// actor, and the app calls `refresh()` on every activation; these stat fields change
     /// whenever anything the probe reports could have.
     struct BinaryFingerprint: Equatable {
         let binary: FileIdentity
@@ -74,16 +74,17 @@ final class HerdrMousePatchStore {
         downloader: HerdrMousePatchDownloader = .standard,
         fileManager: FileManager = .default,
         defaults: UserDefaults = .standard,
-        probe: @escaping (String, FileManager) -> HerdrMousePatchInstaller.Probe = {
-            HerdrMousePatchInstaller.probe(binaryPath: $0, fileManager: $1)
-        }
+        readVersionOutput: @escaping (String) -> String? = { HerdrVersionReader().read(binaryPath: $0) },
+        probe: ((String, FileManager) -> HerdrMousePatchInstaller.Probe)? = nil
     ) {
         self.resolveBinaryPath = resolveBinaryPath
         self.catalog = catalog
         self.downloader = downloader
         self.fileManager = fileManager
         self.defaults = defaults
-        self.probe = probe
+        self.probe = probe ?? {
+            HerdrMousePatchInstaller.probe(binaryPath: $0, fileManager: $1, readVersionOutput: readVersionOutput)
+        }
         refresh()
     }
 

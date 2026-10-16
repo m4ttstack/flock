@@ -1,97 +1,29 @@
 import XCTest
 @testable import FlockCore
 
-/// rustc packs adjacent string literals with no separating byte, so a plain
-/// substring search for "0.9.1" also matches inside "0.9.12" or "1.0.9.1".
-/// These fixtures pin the boundary check that keeps a longer version number
-/// from reading as a match.
 final class HerdrMousePatchVersionTests: XCTestCase {
-    func testMatchesWhenTheVersionStandsAlone() {
-        let data = Data("...herdr 0.9.1 build...".utf8)
-
-        XCTAssertTrue(HerdrMousePatchVersion.matches("0.9.1", in: data))
+    func testParsesHerdrsOwnVersionLine() {
+        XCTAssertEqual(HerdrMousePatchVersion.parse(versionOutput: "herdr 0.9.5\n"), "0.9.5")
+        XCTAssertEqual(HerdrMousePatchVersion.parse(versionOutput: "herdr 0.10.12"), "0.10.12")
     }
 
-    func testDoesNotMatchALongerVersionThatStartsWithTheSameDigits() {
-        let data = Data("parking_lot_core-0.9.12".utf8)
-
-        XCTAssertFalse(HerdrMousePatchVersion.matches("0.9.1", in: data))
+    func testRejectsAnythingNotShapedLikeHerdrsVersionLine() {
+        for junk in [
+            "", "\n", "herdr", "herdr ", "0.9.5", "herdr v0.9.5", "herdr 0.9.5-beta", "herdr 0.9.", "herdr .9.5",
+            "herdr 0..5", "herdr 9", "Herdr 0.9.5", "herdr  0.9.5", "herdr 0.9.5 build", "error: herdr 0.9.5",
+            "herdr 0.9.5\nherdr 0.9.6",
+        ] {
+            XCTAssertNil(HerdrMousePatchVersion.parse(versionOutput: junk), junk)
+        }
     }
 
-    func testDoesNotMatchWhenPrecededByMoreVersionDigits() {
-        let data = Data("v1.0.9.1".utf8)
-
-        XCTAssertFalse(HerdrMousePatchVersion.matches("0.9.1", in: data))
+    func testOnlyCataloguedVersionsAreSupported() {
+        XCTAssertEqual(HerdrMousePatchVersion.supportedVersion(fromVersionOutput: "herdr 0.9.5\n"), "0.9.5")
+        XCTAssertNil(HerdrMousePatchVersion.supportedVersion(fromVersionOutput: "herdr 0.9.6\n"))
+        XCTAssertNil(HerdrMousePatchVersion.supportedVersion(fromVersionOutput: "herdr 0.9.51\n"))
     }
 
-    func testMatchesAtTheStartOfTheBuffer() {
-        let data = Data("0.9.1".utf8)
-
-        XCTAssertTrue(HerdrMousePatchVersion.matches("0.9.1", in: data))
-    }
-
-    func testMatchesAtTheEndOfTheBuffer() {
-        let data = Data("CARGO_PKG_VERSION=0.9.1".utf8)
-
-        XCTAssertTrue(HerdrMousePatchVersion.matches("0.9.1", in: data))
-    }
-
-    func testDoesNotMatchADifferentVersionEntirely() {
-        let data = Data("herdr 0.10.0".utf8)
-
-        XCTAssertFalse(HerdrMousePatchVersion.matches("0.9.1", in: data))
-    }
-
-    func testALongerVersionFirstDoesNotHideAStandaloneOneLater() {
-        let data = Data("parking_lot_core-0.9.12 ... herdr 0.9.1 build".utf8)
-
-        XCTAssertTrue(HerdrMousePatchVersion.matches("0.9.1", in: data))
-    }
-
-    /// A slice keeps its parent's indices, so the boundary checks must not
-    /// assume the buffer starts at zero.
-    func testMatchesInsideASliceOfALargerBuffer() {
-        let whole = Data("xx9herdr 0.9.1 build xx 0.9.12".utf8)
-
-        XCTAssertTrue(HerdrMousePatchVersion.matches("0.9.1", in: whole[3..<20]))
-        XCTAssertFalse(HerdrMousePatchVersion.matches("0.9.1", in: whole[21...]))
-    }
-
-    /// Settings probes a 20 MB binary on the main thread. A walk over every
-    /// byte offset took about ten seconds unoptimized; the bound is loose
-    /// enough for a loaded machine and still catches that.
-    func testAHerdrSizedBinaryIsSearchedQuickly() {
-        var data = Data(repeating: UInt8(ascii: "a"), count: 24 * 1024 * 1024)
-        data.append(Data(" 0.9.1 ".utf8))
-        let start = Date()
-
-        XCTAssertTrue(HerdrMousePatchVersion.matches("0.9.1", in: data))
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
-    }
-
-    func testEmptyDataDoesNotMatch() {
-        XCTAssertFalse(HerdrMousePatchVersion.matches("0.9.1", in: Data()))
-    }
-
-    func testACratePathDoesNotMatch() {
-        XCTAssertFalse(HerdrMousePatchVersion.matches("0.9.1", in: Data("acme-0.9.1/src/lib.rs".utf8)))
-    }
-
-    func testAnUncataloguedHerdrDependingOnACataloguedCrateVersionDetectsNothing() {
-        let data = Data("herdr 0.9.6 ... acme-0.9.1/src/lib.rs".utf8)
-
-        XCTAssertNil(HerdrMousePatchVersion.detect(in: data))
-    }
-
-    func testACataloguedHerdrIsDetectedPastADependencyCratePath() {
-        let data = Data("herdr 0.9.5 ... acme-0.9.0/src/lib.rs ... acme-0.9.1/src/lib.rs".utf8)
-
-        XCTAssertEqual(HerdrMousePatchVersion.detect(in: data), "0.9.5")
-    }
-
-    func testTwoCataloguedVersionsAreAmbiguousAndDetectNothing() {
-        let data = Data("herdr 0.9.5 ... compatible with 0.9.3".utf8)
-
-        XCTAssertNil(HerdrMousePatchVersion.detect(in: data))
+    func testAReaderThatCouldNotRunHerdrIsUnsupported() {
+        XCTAssertNil(HerdrMousePatchVersion.supportedVersion(fromVersionOutput: nil))
     }
 }

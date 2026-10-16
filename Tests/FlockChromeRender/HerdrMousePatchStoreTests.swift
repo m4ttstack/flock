@@ -51,7 +51,9 @@ final class HerdrMousePatchStoreTests: XCTestCase {
             defaults: defaults,
             probe: { path, fileManager in
                 probes?.count += 1
-                return HerdrMousePatchInstaller.probe(binaryPath: path, fileManager: fileManager)
+                return HerdrMousePatchInstaller.probe(
+                    binaryPath: path, fileManager: fileManager, readVersionOutput: HerdrVersionFixture.read
+                )
             }
         )
     }
@@ -190,7 +192,8 @@ final class HerdrMousePatchStoreTests: XCTestCase {
             downloader: HerdrMousePatchDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"),
                 transport: UpdatingTransport(body: patched, binaryPath: binaryPath, newer: newer)
-            )
+            ),
+            readVersionOutput: HerdrVersionFixture.read
         )
         store.requestInstall(source: .settings)
         await confirmAndWait(store)

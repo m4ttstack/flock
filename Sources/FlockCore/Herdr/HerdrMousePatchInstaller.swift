@@ -44,13 +44,19 @@ public enum HerdrMousePatchInstaller {
     /// The three filesystem questions decision-making needs, read fresh every
     /// time rather than cached: a herdr upgrade replacing the binary out from
     /// under a stale answer is the ordinary case this exists to notice.
-    public static func probe(binaryPath: String, fileManager: FileManager = .default) -> Probe {
+    /// `readVersionOutput` returns what `herdr --version` printed for the
+    /// binary at a path, or nil when it could not be run.
+    public static func probe(
+        binaryPath: String,
+        fileManager: FileManager = .default,
+        readVersionOutput: (String) -> String?
+    ) -> Probe {
         let data = fileManager.contents(atPath: binaryPath) ?? Data()
         return Probe(
             hasVerbs: HerdrMouseVerbs.present(in: data),
             hasBackup: fileManager.fileExists(atPath: backupPath(for: binaryPath)),
             isWritable: fileManager.isWritableFile(atPath: directory(of: binaryPath)),
-            version: HerdrMousePatchVersion.detect(in: data)
+            version: HerdrMousePatchVersion.supportedVersion(fromVersionOutput: readVersionOutput(binaryPath))
         )
     }
 
