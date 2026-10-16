@@ -19,7 +19,6 @@ final class HerdrMousePatchOfferTests: XCTestCase {
         let silent: [HerdrMousePatchRowState] = [
             .supportedByHerdr,
             .installed(backupPath: "/usr/local/bin/herdr.flock-backup"),
-            .artifactUnavailable(installPath: "/usr/local/bin/herdr", version: version),
             .notWritable(installPath: "/usr/local/bin/herdr"),
             .unsupportedVersion,
         ]

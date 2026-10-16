@@ -10,11 +10,11 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
 
     private func decide(
         hasVerbs: Bool, hasBackup: Bool, version: String? = "0.9.2",
-        isWritable: Bool = true, artifactAvailable: Bool = true
+        isWritable: Bool = true
     ) -> HerdrMousePatchRowState {
         HerdrMousePatchDecision.decide(
             hasVerbs: hasVerbs, hasBackup: hasBackup, version: version,
-            isWritable: isWritable, artifactAvailable: artifactAvailable,
+            isWritable: isWritable,
             installPath: installPath, backupPath: backupPath
         )
     }
@@ -72,18 +72,19 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
         )
     }
 
-    /// The gitignored artifact can be absent from a fresh clone; that is a
-    /// normal state, not a crash.
-    func testNoVerbsRightVersionNoArtifactReadsAsArtifactUnavailable() {
+    func testAVersionWithNoCatalogueEntryIsUnsupported() {
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: false, version: "0.9.2", artifactAvailable: false),
-            .artifactUnavailable(installPath: installPath, version: "0.9.2")
+            HerdrMousePatchDecision.decide(
+                hasVerbs: false, hasBackup: false, version: nil, isWritable: true,
+                installPath: installPath, backupPath: backupPath
+            ),
+            .unsupportedVersion
         )
     }
 
-    func testNoVerbsRightVersionWritableWithArtifactReadsAsPatchable() {
+    func testNoVerbsRightVersionWritableReadsAsPatchable() {
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: false, version: "0.9.2", isWritable: true, artifactAvailable: true),
+            decide(hasVerbs: false, hasBackup: false, version: "0.9.2", isWritable: true),
             .patchable(installPath: installPath, version: "0.9.2")
         )
     }
@@ -94,7 +95,7 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
     /// to it.
     func testNoVerbsWithAStaleBackupStillFallsThroughToTheOrdinaryRules() {
         XCTAssertEqual(
-            decide(hasVerbs: false, hasBackup: true, version: "0.9.2", isWritable: true, artifactAvailable: true),
+            decide(hasVerbs: false, hasBackup: true, version: "0.9.2", isWritable: true),
             .patchable(installPath: installPath, version: "0.9.2")
         )
     }

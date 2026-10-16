@@ -77,7 +77,6 @@ final class HerdrMousePatchStore {
             hasBackup: probe.hasBackup,
             version: probe.version,
             isWritable: probe.isWritable,
-            artifactAvailable: probe.version.flatMap(resolveArtifactPath) != nil,
             installPath: binaryPath,
             backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)
         )

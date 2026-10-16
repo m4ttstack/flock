@@ -41,13 +41,8 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         XCTAssertEqual(store.state, .patchable(installPath: binaryPath, version: "0.9.1"))
     }
 
-    func testNoArtifactReadsAsArtifactUnavailable() {
-        let store = makeStore(artifactAvailable: false)
-        XCTAssertEqual(store.state, .artifactUnavailable(installPath: binaryPath, version: "0.9.1"))
-    }
-
     func testRequestInstallOnAnUnpatchableStateDoesNothing() {
-        let store = makeStore(artifactAvailable: false)
+        let store = HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil })
         store.requestInstall()
         XCTAssertNil(store.pendingConfirmation)
     }

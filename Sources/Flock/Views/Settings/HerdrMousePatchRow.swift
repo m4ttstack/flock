@@ -72,7 +72,7 @@ struct HerdrMousePatchRow: View {
                 switch state {
                 case .patchable: store.requestInstall()
                 case .installed: store.requestRevert()
-                case .supportedByHerdr, .artifactUnavailable, .notWritable, .unsupportedVersion: break
+                case .supportedByHerdr, .notWritable, .unsupportedVersion: break
                 }
             }
             .accessibilityIdentifier("flock.settings.herdrMousePatch.action")

@@ -26,13 +26,11 @@ public enum HerdrMousePatchCopy {
         case .patchable(_, let version):
             return "Off. herdr \(version) doesn't pass clicks and scrolling through to panes. flock can "
                 + "install a build of the same version that does, and keep your original to restore later."
-        case .artifactUnavailable(_, let version):
-            return "Not available. This build of flock doesn't include mouse support for herdr \(version)."
         case .notWritable(let installPath):
             return "Off. flock can't write to \(displayPath(installPath)) from this account, so it leaves herdr alone."
         case .unsupportedVersion:
-            return "Not available. Mouse support is built for herdr \(supportedList) only, and this herdr is a "
-                + "different version."
+            return "Not available. flock has no mouse patch for this herdr. If it's newer than herdr "
+                + "\(HerdrMousePatchVersion.supported.last ?? ""), a flock update will add one."
         }
     }
 
@@ -56,7 +54,7 @@ public enum HerdrMousePatchCopy {
         switch state {
         case .patchable: return "Install"
         case .installed: return "Restore Original"
-        case .supportedByHerdr, .artifactUnavailable, .notWritable, .unsupportedVersion: return nil
+        case .supportedByHerdr, .notWritable, .unsupportedVersion: return nil
         }
     }
 
@@ -67,12 +65,6 @@ public enum HerdrMousePatchCopy {
         public let title: String
         public let message: String
         public let confirmButtonTitle: String
-    }
-
-    static var supportedList: String {
-        let versions = HerdrMousePatchVersion.supported
-        guard let last = versions.last, versions.count > 1 else { return versions.first ?? "" }
-        return versions.dropLast().joined(separator: ", ") + " and " + last
     }
 
     public static func installConfirmation(installPath: String, version: String) -> Confirmation {
