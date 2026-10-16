@@ -35,7 +35,16 @@ final class URLSessionPatchTransportTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: out), Data("bytes".utf8))
     }
 
-    func testANon200Throws() async {
+    func testAnyOther2xxWritesTheBody() async throws {
+        StubProtocol.status = 201
+        StubProtocol.body = Data("created".utf8)
+        let out = destination
+        defer { try? FileManager.default.removeItem(at: out) }
+        try await transport().download(URL(string: "https://example.invalid/p")!, to: out, progress: { _ in })
+        XCTAssertEqual(try Data(contentsOf: out), Data("created".utf8))
+    }
+
+    func testANon2xxThrows() async {
         StubProtocol.status = 404
         StubProtocol.body = Data("<html>".utf8)
         let out = destination

@@ -10,7 +10,7 @@ struct URLSessionPatchTransport: HerdrPatchTransport {
         let delegate = ProgressDelegate(progress: progress)
         let (temporary, response) = try await session.download(from: url, delegate: delegate)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw HTTPStatus(code: (response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         try FileManager.default.moveItem(at: temporary, to: destination)
