@@ -72,4 +72,26 @@ final class HerdrMousePatchVersionTests: XCTestCase {
     func testEmptyDataDoesNotMatch() {
         XCTAssertFalse(HerdrMousePatchVersion.matches("0.9.1", in: Data()))
     }
+
+    func testACratePathDoesNotMatch() {
+        XCTAssertFalse(HerdrMousePatchVersion.matches("0.9.1", in: Data("acme-0.9.1/src/lib.rs".utf8)))
+    }
+
+    func testAnUncataloguedHerdrDependingOnACataloguedCrateVersionDetectsNothing() {
+        let data = Data("herdr 0.9.6 ... acme-0.9.1/src/lib.rs".utf8)
+
+        XCTAssertNil(HerdrMousePatchVersion.detect(in: data))
+    }
+
+    func testACataloguedHerdrIsDetectedPastADependencyCratePath() {
+        let data = Data("herdr 0.9.5 ... acme-0.9.0/src/lib.rs ... acme-0.9.1/src/lib.rs".utf8)
+
+        XCTAssertEqual(HerdrMousePatchVersion.detect(in: data), "0.9.5")
+    }
+
+    func testTwoCataloguedVersionsAreAmbiguousAndDetectNothing() {
+        let data = Data("herdr 0.9.5 ... compatible with 0.9.3".utf8)
+
+        XCTAssertNil(HerdrMousePatchVersion.detect(in: data))
+    }
 }
