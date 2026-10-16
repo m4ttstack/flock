@@ -127,7 +127,7 @@ final class HerdrUpdateRunTests: XCTestCase {
         }
         XCTAssertEqual(
             HerdrMousePatchCopy.restartDetail(for: .herdrUpdated(.reinstallFailed)),
-            "Mouse support couldn't be reinstalled; see Settings. Restart Flock so your panes reconnect."
+            "Mouse support couldn't be reinstalled; see Settings."
         )
         XCTAssertEqual(
             HerdrMousePatchCopy.restartDetail(for: .herdrUpdated(.reinstalling)),

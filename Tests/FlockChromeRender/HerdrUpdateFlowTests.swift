@@ -196,7 +196,7 @@ final class HerdrUpdateFlowTests: XCTestCase {
         XCTAssertEqual(patch.restartReason, .herdrUpdated(.reinstallFailed))
         XCTAssertEqual(
             HerdrMousePatchCopy.restartDetail(for: try XCTUnwrap(patch.restartReason)),
-            "Mouse support couldn't be reinstalled; see Settings. Restart Flock so your panes reconnect."
+            "Mouse support couldn't be reinstalled; see Settings."
         )
         XCTAssertEqual(patch.lastErrorMessage, "The download didn't match what flock expected. Nothing was changed.")
     }

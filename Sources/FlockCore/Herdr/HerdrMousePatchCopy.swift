@@ -63,8 +63,7 @@ public enum HerdrMousePatchCopy {
         switch reason {
         case .installed, .restored: "Restart Flock so your panes pick it up."
         case .herdrUpdated(.reinstalling): "Reinstalling mouse support, then restart Flock so your panes reconnect."
-        case .herdrUpdated(.reinstallFailed):
-            "Mouse support couldn't be reinstalled; see Settings. Restart Flock so your panes reconnect."
+        case .herdrUpdated(.reinstallFailed): "Mouse support couldn't be reinstalled; see Settings."
         case .herdrUpdated: "Restart Flock so your panes reconnect."
         }
     }
