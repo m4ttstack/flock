@@ -308,6 +308,11 @@ public final class SessionViewModel {
         return ProtocolMismatch(found: found, required: required)
     }
 
+    /// Writes any title learned inside the store's save delay; for quit.
+    public func flushPaneTitles() {
+        paneTitles.flush()
+    }
+
     /// Called whenever `HerdrStore.model`/`connection` change. Workspace
     /// selection only ever fills in from `nil`. Tab selection now MIRRORS
     /// herdr's own focused tab live: a tab switch is a warm re-host (this

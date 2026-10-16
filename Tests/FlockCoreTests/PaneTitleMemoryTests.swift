@@ -191,6 +191,16 @@ final class PaneTitleMemoryTests: XCTestCase {
 
     // MARK: View model
 
+    func testFlushingOnQuitWritesATitleLearnedInsideTheSaveDelay() throws {
+        let defaults = try isolatedDefaults()
+        let viewModel = SessionViewModel(client: IdleCommandClient(), paneTitleDefaults: defaults)
+        viewModel.update(model: try model(title: "learned just now"), connection: .live)
+        XCTAssertNil(defaults.data(forKey: PaneTitleStore.defaultsKey))
+        viewModel.flushPaneTitles()
+        let data = try XCTUnwrap(defaults.data(forKey: PaneTitleStore.defaultsKey))
+        XCTAssertEqual(try JSONDecoder().decode(PaneTitleMemory.self, from: data).title(for: "s1"), "learned just now")
+    }
+
     func testTheViewModelShowsTheRememberedTitleOnceHerdrStopsReportingOne() throws {
         let defaults = try isolatedDefaults()
         let viewModel = SessionViewModel(client: IdleCommandClient(), paneTitleDefaults: defaults)

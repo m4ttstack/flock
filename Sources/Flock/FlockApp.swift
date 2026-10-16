@@ -44,8 +44,13 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
         windowFrame.start()
     }
 
+    /// Work the app's state owners register to finish before the process
+    /// ends; the delegate cannot reach them itself.
+    static var onTerminate: [@MainActor () -> Void] = []
+
     func applicationWillTerminate(_ notification: Notification) {
         windowFrame.save()
+        Self.onTerminate.forEach { $0() }
     }
 }
 
@@ -242,6 +247,7 @@ struct FlockApp: App {
             cswapAccounts: CswapList.read
         )
         _viewModel = State(initialValue: viewModel)
+        FlockAppDelegate.onTerminate.append { viewModel.flushPaneTitles() }
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
         let herdrMousePatchStore = HerdrMousePatchStore()
         _herdrMousePatchStore = State(initialValue: herdrMousePatchStore)
