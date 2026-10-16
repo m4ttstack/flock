@@ -21,10 +21,14 @@ final class HerdrMousePatchStore {
 
     enum Phase: Equatable { case idle, downloading(Double), installing }
 
+    /// The banner and the Settings row both watch this store, and each
+    /// presents only the confirmations it asked for.
     struct PendingConfirmation: Equatable {
         enum Action: Equatable { case install, revert }
+        enum Source: Equatable { case banner, settings }
         let action: Action
         let confirmation: HerdrMousePatchCopy.Confirmation
+        let source: Source
     }
 
     @ObservationIgnored var installTask: Task<Void, Never>?
@@ -80,9 +84,10 @@ final class HerdrMousePatchStore {
         defaults.set(version, forKey: Self.dismissedVersionKey)
     }
 
-    /// Re-probes the binary on disk. Called on init, and meant to be called
-    /// again whenever the settings row appears, since herdr can be upgraded
-    /// or reverted by hand between one look and the next.
+    /// Re-probes the binary on disk. Called on init, whenever the settings
+    /// row appears, the app becomes active or the server's herdr version
+    /// changes, since herdr can be upgraded or reverted by hand between one
+    /// look and the next.
     func refresh() {
         binaryPath = resolveBinaryPath()
         guard let binaryPath else {
@@ -100,19 +105,36 @@ final class HerdrMousePatchStore {
         )
     }
 
-    func requestInstall() {
+    func requestInstall(source: PendingConfirmation.Source) {
         guard phase == .idle, case .patchable(let installPath, let version) = state else { return }
         pendingConfirmation = PendingConfirmation(
             action: .install,
-            confirmation: HerdrMousePatchCopy.installConfirmation(installPath: installPath, version: version)
+            confirmation: HerdrMousePatchCopy.installConfirmation(installPath: installPath, version: version),
+            source: source
         )
     }
 
-    func requestRevert() {
+    func requestRevert(source: PendingConfirmation.Source) {
         guard case .installed = state, let binaryPath = resolveBinaryPath() else { return }
         pendingConfirmation = PendingConfirmation(
-            action: .revert, confirmation: HerdrMousePatchCopy.revertConfirmation(installPath: binaryPath)
+            action: .revert, confirmation: HerdrMousePatchCopy.revertConfirmation(installPath: binaryPath), source: source
         )
+    }
+
+    /// Puts the patch back on the herdr `herdr update` just installed. The
+    /// update's own confirmation promised this, so it asks nothing more.
+    /// Returns whether the patch is installed afterwards.
+    func reinstallAfterUpdate() async -> Bool {
+        guard phase == .idle, case .patchable = state else { return false }
+        lastErrorMessage = nil
+        performInstall(startedFromBanner: false, replacingStaleBackup: true)
+        await installTask?.value
+        if case .installed = state { return true }
+        return false
+    }
+
+    func noteHerdrUpdated(patchReinstalled: Bool) {
+        restartReason = .herdrUpdated(patchReinstalled: patchReinstalled)
     }
 
     func cancelPendingConfirmation() {
@@ -125,18 +147,19 @@ final class HerdrMousePatchStore {
         lastErrorMessage = nil
         bannerErrorMessage = nil
         switch pending.action {
-        case .install: performInstall()
+        case .install: performInstall(startedFromBanner: shouldOfferBanner)
         case .revert: performRevert()
         }
     }
 
-    private func performInstall() {
+    /// `replacingStaleBackup`: a backup beside an unpatched herdr just after
+    /// `herdr update` belongs to the version that update replaced.
+    private func performInstall(startedFromBanner: Bool, replacingStaleBackup: Bool = false) {
         guard case .patchable(_, let version) = state, let binaryPath = resolveBinaryPath(),
               let entry = catalog(version) else {
             refresh()
             return
         }
-        let startedFromBanner = shouldOfferBanner
         let throttle = HerdrPatchProgressThrottle()
         phase = .downloading(0)
         installTask = Task { [downloader, fileManager] in
@@ -152,6 +175,9 @@ final class HerdrMousePatchStore {
                 let probe = HerdrMousePatchInstaller.probe(binaryPath: binaryPath, fileManager: fileManager)
                 guard probe.version == version, !probe.hasVerbs else { throw HerdrChanged() }
                 phase = .installing
+                if replacingStaleBackup, probe.hasBackup {
+                    try fileManager.removeItem(atPath: HerdrMousePatchInstaller.backupPath(for: binaryPath))
+                }
                 try HerdrMousePatchInstaller.install(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
                 restartReason = .installed
             } catch {

@@ -63,9 +63,23 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         XCTAssertEqual(makeStore(catalogued: false).state, .unsupportedVersion)
     }
 
+    /// The banner and the Settings row both watch this store; each presents
+    /// only the confirmations it asked for, so one request never shows twice.
+    func testAConfirmationRemembersWhichSurfaceAskedForIt() async {
+        let store = makeStore()
+        store.requestInstall(source: .banner)
+        XCTAssertEqual(store.pendingConfirmation?.source, .banner)
+        store.cancelPendingConfirmation()
+        store.requestInstall(source: .settings)
+        XCTAssertEqual(store.pendingConfirmation?.source, .settings)
+        await confirmAndWait(store)
+        store.requestRevert(source: .settings)
+        XCTAssertEqual(store.pendingConfirmation?.source, .settings)
+    }
+
     func testRequestInstallOnAnUnpatchableStateDoesNothing() {
         let store = makeStore(catalogued: false)
-        store.requestInstall()
+        store.requestInstall(source: .settings)
         XCTAssertNil(store.pendingConfirmation)
     }
 
@@ -74,7 +88,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
     func testInstallGatesBehindConfirmationNamingTheExactPath() async {
         let store = makeStore()
 
-        store.requestInstall()
+        store.requestInstall(source: .settings)
         XCTAssertEqual(store.pendingConfirmation?.action, .install)
         XCTAssertTrue(store.pendingConfirmation?.confirmation.message.contains(binaryPath) ?? false)
         XCTAssertEqual(try? String(contentsOfFile: binaryPath, encoding: .utf8), "herdr 0.9.1 unpatched build")
@@ -91,7 +105,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
     /// swap that actually happened asks for a restart.
     func testASuccessfulInstallOrRestoreAsksForARestartAndAFailureDoesNot() async {
         let failing = makeStore(body: Data("<html>".utf8))
-        failing.requestInstall()
+        failing.requestInstall(source: .settings)
         await confirmAndWait(failing)
         XCTAssertNil(failing.restartReason)
         XCTAssertEqual(failing.lastErrorMessage, "The download didn't match what flock expected. Nothing was changed.")
@@ -99,21 +113,21 @@ final class HerdrMousePatchStoreTests: XCTestCase {
 
         let store = makeStore()
         XCTAssertNil(store.restartReason)
-        store.requestInstall()
+        store.requestInstall(source: .settings)
         await confirmAndWait(store)
         XCTAssertEqual(store.restartReason, .installed)
 
-        store.requestRevert()
+        store.requestRevert(source: .settings)
         store.confirmPendingAction()
         XCTAssertEqual(store.restartReason, .restored)
     }
 
     func testASecondInstallRequestWhileDownloadingIsIgnored() async {
         let store = makeStore()
-        store.requestInstall()
+        store.requestInstall(source: .settings)
         store.confirmPendingAction()
         XCTAssertNotEqual(store.phase, .idle)
-        store.requestInstall()
+        store.requestInstall(source: .settings)
         XCTAssertNil(store.pendingConfirmation)
         await store.installTask?.value
         XCTAssertEqual(store.phase, .idle)
@@ -142,7 +156,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
                 transport: UpdatingTransport(body: patched, binaryPath: binaryPath, newer: newer)
             )
         )
-        store.requestInstall()
+        store.requestInstall(source: .settings)
         await confirmAndWait(store)
 
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: binaryPath)), newer)
@@ -154,7 +168,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
 
     func testCancelPendingConfirmationLeavesTheBinaryUntouched() {
         let store = makeStore()
-        store.requestInstall()
+        store.requestInstall(source: .settings)
 
         store.cancelPendingConfirmation()
 
@@ -164,11 +178,11 @@ final class HerdrMousePatchStoreTests: XCTestCase {
 
     func testRevertGoesBackToPatchableAndClearsTheBackup() async {
         let store = makeStore()
-        store.requestInstall()
+        store.requestInstall(source: .settings)
         await confirmAndWait(store)
         XCTAssertEqual(store.state, .installed(backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
 
-        store.requestRevert()
+        store.requestRevert(source: .settings)
         XCTAssertEqual(store.pendingConfirmation?.action, .revert)
         store.confirmPendingAction()
 
@@ -178,7 +192,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
 
     func testRequestRevertOnAPatchableStateDoesNothing() {
         let store = makeStore()
-        store.requestRevert()
+        store.requestRevert(source: .settings)
         XCTAssertNil(store.pendingConfirmation)
     }
 
@@ -187,13 +201,13 @@ final class HerdrMousePatchStoreTests: XCTestCase {
     /// it back from `lastErrorMessage`.
     func testAFailedRevertReportsAnError() async throws {
         let store = makeStore()
-        store.requestInstall()
+        store.requestInstall(source: .settings)
         await confirmAndWait(store)
 
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
 
-        store.requestRevert()
+        store.requestRevert(source: .settings)
         store.confirmPendingAction()
 
         XCTAssertNotNil(store.lastErrorMessage)

@@ -22,6 +22,10 @@ struct MainWindow: View {
 
     private var theme: Theme { themeStore.active }
 
+    private var bannerConfirmation: HerdrMousePatchStore.PendingConfirmation? {
+        herdrMousePatchStore.pendingConfirmation.flatMap { $0.source == .banner ? $0 : nil }
+    }
+
     private var paletteSurface: PaletteSurface {
         JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesMode).paletteSurface
     }
@@ -214,15 +218,16 @@ struct MainWindow: View {
         // The same confirmation the settings row raises, hosted here too so
         // the banner's Install is the identical action rather than a shortcut
         // around it. Naming the exact path being replaced is the point of it,
-        // and it is shown every time by design.
+        // and it is shown every time by design. Only the banner's own
+        // requests: the Settings row presents its own.
         .confirmationDialog(
-            herdrMousePatchStore.pendingConfirmation?.confirmation.title ?? "",
+            bannerConfirmation?.confirmation.title ?? "",
             isPresented: Binding(
-                get: { herdrMousePatchStore.pendingConfirmation != nil },
+                get: { bannerConfirmation != nil },
                 set: { shown in if !shown { herdrMousePatchStore.cancelPendingConfirmation() } }
             ),
             titleVisibility: .visible,
-            presenting: herdrMousePatchStore.pendingConfirmation
+            presenting: bannerConfirmation
         ) { pending in
             Button(pending.confirmation.confirmButtonTitle) { herdrMousePatchStore.confirmPendingAction() }
                 .accessibilityIdentifier("flock.herdrMousePatch.banner.confirm")
@@ -469,7 +474,7 @@ struct TitleBar: View {
                         DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
                     }
                     if let notice = herdrUpdate?.notice {
-                        HerdrUpdatePill(theme: theme, notice: notice) {
+                        HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
                             settingsSelection?.tab = .herdr
                             openSettings()
                         }
@@ -611,7 +616,7 @@ private struct HerdrMousePatchBanner: View {
                 .foregroundStyle(theme.textLabel)
                 .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
             if case .patchable = store.state {
-                BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall() }
+                BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall(source: .banner) }
                     .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
             }
         }
@@ -656,7 +661,7 @@ private struct HerdrMousePatchRestartBanner: View {
             Text(HerdrMousePatchCopy.restartHeadline(for: reason))
                 .font(ChromeType.banner)
                 .foregroundStyle(theme.textStrong)
-            Text(HerdrMousePatchCopy.restartDetail)
+            Text(HerdrMousePatchCopy.restartDetail(for: reason))
                 .font(ChromeType.banner)
                 .foregroundStyle(theme.textLabel)
                 .lineLimit(1)

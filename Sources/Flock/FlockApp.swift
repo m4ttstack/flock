@@ -404,8 +404,12 @@ struct FlockApp: App {
                     Task { await boardStore.refresh() }
                     Task { await cswapStore.refresh() }
                     Task { await herdrUpdateStore.checkIfDue() }
+                    herdrMousePatchStore.refresh()
                     devBuildWatcher?.check()
                 }
+                // A hand-run `herdr update` replaces the binary under a row
+                // that would otherwise keep describing the old one.
+                .onChange(of: viewModel.model?.herdrVersion) { herdrMousePatchStore.refresh() }
                 .onChange(of: herdrStore.model) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
                 }
