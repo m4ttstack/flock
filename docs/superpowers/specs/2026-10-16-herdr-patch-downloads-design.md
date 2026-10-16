@@ -103,8 +103,18 @@ public enum HerdrMousePatchCatalog {
 
 URLs are `https://github.com/m4ttstack/flock/releases/download/herdr-patch-X/herdr-mouse-patch-X-arm64`.
 `HerdrMousePatchVersion.supported` becomes `HerdrMousePatchCatalog.entries.map(\.version)`,
-so recognised and patchable versions cannot drift apart. Version detection
-(`matches`) is unchanged.
+so recognised and patchable versions cannot drift apart. The version comes
+from running `<binary> --version` (herdr prints exactly `herdr X`; the build
+script checks this) through a version reader the app injects, with the child
+environment from `ToolPath.childEnvironment()`, stdin from `/dev/null` and a
+5 second deadline. `HerdrMousePatchVersion.parse` accepts only `herdr `
+followed by dotted integers. A run that fails, times out or prints anything
+else is an unknown version, which reads as `.unsupportedVersion`. The bytes
+are never scanned for a version, since herdr embeds other version strings
+(dependency paths, compatibility notes). Verb detection
+(`terminal.mouse_capture`) is still a byte scan. The store's fingerprint check
+keeps the reader to one run per binary change, and the post-download re-probe
+and the update flow go through the same reader.
 
 **Downloader** (`Sources/Flock/Herdr/HerdrMousePatchDownloader.swift`, with
 its pure parts in FlockCore). Given an entry:
@@ -123,8 +133,8 @@ unchanged on the verified path: back up, stage, rename, verify verbs, roll back
 on failure. Revert is unchanged.
 
 **Row states.** `HerdrMousePatchDecision` keeps its shape; `artifactAvailable`
-becomes "the catalog has this version", and `.artifactUnavailable` becomes
-`.noPatchForVersion(installPath:version:)`, which now means the herdr is newer
+becomes "the catalog has this version". A herdr whose version is not in the
+catalog, or could not be read, is `.unsupportedVersion`: usually a herdr newer
 than this flock knows. The store gains a `downloading(progress)` phase between
 confirming and installing.
 
@@ -252,9 +262,12 @@ All hermetic: no network, no herdr, no real binaries.
   present with no gaps in the patch component.
 - **Checksum and downloader:** small temp files through an injected transport:
   success, cached hit, cached file with a wrong hash re-downloads, mismatch
-  deletes and fails, transport error, HTTP non-200.
-- **Row decision:** existing matrix tests, with `.noPatchForVersion` in place
-  of `.artifactUnavailable`.
+  deletes and fails, transport error, HTTP non-2xx.
+- **Version reader:** parsing rejects anything but `herdr ` and dotted
+  integers; a reader failure is unsupported; a 0.9.6 whose bytes mention
+  0.9.5 is unsupported. Store tests inject a reader and never run a binary.
+- **Row decision:** existing matrix tests, with `.unsupportedVersion` for a
+  version the catalog lacks.
 - **Update decision:** every row of the table above, plus Homebrew, a preview
   build newer than latest, and multi-digit components (0.9.10 > 0.9.9).
 - **Render:** the herdr Settings tab with the plain note, the warning and the
