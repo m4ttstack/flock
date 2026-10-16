@@ -1,55 +1,77 @@
+import CryptoKit
 import FlockCore
 import Foundation
 import XCTest
 
 /// Every path is a throwaway temp file standing in for herdr; nothing here
-/// runs a binary or touches the owner's real install.
+/// runs a binary, reaches the network or touches the owner's real install.
 @MainActor
 final class HerdrMousePatchStoreTests: XCTestCase {
     private var root: URL!
     private var binaryPath: String!
-    private var artifactPath: String!
+
+    private final class FileTransport: HerdrPatchTransport, @unchecked Sendable {
+        var body: Data
+        init(body: Data) { self.body = body }
+        func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+            progress(0.5)
+            try body.write(to: destination)
+        }
+    }
+
+    private let patched = Data("herdr 0.9.1 terminal.mouse_capture patched build".utf8)
 
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("flock-herdr-mouse-patch-store-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         binaryPath = root.appendingPathComponent("herdr").path
-        artifactPath = root.appendingPathComponent("herdr-patched").path
         try Data("herdr 0.9.1 unpatched build".utf8).write(to: URL(fileURLWithPath: binaryPath))
-        try Data("herdr 0.9.1 terminal.mouse_capture patched build".utf8).write(to: URL(fileURLWithPath: artifactPath))
     }
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func makeStore(artifactAvailable: Bool = true) -> HerdrMousePatchStore {
-        HerdrMousePatchStore(
+    private func makeStore(catalogued: Bool = true, body: Data? = nil) -> HerdrMousePatchStore {
+        let sha = SHA256.hash(data: patched).map { String(format: "%02x", $0) }.joined()
+        return HerdrMousePatchStore(
             resolveBinaryPath: { [binaryPath] in binaryPath },
-            resolveArtifactPath: { [artifactPath] _ in artifactAvailable ? artifactPath : nil }
+            catalog: { catalogued ? HerdrMousePatchEntry(version: $0, sha256: sha) : nil },
+            downloader: HerdrMousePatchDownloader(
+                cacheDirectory: root.appendingPathComponent("cache"), transport: FileTransport(body: body ?? patched)
+            )
         )
     }
 
+    private func confirmAndWait(_ store: HerdrMousePatchStore) async {
+        store.confirmPendingAction()
+        await store.installTask?.value
+    }
+
     func testNoHerdrResolvesToNoState() {
-        let store = HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil })
+        let store = HerdrMousePatchStore(resolveBinaryPath: { nil })
         XCTAssertNil(store.state)
     }
 
-    func testAPlainUnpatchedHerdrWithAnArtifactIsPatchable() {
+    func testAPlainUnpatchedHerdrWithACataloguedVersionIsPatchable() {
         let store = makeStore()
         XCTAssertEqual(store.state, .patchable(installPath: binaryPath, version: "0.9.1"))
     }
 
+    func testAnUncataloguedVersionIsUnsupported() {
+        XCTAssertEqual(makeStore(catalogued: false).state, .unsupportedVersion)
+    }
+
     func testRequestInstallOnAnUnpatchableStateDoesNothing() {
-        let store = HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil })
+        let store = makeStore(catalogued: false)
         store.requestInstall()
         XCTAssertNil(store.pendingConfirmation)
     }
 
     /// The confirmation must name this exact binary path, and only actually
     /// installs once `confirmPendingAction` runs.
-    func testInstallGatesBehindConfirmationNamingTheExactPath() {
+    func testInstallGatesBehindConfirmationNamingTheExactPath() async {
         let store = makeStore()
 
         store.requestInstall()
@@ -57,7 +79,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         XCTAssertTrue(store.pendingConfirmation?.confirmation.message.contains(binaryPath) ?? false)
         XCTAssertEqual(try? String(contentsOfFile: binaryPath, encoding: .utf8), "herdr 0.9.1 unpatched build")
 
-        store.confirmPendingAction()
+        await confirmAndWait(store)
 
         XCTAssertNil(store.pendingConfirmation)
         XCTAssertEqual(store.state, .installed(backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
@@ -67,23 +89,34 @@ final class HerdrMousePatchStoreTests: XCTestCase {
 
     /// Running bridges keep the herdr they were started from, so only a
     /// swap that actually happened asks for a restart.
-    func testASuccessfulInstallOrRestoreAsksForARestartAndAFailureDoesNot() throws {
-        let failing = makeStore()
-        try FileManager.default.removeItem(atPath: artifactPath)
+    func testASuccessfulInstallOrRestoreAsksForARestartAndAFailureDoesNot() async {
+        let failing = makeStore(body: Data("<html>".utf8))
         failing.requestInstall()
-        failing.confirmPendingAction()
+        await confirmAndWait(failing)
         XCTAssertNil(failing.restartReason)
+        XCTAssertEqual(failing.lastErrorMessage, "The download didn't match what flock expected. Nothing was changed.")
+        XCTAssertEqual(try? String(contentsOfFile: binaryPath, encoding: .utf8), "herdr 0.9.1 unpatched build")
 
-        try Data("herdr 0.9.1 terminal.mouse_capture patched build".utf8).write(to: URL(fileURLWithPath: artifactPath))
         let store = makeStore()
         XCTAssertNil(store.restartReason)
         store.requestInstall()
-        store.confirmPendingAction()
+        await confirmAndWait(store)
         XCTAssertEqual(store.restartReason, .installed)
 
         store.requestRevert()
         store.confirmPendingAction()
         XCTAssertEqual(store.restartReason, .restored)
+    }
+
+    func testASecondInstallRequestWhileDownloadingIsIgnored() async {
+        let store = makeStore()
+        store.requestInstall()
+        store.confirmPendingAction()
+        XCTAssertNotEqual(store.phase, .idle)
+        store.requestInstall()
+        XCTAssertNil(store.pendingConfirmation)
+        await store.installTask?.value
+        XCTAssertEqual(store.phase, .idle)
     }
 
     func testCancelPendingConfirmationLeavesTheBinaryUntouched() {
@@ -96,10 +129,10 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         XCTAssertEqual(try? String(contentsOfFile: binaryPath, encoding: .utf8), "herdr 0.9.1 unpatched build")
     }
 
-    func testRevertGoesBackToPatchableAndClearsTheBackup() {
+    func testRevertGoesBackToPatchableAndClearsTheBackup() async {
         let store = makeStore()
         store.requestInstall()
-        store.confirmPendingAction()
+        await confirmAndWait(store)
         XCTAssertEqual(store.state, .installed(backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
 
         store.requestRevert()
@@ -119,10 +152,10 @@ final class HerdrMousePatchStoreTests: XCTestCase {
     /// A revert that fails partway (destination directory not writable)
     /// surfaces a message rather than silently doing nothing; the row reads
     /// it back from `lastErrorMessage`.
-    func testAFailedRevertReportsAnError() throws {
+    func testAFailedRevertReportsAnError() async throws {
         let store = makeStore()
         store.requestInstall()
-        store.confirmPendingAction()
+        await confirmAndWait(store)
 
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }

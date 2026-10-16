@@ -15,6 +15,11 @@ final class HerdrMousePatchStore {
     private(set) var pendingConfirmation: PendingConfirmation?
     private(set) var lastErrorMessage: String?
     private(set) var restartReason: HerdrMousePatchCopy.RestartReason?
+    private(set) var phase: Phase = .idle
+    /// The herdr resolved by the last `refresh()`; nil when none is found.
+    private(set) var binaryPath: String?
+
+    enum Phase: Equatable { case idle, downloading(Double), installing }
 
     struct PendingConfirmation: Equatable {
         enum Action: Equatable { case install, revert }
@@ -22,8 +27,10 @@ final class HerdrMousePatchStore {
         let confirmation: HerdrMousePatchCopy.Confirmation
     }
 
+    @ObservationIgnored var installTask: Task<Void, Never>?
     @ObservationIgnored private let resolveBinaryPath: () -> String?
-    @ObservationIgnored private let resolveArtifactPath: (String) -> String?
+    @ObservationIgnored private let catalog: (String) -> HerdrMousePatchEntry?
+    @ObservationIgnored private let downloader: HerdrMousePatchDownloader
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -34,12 +41,14 @@ final class HerdrMousePatchStore {
 
     init(
         resolveBinaryPath: @escaping () -> String? = { ToolPath.resolve("herdr") },
-        resolveArtifactPath: @escaping (String) -> String? = { HerdrMousePatchArtifactLocator.path(version: $0) },
+        catalog: @escaping (String) -> HerdrMousePatchEntry? = HerdrMousePatchCatalog.entry(for:),
+        downloader: HerdrMousePatchDownloader = .standard,
         fileManager: FileManager = .default,
         defaults: UserDefaults = .standard
     ) {
         self.resolveBinaryPath = resolveBinaryPath
-        self.resolveArtifactPath = resolveArtifactPath
+        self.catalog = catalog
+        self.downloader = downloader
         self.fileManager = fileManager
         self.defaults = defaults
         refresh()
@@ -67,7 +76,8 @@ final class HerdrMousePatchStore {
     /// again whenever the settings row appears, since herdr can be upgraded
     /// or reverted by hand between one look and the next.
     func refresh() {
-        guard let binaryPath = resolveBinaryPath() else {
+        binaryPath = resolveBinaryPath()
+        guard let binaryPath else {
             state = nil
             return
         }
@@ -75,7 +85,7 @@ final class HerdrMousePatchStore {
         state = HerdrMousePatchDecision.decide(
             hasVerbs: probe.hasVerbs,
             hasBackup: probe.hasBackup,
-            version: probe.version,
+            version: probe.version.flatMap { catalog($0) == nil ? nil : $0 },
             isWritable: probe.isWritable,
             installPath: binaryPath,
             backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)
@@ -83,7 +93,7 @@ final class HerdrMousePatchStore {
     }
 
     func requestInstall() {
-        guard case .patchable(let installPath, let version) = state else { return }
+        guard phase == .idle, case .patchable(let installPath, let version) = state else { return }
         pendingConfirmation = PendingConfirmation(
             action: .install,
             confirmation: HerdrMousePatchCopy.installConfirmation(installPath: installPath, version: version)
@@ -113,17 +123,24 @@ final class HerdrMousePatchStore {
 
     private func performInstall() {
         guard case .patchable(_, let version) = state, let binaryPath = resolveBinaryPath(),
-              let artifactPath = resolveArtifactPath(version) else {
+              let entry = catalog(version) else {
             refresh()
             return
         }
-        do {
-            try HerdrMousePatchInstaller.install(artifactPath: artifactPath, binaryPath: binaryPath, fileManager: fileManager)
-            restartReason = .installed
-        } catch {
-            lastErrorMessage = Self.message(for: error)
+        phase = .downloading(0)
+        installTask = Task { [downloader, fileManager] in
+            defer { phase = .idle; refresh() }
+            do {
+                let artifact = try await downloader.fetch(entry) { fraction in
+                    Task { @MainActor in if case .downloading = self.phase { self.phase = .downloading(fraction) } }
+                }
+                phase = .installing
+                try HerdrMousePatchInstaller.install(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
+                restartReason = .installed
+            } catch {
+                lastErrorMessage = Self.message(for: error)
+            }
         }
-        refresh()
     }
 
     private func performRevert() {
@@ -140,7 +157,7 @@ final class HerdrMousePatchStore {
     private static func message(for error: Error) -> String {
         switch error {
         case HerdrMousePatchInstaller.InstallError.sourceUnreadable:
-            return "The bundled patch could not be read."
+            return "The downloaded patch could not be read."
         case HerdrMousePatchInstaller.InstallError.backupAlreadyExists:
             return "A backup already sits beside herdr; revert before installing again."
         case HerdrMousePatchInstaller.InstallError.destinationNotWritable,
@@ -155,6 +172,10 @@ final class HerdrMousePatchStore {
             return "The reverted binary still carries the mouse verbs."
         case HerdrMousePatchInstaller.RevertError.backupMissing:
             return "No backup is available to revert to."
+        case HerdrMousePatchDownloader.Failure.transport:
+            return "Couldn't download the patch. Check your connection and try again."
+        case HerdrMousePatchDownloader.Failure.checksumMismatch:
+            return "The download didn't match what flock expected. Nothing was changed."
         default:
             return "Something went wrong."
         }

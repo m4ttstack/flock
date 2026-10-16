@@ -1,7 +1,22 @@
 import AppKit
+import CryptoKit
 @testable import FlockCore
 import SwiftUI
 import XCTest
+
+private struct BytesTransport: HerdrPatchTransport {
+    let body: Data
+    func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+        try body.write(to: destination)
+    }
+}
+
+private struct HangingTransport: HerdrPatchTransport {
+    func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+        progress(0.4)
+        try await Task.sleep(for: .seconds(3600))
+    }
+}
 
 /// Renders the real `MainWindow` offscreen from fixture data, with no app host
 /// and no herdr connection. Pane bodies are ground-only surfaces, since
@@ -2744,7 +2759,7 @@ final class ChromeRenderTests: XCTestCase {
         linkTrustStore.trust("vscode")
         for (name, appearance, startingFolderStore, tab) in cases {
             let view = FlockSettingsView(
-                herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
+                herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
                 overviewReturnStore: OverviewReturnStore(userDefaults: defaults),
@@ -2798,8 +2813,8 @@ final class ChromeRenderTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: herdrDir) }
         try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
         let herdr = herdrDir.appendingPathComponent("herdr").path
-        let artifact = herdrDir.appendingPathComponent("herdr-patched").path
-        try Data("herdr 0.9.3 terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: artifact))
+        let patched = Data("herdr 0.9.3 terminal.mouse_capture".utf8)
+        let patchedSHA = SHA256.hash(data: patched).map { String(format: "%02x", $0) }.joined()
         let bannerSuite = "flock-banner-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: bannerSuite))
         addTeardownBlock { UserDefaults().removePersistentDomain(forName: bannerSuite) }
@@ -2810,7 +2825,12 @@ final class ChromeRenderTests: XCTestCase {
             try Data("herdr 0.9.3 terminal.mouse".utf8).write(to: URL(fileURLWithPath: herdr))
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let store = HerdrMousePatchStore(
-                resolveBinaryPath: { herdr }, resolveArtifactPath: { _ in artifact }, defaults: defaults
+                resolveBinaryPath: { herdr },
+                catalog: { HerdrMousePatchEntry(version: $0, sha256: patchedSHA) },
+                downloader: HerdrMousePatchDownloader(
+                    cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)"), transport: BytesTransport(body: patched)
+                ),
+                defaults: defaults
             )
             XCTAssertTrue(store.shouldOfferBanner, "\(scheme): a plain herdr 0.9.3 should be offered the patch")
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
@@ -2819,6 +2839,7 @@ final class ChromeRenderTests: XCTestCase {
                 if stage == "restart" {
                     store.requestInstall()
                     store.confirmPendingAction()
+                    await store.installTask?.value
                     XCTAssertEqual(store.restartReason, .installed, "\(scheme): install did not land")
                 }
                 await settle(window)
@@ -2830,6 +2851,48 @@ final class ChromeRenderTests: XCTestCase {
                 XCTAssertGreaterThan(
                     count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme) \(stage): no filled pill at the right"
                 )
+            }
+            window.close()
+        }
+    }
+
+    /// The herdr row while a patch downloads. PNGs go to `FLOCK_SETTINGS_RENDER_DIR`.
+    func testTheHerdrRowShowsDownloadProgress() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("flock-download-render-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let herdr = root.appendingPathComponent("herdr").path
+        try Data("herdr 0.9.5 unpatched build".utf8).write(to: URL(fileURLWithPath: herdr))
+
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            let store = HerdrMousePatchStore(
+                resolveBinaryPath: { herdr },
+                catalog: { HerdrMousePatchEntry(version: $0, sha256: String(repeating: "0", count: 64)) },
+                downloader: HerdrMousePatchDownloader(
+                    cacheDirectory: root.appendingPathComponent("cache"), transport: HangingTransport()
+                )
+            )
+            store.requestInstall()
+            store.confirmPendingAction()
+            defer { store.installTask?.cancel() }
+
+            let window = NSWindow(
+                contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: appearance)
+            window.contentView = NSHostingView(rootView: Form { HerdrMousePatchRow(store: store, herdrVersion: "0.9.5") }
+                .formStyle(.grouped)
+                .frame(width: FlockSettingsView.size.width, height: 240))
+            window.orderFront(nil)
+            await settle(window)
+            XCTAssertEqual(store.phase, .downloading(0.4), "\(name): the row is not mid-download")
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-herdr-downloading-\(name).png"))
             }
             window.close()
         }
@@ -4646,7 +4709,7 @@ private struct Harness {
             viewModel: viewModel,
             sessionLabel: "render",
             herdrMousePatchStore: herdrMousePatchStore
-                ?? HerdrMousePatchStore(resolveBinaryPath: { nil }, resolveArtifactPath: { _ in nil }),
+                ?? HerdrMousePatchStore(resolveBinaryPath: { nil }),
             isDevBuild: isDevBuild
         )
             .environment(devBuild)

@@ -67,15 +67,24 @@ struct HerdrMousePatchRow: View {
 
     @ViewBuilder
     private var actionButton: some View {
-        if let state = store.state, let title = HerdrMousePatchCopy.actionTitle(for: state) {
-            Button(title) {
-                switch state {
-                case .patchable: store.requestInstall()
-                case .installed: store.requestRevert()
-                case .supportedByHerdr, .notWritable, .unsupportedVersion: break
+        switch store.phase {
+        case .downloading(let fraction):
+            ProgressView(value: fraction) { Text("Downloading...") }
+                .frame(width: 120)
+                .accessibilityIdentifier("flock.settings.herdrMousePatch.progress")
+        case .installing:
+            ProgressView().controlSize(.small)
+        case .idle:
+            if let state = store.state, let title = HerdrMousePatchCopy.actionTitle(for: state) {
+                Button(title) {
+                    switch state {
+                    case .patchable: store.requestInstall()
+                    case .installed: store.requestRevert()
+                    case .supportedByHerdr, .notWritable, .unsupportedVersion: break
+                    }
                 }
+                .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
             }
-            .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
         }
     }
 

@@ -22,11 +22,12 @@ committed here, commit messages included, is public.
   from `Scripts/make-dev-icon.swift`, never updates itself).
 - Gitignored inputs a build needs: `Vendor/GhosttyKit.xcframework`
   (`Scripts/libghostty.sh`), `Vendor/Sparkle` (`Scripts/fetch-sparkle.sh`),
-  `Sources/Flock/Resources/herdr-mouse-patch-*`
-  (`Scripts/build-herdr-patch.sh`, from a herdr checkout this repo does not
-  have), and `Sources/Flock/Resources/herdr-chat*`
-  (`Scripts/build-herdr-chat.sh`, from the mattstack checkout). Never delete
-  them; the herdr patch cannot be rebuilt from here.
+  and `Sources/Flock/Resources/herdr-chat*`
+  (`Scripts/build-herdr-chat.sh`, from the mattstack checkout).
+- `patches/herdr/<version>.patch`: the mouse patch per herdr version.
+  `Scripts/build-herdr-patch.sh` and `Scripts/publish-herdr-patch.sh` build and
+  publish it as a `herdr-patch-X` pre-release; `HerdrMousePatchCatalog` pins
+  each one's SHA-256.
 - Chat runs herdr-chat from the app bundle in a release, and from the
   mattstack checkout's own build in Flock Dev (`dev-build.sh` builds it and
   writes the path in). Nothing installed inside herdr counts.
