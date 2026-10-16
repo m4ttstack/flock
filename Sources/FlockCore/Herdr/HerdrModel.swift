@@ -116,6 +116,16 @@ public struct PaneRecord: Codable, Equatable, Sendable {
     /// for a shell. A change arrives as `pane.agent_detected`, not
     /// `pane.updated`, which herdr sends only when the agent's name changes.
     public var agent: String? = nil
+    /// The conversation the agent holds (`agent_session`). Unlike `paneID` and
+    /// `terminalID` it survives a herdr handoff.
+    public var agentSession: AgentSession? = nil
+    /// The title flock last saw this pane's session report, set only while
+    /// herdr reports none. Never on the wire.
+    public var rememberedTitle: String? = nil
+
+    public var agentSessionID: String? {
+        agentSession?.value.flatMap { $0.isEmpty ? nil : $0 }
+    }
 
     enum CodingKeys: String, CodingKey {
         case paneID = "pane_id"
@@ -131,6 +141,34 @@ public struct PaneRecord: Codable, Equatable, Sendable {
         case terminalID = "terminal_id"
         case foregroundCwd = "foreground_cwd"
         case agent
+        case agentSession = "agent_session"
+    }
+}
+
+/// herdr's `agent_session`: `{kind, value}`, the value being the agent's own
+/// session id. Decoding never throws, so an unfamiliar shape costs only the id
+/// and never the snapshot it arrives in.
+public struct AgentSession: Codable, Equatable, Sendable {
+    public var kind: String?
+    public var value: String?
+
+    public init(kind: String? = nil, value: String? = nil) {
+        self.kind = kind
+        self.value = value
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, value
+    }
+
+    public init(from decoder: Decoder) throws {
+        if let container = try? decoder.container(keyedBy: CodingKeys.self) {
+            kind = try? container.decodeIfPresent(String.self, forKey: .kind)
+            value = try? container.decodeIfPresent(String.self, forKey: .value)
+        } else {
+            kind = nil
+            value = try? decoder.singleValueContainer().decode(String.self)
+        }
     }
 }
 

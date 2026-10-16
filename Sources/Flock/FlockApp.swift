@@ -236,6 +236,7 @@ struct FlockApp: App {
             startingFolder: { startingFolderStore.choice(for: $0) },
             rightClickDefaults: .standard,
             completedTabDefaults: .standard,
+            paneTitleDefaults: .standard,
             pinnedWorkspaceDefaults: .standard,
             identity: workspaceIdentityStore,
             cswapAccounts: CswapList.read

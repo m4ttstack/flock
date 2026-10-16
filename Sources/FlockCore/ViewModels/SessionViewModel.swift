@@ -39,6 +39,10 @@ public final class SessionViewModel {
     /// Each canvas pane's right-click mode (see `RightClickDisposition`).
     public let rightClicks: RightClickModeStore
     public let completedTabs: TabCompletionStore
+    /// Every title herdr has reported per agent session. A model passes
+    /// through it on the way in, so every `displayTitle` reads the remembered
+    /// title of a pane herdr reports none for.
+    @ObservationIgnored private let paneTitles: PaneTitleStore
     /// The workspaces kept as places; they outlive herdr's.
     public let pins: PinnedWorkspaceStore
     public private(set) var selectedWorkspaceID: WorkspaceID?
@@ -254,6 +258,7 @@ public final class SessionViewModel {
         rt: RtCoordinator? = nil,
         rightClickDefaults: UserDefaults? = nil,
         completedTabDefaults: UserDefaults? = nil,
+        paneTitleDefaults: UserDefaults? = nil,
         repoBranches: RepoBranchCache = RepoBranchCache(),
         pinnedWorkspaceDefaults: UserDefaults? = nil,
         identity: WorkspaceIdentityStore? = nil,
@@ -285,6 +290,7 @@ public final class SessionViewModel {
         self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
         self.rightClicks = RightClickModeStore(userDefaults: rightClickDefaults)
         self.completedTabs = TabCompletionStore(userDefaults: completedTabDefaults)
+        self.paneTitles = PaneTitleStore(userDefaults: paneTitleDefaults)
         self.pins = PinnedWorkspaceStore(userDefaults: pinnedWorkspaceDefaults)
         self.identity = identity
         self.folderExists = folderExists
@@ -317,7 +323,8 @@ public final class SessionViewModel {
     /// focus can land in another workspace, a pane followed after a drop
     /// into another workspace's tab, and a window showing that tab under the
     /// old workspace's rail and strip would show two workspaces at once.
-    public func update(model newFullModel: SessionModel?, connection: ConnectionState) {
+    public func update(model herdrModel: SessionModel?, connection: ConnectionState) {
+        let newFullModel = herdrModel.map(paneTitles.apply(to:))
         fullModel = newFullModel
         let user = newFullModel?.withoutFlockOwned
         userModel = user

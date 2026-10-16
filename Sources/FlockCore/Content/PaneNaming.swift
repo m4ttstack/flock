@@ -4,9 +4,10 @@ import Observation
 extension PaneRecord {
     /// What flock calls a pane wherever it names one: the name the user gave
     /// it (herdr's label), then the title its program sets, which Claude Code
-    /// keeps rewriting and so must never hide a name.
+    /// keeps rewriting and so must never hide a name, then the last title its
+    /// session set: herdr reports none for an idle pane after a handoff.
     public var displayTitle: String {
-        [label, terminalTitleStripped].compactMap { $0 }.first { !$0.isEmpty } ?? "shell"
+        [label, terminalTitleStripped, rememberedTitle].compactMap { $0 }.first { !$0.isEmpty } ?? "shell"
     }
 }
 
